@@ -109,10 +109,8 @@ def guidance_shape(+value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
     case value:
-      ((Shape.object_keys(value, ["workspace", "revision", "instructions"])) ||
-       (Shape.object_keys(value, ["workspace", "source", "revision", "instructions"]) &&
-        J.same(J.get(value, "source"), J.Text{"AGENTS.md"}))) &&
-        J.is_text(J.get(value, "workspace")) && J.is_text(J.get(value, "revision")) &&
+      Shape.object_keys(value, ["workspace", "path", "revision", "instructions"]) &&
+        J.is_text(J.get(value, "workspace")) && J.is_text(J.get(value, "path")) && J.is_text(J.get(value, "revision")) &&
         J.is_text(J.get(value, "instructions"))
 
 def guidance(value: J.Json, workspace: D.Workspace) -> D.ProjectContext:

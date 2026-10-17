@@ -303,7 +303,7 @@ def project_instructions(empty: Bool, instructions: String) -> String:
 def project_context_facts(+owner: UIIdentity.Key, +label: String, +value: Domain.ProjectContext, +visual: Design.Style) -> +List<Source.Node>:
   match value:
     case Domain.NoProject{}: Nil{}
-    case Domain.ProjectContext{directory, revision, instructions}:
+    case Domain.ProjectContext{directory, path, revision, instructions}:
       present: @body:String -> +List<Source.Node> = (body => [group(owner, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [text(UIIdentity.part(owner, "title"), label, visual, T.Body{}, T.Strong{}), fact(UIIdentity.part(owner, "directory"), "Directory", directory, visual), fact(UIIdentity.part(owner, "revision"), "Revision", revision, visual), fact(UIIdentity.part(owner, "instructions"), "Instructions", body, visual)])])
       present(project_instructions(String.eq(instructions, ""), instructions))
 

@@ -30,6 +30,11 @@ executing repository programs, archive/recovery and interrupted checkout ownersh
 Project task hierarchy, shared-worktree archive permission and Worktree preference
 propagation remain production construction and proof obligations.
 
+Hierarchical context discovery keeps one filesystem check for Git boundaries,
+multiple roots, override selection, skill metadata and incomplete scans. Context
+admission, deltas, inherited history and provider selection remain native
+construction and proof obligations.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

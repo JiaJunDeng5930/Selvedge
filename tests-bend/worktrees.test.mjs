@@ -53,6 +53,8 @@ test('real Git preserves dirty source data, suppresses project programs and reco
   const created = await createManagedWorktree(effect, { home: state, limits });
   assert.equal(created.ok, true, JSON.stringify(created));
   const selected = created.workspace.primary_root;
+  assert.equal(created.guidance.path, path.join(selected, 'AGENTS.md'));
+  assert.equal(created.guidance.instructions, 'Keep this task guidance.');
   for (const [name, content] of [['tracked.txt', 'dirty tracked 世界'], ['staged.txt', 'staged'], ['untracked.txt', 'untracked']]) {
     assert.equal(await readFile(path.join(selected, name), 'utf8'), content);
   }

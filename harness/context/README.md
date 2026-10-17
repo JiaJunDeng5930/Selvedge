@@ -22,9 +22,8 @@ Text offsets count Unicode characters in the same baseline, in increasing,
 non-overlapping order. Only introductions contain complete values.
 
 [ADR 0042](../../docs/adr/0042-context-definition-construction.md) explains why
-the definition language is shared across observation and history. The extension
-fixture in [context-definitions.test.mjs](../../tests-bend/context-definitions.test.mjs)
-adds kinds while freezing the generic implementation, proofs and host consumers.
+the definition language is shared across observation and history. Each registered
+definition uses the same production construction and proof families.
 
 ## Endpoint input selection
 

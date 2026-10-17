@@ -249,9 +249,10 @@ copied into the durable conversation.
 Set `instructions` in the service home's `config.json` to customize the initial
 assistant instruction. Omitting the key uses the kernel default; an empty string
 is accepted. Values must be valid UTF-8 without NUL bytes and fit the instruction
-byte limit. Place global guidance in `<service home>/AGENTS.md`; the service reads
-it as a bounded regular UTF-8 file, rejects symbolic links, and records its content
-hash. A missing file supplies no global guidance.
+byte limit. Place global guidance in `<service home>/AGENTS.md` or its
+`AGENTS.override.md`. `project.mjs` selects the initial source using the kernel's
+guidance policy, reads a bounded regular UTF-8 file, and records its actual path
+and content hash. A missing source supplies no global guidance.
 
 Root tasks record initial configured, global and project guidance in their
 history. Before model dispatch or manually requested compaction, a committed
@@ -265,12 +266,23 @@ contract.
 
 The `instructions` and `skills` fields in `config.json` are observed again for
 these updates; other running service configuration is not reloaded. `skills` is
-an array of `SKILL.md` file paths, resolved relative to the service home. Skill
-frontmatter supplies `name` and `description`; only that metadata and the path
-enter history. The remaining body is not injected. Skill files use the same
-bounded, regular UTF-8 file observation as guidance files.
+an array of `SKILL.md` file paths, resolved relative to the service home.
+`context-discovery.mjs` also interprets native discovery descriptors for user and
+workspace skills, Git ancestors and nested module guidance across all roots.
+The kernel supplies filenames, search locations, exclusions and budgets through
+`harness/context/MODEL.bend`; the host observes filesystem facts. It records each
+selected source's path and applicability, and omits explicitly configured skills
+from discovered catalogs. Shared directory listings are reused within an
+observation, while later requests scan again.
+
+Skill frontmatter supplies `name` and `description`; only projected metadata
+enters history. The remaining body is not injected or tracked. Skill files use
+the same bounded, regular UTF-8 file observation as guidance files. Directory
+links are not traversed. Each discovered collection is accepted only after its
+scan and file observations complete within their budgets; failure preserves that
+collection's previous bindings while independent sources continue refreshing.
 
 A fork inherits its parent's baseline and patches. An explicit workspace
 selection records the selected guidance after the inherited history; later
-observations follow the selected primary root. Provider input also carries
+observations follow all selected roots. Provider input also carries
 recorded settings, reasoning changes, receipts and audit records.

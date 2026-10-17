@@ -3,6 +3,19 @@ import { open, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
+import { boundary } from './public/model-boundary.mjs';
+
+const contextDefinitions = boundary('config.context_definitions', {});
+
+async function snapshotGuidance(directory, kind, limits, options) {
+  const definition = contextDefinitions.find(definition => definition.kind === kind);
+  if (!definition?.observer.policy) throw new Error('The kernel did not declare a guidance discovery policy');
+  for (const filename of definition.observer.policy.files) {
+    const snapshot = await snapshotContextFile(path.join(directory, filename), limits, options);
+    if (snapshot !== null) return snapshot;
+  }
+  return null;
+}
 
 export async function snapshotContextFile(filename, limits, { signal } = {}) {
   signal?.throwIfAborted();
@@ -43,12 +56,12 @@ export async function snapshotContextFile(filename, limits, { signal } = {}) {
 /** Observe guidance before a birth command; the journal owns the snapshot. */
 export async function snapshotProject(cwd, limits, options) {
   const workspace = await realpath(cwd);
-  const snapshot = await snapshotContextFile(path.join(workspace, 'AGENTS.md'), limits, options);
-  return { workspace, revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
+  const snapshot = await snapshotGuidance(workspace, 'project_guidance', limits, options);
+  return { workspace, path: snapshot?.path ?? '', revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
 }
 
 export async function snapshotGlobalInstructions(home, limits, options) {
-  return snapshotContextFile(path.join(await realpath(home), 'AGENTS.md'), limits, options);
+  return snapshotGuidance(await realpath(home), 'global_agents', limits, options);
 }
 
 /**

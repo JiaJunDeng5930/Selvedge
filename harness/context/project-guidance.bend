@@ -4,25 +4,44 @@ import ./MODEL.bend as C
 # Workspace scope describes applicability only; it does not grant permission to
 # change the task's workspace, sandbox or other execution settings.
 def definition() -> C.Definition:
-  C.text_context("project_guidance",
-    "Apply these instructions when working within this workspace.", C.WorkspaceScope{}, C.WorkspaceFile{"AGENTS.md"},
-    [C.IdentityField{"workspace", C.WorkspaceRoot{}, True{}}])
+  C.record_context("project_guidance",
+    "Apply these instructions within applies_to. The precedence directory orders guidance by ancestry: descendant directories take priority over ancestors; AGENTS.override.md takes priority over AGENTS.md in the same directory. Scope does not change execution permissions.",
+    C.PrimaryWorkspaceScope{}, C.PrimaryGuidance{C.guidance_policy()},
+    [C.IdentityField{"workspace", C.WorkspaceRoot{}, True{}}],
+    [C.TextField{"content", C.Body{}, False{}},
+     C.TextField{"path", C.ObservationField{"path"}, True{}},
+     C.TextField{"applies_to", C.ObservationField{"applies_to"}, True{}},
+     C.TextField{"precedence", C.ObservationField{"precedence"}, True{}}])
+
+def directory_definition() -> C.Definition:
+  C.record_context("directory_guidance",
+    "Apply these instructions only within applies_to. The precedence directory orders guidance by ancestry: descendant directories take priority over ancestors; AGENTS.override.md takes priority over AGENTS.md in the same directory. Scope does not change execution permissions.",
+    C.WorkspaceScope{}, C.WorkspaceGuidance{C.guidance_policy()},
+    [C.IdentityField{"workspace", C.WorkspaceRoot{}, True{}}, C.IdentityField{"path", C.SourcePath{}, True{}}],
+    [C.TextField{"content", C.Body{}, False{}}, C.IdentityValue{"path", "path"},
+     C.TextField{"applies_to", C.ObservationField{"applies_to"}, True{}},
+     C.TextField{"precedence", C.ObservationField{"precedence"}, True{}}])
+
+def source_path(workspace: String, path: String) -> Bool:
+  C.policy_source_path(C.guidance_policy(), workspace, path)
 
 def key(workspace: String) -> C.Key:
   C.ContextKey{definition(), [C.FieldValue{"workspace", workspace}]}
 
-def snapshot(workspace: String, revision: String, content: String) -> Maybe<&2, C.Snapshot>:
-  C.construct_snapshot(definition(), [C.FieldValue{"workspace", workspace}], revision, [C.FieldValue{"content", content}])
+def snapshot(+workspace: String, path: String, revision: String, content: String) -> Maybe<&2, C.Snapshot>:
+  C.construct_snapshot(definition(), [C.FieldValue{"workspace", workspace}], revision,
+    [C.FieldValue{"content", content}, C.FieldValue{"path", path},
+     C.FieldValue{"applies_to", workspace}, C.FieldValue{"precedence", workspace}])
 
 # This projection belongs to the concrete definition's business clients. The
 # generic history, patch and codec operations never inspect this category.
 type Guidance is Data:
-  Guidance{workspace: String, revision: String, content: String}
+  Guidance{workspace: String, path: String, revision: String, content: String}
 
 def selected(valid: Bool, snapshot: C.Snapshot) -> Maybe<&2, Guidance>:
   match valid snapshot:
-    case True{} C.Snapshot{key, revision, value}:
-      Some{Guidance{C.field_text(C.key_identity(key), "workspace"), revision, C.field_text(C.value_fields(value), "content")}}
+    case True{} C.Snapshot{key, revision, +value}:
+      Some{Guidance{C.field_text(C.key_identity(key), "workspace"), C.field_text(C.value_fields(value), "path"), revision, C.field_text(C.value_fields(value), "content")}}
     case False{} _: None{}
 
 def guidance(+snapshot: C.Snapshot) -> Maybe<&2, Guidance>:
