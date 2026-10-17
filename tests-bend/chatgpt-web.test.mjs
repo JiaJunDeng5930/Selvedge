@@ -97,16 +97,23 @@ test('detaching a live Web observer persists its original request before HTTP an
   });
   const controller = new AbortController();
   let key;
-  await assert.rejects(f.run(baseEffect(), { signal: controller.signal, onSnapshot: () => controller.abort(new Error('detach observer')) }), error => {
+  const attempt = f.run(baseEffect(), { signal: controller.signal });
+  const detached = assert.rejects(attempt, error => {
     key = error.requestKey;
     return Boolean(key && error.responseId);
   });
+  await eventually(() => f.requests.length === 1);
+  const db = new DatabaseSync(path.join(f.directory, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+  try {
+    const identified = db.prepare('SELECT response_id FROM requests WHERE owner=? AND request_key=?');
+    await eventually(() => Boolean(identified.get('task:0', f.requests[0].key)?.response_id));
+    controller.abort(new Error('detach observer'));
+    await detached;
+    assert.equal(db.prepare('SELECT request_key FROM requests').get().request_key, key);
+  } finally { db.close(); }
   assert.equal(f.requests.length, 1);
   assert.equal(f.controls.length, 0);
   assert.equal(f.requests[0].key, key);
-  const db = new DatabaseSync(path.join(f.directory, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
-  try { assert.equal(db.prepare('SELECT request_key FROM requests').get().request_key, key); }
-  finally { db.close(); }
   await assert.rejects(f.run({ ...baseEffect(), ticket: 2 }), /retained/);
   assert.equal(f.requests.length, 1);
   assert.deepEqual(f.failures, []);

@@ -381,7 +381,7 @@ def change_limits(previous: M.World(), candidate: M.World(), limits_value1: D.Ex
       FeatureState.evolution(board_before, board_after) && Nat.is_le(Projects.next_id(projects_before), Projects.next_id(projects_after)) &&
         Nat.is_le(id_before, id_after) && Nat.is_le(ticket_before, ticket_after) &&
         Nat.is_eq(steps_before, steps_after) && Nat.is_eq(budget_before, budget_after) &&
-        Nat.is_eq(U32.to_nat(bytes_before), U32.to_nat(bytes_after)) && retained(before, after, budget_before)
+        Nat.is_eq(U32.to_nat(bytes_before), U32.to_nat(bytes_after)) && retained(FeatureState.retained_tasks(before, board_before, board_after), after, budget_before)
 
 def change(+previous: M.World(), +candidate: M.World()) -> Bool:
   change_limits(previous, candidate, D.state_limits(C.local(D.State, F.State(), candidate)), D.state_limits(C.local(D.State, F.State(), previous)))

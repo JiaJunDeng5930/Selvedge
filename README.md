@@ -155,6 +155,22 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 `delete_project` are native commands. Task creation/fork accepts a `settings`
 object with `project_id`, `workspace`, `sandbox` and `approval`.
 
+For a primary workspace with a Git commit, the New task workspace menu offers
+**Create worktree**. Each project saves this choice in its `create_worktree`
+setting, which can also be changed in project settings. The command API exposes
+`create_worktree_task` with the same fields as `create`.
+Managed checkouts live under `<service home>/worktrees`, start at detached HEAD,
+and include tracked edits and untracked files that Git does not ignore.
+The service home must be outside the source Git repository so its private state
+cannot be copied into a task checkout.
+Archiving their task moves the checkout into `worktrees/archived`, retaining its
+files. `read_worktree` and `list_worktrees` expose the associated paths and any
+physical-operation failure; `retry_worktree_archive` retries a failed archive.
+Forked tasks can share the checkout. Archive those tasks before archiving the
+task that owns it.
+Git commands that write shared repository metadata continue to follow the task's
+sandbox and approval settings.
+
 Approval policy has three modes. **Full Access** runs Bash without isolation.
 **Ask for Approval** keeps ordinary commands sandboxed and shows an exact-command
 permission request in the conversation when the agent requests an exception.

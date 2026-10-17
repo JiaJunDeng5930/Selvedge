@@ -25,6 +25,11 @@ handling, transport teardown, and observed browser connection/IME regressions.
 The handwritten source scanners retain small syntax regressions. These checks
 exercise the actual production paths rather than test-only models.
 
+Managed worktrees add focused real-Git checks for copying local edits without
+executing repository programs, archive/recovery and interrupted checkout ownership.
+Project task hierarchy, shared-worktree archive permission and Worktree preference
+propagation remain production construction and proof obligations.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

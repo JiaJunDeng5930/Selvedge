@@ -27,6 +27,7 @@ type Input is Data:
   Reading{task: Nat, generation: Nat, intent: U.ReadingIntent}
   Directories{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   Clock{now: U32}
+  WorkspaceGitObserved{ticket: Nat, available: Bool}
   LiveOutput{observation: Live.Observation}
   CodeSource{identity: Code.Identity, source: String}
   ClipboardCompleted{identity: Code.Identity, ticket: Nat, success: Bool}
@@ -55,6 +56,7 @@ def step(input: Input, state: InteractionTypes.State) -> InteractionTypes.Decisi
     case SubmitComposer{capacity, editor}: Interface.submit_composer(capacity, editor, state)
     case Reading{task, generation, intent}: Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.ReadTimeline{task, generation, intent}}}, state)
     case Directories{ticket, result}: Core.step(InteractionTypes.ApplicationInput{E.DirectoriesObserved{ticket, result}}, state)
+    case WorkspaceGitObserved{ticket, available}: Core.step(InteractionTypes.ApplicationInput{E.WorkspaceGitObserved{ticket, available}}, state)
     case Clock{now}: Core.step(InteractionTypes.ApplicationInput{E.ClockObserved{now}}, state)
     case LiveOutput{observation}: Core.step(InteractionTypes.ApplicationInput{E.PreviewObserved{observation}}, state)
     case CodeSource{identity, source}: Core.step(InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{source}}}, state)

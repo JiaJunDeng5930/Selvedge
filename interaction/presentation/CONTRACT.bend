@@ -501,6 +501,10 @@ def task_title_key(value: V.TaskScene, parent: Identity.Key) -> Identity.Key:
   V.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
   Identity.Entity{parent, "task", Nat.show(id)}
 
+def task_worktree_feedback(value: V.TaskScene, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  V.TaskScene{+id, title, status, context, timeline, previews, composer, details, actions} = value
+  Model.worktree_feedback(Model.worktree_observation(id, state), Identity.Entity{parent, "task", Nat.show(id)})
+
 def project_title_text(value: V.ProjectScene) -> String:
   V.ProjectScene{id, name, workspace, guidance, tasks, actions} = value
   name
@@ -583,7 +587,7 @@ type PageRegionRequirements is Type:
   PageRegionRequirements{
     page_payload: @+page:V.Page -> @+state:InteractionTypes.State ->
       {Model.page(page, state) == SurfaceTypes.Node{Identity.Place{"/main"}, "main", "Content", SurfaceTypes.Main{}, SurfaceTypes.PageContext{owned_page_context(page)}, Model.page_contents(page, Identity.Place{"/main"}, state)} : SurfaceTypes.Node},
-    collapsed_navigation_single: @+toggle: V.ControlDeclaration -> @expanded: Bool -> @create: V.ControlDeclaration -> @destinations: +List<V.ControlDeclaration> -> @projects: +List<V.ProjectEntry> -> @tasks: +List<V.TaskEntry> -> @+state: InteractionTypes.State -> {Model.base_navigation_at(V.CollapsedNavigation{}, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
+    collapsed_navigation_single: @+toggle: V.ControlDeclaration -> @expanded: Bool -> @create: V.ControlDeclaration -> @destinations: +List<V.ControlDeclaration> -> @projects: +List<V.ProjectEntry> -> @tasks: +List<V.TaskTree> -> @+state: InteractionTypes.State -> {Model.base_navigation_at(V.CollapsedNavigation{}, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
     [Model.declared(Identity.Place{"/navigation"}, toggle, state)] : +List<SurfaceTypes.Node>},
     collapsed_assembly: @+content: InteractionTypes.Scene -> @+state: InteractionTypes.State -> @collapsed: {content_navigation_placement(content) == V.CollapsedNavigation{} : V.NavigationPlacement} -> {navigation_head(surface_base(Model.assemble(content, state))) ==
     navigation_head(Model.collapsed_navigation_toggle(content_navigation(content), state)) : SurfaceTypes.Node},
@@ -623,7 +627,8 @@ type PageRegionRequirements is Type:
     task_reading: @+value:V.TaskScene -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> task_reading(value, parent, state),
     task_title: @+value:V.TaskScene -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
-        Some{[Model.region(task_title_key(value, parent), "heading", task_title_text(value), SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
+        Some{Model.region(task_title_key(value, parent), "heading", task_title_text(value), SurfaceTypes.Heading{}, Nil{}) <>
+          task_worktree_feedback(value, parent, state)} : Maybe<&2, +List<SurfaceTypes.Node>>},
     project_title: @+value:V.ProjectScene -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.ProjectPage{value}, parent, state), Composition.ProjectTitle{}) ==
         Some{[Model.region(parent, "heading", project_title_text(value), SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
@@ -849,18 +854,18 @@ type CompositionRequirements is Type:
     context_admission: @+declaration:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.controls(declaration <> rest, parent, state) == Model.declared(parent, declaration, state) <> Model.controls(rest, parent, state) : +List<SurfaceTypes.Node>},
     composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() ->
-      {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
+      {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, False{}}, scene, world)) ==
         [View.model_composer_control(profile, reasoning, world),
          V.ComposerControl{UX.permissions_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>},
     model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String},
     creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() ->
-      {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
+      {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, False{}}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
     conversation_phase: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_phase(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Some{V.Conversation{task}} : Maybe<&2, V.ComposerPhase>},
     conversation_has_no_creation_context: @task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_creation_controls(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Nil{} : +List<V.ComposerControl>},
     creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() ->
-      {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
+      {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, False{}}, scene, world)) ==
         [V.ComposerControl{UX.project_property(U.NewTaskEditor{}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
          V.ComposerControl{UX.workspace_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}
 
@@ -886,17 +891,17 @@ type DirectoryEntryRequirements is Type:
     unconfirmed: @+draft:U.Draft -> @+world:M.World() -> @denied:{U.can_confirm_directory(draft) == False{} : Bool} ->
       {U.edit_draft(U.ConfirmDirectory{}, draft, world) == Done{draft} : Result<&2, &2, String, U.Draft>},
     model_entry: @revision:Nat -> @+text:U.Text -> @old_profile:String -> @old_reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+profile:String -> @+reasoning:String -> @world:M.World() ->
-      {U.edit_draft(U.ChooseModel{profile, reasoning}, U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, entry}, world) == Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, context}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
+      {U.edit_draft(U.ChooseModel{profile, reasoning}, U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, False{}}, feedback, entry}, world) == Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, context, False{}}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
     project_entry: @revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @world:M.World() ->
-      {U.edit_draft(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.Draft{revision, U.NewTask{text, profile, reasoning, context}, feedback, entry}, world) ==
-        Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin})}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
+      {U.edit_draft(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.Draft{revision, U.NewTask{text, profile, reasoning, context, False{}}, feedback, entry}, world) ==
+        Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), U.origin_worktree(origin, world)}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
     empty_entry: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @+world:M.World() -> @+session:E.Session ->
       {E.edit_existing(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, ""}, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
     unsupported_entry: @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @+entry:String -> @+world:M.World() -> @+session:E.Session -> @unsupported:{U.workspace_capable(body) == False{} : Bool} ->
       {E.edit_existing(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, entry}, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
     selected_project_entry: @+revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @+world:M.World() -> @+session:E.Session ->
-      {E.begin_existing(Some{U.Draft{revision, U.NewTask{text, profile, reasoning, context}, feedback, entry}}, origin, E.from_program(world, session)) ==
-        E.navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), E.from_program(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin})}, U.Editing{}, entry}))) : E.Decision},
+      {E.begin_existing(Some{U.Draft{revision, U.NewTask{text, profile, reasoning, context, False{}}, feedback, entry}}, origin, E.from_program(world, session)) ==
+        E.navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), E.from_program(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), U.origin_worktree(origin, world)}, U.Editing{}, entry}))) : E.Decision},
     production_noop: @+draft:U.Draft -> @+world:M.World() -> @+session:E.Session -> @denied:{U.can_confirm_directory(draft) == False{} : Bool} ->
       {E.edit_existing(U.ConfirmDirectory{}, draft, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
     input_binding: @+editor:U.Editor -> @text:String -> @+path:String ->
@@ -996,13 +1001,95 @@ def picker_nodes(+values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +pa
         Model.project_registered_choices(values, selected, parent, state)},
      Model.declared(parent, View.control("project/create", "New project", U.EditProject{None{}}), state)] : +List<SurfaceTypes.Node>}
 
+def task_tree_has(trees: +List<V.TaskTree>, +task: Nat) -> Bool:
+  match trees:
+    case Nil{}: False{}
+    case Con{V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children}, rest}:
+      (Nat.is_eq(id, task) || task_tree_has(children, task)) || task_tree_has(rest, task)
+
+def task_tree_root_has(tree: V.TaskTree, +task: Nat) -> Bool:
+  V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children} = tree
+  Nat.is_eq(id, task) || task_tree_has(children, task)
+
+def pending_task_has(trees: +List<View.PendingTaskTree>, +task: Nat) -> Bool:
+  match trees:
+    case Nil{}: False{}
+    case Con{View.PendingTaskTree{parent, tree}, rest}:
+      task_tree_root_has(tree, task) || pending_task_has(rest, task)
+
+def partition_task_has(partition: View.TaskTreePartition, +task: Nat) -> Bool:
+  View.TaskTreePartition{children, roots} = partition
+  task_tree_has(children, task) || pending_task_has(roots, task)
+
+def task_list_has(tasks: +List<D.Task>, +id: Nat) -> Bool:
+  match tasks:
+    case Nil{}: False{}
+    case Con{task, rest}: Nat.is_eq(D.task_id(task), id) || task_list_has(rest, id)
+
+type TaskTreeProjectionRequirements is Type:
+  TaskTreeProjectionRequirements{
+    immediate_parent: @+task:D.Task ->
+      {View.task_parent(task) == List.head(&2, Nat, D.task_lineage(task)) : Maybe<&2, Nat>},
+    missing_parent: @id:Nat -> {View.task_parent_matches(None{}, id) == False{} : Bool},
+    selected_parent: @+parent:Nat -> @+id:Nat ->
+      {View.task_parent_matches(Some{parent}, id) == Nat.is_eq(parent, id) : Bool},
+    partition_empty: @parent:Nat ->
+      {View.partition_task_children(Nil{}, parent) == View.TaskTreePartition{Nil{}, Nil{}} : View.TaskTreePartition},
+    child_order: @+parent:Maybe<&2, Nat> -> @+tree:V.TaskTree -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.partition_task_tree(True{}, View.PendingTaskTree{parent, tree}, View.TaskTreePartition{children, roots}) ==
+        View.TaskTreePartition{tree <> children, roots} : View.TaskTreePartition},
+    root_order: @+value:View.PendingTaskTree -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.partition_task_tree(False{}, value, View.TaskTreePartition{children, roots}) ==
+        View.TaskTreePartition{children, value <> roots} : View.TaskTreePartition},
+    partition_step: @+ancestor:Maybe<&2, Nat> -> @+tree:V.TaskTree -> @+rest:+List<View.PendingTaskTree> -> @+parent:Nat ->
+      {View.partition_task_children(View.PendingTaskTree{ancestor, tree} <> rest, parent) ==
+        View.partition_task_tree(View.task_parent_matches(ancestor, parent), View.PendingTaskTree{ancestor, tree},
+          View.partition_task_children(rest, parent)) : View.TaskTreePartition},
+    partition_membership: @+values:+List<View.PendingTaskTree> -> @+parent:Nat -> @+task:Nat ->
+      {partition_task_has(View.partition_task_children(values, parent), task) == pending_task_has(values, task) : Bool},
+    branch_observation: @+task:D.Task -> @+route:U.Route -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.prepend_task_tree(task, route, View.TaskTreePartition{children, roots}) ==
+        View.PendingTaskTree{List.head(&2, Nat, D.task_lineage(task)), V.TaskTree{View.task_entry(task, route), children}} <> roots : +List<View.PendingTaskTree>},
+    oldest_parent: @+task:D.Task -> @+rest:+List<D.Task> -> @+route:U.Route ->
+      {View.pending_task_forest(task <> rest, route) == View.prepend_task_tree(task, route,
+        View.partition_task_children(View.pending_task_forest(rest, route), D.task_id(task))) : +List<View.PendingTaskTree>},
+    forest_empty: @route:U.Route -> {View.task_forest(Nil{}, route) == Nil{} : +List<V.TaskTree>},
+    forest_membership: @+tasks:+List<D.Task> -> @+route:U.Route -> @+task:Nat ->
+      {task_tree_has(View.task_forest(tasks, route), task) == task_list_has(tasks, task) : Bool}}
+
+law task_tree_projection_evidence:
+  TaskTreeProjectionRequirements
+
+type TaskTreePresentationRequirements is Type:
+  TaskTreePresentationRequirements{
+    empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_tree_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    branch: @+id:Nat -> @+title:String -> @+status:V.TaskStatus -> @+selected:Bool -> @+open:V.ControlDeclaration -> @+children:+List<V.TaskTree> -> @+rest:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_tree_entries(V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children} <> rest, parent, state) ==
+        List.append(&2, SurfaceTypes.Node, Model.task_entries([V.TaskEntry{id, title, status, selected, open}], parent, state),
+          List.append(&2, SurfaceTypes.Node, Model.task_children(Model.task_tree_entries(children, Identity.Entity{parent, "task", Nat.show(id)}, state), Identity.Entity{parent, "task", Nat.show(id)}, id),
+            Model.task_tree_entries(rest, parent, state))) : +List<SurfaceTypes.Node>},
+    leaf: @+parent:Identity.Key -> @+task:Nat ->
+      {Model.task_children(Nil{}, parent, task) == Nil{} : +List<SurfaceTypes.Node>},
+    descendants: @+first:SurfaceTypes.Node -> @+rest:+List<SurfaceTypes.Node> -> @+parent:Identity.Key -> @+task:Nat ->
+      {Model.task_children(first <> rest, parent, task) ==
+        [SurfaceTypes.Node{Identity.Part{parent, "children"}, "task-children", "Subtasks", SurfaceTypes.NavigationCollection{}, SurfaceTypes.TaskChildren{task},
+          first <> rest}] : +List<SurfaceTypes.Node>},
+    collapsed: @+trees:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.disclosed_tasks(False{}, trees, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    expanded: @+trees:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.disclosed_tasks(True{}, trees, parent, state) == Model.task_tree_entries(trees, parent, state) : +List<SurfaceTypes.Node>}}
+
+law task_tree_presentation_evidence:
+  TaskTreePresentationRequirements
+
 type ProjectInteractionRequirements is Type:
   ProjectInteractionRequirements{
     switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() ->
-      {U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, world) ==
-        Done{U.NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}}} : Result<&2, &2, String, U.Body>},
+      {U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, False{}}, world) ==
+        Done{U.NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}, U.origin_worktree(origin, world)}} : Result<&2, &2, String, U.Body>},
     select_reuses_draft: @+project:Maybe<&2, Nat> -> @+application:E.Application ->
-      {E.activate_selected(U.SelectProject{project}, application) == E.begin_task(project, application) : E.Decision},
+      {E.activate_selected(U.SelectProject{project}, application) == E.observe_workspace_git(E.begin_task(project, application)) : E.Decision},
     visibility_preserves_disclosure: @expanded:Bool -> @intent:E.NavigationIntent -> @+collapsed:+List<Nat> ->
       {disclosure(E.set_navigation(expanded, E.NavigationState{intent, collapsed})) == collapsed : +List<Nat>},
     visit_preserves_disclosure: @intent:E.NavigationIntent -> @+collapsed:+List<Nat> ->
@@ -1020,9 +1107,9 @@ type ProjectInteractionRequirements is Type:
     picker_filter_keeps_selection: @+query:String -> @+selected:Maybe<&2, Nat> -> @+projects:+List<V.ProjectChoice> ->
       {View.search_content(V.ProjectSelection{"", selected, projects}, query) ==
     V.ProjectSelection{query, selected, View.matching_projects(projects, query)} : V.LayerContent},
-    project_actions: @+id:Nat -> @+name:String -> @+workspace:D.Workspace -> @guidance:D.ProjectContext -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState ->
-      {View.project_entry(id, D.Project{name, workspace, guidance}, tasks, route, selected, navigation) ==
-        V.ProjectEntry{id, name, workspace, View.selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), View.task_entries(View.project_tasks(tasks, Some{id}), route),
+    project_actions: @+id:Nat -> @+name:String -> @+workspace:D.Workspace -> @guidance:D.ProjectContext -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState -> @create_worktree:Bool ->
+      {View.project_entry(id, D.Project{name, workspace, guidance, create_worktree}, tasks, route, selected, navigation) ==
+        V.ProjectEntry{id, name, workspace, View.selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), View.task_forest(View.project_tasks(tasks, Some{id}), route),
           View.control("project/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), View.control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}),
           View.control("project/toggle/" ++ Nat.show(id), "Toggle project tasks", U.ToggleProjectGroup{id}),
           View.context_control("project/more/" ++ Nat.show(id), "More", U.ObjectActions{U.ProjectSubject{id}})} : V.ProjectEntry},
@@ -1054,7 +1141,7 @@ type ProjectInteractionRequirements is Type:
       @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest : +List<E.Layer>} ->
        {E.search_choices(query, E.from_program(world, session)) ==
         E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}, None{}} <> rest, session), Nil{}) : E.Decision},
-    project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskEntry> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
+    project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskTree> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_entries([V.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectGroup{id, selected, expanded},
           Model.region(Identity.Entity{parent, "project", Nat.show(id)}, "actions", "", SurfaceTypes.Section{},
@@ -1064,7 +1151,7 @@ type ProjectInteractionRequirements is Type:
     independent_source: @+expanded:Bool -> @+route:U.Route -> @+world:M.World() -> @+session:E.Session ->
       {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新任务", U.BeginTask{None{}}),
         [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
-        View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_entries(View.project_tasks(Commands.entries(world), None{}), route),
+        View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_forest(View.project_tasks(Commands.entries(world), None{}), route),
         V.ControlDeclaration{"navigation/toggle", "Toggle sidebar", V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
     navigation_entry_fields: @+key:Identity.Key -> @+semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+selected:Bool ->
       {Model.replace_role(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, SurfaceTypes.NavigationEntry{selected}) ==
@@ -1082,13 +1169,13 @@ type ProjectInteractionRequirements is Type:
           Model.navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> Model.navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)} : SurfaceTypes.Node},
     independent_empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
-    independent_populated: @+first:V.TaskEntry -> @+rest:+List<V.TaskEntry> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+    independent_populated: @+first:V.TaskTree -> @+rest:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Con{first, rest}, parent, state) == [Model.region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
         SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
-        Model.task_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
-    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+        Model.task_tree_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
+    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(False{}, route, create, destinations, projects, tasks, state) == Nil{} : +List<SurfaceTypes.Node>},
-    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(True{}, route, create, destinations, projects, tasks, state) ==
         [SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "contents"}, "navigation-content", "", SurfaceTypes.NavigationCollection{}, SurfaceTypes.Region{},
           Model.navigation_destinations(route, create, destinations, state) <> List.append(&2, SurfaceTypes.Node,
@@ -1104,16 +1191,14 @@ type ProjectInteractionRequirements is Type:
     Model.projects(Con{first, rest}, parent, state) : +List<SurfaceTypes.Node>},
     select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> ->
       @valid_manual:{E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool} ->
-      @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
-       {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
-        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
-            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
-          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
+      @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, False{}}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
+       {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) == E.observe_workspace_git(E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}, U.origin_worktree(E.context_project(project), world)}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, False{}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}])) : E.Decision},
     missing_draft_focus: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() ->
       @observed_drafts:{E.drafts(session) == Nil{} : +List<U.Draft>} ->
-       {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
-        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
-          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
+       {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) == E.observe_workspace_git(E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}])) : E.Decision},
     task_status_source: @+task:D.Task -> {View.task_status(task) == V.TaskStatus{D.task_status(task), Conversation2.working(D.task_phase(task), D.task_operations(task))} : V.TaskStatus},
     task_status_label: @+lifecycle:D.Status -> @+working:Bool -> {View.task_status_label(V.TaskStatus{lifecycle, working}) == Conversation2.status_label(lifecycle, working) : String},
     task_status_caption: @+task:D.Task -> {View.task_status_label(View.task_status(task)) == Conversation2.status(task) : String}}
@@ -1384,7 +1469,7 @@ law new_task_model_permission:
   for reasoning: String
   for context: Context.Configuration
   for world: M.World()
-  {U.model_permitted(U.NewTask{message, profile, reasoning, context}, world) == U.selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning) : Bool}
+  {U.model_permitted(U.NewTask{message, profile, reasoning, context, False{}}, world) == U.selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning) : Bool}
 
 law agent_model_permission:
   for agent: Maybe<&2, Nat>
@@ -1602,19 +1687,18 @@ type BoundaryRequirements is Type:
           Context.AwaitingDirectoryGuidance{}} : Context.Preview},
     project_prepared: @project:Maybe<&2, Nat> -> @+name:String -> @+old_workspace:D.Workspace ->
       @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @now:U32 ->
-      {U.prepared_command(U.Project{project, name, old_workspace},
+      {U.prepared_command(U.Project{project, name, old_workspace, False{}},
         Context.DirectoryObservation{workspace, guidance}, now) ==
-        U.project_command(project, name,
-          D.workspace_json(workspace), D.project_json(guidance)) : M.Command},
+        U.project_command(project, name, D.workspace_json(workspace), D.project_json(guidance), False{}) : M.Command},
     project_create: @+name:String -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext ->
-      {U.project_command(None{}, name, D.workspace_json(workspace), D.project_json(guidance)) ==
-        M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance)} : M.Command},
+      {U.project_command(None{}, name, D.workspace_json(workspace), D.project_json(guidance), False{}) ==
+        M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{False{}}} : M.Command},
     project_update: @project:Nat -> @+name:String -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext ->
-      {U.project_command(Some{project}, name, D.workspace_json(workspace), D.project_json(guidance)) ==
-        M.UpdateProject{project, Some{name}, D.workspace_json(workspace), D.project_json(guidance)} : M.Command},
+      {U.project_command(Some{project}, name, D.workspace_json(workspace), D.project_json(guidance), False{}) ==
+        M.UpdateProject{project, Some{name}, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{False{}}} : M.Command},
     task_prepared: @+text:U.Text -> @profile:String -> @reasoning:String ->
       @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 ->
-      {U.prepared_command(U.NewTask{text, profile, reasoning, config}, observation, now) ==
+      {U.prepared_command(U.NewTask{text, profile, reasoning, config, False{}}, observation, now) ==
         M.Create{profile, reasoning, U.text(text), Context.observed_settings(config, observation)} : M.Command},
     settings_observations: @+config:Context.Configuration -> @+workspace:D.Workspace ->
       @+guidance:D.ProjectContext ->
@@ -1633,6 +1717,21 @@ type BoundaryRequirements is Type:
 
 law boundary_evidence:
   BoundaryRequirements
+
+law creating_worktree_has_visible_feedback:
+  @message:String -> @+parent:Identity.Key ->
+  {Model.worktree_feedback_status("creating", message, parent) ==
+    [Model.worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)] : +List<SurfaceTypes.Node>}
+
+law failed_worktree_has_visible_diagnostic:
+  @+message:String -> @parent:Identity.Key ->
+  {Model.worktree_feedback_status("create_failed", message, parent) ==
+    Model.worktree_diagnostic("Worktree creation failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
+
+law failed_worktree_archive_has_visible_diagnostic:
+  @+message:String -> @parent:Identity.Key ->
+  {Model.worktree_feedback_status("archive_failed", message, parent) ==
+    Model.worktree_diagnostic("Worktree archive failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
 
 law committed_permission_summary_agreement:
   @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
@@ -1908,7 +2007,7 @@ law compound_goal_preserves_actual_activity_title:
 
 law original_identity_remains_supporting_saved_context:
   @+name:String -> @workspace:D.Workspace -> @guidance:D.ProjectContext -> @+parent:Identity.Key ->
-  {Model.activity_original_context(Some{D.Project{name, workspace, guidance}}, parent) ==
+  {Model.activity_original_context(Some{D.Project{name, workspace, guidance, False{}}}, parent) ==
     [Model.activity_row(SurfaceTypes.SupportingRow{}, Model.approval_fact(parent, "object", "Original project", name))] : +List<SurfaceTypes.Node>}
 
 law new_object_has_no_fabricated_original_identity:

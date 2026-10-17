@@ -36,4 +36,35 @@ test('the actual sandbox admits its quoted workspace roots and blocks symlink an
     { execution: { ...plan, sandbox: { ...plan.sandbox, mode: 'read-only' } } });
   assert.equal(readonly.error, true);
   await assert.rejects(access(path.join(roots[1], 'forbidden')), { code: 'ENOENT' });
+
+  // The private home binding must win over a broader workspace, while only
+  // this task's selected managed subtree regains write access.
+  const serviceHome = path.join(base, 'managed-service');
+  const managedRoot = path.join(serviceHome, 'worktrees', 'task-one');
+  const selected = path.join(managedRoot, 'project');
+  const sibling = path.join(serviceHome, 'worktrees', 'task-two');
+  await Promise.all([mkdir(selected, { recursive: true }), mkdir(sibling, { recursive: true })]);
+  await writeFile(path.join(serviceHome, 'journal'), 'private state');
+  await writeFile(path.join(sibling, 'owned'), 'other task');
+  await symlink(serviceHome, path.join(selected, 'private-home'));
+  await symlink(sibling, path.join(selected, 'other-task'));
+  const managedPlan = { ...plan, workspace: { roots: [base, selected], primary_root: selected } };
+  const options = { execution: managedPlan, readOnlyPaths: [serviceHome], managedWorktreeRoot: managedRoot };
+  const managedCommand = 'set -e; printf selected > created; ' +
+    '! (printf attack > private-home/journal); ! (printf attack > private-home/future-secret); ' +
+    '! (printf attack > other-task/owned); ' +
+    `! (printf attack > ${shellQuote(path.join(managedRoot, 'unselected'))}); ` +
+    `! mv ${shellQuote(serviceHome)} ${shellQuote(path.join(base, 'moved'))}; ` +
+    `! mv ${shellQuote(selected)} ${shellQuote(path.join(managedRoot, 'moved'))}`;
+  const managed = await runBash({ command: managedCommand }, limits, options);
+  assert.equal(managed.error, false, JSON.stringify(managed.value));
+  assert.equal(await readFile(path.join(selected, 'created'), 'utf8'), 'selected');
+  assert.equal(await readFile(path.join(serviceHome, 'journal'), 'utf8'), 'private state');
+  assert.equal(await readFile(path.join(sibling, 'owned'), 'utf8'), 'other task');
+  await assert.rejects(access(path.join(serviceHome, 'future-secret')), { code: 'ENOENT' });
+  await assert.rejects(access(path.join(managedRoot, 'unselected')), { code: 'ENOENT' });
+  const managedReadonly = await runBash({ command: 'printf attack > created' }, limits,
+    { ...options, execution: { ...managedPlan, sandbox: { ...plan.sandbox, mode: 'read-only' } } });
+  assert.equal(managedReadonly.error, true);
+  assert.equal(await readFile(path.join(selected, 'created'), 'utf8'), 'selected');
 });

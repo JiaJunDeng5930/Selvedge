@@ -106,7 +106,8 @@ complete semantic/help caption, independent of visual projection.
 
 [NAVIGATION.bend](NAVIGATION.bend) owns transient row attention, exact owner
 admission, menu ownership and navigation content roles. `PROGRAM.Context` carries
-that vocabulary and derives descendant depth when entering a project group.
+that vocabulary and derives descendant depth when entering a project group or a
+task's children collection. A task row retains its incoming depth.
 `PROGRAM.NavigationRow` carries independent auxiliary exposure and owner feedback
 values; the latter excludes the always-visible auxiliary rule for touch devices.
 [SIDEBAR.bend](SIDEBAR.bend) owns authored rows, slots and hierarchy collections.
@@ -122,8 +123,10 @@ command-preservation calculations; `PROOF` supplies its provider.
 
 Navigation titles retain their complete accessible text and command binding while
 their stretch targets align captions at the leading edge. Project membership
-controls indentation; the separate collection of tasks without a project keeps
-its own heading and does not acquire project depth.
+controls indentation; each task parent adds another level for its descendants.
+The separate collection of tasks without a project keeps its own heading and does
+not acquire project depth. `TaskChildren` uses the existing member spacing and
+retains its complete child source nodes in a named accessibility group.
 
 `SURFACE.ActivityRow` preserves descendant decision, field and command meanings
 while `MODEL.activity_row` supplies their common physical organization.

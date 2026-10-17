@@ -165,6 +165,7 @@ def navigation_region_meaning_binding(+key: UIIdentity.Key, +owner: UIIdentity.K
     case SurfaceTypes.PageContext{conversation}: {==}
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -226,6 +227,7 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context)
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -1414,6 +1416,7 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
   match field:
     case Forms.MessageText{}: ordinary_choice(value)
     case Forms.ProjectName{}: ordinary_choice(value)
+    case Forms.CreateWorktree{}: ordinary_choice(value)
     case Forms.WorkspaceDirectories{}: ordinary_choice(value)
     case Forms.WorkspacePrimary{}: ordinary_choice(value)
     case Forms.ContextOrigin{}: ordinary_choice(value)
@@ -1541,6 +1544,8 @@ def Rule.navigation_evidence():
     Rule.NavigationPolicyRequirements{
       +hovered => +focused => +capable => +owner => +menu => {==},
       +project => +selected => +expanded => +depth => {==},
+      +task => +depth => {==},
+      +task => +status => +selected => +depth => {==},
       +nodes => {==}},
     navigation_context_interest,
     navigation_context_depth,
@@ -1553,6 +1558,8 @@ def Rule.navigation_evidence():
     +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => {==},
     +key => +tag => +style => +attributes => +name => +enabled => +first => +remaining => +children => +width => {==}}
 
+
+def Rule.task_children_collection(key, task, label, visual, content): {==}
 
 def Rule.navigation_entry_selected(selected): {==}
 

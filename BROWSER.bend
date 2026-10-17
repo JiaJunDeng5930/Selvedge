@@ -47,6 +47,8 @@ def program(state: Browser.State) -> M.World(): Browser.program(state)
 
 def connect(state: Browser.State) -> Browser.Decision: Browser.connect(state)
 
+def workspace_git_completed(ticket: Nat, available: Bool, state: Browser.State) -> Browser.Decision: Browser.workspace_git_completed(ticket, available, state)
+
 def directories_completed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directories_completed(ticket, ok, body, state)
 
 def code_key(source: Code.Source, ordinal: Nat) -> String: Browser.code_key(source, ordinal)

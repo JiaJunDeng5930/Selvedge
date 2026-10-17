@@ -361,7 +361,8 @@ def task_reading(+value: V.TaskScene, +parent: Identity.Key, +state: Interaction
 
 def task_title(+value: V.TaskScene, +parent: Identity.Key, +state: InteractionTypes.State) ->
   {Rule.find_region(Model.page_contents(V.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
-    Some{[Model.region(Rule.task_title_key(value, parent), "heading", Rule.task_title_text(value), SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>}:
+    Some{Model.region(Rule.task_title_key(value, parent), "heading", Rule.task_title_text(value), SurfaceTypes.Heading{}, Nil{}) <>
+      Rule.task_worktree_feedback(value, parent, state)} : Maybe<&2, +List<SurfaceTypes.Node>>}:
   match value:
     case V.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, approvals, reading, latest}, previews, composer, details, V.TaskActions{detail, overflow}}: {==}
 
@@ -425,7 +426,7 @@ def page_payload(+page: V.Page, +state: InteractionTypes.State) ->
 
 def task_graphs_route_selects_nav(+world: M.World(), +session: E.Session) ->
   {Rule.task_graphs_navigation_selected(U.TaskGraphs{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git} = session
   {==}
 
 def Rule.page_region_evidence():
@@ -523,7 +524,7 @@ def receipt_source(+decision: InteractionTypes.Decision, previous: +List<E.Layer
 def receipt_record_source(+before: InteractionTypes.State, key: String, +decision: InteractionTypes.Decision) ->
   {Rule.receipt(Model.record_source(before, key, decision)) == Rule.receipt(decision) : Rule.Receipt}:
   InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention,
-    navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = before
+    navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}}, services} = before
   receipt_source(decision, layers, Model.origin(layers, key))
 
 def receipt_navigation_closed(+decision: InteractionTypes.Decision) ->
@@ -681,14 +682,14 @@ def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text
 
 def composer_has_context(+message: U.Text, +profile: String, reasoning: String, +context: Context.Configuration,
   scene: V.EditorScene, +world: M.World()) ->
-  {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
+  {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, False{}}, scene, world)) ==
     [View.model_composer_control(profile, reasoning, world),
          V.ComposerControl{UX.permissions_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
 def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World()) ->
-  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
+  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, False{}}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
@@ -703,7 +704,7 @@ def conversation_context_empty(scene: V.EditorScene, task: Nat, message: U.Text,
   {==}
 
 def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World()) ->
-  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
+  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, False{}}, scene, world)) ==
     [V.ComposerControl{UX.project_property(U.NewTaskEditor{}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
          V.ComposerControl{UX.workspace_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
@@ -770,3 +771,7 @@ def Rule.property_source_toggle_exposes_expansion(identity, label, prominence, i
 def Rule.property_source_controls_use_actual_top_layer(property, parent, state): {==}
 def Rule.workspace_current_retains_context_observation(preview, parent): {==}
 def Rule.permission_scope_retains_context_observation(editor, observation, parent, state): {==}
+
+def Rule.creating_worktree_has_visible_feedback(message, parent): {==}
+def Rule.failed_worktree_has_visible_diagnostic(message, parent): {==}
+def Rule.failed_worktree_archive_has_visible_diagnostic(message, parent): {==}

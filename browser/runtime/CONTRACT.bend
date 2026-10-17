@@ -581,12 +581,13 @@ type RequestRequirements is Type:
           J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
             J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
             J.Field{"messages", J.Array{J.text_items(messages)}}]} : J.Json},
-    project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> ->
-      {Legacy.request_payload(M.CreateProject{name, workspace, J.Object{guidance}}) ==
-        J.Object{[J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]} : J.Json},
-    update: @id:Nat -> @+name:Maybe<&2, String> -> @+workspace:J.Json -> @guidance:+List<J.Field> ->
-      {Legacy.request_payload(M.UpdateProject{id, name, workspace, J.Object{guidance}}) ==
-        Codec.command_json(M.UpdateProject{id, name, workspace, J.Null{}}) : J.Json},
+    project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> -> @create_worktree:J.Json ->
+      {Legacy.request_payload(M.CreateProject{name, workspace, J.Object{guidance}, create_worktree}) ==
+        J.Object{Codec.optional_field("create_worktree", create_worktree,
+          [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}])} : J.Json},
+    update: @id:Nat -> @+name:Maybe<&2, String> -> @+workspace:J.Json -> @guidance:+List<J.Field> -> @+create_worktree:J.Json ->
+      {Legacy.request_payload(M.UpdateProject{id, name, workspace, J.Object{guidance}, create_worktree}) ==
+        Codec.command_json(M.UpdateProject{id, name, workspace, J.Null{}, create_worktree}) : J.Json},
     agent: @id:Maybe<&2, Nat> -> @revision:Nat -> @name:String -> @profile:String -> @reasoning:String ->
       @instructions:String -> @fields:+List<J.Field> -> @concurrency:Nat ->
       {Legacy.request_payload(M.FeatureCommand{F2.BoardCommand{B.SaveAgent{id,

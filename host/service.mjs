@@ -18,6 +18,7 @@ import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
+import { observeWorkspaceGit, createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class CommandNotSubmitted extends Error {
@@ -99,6 +100,7 @@ export class Service extends EventEmitter {
       await service.#configure();
       const recovery = await service.journal.execute({ kind: 'recover' });
       if (!recovery.reply.ok) throw new Error(`Recovery rejected: ${recovery.reply.error.message}`);
+      await service.#reconcileWorktrees();
       const grants = await service.command({ op: 'configure_chatgpt_connections', connections: connectionGrants(config.chatgpt_plugin) });
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
       return service;
@@ -165,7 +167,7 @@ export class Service extends EventEmitter {
     }
     if (effect.kind === 'cancel') {
       this.#cancelProvider(effect.task_id);
-      for (const active of this.#running.values()) if (active.task === effect.task_id) {
+      for (const active of this.#running.values()) if (active.task === effect.task_id && !active.effect.kind.startsWith('worktree_')) {
         if (['approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
         active.controller.abort(new Error('Task work cancelled'));
       }
@@ -207,8 +209,8 @@ export class Service extends EventEmitter {
       this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
       return;
     }
-    if (!['observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
-    const key = effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
+    if (!['worktree_create', 'worktree_archive', 'observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    const key = effect.kind.startsWith('worktree_') ? `${effect.kind}:${effect.task_id}` : effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
       effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -225,6 +227,30 @@ export class Service extends EventEmitter {
   }
 
   async #perform(effect, signal) {
+    if (effect.kind.startsWith('worktree_')) {
+      if (effect.kind === 'worktree_archive') {
+        // NOTE: An archived borrower can still be finishing subprocess cancellation.
+        const running = [...this.#running.values()].filter(active => !active.effect.kind.startsWith('worktree_'));
+        const resources = await Promise.all(running.map(active => this.#worktree(active.task)));
+        await Promise.allSettled(running.filter((active, index) => active.task === effect.task_id || resources[index]?.root === effect.root)
+          .map(active => active.promise));
+      }
+      const completion = await (effect.kind === 'worktree_create' ? createManagedWorktree : archiveManagedWorktree)(effect,
+        { home: this.home, limits: this.limits, signal });
+      if (!this.#closing && !this.#failure) {
+        const failed = boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
+          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
+        let result;
+        try { result = await this.journal.execute(completion); }
+        catch (error) {
+          if (!(error instanceof RangeError || error instanceof TypeError)) throw error;
+          result = await this.journal.execute(failed);
+        }
+        if (!result.reply.ok && result.reply.error?.code === 'output_limit') result = await this.journal.execute(failed);
+        if (!result.reply.ok) throw new Error(`Managed worktree settlement rejected: ${result.reply.error.message}`);
+      }
+      return;
+    }
     let input;
     let observation;
     const cancelPreview = () => this.notify({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
@@ -277,6 +303,7 @@ export class Service extends EventEmitter {
         if (effect.tool.source?.kind === 'native' && effect.tool.source.program?.kind === 'Process') {
           if (!effect.execution) throw new Error('A Bash effect requires a committed task execution plan');
           result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
+            managedWorktreeRoot: await this.#managedWorktreeRoot(effect.task_id),
             readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
         } else if (effect.tool.source?.kind === 'native') {
           throw new Error('The kernel requested an invalid external native capability');
@@ -322,6 +349,29 @@ export class Service extends EventEmitter {
     return boundary('effect.failure', { effect, message: String(message || 'External execution failed').toWellFormed(), context_limit });
   }
 
+  async #worktree(taskId) {
+    if (!Number.isSafeInteger(taskId) || taskId < 0) return undefined;
+    const result = await this.journal.execute({ kind: 'command', command: { op: 'read_worktree', task_id: taskId } });
+    if (!result.reply.ok) return undefined;
+    return result.reply.result;
+  }
+
+  async #managedWorktreeRoot(taskId) {
+    const entry = await this.#worktree(taskId);
+    return entry?.status === 'ready' ? entry.root : undefined;
+  }
+
+  async #reconcileWorktrees() {
+    const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
+    if (!result.reply.ok) throw new Error(`Managed worktree recovery query rejected: ${result.reply.error.message}`);
+    for (const entry of result.reply.result.worktrees) {
+      if (!['creating', 'creating_archived', 'archiving'].includes(entry.status)) continue;
+      const completion = await reconcileManagedWorktree(entry, { home: this.home, limits: this.limits });
+      const settled = await this.journal.execute(completion);
+      if (!settled.reply.ok) throw new Error(`Managed worktree recovery rejected: ${settled.reply.error.message}`);
+    }
+  }
+
   async command(command) {
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
@@ -342,12 +392,20 @@ export class Service extends EventEmitter {
       const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
-      const observed = await observeWorkspaceCommand(command, this.limits, {
+      let observed = await observeWorkspaceCommand(command, this.limits, {
         projectWorkspace: async project_id => {
           const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
           return result.reply.ok ? result.reply.result.workspace : undefined;
         },
       });
+      if (command.op === 'create_worktree_task') {
+        if (!observed.settings?.workspace) {
+          observed = await observeWorkspaceCommand({ ...observed,
+            settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
+        }
+        const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
+        if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
+      }
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }
@@ -404,6 +462,10 @@ export class Service extends EventEmitter {
     if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
     if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
       return { kind: 'streams', streams: this.browserStreams() };
+    }
+    if (observation.kind === 'workspace-git' && Object.keys(observation).length === 2 && typeof observation.primary === 'string') {
+      const primary = observation.primary === '' ? this.cwd : observation.primary;
+      return { kind: 'workspace-git', available: await observeWorkspaceGit(primary) };
     }
     if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2) {
       try {

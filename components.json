@@ -1747,7 +1747,9 @@
       "features/board/CODEC.bend",
       "features/chatgpt/MODEL.bend",
       "features/chatgpt/CODEC.bend",
-      "features/task_graph/CODEC.bend"
+      "features/task_graph/CODEC.bend",
+      "features/worktree/CODEC.bend",
+      "features/worktree/MODEL.bend"
     ],
     "harness/features/CONTRACT.bend": [
       "features/compaction/CONTRACT.bend",
@@ -1762,7 +1764,12 @@
       "features/board/MODEL.bend",
       "features/chatgpt/MODEL.bend",
       "features/compaction/MODEL.bend",
-      "features/task_graph/MODEL.bend"
+      "features/task_graph/MODEL.bend",
+      "harness/features/worktree-state.bend",
+      "features/worktree/MODEL.bend",
+      "features/worktree/CONTRACT.bend",
+      "bendlib/association-map.bend",
+      "harness/workspace/WORKSPACE.bend"
     ],
     "harness/features/PROOF.bend": [
       "harness/features/MODEL.bend",
@@ -1774,7 +1781,9 @@
       "harness/features/CONTRACT.bend",
       "harness/features/graph-state.bend",
       "harness/MODEL.bend",
-      "harness/DOMAIN.bend"
+      "harness/DOMAIN.bend",
+      "harness/features/worktree-storage-proof.bend",
+      "features/worktree/MODEL.bend"
     ],
     "harness/features/SPEC.bend": [
       "features/compaction/SPEC.bend",
@@ -1786,7 +1795,8 @@
       "features/board/STATE.bend",
       "features/chatgpt/SPEC.bend",
       "features/chatgpt/STATE.bend",
-      "harness/features/graph-spec.bend"
+      "harness/features/graph-spec.bend",
+      "harness/features/worktree-spec.bend"
     ],
     "harness/features/STATE.bend": [
       "features/compaction/MODEL.bend",
@@ -1806,7 +1816,10 @@
       "harness/workspace/PROJECTS.bend",
       "features/task_graph/MODEL.bend",
       "features/task_graph/CODEC.bend",
-      "harness/features/graph-state.bend"
+      "harness/features/graph-state.bend",
+      "features/worktree/MODEL.bend",
+      "features/worktree/CODEC.bend",
+      "harness/features/worktree-state.bend"
     ],
     "harness/features/execution.bend": [
       "features/compaction/PROGRAM.bend",
@@ -1823,7 +1836,8 @@
       "features/board/STATE.bend",
       "features/chatgpt/PROGRAM.bend",
       "features/chatgpt/STATE.bend",
-      "harness/features/graph-execution.bend"
+      "harness/features/graph-execution.bend",
+      "harness/features/worktree-execution.bend"
     ],
     "harness/features/laws.bend": [
       "features/compaction/PROOF.bend",
@@ -1848,7 +1862,10 @@
       "features/chatgpt/PROOF.bend",
       "features/task_graph/PROOF.bend",
       "harness/features/graph-proof.bend",
-      "harness/features/PROOF.bend"
+      "harness/features/PROOF.bend",
+      "harness/features/worktree-proof.bend",
+      "features/worktree/PROOF.bend",
+      "harness/features/worktree-sharing-proof.bend"
     ],
     "harness/features/protocol.bend": [
       "bendlib/categories.bend",
@@ -1858,7 +1875,9 @@
       "harness/features/operations.bend",
       "features/board/STATE.bend",
       "features/chatgpt/MODEL.bend",
-      "features/chatgpt/STATE.bend"
+      "features/chatgpt/STATE.bend",
+      "features/worktree/MODEL.bend",
+      "harness/features/worktree-state.bend"
     ],
     "harness/features/resolution.bend": [
       "bendlib/categories.bend",
@@ -1876,7 +1895,9 @@
       "features/task_graph/MODEL.bend",
       "harness/features/graph-state.bend",
       "bendlib/component.bend",
-      "harness/tasks/PROGRAM.bend"
+      "harness/tasks/PROGRAM.bend",
+      "features/worktree/MODEL.bend",
+      "harness/features/worktree-state.bend"
     ],
     "harness/protocol/COMMIT.bend": [
       "bendlib/categories.bend",
@@ -2097,6 +2118,7 @@
       "bendlib/association-map.bend",
       "harness/protocol/PROGRAM.bend",
       "bendlib/json-proof.bend",
+      "bendlib/json.bend",
       "bendlib/equality.bend",
       "bendlib/equality-proof.bend"
     ],
@@ -2142,7 +2164,9 @@
       "harness/features/MODEL.bend",
       "harness/DOMAIN.bend",
       "bendlib/json.bend",
-      "interaction/services/CONTEXT.bend"
+      "interaction/services/CONTEXT.bend",
+      "features/worktree/MODEL.bend",
+      "harness/workspace/PROJECTS.bend"
     ],
     "interaction/MODEL.bend": [
       "harness/MODEL.bend",
@@ -2358,7 +2382,8 @@
       "bendlib/association-map.bend",
       "interaction/presentation/SURFACE.bend",
       "interaction/TYPES.bend",
-      "interaction/presentation/VIEW.bend"
+      "interaction/presentation/VIEW.bend",
+      "features/worktree/MODEL.bend"
     ],
     "interaction/presentation/PROOF.bend": [
       "interaction/presentation/surface-proof.bend",
@@ -2563,7 +2588,9 @@
       "bendlib/association-map.bend",
       "interaction/conversation/CODE.bend",
       "interaction/conversation/OUTPUT.bend",
-      "interaction/services/CONTEXT.bend"
+      "interaction/services/CONTEXT.bend",
+      "harness/features/MODEL.bend",
+      "features/worktree/MODEL.bend"
     ],
     "interaction/session/MODEL.bend": [
       "interaction/experience/PROGRAM.bend",
@@ -2937,6 +2964,7 @@
     ],
     "interaction/experience/CONTRACT.bend": [
       "harness/features/MODEL.bend",
+      "harness/features/STATE.bend",
       "harness/tasks/PROGRAM.bend",
       "harness/MODEL.bend",
       "harness/COMMANDS.bend",
@@ -3150,7 +3178,9 @@
       "features/task_graph/MODEL.bend",
       "features/task_graph/CODEC.bend",
       "harness/tools/MODEL.bend",
-      "harness/tools/SYNTAX.bend"
+      "harness/tools/SYNTAX.bend",
+      "features/worktree/MODEL.bend",
+      "features/worktree/CODEC.bend"
     ],
     "harness/features/graph-execution.bend": [
       "harness/DOMAIN.bend",
@@ -3182,7 +3212,8 @@
       "harness/workspace/WORKSPACE.bend",
       "features/board/resolution.bend",
       "features/chatgpt/MODEL.bend",
-      "features/task_graph/MODEL.bend"
+      "features/task_graph/MODEL.bend",
+      "features/worktree/MODEL.bend"
     ],
     "features/task_graph/PROOF.bend": [
       "features/task_graph/CONTRACT.bend",
@@ -3293,6 +3324,103 @@
     "harness/context/selection.bend": [
       "harness/DOMAIN.bend",
       "bendlib/json.bend"
+    ],
+    "features/worktree/CODEC.bend": [
+      "features/worktree/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/json.bend",
+      "bendlib/association-map.bend",
+      "harness/transport/wire-shape.bend"
+    ],
+    "features/worktree/MODEL.bend": [
+      "harness/DOMAIN.bend",
+      "bendlib/json.bend",
+      "bendlib/association-map.bend"
+    ],
+    "harness/features/worktree-execution.bend": [
+      "harness/DOMAIN.bend",
+      "harness/MODEL.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/component.bend",
+      "features/worktree/MODEL.bend",
+      "harness/features/MODEL.bend",
+      "harness/features/worktree-state.bend"
+    ],
+    "harness/features/worktree-proof.bend": [
+      "harness/DOMAIN.bend",
+      "harness/MODEL.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/component.bend",
+      "features/worktree/MODEL.bend",
+      "harness/features/MODEL.bend",
+      "harness/features/worktree-state.bend",
+      "harness/features/worktree-spec.bend",
+      "harness/features/worktree-execution.bend",
+      "bendlib/json.bend",
+      "bendlib/effects.bend",
+      "harness/tasks/PROGRAM.bend"
+    ],
+    "harness/features/worktree-spec.bend": [
+      "harness/DOMAIN.bend",
+      "harness/MODEL.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/component.bend",
+      "features/worktree/MODEL.bend",
+      "harness/features/MODEL.bend",
+      "harness/features/worktree-state.bend",
+      "harness/tasks/PROGRAM.bend",
+      "bendlib/json.bend",
+      "bendlib/effects.bend"
+    ],
+    "harness/features/worktree-state.bend": [
+      "bendlib/json.bend",
+      "bendlib/effects.bend",
+      "harness/features/MODEL.bend",
+      "harness/features/operations.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "features/worktree/MODEL.bend",
+      "bendlib/component.bend",
+      "bendlib/association-map.bend",
+      "bendlib/equality.bend"
+    ],
+    "features/worktree/CONTRACT.bend": [
+      "features/worktree/MODEL.bend",
+      "bendlib/association-map.bend"
+    ],
+    "harness/features/worktree-storage-proof.bend": [
+      "harness/features/MODEL.bend",
+      "harness/features/CONTRACT.bend",
+      "harness/features/worktree-state.bend",
+      "features/worktree/MODEL.bend",
+      "features/board/MODEL.bend",
+      "features/chatgpt/MODEL.bend",
+      "features/task_graph/MODEL.bend",
+      "features/compaction/MODEL.bend",
+      "bendlib/component.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend"
+    ],
+    "features/worktree/PROOF.bend": [
+      "features/worktree/MODEL.bend",
+      "features/worktree/CONTRACT.bend",
+      "bendlib/association-map.bend"
+    ],
+    "harness/features/worktree-sharing-proof.bend": [
+      "harness/features/MODEL.bend",
+      "harness/features/CONTRACT.bend",
+      "harness/features/worktree-state.bend",
+      "features/worktree/MODEL.bend",
+      "bendlib/component.bend",
+      "bendlib/association-map.bend",
+      "bendlib/stdlib.bend",
+      "bendlib/logic-proof.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/workspace/WORKSPACE.bend"
     ]
   },
   "feature_alphabet": "harness/features/MODEL.bend",

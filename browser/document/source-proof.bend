@@ -368,6 +368,7 @@ def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +rol
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -477,6 +478,7 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
         case Forms.NotApplicable{}: {==}
     case Forms.MessageText{}: {==}
     case Forms.ProjectName{}: {==}
+    case Forms.CreateWorktree{}: {==}
     case Forms.WorkspacePrimary{}: {==}
     case Forms.ContextOrigin{}: {==}
     case Forms.SandboxMode{}: {==}
