@@ -349,6 +349,26 @@ def profile_valid(profile: Profile) -> Bool:
   Profile{key, provider, name, reasoning, options} = profile
   nonempty(key) && nonempty(provider) && nonempty(name) && policy_options_valid(reasoning, options)
 
+# NOTE: Codex advertises its dedicated account reviewer as a hidden model.
+def codex_auto_review_model() -> String:
+  "codex-auto-review"
+
+def is_codex_auto_review(profile: Profile) -> Bool:
+  Profile{key, provider, name, reasoning, options} = profile
+  String.eq(provider, "chatgpt") && String.eq(name, codex_auto_review_model())
+
+def chatgpt_account_hash_digits(text: String) -> Bool:
+  match text:
+    case SNil{}: True{}
+    case SCon{+head, tail}:
+      (Char.is_digit(head) || String.contains("abcdef", SCon{head, SNil{}})) && chatgpt_account_hash_digits(tail)
+
+def chatgpt_account_profile_key(+key: String) -> Bool:
+  String.starts_with(key, "chatgpt/") &&
+    Nat.is_eq(String.length(String.take(String.drop(key, 8n), 16n)), 16n) &&
+    chatgpt_account_hash_digits(String.take(String.drop(key, 8n), 16n)) &&
+    String.eq(String.take(String.drop(key, 24n), 1n), "/")
+
 def bounded_reasoning_policy(policy: Reasoning.Policy, selection: String, default: String, values: +List<String>) -> Bool:
   match policy:
     case Reasoning.Fixed{}: Reasoning.member(values, selection)
@@ -574,7 +594,7 @@ def sandbox_schema() -> J.Json:
 
 def approval_schema() -> J.Json:
   Schema.object([J.Field{"mode", string_schema("full-access, ask-for-approval, or approval-for-me")},
-    J.Field{"reviewer_profile", string_schema("Configured profile for the independent approval call; defaults to the task profile")}], [J.Text{"mode"}])
+    J.Field{"reviewer_profile", string_schema("Configured profile for the independent approval call; defaults to the same account's advertised Codex Auto-review model, otherwise the task profile")}], [J.Text{"mode"}])
 
 def guidance_schema() -> J.Json:
   Schema.object([J.Field{"workspace", string_schema("Canonical primary root observed by the host")},

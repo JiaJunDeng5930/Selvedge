@@ -59,6 +59,54 @@ def valid_reviewer_profile(+profile: D.Profile) -> Bool:
   D.profile_valid(profile) && Bool.not(Reasoning.automatic(D.profile_reasoning(profile))) &&
     D.profile_permitted(profile, D.profile_default(profile))
 
+# Account discovery binds chatgpt/<16hex>/ to one account and connection.
+def generated_account_profile(+profile: D.Profile) -> Bool:
+  D.Profile{+key, provider, name, reasoning, options} = profile
+  String.eq(provider, "chatgpt") && D.chatgpt_account_profile_key(key)
+
+def default_reviewer_valid(valid: Bool, profile: D.Profile, fallback: D.Profile) -> D.Profile:
+  match valid:
+    case True{}: profile
+    case False{}: fallback
+
+def default_reviewer_found(found: Maybe<&2, D.Profile>, fallback: D.Profile) -> D.Profile:
+  match found:
+    case None{}: fallback
+    case Some{+profile}: default_reviewer_valid(D.is_codex_auto_review(profile) && valid_reviewer_profile(profile), profile, fallback)
+
+def default_reviewer_manual_match(+prefix: String, +profile: D.Profile) -> Bool:
+  +key = D.profile_key(profile)
+  +account = String.drop(key, String.length(prefix))
+  String.starts_with(key, prefix) && Nat.is_eq(String.length(account), 16n) &&
+    D.chatgpt_account_hash_digits(account) && D.is_codex_auto_review(profile) && valid_reviewer_profile(profile)
+
+def default_reviewer_manual_search(+prefix: String, profiles: +List<D.Profile>, fallback: D.Profile) -> D.Profile:
+  match profiles:
+    case Nil{}: fallback
+    case Con{+profile, rest}: default_reviewer_valid(default_reviewer_manual_match(prefix, profile), profile,
+      default_reviewer_manual_search(prefix, rest, fallback))
+
+def default_reviewer_generated(generated: Bool, +profile: D.Profile, profiles: +List<D.Profile>) -> D.Profile:
+  match generated:
+    case False{}: profile
+    case True{}:
+      default_reviewer_found(D.find_profile(profiles,
+        String.take(D.profile_key(profile), 25n) ++ D.codex_auto_review_model()), profile)
+
+def default_reviewer_manual_provider(provider: String, +profile: D.Profile, +profiles: +List<D.Profile>) -> D.Profile:
+  match provider:
+    case "chatgpt":
+      default_reviewer_manual_search(D.profile_key(profile) ++ "/" ++ D.codex_auto_review_model() ++ "/", profiles,
+        default_reviewer_generated(generated_account_profile(profile), profile, profiles))
+    case _: profile
+
+def default_reviewer_manual(+profile: D.Profile, profiles: +List<D.Profile>) -> D.Profile:
+  D.Profile{key, provider, name, reasoning, options} = profile
+  default_reviewer_manual_provider(provider, profile, profiles)
+
+def default_reviewer(profile: D.Profile, profiles: +List<D.Profile>) -> D.Profile:
+  default_reviewer_manual(profile, profiles)
+
 def valid_approval(policy: D.ApprovalPolicy) -> Bool:
   match policy:
     case D.ApprovalForMe{profile}: valid_reviewer_profile(profile)
@@ -144,12 +192,12 @@ def selected_approval(mode: String, key: String, profiles: +List<D.Profile>) -> 
     case _: Fail{"Approval mode must be full-access, ask-for-approval, or approval-for-me"}
 
 def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
-  profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
+  +profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      D.Profile{key, provider, name, reasoning, options} = profile
-      selected_approval(J.text(J.get(value, "mode")), J.text_or(J.get(value, "reviewer_profile"), key), profiles)
+      selected_approval(J.text(J.get(value, "mode")),
+        J.text_or(J.get(value, "reviewer_profile"), D.profile_key(default_reviewer(profile, profiles))), profiles)
 
 def retained_guidance(same: Bool, guidance: D.ProjectContext) -> D.ProjectContext:
   match same:

@@ -10,7 +10,7 @@ import { home } from '../support.mjs';
 const scope = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
 const clientId = 'fixture-issued-client', subject = 'fixture-account';
 
-export async function chatgptFixture(t) {
+export async function chatgptFixture(t, respond) {
   const directory = await home(t);
   const failures = [], requests = [], oauthRequests = [];
   const { privateKey, publicKey } = await generateKeyPair('RS256');
@@ -75,6 +75,12 @@ export async function chatgptFixture(t) {
       }
       assert.equal(request.headers.authorization, `Bearer opaque-access-${marker}`);
       requests.push(entry);
+      if (respond) {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const raw = Buffer.concat(chunks).toString('utf8');
+        return respond({ ...entry, method: request.method, body: raw ? JSON.parse(raw) : undefined }, response);
+      }
       request.resume();
       jsonResponse(response, { error: 'fixture rejection' }, 401);
     })().catch(error => { failures.push(error); response.destroy(error); });

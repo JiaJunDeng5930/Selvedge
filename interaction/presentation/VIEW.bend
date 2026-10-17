@@ -388,12 +388,12 @@ def configuration_workspace(config: Context.Configuration) -> Maybe<&2, D.Worksp
   Context.Configuration{origin, workspace, sandbox, approval} = config
   workspace
 
-def execution_group(+identity: U.Editor, +config: Context.Configuration, +world: M.World()) -> ViewTypes.InputGroup:
+def execution_group(+identity: U.Editor, +config: Context.Configuration, profile: String, +world: M.World()) -> ViewTypes.InputGroup:
   +observed = Context.preview(config, world)
   ViewTypes.ExecutionInput{config, observed,
     workspace_controls(preview_workspace(observed), identity,
       workspace_inheritance(configuration_workspace(config), identity)),
-    projects(world), Forms.reviewers(world)}
+    projects(world), Forms.reviewers_for(profile, world)}
 
 def delivery_controls(+task: Nat, selected: U.Delivery) -> ViewTypes.InputGroup:
   ViewTypes.DeliveryInput{selected,
@@ -437,13 +437,13 @@ def profile_owners(profiles: +List<D.Profile>, rest: +List<B.Owner>) -> +List<B.
 
 def capture_inputs(id: Maybe<&2, Nat>, assist: Bool, profile: String, world: M.World()) -> +List<ViewTypes.InputGroup>:
   match id:
-    case None{}: [ViewTypes.CardAssistanceInput{assist, profile, Board.profiles(world)}]
+    case None{}: [ViewTypes.CardAssistanceInput{assist, profile, Forms.task_profiles(world)}]
     case Some{id}: Nil{}
 
 def task_execution_context(+task: D.Task, +context: D.TaskContext, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   D.TaskContext{workspace, sandbox, approval, project} = context
-  [ViewTypes.ModelInput{D.task_profile(task), D.task_reasoning(task), Board.profiles(world)},
-   execution_group(U.MessageEditor{D.task_id(task)}, Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, world)]
+  [ViewTypes.ModelInput{D.task_profile(task), D.task_reasoning(task), Forms.task_profiles(world)},
+   execution_group(U.MessageEditor{D.task_id(task)}, Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, D.task_profile(task), world)]
 
 def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match found:
@@ -452,16 +452,16 @@ def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List
 
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
-    case U.NewTask{message, profile, reasoning, context, create_worktree}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{}, context, world)]
+    case U.NewTask{message, +profile, reasoning, context, create_worktree}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.NewTaskEditor{}, context, profile, world)]
     case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
     case U.TaskGraph{graph, declaration, parsed}: [ViewTypes.TaskGraphInput{declaration}]
     case U.Project{id, name, +workspace, create_worktree}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
-        B.priorities(), card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
-    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
-      [ViewTypes.AgentIdentityInput{name, instructions, concurrency}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.AgentEditor{id}, context, world)]
-    case U.Fork{task, count, messages, context}: [ViewTypes.ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, world)]
+        B.priorities(), card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Forms.task_profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
+    case U.Agent{id, revision, name, +profile, reasoning, instructions, context, concurrency}:
+      [ViewTypes.AgentIdentityInput{name, instructions, concurrency}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.AgentEditor{id}, context, profile, world)]
+    case U.Fork{+task, count, messages, context}: [ViewTypes.ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, Forms.parent_profile(task, world), world)]
     case U.Compact{task, summary}: [ViewTypes.SummaryInput{summary}]
 
 def submit_label(body: U.Body) -> String:
@@ -897,7 +897,7 @@ def subject_actions(subject: U.Subject, session: E.Session, world: M.World()) ->
 def board_settings(+board: B.State, +world: M.World()) -> ViewTypes.LayerContent:
   +automatic = B.automatic(board)
   +draft_profile = B.draft_profile(board)
-  ViewTypes.BoardSettings{automatic, draft_profile, Board.profiles(world),
+  ViewTypes.BoardSettings{automatic, draft_profile, Forms.task_profiles(world),
     board_control("board/automatic", "自动排期", B.Settings{Bool.not(automatic), draft_profile}, world)}
 
 def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U32, world: M.World()) -> Maybe<&2, ViewTypes.CardScene>:

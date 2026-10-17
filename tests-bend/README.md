@@ -40,6 +40,10 @@ SQLite reopen, WebSocket session teardown and the real Durable Object runtime.
 Grant permissions, generations and command classification belong to native
 constructions and their production proofs.
 
+The remote receipt probe also exercises account-authenticated Codex review and a
+subprocess that inspects its durable grant before writing. Independent Web text
+requests retain a focused regression for effects without task history.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

@@ -92,10 +92,20 @@ def options(values: +List<String>) -> +List<Forms.ChoiceValue>:
     case Nil{}: Nil{}
     case Con{+value, rest}: option(value, value) <> options(rest)
 
+def task_profile_option_hidden(hidden: Bool, profile: Domain.Profile, rest: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+  match hidden:
+    case True{}: rest
+    case False{}:
+      Domain.Profile{id, provider, name, policy, options} = profile
+      option(id, name) <> rest
+
+def task_profile_option(+profile: Domain.Profile, rest: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+  task_profile_option_hidden(Domain.is_codex_auto_review(profile), profile, rest)
+
 def profile_options(values: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy, options}, rest}: option(id, name) <> profile_options(rest)
+    case Con{profile, rest}: task_profile_option(profile, profile_options(rest))
 
 def origin_option_values(origin: Context.Origin) -> +List<Forms.ChoiceValue>:
   match origin:

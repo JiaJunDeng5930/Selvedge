@@ -229,11 +229,11 @@ def catalog_selection_refinement(+profiles: +List<D.Profile>) ->
     case Nil{}: {==}
     case Con{+profile, +rest}:
       Equal.trans(Sigma<&2, &2, String, (_ => String)>, E.first_profile(profiles),
-        E.first_valid_profile(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, Rule.catalog_selection(rest)), Rule.catalog_selection(profiles),
+        E.first_valid_profile(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, Rule.catalog_selection(rest)), Rule.catalog_selection(profiles),
         Equal.cong(Sigma<&2, &2, String, (_ => String)>, Sigma<&2, &2, String, (_ => String)>,
-          fallback => E.first_valid_profile(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, fallback),
+          fallback => E.first_valid_profile(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, fallback),
           E.first_profile(rest), Rule.catalog_selection(rest), catalog_selection_refinement(rest)),
-        catalog_selection_if_refinement(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, Rule.catalog_selection(rest)))
+        catalog_selection_if_refinement(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, Rule.catalog_selection(rest)))
 
 def preference_selection_if_refinement(valid: Bool, value: E.ModelPreference, +profiles: +List<D.Profile>) ->
   {E.preferred_if(valid, value, profiles) == Rule.preference_selection_if(valid, value, profiles) : Sigma<&2, &2, String, (_ => String)>}:

@@ -2787,12 +2787,15 @@
     "host/adapters/ACCOUNTS.bend": [
       "bendlib/json.bend",
       "bendlib/categories.bend",
+      "bendlib/stdlib.bend",
+      "harness/DOMAIN.bend",
       "host/adapters/MODEL.bend"
     ],
     "host/adapters/BACKENDS.bend": [
       "bendlib/json.bend",
       "bendlib/stdlib.bend",
       "bendlib/categories.bend",
+      "harness/DOMAIN.bend",
       "host/adapters/MODEL.bend",
       "host/adapters/ACCOUNTS.bend",
       "harness/context/MODEL.bend",

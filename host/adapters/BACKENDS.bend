@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/json.bend as J
 import ../../bendlib/stdlib.bend as Std
 import ../../bendlib/categories.bend as Categories
+import ../../harness/DOMAIN.bend as Domain
 import ./MODEL.bend as Model
 import ./ACCOUNTS.bend as Account
 import ../../harness/context/MODEL.bend as Context
@@ -827,8 +828,12 @@ def request_output_limit(present: Bool, +body: J.Json, +effect: J.Json) -> J.Jso
     case False{}: body
     case True{}: put(body, "max_output_tokens", choose(has(effect, "max_output_tokens"), J.get(effect, "max_output_tokens"), J.get(effect, "output_reserve_tokens")))
 
+def codex_auto_review(+effect: J.Json) -> Bool:
+  equal(J.get(effect, "kind"), "approval") && equal(J.get(J.get(effect, "model"), "provider"), "chatgpt") &&
+    equal(J.get(J.get(effect, "model"), "name"), Domain.codex_auto_review_model())
+
 def request_final(+body: J.Json, +effect: J.Json) -> J.Json:
-  +reasoned = choose(independent(J.get(effect, "kind")), drop(body, "reasoning"), body)
+  +reasoned = choose(independent(J.get(effect, "kind")) && Bool.not(codex_auto_review(effect)), drop(body, "reasoning"), body)
   +instructed = choose(String.is_empty(J.text(J.get(reasoned, "instructions"))) && Bool.not(account(J.get(effect, "model"))), drop(reasoned, "instructions"), reasoned)
   choose(independent(J.get(effect, "kind")), put(put(instructed, "tool_choice", J.Text{"none"}), "tools", J.Array{Nil{}}), instructed)
 

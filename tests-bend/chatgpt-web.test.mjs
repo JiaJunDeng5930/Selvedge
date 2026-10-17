@@ -6,6 +6,8 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { requestModel } from '../host/providers.mjs';
+import { requestApproval } from '../host/approvals.mjs';
+import { requestBoardText } from '../host/board-text.mjs';
 import { sseEvents } from '../host/network.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { Service } from '../host/service.mjs';
@@ -69,6 +71,36 @@ async function fixture(t, respond) {
   const run = (effect = baseEffect(), options = {}) => requestModel(effect, config, directory, limits, options);
   return { ...server, config, directory, run };
 }
+
+test('independent approval and board effects without history reach the Web text transport', async t => {
+  const f = await fixture(t, async (body, index) => {
+    assert.deepEqual(body.tools, []);
+    assert.equal(body.previous_response_id, undefined);
+    assert.equal(body.input.length, 1);
+    if (index === 0) {
+      const review = JSON.parse(body.input[0].content);
+      assert.equal(review.command.arguments.command, 'pwd');
+      assert.deepEqual(review.recent_user_requests_newest_first, ['Inspect only.']);
+      return { output: answer('{"decision":"deny","reason":"Inspect only."}') };
+    }
+    assert.equal(index, 1);
+    assert.equal(body.input[0].content, 'Draft a description.');
+    return { output: answer('{"title":"Fixture","description":"A generated description."}') };
+  });
+  const model = baseEffect().model;
+  const approval = { kind: 'approval', task_id: 0, ticket: 1, model, settings: {},
+    instructions: 'Review only the supplied command.',
+    call: { id: 'a', name: 'bash', arguments: { command: 'pwd' } }, user_requests: ['Inspect only.'] };
+  const board = { kind: 'board_text', card_id: 3, ticket: 2, model, retitle: false, prompt: 'Draft a description.' };
+  assert.equal(Object.hasOwn(approval, 'history'), false);
+  assert.equal(Object.hasOwn(board, 'history'), false);
+  assert.deepEqual(await requestApproval(approval, f.config, f.directory, limits),
+    { decision: 'deny', reason: 'Inspect only.' });
+  assert.deepEqual(await requestBoardText(board, f.config, f.directory, limits),
+    { title: 'Fixture', description: 'A generated description.' });
+  assert.equal(f.requests.length, 2);
+  assert.deepEqual(f.failures, []);
+});
 
 async function eventually(predicate) {
   const deadline = Date.now() + 5000;

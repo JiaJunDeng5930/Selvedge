@@ -18,7 +18,9 @@ const { seq, effect } = executions[0];
 assert.equal(effect.execution.access, 'unrestricted');
 const reviews = rows.flatMap(row => {
   const command = row.input.command ?? row.input.event?.command;
-  const review = command?.op === 'review_approval' ? {
+  const review = row.input.kind === 'approval' ? {
+    task: row.input.task_id, request: row.input.ticket, decision: row.input.outcome.decision,
+  } : command?.op === 'review_approval' ? {
     task: command.task_id, request: command.operation_id, decision: command.decision,
   } : null;
   return review ? [{ seq: row.seq, ...review }] : [];
