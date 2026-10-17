@@ -958,6 +958,13 @@ def navigation_task_row(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Na
 def sidebar_collection(+key:UIIdentity.Key, +kind:Sidebar.CollectionKind, +visual:Design.Style, +content:+List<Source.Node>) -> Source.Node:
   Sidebar.constructed_collection_node(Sidebar.construct_collection(Sidebar.CollectionRequest{key, kind, visual, content}))
 
+def navigation_collection(+key:UIIdentity.Key, meaning:SurfaceTypes.Meaning, +label:String, +visual:Design.Style, content:+List<Source.Node>) -> Source.Node:
+  match meaning:
+    case SurfaceTypes.TaskChildren{task}:
+      add_attributes(sidebar_collection(key, Sidebar.Members{}, visual, content),
+        [Source.DataAttribute{"task-parent", Nat.show(task)}, Source.RoleAttribute{"group"}, Source.AriaAttribute{"label", label}])
+    case _: sidebar_collection(key, Sidebar.Collection{}, visual, content)
+
 def navigation_section(+key:UIIdentity.Key, +visual:Design.Style, +children:+List<Child>) -> Source.Node:
   match children:
     case Con{Child{caption_key, caption_role, SurfaceTypes.InformationText{Information.NavigationCaption{}}, caption_control, caption_nodes}, rest}: sidebar_collection(key, Sidebar.Section{}, visual, List.append(&2, Source.Node, ordinary(caption_nodes), ordinary(all_nodes(rest))))
@@ -1001,7 +1008,7 @@ def regular(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: Surface
       +primary = button_source(key, visual, parameters, representation)
       navigation_single_command(UIIdentity.part(key, "@navigation-entry"), key, 0n, visual, Sidebar.capture(primary), Nil{}, primary)
     case SurfaceTypes.Navigation{}: aligned_navigation(regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters))
-    case SurfaceTypes.NavigationCollection{}: sidebar_collection(key, Sidebar.Collection{}, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.NavigationCollection{}: navigation_collection(key, meaning, label, visual, ordinary(all_nodes(children)))
     case SurfaceTypes.NavigationSection{}: navigation_section(key, visual, children)
     case SurfaceTypes.Section{}: regular_navigation(capacity, key, label, role, meaning, visual, representation, children, parameters)
     case _: regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters)
