@@ -30,7 +30,7 @@ async function checkDirectory(directory) {
   }
 }
 
-for (const directory of ['host', 'scripts', 'tests-bend', 'examples', 'plugins']) await checkDirectory(directory);
+for (const directory of ['host', 'scripts', 'tests-bend', 'examples', 'plugins', 'remote', 'relay']) await checkDirectory(directory);
 run(process.execPath, ['scripts/check-web-vendor.mjs']);
 run(process.execPath, ['scripts/theory-index.mjs', 'check']);
 // Build checks the complete generated UI proof entry before linking both production libraries.

@@ -1,4 +1,5 @@
 import Base
+import ../features/remote/MODEL.bend as Remote
 import ./tools/MODEL.bend as Tools
 import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
@@ -148,6 +149,9 @@ def description() -> J.Json:
       J.Field{"events", J.Array{J.text_items(D.plugin_events())}}]}}]}
 
 type Input is Data:
+  RemoteCommand{request: Remote.Request, command: Command, environment: Maybe<&2, D.Environment>}
+  RemoteProbe{request: Remote.Request, command: Command}
+  RemoteCheck{controller_id: String, grant_epoch: Nat}
   UserCommand{command: Command}
   ContextObserved{task_id: Nat, ticket: Nat, outcome: Result<&2, &2, String, +List<D.ContextObservation()>>}
   ModelCompleted{task_id: Nat, ticket: Nat, outcome: D.Outcome}
@@ -172,9 +176,19 @@ type InputMode is Data:
 # Persistence and scheduling derive from the same classification. Configuration
 # commits a catalog without starting work before startup recovery has run.
 
+def feature_input_mode(schedules: Bool) -> InputMode:
+  match schedules:
+    case True{}: UpdateAndSchedule{}
+    case False{}: UpdateOnly{}
+
 def input_mode(input: Input) -> InputMode:
   match input:
     case UserCommand{Observe{query}}: Observation{}
+    case UserCommand{FeatureCommand{command}}: feature_input_mode(F.schedules(command))
+    case RemoteProbe{request, command}: Observation{}
+    case RemoteCheck{controller_id, grant_epoch}: Observation{}
+    case RemoteCommand{request, Observe{query}, environment}: Observation{}
+    case RemoteCommand{request, command, environment}: UpdateAndSchedule{}
     case Configure{environment}: UpdateOnly{}
     case _: UpdateAndSchedule{}
 

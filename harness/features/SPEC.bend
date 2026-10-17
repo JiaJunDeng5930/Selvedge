@@ -1,4 +1,5 @@
 import Base
+import ./remote.bend as RemoteState
 import ../../features/compaction/SPEC.bend as Compaction
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
@@ -14,6 +15,7 @@ import ./graph-spec.bend as TaskGraph
 # executable assembler supplies its implementation to feature-execution.
 def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change(change, world)
     case O.StartCard{id, card, now, profile, reasoning, message, selection}:

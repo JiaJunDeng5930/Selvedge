@@ -146,6 +146,52 @@ def connection_origin_plan(accepted: Bool) -> J.Json:
 def path_method(+source: J.Json, method: String, pathname: String) -> Bool:
   String.eq(J.text(J.get(source, "method")), method) && String.eq(J.text(J.get(source, "pathname")), pathname)
 
+def remote_post_paths(enable: Bool, disable: Bool, pair: Bool, approve: Bool, revoke: Bool) -> String:
+  match enable disable pair approve revoke:
+    case True{} _ _ _ _: "remote_enable"
+    case _ True{} _ _ _: "remote_disable"
+    case _ _ True{} _ _: "remote_pair"
+    case _ _ _ True{} _: "remote_approve"
+    case _ _ _ _ True{}: "remote_revoke"
+    case _ _ _ _ _: ""
+
+def remote_post_target(+source: J.Json) -> String:
+  remote_post_paths(path_method(source, "POST", "/api/remote/enable"), path_method(source, "POST", "/api/remote/disable"),
+    path_method(source, "POST", "/api/remote/pair"), path_method(source, "POST", "/api/remote/approve"), path_method(source, "POST", "/api/remote/revoke"))
+
+def remote_body_query(empty: Bool, +source: J.Json) -> String:
+  match empty:
+    case True{}: remote_post_target(source)
+    case False{}: ""
+
+def remote_body_target(+source: J.Json) -> String:
+  remote_body_query(J.same(J.get(source, "search"), J.Text{""}), source)
+
+def remote_read_paths(empty: Bool, status: Bool, pending: Bool) -> String:
+  match empty status pending:
+    case True{} True{} _: "remote_status"
+    case True{} _ True{}: "remote_pending"
+    case _ _ _: ""
+
+def remote_read_target(+source: J.Json) -> String:
+  remote_read_paths(J.same(J.get(source, "search"), J.Text{""}), path_method(source, "GET", "/api/remote/status"), path_method(source, "GET", "/api/remote/pending"))
+
+def remote_management_path(+source: J.Json) -> Bool:
+  +pathname = J.text(J.get(source, "pathname"))
+  String.eq(pathname, "/api/remote/status") || String.eq(pathname, "/api/remote/pending") ||
+    String.eq(pathname, "/api/remote/enable") || String.eq(pathname, "/api/remote/disable") ||
+    String.eq(pathname, "/api/remote/pair") || String.eq(pathname, "/api/remote/approve") ||
+    String.eq(pathname, "/api/remote/revoke")
+
+def remote_route_rejection(known: Bool, query_empty: Bool) -> J.Json:
+  match known query_empty:
+    case True{} False{}: exception("TypeError", "Remote management endpoints do not accept query parameters")
+    case True{} True{}: rejection("405", "method", "Use the remote management endpoint's supported method")
+    case False{} _: unknown_route()
+
+def local_unknown_route(+source: J.Json) -> J.Json:
+  remote_route_rejection(remote_management_path(source), J.same(J.get(source, "search"), J.Text{""}))
+
 def attachment_query_shape(query: J.Json) -> Bool:
   match query:
     case J.Array{Con{J.Array{Con{J.Text{name}, Con{J.Text{value}, Nil{}}}}, Nil{}}}: String.eq(name, "name")
@@ -180,6 +226,38 @@ def command_body(body: J.Json) -> Bool:
   match body:
     case J.Object{Con{J.Field{name, value}, Nil{}}}: String.eq(name, "command")
     case _: False{}
+
+def remote_boolean(value: J.Json) -> Bool:
+  match value:
+    case J.Boolean{observed}: True{}
+    case _: False{}
+
+def remote_identifier(value: J.Json) -> Bool:
+  match value:
+    case J.Text{text}: Bool.not(String.is_empty(text))
+    case _: False{}
+
+def remote_permissions_shape(+permissions: J.Json) -> Bool:
+  Model.same_json(permissions, J.Object{[J.Field{"read", J.get(permissions, "read")}, J.Field{"control", J.get(permissions, "control")},
+    J.Field{"configure", J.get(permissions, "configure")}, J.Field{"approve", J.get(permissions, "approve")}]}) &&
+    remote_boolean(J.get(permissions, "read")) && remote_boolean(J.get(permissions, "control")) &&
+    remote_boolean(J.get(permissions, "configure")) && remote_boolean(J.get(permissions, "approve"))
+
+def remote_approve_body(+body: J.Json) -> Bool:
+  Model.same_json(body, J.Object{[J.Field{"request_id", J.get(body, "request_id")}, J.Field{"permissions", J.get(body, "permissions")}]}) &&
+    remote_identifier(J.get(body, "request_id")) && remote_permissions_shape(J.get(body, "permissions"))
+
+def remote_revoke_body(+body: J.Json) -> Bool:
+  Model.same_json(body, J.Object{[J.Field{"controller_id", J.get(body, "controller_id")}]}) && remote_identifier(J.get(body, "controller_id"))
+
+def remote_body_kind(approve: Bool, revoke: Bool, +body: J.Json) -> Bool:
+  match approve revoke:
+    case True{} _: remote_approve_body(body)
+    case _ True{}: remote_revoke_body(body)
+    case _ _: empty_body(body)
+
+def remote_body_shape(+target: String, +body: J.Json) -> Bool:
+  remote_body_kind(String.eq(target, "remote_approve"), String.eq(target, "remote_revoke"), body)
 
 # NOTE: Both observations are supplied by the host. The native boundary binds
 # the parser-output tokens to the original text; it does not prove JSON.parse.
@@ -217,8 +295,13 @@ def body_shape_refresh(refresh: Bool, target: String, body: J.Json) -> Bool:
     case True{}: empty_body(body)
     case False{}: body_shape_command(String.eq(target, "browser_command"), body)
 
+def body_shape_remote(remote: Bool, +target: String, body: J.Json) -> Bool:
+  match remote:
+    case True{}: remote_body_shape(target, body)
+    case False{}: body_shape_refresh(String.eq(target, "account_refresh"), target, body)
+
 def body_shape(+target: String, body: J.Json) -> Bool:
-  body_shape_refresh(String.eq(target, "account_refresh"), target, body)
+  body_shape_remote(starts(target, "remote_"), target, body)
 
 def connection_path(+source: J.Json) -> Bool:
   starts(J.text(J.get(source, "pathname")), "/api/chatgpt/")
@@ -248,8 +331,14 @@ def body_target_0(accepted: Bool, +source: J.Json) -> String:
     case True{}: "account_refresh"
     case False{}: body_target_1(path_method(source, "POST", "/api/browser/command"), source)
 
+def body_target_remote(empty: Bool, remote: String, +source: J.Json) -> String:
+  match empty:
+    case True{}: body_target_0(path_method(source, "POST", "/api/accounts/refresh"), source)
+    case False{}: remote
+
 def body_target(+source: J.Json) -> String:
-  body_target_0(path_method(source, "POST", "/api/accounts/refresh"), source)
+  +remote = remote_body_target(source)
+  body_target_remote(String.eq(remote, ""), remote, source)
 
 def body_valid(+source: J.Json) -> Bool:
   body_observation_valid(source) && body_shape(body_target(source), parsed_body(source))
@@ -258,6 +347,14 @@ def body_error(refresh: Bool) -> J.Json:
   match refresh:
     case True{}: exception("TypeError", "Account refresh takes an empty object")
     case False{}: exception("TypeError", "A browser command contains only command")
+
+def body_error_remote(remote: Bool, +target: String) -> J.Json:
+  match remote:
+    case True{}: exception("TypeError", "Invalid remote management request body")
+    case False{}: body_error(String.eq(target, "account_refresh"))
+
+def body_error_target(+target: String) -> J.Json:
+  body_error_remote(starts(target, "remote_"), target)
 
 def reply_status_plan(ok: Bool) -> J.Json:
   match ok:
@@ -384,15 +481,15 @@ def request_guard(+source: J.Json, local: Categories.Membership<J.Json, LocalReq
   open_host_guard(source, candidate => request_admitted(Categories.admit_intersection(J.Json,
     (candidate => open_valid(candidate)), (candidate => host_valid(candidate)), candidate), local, connection))
 
-def local_target_7(accepted: Bool) -> String:
+def local_target_7(accepted: Bool, +source: J.Json) -> String:
   match accepted:
     case True{}: "health"
-    case False{}: ""
+    case False{}: remote_read_target(source)
 
 def local_target_6(accepted: Bool, +source: J.Json) -> String:
   match accepted:
     case True{}: "event_page"
-    case False{}: local_target_7(path_method(source, "GET", "/api/health"))
+    case False{}: local_target_7(path_method(source, "GET", "/api/health"), source)
 
 def local_target_5(accepted: Bool, +source: J.Json) -> String:
   match accepted:
@@ -495,7 +592,7 @@ def local_route_checked(+source: J.Json, prior: LocalRequest(source), accepted: 
   observed: {local_route_valid(source) == accepted : Bool}) -> J.Json:
   match accepted:
     case True{}: local_endpoint_terminal(Categories.Membership{source, Categories.Intersection{prior, observed}})
-    case False{}: unknown_route()
+    case False{}: local_unknown_route(source)
 
 def local_terminal(member: Categories.Membership<J.Json, LocalRequest>) -> J.Json:
   Categories.Membership{+source, prior} = member
@@ -532,7 +629,7 @@ def body_checked(-Request: J.Json -> Type, +source: J.Json, prior: ContentReques
   observed: {body_valid(source) == valid : Bool}) -> J.Json:
   match valid:
     case True{}: body_terminal(Request, Categories.Membership{source, Categories.Intersection{prior, observed}})
-    case False{}: body_error(String.eq(body_target(source), "account_refresh"))
+    case False{}: body_error_target(body_target(source))
 
 def content_body(-Request: J.Json -> Type, member: Categories.Membership<J.Json, ContentRequest(Request)>) -> J.Json:
   Categories.Membership{+source, prior} = member

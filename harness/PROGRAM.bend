@@ -1,4 +1,5 @@
 import Base
+import ./features/remote.bend as RemoteState
 import ../features/compaction/PROGRAM.bend as Compaction
 import ../features/compaction/SPEC.bend as CompactionSpec
 import ../features/compaction/STATE.bend as CompactionState
@@ -437,6 +438,9 @@ def update(+input: M.Input, +world: M.World()) -> M.Decision():
 def transition_calculation(input: M.Input, +world: M.World()) -> M.Decision():
   match input:
     case M.UserCommand{M.Observe{request}}: deliver(False{}, observe(request, world), world)
+    case M.RemoteCommand{request, command, environment}: Commit.remote_command(~Execution.scheduled, request, command, environment, world)
+    case M.RemoteProbe{request, command}: deliver(False{}, RemoteState.probe(command, request, world), world)
+    case M.RemoteCheck{controller, epoch}: deliver(False{}, RemoteState.check(controller, epoch, world), world)
     case other: update(other, world)
 
 def transition(input: M.Input, +world: M.World()) -> M.Decision():

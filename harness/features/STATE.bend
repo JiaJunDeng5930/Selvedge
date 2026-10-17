@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/component.bend as C
+import ../../features/remote/MODEL.bend as Remote
 import ../../features/compaction/MODEL.bend as Compaction
 import ../../features/compaction/STATE.bend as CompactionState
 import ./MODEL.bend as F
@@ -21,11 +23,11 @@ import ./graph-state.bend as TaskGraphState
 # State and resource obligations are assembled here. Adding a component must
 # provide its own validity, evolution, recovery and effect-authority clauses.
 def valid(+world: M.World()) -> Bool:
-  Board.valid(world) && ChatGPTState.valid(world) && TaskGraphState.valid(world) && CompactionState.valid(world)
+  Board.valid(world) && ChatGPTState.valid(world) && TaskGraphState.valid(world) && CompactionState.valid(world) && Remote.valid(F.remote(C.rest(D.State, F.State(), world)))
 
 def evolution(+previous: F.State(), +candidate: F.State()) -> Bool:
   Board.evolution(F.board(previous), F.board(candidate)) && Nat.is_le(ChatGPT.next(F.chatgpt(previous)), ChatGPT.next(F.chatgpt(candidate))) &&
-    Nat.is_le(TaskGraph.next(F.task_graph(previous)), TaskGraph.next(F.task_graph(candidate))) && Compaction.evolution(F.compaction(previous), F.compaction(candidate))
+    Nat.is_le(TaskGraph.next(F.task_graph(previous)), TaskGraph.next(F.task_graph(candidate))) && Compaction.evolution(F.compaction(previous), F.compaction(candidate)) && Remote.evolution(F.remote(previous), F.remote(candidate))
 
 def recover(+state: F.State()) -> F.State():
   F.with_compaction(Compaction.recover(F.compaction(state)), F.with_chatgpt(ChatGPT.recover(F.chatgpt(state)), F.with_board(Board.recover(F.board(state)), state)))
@@ -35,6 +37,7 @@ def project_used(+id: Nat, +world: M.World()) -> Bool:
 
 def query(query: F.Query, +world: M.World()) -> J.Json:
   match query:
+    case F.RemoteStatus{}: D.success(Remote.status(F.remote(C.rest(D.State, F.State(), world))))
     case F.ChatGPTQuery{query}: ChatGPTView.query(query, ChatGPTState.registry(world), Projects.registry(F.State(), world))
     case F.BoardQuery{query}: Board.query(query, world)
     case F.TaskGraphQuery{query}: TaskGraphCodec.query_reply(query, TaskGraphState.registry(world))

@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/CONTRACT.bend as Remote
 import ../../features/compaction/CONTRACT.bend as Compaction
 import ../../features/board/CONTRACT.bend as Board
 import ../../features/chatgpt/CONTRACT.bend as ChatGPT
@@ -32,4 +33,4 @@ type TaskGraphStorage is Type:
 # Feature-specific guarantees are assembled without extending every consumer
 # of the root harness interface.
 type Features is Type:
-  Features{board: Board.BoardBoundary, chatgpt: ChatGPT.Boundary, task_graph: TaskGraph.RegistryBoundary, task_graph_storage: TaskGraphStorage, compaction: Compaction.Boundary}
+  Features{remote: Remote.Boundary, board: Board.BoardBoundary, chatgpt: ChatGPT.Boundary, task_graph: TaskGraph.RegistryBoundary, task_graph_storage: TaskGraphStorage, compaction: Compaction.Boundary}

@@ -1,4 +1,6 @@
 import Base
+import ../../features/remote/CONTRACT.bend as Remote
+import ../../features/remote/PROOF.bend as RemoteProof
 import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/json.bend as J
@@ -33,6 +35,7 @@ def meaning(
   operation: O.Operation, +world: M.World()) ->
   {Actual.realize_calculation(~actual_spawn, operation, world) == Spec.meaning(~spec_spawn, operation, world) : M.Decision()}:
   match operation:
+    case O.RemoteChange{change}: {==}
     case O.ChatGPTChange{change}: ChatGPTProof.assembled(change, world)
     case O.BoardChange{change}: Boundary.change_meaning(change, world)
     case O.StartCard{+id, +card, +now, +profile, +reasoning, +message, +selection}:
@@ -55,7 +58,7 @@ def event(event: O.ResolvedEvent, world: M.World()) ->
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary()}
+  Architecture.Features{Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary()}
 
 def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
   ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),

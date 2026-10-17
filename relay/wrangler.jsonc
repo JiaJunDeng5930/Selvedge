@@ -1,0 +1,11 @@
+{
+  "name": "selvedge-remote-relay",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-10-16",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "REMOTE_HOSTS", "class_name": "RemoteHostRelay" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RemoteHostRelay"] }],
+  "observability": { "enabled": false }
+}

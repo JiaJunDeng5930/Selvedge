@@ -1,4 +1,7 @@
 import Base
+import ../features/remote/MODEL.bend as Remote
+import ../features/remote/PROGRAM.bend as RemoteProgram
+import ./features/remote.bend as RemoteState
 import ./tasks/PROOF.bend as TaskProof
 import ./features/PROOF.bend as FrameProof
 import ../bendlib/component.bend as C
@@ -19,6 +22,7 @@ import ../features/compaction/SPEC.bend as CompactionSpec
 import ./protocol/COMMIT.bend as Commit
 import ../bendlib/categories.bend as Categories
 import ./execution/notifications.bend as Notifications
+import ./execution/PROGRAM.bend as Execution
 
 def board_frame(value: Board.State, world: M.World()) ->
   {F.modules(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.modules(C.rest(D.State, F.State(), world)) : F.Modules()}:
@@ -220,9 +224,24 @@ def observe_certificate(query: M.Query, +world: M.World()) ->
   Laws.Admitted(world, P.deliver(False{}, P.observe(query, world), world)):
   deliver_certificate(False{}, P.observe(query, world), world, Fail{({==}, {==})})
 
+def remote_probe_certificate(authorization: Remote.Authorization, +world: M.World()) ->
+  Laws.Admitted(world, P.deliver(False{}, RemoteState.probe_reply(authorization, world), world)):
+  match authorization:
+    case Remote.Denied{code, reason}:
+      deliver_certificate(False{}, RemoteState.probe_reply(Remote.Denied{code, reason}, world), world, Fail{({==}, {==})})
+    case Remote.Admitted{}:
+      deliver_certificate(False{}, RemoteState.probe_reply(Remote.Admitted{}, world), world, Fail{({==}, {==})})
+    case Remote.Replay{reply}:
+      deliver_certificate(False{}, RemoteState.probe_reply(Remote.Replay{reply}, world), world, Fail{({==}, {==})})
+
 def transition_calculation_certificate(input: M.Input, +world: M.World()) ->
   Laws.Admitted(world, P.transition_calculation(input, world)):
   match input:
+    case M.RemoteCommand{+request, +command, +environment}:
+      +candidate = Commit.remote_candidate(~Execution.scheduled, request, command, environment, world)
+      deliver_certificate(M.durable(M.RemoteCommand{request, command, environment}), P.checked(candidate, world), world, checked_certificate(candidate, world))
+    case M.RemoteProbe{request, command}: remote_probe_certificate(RemoteState.probe_authorization(command, request, RemoteState.registry(world)), world)
+    case M.RemoteCheck{controller, epoch}: remote_probe_certificate(RemoteProgram.check(Remote.Rights{True{}, False{}, False{}, False{}}, controller, epoch, RemoteState.registry(world)), world)
     case M.UserCommand{M.Observe{query}}: observe_certificate(query, world)
     case M.UserCommand{M.FeatureCommand{command}}:
       update_certificate(M.UserCommand{M.FeatureCommand{command}}, world)

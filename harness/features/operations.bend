@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
 import ../../features/compaction/MODEL.bend as Compaction
 import ../DOMAIN.bend as D
 import ../../features/board/MODEL.bend as Board
@@ -14,6 +15,7 @@ type GraphNode is Data:
 # These are already resolved feature operations. External callers cannot bypass
 # the command resolver by constructing them through the wire protocol.
 type Operation is Data:
+  RemoteChange{change: Remote.Change}
   ChatGPTChange{change: ChatGPT.Change}
   BoardChange{change: Resolution.Change}
   StartCard{id: Nat, card: Board.Card, now: U32, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}

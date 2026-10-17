@@ -23,3 +23,10 @@ evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;
 independent evidence used across concepts remains separate where needed to keep
 the imports acyclic. The root [PROOF.bend](../../PROOF.bend) assembles the production evidence.
+
+Remote grants and receipts enter through [remote.bend](remote.bend), backed by
+[the independent remote component](../../features/remote/README.md). Native
+transport classifies a remote request as an observation or mutation; the commit
+boundary composes ordinary command execution with receipt retention.
+[remote-proof.bend](remote-proof.bend) binds storage preservation and complete
+replay and receipt decisions to those production functions.
