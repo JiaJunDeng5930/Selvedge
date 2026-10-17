@@ -161,7 +161,7 @@ def receipt_source(+source: J.Json) -> Bool:
   +effect = get(source, "effect")
   +record = get(source, "record")
   +resource = get(source, "resource")
-  eq(effect, "kind", "model") && J.is_object(resource) && J.is_object(record) && is_array(get(source, "deferred")) && natural(get(source, "input_count")) && natural(get(source, "output_count")) && Nat.is_lt(0n, number(get(source, "output_count"))) && nonempty(get(source, "input_hash")) && nonempty(get(source, "store_identity")) && (eq(resource, "status", "completed") || eq(resource, "status", "requires_action")) && Model.same_json(get(record, "response_id"), get(resource, "id")) && Model.same_json(get(record, "binding"), get(source, "binding")) && Model.same_json(get(record, "owner"), get(calculation_owner(object(field("effect", effect) <> Nil{})), "value")) && Model.same_json(resource, get(source, "response_observation")) && resource_admissible(object(field("value", resource) <> field("body", get(source, "body_observation")) <> field("model", get(get(effect, "model"), "name")) <> field("tools", get(source, "tools")) <> Nil{}))
+  eq(effect, "kind", "model") && J.is_object(resource) && J.is_object(record) && is_array(get(source, "deferred")) && is_array(get(effect, "history")) && natural(get(source, "output_count")) && Nat.is_lt(0n, number(get(source, "output_count"))) && nonempty(get(source, "input_hash")) && nonempty(get(source, "store_identity")) && (eq(resource, "status", "completed") || eq(resource, "status", "requires_action")) && Model.same_json(get(record, "response_id"), get(resource, "id")) && Model.same_json(get(record, "binding"), get(source, "binding")) && Model.same_json(get(record, "owner"), get(calculation_owner(object(field("effect", effect) <> Nil{})), "value")) && Model.same_json(resource, get(source, "response_observation")) && resource_admissible(object(field("value", resource) <> field("body", get(source, "body_observation")) <> field("model", get(get(effect, "model"), "name")) <> field("tools", get(source, "tools")) <> Nil{}))
 
 type RetirementReason is Data:
   Active{}
@@ -236,7 +236,7 @@ def receipt_calls(required: Bool, resource: J.Json) -> +List<J.Json>:
     case False{}: Nil{}
     case True{}: Std.map(~J.Json, ~J.Json, ~(call => object(subset(call, "call_id" <> "name" <> Nil{}))), J.items(get(resource, "output")))
 def calculation_receipt(+source: J.Json) -> J.Json:
-  Model.success(object(field("type", text("provider_receipt")) <> field("provider", text("chatgpt-web")) <> field("store_id", get(source, "store_identity")) <> field("task_id", get(get(source, "effect"), "task_id")) <> field("binding", get(source, "binding")) <> field("contract", get(source, "contract")) <> field("request_key", get(get(source, "record"), "request_key")) <> field("response_id", get(get(source, "resource"), "id")) <> field("status", get(get(source, "resource"), "status")) <> field("input_count", get(source, "input_count")) <> field("input_hash", get(source, "input_hash")) <> field("output_count", get(source, "output_count")) <> field("calls", J.Array{receipt_calls(eq(get(source, "resource"), "status", "requires_action"), get(source, "resource"))}) <> field("deferred", get(source, "deferred")) <> Nil{}))
+  Model.success(object(field("type", text("provider_receipt")) <> field("provider", text("chatgpt-web")) <> field("store_id", get(source, "store_identity")) <> field("task_id", get(get(source, "effect"), "task_id")) <> field("binding", get(source, "binding")) <> field("contract", get(source, "contract")) <> field("request_key", get(get(source, "record"), "request_key")) <> field("response_id", get(get(source, "resource"), "id")) <> field("status", get(get(source, "resource"), "status")) <> field("input_count", J.nat(count(J.items(get(get(source, "effect"), "history"))))) <> field("input_hash", get(source, "input_hash")) <> field("output_count", get(source, "output_count")) <> field("calls", J.Array{receipt_calls(eq(get(source, "resource"), "status", "requires_action"), get(source, "resource"))}) <> field("deferred", get(source, "deferred")) <> Nil{}))
 
 # UTF-8 decoding is observed by the host; framing and both budgets are native.
 def owned_receipt(member: Categories.Membership<J.Json, source_category("receipt")>) -> J.Json:
@@ -703,10 +703,6 @@ def later_items(items: +List<J.Json>) -> +List<J.Json>:
   match items:
     case Nil{}: Nil{}
     case Con{+item, rest}: later_selected(eq(item, "role", "function_output"), item, later_items(rest))
-def continuation_complete(complete: Bool, +source: J.Json) -> J.Json:
-  match complete:
-    case False{}: Model.failure("ChatGPT Web requires the complete tool-result batch")
-    case True{}: continuation_deferred(history(later_items(continuation_suffix(source))), source)
 def new_call(unique: Bool) -> Nat:
   match unique:
     case True{}: 1n
@@ -715,22 +711,37 @@ def unique_call_count(calls: +List<J.Json>) -> Nat:
   match calls:
     case Nil{}: 0n
     case Con{call, +rest}: Nat.add(new_call(Bool.not(contains_name(rest, "call_id", get(call, "call_id")))), unique_call_count(rest))
-def continuation_results(valid: Bool, +source: J.Json) -> J.Json:
-  match valid:
-    case False{}: Model.failure("ChatGPT Web tool results do not match the retained batch")
-    case True{}: continuation_complete(Nat.is_eq(count(result_items(continuation_suffix(source))), unique_call_count(J.items(get(continuation_receipt(source), "calls")))), source)
 def results_match(results: +List<J.Json>, +calls: +List<J.Json>) -> Bool:
   match results:
     case Nil{}: True{}
     case Con{+item, +rest}: contains_name(calls, "call_id", get(item, "call_id")) && Bool.not(contains_name(rest, "call_id", get(item, "call_id"))) && results_match(rest, calls)
-def continuation_calls(valid: Bool, +source: J.Json) -> J.Json:
-  match valid:
-    case False{}: Model.failure("ChatGPT Web receipt has no tool batch")
-    case True{}: continuation_results(results_match(result_items(continuation_suffix(source)), J.items(get(continuation_receipt(source), "calls"))), source)
+def continuation_batch_matches(+source: J.Json) -> Bool:
+  +calls = get(continuation_receipt(source), "calls")
+  is_array(calls) && Nat.is_lt(0n, count(J.items(calls))) && results_match(result_items(continuation_suffix(source)), J.items(calls))
+
+def continuation_batch_complete(+source: J.Json) -> Bool:
+  Nat.is_eq(count(result_items(continuation_suffix(source))), unique_call_count(J.items(get(continuation_receipt(source), "calls"))))
+
+def continuation_batch_category() -> J.Json -> Type:
+  source => Categories.intersection(J.Json, Categories.holds(J.Json, (source => continuation_batch_matches(source))), Categories.holds(J.Json, (source => continuation_batch_complete(source))), source)
+
+def continuation_batch_source(member: Categories.Membership<J.Json, continuation_batch_category()>) -> J.Json:
+  Categories.Membership{source, evidence} = member
+  source
+
+def continuation_batch_owned(member: Categories.Membership<J.Json, continuation_batch_category()>) -> J.Json:
+  Categories.Membership{+source, evidence} = member
+  continuation_deferred(history(later_items(continuation_suffix(source))), source)
+
+def continuation_batch_admitted(candidate: Maybe<&1, Categories.Membership<J.Json, continuation_batch_category()>>) -> J.Json:
+  match candidate:
+    case None{}: Model.failure("ChatGPT Web requires the complete tool-result batch")
+    case Some{member}: continuation_batch_owned(member)
+
 def continuation_status(status: String, +source: J.Json) -> J.Json:
   match status:
     case "completed": continuation_completed(history(continuation_suffix(source)), source)
-    case "requires_action": continuation_calls(is_array(get(continuation_receipt(source), "calls")) && Nat.is_lt(0n, count(J.items(get(continuation_receipt(source), "calls")))), source)
+    case "requires_action": continuation_batch_admitted(Categories.admit_intersection(J.Json, (source => continuation_batch_matches(source)), (source => continuation_batch_complete(source)), source))
     case _: Model.failure("ChatGPT Web receipt is not committed")
 def continuation_history(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
@@ -1838,7 +1849,13 @@ law admitted_response_cannot_reject:
 law terminal_agreement_refusal:
   @resource:J.Json -> @source:J.Json -> {event_terminal(False{}, resource, source) == Model.failure("ChatGPT Web terminal event disagrees with its resource") : J.Json}
 law incomplete_batch_refusal:
-  @source:J.Json -> {continuation_complete(False{}, source) == Model.failure("ChatGPT Web requires the complete tool-result batch") : J.Json}
+  {continuation_batch_admitted(None{}) == Model.failure("ChatGPT Web requires the complete tool-result batch") : J.Json}
+law continuation_batch_membership:
+  @member:Categories.Membership<J.Json, continuation_batch_category()> ->
+  {continuation_batch_matches(continuation_batch_source(member)) == True{} : Bool}
+law continuation_batch_cardinality:
+  @member:Categories.Membership<J.Json, continuation_batch_category()> ->
+  {continuation_batch_complete(continuation_batch_source(member)) == True{} : Bool}
 law connection_refusal:
   @source:J.Json -> {continuation_connected(False{}, source) == Model.failure("ChatGPT Web continuation connection or contract changed; restore it or create a new task") : J.Json}
 law history_span_refusal:
@@ -2254,6 +2271,12 @@ law resource_membership_authority:
   @member:Categories.Membership<J.Json, resource_category()> -> {authoritative_resource(resource_source(member)) == True{} : Bool}
 law resource_membership_batch:
   @member:Categories.Membership<J.Json, resource_category()> -> {declared_unique_tool_batch(resource_source(member)) == True{} : Bool}
+def receipt_history(member: Categories.Membership<J.Json, source_category("receipt")>) -> +List<J.Json>:
+  Categories.Membership{source, evidence} = member
+  J.items(get(get(source, "effect"), "history"))
+law receipt_input_count:
+  @member:Categories.Membership<J.Json, source_category("receipt")> ->
+  {get(get(owned_receipt(member), "value"), "input_count") == J.nat(count(receipt_history(member))) : J.Json}
 def receipt_bound_task(member: Categories.Membership<J.Json, source_category("receipt")>) -> J.Json:
   Categories.Membership{source, evidence} = member
   get(get(source, "effect"), "task_id")

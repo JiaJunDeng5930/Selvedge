@@ -42,10 +42,9 @@ and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,
 order, automatic dispatch and execution association remain native.
 
-The suite also exercises browser OAuth login and serialized credential refresh against a
-loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
-notifications during shutdown, and suppression of effects withdrawn within a
-commit. Credential parsing errors must not quote file contents into task history.
+The focused suite includes loopback OAuth and serialized credential refresh,
+HTTP stream teardown and physical commit-before-execution checks.
+Credential parsing errors must not quote file contents into task history.
 Use `bun run test` to run these checks; they require no real credentials or model calls.
 
 [chatgpt-account.mjs](chatgpt-account.mjs) performs ChatGPT discovery, login,

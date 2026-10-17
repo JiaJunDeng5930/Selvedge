@@ -122,7 +122,23 @@ def Web.committed_resource_refusal():
   source => {==}
 
 def Web.incomplete_batch_refusal():
-  source => {==}
+  {==}
+
+def continuation_batch_membership_at(member: Categories.Membership<J.Json, Web.continuation_batch_category()>) ->
+  {Web.continuation_batch_matches(Web.continuation_batch_source(member)) == True{} : Bool}:
+  match member:
+    case Categories.Membership{source, Categories.Intersection{matches, complete}}: matches
+
+def Web.continuation_batch_membership():
+  member => continuation_batch_membership_at(member)
+
+def continuation_batch_cardinality_at(member: Categories.Membership<J.Json, Web.continuation_batch_category()>) ->
+  {Web.continuation_batch_complete(Web.continuation_batch_source(member)) == True{} : Bool}:
+  match member:
+    case Categories.Membership{source, Categories.Intersection{matches, complete}}: complete
+
+def Web.continuation_batch_cardinality():
+  member => continuation_batch_cardinality_at(member)
 
 def Web.connection_refusal():
   source => {==}
@@ -164,6 +180,12 @@ def resource_membership_batch_at(member: Categories.Membership<J.Json, Web.resou
     case Categories.Membership{source, Categories.Intersection{identity, Categories.Intersection{request, Categories.Intersection{authority, batch}}}}: batch
 def Web.resource_membership_batch():
   member => resource_membership_batch_at(member)
+def receipt_input_count_at(member: Categories.Membership<J.Json, Web.source_category("receipt")>) ->
+  {Web.get(Web.get(Web.owned_receipt(member), "value"), "input_count") == J.nat(Web.count(Web.receipt_history(member))) : J.Json}:
+  match member:
+    case Categories.Membership{source, evidence}: {==}
+def Web.receipt_input_count():
+  member => receipt_input_count_at(member)
 def receipt_owner_binding_at(member: Categories.Membership<J.Json, Web.source_category("receipt")>) -> {Web.get(Web.get(Web.owned_receipt(member), "value"), "task_id") == Web.receipt_bound_task(member) : J.Json}:
   match member:
     case Categories.Membership{source, evidence}: {==}

@@ -147,8 +147,8 @@ connection and read that receipt. Check rejection for an unshared project and fo
 the connection after revocation and service restart. The bundled skill explains
 retry, cancellation and physically uncertain outcomes.
 
-`bun run test:chatgpt-plugin` checks local MCP/HTTP/journal/real-shell
-boundaries. `bun run test:locality` checks feature
-extension and replacement. OS tests need Seatbelt on macOS or bubblewrap/seccomp
+`bun run test` includes focused MCP transport and deployment-credential checks.
+Feature contracts and replacement properties belong to the production proof gate.
+OS tests need Seatbelt on macOS or bubblewrap/seccomp
 on Linux and must run outside another restrictive sandbox. These fixtures do not
 establish a live commercial ChatGPT or Tunnel connection.

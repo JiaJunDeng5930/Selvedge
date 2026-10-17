@@ -143,7 +143,7 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
       break;
     }
     if (options.receipt) output.push({ type: 'context', value: boundary('web.receipt', {
-      effect, profile, resource: terminal, record: active, deferred, input_count: effect.history.length,
+      effect, profile, resource: terminal, record: active, deferred,
       input_hash: digest(effect.history), output_count: output.length, contract, binding, store_identity: store.identity,
       tools, body_observation: nativeJson(active.body), response_observation: nativeJson(active.response),
     }) });
