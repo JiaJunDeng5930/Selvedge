@@ -351,7 +351,7 @@ def create_navigation_selected(+route: U.Route, +world: M.World(), +session: E.S
 
 def settings_state_law(-board: B.State, -world: M.World()) -> Type:
   {View.board_settings(board, world) ==
-    V.BoardSettings{B.automatic(board), B.draft_profile(board), Board.profiles(world),
+    V.BoardSettings{B.automatic(board), B.draft_profile(board), Forms.task_profiles(world),
       View.board_control("board/automatic", "自动排期",
         B.Settings{Bool.not(B.automatic(board)), B.draft_profile(board)}, world)} : V.LayerContent}
 

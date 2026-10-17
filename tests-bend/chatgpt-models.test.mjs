@@ -9,7 +9,7 @@ import { accountModels, discoverAccount, withAccountModels, modelCacheFile, logi
 import { defaultChatGPTAccount } from '../host/chatgpt-account.mjs';
 import { requestModel } from '../host/providers.mjs';
 import { startServer } from '../host/server.mjs';
-import { taskIdle, home, browserUI, surfaceNodes } from './support.mjs';
+import { taskIdle, home, browserUI, surfaceNodes, shellQuote } from './support.mjs';
 import { bendValue, bendTag } from '../host/public/bend-value.mjs';
 import browserModel from '../host/public/generated/browser-model.mjs';
 import { chatgptFixture, jsonResponse, modelResponse, modelEffect, wireLimits } from './fixtures/chatgpt.mjs';
@@ -19,6 +19,9 @@ const model = (slug = 'account-model', priority = 0, visibility = 'list') => ({
   default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium', description: 'Normal' }, { effort: 'high', description: 'High' }],
 });
 const configFor = profile => validateConfig({ ...defaultConfig, port: 0, chatgpt: profile });
+const autoReviewModel = (visibility = 'hide') => ({ ...model('codex-auto-review', -10, visibility),
+  supported_reasoning_levels: [{ effort: 'low', description: 'Review' }, ...model().supported_reasoning_levels],
+});
 
 test('login needs no model profile, and a logged-out home makes no model request', async t => {
   const config = validateConfig(defaultConfig);
@@ -36,15 +39,29 @@ test('the account catalog is authenticated, ordered, cached and not filtered by 
     assert.equal(request.method, 'GET');
     assert.equal(request.url, '/v1/models');
     assert.equal(request.headers.authorization, 'Bearer opaque-access-original');
-    jsonResponse(response, { models: [model('second', 2), model('hidden', -1, 'hide'), model('first', 0), model('unavailable', -2, 'none')] });
+    jsonResponse(response, { models: [autoReviewModel(), model('second', 2), model('hidden', -1, 'hide'),
+      model('first', 0), model('unavailable', -2, 'none')] });
   });
   const config = configFor(upstream.profile);
-  const first = await withAccountModels(config, upstream.directory);
-  assert.deepEqual(Object.values(first.config.profiles).map(profile => profile.model), ['second', 'first', 'echo']);
+  const diagnostics = [];
+  const first = await withAccountModels(config, upstream.directory, { onDiagnostic: message => diagnostics.push(message) });
+  assert.deepEqual(Object.values(first.config.profiles).map(profile => profile.model), ['second', 'first', 'codex-auto-review', 'echo']);
   const key = Object.keys(first.config.profiles)[0];
   assert.match(key, /^chatgpt\/[a-f0-9]{16}\/second$/);
   assert.equal(first.config.profiles[key].bound_account_id, upstream.accountId('fixture-account'));
+  assert.equal(first.config.profiles[key].model_info.default_reasoning_level, 'medium');
+  const reviewerKey = key.replace(/\/second$/, '/codex-auto-review');
+  const reviewer = first.config.profiles[reviewerKey];
+  assert.equal(reviewer.model_info.visibility, 'hide');
+  assert.equal(reviewer.model_info.default_reasoning_level, 'low');
+  assert.equal(reviewer.endpoint, upstream.profile.endpoint);
+  assert.equal(reviewer.bound_account_id, first.config.profiles[key].bound_account_id);
+  assert.equal(first.accounts[0].models, 2, 'The hidden reviewer must not count as an ordinary account model');
+  assert.deepEqual(diagnostics, []);
   assert.equal((await stat(modelCacheFile(upstream.profile, upstream.directory))).mode & 0o777, 0o600);
+  const cached = JSON.parse(await readFile(modelCacheFile(upstream.profile, upstream.directory), 'utf8'));
+  assert.equal(cached.models.find(model => model.slug === 'codex-auto-review').default_reasoning_level, 'medium',
+    'Caching must retain the advertised descriptor rather than its reviewer-only low-effort preference');
   const second = await withAccountModels(config, upstream.directory);
   assert.deepEqual(first.config.profiles, second.config.profiles);
   assert.equal(second.accounts[0].cached, true);
@@ -54,9 +71,138 @@ test('the account catalog is authenticated, ordered, cached and not filtered by 
   assert.deepEqual(upstream.failures, []);
 });
 
-test('login materializes an independent Astra Auto profile and preserves a manual policy override', async t => {
+test('missing or unavailable Codex Auto-review models report task-model fallback without exposing other hidden models', async t => {
+  let advertised = [];
   const upstream = await chatgptFixture(t, (_, response) => jsonResponse(response, {
-    models: [model('gpt-6-astra'), model('another-account-model', 1)],
+    models: [...advertised, model('ordinary'), model('other-hidden', -20, 'hide')],
+  }));
+  const config = configFor(upstream.profile);
+  for (const descriptors of [[], [autoReviewModel('none')]]) {
+    advertised = descriptors;
+    const diagnostics = [];
+    const result = await withAccountModels(config, upstream.directory, { force: true,
+      onDiagnostic: message => diagnostics.push(message) });
+    assert.deepEqual(Object.values(result.config.profiles).map(profile => profile.model), ['ordinary', 'echo']);
+    assert.equal(diagnostics.length, 1);
+    assert.match(diagnostics[0], /does not advertise codex-auto-review.*defaults to the task model/);
+  }
+  advertised = [model('codex-auto-review', -10)];
+  const diagnostics = [];
+  const result = await withAccountModels(config, upstream.directory, { force: true,
+    onDiagnostic: message => diagnostics.push(message) });
+  assert.deepEqual(Object.values(result.config.profiles).map(profile => profile.model), ['ordinary', 'codex-auto-review', 'echo']);
+  assert.equal(Object.values(result.config.profiles)[1].model_info.default_reasoning_level, 'medium',
+    'A reviewer that does not advertise low effort must retain its advertised default');
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(upstream.failures, []);
+});
+
+test('account approvals use their own Codex Auto-review endpoint, preserve explicit reviewers and enforce Selvedge decisions', { timeout: 30_000 }, async t => {
+  const scenarios = [];
+  const reviews = [];
+  const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
+  const handler = account => (request, response) => {
+    if (request.method === 'GET') return jsonResponse(response, { models: [autoReviewModel(), model(`task-${account}`)] });
+    const { body } = request;
+    if (body.instructions?.startsWith('You are an independent one-operation safety reviewer')) {
+      const input = JSON.parse(body.input.findLast(item => item.role === 'user').content);
+      const scenario = scenarios.find(scenario => scenario.arguments.command === input.command.arguments.command);
+      assert.ok(scenario, 'The reviewer must receive one of the actual task commands');
+      assert.equal(account, scenario.reviewAccount, 'A default reviewer must remain on its task account and endpoint');
+      assert.equal(body.model, scenario.reviewModel);
+      assert.deepEqual(body.reasoning, scenario.reviewModel === 'codex-auto-review' ? { effort: 'low' } : undefined);
+      assert.deepEqual(body.tools, []);
+      assert.equal(body.tool_choice, 'none');
+      assert.deepEqual(input.command.arguments, scenario.arguments);
+      assert.deepEqual(input.recent_user_requests_newest_first, [scenario.message]);
+      assert.match(body.instructions, /keys decision \(allow or deny\) and reason/);
+      reviews.push({ id: scenario.id, account, model: body.model });
+      return modelResponse(response, answer(scenario.malformed
+        ? JSON.stringify({ decision: 'allow', reason: 'The command is authorized.', outcome: 'allow' })
+        : JSON.stringify({ decision: 'allow', reason: 'The user requested this exact output.' })));
+    }
+    const scenario = scenarios.find(scenario => body.input.some(item => item.role === 'user' && item.content === scenario.message));
+    assert.ok(scenario, 'The ordinary model must receive its task message');
+    assert.equal(account, scenario.taskAccount);
+    assert.equal(body.model, `task-${account}`);
+    if (body.input.some(item => item.type === 'function_call_output')) return modelResponse(response, answer('The operation has settled.'));
+    return modelResponse(response, [{ type: 'function_call', namespace: 'selvedge', call_id: scenario.id,
+      name: 'bash', arguments: JSON.stringify(scenario.arguments) }]);
+  };
+  const first = await chatgptFixture(t, handler('first'));
+  const second = await chatgptFixture(t, handler('second'));
+  const secondAuthFile = path.join(second.directory, second.profile.auth_file);
+  const config = validateConfig({ ...defaultConfig, port: 0, chatgpt: first.profile, profiles: {
+    alternate: { ...second.profile, auth_file: secondAuthFile, model: 'task-second' },
+    'alternate-relative': { ...second.profile, auth_file: path.relative(first.directory, secondAuthFile), model: 'task-second' },
+    'chatgpt/custom': { ...second.profile, auth_file: secondAuthFile, model: 'task-second' },
+  } });
+  const server = await startServer({ home: first.directory, cwd: await realpath(first.directory), config });
+  t.after(() => server.close());
+  const profile = (account, name) => Object.entries(server.service.config.profiles).find(([, profile]) =>
+    profile.model === name && profile.endpoint === (account === 'first' ? first : second).profile.endpoint
+      && profile.bound_account_id)?.[0];
+  const firstTask = profile('first', 'task-first');
+  const secondTask = profile('second', 'task-second');
+  const firstReviewer = profile('first', 'codex-auto-review');
+  const secondReviewer = profile('second', 'codex-auto-review');
+  assert.ok(firstTask && secondTask && firstReviewer && secondReviewer);
+  assert.notEqual(firstReviewer, secondReviewer);
+  assert.equal(server.service.config.profiles[firstReviewer].bound_account_id, first.accountId('fixture-account'));
+  assert.equal(server.service.config.profiles[secondReviewer].bound_account_id, second.accountId('fixture-account'));
+  const alternateReviewerKey = `alternate/codex-auto-review/${secondReviewer.split('/')[1]}`;
+  const relativeReviewerKey = `alternate-relative/codex-auto-review/${secondReviewer.split('/')[1]}`;
+  const customReviewerKey = `chatgpt/custom/codex-auto-review/${secondReviewer.split('/')[1]}`;
+  const alternateReviewer = server.service.config.profiles[alternateReviewerKey];
+  assert.equal(alternateReviewer.endpoint, second.profile.endpoint);
+  assert.equal(alternateReviewer.bound_account_id, second.accountId('fixture-account'));
+  for (const key of [relativeReviewerKey, customReviewerKey]) {
+    assert.equal(server.service.config.profiles[key].endpoint, second.profile.endpoint);
+    assert.equal(server.service.config.profiles[key].bound_account_id, alternateReviewer.bound_account_id);
+  }
+  assert.deepEqual(Object.keys(server.service.config.profiles).filter(key =>
+    key.includes('/codex-auto-review/')), [alternateReviewerKey, relativeReviewerKey, customReviewerKey],
+  'Only a configured profile for the same account connection may receive its reviewer alias');
+  assert.equal(second.requests.filter(request => request.method === 'GET').length, 1,
+    'Relative and absolute auth-file spellings must share one account discovery');
+  const cases = [
+    { id: 'default-first', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'first', reviewModel: 'codex-auto-review', reviewer: firstReviewer },
+    { id: 'default-second', taskAccount: 'second', taskProfile: secondTask, reviewAccount: 'second', reviewModel: 'codex-auto-review', reviewer: secondReviewer },
+    { id: 'configured-account', taskAccount: 'second', taskProfile: 'alternate', reviewAccount: 'second', reviewModel: 'codex-auto-review', reviewer: alternateReviewerKey },
+    { id: 'relative-account', taskAccount: 'second', taskProfile: 'alternate-relative', reviewAccount: 'second', reviewModel: 'codex-auto-review', reviewer: relativeReviewerKey },
+    { id: 'custom-account', taskAccount: 'second', taskProfile: 'chatgpt/custom', reviewAccount: 'second', reviewModel: 'codex-auto-review', reviewer: customReviewerKey },
+    { id: 'explicit-reviewer', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'second', reviewModel: 'task-second', reviewer: secondTask, explicit: true },
+    { id: 'malformed-review', taskAccount: 'first', taskProfile: firstTask, reviewAccount: 'first', reviewModel: 'codex-auto-review', reviewer: firstReviewer, malformed: true },
+  ];
+  for (const [task_id, settings] of cases.entries()) {
+    const marker = path.join(first.directory, `${settings.id}.txt`);
+    const scenario = { ...settings, marker, message: `Write exactly ${settings.id} to ${marker}.`, arguments: {
+      command: `printf '%s' ${shellQuote(settings.id)} > ${shellQuote(marker)}`,
+      sandbox_permissions: 'require_escalated', justification: 'Write the one exact output requested by the user.', timeout_ms: 5000,
+    } };
+    scenarios.push(scenario);
+    const created = await server.service.command({ op: 'create', profile: scenario.taskProfile, reasoning: 'medium',
+      message: scenario.message, settings: { workspace: { roots: [] }, sandbox: { mode: 'read-only', network_access: false },
+        approval: { mode: 'approval-for-me', ...(scenario.explicit ? { reviewer_profile: scenario.reviewer } : {}) } } });
+    assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+    const completed = await taskIdle(server.service, task_id);
+    assert.equal(completed.task.settings.approval.reviewer_profile, scenario.reviewer);
+    assert.deepEqual(completed.task.settings.workspace, { roots: [], primary_root: null });
+    assert.deepEqual(completed.task.settings.sandbox, { mode: 'read-only', network_access: false });
+    const record = completed.messages.find(message => message.role === 'approval_record');
+    assert.equal(record.content.decision, scenario.malformed ? 'failed' : 'allow');
+    if (scenario.malformed) await assert.rejects(readFile(marker), { code: 'ENOENT' });
+    else assert.equal(await readFile(marker, 'utf8'), scenario.id, 'An admitted review must launch the real one-operation Bash command');
+  }
+  assert.deepEqual(reviews, cases.map(({ id, reviewAccount: account, reviewModel: model }) => ({ id, account, model })));
+  assert.deepEqual(first.failures, []);
+  assert.deepEqual(second.failures, []);
+});
+
+test('login materializes an independent Astra Auto profile, preserves policy overrides and rejects a foreign account namespace', async t => {
+  let advertised = [model('gpt-6-astra'), model('another-account-model', 1), autoReviewModel()];
+  const upstream = await chatgptFixture(t, (_, response) => jsonResponse(response, {
+    models: advertised,
   }));
   const config = configFor(upstream.profile);
   const first = await withAccountModels(config, upstream.directory);
@@ -81,7 +227,38 @@ test('login materializes an independent Astra Auto profile and preserves a manua
   assert.equal(overridden.config.profiles[autoKey].adaptive_reasoning.max_lease, 2);
   assert.equal(overridden.config.profiles[baseKey].adaptive_reasoning, undefined,
     'discovering from an adaptive profile must not spread its policy to ordinary account models');
+  const copiedAuthFile = path.join(upstream.directory, 'copied-chatgpt-auth.json');
+  await writeFile(copiedAuthFile, await readFile(path.join(upstream.directory, upstream.profile.auth_file)), { mode: 0o600 });
+  await writeFile(`${copiedAuthFile}.registration.json`,
+    await readFile(path.join(upstream.directory, `${upstream.profile.auth_file}.registration.json`)), { mode: 0o600 });
+  const sharedAccount = validateConfig({ ...manual, profiles: { ...manual.profiles,
+    'copied-credentials': { ...upstream.profile, auth_file: copiedAuthFile, model: 'gpt-6-astra' },
+  } });
+  const duplicated = await withAccountModels(sharedAccount, upstream.directory);
+  assert.equal(duplicated.config.profiles[autoKey].adaptive_reasoning.evaluator, 'my-evaluator');
+  assert.equal(duplicated.config.profiles[baseKey].bound_account_id, auto.bound_account_id);
+  const copiedReviewerKey = `copied-credentials/codex-auto-review/${autoKey.split('/')[1]}`;
+  assert.equal(duplicated.config.profiles[copiedReviewerKey].bound_account_id, auto.bound_account_id,
+    'Two signed credential files for the same account and target must share the canonical namespace');
+  const foreign = await chatgptFixture(t, (_, response) => jsonResponse(response, {
+    models: [model('foreign-account-model'), autoReviewModel()],
+  }));
+  advertised = [model('another-account-model'), autoReviewModel()];
+  await discoverAccount(upstream.profile, upstream.directory, { force: true });
+  const current = JSON.parse(await readFile(modelCacheFile(upstream.profile, upstream.directory), 'utf8'));
+  assert.equal(current.models.some(model => model.slug === 'gpt-6-astra'), false,
+    'The namespace check must cover declared profiles even after their original model leaves the catalog');
+  const foreignOverride = validateConfig({ ...config, profiles: { ...config.profiles,
+    [autoKey]: { ...foreign.profile, auth_file: path.join(foreign.directory, foreign.profile.auth_file), model: 'gpt-6-astra',
+      adaptive_reasoning: { ...auto.adaptive_reasoning } },
+  } });
+  await assert.rejects(withAccountModels(foreignOverride, upstream.directory), { code: 'account_namespace_mismatch' });
+  const foreignWithoutPrimary = validateConfig({ ...foreignOverride, chatgpt: false, profiles: {
+    [autoKey]: foreignOverride.profiles[autoKey],
+  } });
+  await assert.rejects(withAccountModels(foreignWithoutPrimary, upstream.directory), { code: 'account_namespace_mismatch' });
   assert.deepEqual(upstream.failures, []);
+  assert.deepEqual(foreign.failures, []);
 });
 
 test('cache fallback is bounded and cannot mask invalid data, authorization failure or account changes', async t => {
@@ -98,11 +275,21 @@ test('cache fallback is bounded and cannot mask invalid data, authorization fail
   status = 200;
   payload = { data: [{ id: 'not-the-account-contract' }] };
   await assert.rejects(discoverAccount(upstream.profile, upstream.directory), /invalid model catalog/);
-  payload = { models: [model()] };
-  const before = await withAccountModels(configFor(upstream.profile), upstream.directory, { force: true });
+  payload = { models: [model(), autoReviewModel()] };
+  const reloginConfig = validateConfig({ ...configFor(upstream.profile), profiles: {
+    manual: { ...upstream.profile, model: 'account-model' },
+  } });
+  const before = await withAccountModels(reloginConfig, upstream.directory, { force: true });
+  const oldReviewer = Object.keys(before.config.profiles).find(key => key.startsWith('manual/codex-auto-review/'));
+  assert.ok(oldReviewer);
+  assert.equal(oldReviewer.split('/').at(-1), Object.keys(before.config.profiles)[0].split('/')[1]);
   await upstream.save('another-account');
-  const after = await withAccountModels(configFor(upstream.profile), upstream.directory);
+  const after = await withAccountModels(reloginConfig, upstream.directory);
   assert.notEqual(Object.keys(before.config.profiles)[0], Object.keys(after.config.profiles)[0]);
+  const newReviewer = Object.keys(after.config.profiles).find(key => key.startsWith('manual/codex-auto-review/'));
+  assert.ok(newReviewer);
+  assert.notEqual(newReviewer, oldReviewer, 'A configured reviewer alias must freeze the authenticated account identity');
+  assert.equal(Object.hasOwn(after.config.profiles, oldReviewer), false);
   const oldKey = Object.keys(before.config.profiles)[0];
   const effect = modelEffect();
   effect.model.profile = oldKey;

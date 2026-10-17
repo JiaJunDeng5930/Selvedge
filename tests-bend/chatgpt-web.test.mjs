@@ -15,6 +15,7 @@ import { Service } from '../host/service.mjs';
 import { home, taskIdle } from './support.mjs';
 import { webServer, answer, call } from './fixtures/chatgpt-web.mjs';
 import { configuredContext, projectContext } from './fixtures/context.mjs';
+import { boundary } from '../host/public/model-boundary.mjs';
 
 const limits = { frame_bytes: 1024 * 1024, approval_reason_bytes: 400,
   model_retry: { delays_ms: [1, 2], statuses: [429, 500, 502, 503, 504], max_retry_after_ms: 1000 } };
@@ -334,7 +335,7 @@ test('web transport crosses real native execution, SQLite commit, restart, fork 
   assert.deepEqual(f.failures, []);
 });
 
-test('independent approval and board callers consume the same normalized text interface', async t => {
+test('independent approval and board effects without task history consume normalized text requests', async t => {
   const f = await fixture(t, async (body, index) => {
     assert.deepEqual(body.tools, []);
     assert.equal(body.previous_response_id, undefined);
@@ -346,15 +347,43 @@ test('independent approval and board callers consume the same normalized text in
     assert.equal(body.input[0].content, 'Draft a description.');
     return { output: answer('{"title":"Fixture","description":"A generated description."}') };
   });
-  const review = await requestApproval({ ...baseEffect(), kind: 'approval',
-    call: { id: 'a', name: 'bash', arguments: { command: 'pwd' } }, user_requests: ['Inspect only.'] }, f.config, f.directory, limits);
+  const { model, settings } = baseEffect();
+  const approval = { kind: 'approval', task_id: 0, ticket: 1, model, settings,
+    instructions: 'Review only the supplied command.',
+    call: { id: 'a', name: 'bash', arguments: { command: 'pwd' } }, user_requests: ['Inspect only.'] };
+  const board = { kind: 'board_text', card_id: 3, ticket: 2, model, retitle: false, prompt: 'Draft a description.' };
+  assert.equal(Object.hasOwn(approval, 'history'), false);
+  assert.equal(Object.hasOwn(board, 'history'), false);
+  const review = await requestApproval(approval, f.config, f.directory, limits);
   assert.deepEqual(review, { decision: 'deny', reason: 'Not authorized by the user.' });
-  const draft = await requestBoardText({ ...baseEffect(), kind: 'board_text', card_id: 3, prompt: 'Draft a description.' }, f.config, f.directory, limits);
+  const draft = await requestBoardText(board, f.config, f.directory, limits);
   assert.deepEqual(draft, { title: 'Fixture', description: 'A generated description.' });
   for (const items of [[], [{ type: 'text', text: '{}' }, { type: 'text', text: '{}' }],
     [{ type: 'call', id: 'a', name: 'bash', arguments: {} }], [{ type: 'context', value: { type: 'provider_receipt' } }]]) {
     assert.throws(() => approvalOutcome(items, 400));
   }
+  assert.deepEqual(f.failures, []);
+});
+
+test('independent context compaction retains native task and ticket identities across Web roots', async t => {
+  const f = await fixture(t, async body => {
+    assert.deepEqual(body.tools, []);
+    assert.equal(body.previous_response_id, undefined);
+    assert.match(body.input[0].content, /Quoted history to summarize\./);
+    return { output: answer('A portable continuation note.') };
+  });
+  const first = { task_id: 0, ticket: 1, model: baseEffect().model,
+    plan: { method: 'portable', prompt: 'Summarize quoted data.', carry: '', chunk: 'Quoted history to summarize.' } };
+  const next = { ...first, ticket: 2 };
+  const other = { ...first, task_id: 1 };
+  for (const effect of [first, next, other]) {
+    const call = boundary('backend.compaction_effect', { effect });
+    assert.deepEqual(await f.run(call), [{ type: 'text', text: 'A portable continuation note.' }]);
+  }
+  const original = boundary('backend.compaction_effect', { effect: first });
+  assert.deepEqual(await f.run(original), [{ type: 'text', text: 'A portable continuation note.' }]);
+  assert.equal(f.requests.length, 3, 'The same effect observes its cache; distinct task/ticket effects each create a root');
+  assert.equal(new Set(f.requests.map(request => request.key)).size, 3);
   assert.deepEqual(f.failures, []);
 });
 

@@ -161,7 +161,11 @@ Approval policy has three modes. **Full Access** runs Bash without isolation.
 permission request in the conversation when the agent requests an exception.
 **Approval for Me** sends that request to a separate, tool-free model invocation;
 it does not create a task. Set `reviewer_profile` to a configured model profile,
-or omit it to use the task's profile. The offline echo profile cannot approve.
+or omit it to prefer the same ChatGPT account connection's advertised
+`codex-auto-review` model, including its hidden catalog entry. Other profiles and
+connections that do not advertise this model use the task's profile; account
+discovery reports that fallback. Explicit reviewer choices and existing task
+settings are preserved. The offline echo profile cannot approve.
 
 An agent requests an exception with `sandbox_permissions: "require_escalated"`
 and a concrete `justification` before executing the command. The Web UI shows

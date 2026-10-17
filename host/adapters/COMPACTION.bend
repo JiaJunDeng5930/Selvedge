@@ -56,7 +56,8 @@ def call_history(+plan: J.Json) -> J.Json:
 def call_effect(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
   +plan = J.get(effect, "plan")
-  J.Object{[J.Field{"kind", J.Text{"context_compaction"}}, J.Field{"context_selected", J.Boolean{True{}}}, J.Field{"model", J.get(effect, "model")},
+  J.Object{[J.Field{"kind", J.Text{"context_compaction"}}, J.Field{"task_id", J.get(effect, "task_id")}, J.Field{"ticket", J.get(effect, "ticket")},
+    J.Field{"context_selected", J.Boolean{True{}}}, J.Field{"model", J.get(effect, "model")},
     J.Field{"sampling", J.get(effect, "sampling")}, J.Field{"tools", J.Array{Nil{}}},
     J.Field{"callable", J.Array{Nil{}}}, J.Field{"history", choose(String.eq(J.text(J.get(plan, "method")), "native"), J.get(plan, "history"), call_history(plan))}]}
 
@@ -265,6 +266,12 @@ def run(+operation: String, +source: J.Json) -> J.Json:
 
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning_entry(operation, source) : J.Json}
+
+law call_effect_preserves_task_identity:
+  @source:J.Json -> {J.get(call_effect(source), "task_id") == J.get(J.get(source, "effect"), "task_id") : J.Json}
+
+law call_effect_preserves_ticket:
+  @source:J.Json -> {J.get(call_effect(source), "ticket") == J.get(J.get(source, "effect"), "ticket") : J.Json}
 
 law opaque_input_has_no_local_token_estimate:
   @source:J.Json -> {meter_fallback(put(source, "plaintext", J.Boolean{False{}})) ==

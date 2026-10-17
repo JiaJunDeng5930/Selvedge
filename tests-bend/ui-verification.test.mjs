@@ -182,13 +182,17 @@ test('production activity surfaces retain current decisions and project obstruct
     if (request.method === 'GET') jsonResponse(response, { models: [{
       slug: 'activity-model', display_name: 'Activity model', priority: 0, visibility: 'list', supported_in_api: false,
       default_reasoning_level: 'medium', supported_reasoning_levels: [{ effort: 'medium', description: 'Normal' }, { effort: 'high', description: 'High' }],
-    }] });
+    }, { slug: 'codex-auto-review', display_name: 'Codex Auto-review', visibility: 'hide' }] });
     else modelResponse(response, [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Settled.' }] }]);
   });
   const server = await startServer({ home: upstream.directory, cwd: upstream.directory,
     config: validateConfig({ ...defaultConfig, port: 0, profiles: {}, chatgpt: upstream.profile }) });
   t.after(() => server.close());
   const profile = server.service.browserSnapshot().program.local.environment.profiles.head.key;
+  const reviewer = Object.keys(server.service.config.profiles)
+    .find(key => server.service.config.profiles[key].model === 'codex-auto-review');
+  assert.ok(reviewer, 'The advertised hidden reviewer must reach the native account catalogue');
+  assert.equal(reviewer.slice(0, reviewer.lastIndexOf('/')), profile.slice(0, profile.lastIndexOf('/')));
   assert.equal((await server.service.command({ op: 'create', profile, reasoning: 'medium', message: 'Activity acceptance.' })).reply.ok, true);
   await taskIdle(server.service, 0);
   const initial = () => {
@@ -325,6 +329,45 @@ test('production activity surfaces retain current decisions and project obstruct
     assert.equal(selected.length, 1);
     assert.equal(actualUIInput(selected[0].meaning.input, 'AutomaticReview').profile, profile);
     assert.deepEqual(actualUIInput(selected[0].meaning.input, 'EditDraft').editor, editor);
+  });
+
+  await t.test('account Auto-review defaults reach new drafts and task commands while staying out of task model choices', async () => {
+    const newEditor = uiValue('NewTaskEditor');
+    const newState = open(initial(), 'PermissionsConfiguration', newEditor);
+    const newAutomatic = nodes(newState).find(node => bendTag(node.meaning) === 'Choice'
+      && actualUIInput(node.meaning.input, 'AutomaticReview'));
+    assert.ok(newAutomatic, 'A new task must expose the automatic-review strategy');
+    assert.equal(actualUIInput(newAutomatic.meaning.input, 'AutomaticReview').profile, reviewer);
+    const applied = ui.activate_state(newState, ui.key(newAutomatic));
+    const draft = listValues(applied.application.session.drafts)
+      .find(draft => bendTag(draft.body) === 'NewTask');
+    assert.equal(draft.body.profile, profile, 'The reviewer must not become the new task model');
+    assert.equal(draft.body.context.approval.value.profile, reviewer);
+    for (const owner of [newEditor, editor]) {
+      const picker = open(initial(), 'ModelPicker', owner);
+      assert.equal(nodes(picker).some(node => actualUIInput(node.meaning.input, 'ChooseModel')?.profile === reviewer), false,
+        'The review-only account model must not become an ordinary task-model alternative');
+    }
+    assert.equal((await server.service.command({ op: 'configure_task_execution', task_id: 0, profile,
+      reasoning: 'high', sandbox: { mode: 'workspace-write', network_access: false }, approval: { mode: 'ask-for-approval' } })).reply.ok, true);
+    const taskState = open(initial(), 'PermissionsConfiguration', editor);
+    const taskAutomatic = nodes(taskState).find(node => bendTag(node.meaning) === 'Choice'
+      && actualUIInput(node.meaning.input, 'AutomaticReview'));
+    assert.ok(taskAutomatic);
+    const pressed = ui.press_state(taskState, ui.key(taskAutomatic));
+    assert.equal(bendTag(pressed), 'Done');
+    const commands = JSON.parse(pressed.value);
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0].op, 'configure_task_execution');
+    assert.deepEqual(commands[0].approval, { mode: 'approval-for-me', reviewer_profile: reviewer });
+    const response = await fetch(`${server.address}/api/browser/command`, { method: 'POST',
+      headers: { authorization: `Bearer ${server.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ command: commands[0] }) });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).reply.ok, true);
+    const after = await server.service.command({ op: 'read', task_id: 0 });
+    assert.equal(after.reply.result.task.profile, profile);
+    assert.equal(after.reply.result.task.settings.approval.reviewer_profile, reviewer);
   });
 
 

@@ -246,15 +246,43 @@ def exposed(body: U.Body, field: Field) -> Bool:
 def reviewers(world: M.World()) -> +List<D.Profile>:
   List.filter(~D.Profile, (profile => Workspace.valid_reviewer_profile(profile)), Board.profiles(world))
 
-def context_value(field: Field, config: Context.Configuration, +world: M.World()) -> Observed:
+def task_profiles(world: M.World()) -> +List<D.Profile>:
+  List.filter(~D.Profile, (profile => Bool.not(D.is_codex_auto_review(profile))), Board.profiles(world))
+
+def exclude_reviewer_entry(duplicate: Bool, profile: D.Profile, rest: +List<D.Profile>) -> +List<D.Profile>:
+  match duplicate:
+    case True{}: rest
+    case False{}: profile <> rest
+
+def exclude_reviewer(+key: String, profiles: +List<D.Profile>) -> +List<D.Profile>:
+  match profiles:
+    case Nil{}: Nil{}
+    case Con{+profile, rest}:
+      exclude_reviewer_entry(String.eq(D.profile_key(profile), key), profile, exclude_reviewer(key, rest))
+
+def preferred_reviewers(found: Maybe<&2, D.Profile>, +profiles: +List<D.Profile>) -> +List<D.Profile>:
+  match found:
+    case None{}: profiles
+    case Some{+profile}: profile <> exclude_reviewer(D.profile_key(profile), profiles)
+
+def reviewers_for_found(found: Maybe<&2, D.Profile>, +profiles: +List<D.Profile>) -> +List<D.Profile>:
+  match found:
+    case None{}: profiles
+    case Some{profile}: preferred_reviewers(D.find_profile(profiles,
+      D.profile_key(Workspace.default_reviewer(profile, profiles))), profiles)
+
+def reviewers_for(profile: String, +world: M.World()) -> +List<D.Profile>:
+  reviewers_for_found(D.find_profile(Board.profiles(world), profile), reviewers(world))
+
+def context_value(field: Field, config: Context.Configuration, +profile: String, +world: M.World()) -> Observed:
   match field:
-    case ContextOrigin{}: ContextValue{Context.preview(config, world), reviewers(world)}
-    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world), reviewers(world)}
-    case WorkspacePrimary{}: ContextValue{Context.preview(config, world), reviewers(world)}
-    case SandboxMode{}: ContextValue{Context.preview(config, world), reviewers(world)}
-    case NetworkAccess{}: ContextValue{Context.preview(config, world), reviewers(world)}
-    case ApprovalPolicy{}: ContextValue{Context.preview(config, world), reviewers(world)}
-    case ApprovalReviewer{}: ContextValue{Context.preview(config, world), reviewers(world)}
+    case ContextOrigin{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
+    case WorkspaceDirectories{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
+    case WorkspacePrimary{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
+    case SandboxMode{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
+    case NetworkAccess{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
+    case ApprovalPolicy{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
+    case ApprovalReviewer{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
     case _: NotApplicable{}
 
 def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, world: M.World()) -> Observed:
@@ -262,7 +290,7 @@ def new_task_value(field: Field, message: U.Text, profile: String, reasoning: St
     case MessageText{}: TextValue{U.text(message)}
     case ModelProfile{}: ModelValue{profile, reasoning}
     case ReasoningEffort{}: ModelValue{profile, reasoning}
-    case other: context_value(other, config, world)
+    case other: context_value(other, config, profile, world)
 
 def message_value(field: Field, message: U.Text, delivery: U.Delivery) -> Observed:
   match field:
@@ -300,13 +328,21 @@ def agent_value(field: Field, name: String, profile: String, reasoning: String, 
     case AgentConcurrency{}: CountValue{concurrency}
     case ModelProfile{}: ModelValue{profile, reasoning}
     case ReasoningEffort{}: ModelValue{profile, reasoning}
-    case other: context_value(other, config, world)
+    case other: context_value(other, config, profile, world)
 
-def fork_value(field: Field, count: Nat, messages: +List<String>, config: Context.Configuration, world: M.World()) -> Observed:
+def found_parent_profile(found: Maybe<&2, D.Task>) -> String:
+  match found:
+    case None{}: ""
+    case Some{task}: D.task_profile(task)
+
+def parent_profile(task: Nat, world: M.World()) -> String:
+  found_parent_profile(Tasks.find(Commands.entries(world), task))
+
+def fork_value(field: Field, task: Nat, count: Nat, messages: +List<String>, config: Context.Configuration, +world: M.World()) -> Observed:
   match field:
     case ForkCount{}: CountValue{count}
     case ForkMessages{}: TextsValue{messages}
-    case other: context_value(other, config, world)
+    case other: context_value(other, config, parent_profile(task, world), world)
 
 def task_graph_value(field: Field, declaration: String) -> Observed:
   match field:
@@ -319,7 +355,7 @@ def task_message_field(field: Field, message: U.Text, delivery: U.Delivery, prof
     case DeliveryIntent{}: DeliveryValue{delivery}
     case ModelProfile{}: ModelValue{profile, reasoning}
     case ReasoningEffort{}: ModelValue{profile, reasoning}
-    case other: context_value(other, config, world)
+    case other: context_value(other, config, profile, world)
 
 def task_context_field(+field: Field, +message: U.Text, delivery: U.Delivery, +task: D.Task, context: D.TaskContext, +world: M.World()) -> Observed:
   D.TaskContext{workspace, sandbox, approval, project} = context
@@ -337,7 +373,7 @@ def observed(body: U.Body, field: Field, +world: M.World()) -> Observed:
     case U.Project{id, name, workspace}: project_value(field, name, workspace)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_value(draft, field, assist, profile, keep_open)
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
-    case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
+    case U.Fork{task, count, messages, config}: fork_value(field, task, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
     case U.TaskGraph{graph, declaration, parsed}: task_graph_value(field, declaration)
 

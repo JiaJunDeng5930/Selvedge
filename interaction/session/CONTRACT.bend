@@ -32,7 +32,7 @@ def catalog_selection_if(valid: Bool, +profile: D.Profile, fallback: Sigma<&2, &
 def catalog_selection(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
     case Nil{}: ("", "")
-    case Con{+profile, rest}: catalog_selection_if(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, catalog_selection(rest))
+    case Con{+profile, rest}: catalog_selection_if(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, catalog_selection(rest))
 
 def preference_selection_if(valid: Bool, value: E.ModelPreference, profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match valid value:

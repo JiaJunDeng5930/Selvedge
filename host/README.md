@@ -116,6 +116,12 @@ decide an approval. See `sandbox.test.mjs` for the OS trust boundary.
 provider request. It creates no task. [EFFECTS.bend](adapters/EFFECTS.bend) admits the observed
 approval response and constructs its completion; malformed output and provider
 failures return failed-review inputs to Bend.
+Account discovery retains the advertised `codex-auto-review` model for approval
+selection, including when its catalog visibility is hidden. It uses the same
+connection and account binding as that account's task models, with low reasoning
+when advertised. This selects the official reviewer model while retaining
+Selvedge's review prompt and decision format; it does not run a Codex reviewer
+agent or change execution permissions.
 Human reviews use the authenticated command/UI boundary. The native operation
 identity, reviewer and complete command bind the decision; a grant never mutates
 the task's saved workspace or sandbox. The actual model's judgment is an external

@@ -216,7 +216,7 @@ def first_valid_profile(+valid: Bool, +profile: D.Profile, +fallback: Sigma<&2, 
 def first_profile(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
     case Nil{}: ("", "")
-    case Con{+profile, rest}: first_valid_profile(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, first_profile(rest))
+    case Con{+profile, rest}: first_valid_profile(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, first_profile(rest))
 
 def chooser_owns(layers: +List<Layer>, editor: U.Editor) -> Bool:
   match layers:
