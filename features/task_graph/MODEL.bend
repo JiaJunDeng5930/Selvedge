@@ -34,7 +34,7 @@ type State is Data:
   State{graphs: +List<Finite.Entry(Graph)>, next: Nat}
 
 type Command is Data:
-  Create{declaration: Declaration}
+  Create{work: Maybe<&2, Nat>, declaration: Declaration}
   Update{id: Nat, declaration: Declaration}
   Delete{id: Nat}
 

@@ -78,6 +78,9 @@ type TaskStatus is Data:
 type TaskEntry is Data:
   TaskEntry{id: Nat, title: String, status: TaskStatus, selected: Bool, open: ControlDeclaration}
 
+type WorkChoice is Data:
+  WorkChoice{work: Maybe<&2, Nat>, name: String, description: String}
+
 type ProjectEntry is Data:
   ProjectEntry{id: Nat, name: String, workspace: D.Workspace, selected: Bool,
     expanded: Bool, tasks: +List<TaskEntry>, open: ControlDeclaration, create: ControlDeclaration, toggle: ControlDeclaration, more: ControlDeclaration}
@@ -133,6 +136,8 @@ type Page is Data:
   MissingObject{message: String}
 
 type LayerContent is Data:
+  GlobalNavigation{route: U.Route, destinations: +List<ControlDeclaration>}
+  WorkSelection{selected: Maybe<&2, Nat>, works: +List<WorkChoice>}
   PropertySource{origin: LayerContent}
   ProjectSelection{query: String, selected: Maybe<&2, Nat>, projects: +List<ProjectChoice>}
   ObjectActions{actions: +List<ControlDeclaration>}

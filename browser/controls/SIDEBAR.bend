@@ -52,10 +52,19 @@ def navigation_length(nominal: Nat, visual: Design.Style) -> Nat:
   navigation_length_at(NaturalSize.limit(), nominal, visual)
 
 def navigation_target_at(+capacity: Nat, +visual: Design.Style) -> Nat:
-  Nat.max(Activity.supporting_minimum(Activity.initial()), navigation_length_at(capacity, 32n, visual))
+  Nat.max(Design.style_minimum_height(visual), Nat.max(Activity.supporting_minimum(Activity.initial()), navigation_length_at(capacity, Controls.navigation_motor_floor(False{}), visual)))
 
 def navigation_target(+visual: Design.Style) -> Nat:
   navigation_target_at(NaturalSize.limit(), visual)
+
+def navigation_line_height_at(+capacity: Nat, visual: Design.Style) -> Nat:
+  T.resolved_line_height(T.resolve_presentation(capacity, Design.style_text(visual)))
+
+def navigation_row_minimum_at(+capacity: Nat, +visual: Design.Style) -> Nat:
+  Nat.max(navigation_target_at(capacity, visual), navigation_line_height_at(capacity, visual))
+
+def navigation_row_minimum(+visual: Design.Style) -> Nat:
+  navigation_row_minimum_at(NaturalSize.limit(), visual)
 
 def navigation_gap_at(+capacity: Nat, visual: Design.Style) -> Nat:
   navigation_length_at(capacity, 8n, visual)
@@ -91,8 +100,7 @@ def leading_allocation(rail: Nat, target: Nat) -> Nat:
   Navigation.leading_allocation(Navigation.leading_geometry(rail, target, 0n))
 
 def indentation_at(+capacity: Nat, depth: Nat, visual: Design.Style) -> Nat:
-  Design.Style{T.Presentation{tier, emphasis, scale}, chrome, alignment, flow, overflow, frame, minimum, maximum, states} = visual
-  Nat.mul(depth, T.scaled(capacity, 16n, scale))
+  Nat.mul(depth, Hierarchy.member_inset(Hierarchy.for_text(capacity, Design.style_text(visual))))
 
 def indentation(depth: Nat, visual: Design.Style) -> Nat:
   indentation_at(NaturalSize.limit(), depth, visual)
@@ -112,7 +120,7 @@ def row_style_fields(value: Source.Style, gap: Nat, inset: Nat, vertical: Nat) -
   Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(inset, vertical), Enclosure.EmbeddedContent{gap}}, width, height, minimum, scroll, position}, font, chrome, states}
 
 def row_style_at(+capacity: Nat, +visual: Design.Style, depth: Nat) -> Source.Style:
-  row_style_fields(Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{0n, navigation_target_at(capacity, visual)}), navigation_following_gap_at(capacity, visual), 0n, 0n)
+  row_style_fields(Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{0n, navigation_row_minimum_at(capacity, visual)}), navigation_following_gap_at(capacity, visual), 0n, 0n)
 
 # Conceal only a slot's paint and exposure; its command fields and allocation stay.
 def row_style(+visual: Design.Style, depth: Nat) -> Source.Style:
@@ -208,16 +216,34 @@ def aligned_sidebar(+nodes: +List<Source.Node>) -> +List<Source.Node>:
 
 def navigation_caption_frame(frame: Enclosure.Frame) -> Enclosure.Frame:
   Enclosure.Frame{content, arrangement} = frame
-  Enclosure.Frame{Enclosure.ambient(0n, Enclosure.block(content)), arrangement}
+  Enclosure.Frame{Enclosure.ambient(0n, 0n), arrangement}
 
 def navigation_title_style(value: Source.Style) -> Source.Style:
   Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = value
   Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, navigation_caption_frame(frame), Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states}
 
+def caption_nodes(nodes: +List<Source.Node>) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Text{key, value, font, wrapping}, rest}: Source.Text{key, value, font, T.SingleLine{}} <> caption_nodes(rest)
+    case Con{Source.Box{key, tag, style, attrs, children}, rest}: Source.Box{key, tag, style, attrs, caption_nodes(children)} <> caption_nodes(rest)
+    case Con{other, rest}: other <> caption_nodes(rest)
+
+def has_title_attribute(attributes: +List<Source.Attribute>) -> Bool:
+  match attributes:
+    case Nil{}: False{}
+    case Con{Source.TitleAttribute{value}, rest}: True{}
+    case Con{other, rest}: has_title_attribute(rest)
+
+def navigation_title_help(present: Bool, name: String) -> +List<Source.Attribute>:
+  match present:
+    case True{}: Nil{}
+    case False{}: [Source.TitleAttribute{name}]
+
 def navigation_title(node: Source.Node) -> Source.Node:
   match node:
-    case Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}:
-      attributes(Source.Control{key, tag, navigation_title_style(style), attrs, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}])
+    case Source.Control{key, tag, style, +attrs, +name, enabled, first, remaining, children}:
+      attributes(Source.Control{key, tag, navigation_title_style(style), attrs, name, enabled, first, remaining, caption_nodes(children)}, Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})} <> navigation_title_help(has_title_attribute(attrs), name))
     case _: attributes(sized(node, Model.StretchSize{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}])
 
 def navigation_row_at(+capacity: Nat, +key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Nat, visual: Design.Style, children: +List<Source.Node>) -> Source.Node:
@@ -231,13 +257,6 @@ def capture(node: Source.Node) -> Maybe<&2, Command>:
   match node:
     case Source.Control{key, Source.Button{}, style, attrs, name, enabled, first, remaining, children}: Some{Command{key, style, attrs, name, enabled, first, remaining, children}}
     case _: None{}
-
-def caption_nodes(nodes: +List<Source.Node>) -> +List<Source.Node>:
-  match nodes:
-    case Nil{}: Nil{}
-    case Con{Source.Text{key, value, font, wrapping}, rest}: Source.Text{key, value, font, T.SingleLine{}} <> caption_nodes(rest)
-    case Con{Source.Box{key, tag, style, attrs, children}, rest}: Source.Box{key, tag, style, attrs, caption_nodes(children)} <> caption_nodes(rest)
-    case Con{other, rest}: other <> caption_nodes(rest)
 
 def title(+key: UIIdentity.Key, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
   Source.Box{UIIdentity.part(key, "@title-content"), Source.Span{}, navigation_title_style(Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n)), [Source.DataAttribute{"navigation-slot", "title"}], caption_nodes(content)}
@@ -273,10 +292,10 @@ def trailing_width(entry: Entry, +visual: Design.Style) -> Nat:
   trailing_width_at(NaturalSize.limit(), entry, visual)
 
 def single_source_fields_with_rail_at(+capacity: Nat, +key: UIIdentity.Key, +depth: Nat, +visual: Design.Style, command: Command, status: +List<Source.Node>, offset: Nat, leading: Nat, target: Nat, trailing: Nat, +visual_rail: Nat) -> Source.Node:
-  Command{command_key, style, attrs, name, enabled, first, remaining, +children} = command
+  Command{command_key, style, +attrs, +name, enabled, first, remaining, +children} = command
   Source.Control{command_key, Source.Button{}, row_style_at(capacity, visual, depth), attrs, name, enabled, first, remaining,
     [navigation_leading_fields_with_rail(key, Navigation.IdentitySlot{}, offset, leading, target, visual, identity_source_at(capacity, key, visual, children), visual_rail),
-     title(key, visual, title_content(children)),
+     attributes(title(key, visual, title_content(children)), navigation_title_help(has_title_attribute(attrs), name)),
      slot_at(capacity, key, "status", Model.ExactSize{trailing}, True{}, visual, status)]}
 
 def single_source_fields_with_rail(+key: UIIdentity.Key, +depth: Nat, +visual: Design.Style, command: Command, status: +List<Source.Node>, offset: Nat, leading: Nat, target: Nat, trailing: Nat, +visual_rail: Nat) -> Source.Node:
@@ -320,16 +339,16 @@ type CollectionKind is Data:
 
 def collection_frame(kind: CollectionKind) -> Enclosure.Frame:
   match kind:
-    case Collection{}: Hierarchy.grouped_frame(Hierarchy.initial(), Enclosure.ambient(0n, 0n))
-    case Section{}: Hierarchy.heading_frame(Hierarchy.initial())
-    case Members{}: Hierarchy.flat_member_frame(Hierarchy.initial())
+    case Collection{}: Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{Hierarchy.heading_gap(Hierarchy.initial())}}
+    case Section{}: Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}
+    case Members{}: Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}
 
 def collection_source(+key: UIIdentity.Key, +kind: CollectionKind, +visual: Design.Style, +content: +List<Source.Node>) -> Source.Node:
   match kind content:
     case Section{} Con{header, Nil{}}: Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), collection_frame(Section{})), Nil{}, [header]}
     case Section{} Con{header, members}:
       Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), collection_frame(Section{})), Nil{},
-        [header, Source.Box{UIIdentity.part(key, "children"), Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Hierarchy.flat_member_frame(Hierarchy.initial())), [Source.DataAttribute{"navigation-members", UIIdentity.encode(key)}], members}]}
+        [header, Source.Box{UIIdentity.part(key, "children"), Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), collection_frame(Members{})), [Source.DataAttribute{"navigation-members", UIIdentity.encode(key)}], members}]}
     case _ other: Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), collection_frame(kind)), Nil{}, other}
 
 type Observation is Data:
@@ -382,7 +401,7 @@ def expected_row_layout_fields(value: Source.Style, +visual: Design.Style) -> So
   expected_row_layout_fields_at(NaturalSize.limit(), value, visual)
 
 def expected_row_layout_at(+capacity: Nat, +visual: Design.Style) -> Source.Layout:
-  expected_row_layout_fields_at(capacity, Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{0n, navigation_target_at(capacity, visual)}), visual)
+  expected_row_layout_fields_at(capacity, Factory.with_minimum(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Enclosure.Extent{0n, navigation_row_minimum_at(capacity, visual)}), visual)
 
 def expected_row_layout(+visual: Design.Style) -> Source.Layout:
   expected_row_layout_at(NaturalSize.limit(), visual)
@@ -601,3 +620,32 @@ def constructed_collection_node(constructed: Categories.Membership<CollectionObs
 
 law collection_constructor_correspondence:
   @+request:CollectionRequest -> {constructed_collection_node(construct_collection(request)) == collection_request_source(request) : Source.Node}
+
+
+law navigation_row_minimum_combines_target_and_actual_line_box:
+  @+capacity:Nat -> @+visual:Design.Style ->
+    {navigation_row_minimum_at(capacity, visual) == Nat.max(navigation_target_at(capacity, visual), T.resolved_line_height(T.resolve_presentation(capacity, Design.style_text(visual)))) : Nat}
+
+law navigation_caption_keeps_complete_single_line_text:
+  @key:UIIdentity.Key -> @value:String -> @font:Source.FontChoice -> @wrapping:T.Wrapping -> @rest:+List<Source.Node> ->
+    {caption_nodes(Source.Text{key, value, font, wrapping} <> rest) == Source.Text{key, value, font, T.SingleLine{}} <> caption_nodes(rest) : +List<Source.Node>}
+
+law collection_separates_groups_with_hierarchy_heading_gap:
+  {collection_frame(Collection{}) == Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{Hierarchy.heading_gap(Hierarchy.initial())}} : Enclosure.Frame}
+
+law project_header_and_members_are_contiguous:
+  {collection_frame(Section{}) == Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}} : Enclosure.Frame}
+
+law task_rows_are_contiguous:
+  {collection_frame(Members{}) == Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}} : Enclosure.Frame}
+
+
+law indentation_uses_hierarchy_membership_step:
+  @+capacity:Nat -> @+depth:Nat -> @+visual:Design.Style ->
+    {indentation_at(capacity, depth, visual) == Nat.mul(depth, Hierarchy.member_inset(Hierarchy.for_text(capacity, Design.style_text(visual)))) : Nat}
+
+law navigation_title_keeps_existing_reason:
+  @name:String -> {navigation_title_help(True{}, name) == Nil{} : +List<Source.Attribute>}
+
+law navigation_title_supplies_complete_name_without_reason:
+  @+name:String -> {navigation_title_help(False{}, name) == [Source.TitleAttribute{name}] : +List<Source.Attribute>}

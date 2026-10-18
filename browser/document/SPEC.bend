@@ -47,6 +47,17 @@ def reachable_toolbar(found: Maybe<&2, Rendered.Element>) -> Bool:
 
 def region_geometry_valid(role: SurfaceTypes.Role, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) -> Bool:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: bounded_region(found, viewport)
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: True{}
+    case SurfaceTypes.CompactHeader{}: bounded_region(found, viewport)
+    case SurfaceTypes.CompactWorkScope{title, count}: True{}
+    case SurfaceTypes.CompactNavigationMenu{}: True{}
+    case SurfaceTypes.CompactNavigationEntry{selected}: True{}
+    case SurfaceTypes.WorkTabs{}: bounded_region(found, viewport)
+    case SurfaceTypes.WorkTabGroup{}: True{}
+    case SurfaceTypes.WorkChoiceRow{}: True{}
+    case SurfaceTypes.WorkOverviewButton{count}: True{}
+    case SurfaceTypes.WorkTab{selected}: True{}
     case SurfaceTypes.Navigation{}: bounded_region(found, viewport)
     case SurfaceTypes.NavigationEntry{selected}: True{}
     case SurfaceTypes.NavigationCollection{}: True{}

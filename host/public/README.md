@@ -21,6 +21,19 @@ which facts have a presentation. Rendering and encoding failures have Bend-owned
 screens. The static HTML loading/error text only covers loading the compiled
 program itself.
 
+Ordered focus effects retain their order while a target awaits publication.
+The adapter retries the current ticket's queue when the document is published;
+newer focus tickets retire obsolete requests. This lets a newly created tab be
+exposed before the following effect restores the page's focus. Each focus also
+requests nearest-edge scrolling, since native focus can leave a partially
+visible control clipped.
+
+Authored `data-reveal-on-layout="true"` targets request nearest-edge scrolling
+after publication, without moving keyboard focus. `layout-reveal.mjs` compares
+their layout position, size and enclosing scrollport sizes; user scrolling alone
+does not renew the request. Bend chooses the targets, and the adapter interprets
+the same generic constraint for any native element.
+
 ## Incremental Markdown
 
 `markdown.mjs` retains its paced text buffer, bounded streaming parser and worker

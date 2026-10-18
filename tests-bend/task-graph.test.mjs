@@ -225,6 +225,9 @@ test('malformed graph bindings and ordinary Task settings reject the whole insta
   let deep = { kind: 'output' };
   for (let index = 0; index < 20; index++) deep = concat(deep);
   const invalid = [
+    { work_id: 999, nodes: [node('first')], rules: [] },
+    { work_id: '0', nodes: [node('first')], rules: [] },
+    { work_id: -1, nodes: [node('first')], rules: [] },
     { nodes: [node('first'), node('second')], rules: [rule('bad source', 'missing', action('second'))] },
     { nodes: [node('first'), node('second')], rules: [rule('bad target', 'first', action('missing'))] },
     { nodes: [node('same'), node('same')], rules: [] },
@@ -256,6 +259,61 @@ test('a rejected replacement preserves the existing graph and does not leak a pa
   assert.deepEqual(rejected.effects, []);
   assert.deepEqual(await readGraph(fixture, graph.graph_id), graph);
   assert.deepEqual((await fixture.command({ op: 'list' })).reply.result.tasks, beforeTasks);
+});
+
+test('Work graph admission rejects foreign and standalone Tasks without leaking births or transferring ownership', async t => {
+  const fixture = await journalFixture(t);
+  const result = async command => {
+    const decision = await fixture.command(command);
+    assert.equal(decision.reply.ok, true, JSON.stringify(decision.reply));
+    return decision.reply.result;
+  };
+  const work_id = (await result({ op: 'create_work', name: 'Owned graph' })).work_id;
+  const other = (await result({ op: 'create_work', name: 'Other Work' })).work_id;
+  const member = (await result({ op: 'create_work_task', work_id, profile: 'fixture', message: 'Existing member' })).task_id;
+  const foreign = (await result({ op: 'create_work_task', work_id: other, profile: 'fixture', message: 'Foreign member' })).task_id;
+  const standalone = (await result({ op: 'create', profile: 'fixture', message: 'Standalone' })).task_id;
+  const beforeTasks = await result({ op: 'list' });
+  const beforeWorks = await result({ op: 'list_works' });
+  for (const task_id of [foreign, standalone]) {
+    const rejected = await fixture.command({ op: 'create_task_graph', work_id, name: 'Must remain atomic',
+      nodes: [node('provisional'), reference('illegal existing', task_id)], rules: [] });
+    assert.equal(rejected.reply.ok, false, JSON.stringify(rejected.reply));
+    assert.equal(rejected.reply.error.code, 'task_graph_work_mismatch');
+    assert.deepEqual(rejected.effects, []);
+    assert.deepEqual(await result({ op: 'list' }), beforeTasks);
+    assert.deepEqual(await result({ op: 'list_works' }), beforeWorks);
+    assert.deepEqual((await result({ op: 'list_task_graphs' })).graphs, []);
+  }
+
+  const { graph } = await install(fixture, [reference('existing', member), node('spawned')], [], { work_id });
+  const spawned = taskId(graph, 'spawned');
+  assert.equal(spawned, standalone + 1, 'Rejected graph births must not allocate Task IDs');
+  assert.equal((await page(fixture, spawned)).task.work_id, work_id);
+  const owned = await result({ op: 'read_work', work_id });
+  assert.deepEqual(owned.task_ids, [member, spawned]);
+  assert.deepEqual(owned.graph_ids, [graph.graph_id]);
+  const installedTasks = await result({ op: 'list' });
+  const installedWorks = await result({ op: 'list_works' });
+  const forbiddenUpdates = [
+    { work_id: other, nodes: graph.nodes },
+    { nodes: [...graph.nodes, node('provisional update'), reference('foreign', foreign)] },
+    { nodes: [...graph.nodes, node('provisional update'), reference('standalone', standalone)] },
+  ];
+  for (const update of forbiddenUpdates) {
+    const rejected = await fixture.command({ op: 'update_task_graph', graph_id: graph.graph_id,
+      name: 'Must not transfer or replace', rules: [], ...update });
+    assert.equal(rejected.reply.ok, false, JSON.stringify(rejected.reply));
+    assert.deepEqual(rejected.effects, []);
+    assert.deepEqual(await readGraph(fixture, graph.graph_id), graph);
+    assert.deepEqual(await result({ op: 'list' }), installedTasks);
+    assert.deepEqual(await result({ op: 'list_works' }), installedWorks);
+  }
+  await result({ op: 'update_task_graph', graph_id: graph.graph_id,
+    name: 'Renamed within the same Work', nodes: graph.nodes, rules: [] });
+  assert.deepEqual(await result({ op: 'read_work', work_id }), owned);
+  assert.deepEqual((await result({ op: 'read_work', work_id: other })).task_ids, [foreign]);
+  assert.equal((await page(fixture, standalone)).task.work_id, null);
 });
 
 test('native graph and Task creation cannot forge host observations or partially install rejected children', async t => {

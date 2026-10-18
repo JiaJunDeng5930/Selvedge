@@ -152,7 +152,10 @@ def actual_choice_normalization(+key: Identity.Key, +selected: Bool, +descriptio
     case C.Context{C.PageArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
-    case C.Context{C.NavigationArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
+    case C.Context{C.NavigationArea{compact}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.TouchNavigationArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ComposerArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:

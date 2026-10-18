@@ -21,7 +21,7 @@ import ../TYPES.bend as InteractionTypes
 import ../presentation/SURFACE.bend as SurfaceTypes
 
 def draft_composer_context(+message: U.Text, profile: String, reasoning: String, +config: Context.Configuration, scene: V.EditorScene, +world: M.World()) ->
-  {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config}, scene, world)) ==
+  {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config, None{}}, scene, world)) ==
     Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
@@ -140,7 +140,13 @@ def permissions_menu_observation(+editor: U.Editor, config: Context.Configuratio
       InteractionTypes.State{E.Application{+world, +session}, +services} = state
       committed_permission_observation(View.committed_context(Tasks.find(Commands.entries(world), task)), parent, InteractionTypes.State{E.Application{world, session}, services},
         InterfaceView.permission_decisions(U.MessageEditor{task}, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers, parent, InteractionTypes.State{E.Application{world, session}, services}))
-    case U.NewTaskEditor{}:
+    case U.NewTaskEditor{work}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.NewWorkGraphEditor{work}:
+      InteractionTypes.State{E.Application{world, session}, services} = state
+      {==}
+    case U.WorkEditor{work}:
       InteractionTypes.State{E.Application{world, session}, services} = state
       {==}
     case U.ProjectEditor{id}:

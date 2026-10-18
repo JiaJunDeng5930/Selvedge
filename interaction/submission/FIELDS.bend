@@ -16,6 +16,7 @@ type ChoiceValue is Data:
   ChoiceValue{value: String, label: String}
 
 type Field is Data:
+  WorkName{}
   MessageText{}
   ProjectName{}
   WorkspaceDirectories{}
@@ -131,7 +132,8 @@ def capture_structure(id: Maybe<&2, Nat>) -> +List<Section>:
 
 def structure(body: U.Body) -> +List<Section>:
   match body:
-    case U.NewTask{message, profile, reasoning, context}:
+    case U.WorkName{work, name}: [Section{"Work", [FieldScene{WorkName{}, "Name", SingleLine{}}]}]
+    case U.NewTask{message, profile, reasoning, context, work}:
       [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution()]
     case U.Message{task, message, delivery}:
       [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}]
@@ -149,11 +151,12 @@ def structure(body: U.Body) -> +List<Section>:
       [Section{"Fork", [FieldScene{ForkCount{}, "Number of tasks", PositiveInteger{}}, FieldScene{ForkMessages{}, "Initial messages", Multiline{}}]}, execution()]
     case U.Compact{task, summary}:
       [Section{"Compaction", [FieldScene{CompactionSummary{}, "Summary override", Multiline{}}]}]
-    case U.TaskGraph{graph, declaration, parsed}:
+    case U.TaskGraph{graph, declaration, parsed, work}:
       [Section{"Task graph", [FieldScene{TaskGraphDeclaration{}, "Declaration", StructuredText{}}]}]
 
 def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
+    case WorkName{} Text{text}: Some{U.NameWork{text}}
     case ContinueCapture{} Toggle{enabled}: Some{U.KeepCaptureOpen{enabled}}
     case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text}}}
     case ProjectName{} Text{text}: Some{U.NameProject{text}}
@@ -188,6 +191,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
 
 def key(field: Field) -> String:
   match field:
+    case WorkName{}: "work-name"
     case MessageText{}: "message-text"
     case ProjectName{}: "project-name"
     case WorkspaceDirectories{}: "workspace-directories"
@@ -332,14 +336,18 @@ def task_field(found: Maybe<&2, D.Task>, field: Field, message: U.Text, delivery
 
 def observed(body: U.Body, field: Field, +world: M.World()) -> Observed:
   match body:
-    case U.NewTask{message, profile, reasoning, config}: new_task_value(field, message, profile, reasoning, config, world)
+    case U.WorkName{work, name}:
+      match field:
+        case WorkName{}: TextValue{name}
+        case _: NotApplicable{}
+    case U.NewTask{message, profile, reasoning, config, work}: new_task_value(field, message, profile, reasoning, config, world)
     case U.Message{task, message, delivery}: task_field(Tasks.find(Commands.entries(world), task), field, message, delivery, world)
     case U.Project{id, name, workspace}: project_value(field, name, workspace)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_value(draft, field, assist, profile, keep_open)
     case U.Agent{id, revision, name, profile, reasoning, instructions, config, concurrency}: agent_value(field, name, profile, reasoning, instructions, config, concurrency, world)
     case U.Fork{task, count, messages, config}: fork_value(field, count, messages, config, world)
     case U.Compact{task, summary}: OptionalTextValue{summary}
-    case U.TaskGraph{graph, declaration, parsed}: task_graph_value(field, declaration)
+    case U.TaskGraph{graph, declaration, parsed, work}: task_graph_value(field, declaration)
 
 type ModelSelection is Data:
   ModelSelection{profile: D.Profile, reasoning: String}
@@ -423,7 +431,7 @@ def fork_edit(field: Field, value: Value, count: Nat, messages: +List<String>, c
 
 def edit_for(body: U.Body, field: Field, value: Value, world: M.World()) -> Maybe<&2, U.Edit>:
   match body:
-    case U.NewTask{message, profile, reasoning, context}: configured_edit(field, value, profile, reasoning, context, world)
+    case U.NewTask{message, profile, reasoning, context, work}: configured_edit(field, value, profile, reasoning, context, world)
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: configured_edit(field, value, profile, reasoning, context, world)
     case U.Card{id, revision, draft, assist, profile, keep_open}: card_edit(field, value, assist, profile)
     case U.Fork{task, count, messages, context}: fork_edit(field, value, count, messages, context, world)

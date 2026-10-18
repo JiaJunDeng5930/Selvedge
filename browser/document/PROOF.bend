@@ -127,6 +127,17 @@ def clear_reachable_toolbar(key: String, found: Maybe<&2, Rendered.Element>) ->
 def clear_region_geometry(role: SurfaceTypes.Role, key: String, found: Maybe<&2, Rendered.Element>, viewport: Geometry.Rect) ->
   {Rule.clear(Rendered.region_geometry(role, key, found, viewport)) == Spec.region_geometry_valid(role, found, viewport) : Bool}:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: clear_bounded_dialog(key, found, viewport)
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: {==}
+    case SurfaceTypes.CompactHeader{}: clear_bounded_dialog(key, found, viewport)
+    case SurfaceTypes.CompactWorkScope{title, count}: {==}
+    case SurfaceTypes.CompactNavigationMenu{}: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}: {==}
+    case SurfaceTypes.WorkTabs{}: clear_bounded_dialog(key, found, viewport)
+    case SurfaceTypes.WorkTabGroup{}: {==}
+    case SurfaceTypes.WorkChoiceRow{}: {==}
+    case SurfaceTypes.WorkOverviewButton{count}: {==}
+    case SurfaceTypes.WorkTab{selected}: {==}
     case SurfaceTypes.Navigation{}: clear_bounded_dialog(key, found, viewport)
     case SurfaceTypes.NavigationEntry{selected}: {==}
     case SurfaceTypes.NavigationCollection{}: {==}

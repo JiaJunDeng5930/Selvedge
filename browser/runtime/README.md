@@ -48,6 +48,12 @@ specifications. Candidate construction remains `WaitingFont` until both activity
 metrics are retained; the existing font cache supplies the additional observations.
 The preferred navigation width, readable navigation minimum and main writing
 minimum are inputs to joint allocation, not a guarantee that any candidate fits.
+`SHELL.workspace` reserves the simultaneous Task-navigation and main-content
+minimum for navigation-capable candidates, independently of whether the user has
+collapsed the Task tree. The enclosing global rail occupies its actual allocated
+width separately. A hidden tree therefore cannot make a narrow viewport acquire
+desktop Work navigation. The same source minimum remains in force when pending
+physical measurements resume.
 
 New layout derivations, including explicit remeasurement and navigation attention
 changes, begin at the full candidate. Each ready full form compares the preferred

@@ -35,8 +35,10 @@ type Icon is Data:
   PlayTriangle{}
   CloseCross{}
   MoreDots{}
+  MenuLines{}
   Sidebar{}
   SidebarClose{}
+  Home{}
   Folder{}
   Tag{}
   Clock{}
@@ -80,7 +82,8 @@ type Icon is Data:
 
 type Area is Data:
   PageArea{}
-  NavigationArea{}
+  NavigationArea{compact: Bool}
+  TouchNavigationArea{}
   ComposerArea{}
   ToolbarArea{}
   CodeArea{}
@@ -330,8 +333,13 @@ def initial(content: InteractionTypes.Scene) -> Context:
 
 def area_for(role: SurfaceTypes.Role, inherited: Area) -> Area:
   match role:
-    case SurfaceTypes.Navigation{}: NavigationArea{}
-    case SurfaceTypes.NavigationHeader{}: NavigationArea{}
+    case SurfaceTypes.GlobalNavigation{compact}: NavigationArea{False{}}
+    case SurfaceTypes.WorkTabs{}: ToolbarArea{}
+    case SurfaceTypes.CompactHeader{}: TouchNavigationArea{}
+    case SurfaceTypes.CompactNavigationMenu{}: TouchNavigationArea{}
+    case SurfaceTypes.CompactNavigationEntry{selected}: TouchNavigationArea{}
+    case SurfaceTypes.Navigation{}: NavigationArea{False{}}
+    case SurfaceTypes.NavigationHeader{}: inherited
     case SurfaceTypes.Card{}: CardArea{}
     case SurfaceTypes.Composer{}: ComposerArea{}
     case SurfaceTypes.ComposerActions{}: ComposerArea{}
@@ -417,10 +425,31 @@ def source_reference(context: Context) -> SourceFamily:
   Context{area, selection, code, appearance, access, open, layers, execution, source_family, supporting_form, attention, navigation_depth} = context
   source_family
 
+def compact_navigation_children(children: +List<SurfaceTypes.Node>) -> Bool:
+  match children:
+    case Con{SurfaceTypes.Node{key, semantic, label, SurfaceTypes.CompactHeader{}, meaning, nested}, rest}: True{}
+    case _: False{}
+
+def node_area(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning, children: +List<SurfaceTypes.Node>, inherited: Area) -> Area:
+  match role:
+    case SurfaceTypes.Navigation{}: NavigationArea{compact_navigation_children(children)}
+    case other: area_for_node(other, meaning, inherited)
+
+def touch_navigation_area(area: Area) -> Bool:
+  match area:
+    case NavigationArea{compact}: compact
+    case TouchNavigationArea{}: True{}
+    case _: False{}
+
+def navigation_motor_floor(compact: Bool) -> Nat:
+  match compact:
+    case True{}: 44n
+    case False{}: 32n
+
 def enter(+node: SurfaceTypes.Node, context: Context) -> Context:
-  SurfaceTypes.Node{+key, semantic, label, +role, +meaning, children} = node
+  SurfaceTypes.Node{+key, semantic, label, +role, +meaning, +children} = node
   Context{parent_area, selection, code, appearance, access, settings_open, +layers, execution, source_family, supporting_form, attention, navigation_depth} = context
-  Context{area_for_node(role, meaning, parent_area), selection_at(layers, key, selection),
+  Context{node_area(role, meaning, children, parent_area), selection_at(layers, key, selection),
     code_at(meaning, code), appearance, access, settings_open, layers, execution, source_family_at(node, source_family), supporting_form, attention, Navigation.descend(meaning, navigation_depth)}
 
 def panel_open(layers: +List<View.Layer>, +trigger: String) -> Bool:
@@ -453,7 +482,7 @@ def selected_edit(edit: UserInput.Edit, selection: Selection) -> Purpose:
 
 def submit_purpose(editor: UserInput.Editor) -> Purpose:
   match editor:
-    case UserInput.NewTaskEditor{}: MessageSubmission{}
+    case UserInput.NewTaskEditor{work}: MessageSubmission{}
     case UserInput.MessageEditor{task}: MessageSubmission{}
     case _: NamedAction{}
 
@@ -476,6 +505,8 @@ def panel_purpose(panel: UserInput.Panel, expanded: Bool) -> Purpose:
     case UserInput.BoardFilters{}: OpenPanel{FilterFunnel{}, False{}, expanded}
     case UserInput.ModelPicker{editor}: ChooseValue{expanded}
     case UserInput.DeliveryPicker{task}: ChooseValue{expanded}
+    case UserInput.WorkOverview{}: OpenPanel{Columns{}, False{}, expanded}
+    case UserInput.GlobalNavigation{}: OpenPanel{MenuLines{}, False{}, expanded}
     case UserInput.ProjectPicker{}: ChooseValue{expanded}
     case UserInput.WorkspaceConfiguration{editor}: WorkspacePicker{expanded}
     case UserInput.PermissionsConfiguration{editor}: ChooseValue{expanded}
@@ -508,6 +539,9 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
   match action:
     case UserInput.Submit{editor}: submit_purpose(editor)
     case UserInput.RetryWorkspace{editor}: NamedAction{}
+    case UserInput.SelectWork{work}: NavigateTo{Columns{}}
+    case UserInput.CreateWork{}: CreateItem{}
+    case UserInput.RenameWork{work}: EditItem{}
     case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
     case UserInput.BeginTask{None{}}: CreateItem{}
     case UserInput.BeginTask{Some{project}}: ProjectTaskCreation{}
@@ -639,7 +673,7 @@ def icon_only(purpose: Purpose, area: Area) -> Bool:
     case MoreActions{expanded} _: True{}
     case Latest{} _: True{}
     case ToggleNavigation{expanded} _: True{}
-    case ProjectTaskCreation{} NavigationArea{}: True{}
+    case ProjectTaskCreation{} NavigationArea{compact}: True{}
     case CreateItem{} BoardLaneArea{}: True{}
     case OpenPanel{Inspector{}, menu, expanded} ToolbarArea{}: True{}
     case OpenPanel{Settings{}, menu, expanded} _: True{}
@@ -689,8 +723,18 @@ def working_filter_face(selected: Bool, purpose: Purpose, label: String, area: A
     case True{}: UnbrokenFace{label}
     case False{}: face_for(purpose, label, area)
 
+def work_creation_face(label: String, area: Area) -> Face:
+  match area:
+    case TouchNavigationArea{}: IconTextFace{Plus{}, label}
+    case DialogArea{}: IconTextFace{Plus{}, label}
+    case _: IconFace{Plus{}}
+
 def input_face(input: InteractionTypes.Input, purpose: Purpose, label: String, area: Area) -> Face:
   match input:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectWork{work}}}}: SingleLineFace{label}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.CreateWork{}}}}: work_creation_face(label, area)
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.RenameWork{work}}}}: IconFace{Pencil{}}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.GlobalNavigation{}, trigger}}}}: IconFace{MenuLines{}}
     case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.FilterBoard{Board.Filter{view, search, status, priority, date, assignee, creator, project, tag}}}}:
       working_filter_face(String.eq(view, "working"), purpose, label, area)
     case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.ClosePanel{}}}}: UnbrokenFace{label}
@@ -721,6 +765,9 @@ def contextual_behavior(purpose: Purpose, selected: Bool, area: Area) -> Behavio
 
 def selected_role(role: SurfaceTypes.Role) -> Bool:
   match role:
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: selected
+    case SurfaceTypes.CompactNavigationEntry{selected}: selected
+    case SurfaceTypes.WorkTab{selected}: selected
     case SurfaceTypes.SelectedButton{}: True{}
     case SurfaceTypes.NavigationEntry{selected}: selected
     case _: False{}
@@ -783,11 +830,11 @@ def button_help(+button: Button) -> Help:
 def geometry_nonchoice(purpose: Purpose, face: Face, area: Area) -> Geometry:
   match purpose face area:
     case MessageSubmission{} IconFace{icon} ComposerArea{}: Geometry{Space.fixed_demand(32n, 32n), 16n, 16n, 0n}
-    case ProjectTaskCreation{} IconFace{icon} NavigationArea{}: Geometry{Space.fixed_demand(24n, 24n), 16n, 6n, 0n}
+    case ProjectTaskCreation{} IconFace{icon} NavigationArea{compact}: Geometry{Space.fixed_demand(24n, 24n), 16n, 6n, 0n}
     case _ IconFace{icon} _: Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}
     case _ CompactPropertyFace{property} _: Geometry{Space.fixed_demand(0n, Activity.supporting_minimum(Activity.initial())), 16n, 6n, 0n}
     case _ PropertyFace{property} _: Geometry{Space.fixed_demand(0n, Activity.supporting_minimum(Activity.initial())), 16n, 6n, 0n}
-    case _ _ NavigationArea{}: Geometry{Space.fixed_demand(0n, 29n), 16n, 6n, 20n}
+    case _ _ NavigationArea{compact}: Geometry{Space.fixed_demand(0n, 29n), 16n, 6n, 20n}
     case _ _ MenuArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}
     case _ PickerFace{icon, text} ComposerArea{}: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n}
     case _ PermissionFace{filesystem, network, approval} _: Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 0n}
@@ -806,7 +853,7 @@ def placement_for(purpose: Purpose, area: Area) -> Placement:
     case CopyCode{state} CodeArea{}: CodeToolbar{}
     case WrapCode{enabled} CodeArea{}: CodeToolbar{}
     case RemoveValue{} CollectionArea{}: BesideValue{}
-    case ProjectTaskCreation{} NavigationArea{}: GroupHeadingEnd{}
+    case ProjectTaskCreation{} NavigationArea{compact}: GroupHeadingEnd{}
     case _ _: InFlow{}
 
 def filesystem_icon(mode: Domain.SandboxMode) -> Icon:
@@ -837,12 +884,61 @@ def permission_face(observation: Maybe<&2, Workspace.Observation>) -> Face:
       permission_values_face(sandbox, Workspace.approval_choice(approval))
     case _: IconFace{Warning{}}
 
+def work_selection_input(input: InteractionTypes.Input) -> Bool:
+  match input:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.SelectWork{work}}}}: True{}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.OpenPanel{UserInput.WorkOverview{}, trigger}}}}: True{}
+    case _: False{}
+
+def work_role_face(work: Bool, role: SurfaceTypes.Role, name: String, fallback: Face) -> Face:
+  match work role:
+    case True{} SurfaceTypes.WorkTab{selected}: SingleLineFace{name}
+    case True{} SurfaceTypes.CompactWorkScope{title, count}: SingleLineFace{title}
+    case True{} SurfaceTypes.WorkOverviewButton{count}: UnbrokenIconTextFace{Columns{}, Nat.show(count)}
+    case _ _: fallback
+
+def work_role_geometry(work: Bool, role: SurfaceTypes.Role, fallback: Geometry) -> Geometry:
+  match work role:
+    case True{} SurfaceTypes.WorkTab{selected}: Geometry{Space.fixed_demand(72n, 40n), 16n, 8n, 0n}
+    case True{} SurfaceTypes.WorkOverviewButton{count}: Geometry{Space.fixed_demand(40n, 36n), 16n, 6n, 0n}
+    case _ _: fallback
+
+def global_navigation_icon(input: InteractionTypes.Input) -> Maybe<&2, Icon>:
+  match input:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Start{}}}}}: Some{Home{}}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.TaskBoard{}}}}}: Some{Columns{}}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.ProjectCollection{}}}}}: Some{Folder{}}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.AgentCollection{}}}}}: Some{Agents{}}
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.TaskGraphs{}}}}}: Some{Branch{}}
+    case InteractionTypes.ServiceInput{Services.OpenSettings{}}: Some{Settings{}}
+    case _: None{}
+
+def global_navigation_entry_face(compact: Bool, icon: Maybe<&2, Icon>, label: String, fallback: Face) -> Face:
+  match compact icon:
+    case True{} Some{icon}: IconFace{icon}
+    case False{} Some{icon}: IconTextFace{icon, label}
+    case _ None{}: fallback
+
+def global_navigation_destination_face(role: SurfaceTypes.Role, icon: Icon, label: String, fallback: Face) -> Face:
+  match role:
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: global_navigation_entry_face(compact, Some{icon}, label, fallback)
+    case SurfaceTypes.CompactNavigationEntry{selected}: IconTextFace{icon, label}
+    case _: fallback
+
+def global_navigation_icon_face(icon: Maybe<&2, Icon>, role: SurfaceTypes.Role, label: String, fallback: Face) -> Face:
+  match icon:
+    case None{}: fallback
+    case Some{icon}: global_navigation_destination_face(role, icon, label, fallback)
+
+def global_navigation_role_face(role: SurfaceTypes.Role, input: InteractionTypes.Input, label: String, fallback: Face) -> Face:
+  global_navigation_icon_face(global_navigation_icon(input), role, label, fallback)
+
 def action_for_purpose(+intent: Purpose, +area: Area, +input: InteractionTypes.Input,
-  +availability: View.Availability, label: String, role: SurfaceTypes.Role) -> Representation:
+  +availability: View.Availability, label: String, +role: SurfaceTypes.Role) -> Representation:
   +control_name = name_for(intent, label)
   +control_face = input_face(input, intent, control_name, area)
   +response = feedback_for(intent)
-  Action{Button{input, availability, control_name, control_face, contextual_behavior(intent, selected_role(role), area), geometry_for(intent, control_face, area), placement_for(intent, area), response}}
+  Action{Button{input, availability, control_name, global_navigation_role_face(role, input, control_name, work_role_face(work_selection_input(input), role, control_name, control_face)), contextual_behavior(intent, selected_role(role), area), work_role_geometry(work_selection_input(input), role, geometry_for(intent, control_face, area)), placement_for(intent, area), response}}
 
 def make_action(+key: UIIdentity.Key, +input: InteractionTypes.Input, +availability: View.Availability, label: String,
   role: SurfaceTypes.Role, +context: Context) -> Representation:
@@ -1038,7 +1134,7 @@ def contextual_source_presentation(area: Area, source_family: SourceFamily, +inp
   match area source_family:
     case _ SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}:
       project_presentation(project_control_matches(input, project), project_control_input(input), expanded, name, face, behavior, geometry)
-    case NavigationArea{} SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
+    case NavigationArea{compact} SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.TaskRow{task, status, selected}, children}}: task_presentation(input, task, name, face, behavior, geometry)
     case _ SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectChooser{selected}, children}}: chooser_presentation(input, name, face, behavior, geometry)
     case _ _: ActionPresentation{face, behavior, geometry}
 
@@ -1121,9 +1217,26 @@ def content_presentation(content: SourceContent, value: ActionPresentation) -> A
     case TitleContent{caption}: title_presentation(value, caption)
     case SummaryContent{caption}: summary_action_presentation(value, caption)
 
+def navigation_motor_target(value: Representation) -> Bool:
+  match value:
+    case Action{button}: True{}
+    case NavigationRow{owner, depth, visible, feedback_active}: True{}
+    case _: False{}
+
+def navigation_geometry(compact: Bool, geometry: Geometry) -> Geometry:
+  match compact:
+    case False{}: geometry
+    case True{}:
+      Geometry{Space.Demand{Enclosure.Extent{minimum_width, minimum_height}, Enclosure.Extent{preferred_width, preferred_height}}, icon, radius, leading} = geometry
+      Geometry{Space.Demand{Enclosure.Extent{Nat.max(navigation_motor_floor(True{}), minimum_width), Nat.max(navigation_motor_floor(True{}), minimum_height)}, Enclosure.Extent{Nat.max(navigation_motor_floor(True{}), preferred_width), Nat.max(navigation_motor_floor(True{}), preferred_height)}}, icon, radius, leading}
+
+def navigation_presentation(compact: Bool, value: ActionPresentation) -> ActionPresentation:
+  ActionPresentation{face, behavior, geometry} = value
+  ActionPresentation{face, behavior, navigation_geometry(compact, geometry)}
+
 def source_presentation(+area: Area, +source_family: SourceFamily, +input: InteractionTypes.Input, name: String, +face: Face, behavior: Behavior, geometry: Geometry) -> ActionPresentation:
-  content_presentation(source_content(area, source_family, input, face),
-    dispatch_source_presentation(uses_source_presentation(input), area, source_family, input, name, face, behavior, geometry))
+  navigation_presentation(touch_navigation_area(area), content_presentation(source_content(area, source_family, input, face),
+    dispatch_source_presentation(uses_source_presentation(input), area, source_family, input, name, face, behavior, geometry)))
 
 def source_representation_content(value: Representation, area: Area, family: SourceFamily) -> SourceContent:
   match value:
@@ -1266,19 +1379,19 @@ def with_navigation(context: Context, value: Navigation.Attention) -> Context:
   Context{area, selection, code, appearance, access, open, layers, execution, family, form, attention, depth} = context
   Context{area, selection, code, appearance, access, open, layers, execution, family, form, value, depth}
 
-def navigation_header(matches: Bool, +owner: UIIdentity.Key, +project: Nat, depth: Nat, +attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
+def navigation_header(matches: Bool, +owner: UIIdentity.Key, +project: Nat, selected: Bool, depth: Nat, +attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
   match matches:
     case False{}: fallback
     case True{}:
       +menu = Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)}))
-      NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), menu), Navigation.feedback_active(attention, UIIdentity.encode(owner), menu)}
+      NavigationRow{owner, Nat.sub(depth, 1n), Navigation.auxiliary_exposed(attention, UIIdentity.encode(owner), menu, selected), Navigation.feedback_active(attention, UIIdentity.encode(owner), menu)}
 
 def navigation_fields(+key: UIIdentity.Key, meaning: SurfaceTypes.Meaning, family: SourceFamily, +depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>, fallback: Representation) -> Representation:
   match meaning family:
     case SurfaceTypes.ProjectGroup{project, selected, expanded} _: NavigationGroup{Nat.sub(depth, 1n)}
     case SurfaceTypes.TaskRow{task, status, selected} _: NavigationRow{key, depth, True{}, Navigation.feedback_active(attention, UIIdentity.encode(key), False{})}
     case SurfaceTypes.Region{} SourceFamily{SurfaceTypes.Node{+owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}:
-      navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers, fallback)
+      navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, selected, depth, attention, layers, fallback)
     case _ _: fallback
 
 

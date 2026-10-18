@@ -25,6 +25,7 @@ or rejection of source code, proofs or certificates.
 | Actual adaptive history through providerInput/responseBody: complete history prefixes, recorded reasoning changes, audit encoding and request effort; nested private continuation projection | `reasoning-boundaries.test.mjs` |
 | Typed Jev HTTP payloads, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch, bounded evaluator previews after raw history exceeds a kernel frame, and restart | `reasoning.test.mjs` |
 | SQLite journal framing, commit faults, replay and restart | `journal.test.mjs`, `service-recovery.test.mjs` |
+| Work command encoding, ordinary Task independence, fork membership, failed-commit rollback, HTTP Project selection, native caller identity and Work/graph tools, and service restart | `works.test.mjs`, `works-service.test.mjs`; generated kernel, loopback HTTP, provider fixtures and SQLite |
 | Atomic graph installation, accepted-output handoffs, rejected deliveries, live replacement, commit rollback and SQLite replay | `task-graph.test.mjs`; actual native decisions, Worker execution and journal commits |
 | Native graph tool capabilities, immediate service replies, restart, canonical workspace observations and refreshed creation guidance | `task-graph-service.test.mjs`; actual service effects and frozen model tool catalogs |
 | Subprocess execution, real tool results, deferred input and cancellation | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |

@@ -10,53 +10,54 @@ import ../../features/task_graph/CODEC.bend as Codec
 import ./operations.bend as O
 import ./graph-state.bend as State
 import ./MODEL.bend as F
+import ./work-state.bend as WorkState
 
 # The installation outcome carries provisional Task changes until every birth
 # succeeds. A failed birth discards the entire provisional world and effects.
 type Births is Data:
-  Born{world: M.World(), nodes: +List<G.ResolvedNode>, effects: +List<M.Effect()>}
+  Born{world: M.World(), work: Maybe<&2, Nat>, nodes: +List<G.ResolvedNode>, effects: +List<M.Effect()>}
   BirthFailed{reply: J.Json}
 
 def next_task(world: M.World()) -> Nat:
   D.state_next_task(C.local(D.State, F.State(), world))
 
-def admitted(accepted: Bool, key: String, id: Nat, previous: +List<G.ResolvedNode>, before: +List<M.Effect()>, world: M.World(), reply: J.Json, effects: +List<M.Effect()>) -> Births:
+def admitted(accepted: Bool, +work: Maybe<&2, Nat>, key: String, +id: Nat, previous: +List<G.ResolvedNode>, before: +List<M.Effect()>, world: M.World(), reply: J.Json, effects: +List<M.Effect()>) -> Births:
   match accepted:
     case False{}: BirthFailed{reply}
-    case True{}: Born{world, List.append(&2, G.ResolvedNode, previous, [G.ResolvedNode{key, id}]), List.append(&2, M.Effect(), before, effects)}
+    case True{}: Born{State.associate_task(work, id, world), work, List.append(&2, G.ResolvedNode, previous, [G.ResolvedNode{key, id}]), List.append(&2, M.Effect(), before, effects)}
 
-def created(key: String, id: Nat, previous: +List<G.ResolvedNode>, before: +List<M.Effect()>, decision: M.Decision()) -> Births:
+def created(work: Maybe<&2, Nat>, key: String, id: Nat, previous: +List<G.ResolvedNode>, before: +List<M.Effect()>, decision: M.Decision()) -> Births:
   C.Decision{world, +reply, effects} = decision
-  admitted(J.boolean(J.get(reply, "ok")), key, id, previous, before, world, reply, effects)
+  admitted(J.boolean(J.get(reply, "ok")), work, key, id, previous, before, world, reply, effects)
 
 def birth(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), progress: Births, node: O.GraphNode) -> Births:
   match progress node:
     case BirthFailed{reply} _: BirthFailed{reply}
-    case Born{world, previous, effects} O.GraphExisting{key, task}:
-      Born{world, List.append(&2, G.ResolvedNode, previous, [G.ResolvedNode{key, task}]), effects}
-    case Born{+world, previous, effects} O.GraphSpawn{key, profile, reasoning, message, selection}:
-      created(key, next_task(world), previous, effects, spawn(profile, reasoning, message, selection, world))
+    case Born{world, work, previous, effects} O.GraphExisting{key, task}:
+      Born{world, work, List.append(&2, G.ResolvedNode, previous, [G.ResolvedNode{key, task}]), effects}
+    case Born{+world, work, previous, effects} O.GraphSpawn{key, profile, reasoning, message, selection}:
+      created(work, key, next_task(world), previous, effects, spawn(profile, reasoning, message, selection, world))
 
 def births_from(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, progress: Births) -> Births:
   match nodes:
     case Nil{}: progress
     case Con{node, rest}: births_from(~spawn, rest, birth(~spawn, progress, node))
 
-def births(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, world: M.World()) -> Births:
-  births_from(~spawn, nodes, Born{world, Nil{}, Nil{}})
+def births(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, work: Maybe<&2, Nat>, world: M.World()) -> Births:
+  births_from(~spawn, nodes, Born{world, work, Nil{}, Nil{}})
 
 def installed(+id: Nat, declaration: G.Declaration, result: Births, original: M.World()) -> M.Decision():
   match declaration result:
     case _ BirthFailed{reply}: C.Decision{original, reply, Nil{}}
-    case G.Declaration{+name, declared, +rules} Born{+world, +nodes, effects}:
-      C.Decision{State.store(Graph.install(id, G.Declaration{name, declared, rules}, nodes, State.registry(world)), world),
+    case G.Declaration{+name, declared, +rules} Born{+world, work, +nodes, effects}:
+      C.Decision{State.associate_graph(work, id, State.store(Graph.install(id, G.Declaration{name, declared, rules}, nodes, State.registry(world)), world)),
         D.success(Codec.graph_json(id, G.Graph{name, nodes, rules, Nil{}})), effects}
 
-def install(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), id: Nat, declaration: G.Declaration, nodes: +List<O.GraphNode>, +world: M.World()) -> M.Decision():
-  installed(id, declaration, births(~spawn, nodes, world), world)
+def install(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), id: Nat, work: Maybe<&2, Nat>, declaration: G.Declaration, nodes: +List<O.GraphNode>, +world: M.World()) -> M.Decision():
+  installed(id, declaration, births(~spawn, nodes, work, world), world)
 
 def remove(+id: Nat, +world: M.World()) -> M.Decision():
-  C.Decision{State.store(Graph.remove(id, State.registry(world)), world), D.success(J.Object{[J.Field{"graph_id", J.nat(id)}]}), Nil{}}
+  C.Decision{WorkState.dissociate_graph(id, State.store(Graph.remove(id, State.registry(world)), world)), D.success(J.Object{[J.Field{"graph_id", J.nat(id)}]}), Nil{}}
 
 # Source identity is part of the fold carrier, so the statically reusable Send
 # capability never captures a runtime value in a compile-time argument.

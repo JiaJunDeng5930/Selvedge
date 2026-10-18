@@ -291,7 +291,7 @@ def Rule.boundary_evidence():
     project => name => old_workspace => workspace => guidance => now => {==},
     name => workspace => guidance => {==},
     project => name => workspace => guidance => {==},
-    text => profile => reasoning => config => observation => now => {==},
+    text => profile => reasoning => config => observation => now => work => {==},
     config => workspace => guidance => settings_projection(config, workspace, guidance),
     task => operation => parts => outputs => world => inactive =>
       Equal.cong(Bool, +List<Live.Output>,
@@ -373,7 +373,7 @@ def project_title(+value: V.ProjectScene, +parent: Identity.Key, +state: Interac
 
 def layer_title_evidence() -> Rule.LayerTitleRequirements:
   Rule.LayerTitleRequirements{
-    {==},
+    work => {==},
     task => {==},
     {==},
     id => {==},
@@ -382,6 +382,7 @@ def layer_title_evidence() -> Rule.LayerTitleRequirements:
     {==},
     id => {==},
     {==},
+    work => {==},
     id => {==},
     task => {==},
     task => {==},
@@ -397,17 +398,25 @@ def layer_title_evidence() -> Rule.LayerTitleRequirements:
     editor => query => fields => {==},
     editor => fields => {==},
     task => {==},
-    title => confirm => cancel => {==}}
+    title => confirm => cancel => {==},
+    selected => works => {==},
+    route => destinations => {==}}
 
-def collapsed_assembly(+content: InteractionTypes.Scene, +state: InteractionTypes.State,
+def collapsed_assembly(+full: Bool, +content: InteractionTypes.Scene, +state: InteractionTypes.State,
   collapsed: {Rule.content_navigation_placement(content) == V.CollapsedNavigation{} : V.NavigationPlacement}) ->
-  {Rule.navigation_head(Rule.surface_base(Model.assemble(content, state))) ==
-    Rule.navigation_head(Model.collapsed_navigation_toggle(Rule.content_navigation(content), state)) : SurfaceTypes.Node}:
-  match content:
-    case InteractionTypes.Scene{V.Scene{V.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, V.Arrangement{+placement}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
+  {Rule.collapsed_restore_node(full, Rule.surface_base(Model.assemble(full, content, state))) ==
+    Rule.required_collapsed_restore(full, Rule.content_navigation(content), state) : SurfaceTypes.Node}:
+  match full content:
+    case True{} InteractionTypes.Scene{V.Scene{V.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, V.Arrangement{+placement}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
       +nav: V.Navigation = V.Navigation{expanded, create, destinations, projects, tasks, toggle}
       Equal.cong(V.NavigationPlacement, SurfaceTypes.Node,
-        (position => Rule.navigation_head(Rule.surface_base(Model.assemble(InteractionTypes.Scene{V.Scene{nav, main, layers,
+        (position => Rule.collapsed_restore_node(True{}, Rule.surface_base(Model.assemble(True{}, InteractionTypes.Scene{V.Scene{nav, main, layers,
+          V.Arrangement{position}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
+        placement, V.CollapsedNavigation{}, collapsed)
+    case False{} InteractionTypes.Scene{V.Scene{V.Navigation{+expanded, +create, +destinations, +projects, +tasks, +toggle}, +main, +layers, V.Arrangement{+placement}, +attention}, +settings, +transfers, +preview, +code, directory_picker}:
+      +nav: V.Navigation = V.Navigation{expanded, create, destinations, projects, tasks, toggle}
+      Equal.cong(V.NavigationPlacement, SurfaceTypes.Node,
+        (position => Rule.collapsed_restore_node(False{}, Rule.surface_base(Model.assemble(False{}, InteractionTypes.Scene{V.Scene{nav, main, layers,
           V.Arrangement{position}, attention}, settings, transfers, preview, code, directory_picker}, state)))),
         placement, V.CollapsedNavigation{}, collapsed)
 
@@ -680,15 +689,15 @@ def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text
     case Some{preview}: {==}
 
 def composer_has_context(+message: U.Text, +profile: String, reasoning: String, +context: Context.Configuration,
-  scene: V.EditorScene, +world: M.World()) ->
-  {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-    [View.model_composer_control(profile, reasoning, world),
-         V.ComposerControl{UX.permissions_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}:
+  scene: V.EditorScene, +world: M.World(), +work: Maybe<&2, Nat>) ->
+  {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, work}, scene, world)) ==
+    [View.scoped_model_control(profile, reasoning, world, work),
+         V.ComposerControl{UX.permissions_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
-def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World()) ->
-  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
+def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World(), +work: Maybe<&2, Nat>) ->
+  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, work}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
@@ -702,10 +711,10 @@ def conversation_context_empty(scene: V.EditorScene, task: Nat, message: U.Text,
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
-def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World()) ->
-  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-    [V.ComposerControl{UX.project_property(U.NewTaskEditor{}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
-         V.ComposerControl{UX.workspace_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}:
+def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World(), +work: Maybe<&2, Nat>) ->
+  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, work}, scene, world)) ==
+    [V.ComposerControl{UX.project_property(U.NewTaskEditor{work}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
+         V.ComposerControl{UX.workspace_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
@@ -750,12 +759,12 @@ def Rule.composition_evidence():
     identity => revision => message => footer => context => assessment => submit => feedback => pending => world => current_composer_context(identity, revision, message, footer, context, assessment, submit, feedback, pending, world),
     +input => +parent => +world => +session => +services => {==},
     +declaration => +rest => +parent => +state => {==},
-    message => profile => reasoning => context => scene => world => composer_has_context(message, profile, reasoning, context, scene, world),
+    message => profile => reasoning => context => scene => world => work => composer_has_context(message, profile, reasoning, context, scene, world, work),
     fallback => {==},
-    message => profile => reasoning => context => scene => world => creation_phase(scene, message, profile, reasoning, context, world),
+    message => profile => reasoning => context => scene => world => work => creation_phase(scene, message, profile, reasoning, context, world, work),
     task => message => delivery => scene => world => conversation_phase(scene, task, message, delivery, world),
     task => message => delivery => scene => world => conversation_context_empty(scene, task, message, delivery, world),
-    message => profile => reasoning => context => scene => world => creation_controls(scene, message, profile, reasoning, context, world)}
+    message => profile => reasoning => context => scene => world => work => creation_controls(scene, message, profile, reasoning, context, world, work)}
 
 def Rule.passive_obstruction_has_no_paragraph(obstruction, assessment, parent, passive):
   Equal.cong(Bool, +List<SurfaceTypes.Node>, (hidden => Model.visible_action_obstruction_selected(hidden, obstruction, assessment, parent)), UX.passive_obstruction(obstruction), True{}, passive)

@@ -335,7 +335,7 @@ test('catalog observation resolves the boot draft and a persisted user model cho
   state = browserModel.step(bendValue('browser/runtime/SEMANTICS.Snapshot', {
     sequence: BigInt(populated.sequence), program: populated.program }), state).state;
   const changed = browserModel.step(applicationEvent(bendValue('interaction/session/MODEL.UserInput', { input:
-    bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.NewTaskEditor'),
+    bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.NewTaskEditor', { work: bendValue('None') }),
       edit: bendValue('interaction/INPUT.ChooseModel', { profile: selected.key, reasoning: 'high' }) }) })), state);
   assert.equal(creationDraft(changed.state).profile, selected.key);
   assert.equal(creationDraft(changed.state).reasoning, 'high');
@@ -375,7 +375,7 @@ test('an empty catalog leaves the runtime model selection unavailable', { timeou
   assert.ok(modelControl, 'The empty-catalog composer must still expose its model control');
   assert.equal(bendTag(modelControl.meaning.availability), 'Unavailable');
   const invalid = browserModel.step(applicationEvent(bendValue('interaction/session/MODEL.UserInput', { input:
-    bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.NewTaskEditor'),
+    bendValue('interaction/INPUT.EditDraft', { editor: bendValue('interaction/INPUT.NewTaskEditor', { work: bendValue('None') }),
       edit: bendValue('interaction/INPUT.ChooseModel', { profile: 'absent', reasoning: 'high' }) }) })), state);
   assert.equal(creationDraft(invalid.state).profile, '');
   assert.deepEqual(preferenceEffects(invalid), []);

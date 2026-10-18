@@ -27,10 +27,10 @@ type ShellAuthorship is Data:
   Rejected{key: UIIdentity.Key, problem: Authored.Problem}
 
 type BaseParts is Data:
-  BaseParts{navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>}
+  BaseParts{navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, work_tabs: +List<Source.Node>, global_navigation: +List<Source.Node>}
 
 type OverlayParts is Data:
-  OverlayParts{docked: +List<Source.Node>, floating: +List<Source.Node>}
+  OverlayParts{docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>}
 
 def neutral_arranged(font: Source.FontChoice, direction: Model.Direction, width: Model.AxisSize, height: Model.AxisSize, cross: Spatial.Alignment, arrangement: Enclosure.Arrangement) -> Source.Style:
   Source.Style{Source.Layout{direction, Spatial.Leading{}, cross,
@@ -112,23 +112,25 @@ def base_role(+key: UIIdentity.Key, +values: +List<Design.Node>) -> SurfaceTypes
 
 def split_base_region(region: Order.BaseRegion, node: Source.Node, parts: BaseParts) -> BaseParts:
   match region parts:
-    case Order.NavigationRegion{} BaseParts{navigation, main, settings, other}: BaseParts{node <> navigation, main, settings, other}
-    case Order.MainRegion{} BaseParts{navigation, main, settings, other}: BaseParts{navigation, node <> main, settings, other}
-    case Order.NavigationFooterRegion{} BaseParts{navigation, main, settings, other}: BaseParts{navigation, main, node <> settings, other}
-    case Order.OtherRegion{} BaseParts{navigation, main, settings, other}: BaseParts{navigation, main, settings, node <> other}
+    case Order.GlobalNavigationRegion{} BaseParts{navigation, main, settings, other, work_tabs, global_navigation}: BaseParts{navigation, main, settings, other, work_tabs, node <> global_navigation}
+    case Order.WorkTabsRegion{} BaseParts{navigation, main, settings, other, work_tabs, global_navigation}: BaseParts{navigation, main, settings, other, node <> work_tabs, global_navigation}
+    case Order.NavigationRegion{} BaseParts{navigation, main, settings, other, work_tabs, global_navigation}: BaseParts{node <> navigation, main, settings, other, work_tabs, global_navigation}
+    case Order.MainRegion{} BaseParts{navigation, main, settings, other, work_tabs, global_navigation}: BaseParts{navigation, node <> main, settings, other, work_tabs, global_navigation}
+    case Order.NavigationFooterRegion{} BaseParts{navigation, main, settings, other, work_tabs, global_navigation}: BaseParts{navigation, main, node <> settings, other, work_tabs, global_navigation}
+    case Order.OtherRegion{} BaseParts{navigation, main, settings, other, work_tabs, global_navigation}: BaseParts{navigation, main, settings, node <> other, work_tabs, global_navigation}
 
 def split_base_settings(found: Bool, node: Source.Node, parts: BaseParts) -> BaseParts:
   split_base_region(Order.footer_region(found), node, parts)
 
 def split_base_role(+node: Source.Node, role: SurfaceTypes.Role, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>) -> BaseParts:
-  split_base_region(Order.base_region_role(Source.key_of(node), role), node, BaseParts{navigation, main, settings, other})
+  split_base_region(Order.base_region_role(Source.key_of(node), role), node, BaseParts{navigation, main, settings, other, Nil{}, Nil{}})
 
 def split_base_node(+node: Source.Node, role: SurfaceTypes.Role, parts: BaseParts) -> BaseParts:
   split_base_region(Order.base_region(Source.key_of(node), role), node, parts)
 
 def split_base(+values: +List<Source.Node>, +design: +List<Design.Node>) -> BaseParts:
   match values:
-    case Nil{}: BaseParts{Nil{}, Nil{}, Nil{}, Nil{}}
+    case Nil{}: BaseParts{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
     case Con{+node, rest}:
       split_base_node(node, base_role(Source.key_of(node), design), split_base(rest, design))
 
@@ -322,9 +324,48 @@ def body_direction(placement: View.NavigationPlacement, +parameters: Design.Layo
     case View.ModalNavigation{}: body_mode(False{}, Design.navigation_width(parameters), Design.main_minimum_width(parameters), structure, reading_width, navigation, main, settings, other, docked, font)
     case View.CollapsedNavigation{}: body_mode(False{}, Design.navigation_width(parameters), Design.main_minimum_width(parameters), structure, reading_width, navigation, main, settings, other, docked, font)
 
-def body(parts: BaseParts, structure: Design.MainStructure, reading_width: Nat, placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
-  BaseParts{navigation, main, settings, other} = parts
-  body_direction(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font)
+def workspace_capacity_width(capacity: View.Capacity, +parameters: Design.LayoutParameters) -> Nat:
+  match capacity:
+    case View.Capacity{True{}, details_beside}: Nat.add(Design.navigation_width(parameters), Design.main_minimum_width(parameters))
+    case View.Capacity{False{}, details_beside}: 0n
+
+def workspace_minimum_style(required: Nat, style: Source.Style) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states} = style
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, Enclosure.Extent{required, minimum_height}, scroll, position}, font, chrome, states}
+
+def workspace_style(capacity: View.Capacity, parameters: Design.LayoutParameters, font: Typography.Presentation) -> Source.Style:
+  workspace_minimum_style(workspace_capacity_width(capacity, parameters), neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}))
+
+def back_to_front(floating: +List<Source.Node>) -> +List<Source.Node>:
+  List.reverse(&2, Source.Node, floating)
+
+def workspace_stage(body: Source.Node, workspace_layers: +List<Source.Node>, font: Typography.Presentation) -> Source.Node:
+  wrap(UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), body <> back_to_front(workspace_layers))
+
+def compact_body(+structure: Design.MainStructure, +reading_width: Nat, main: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +parameters: Design.LayoutParameters, font: Typography.Presentation) -> Source.Node:
+  wrap(UIIdentity.part(UIIdentity.place("/application"), "body"), neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}),
+    List.append(&2, Source.Node, main_nodes(main, structure, reading_width, False{}, Design.main_minimum_width(parameters)), List.append(&2, Source.Node, other, docked)))
+
+def workspace_content(full: Bool, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, work_tabs: +List<Source.Node>, structure: Design.MainStructure, reading_width: Nat, placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, docked: +List<Source.Node>, workspace_layers: +List<Source.Node>, +font: Typography.Presentation) -> +List<Source.Node>:
+  match full:
+    case True{}:
+      List.append(&2, Source.Node, work_tabs, [workspace_stage(body_direction(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font), workspace_layers, font)])
+    case False{}:
+      [workspace_stage(wrap(UIIdentity.part(UIIdentity.place("/application"), "compact-flow"), neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}),
+        List.append(&2, Source.Node, work_tabs, [compact_body(structure, reading_width, main, other, docked, parameters, font)])), workspace_layers, font)]
+
+def navigation_beside(capacity: View.Capacity) -> Bool:
+  View.Capacity{full, details} = capacity
+  full
+
+def workspace(navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, work_tabs: +List<Source.Node>, structure: Design.MainStructure, reading_width: Nat, placement: View.NavigationPlacement, +capacity: View.Capacity, +parameters: Design.LayoutParameters, docked: +List<Source.Node>, workspace_layers: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
+  wrap(UIIdentity.part(UIIdentity.place("/application"), "workspace"), workspace_style(capacity, parameters, font),
+    workspace_content(navigation_beside(capacity), navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font))
+
+def body(parts: BaseParts, structure: Design.MainStructure, reading_width: Nat, placement: View.NavigationPlacement, capacity: View.Capacity, parameters: Design.LayoutParameters, docked: +List<Source.Node>, workspace_layers: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
+  BaseParts{navigation, main, settings, other, work_tabs, global_navigation} = parts
+  wrap(UIIdentity.part(UIIdentity.place("/application"), "shell"), neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}),
+    List.append(&2, Source.Node, global_navigation, [workspace(navigation, main, settings, other, work_tabs, structure, reading_width, placement, capacity, parameters, docked, workspace_layers, font)]))
 
 def prefer_anchor(found: Maybe<&2, String>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
   match found:
@@ -427,57 +468,77 @@ def outer_width(+coordinate_capacity: Nat, +parameters: Design.LayoutParameters,
     case Con{Design.Node{current, semantic, label, role, meaning, visual, control, children}, rest}:
       outer_width_found(coordinate_capacity, parameters, UIIdentity.same(key, current), meaning, visual, outer_width(coordinate_capacity, parameters, key, rest, fallback))
 
-def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
   Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
-  OverlayParts{resize(node, Model.LimitedSize{0n, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating}
+  OverlayParts{resize(node, Model.LimitedSize{0n, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating, workspace_layers}
 
 def outside_insets(+unit: Nat) -> Enclosure.Insets:
   Enclosure.Insets{Nat.mul(2n, unit), Nat.mul(2n, unit)}
 
-def float_overlay(coordinate_capacity: Nat, +role: SurfaceTypes.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, +overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def float_overlay(coordinate_capacity: Nat, +role: SurfaceTypes.Role, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, +overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
   Design.LayoutParameters{navigation_width, main_minimum_width, details_width, +reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, +line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   +dialog_width = dialog_reading_span(reading_width, line_height)
   +unit = Nat.max(1n, Nat.div(line_height, 4n))
   +outside = outside_insets(unit)
-  OverlayParts{docked, resize(node, outer_width(coordinate_capacity, parameters, Source.key_of(node), overlays, floating_width(role, reading_width, dialog_width)), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating}
+  OverlayParts{docked, resize(node, outer_width(coordinate_capacity, parameters, Source.key_of(node), overlays, floating_width(role, reading_width, dialog_width)), Model.CappedNaturalSize{100n}, floating_scroll(role), Spatial.Stretch{}, floating_position(role, Source.key_of(node), outside, unit, layers, base, overlays, anchors)) <> floating, workspace_layers}
 
-def standard_overlay_layout(+role: SurfaceTypes.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def standard_overlay_layout(+role: SurfaceTypes.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
   match role details_beside:
     case SurfaceTypes.Details{} True{}:
-      dock_overlay(parameters, node, docked, floating)
+      dock_overlay(parameters, node, docked, floating, workspace_layers)
     case _ _:
-      float_overlay(NaturalSize.limit(), role, parameters, node, layers, base, overlays, anchors, docked, floating)
+      float_overlay(NaturalSize.limit(), role, parameters, node, layers, base, overlays, anchors, docked, floating, workspace_layers)
 
-def overlay_layout(+role: SurfaceTypes.Role, +details_beside: Bool, +placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def work_overview_overlay(overview: Bool, +role: SurfaceTypes.Role, details_beside: Bool, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
+  match overview:
+    case True{}:
+      OverlayParts{docked, resize(node, Model.CappedStretchSize{Nat.mul(Design.reading_maximum_width(parameters), 2n)}, Model.PercentSize{94n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{Enclosure.Insets{8n, 8n}}) <> floating, workspace_layers}
+    case False{}: standard_overlay_layout(role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating, workspace_layers)
+
+def overlay_layout(+role: SurfaceTypes.Role, +details_beside: Bool, +placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
   match role placement:
     case SurfaceTypes.Navigation{} View.ModalNavigation{}:
       Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
-      OverlayParts{docked, resize(node, Model.ExactSize{navigation_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> floating}
+      OverlayParts{docked, floating, resize(node, Model.ExactSize{navigation_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> workspace_layers}
     case _ _:
-      standard_overlay_layout(role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating)
+      work_overview_overlay(UIIdentity.same(Source.key_of(node), InterfaceView.layer_key("work-overview")), role, details_beside, parameters, node, layers, base, overlays, anchors, docked, floating, workspace_layers)
 
-def overlay_capacity(+role: SurfaceTypes.Role, capacity: View.Capacity, placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>) -> OverlayParts:
+def modal_navigation_width(capacity: View.Capacity, parameters: Design.LayoutParameters) -> Model.AxisSize:
+  match capacity:
+    case View.Capacity{True{}, details}: Model.ExactSize{Design.navigation_width(parameters)}
+    case View.Capacity{False{}, details}: Model.StretchSize{}
+
+def modal_navigation_scroll(capacity: View.Capacity) -> Model.Scroll:
+  match capacity:
+    case View.Capacity{True{}, details}: Model.ScrollVertically{}
+    case View.Capacity{False{}, details}: Model.Confined{}
+
+def capacity_details_beside(capacity: View.Capacity) -> Bool:
   View.Capacity{navigation_beside, details_beside} = capacity
-  overlay_layout(role, details_beside, placement, parameters, node, layers, base, overlays, anchors, docked, floating)
+  details_beside
+
+def overlay_capacity(+role: SurfaceTypes.Role, +capacity: View.Capacity, +placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, +node: Source.Node, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
+  match role placement:
+    case SurfaceTypes.Navigation{} View.ModalNavigation{}:
+      OverlayParts{docked, floating, resize(node, modal_navigation_width(capacity, parameters), Model.StretchSize{}, modal_navigation_scroll(capacity), Spatial.Stretch{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> workspace_layers}
+    case _ _:
+      overlay_layout(role, capacity_details_beside(capacity), placement, parameters, node, layers, base, overlays, anchors, docked, floating, workspace_layers)
 
 def split_overlay_node(+node: Source.Node, +role: SurfaceTypes.Role, capacity: View.Capacity, placement: View.NavigationPlacement, parameters: Design.LayoutParameters, layers: +List<View.Layer>, base: +List<Design.Node>, overlays: +List<Design.Node>, anchors: +List<Anchor>, parts: OverlayParts) -> OverlayParts:
-  OverlayParts{docked, floating} = parts
-  overlay_capacity(role, capacity, placement, parameters, node, layers, base, overlays, anchors, docked, floating)
+  OverlayParts{docked, floating, workspace_layers} = parts
+  overlay_capacity(role, capacity, placement, parameters, node, layers, base, overlays, anchors, docked, floating, workspace_layers)
 
 def split_overlays(+values: +List<Source.Node>, +capacity: View.Capacity, +placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +base: +List<Design.Node>, +overlays: +List<Design.Node>, +anchors: +List<Anchor>) -> OverlayParts:
   match values:
-    case Nil{}: OverlayParts{Nil{}, Nil{}}
+    case Nil{}: OverlayParts{Nil{}, Nil{}, Nil{}}
     case Con{+node, rest}:
       split_overlay_node(node, base_role(Source.key_of(node), overlays), capacity, placement, parameters, layers, base, overlays, anchors,
         split_overlays(rest, capacity, placement, parameters, layers, base, overlays, anchors))
 
-def back_to_front(floating: +List<Source.Node>) -> +List<Source.Node>:
-  List.reverse(&2, Source.Node, floating)
-
-def assembled_parts(parts: OverlayParts, structure: Design.MainStructure, reading_width: Nat, base_nodes: +List<Source.Node>, base: +List<Design.Node>, placement: View.NavigationPlacement, parameters: Design.LayoutParameters, +font: Typography.Presentation, theme: Design.Theme) -> ShellAuthorship:
-  OverlayParts{docked, floating} = parts
+def assembled_parts(parts: OverlayParts, structure: Design.MainStructure, reading_width: Nat, base_nodes: +List<Source.Node>, base: +List<Design.Node>, placement: View.NavigationPlacement, capacity: View.Capacity, parameters: Design.LayoutParameters, +font: Typography.Presentation, theme: Design.Theme) -> ShellAuthorship:
+  OverlayParts{docked, floating, workspace_layers} = parts
   Ready{Source.Box{UIIdentity.place("/application"), Source.Div{}, application_style(font), [Source.DataAttribute{"theme", theme_name(theme)}],
-        body(split_base(base_nodes, base), structure, reading_width, placement, parameters, docked, font) <> back_to_front(floating)}}
+        body(split_base(base_nodes, base), structure, reading_width, placement, capacity, parameters, docked, workspace_layers, font) <> back_to_front(floating)}}
 
 def measure_width(measure: Composition.Measure, parameters: Design.LayoutParameters) -> Nat:
   match measure:
@@ -500,7 +561,7 @@ def scene_navigation_placement(content: InteractionTypes.Scene) -> View.Navigati
 def assemble_surface(surface: Design.Surface, base_nodes: +List<Source.Node>, overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, layers: +List<View.Layer>, anchors: +List<Anchor>, +font: Typography.Presentation) -> ShellAuthorship:
   Design.Surface{+content, theme, +base, +overlays, active_scope} = surface
   +structure = scene_structure(content)
-  assembled_parts(split_overlays(overlay_nodes, capacity, scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, structure_reading_width(structure, parameters), base_nodes, base, scene_navigation_placement(content), parameters, font, theme)
+  assembled_parts(split_overlays(overlay_nodes, capacity, scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, structure_reading_width(structure, parameters), base_nodes, base, scene_navigation_placement(content), capacity, parameters, font, theme)
 
 def assemble(base_result: Authored.Authorship, overlay_result: Authored.Authorship, +surface: Design.Surface, capacity: View.Capacity, parameters: Design.LayoutParameters, layers: +List<View.Layer>, anchors: +List<Anchor>, +font: Typography.Presentation) -> ShellAuthorship:
   match base_result overlay_result:

@@ -14,14 +14,20 @@ import ../../features/board/STATE.bend as State
 import ../../features/chatgpt/PROGRAM.bend as ChatGPT
 import ../../features/chatgpt/STATE.bend as ChatGPTState
 import ./graph-execution.bend as TaskGraph
+import ../../features/work/PROGRAM.bend as Work
+import ./work-state.bend as WorkState
+import ./MODEL.bend as F
 
 def operation_calculation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
+    case O.WorkChange{change}: WorkState.embed(Work.realize_calculation(change, WorkState.registry(world)), world)
+    case O.StartWorkTask{work, profile, reasoning, message, selection}:
+      WorkState.born(work, D.state_next_task(C.local(D.State, F.State(), world)), world, spawn(profile, reasoning, message, selection, world))
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change_calculation(change, world)
     case O.StartCard{id, card, now, profile, reasoning, message, selection}:
       Board.started(id, State.task_id(world), card, now, spawn(profile, reasoning, message, selection, world))
-    case O.InstallGraph{id, declaration, nodes}: TaskGraph.install(~spawn, id, declaration, nodes, world)
+    case O.InstallGraph{id, work, declaration, nodes}: TaskGraph.install(~spawn, id, work, declaration, nodes, world)
     case O.DeleteGraph{id}: TaskGraph.remove(id, world)
 
 def resolved_event_calculation(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():

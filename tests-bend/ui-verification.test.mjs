@@ -331,7 +331,7 @@ test('production activity surfaces retain current decisions and project obstruct
   await t.test('AutomaticReview without a valid reviewer exposes its unavailable reason', async () => {
     const authenticated = ui.authenticated(browserModel.empty(), 0n);
     assert.equal(bendTag(authenticated), 'Done');
-    const state = open(authenticated.value, 'PermissionsConfiguration', uiValue('NewTaskEditor'));
+    const state = open(authenticated.value, 'PermissionsConfiguration', uiValue('NewTaskEditor', { work: bendValue('None') }));
     const emitted = nodes(state);
     const automatic = emitted.find(node => bendTag(node.meaning) === 'ReadOnly' && /automatic/i.test(node.label));
     assert.ok(automatic, 'The strategy remains readable without reviewers');
@@ -446,7 +446,7 @@ test('production activity surfaces retain current decisions and project obstruct
 
 test('production activity choices complete and compound cancellation discards buffers', { timeout: 240_000 }, async t => {
   const [ui, input] = await Promise.all([browserUI(t, { sourceAdmission: true }), activityInput(t)]);
-  const editor = uiValue('NewTaskEditor');
+  const editor = uiValue('NewTaskEditor', { work: bendValue('None') });
   const observe = state => surfaceNodes(ui.surface_state(state));
   const apply = (state, value) => input.apply(bendValue('interaction/TYPES.ApplicationInput', {
     input: bendValue('interaction/session/MODEL.UserInput', { input: value }),

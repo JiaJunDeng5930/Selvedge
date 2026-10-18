@@ -379,14 +379,15 @@ def Rule.empty_message_obstruction_is_passive(target, field, reason): {==}
 
 def Rule.workspace_operation_classification(body):
   match body:
-    case U.NewTask{message, profile, reasoning, context}: {==}
+    case U.NewTask{message, profile, reasoning, context, work}: {==}
+    case U.WorkName{work, name}: {==}
     case U.Project{id, name, workspace}: {==}
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: {==}
     case U.Fork{task, count, messages, context}: {==}
     case U.Message{task, message, delivery}: {==}
     case U.Card{id, revision, value, assist, profile, keep_open}: {==}
     case U.Compact{task, summary}: {==}
-    case U.TaskGraph{graph, declaration, parsed}: {==}
+    case U.TaskGraph{graph, declaration, parsed, work}: {==}
 
 def Rule.assessment_attention_uses_all_obstructions(assessment): {==}
 def Rule.attention_keeps_first_repair(obstruction, rest, repair):
@@ -430,14 +431,15 @@ def Rule.activity_evidence():
 
 def Rule.project_relations_order(property, edit, revision, body, feedback, entry):
   match body:
-    case U.NewTask{message, profile, reasoning, context}: {==}
+    case U.NewTask{message, profile, reasoning, context, work}: {==}
     case U.Message{task, message, delivery}: {==}
+    case U.WorkName{work, name}: {==}
     case U.Project{id, name, workspace}: {==}
     case U.Card{card, draft_revision, value, assist, profile, keep_open}: {==}
     case U.Agent{agent, draft_revision, name, profile, reasoning, instructions, context, concurrency}: {==}
     case U.Fork{task, count, messages, context}: {==}
     case U.Compact{task, summary}: {==}
-    case U.TaskGraph{graph, declaration, parsed}: {==}
+    case U.TaskGraph{graph, declaration, parsed, work}: {==}
 
 def editing_relations_from_draft_agreement(+edit: M.ProjectEdit, +draft: U.Draft) ->
   {Activity.relations(Activity.editing_from_draft(edit, draft)) == Activity.project_relations_from_draft(P.project_edit_property(edit), edit, P.project_edit_draft(edit)) : +List<Activity.Relation>}:

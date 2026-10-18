@@ -258,6 +258,8 @@ def service_input(input: Services.Input, +application: E.Application, +services:
       file_request_admitted(Categories.admit(ServiceRequest, file_request_available, ServiceRequest{Services.AddFile{editor, file}, application, services}), application, services)
     case Services.Connect{}: service_result(Services.step(Services.Connect{}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case Services.Disconnected{reason}: service_result(Services.step(Services.Disconnected{reason}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
+    case Services.OpenSettings{}: service_result(Services.step(Services.OpenSettings{}, services), E.advance_selection(E.consume_global_navigation(application)))
+    case Services.CloseSettings{}: service_result(Services.step(Services.CloseSettings{}, services), E.advance_selection(application))
     case other: service_result(Services.step(other, services), application)
 
 def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:

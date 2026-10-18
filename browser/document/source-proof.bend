@@ -468,6 +468,7 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
         case Forms.OptionalTextValue{text}: {==}
         case Forms.NotApplicable{}: {==}
     case Forms.MessageText{}: {==}
+    case Forms.WorkName{}: {==}
     case Forms.ProjectName{}: {==}
     case Forms.WorkspacePrimary{}: {==}
     case Forms.ContextOrigin{}: {==}

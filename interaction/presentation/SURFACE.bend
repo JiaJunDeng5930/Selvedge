@@ -17,6 +17,17 @@ import ../services/CONTEXT.bend as Context
 import ../TYPES.bend as InteractionTypes
 
 type Role is Data:
+  GlobalNavigation{compact: Bool}
+  GlobalNavigationEntry{selected: Bool, compact: Bool}
+  CompactHeader{}
+  CompactWorkScope{title: String, count: Nat}
+  CompactNavigationMenu{}
+  CompactNavigationEntry{selected: Bool}
+  WorkTabs{}
+  WorkTab{selected: Bool}
+  WorkTabGroup{}
+  WorkOverviewButton{count: Nat}
+  WorkChoiceRow{}
   Navigation{}
   NavigationHeader{}
   NavigationEntry{selected: Bool}

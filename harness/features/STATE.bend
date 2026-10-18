@@ -17,15 +17,18 @@ import ../workspace/PROJECTS.bend as Projects
 import ../../features/task_graph/MODEL.bend as TaskGraph
 import ../../features/task_graph/CODEC.bend as TaskGraphCodec
 import ./graph-state.bend as TaskGraphState
+import ../../features/work/MODEL.bend as Work
+import ./work-state.bend as WorkState
 
 # State and resource obligations are assembled here. Adding a component must
 # provide its own validity, evolution, recovery and effect-authority clauses.
 def valid(+world: M.World()) -> Bool:
-  Board.valid(world) && ChatGPTState.valid(world) && TaskGraphState.valid(world) && CompactionState.valid(world)
+  Board.valid(world) && ChatGPTState.valid(world) && TaskGraphState.valid(world) && CompactionState.valid(world) && WorkState.valid(world)
 
 def evolution(+previous: F.State(), +candidate: F.State()) -> Bool:
   Board.evolution(F.board(previous), F.board(candidate)) && Nat.is_le(ChatGPT.next(F.chatgpt(previous)), ChatGPT.next(F.chatgpt(candidate))) &&
-    Nat.is_le(TaskGraph.next(F.task_graph(previous)), TaskGraph.next(F.task_graph(candidate))) && Compaction.evolution(F.compaction(previous), F.compaction(candidate))
+    Nat.is_le(TaskGraph.next(F.task_graph(previous)), TaskGraph.next(F.task_graph(candidate))) && Compaction.evolution(F.compaction(previous), F.compaction(candidate)) &&
+    Nat.is_le(Work.next(F.work(previous)), Work.next(F.work(candidate)))
 
 def recover(+state: F.State()) -> F.State():
   F.with_compaction(Compaction.recover(F.compaction(state)), F.with_chatgpt(ChatGPT.recover(F.chatgpt(state)), F.with_board(Board.recover(F.board(state)), state)))
@@ -35,6 +38,7 @@ def project_used(+id: Nat, +world: M.World()) -> Bool:
 
 def query(query: F.Query, +world: M.World()) -> J.Json:
   match query:
+    case F.WorkQuery{query}: WorkState.query(query, world)
     case F.ChatGPTQuery{query}: ChatGPTView.query(query, ChatGPTState.registry(world), Projects.registry(F.State(), world))
     case F.BoardQuery{query}: Board.query(query, world)
     case F.TaskGraphQuery{query}: TaskGraphCodec.query_reply(query, TaskGraphState.registry(world))
