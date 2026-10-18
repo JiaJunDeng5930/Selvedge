@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
 import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../document/SOURCE.bend as Source
@@ -6,6 +7,9 @@ import ../controls/CONTROLS.bend as Controls
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/INPUT.bend as U
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
+import ../../interaction/interactive_markdown/SCENE.bend as InteractiveScene
+import ../../interaction/interactive_markdown/SYNTAX.bend as InteractiveSyntax
 
 type Binding is Data:
   Binding{key: String, kind: Source.NativeFieldKind, semantic: String, meaning: SurfaceTypes.Meaning}
@@ -20,6 +24,7 @@ type Update is Data:
   SetIdentity{key: String, identity: Identity}
   SetValue{key: String, value: String}
   SetChecked{key: String, checked: Bool}
+  SetEnabled{key: String, enabled: Bool}
 
 type Session is Data:
   Idle{}
@@ -33,6 +38,7 @@ type Record is Data:
 type FieldEvent is Data:
   Rebind{identity: Identity}
   Synchronize{value: String}
+  Reject{value: String}
   CompositionStarted{}
   CompositionEnded{}
   InputStarted{}
@@ -46,7 +52,7 @@ def initial() -> Record: Record{None{}, None{}, Idle{}}
 def canonical_same(old: Maybe<&2, String>, value: String) -> Bool:
   match old:
     case None{}: False{}
-    case Some{previous}: String.eq(previous, value)
+    case Some{previous}: SafeText.string_equal(previous, value)
 
 def supersede(session: Session) -> Session:
   match session:
@@ -62,6 +68,8 @@ def rebind_session(session: Session) -> Session:
 
 def same_meaning(original: SurfaceTypes.Meaning, current: SurfaceTypes.Meaning) -> Bool:
   match original current:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}} SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{other_identity, other_occurrence, other_tag, other_attrs, Interactive.FieldBinding{other_state, other_schema, other_raw, other_canonical, other_validation, other_enabled}, other_children}}:
+      UIIdentity.same(InteractiveScene.key(identity), InteractiveScene.key(other_identity)) && Nat.is_eq(occurrence, other_occurrence) && String.eq(state_id, other_state) && String.eq(tag, other_tag) && InteractiveSyntax.same_schema(schema, other_schema)
     case SurfaceTypes.Edit{editor, field, entry, value, choices} SurfaceTypes.Edit{other, new_field, new_entry, new_value, new_choices}: U.same_editor(editor, other)
     case SurfaceTypes.EnterDirectory{editor, text} SurfaceTypes.EnterDirectory{other, new_text}: U.same_editor(editor, other)
     case SurfaceTypes.ReceiveFile{editor, enabled} SurfaceTypes.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
@@ -74,7 +82,7 @@ def same_meaning(original: SurfaceTypes.Meaning, current: SurfaceTypes.Meaning) 
 def same_identity(original: Identity, current: Identity) -> Bool:
   Identity{key, semantic, meaning} = original
   Identity{other_key, other_semantic, other_meaning} = current
-  (String.eq(key, other_key) && String.eq(semantic, other_semantic)) && same_meaning(meaning, other_meaning)
+  (SafeText.string_equal(key, other_key) && SafeText.string_equal(semantic, other_semantic)) && same_meaning(meaning, other_meaning)
 
 def rebound(same: Bool, +identity: Identity, record: Record) -> Decision:
   match same:
@@ -121,6 +129,9 @@ def step(event: FieldEvent, record: Record) -> Decision:
   match event:
     case Rebind{identity}: rebind_record(record, identity)
     case Synchronize{value}: synchronize_record(record, value)
+    case Reject{value}:
+      Record{identity, canonical, session} = record
+      Decision{Record{identity, Some{value}, supersede(session)}, False{}, True{}}
     case CompositionStarted{}:
       Record{identity, canonical, session} = record
       Decision{Record{identity, canonical, Composing{}}, False{}, False{}}
@@ -140,6 +151,7 @@ def forest(surface: SurfaceTypes.Surface) -> +List<SurfaceTypes.Node>:
 
 def editing(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: True{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: True{}
@@ -185,7 +197,7 @@ def owned_found(found: Maybe<&2, SurfaceTypes.Node>, binding: Binding) -> Bool:
     case None{}: False{}
     case Some{SurfaceTypes.Node{current, identity, label, role, meaning, children}}:
       Binding{key, kind, semantic, original} = binding
-      (String.eq(key, UIIdentity.encode(current)) && String.eq(semantic, identity)) && same_meaning(original, meaning)
+      (SafeText.string_equal(key, UIIdentity.encode(current)) && SafeText.string_equal(semantic, identity)) && same_meaning(original, meaning)
 
 def owned_node(binding: Binding, found: Maybe<&2, SurfaceTypes.Node>) -> Bool: owned_found(found, binding)
 
@@ -243,7 +255,7 @@ def fields_owned(fields: +List<Binding>, +key: String, +nodes: +List<SurfaceType
     case Nil{}: False{}
     case Con{+binding, rest}:
       Binding{current, kind, semantic, meaning} = binding
-      (String.eq(current, key) && owned_node(binding, InterfaceView.find_node(nodes, key))) || fields_owned(rest, key, nodes)
+      (SafeText.string_equal(current, key) && owned_node(binding, InterfaceView.find_node(nodes, key))) || fields_owned(rest, key, nodes)
 
 def field_owned(basis: Basis, key: String, surface: SurfaceTypes.Surface) -> Bool:
   Basis{fields, controls} = basis
@@ -252,7 +264,7 @@ def field_owned(basis: Basis, key: String, surface: SurfaceTypes.Surface) -> Boo
 def key_present(keys: +List<String>, +key: String) -> Bool:
   match keys:
     case Nil{}: False{}
-    case Con{current, rest}: String.eq(current, key) || key_present(rest, key)
+    case Con{current, rest}: SafeText.string_equal(current, key) || key_present(rest, key)
 
 def control_owned(basis: Basis, key: String) -> Bool:
   Basis{fields, controls} = basis
@@ -261,3 +273,47 @@ def control_owned(basis: Basis, key: String) -> Bool:
 def record_canonical(record: Record) -> Maybe<&2, String>:
   Record{identity, canonical, session} = record
   canonical
+
+type NamedSemanticNode is Data:
+  NamedSemanticNode{encoded: String, original: SurfaceTypes.Node, children: +List<NamedSemanticNode>}
+
+def prepare_named(nodes: +List<SurfaceTypes.Node>) -> +List<NamedSemanticNode>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      NamedSemanticNode{UIIdentity.encode(key), node, prepare_named(children)} <> prepare_named(rest)
+
+def find_named_fallback(found: Maybe<&2, SurfaceTypes.Node>, fallback: Unit -> Maybe<&2, SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Node>:
+  match found:
+    case Some{node}: Some{node}
+    case None{}: fallback(Unit{})
+
+def find_named_match(same: Bool, node: SurfaceTypes.Node,
+  descendants: Unit -> Maybe<&2, SurfaceTypes.Node>, siblings: Unit -> Maybe<&2, SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Node>:
+  match same:
+    case True{}: Some{node}
+    case False{}: find_named_fallback(descendants(Unit{}), siblings)
+
+def find_named(nodes: +List<NamedSemanticNode>, +key: String) -> Maybe<&2, SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{NamedSemanticNode{encoded, node, children}, rest}:
+      find_named_match(SafeText.string_equal(encoded, key), node,
+        (_ => find_named(children, key)), (_ => find_named(rest, key)))
+
+def update_named(+binding: Binding, +nodes: +List<NamedSemanticNode>) -> +List<Update>:
+  Binding{+key, kind, semantic, meaning} = binding
+  +found = find_named(nodes, key)
+  update_admitted(Categories.admit(UpdateCandidate, update_predicate, UpdateCandidate{binding, found}))
+
+def updates_fields_named(fields: +List<Binding>, +nodes: +List<NamedSemanticNode>) -> +List<Update>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{binding, rest}:
+      List.append(&2, Update, update_named(binding, nodes), updates_fields_named(rest, nodes))
+
+def fields_many(fields: +List<Binding>) -> Bool:
+  match fields:
+    case Con{first, Con{second, rest}}: True{}
+    case _: False{}

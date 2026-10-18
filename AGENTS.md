@@ -2,6 +2,16 @@
 
 This file is for coding agents working in this repository.
 
+## 最高原则：直接围绕工程需求与目标
+
+- 工程需求与工程目标是本仓库一切工作的最高依据。本原则优先于其余仓库约定、技能流程、历史方案和工作记录；不得用这些内容代替需求判断。
+- 写入工程的所有内容，包括文字、代码、规格、证明、测试、脚本和配置，都必须直接定义、实现、证明或验证工程需求与目标。禁止任何间接路径；不得用另一个对象充当工程正确性的依据。
+- 规格必须直接表达需求。实现必须满足规格；证明必须建立实现对规格的保证；测试必须直接检验所负责的工程行为或边界。不得把历史实现、当前实现自身、证明便利性、测试通过或流程完成当作正确性的依据。
+- 修改实现时，以工程规格为准。不得仅为保持旧算法而保留旧实现、建立新旧实现等价要求，或把旧实现的具体选择追加为程序义务。
+- 审查首先判断内容是否直接服务于工程目标，再判断其内部是否正确。不能说明直接需求依据的内容，应删除或改正，不得通过追加假设、适配、证明、测试或审查流程使其自我成立。
+- 不得为了简化实现或通过验证而削弱真实需求。进度以工程目标的实际完成情况衡量，不以新增定义、证明、检查或审查轮次的数量衡量。
+- 测试是否新增或保留，必须结合真实使用场景、故障经验、具体改动风险、已有保障和运行维护成本判断；“这是需求”或“想保证某个性质”本身不构成增测理由。删除收益不足的测试，不得把人为测试门槛反过来当作工程目标。
+
 ## Start Here
 
 - Read [README.md](./README.md) first for the repository-level workflow.
@@ -82,11 +92,11 @@ This file is for coding agents working in this repository.
 |bendlib:{README.md,algebra-proof.bend,association-map.bend,categories.bend,component.bend,effects.bend,equality-proof.bend,equality.bend,json-proof.bend,json.bend,logic-proof.bend,relations.bend,stdlib.bend,string-equality.bend,theory.bend}
 |browser:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,appearance/,controls/,document/,editor/,focus/,layout/,model-proof.bend,model-rules.bend,reading/,runtime/}
 |browser/appearance:{CONTRACT.bend,DESIGN.bend,FONT.bend,ICONS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TYPOGRAPHY.bend}
-|browser/controls:{BUTTONS.bend,CONTRACT.bend,CONTROLS.bend,GEOMETRY.bend,MODEL.bend,NAVIGATION.bend,PROGRAM.bend,PROOF.bend,README.md,SHELL.bend,SIDEBAR.bend,SURFACES.bend,authored-primitives.bend,authored-proof.bend,button-proof.bend,navigation-proof.bend}
-|browser/document:{CONTRACT.bend,FRAME.bend,MODEL.bend,PROOF.bend,README.md,RENDERED.bend,SOURCE.bend,SPEC.bend,content-proof.bend,presentation-order.bend,presentation-proof.bend,render-contract.bend,render-proof.bend,source-contract.bend,source-proof.bend}
+|browser/controls:{BUTTONS.bend,CONTRACT.bend,CONTROLS.bend,GEOMETRY.bend,MODEL.bend,NAVIGATION.bend,PROGRAM.bend,PROOF.bend,README.md,SHELL.bend,SIDEBAR.bend,SURFACES.bend,authored-primitives.bend,authored-proof.bend,button-proof.bend,chart.bend,interactive-markdown.bend,navigation-proof.bend}
+|browser/document:{CONTRACT.bend,FRAME.bend,MODEL.bend,PROOF.bend,README.md,RENDERED.bend,SOURCE.bend,SPEC.bend,content-proof.bend,diagnostic-proof.bend,presentation-order.bend,presentation-proof.bend,render-contract.bend,render-proof.bend,source-contract.bend,source-proof.bend}
 |browser/editor:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/focus:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
-|browser/layout:{ACTIVITY.bend,ADAPTATION.bend,CONTENT.bend,CONTRACT.bend,GEOMETRY.bend,HIERARCHY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,RENDERER.bend,SOURCE.bend,SPACE.bend,activity-contract.bend,activity-proof.bend,adaptation-proof.bend,allocation-contract.bend,allocation-proof.bend,enclosure.bend,geometry-contract.bend,geometry-proof.bend,measurement-contract.bend,natural-size.bend,physical-content-measurement.bend,physical-native.bend,physical-plan.bend,physical-probe.bend,physical-space.bend,render-contract.bend,render-proof.bend,sizing-proof.bend}
+|browser/layout:{ACTIVITY.bend,ADAPTATION.bend,CONTENT.bend,CONTRACT.bend,GEOMETRY.bend,HIERARCHY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,RENDERER.bend,SOURCE.bend,SPACE.bend,activity-contract.bend,activity-proof.bend,adaptation-proof.bend,allocation-contract.bend,allocation-proof.bend,enclosure.bend,field-dimensions.bend,geometry-contract.bend,geometry-proof.bend,measurement-contract.bend,measurement-proof.bend,measurement-requirements.bend,natural-size.bend,physical-content-measurement.bend,physical-native.bend,physical-plan.bend,physical-probe.bend,physical-space.bend,render-contract.bend,render-proof.bend,sizing-proof.bend}
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend,utility-proof.bend}
 |docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,remote-control.md,task-board.md}
@@ -105,8 +115,8 @@ This file is for coding agents working in this repository.
 |harness:{COMMANDS.bend,CONTRACT.bend,DOMAIN.bend,INVARIANTS.bend,LAWS.bend,LOCALITY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,approval/,compaction/,context/,conversation/,execution/,features/,history/,protocol/,reasoning/,tasks/,tools/,transport/,workspace/}
 |harness/approval:{CONTRACT.bend,HOOKS.bend,MODEL.bend,PROOF.bend,README.md}
 |harness/compaction:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
-|harness/context:{CONTRACT.bend,KINDS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,constructor-proof.bend,instruction.bend,patch-proof.bend,project-guidance.bend,selection-proof.bend,selection.bend,skill-information.bend}
-|harness/conversation:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TITLE.bend}
+|harness/context:{CONTRACT.bend,KINDS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,constructor-proof.bend,instruction.bend,interactive-markdown.bend,patch-proof.bend,project-guidance.bend,selection-proof.bend,selection.bend,skill-information.bend}
+|harness/conversation:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TITLE.bend,origin-contract.bend,origin-proof.bend}
 |harness/execution:{OPERATIONS.bend,PROGRAM.bend,PROOF.bend,README.md,notifications.bend}
 |harness/features:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,execution.bend,graph-execution.bend,graph-proof.bend,graph-spec.bend,graph-state.bend,laws.bend,operations.bend,protocol.bend,remote-proof.bend,remote.bend,resolution.bend,work-proof.bend,work-state.bend,worktree-execution.bend,worktree-proof.bend,worktree-sharing-proof.bend,worktree-spec.bend,worktree-state.bend,worktree-storage-proof.bend}
 |harness/history:{MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
@@ -118,11 +128,12 @@ This file is for coding agents working in this repository.
 |harness/workspace:{CONTRACT.bend,PROJECTS.bend,PROOF.bend,README.md,WORKSPACE.bend}
 |host:{README.md,adapters/,approvals.mjs,board-files.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,compaction.mjs,config.mjs,context-discovery.mjs,context-patches.mjs,context-sources.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,remote-connector.mjs,remote-control.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,task-text.mjs,transport.c,worktrees.mjs}
 |host/adapters:{ACCOUNTS.bend,BACKENDS.bend,BROWSER.bend,COMPACTION.bend,CONFIGURATION.bend,EFFECTS.bend,EVALUATOR.bend,HTTP.bend,MODEL.bend,PLUGINS.bend,PROGRAM.bend,PROOF.bend,README.md,RPC.bend,WEB.bend,accounts-proof.bend,backends-proof.bend,browser-proof.bend,compaction-proof.bend,configuration-proof.bend,effects-proof.bend,evaluator-proof.bend,http-proof.bend,plugins-proof.bend,rpc-proof.bend,web-proof.bend}
-|host/public:{README.md,app.mjs,appearance.mjs,bend-value.mjs,bootstrap.mjs,connection.mjs,events.mjs,index.html,json-tokens.mjs,keyboard.mjs,layout-reveal.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
+|host/public:{README.md,app.mjs,appearance.mjs,bend-value.mjs,bootstrap.mjs,connection.mjs,events.mjs,index.html,interactive-storage.mjs,json-tokens.mjs,keyboard.mjs,layout-reveal.mjs,markdown-fences.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,presentation-motion.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
 |host/public/vendor:{README.md,desktop-source.json,desktop-tokens.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
-|interaction:{CONTRACT.bend,IDENTITY.bend,INPUT.bend,MODEL.bend,PROOF.bend,README.md,STATE.bend,TYPES.bend,conversation/,experience/,identity-laws.bend,presentation/,services/,session/,submission/}
+|interaction:{CONTRACT.bend,IDENTITY.bend,INPUT.bend,MODEL.bend,PROOF.bend,README.md,STATE.bend,TYPES.bend,conversation/,experience/,identity-laws.bend,interactive_markdown/,presentation/,services/,session/,submission/}
 |interaction/conversation:{CODE.bend,CONTRACT.bend,MODEL.bend,OUTPUT.bend,PROOF.bend,README.md}
 |interaction/experience:{ACTIVITY.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
+|interaction/interactive_markdown:{CODEC.bend,CONTRACT.bend,DECIMAL.bend,DESIGN.md,DOCUMENTS.bend,EXPAND.bend,EXPRESSION.bend,MODEL.bend,PARSER.bend,PROOF.bend,README.md,REGISTRY.bend,SCENE.bend,SCHEMA.bend,SOURCES.bend,STATE.bend,SYNTAX.bend,TYPES.bend,VIEW_SCHEMA.bend,documents-contract.bend,documents-proof.bend,expression-proof.bend,scene-proof.bend,snapshot-contract.bend,snapshot-proof.bend}
 |interaction/presentation:{COMPOSITION.bend,CONTRACT.bend,INFORMATION.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SURFACE.bend,VIEW.bend,interaction-proof.bend,scene-proof.bend,surface-proof.bend}
 |interaction/services:{CONTEXT.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,connection-contract.bend,connection-proof.bend}
 |interaction/session:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
@@ -138,9 +149,9 @@ This file is for coding agents working in this repository.
 |relay/src:{worker.mjs}
 |relay/test:{runtime.mjs}
 |remote:{README.md,protocol.mjs}
-|scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,compiler-source.mjs,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,javascript-modules.mjs,optimize-javascript.mjs,setup-worktree.sh,test-process.mjs,test.mjs,theory-index.mjs,toolchain.mjs,ui-verification.mjs,validate.mjs,verify-proof.mjs}
-|tests-bend:{README.md,approvals.test.mjs,auth.test.mjs,board-files.test.mjs,browser-boundaries.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,compiler-support.mjs,context-discovery.test.mjs,fixtures/,javascript-cache.test.mjs,javascript-intrinsics.test.mjs,journal.test.mjs,kernel-boundaries.test.mjs,locality.test.mjs,plugins.test.mjs,process.test.mjs,providers.test.mjs,relay.test.mjs,remote-connector.test.mjs,remote-control.test.mjs,sandbox.test.mjs,service.test.mjs,support.mjs,task-titles.test.mjs,test-process.test.mjs,ui-verification.test.mjs,works-service.test.mjs,worktrees.test.mjs}
-|tests-bend/fixtures:{approved-tool.mjs,chatgpt.mjs}
+|scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,compiler-source.mjs,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,javascript-modules.mjs,optimize-javascript.mjs,setup-worktree.sh,test-interactive-markdown-browser.py,test-process.mjs,test.mjs,theory-index.mjs,toolchain.mjs,ui-verification.mjs,validate.mjs,verify-proof.mjs}
+|tests-bend:{README.md,approvals.test.mjs,auth.test.mjs,board-files.test.mjs,browser-boundaries.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,compiler-support.mjs,context-discovery.test.mjs,fixtures/,interactive-markdown-fences.test.mjs,interactive-markdown-service.test.mjs,interactive-markdown-storage.test.mjs,javascript-cache.test.mjs,javascript-intrinsics.test.mjs,journal.test.mjs,kernel-boundaries.test.mjs,locality.test.mjs,plugins.test.mjs,process.test.mjs,providers.test.mjs,relay.test.mjs,remote-connector.test.mjs,remote-control.test.mjs,sandbox.test.mjs,service.test.mjs,support.mjs,task-titles.test.mjs,test-process.test.mjs,ui-verification.test.mjs,works-service.test.mjs,worktrees.test.mjs}
+|tests-bend/fixtures:{approved-tool.mjs,chatgpt.mjs,interactive-markdown.mjs}
 |theory:{EXTLIB-LICENSE,LICENSE,README.md,relation-certificates.json,rocq-maps.json,stdlib-certificates.json}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

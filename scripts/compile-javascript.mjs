@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { prepareCompilerSource, sourceVersion, sourceHash } from './compiler-source.mjs';
 import { optimizeJavaScript } from './optimize-javascript.mjs';
 import { javascriptModules } from './javascript-modules.mjs';
+import { compilerEnvironment, compilerInvocation } from './toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const driver = fileURLToPath(import.meta.url);
@@ -178,8 +179,9 @@ async function compileBatch(prefix, requests, verify) {
 
 async function runBatchProcess(requestFile, verify) {
   await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [driver, '--emit-batch', requestFile], {
-      cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, BEND_NO_TELEMETRY: '1' },
+    const invocation = compilerInvocation(process.execPath, ['--smol', driver, '--emit-batch', requestFile]);
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...compilerEnvironment(), BUN_JSC_miniVMHeapGrowthFactor: '1.1', BEND_NO_TELEMETRY: '1' },
     });
     let diagnostic = '', failure;
     const stop = error => { failure ??= error; child.kill('SIGKILL'); };
@@ -220,9 +222,10 @@ async function compileIsolated(options) {
     const cached = await cachedCompilation(configuration);
     if (cached) return cached;
     await writeFile(request, JSON.stringify(configuration));
-    const result = spawnSync(process.execPath, [driver, '--emit', request], {
+    const invocation = compilerInvocation(process.execPath, ['--smol', driver, '--emit', request]);
+    const result = spawnSync(invocation.command, invocation.args, {
       cwd: root, encoding: 'utf8', maxBuffer: Infinity,
-      env: { ...process.env, BEND_NO_TELEMETRY: '1' },
+      env: { ...compilerEnvironment(), BUN_JSC_miniVMHeapGrowthFactor: '1.1', BEND_NO_TELEMETRY: '1' },
     });
     if (result.error || result.status !== 0) {
       const diagnostic = result.error?.message || result.stderr.trim() || result.stdout.trim() || 'No compiler diagnostic was emitted';
@@ -249,7 +252,7 @@ async function emit(requestPath) {
     const result = await emitBook(request, book, seen, before, Bend, Comp);
     await writeFile(request.response, JSON.stringify(result));
   } catch (error) {
-    throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : String(error));
+    throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : error?.stack ?? String(error));
   }
 }
 
@@ -409,7 +412,7 @@ async function emitBatch(requestPath) {
     }
     await writeFile(batch.response, JSON.stringify(results));
   } catch (error) {
-    throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : String(error));
+    throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : error?.stack ?? String(error));
   }
 }
 

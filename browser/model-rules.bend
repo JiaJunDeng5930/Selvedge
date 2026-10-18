@@ -135,3 +135,50 @@ law observed_realization_sound:
   for realized: {Model.decision_realization(Model.observe_frame(received, surface, frame,
     model_state)) == Rendered.Realized{Model.generation(model_state), frame} : Rendered.State}
   {Spec.valid(surface, frame) == True{} : Bool}
+
+
+def focus_delivery(ticket: Nat, selected: Maybe<&2, String>) -> +List<Model.Effect>:
+  match selected:
+    case None{}: Nil{}
+    case Some{identity}: [Model.PlatformEffect{Platform.Focus{ticket, Focus.Product{identity}}}]
+
+def content_focus_delivery(owned: Bool, ticket: Nat, owner: String, identity: String) -> +List<Model.Effect>:
+  match owned:
+    case False{}: Nil{}
+    case True{}: [Model.PlatformEffect{Platform.Focus{ticket, Focus.Content{owner, identity}}}]
+
+# Focus requests resolve in the current interaction scope. Missing product
+# targets and content outside that scope deliver no physical focus command.
+# Reading and clipboard commands retain their complete payloads and order.
+def delivered_effect(effect: Platform.Effect, +surface: SurfaceTypes.Surface) -> +List<Model.Effect>:
+  match effect:
+    case Platform.Focus{ticket, Focus.Product{requested}}:
+      focus_delivery(ticket, InterfaceView.focus_target(surface, requested))
+    case Platform.Focus{ticket, Focus.Content{+owner, identity}}:
+      content_focus_delivery(Platform.found_content_owner(InterfaceView.find_node(InterfaceView.active_nodes(surface), owner)), ticket, owner, identity)
+    case Platform.ScopeFocus{ticket, previous, current}:
+      focus_delivery(ticket, InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)))
+    case Platform.ApplyReading{task, generation, effect}:
+      [Model.PlatformEffect{Platform.ApplyReading{task, generation, effect}}]
+    case Platform.Clipboard{block, effect}:
+      [Model.PlatformEffect{Platform.Clipboard{block, effect}}]
+
+def delivered_effects(effects: +List<Platform.Effect>, +surface: SurfaceTypes.Surface) -> +List<Model.Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{effect, rest}:
+      List.append(&2, Model.Effect, delivered_effect(effect, surface), delivered_effects(rest, surface))
+
+def committed_decision(decision: Platform.Decision, +generation: Nat, +environment: Design.Environment, +font: F.State) -> Model.Decision:
+  Platform.Decision{+product, platform, +source} = decision
+  InteractionTypes.Decision{core, reply, runtime, interaction, services, durable} = product
+  +next: Model.State = Model.State{Platform.State{core, platform}, generation,
+    Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)}
+  Model.Decision{next, product, delivered_effects(source, Model.observed_surface(next))}
+
+law production_commit_complete:
+  for +decision: Platform.Decision
+  for +generation: Nat
+  for +environment: Design.Environment
+  for +font: F.State
+  {Model.production_commit(decision, generation, environment, font) == committed_decision(decision, generation, environment, font) : Model.Decision}

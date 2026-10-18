@@ -37,12 +37,23 @@ import ../../interaction/submission/field-options.bend as Fields
 import ../../interaction/presentation/COMPOSITION.bend as Composition
 import ../document/presentation-order.bend as Order
 import ./SHELL.bend as Shell
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
+import ../../interaction/interactive_markdown/SCENE.bend as InteractiveScene
+import ../../bendlib/json.bend as J
 import ./MODEL.bend as Authored
 import ./authored-primitives.bend as Factory
+import ./interactive-markdown.bend as InteractiveRendering
+import ./chart.bend as Chart
+import ../../interaction/interactive_markdown/DECIMAL.bend as Decimal
+import ../../bendlib/stdlib.bend as Std
+import ../../interaction/interactive_markdown/EXPRESSION.bend as Expression
 import ../document/MODEL.bend as Doc
 import ../layout/physical-space.bend as Model
 import ../layout/geometry-contract.bend as SpaceRules
 import ../layout/GEOMETRY.bend as Spatial
+import ../layout/CONTENT.bend as PhysicalContent
+import ../layout/SOURCE.bend as PhysicalSource
+import ../layout/render-contract.bend as RenderRules
 import ../../interaction/conversation/MODEL.bend as Conversation
 import ../layout/RENDERER.bend as Renderer
 import ../../interaction/services/CONTEXT.bend as Context
@@ -1067,8 +1078,18 @@ def source_support_binding(visible: Bool, input: InteractionTypes.Input, availab
     case True{}: SurfaceTypes.Activate{input, availability}
     case False{}: SurfaceTypes.Region{}
 
+def interactive_source_binding(+node: Interactive.ExpandedNode) -> SurfaceTypes.Meaning:
+  Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children} = node
+  match binding:
+    case Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}: SurfaceTypes.InteractiveNode{node}
+    case Interactive.ActionBinding{kind, enabled, pending}: SurfaceTypes.Activate{InteractionTypes.Interactive{Interactive.Activated{InteractiveScene.event(node)}}, InterfaceView.availability(enabled && Bool.not(pending))}
+    case Interactive.NoBinding{}: SurfaceTypes.Region{}
+
 def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
   match meaning:
+    case SurfaceTypes.InteractiveRegion{identity, source_visible}: SurfaceTypes.Region{}
+    case SurfaceTypes.InteractiveNode{node}: interactive_source_binding(node)
+    case SurfaceTypes.InteractiveView{event, command, label, enabled}: SurfaceTypes.Activate{InteractionTypes.Interactive{Interactive.ViewChanged{event, command}}, InterfaceView.availability(enabled)}
     case SurfaceTypes.PageRegion{region, position}: SurfaceTypes.Region{}
     case SurfaceTypes.Region{}: SurfaceTypes.Region{}
     case SurfaceTypes.LayerRegion{dismiss, outside, escape}: SurfaceTypes.Region{}
@@ -1562,6 +1583,561 @@ law property_caption_wraps:
   for property: UXTypes.Property
   {Controls.caption_wrapping(Controls.PropertyFace{property}) == T.UnbrokenLine{} : T.Wrapping}
 
+def expected_interactive_canvas_style(style: S.Style, +size: E.Extent) -> S.Style:
+  S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  S.Style{S.Layout{Model.Layered{}, main, cross, E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}},
+    Model.ExactSize{E.extent_width(size)}, Model.ExactSize{E.extent_height(size)}, minimum, Model.Confined{}, Spatial.InFlow{}}, font, chrome, states}
+
+def expected_interactive_plot_style(style: S.Style) -> S.Style:
+  S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  S.Style{S.Layout{Model.Horizontal{}, main, cross, E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}},
+    Model.StretchSize{}, Model.ExactSize{240n}, minimum, Model.ScrollHorizontally{}, Spatial.InFlow{}}, font, chrome, states}
+
+def expected_interactive_plot_canvas_style(style: S.Style) -> S.Style:
+  S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} = style
+  S.Style{S.Layout{Model.Layered{}, main, cross, E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}},
+    Model.ExactSize{480n}, Model.ExactSize{240n}, minimum, Model.Confined{}, Spatial.InFlow{}}, font, chrome, states}
+
+# Chart is the executable geometry specification. It admits ordered original
+# values, chooses nonzero numeric domains and maps them to points before any DOM
+# authorship. These requirements inspect real emitted paths and the physical
+# interpretation; they do not reuse the renderer's plot_path or scale helpers.
+def chart_drawing(kind: Chart.ChartKind, +points: +List<Chart.Point>) -> S.Drawing:
+  match kind:
+    case Chart.Line{}: S.Drawing{"0 0 480 240", [S.DrawingPath{Chart.line_commands(points, True{})}, S.DrawingPath{Chart.point_commands(points)}], 480n, 240n, S.StrokedDrawing{20n}}
+    case Chart.Bar{}: S.Drawing{"0 0 480 240", [S.DrawingPath{Chart.bar_commands(points, Chart.bar_width(points))}], 480n, 240n, S.FilledDrawing{}}
+
+def chart_axes(+key: UIIdentity.Key, +visual: Design.Style) -> S.Node:
+  S.Glyph{UIIdentity.part(key, "axes"), S.Drawing{"0 0 480 240", [S.DrawingPath{"M 40 20 V 220 M 40 120 H 460"}], 480n, 240n, S.StrokedDrawing{10n}}, Factory.glyph_style(visual, 480n, 240n)}
+
+def chart_values(+kind: Chart.ChartKind, +points: +List<Chart.Point>, +key: UIIdentity.Key, +visual: Design.Style) -> S.Node:
+  S.Glyph{UIIdentity.part(key, "values"), chart_drawing(kind, points), Factory.glyph_style(visual, 480n, 240n)}
+
+def chart_canvas(+kind: Chart.ChartKind, +points: +List<Chart.Point>, +key: UIIdentity.Key, +attrs: J.Json, +visual: Design.Style) -> S.Node:
+  S.Box{UIIdentity.part(key, "canvas"), S.Div{}, expected_interactive_plot_canvas_style(InteractiveRendering.ordinary_style(visual, attrs)), Nil{},
+    [chart_axes(key, visual), chart_values(kind, points, key, visual)]}
+
+def chart_source(+kind: Chart.ChartKind, +points: +List<Chart.Point>, +total: Nat, +key: UIIdentity.Key, +attrs: J.Json, +visual: Design.Style) -> S.Node:
+  S.Box{key, S.Div{}, expected_interactive_plot_style(InteractiveRendering.ordinary_style(visual, attrs)),
+    [S.RoleAttribute{"img"}, S.AriaAttribute{"label", "图表；显示 " ++ Nat.show(List.length(&2, Chart.Point, points)) ++ " / " ++ Nat.show(total) ++ " 行；数值见下方数据"}],
+    [chart_canvas(kind, points, key, attrs, visual)]}
+
+def chart_prepared(+kind: Chart.ChartKind, +points: +List<Chart.Point>, +total: Nat, +key: UIIdentity.Key, +attrs: J.Json, +visual: Design.Style,
+  +parent_font: T.Presentation, +generation: Nat) -> PhysicalContent.Prepared:
+  +font = A.parent_font(visual)
+  PhysicalContent.Prepared{PhysicalContent.Snapshot{generation, chart_source(kind, points, total, key, attrs, visual), parent_font},
+    RenderRules.chart_tree("/0", "/0/0", "/0/0/0", "/0/0/1",
+      PhysicalContent.local_value(chart_source(kind, points, total, key, attrs, visual), font),
+      PhysicalContent.local_value(chart_canvas(kind, points, key, attrs, visual), font),
+      PhysicalContent.local_value(chart_axes(key, visual), font),
+      PhysicalContent.local_value(chart_values(kind, points, key, visual), font)), Nil{}, Nil{}}
+
+def interactive_plot_drawings(node: S.Node) -> +List<S.Node>:
+  match node:
+    case S.Box{key, tag, style, attrs, [S.Box{canvas_key, canvas_tag, canvas_style, canvas_attrs, drawings}]}: drawings
+    case _: Nil{}
+
+law interactive_canvas_geometry:
+  for +style: S.Style
+  for +size: E.Extent
+  {InteractiveRendering.canvas_style(style, size) == expected_interactive_canvas_style(style, size) : S.Style}
+
+law interactive_plot_geometry:
+  for +style: S.Style
+  {InteractiveRendering.plot_style(style) == expected_interactive_plot_style(style) : S.Style}
+
+law interactive_plot_canvas_geometry:
+  for +style: S.Style
+  {InteractiveRendering.plot_canvas_style(style) == expected_interactive_plot_canvas_style(style) : S.Style}
+
+def chart_row_source(row: Chart.Row) -> J.Json:
+  Chart.Row{source, x, y} = row
+  source
+
+def chart_point_row(point: Chart.Point) -> Chart.Row:
+  Chart.Point{row, x, y} = point
+  row
+
+def chart_row_origin(+source: J.Json, result: Result<&2, &2, String, Chart.Row>) -> Type:
+  match result:
+    case Fail{reason}: {True{} == True{} : Bool}
+    case Done{row}: {chart_row_source(row) == source : J.Json}
+
+def chart_rows_origin(+limit: Nat, +source: +List<J.Json>, result: Result<&2, &2, String, +List<Chart.Row>>) -> Type:
+  match result:
+    case Fail{reason}: {True{} == True{} : Bool}
+    case Done{rows}: {Std.map(~Chart.Row, ~J.Json, ~chart_row_source, rows) == List.take(&2, J.Json, source, limit) : +List<J.Json>}
+
+def chart_point_origin(+row: Chart.Row, result: Result<&2, &2, String, Chart.Point>) -> Type:
+  match result:
+    case Fail{reason}: {True{} == True{} : Bool}
+    case Done{point}: {chart_point_row(point) == row : Chart.Row}
+
+def chart_points_origin(+rows: +List<Chart.Row>, result: Result<&2, &2, String, +List<Chart.Point>>) -> Type:
+  match result:
+    case Fail{reason}: {True{} == True{} : Bool}
+    case Done{points}: {Std.map(~Chart.Point, ~Chart.Row, ~chart_point_row, points) == rows : +List<Chart.Row>}
+
+law chart_ordered_original_rows:
+  for +limit: Nat
+  for +rows: +List<J.Json>
+  for +x: String
+  for +y: String
+  chart_rows_origin(limit, rows, Chart.read_rows(limit, rows, x, y))
+
+law chart_projected_values_preserved:
+  for +rows: +List<Chart.Row>
+  for +xm: String
+  for +ym: String
+  for +index: Nat
+  for +count: Nat
+  chart_points_origin(rows, Chart.points(rows, xm, ym, index, count))
+
+law chart_line_kind:
+  {Chart.parse_kind("line-chart") == Some{Chart.Line{}} : Maybe<&2, Chart.ChartKind>}
+
+law chart_bar_kind:
+  {Chart.parse_kind("bar-chart") == Some{Chart.Bar{}} : Maybe<&2, Chart.ChartKind>}
+
+law chart_invalid_kind:
+  for +attrs: J.Json
+  for rejected: {Chart.parse_kind(J.text(J.get(attrs, "@chart-kind"))) == None{} : Maybe<&2, Chart.ChartKind>}
+  {Chart.read(attrs) == Fail{"Unsupported chart kind; expected line-chart or bar-chart"} : Result<&2, &2, String, Chart.Values>}
+
+# Complete raw requests exercise the public admission boundary. Their expected
+# points follow the declared axis rules, without assuming any reader, domain or
+# coordinate helper has already returned success.
+def chart_kind_name(kind: Chart.ChartKind) -> String:
+  match kind:
+    case Chart.Line{}: "line-chart"
+    case Chart.Bar{}: "bar-chart"
+
+def chart_raw_request(kind: Chart.ChartKind, rows: +List<J.Json>, x: String, y: String) -> J.Json:
+  J.Object{[J.Field{"@chart-kind", J.Text{chart_kind_name(kind)}}, J.Field{"data", J.Array{rows}},
+    J.Field{"x", J.Text{x}}, J.Field{"y", J.Text{y}}]}
+
+def chart_raw_row(x: J.Json, y: J.Json) -> J.Json:
+  J.Object{[J.Field{"x", x}, J.Field{"y", y}]}
+
+law chart_public_empty:
+  for +kind: Chart.ChartKind
+  {Chart.read(chart_raw_request(kind, Nil{}, "x", "y")) ==
+    Done{Chart.Values{kind, Nil{}, 0n, "0.000001", "0.000001"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_single_zero:
+  for +kind: Chart.ChartKind
+  for +label: String
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Text{label}, J.Number{"0"})], "x", "y")) ==
+    Done{Chart.Values{kind, [Chart.Point{Chart.Row{chart_raw_row(J.Text{label}, J.Number{"0"}), J.Text{label}, "0"}, "40", "120"}],
+      1n, "0.000001", "0.000001"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_single_negative:
+  for +kind: Chart.ChartKind
+  for +label: String
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Text{label}, J.Number{"-1"})], "x", "y")) ==
+    Done{Chart.Values{kind, [Chart.Point{Chart.Row{chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}, "40", "210"}],
+      1n, "0.000001", "1"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_numeric_signed_pair:
+  for +kind: Chart.ChartKind
+  {Chart.read(chart_raw_request(kind,
+    [chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), chart_raw_row(J.Number{"2"}, J.Number{"1"})], "x", "y")) ==
+    Done{Chart.Values{kind,
+      [Chart.Point{Chart.Row{chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, "40", "210"},
+       Chart.Point{Chart.Row{chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}, "440", "30"}],
+      2n, "2", "1"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_numeric_zero:
+  for +kind: Chart.ChartKind
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Number{"0"}, J.Number{"0"})], "x", "y")) ==
+    Done{Chart.Values{kind, [Chart.Point{Chart.Row{chart_raw_row(J.Number{"0"}, J.Number{"0"}), J.Number{"0"}, "0"}, "240", "120"}],
+      1n, "0.000001", "0.000001"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_nested_fields:
+  for +kind: Chart.ChartKind
+  for +label: String
+  {Chart.read(chart_raw_request(kind, [J.Object{[J.Field{"coordinates", chart_raw_row(J.Text{label}, J.Number{"0"})}]}], "coordinates.x", "coordinates.y")) ==
+    Done{Chart.Values{kind,
+      [Chart.Point{Chart.Row{J.Object{[J.Field{"coordinates", chart_raw_row(J.Text{label}, J.Number{"0"})}]}, J.Text{label}, "0"}, "40", "120"}],
+      1n, "0.000001", "0.000001"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_missing_y:
+  for +kind: Chart.ChartKind
+  for +label: String
+  {Chart.read(chart_raw_request(kind, [J.Object{[J.Field{"x", J.Text{label}}]}], "x", "y")) ==
+    Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_nonnumeric_y:
+  for +kind: Chart.ChartKind
+  for +label: String
+  for +text: String
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Text{label}, J.Text{text})], "x", "y")) ==
+    Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_missing_x:
+  for +kind: Chart.ChartKind
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Null{}, J.Number{"0"})], "x", "y")) ==
+    Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_overflow_y:
+  for +kind: Chart.ChartKind
+  for +label: String
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Text{label}, J.Number{"1000000001"})], "x", "y")) ==
+    Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_invalid_path:
+  for +kind: Chart.ChartKind
+  for +rows: +List<J.Json>
+  {Chart.read(chart_raw_request(kind, rows, "", "y")) ==
+    Fail{"A chart requires an array and nonempty x/y field paths"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_unsupported_kind:
+  {Chart.read(J.Object{[J.Field{"@chart-kind", J.Text{"pie-chart"}}, J.Field{"data", J.Array{Nil{}}},
+    J.Field{"x", J.Text{"x"}}, J.Field{"y", J.Text{"y"}}]}) ==
+    Fail{"Unsupported chart kind; expected line-chart or bar-chart"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_nonarray:
+  for +kind: Chart.ChartKind
+  {Chart.read(J.Object{[J.Field{"@chart-kind", J.Text{chart_kind_name(kind)}}, J.Field{"data", J.Null{}},
+    J.Field{"x", J.Text{"x"}}, J.Field{"y", J.Text{"y"}}]}) ==
+    Fail{"A chart requires an array and nonempty x/y field paths"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_public_nonscalar_x:
+  for +kind: Chart.ChartKind
+  for enabled: Bool
+  {Chart.read(chart_raw_request(kind, [chart_raw_row(J.Boolean{enabled}, J.Number{"0"})], "x", "y")) ==
+    Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"} : Result<&2, &2, String, Chart.Values>}
+
+law chart_empty_values:
+  for +kind: Chart.ChartKind
+  for +total: Nat
+  {Chart.admitted_rows(kind, total, Done{Nil{}}) == Done{Chart.Values{kind, Nil{}, total, "0.000001", "0.000001"}} : Result<&2, &2, String, Chart.Values>}
+
+law chart_row_limit:
+  for rows: +List<J.Json>
+  for x: String
+  for y: String
+  {Chart.read_rows(0n, rows, x, y) == Done{Nil{}} : Result<&2, &2, String, +List<Chart.Row>>}
+
+law chart_invalid_row:
+  for +source: J.Json
+  for +x: J.Json
+  for +y: J.Json
+  {Chart.row_checked(source, x, y, False{}) == Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"} : Result<&2, &2, String, Chart.Row>}
+
+law chart_original_row:
+  for +source: J.Json
+  for +x: J.Json
+  for +y: String
+  {Chart.row_checked(source, x, J.Number{y}, True{}) == Done{Chart.Row{source, x, y}} : Result<&2, &2, String, Chart.Row>}
+
+law chart_source_field_paths:
+  for +source: J.Json
+  for +x: String
+  for +y: String
+  {Chart.read_row(source, x, y) == Chart.row_checked(source,
+    Expression.path_field(source, x), Expression.path_field(source, y),
+    Chart.x_valid(Expression.path_field(source, x)) && Chart.y_valid(Expression.path_field(source, y))) : Result<&2, &2, String, Chart.Row>}
+
+law chart_magnitude_increases:
+  for +value: String
+  for +previous: String
+  {Chart.larger(value, previous, Done{True{}}) == Done{value} : Result<&2, &2, String, String>}
+
+law chart_magnitude_retained:
+  for +value: String
+  for +previous: String
+  {Chart.larger(value, previous, Done{False{}}) == Done{previous} : Result<&2, &2, String, String>}
+
+law chart_coordinate_failure:
+  for row: Chart.Row
+  for +reason: String
+  for y: Result<&2, &2, String, String>
+  {Chart.point_result(row, Fail{reason}, y) == Fail{reason} : Result<&2, &2, String, Chart.Point>}
+
+law chart_point_preserves_values:
+  for +row: Chart.Row
+  for +x: String
+  for +y: String
+  {Chart.point_result(row, Done{x}, Done{y}) == Done{Chart.Point{row, x, y}} : Result<&2, &2, String, Chart.Point>}
+
+law chart_coordinate_addition:
+  for +value: String
+  for +magnitude: String
+  for +center: String
+  for +span: String
+  for +ratio: String
+  for +delta: String
+  for +coordinate: String
+  for divided: {Decimal.arithmetic("/", value, magnitude) == Done{ratio} : Result<&2, &2, String, String>}
+  for scaled: {Decimal.arithmetic("*", ratio, span) == Done{delta} : Result<&2, &2, String, String>}
+  for offset: {Decimal.arithmetic("+", center, delta) == Done{coordinate} : Result<&2, &2, String, String>}
+  {Chart.numeric_coordinate(value, magnitude, center, span, True{}) == Done{coordinate} : Result<&2, &2, String, String>}
+
+law chart_coordinate_subtraction:
+  for +value: String
+  for +magnitude: String
+  for +center: String
+  for +span: String
+  for +ratio: String
+  for +delta: String
+  for +coordinate: String
+  for divided: {Decimal.arithmetic("/", value, magnitude) == Done{ratio} : Result<&2, &2, String, String>}
+  for scaled: {Decimal.arithmetic("*", ratio, span) == Done{delta} : Result<&2, &2, String, String>}
+  for offset: {Decimal.arithmetic("-", center, delta) == Done{coordinate} : Result<&2, &2, String, String>}
+  {Chart.numeric_coordinate(value, magnitude, center, span, False{}) == Done{coordinate} : Result<&2, &2, String, String>}
+
+law chart_categorical_x:
+  for text: String
+  for magnitude: String
+  for +index: Nat
+  for +count: Nat
+  {Chart.x_coordinate(J.Text{text}, magnitude, index, count) ==
+    Done{Nat.show(Nat.add(40n, Nat.div(Nat.mul(index, 400n), Nat.max(1n, Nat.sub(count, 1n)))))} : Result<&2, &2, String, String>}
+
+law chart_negative_magnitude:
+  for source: J.Json
+  for x: J.Json
+  for +magnitude: String
+  {Chart.row_magnitude(Chart.Row{source, x, SCon{'-', magnitude}}, False{}) == magnitude : String}
+
+law chart_line_order:
+  for row: Chart.Row
+  for +x: String
+  for +y: String
+  for +rest: +List<Chart.Point>
+  {Chart.line_commands(Chart.Point{row, x, y} <> rest, True{}) == "M " ++ x ++ " " ++ y ++ " " ++ Chart.line_commands(rest, False{}) : String}
+
+law chart_single_point_visible:
+  for row: Chart.Row
+  for +x: String
+  for +y: String
+  {Chart.point_commands([Chart.Point{row, x, y}]) == "M " ++ x ++ " " ++ y ++ " m -2 0 l 4 0 m -2 -2 l 0 4 " : String}
+
+law chart_bar_zero_baseline:
+  for row: Chart.Row
+  for +x: String
+  for +y: String
+  for +width: Nat
+  for +rest: +List<Chart.Point>
+  {Chart.bar_commands(Chart.Point{row, x, y} <> rest, width) ==
+    "M " ++ x ++ " 120 m -" ++ Nat.show(Nat.div(width, 2n)) ++ " 0 V " ++ y ++ " h " ++ Nat.show(width) ++ " V 120 Z " ++ Chart.bar_commands(rest, width) : String}
+
+law chart_line_path:
+  for +points: +List<Chart.Point>
+  {InteractiveRendering.plot_path(Chart.Line{}, points) == S.Drawing{"0 0 480 240",
+    [S.DrawingPath{Chart.line_commands(points, True{})}, S.DrawingPath{Chart.point_commands(points)}], 480n, 240n, S.StrokedDrawing{20n}} : S.Drawing}
+
+law chart_bar_path:
+  for +points: +List<Chart.Point>
+  {InteractiveRendering.plot_path(Chart.Bar{}, points) == S.Drawing{"0 0 480 240",
+    [S.DrawingPath{Chart.bar_commands(points, Chart.bar_width(points))}], 480n, 240n, S.FilledDrawing{}} : S.Drawing}
+
+law interactive_plot_source_complete:
+  for +key: UIIdentity.Key
+  for +attrs: J.Json
+  for +visual: Design.Style
+  for +kind: Chart.ChartKind
+  for +points: +List<Chart.Point>
+  for +total: Nat
+  for +xm: String
+  for +ym: String
+  {InteractiveRendering.plot_values(key, attrs, visual, Chart.Values{kind, points, total, xm, ym}) == chart_source(kind, points, total, key, attrs, visual) : S.Node}
+
+law interactive_plot_drawing_payloads:
+  for +key: UIIdentity.Key
+  for +attrs: J.Json
+  for +visual: Design.Style
+  for +kind: Chart.ChartKind
+  for +points: +List<Chart.Point>
+  for +total: Nat
+  for +xm: String
+  for +ym: String
+  {interactive_plot_drawings(InteractiveRendering.plot_values(key, attrs, visual, Chart.Values{kind, points, total, xm, ym})) ==
+    [chart_axes(key, visual), chart_values(kind, points, key, visual)] : +List<S.Node>}
+
+law interactive_plot_admitted:
+  for +key: UIIdentity.Key
+  for +attrs: J.Json
+  for +visual: Design.Style
+  for +values: Chart.Values
+  for admitted: {Chart.read(attrs) == Done{values} : Result<&2, &2, String, Chart.Values>}
+  {InteractiveRendering.plot(key, attrs, visual) == InteractiveRendering.plot_values(key, attrs, visual, values) : S.Node}
+
+law interactive_plot_refused:
+  for +key: UIIdentity.Key
+  for +attrs: J.Json
+  for +visual: Design.Style
+  for +reason: String
+  for rejected: {Chart.read(attrs) == Fail{reason} : Result<&2, &2, String, Chart.Values>}
+  {InteractiveRendering.plot(key, attrs, visual) == A.invalid(key, visual, reason) : S.Node}
+
+law interactive_plot_prepared:
+  for +key: UIIdentity.Key
+  for +attrs: J.Json
+  for +visual: Design.Style
+  for +kind: Chart.ChartKind
+  for +points: +List<Chart.Point>
+  for +total: Nat
+  for +xm: String
+  for +ym: String
+  for +parent_font: T.Presentation
+  for +generation: Nat
+  for +observations: +List<PhysicalContent.Observation>
+  {PhysicalSource.prepare(PhysicalContent.Snapshot{generation, InteractiveRendering.plot_values(key, attrs, visual, Chart.Values{kind, points, total, xm, ym}), parent_font}, observations) ==
+    PhysicalContent.Ready{chart_prepared(kind, points, total, key, attrs, visual, parent_font, generation)} : PhysicalContent.Preparation}
+
+law interactive_view_action_source:
+  for capacity: Nat
+  for +key: UIIdentity.Key
+  for label: String
+  for role: SurfaceTypes.Role
+  for event: Interactive.EventIdentity
+  for command: Interactive.ViewCommand
+  for name: String
+  for enabled: Bool
+  for +visual: Design.Style
+  for +representation: Controls.Representation
+  for children: +List<Authored.Child>
+  for +parameters: Design.LayoutParameters
+  for content: +List<S.Node>
+  {Authored.regular_content(capacity, key, label, role, SurfaceTypes.InteractiveView{event, command, name, enabled}, visual, representation, children, parameters, content) ==
+    Authored.button_source(key, visual, parameters, representation) : S.Node}
+
+law interactive_checkbox_field_style:
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for binding: Interactive.Binding
+  for children: +List<Interactive.ExpandedNode>
+  for +typography: T.Presentation
+  {Appearance.style(SurfaceTypes.Field{}, SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "checkbox", attrs, binding, children}}, typography) ==
+    Appearance.toggle_field(typography) : Design.Style}
+
+# A range has no invalid-text draft. Its native value must stay canonical even
+# when another editor bound to the same root state retains an invalid raw entry.
+law interactive_slider_uses_canonical:
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for state_id: String
+  for schema: Interactive.StateSchema
+  for raw: String
+  for +canonical: String
+  for validation: Maybe<&2, String>
+  for enabled: Bool
+  for children: +List<Interactive.ExpandedNode>
+  {A.node_value(SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "slider", attrs,
+    Interactive.FieldBinding{state_id, schema, raw, J.Number{canonical}, validation, enabled}, children}}) == canonical : String}
+
+law interactive_select_uses_canonical:
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for state_id: String
+  for schema: Interactive.StateSchema
+  for raw: String
+  for +canonical: String
+  for validation: Maybe<&2, String>
+  for enabled: Bool
+  for children: +List<Interactive.ExpandedNode>
+  {A.node_value(SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "select", attrs,
+    Interactive.FieldBinding{state_id, schema, raw, J.Text{canonical}, validation, enabled}, children}}) == canonical : String}
+
+law interactive_number_preserves_raw:
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for state_id: String
+  for schema: Interactive.StateSchema
+  for +raw: String
+  for canonical: J.Json
+  for validation: Maybe<&2, String>
+  for enabled: Bool
+  for children: +List<Interactive.ExpandedNode>
+  {A.node_value(SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "number-input", attrs,
+    Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}) == raw : String}
+
+type NativeValue is Data:
+  NativeValue{kind: S.NativeFieldKind, value: String}
+
+def native_value_projection(node: S.Node) -> Maybe<&2, NativeValue>:
+  match node:
+    case S.Field{key, kind, style, attributes, value, placeholder, options, policy, name, enabled, first, remaining}: Some{NativeValue{kind, value}}
+    case _: None{}
+
+law interactive_range_source_is_canonical:
+  for +key: UIIdentity.Key
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for state_id: String
+  for schema: Interactive.StateSchema
+  for raw: String
+  for +canonical: String
+  for validation: Maybe<&2, String>
+  for enabled: Bool
+  for children: +List<Interactive.ExpandedNode>
+  for name: String
+  for +minimum: String
+  for +maximum: String
+  for +step: String
+  for availability: View.Availability
+  for +visual: Design.Style
+  for parameters: Design.LayoutParameters
+  {native_value_projection(A.input(key, Controls.FormInput{
+    SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "slider", attrs,
+      Interactive.FieldBinding{state_id, schema, raw, J.Number{canonical}, validation, enabled}, children}},
+    name, Controls.RangeInput{minimum, maximum, step}, Controls.AccessibleOnly{}, availability}, visual, parameters)) ==
+    Some{NativeValue{S.RangeField{minimum, maximum, step}, canonical}} : Maybe<&2, NativeValue>}
+
+law interactive_select_source_is_canonical:
+  for +key: UIIdentity.Key
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for state_id: String
+  for schema: Interactive.StateSchema
+  for raw: String
+  for +canonical: String
+  for validation: Maybe<&2, String>
+  for enabled: Bool
+  for children: +List<Interactive.ExpandedNode>
+  for name: String
+  for availability: View.Availability
+  for +visual: Design.Style
+  for parameters: Design.LayoutParameters
+  {native_value_projection(A.input(key, Controls.FormInput{
+    SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "select", attrs,
+      Interactive.FieldBinding{state_id, schema, raw, J.Text{canonical}, validation, enabled}, children}},
+    name, Controls.SelectInput{}, Controls.AccessibleOnly{}, availability}, visual, parameters)) ==
+    Some{NativeValue{S.SelectField{}, canonical}} : Maybe<&2, NativeValue>}
+
+law interactive_number_source_preserves_raw:
+  for +key: UIIdentity.Key
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for state_id: String
+  for schema: Interactive.StateSchema
+  for +raw: String
+  for canonical: J.Json
+  for validation: Maybe<&2, String>
+  for enabled: Bool
+  for children: +List<Interactive.ExpandedNode>
+  for name: String
+  for +minimum: String
+  for +maximum: String
+  for +step: String
+  for availability: View.Availability
+  for +visual: Design.Style
+  for parameters: Design.LayoutParameters
+  {native_value_projection(A.input(key, Controls.FormInput{
+    SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "number-input", attrs,
+      Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}},
+    name, Controls.DecimalInput{minimum, maximum, step}, Controls.AccessibleOnly{}, availability}, visual, parameters)) ==
+    Some{NativeValue{S.DecimalField{minimum, maximum, step}, raw}} : Maybe<&2, NativeValue>}
+
 # Native policy owns the writing-line count; layout resolves its measured height.
 law native_field_policy_correspondence:
   for +widget: Controls.Widget
@@ -1573,9 +2149,30 @@ law native_message_minimum_lines:
   for maximum_lines: Nat
   {A.policy_minimum_lines(A.native_field_policy(Controls.MessageInput{}, maximum_lines)) == Activity.writing_lines(Activity.initial()) : Nat}
 
+# Interactive textareas reserve six measured lines. Other meanings and every
+# other widget retain the ordinary native writing policy above.
+def expected_selected_textarea_policy(interactive: Bool, fallback: S.FieldPolicy) -> S.FieldPolicy:
+  match interactive:
+    case True{}: S.FieldPolicy{1n, 6n, 6n}
+    case False{}: fallback
+
+def expected_textarea_policy(meaning: SurfaceTypes.Meaning, fallback: S.FieldPolicy) -> S.FieldPolicy:
+  match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children}}:
+      expected_selected_textarea_policy(String.eq(tag, "textarea"), fallback)
+    case _: expected_selected_textarea_policy(False{}, fallback)
+
+def expected_input_policy_kind(widget: Controls.Widget, meaning: SurfaceTypes.Meaning, fallback: S.FieldPolicy) -> S.FieldPolicy:
+  match widget:
+    case Controls.TextArea{}: expected_textarea_policy(meaning, fallback)
+    case _: fallback
+
+def expected_native_input_policy(meaning: SurfaceTypes.Meaning, +widget: Controls.Widget, visual: Design.Style, parameters: Design.LayoutParameters) -> S.FieldPolicy:
+  expected_input_policy_kind(widget, meaning, A.native_field_policy(widget, A.maximum_lines(widget, visual, parameters)))
+
 law native_input_policy:
   for +key: UIIdentity.Key
-  for meaning: SurfaceTypes.Meaning
+  for +meaning: SurfaceTypes.Meaning
   for name: String
   for +widget: Controls.Widget
   for label: Controls.LabelPlacement
@@ -1583,7 +2180,23 @@ law native_input_policy:
   for +visual: Design.Style
   for +parameters: Design.LayoutParameters
   {A.request_policy(A.native_input_request(key, Controls.FormInput{meaning, name, widget, label, availability}, visual, parameters)) ==
-    A.native_field_policy(widget, A.maximum_lines(widget, visual, parameters)) : S.FieldPolicy}
+    expected_native_input_policy(meaning, widget, visual, parameters) : S.FieldPolicy}
+
+law native_interactive_textarea_six_lines:
+  for key: UIIdentity.Key
+  for identity: Interactive.Identity
+  for occurrence: Nat
+  for attrs: J.Json
+  for binding: Interactive.Binding
+  for children: +List<Interactive.ExpandedNode>
+  for name: String
+  for label: Controls.LabelPlacement
+  for availability: View.Availability
+  for visual: Design.Style
+  for parameters: Design.LayoutParameters
+  {A.request_policy(A.native_input_request(key, Controls.FormInput{
+      SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "textarea", attrs, binding, children}},
+      name, Controls.TextArea{}, label, availability}, visual, parameters)) == S.FieldPolicy{1n, 6n, 6n} : S.FieldPolicy}
 
 # Presentation form is independent of the semantic command and complete help.
 type AdaptiveSupportingRequirements is Type:
@@ -1871,6 +2484,34 @@ law navigation_group_combines_whole_control_and_title_demand:
   @+key:UIIdentity.Key -> @+tag:S.BoxTag -> @+style:S.Style -> @+attributes:+List<S.Attribute> -> @+children:+List<S.Node> -> @+rest:+List<S.Node> ->
   {Authored.navigation_groups(S.Box{key, tag, style, attributes, children} <> rest) ==
     S.Box{key, tag, Authored.navigation_group_style(style), attributes, Authored.navigation_unbroken(children)} <> Authored.navigation_groups(rest) : +List<S.Node>}
+
+# The attachment domain supplies the complete ordered children. These consumers
+# pass the full message frame, including those children, to tab validation and
+# authorship; attachment ordering itself is established by SpeechAttachments.
+def speech_authorship_input(+id: Nat, +speaker: Conversation.Speaker, +text: String, +message: Domain.Message,
+  +task: Nat, +parent: UIIdentity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  +source = CoreDirectory.expected_message_source(task, id, message, state)
+  +key = CoreDirectory.expected_output_key(source, UIIdentity.Entity{parent, "message", Nat.show(id)})
+  CoreDirectory.message_frame(id, speaker, text, message, task, parent, state,
+    InterfaceView.output_attachments(source, key, state))
+
+law ordered_fence_speech_tabs:
+  @+id:Nat -> @+speaker:Conversation.Speaker -> @+text:String -> @+message:Domain.Message -> @+task:Nat -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State ->
+  @+elements:+List<Observed.Element> -> @+native_focus:+List<Observed.NativeFocus> ->
+  {Observed.expected_tabs([InterfaceView.speech_node(id, speaker, text, message, task, parent, state)], elements, native_focus) ==
+    Observed.expected_tabs([speech_authorship_input(id, speaker, text, message, task, parent, state)], elements, native_focus) : +List<String>}
+
+law ordered_fence_speech_forest:
+  @+id:Nat -> @+speaker:Conversation.Speaker -> @+text:String -> @+message:Domain.Message -> @+task:Nat -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State ->
+  @+capacity:Nat -> @+context:Controls.Context -> @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @+parameters:Design.LayoutParameters ->
+  {Authored.forest(capacity, Appearance.nodes_at([InterfaceView.speech_node(id, speaker, text, message, task, parent, state)], context, typography, in_main, start), parameters) ==
+    Authored.forest(capacity, Appearance.nodes_at([speech_authorship_input(id, speaker, text, message, task, parent, state)], context, typography, in_main, start), parameters) : Authored.Forest}
+
+law ordered_fence_speech_source:
+  @+id:Nat -> @+speaker:Conversation.Speaker -> @+text:String -> @+message:Domain.Message -> @+task:Nat -> @+parent:UIIdentity.Key -> @+state:InteractionTypes.State ->
+  @+capacity:Nat -> @+context:Controls.Context -> @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @+parameters:Design.LayoutParameters ->
+  {Authored.nodes(capacity, Appearance.nodes_at([InterfaceView.speech_node(id, speaker, text, message, task, parent, state)], context, typography, in_main, start), parameters) ==
+    Authored.nodes(capacity, Appearance.nodes_at([speech_authorship_input(id, speaker, text, message, task, parent, state)], context, typography, in_main, start), parameters) : Authored.Authorship}
 
 
 law base_group_work_tabs:

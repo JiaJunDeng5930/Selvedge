@@ -40,6 +40,9 @@ without owning task state or policy.
 
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
+SSE writes retain accepted frames when the HTTP writer signals backpressure.
+Each client's buffered UTF-8 frames stay within the existing frame-byte budget;
+a client that exceeds that budget is disconnected rather than buffered indefinitely.
 
 Task titles and board drafts are committed effects interpreted by
 `task-text.mjs`; their native owners correlate task tickets and card revisions.
@@ -185,6 +188,8 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
+The current format, `selvedge-bend-journal-7`, binds each journal to one persisted
+random data namespace, independently of its URL or browser credentials.
 Replay returns every complete decision for validation; it transfers the final
 world snapshot once after all rows pass, rather than cloning each intermediate
 world into the main thread. Ordinary requests still return their world snapshot.

@@ -1,3 +1,5 @@
+import ../interactive_markdown/DOCUMENTS.bend as Documents
+import ../interactive_markdown/TYPES.bend as Interactive
 import ../experience/PROGRAM.bend as UX
 import Base
 import ../../features/titles/MODEL.bend as Titles
@@ -64,7 +66,7 @@ type WorkspaceGit is Data:
 type Session is Data:
   Session{route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(Reader)>,
     layers: +List<Layer>, attention: String, navigation: NavigationState, filter: B.Filter,
-    now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, ModelPreference>, draft_model_manual: Bool, workspace_git: WorkspaceGit}
+    now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, ModelPreference>, draft_model_manual: Bool, workspace_git: WorkspaceGit, interactive: Documents.State}
 
 type Application is Data:
   Application{program: M.World(), session: Session}
@@ -77,6 +79,7 @@ type Completion is Data:
   ExecutionCompletion{task: Nat, profile: String, reasoning: String, remember: Bool}
   ExecutionViewCompletion{task: Nat, profile: String, reasoning: String, remember: Bool, occurrence: Nat}
   ConfirmationCompletion{command: M.Command, trigger: String, destination: U.Route, occurrence: Nat}
+  InteractiveCompletion{owner: Interactive.Owner, path: String, ticket: Nat}
 
 type Effect is Data:
   RequestCommand{command: M.Command, completion: Completion}
@@ -84,6 +87,9 @@ type Effect is Data:
   ObserveDirectories{ticket: Nat, entered: D.Workspace}
   Attend{target: String}
   PersistModelPreference{profile: String, reasoning: String}
+  InteractiveEffect{effect: Interactive.Effect}
+  ObserveInteractiveMarkdown{document: Documents.Document}
+  ForgetInteractiveMarkdown{key: String}
   ObserveWorkspaceGit{ticket: Nat, primary: String}
 
 type Decision is Data:
@@ -100,6 +106,14 @@ type Input is Data:
   DirectoriesObserved{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   ClockObserved{now: U32}
   ModelPreferenceRestored{profile: String, reasoning: String}
+  InteractiveInput{input: Interactive.Input}
+  InteractiveEnvironmentObserved{namespace: String, sequence: Nat, fresh: Bool, allowed: Bool}
+  InteractiveFenceObserved{observation: Documents.FenceObservation}
+  InteractiveSynchronize{}
+  ToggleInteractiveSource{identity: Content.Identity}
+  DismissRetained{key: String}
+  ToggleArchived{key: String}
+  ClearDiscarded{task: Nat}
   WorkspaceGitObserved{ticket: Nat, available: Bool}
 
 type ChoiceCompletion is Data:
@@ -126,28 +140,57 @@ def session(state: Application) -> Session:
   Application{program, session} = state
   session
 
+def interactive_data(state: Session) -> Documents.State:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  interactive
+
+def with_interactive(value: Documents.State, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, value}
+
+def namespace(state: Session) -> String:
+  Documents.namespace(interactive_data(state))
+
+def interactive_state(state: Session) -> Interactive.State:
+  Documents.core(interactive_data(state))
+
+def interactive_documents(state: Session) -> +List<Documents.Document>:
+  Documents.documents(interactive_data(state))
+
+def interactive_scenes(source: Content.Source, state: Session) -> +List<Documents.BlockScene>:
+  Documents.scenes(source, interactive_data(state))
+
+def interactive_source_visible(identity: Content.Identity, state: Session) -> Bool:
+  Documents.source_visible(identity, interactive_data(state))
+
+def retained_parts(viewer: Nat, state: Session) -> +List<Documents.RetainedPart>:
+  Documents.retained(viewer, interactive_data(state))
+
+def message_source(viewer: Nat, occurrence: Nat, message: D.Message, state: Session) -> Content.Source:
+  Documents.message_source(viewer, occurrence, message, namespace(state))
+
 def route(state: Session) -> U.Route:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   route
 
 def drafts(state: Session) -> +List<U.Draft>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   drafts
 
 def readers(state: Session) -> +List<Finite.Entry(Reader)>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   readers
 
 def layers(state: Session) -> +List<Layer>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   layers
 
 def attention(state: Session) -> String:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   attention
 
 def navigation(state: Session) -> NavigationState:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   navigation
 
 def navigation_work(state: NavigationState) -> Maybe<&2, Nat>:
@@ -172,31 +215,31 @@ def creation_editor(state: Session) -> U.Editor:
   U.NewTaskEditor{active_work(state)}
 
 def filter(state: Session) -> B.Filter:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   filter
 
 def now(state: Session) -> U32:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   now
 
 def next_ticket(state: Session) -> Nat:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   next_ticket
 
 def pending(state: Session) -> +List<Pending>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   pending
 
 def previews(state: Session) -> +List<Live.Output>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   previews
 
 def code_blocks(state: Session) -> +List<Content.Block>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   code_blocks
 
 def next_layer(state: Session) -> Nat:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
   next_layer
 
 def with_program(value: M.World(), state: Application) -> Application:
@@ -208,47 +251,47 @@ def with_session(value: Session, state: Application) -> Application:
   Application{program, value}
 
 def with_now(value: U32, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, value, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, value, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def from_program(program: M.World(), session: Session) -> Application:
   Application{program, session}
 
 def with_route(value: U.Route, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{value, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{value, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def with_drafts(value: +List<U.Draft>, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, value, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, value, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def with_layers(value: +List<Layer>, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, value, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, value, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def with_attention(value: String, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, layers, value, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, value, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def with_navigation(value: NavigationState, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, layers, attention, value, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, value, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def advance_selection(application: Application) -> Application:
   Application{program, +session} = application
   Application{program, with_navigation(advance_navigation_selection(navigation(session)), session)}
 
 def with_next_ticket(value: Nat, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, value, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, value, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def with_pending(value: +List<Pending>, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, value, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, value, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def with_next_layer(value: Nat, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, value, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, value, model_preference, draft_model_manual, workspace_git, interactive}
 
 def first_valid_profile(+valid: Bool, +profile: D.Profile, +fallback: Sigma<&2, &2, String, (_ => String)>) -> Sigma<&2, &2, String, (_ => String)>:
   match valid profile:
@@ -276,16 +319,52 @@ def unchanged(application: Application) -> Decision:
 def local(program: M.World(), session: Session, effects: +List<Effect>) -> Decision:
   Decision{Application{program, session}, D.success(J.Null{}), Nil{}, effects, False{}}
 
+def interactive_effects(effects: +List<Documents.Effect>) -> +List<Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{Documents.ObserveMarkdown{document}, rest}: ObserveInteractiveMarkdown{document} <> interactive_effects(rest)
+    case Con{Documents.ForgetMarkdown{key}, rest}: ForgetInteractiveMarkdown{key} <> interactive_effects(rest)
+    case Con{Documents.CoreEffect{effect}, rest}: InteractiveEffect{effect} <> interactive_effects(rest)
+
+def keep_code_source(keep: Bool, block: Content.Block, rest: +List<Content.Block>) -> +List<Content.Block>:
+  match keep:
+    case True{}: block <> rest
+    case False{}: rest
+
+def without_code_source(blocks: +List<Content.Block>, +key: String) -> +List<Content.Block>:
+  match blocks:
+    case Nil{}: Nil{}
+    case Con{Content.Block{Content.Identity{+source, +ordinal}, +literal, +view, +next}, rest}:
+      keep_code_source(Bool.not(String.eq(Content.source_key(source), key)), Content.Block{Content.Identity{source, ordinal}, literal, view, next}, without_code_source(rest, key))
+
+def with_code_blocks(value: +List<Content.Block>, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, value, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
+
+def forget_code_sources(effects: +List<Documents.Effect>, +state: Session) -> Session:
+  match effects:
+    case Nil{}: state
+    case Con{Documents.ForgetMarkdown{key}, rest}: forget_code_sources(rest, with_code_blocks(without_code_source(code_blocks(state), key), state))
+    case Con{other, rest}: forget_code_sources(rest, state)
+
+def interactive_result(result: Documents.Decision, application: Application) -> Decision:
+  Documents.Decision{state, +effects} = result
+  Application{program, session} = application
+  local(program, with_interactive(state, forget_code_sources(effects, session)), interactive_effects(effects))
+
+def interactive_completed(owner: Interactive.Owner, path: String, ticket: Nat, +result: J.Json, +application: Application) -> Decision:
+  interactive_result(Documents.input(Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, interactive_data(session(application))), application)
+
 def close_layers(layers: +List<Layer>, program: M.World(), session: Session) -> Decision:
   match layers:
     case Nil{}: unchanged(Application{program, session})
     case Con{Layer{panel, +trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
-      Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
-      local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{trigger}])
+      Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
+      local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, [Attend{trigger}])
 
 def close_panel(application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   close_layers(layers, program, session)
 
 def with_native(local: Decision, result: J.Json, effects: +List<M.Effect()>, durable: Bool) -> Decision:
@@ -294,7 +373,7 @@ def with_native(local: Decision, result: J.Json, effects: +List<M.Effect()>, dur
 
 def choice_owned(completion: ChoiceCompletion) -> Bool:
   ChoiceCompletion{editor, result} = completion
-  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}, reply, runtime, interaction, durable} = result
+  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}, reply, runtime, interaction, durable} = result
   J.boolean(J.get(reply, "ok")) && chooser_owns(layers, editor)
 
 def owned_choice() -> ChoiceCompletion -> Type:
@@ -395,7 +474,7 @@ def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Orig
   scoped_new_task(profile, origin, None{})
 
 def initial(+program: M.World()) -> Application:
-  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}], Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}, None{}, Nil{}, 0n}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n, None{}, False{}, UnknownWorkspaceGit{}}}
+  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}], Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}, None{}, Nil{}, 0n}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n, None{}, False{}, UnknownWorkspaceGit{}, Documents.initial()}}
 
 def select_draft(hit: Bool, value: U.Draft, rest: Maybe<&2, U.Draft>) -> Maybe<&2, U.Draft>:
   match hit:
@@ -424,8 +503,8 @@ def put_draft(+draft: U.Draft, drafts: +List<U.Draft>) -> +List<U.Draft>:
   draft <> without_draft(drafts, U.owner(body))
 
 def with_draft(session: Session, draft: U.Draft) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
-  Session{route, put_draft(draft, drafts), readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
+  Session{route, put_draft(draft, drafts), readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def refuse(application: Application, reason: String) -> Decision:
   reply(application, D.failure("interaction_refused", reason))
@@ -436,12 +515,12 @@ def edit_result(result: Result<&2, &2, String, U.Draft>, program: M.World(), ses
     case Done{draft}: local(program, with_draft(session, draft), Nil{})
 
 def workspace_git(session: Session) -> WorkspaceGit:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   workspace_git
 
 def with_workspace_git(value: WorkspaceGit, session: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, previous} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, value}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, previous, interactive} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, value, interactive}
 
 def preview_primary(preview: Context.Preview) -> Maybe<&2, String>:
   match preview:
@@ -466,8 +545,8 @@ def worktree_available(+application: Application) -> Bool:
 
 def observe_workspace_git_start(+path: String, decision: Decision) -> Decision:
   Decision{Application{world, session}, reply, runtime, effects, durable} = decision
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, +next, pending, previews, code_blocks, next_layer, preference, manual, previous} = session
-  Decision{Application{world, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat), pending, previews, code_blocks, next_layer, preference, manual, LoadingWorkspaceGit{next, path}}}, reply, runtime,
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, +next, pending, previews, code_blocks, next_layer, preference, manual, previous, interactive} = session
+  Decision{Application{world, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat), pending, previews, code_blocks, next_layer, preference, manual, LoadingWorkspaceGit{next, path}, interactive}}, reply, runtime,
     List.append(&2, Effect, effects, [ObserveWorkspaceGit{next, path}]), durable}
 
 def observe_workspace_git_clear(decision: Decision) -> Decision:
@@ -671,13 +750,13 @@ def reader_position(reader: Reader) -> U.ReadingIntent:
 
 def reading_decision(position: U.ReadingIntent, old: Reader, +task: Nat, program: M.World(), session: Session) -> Decision:
   Reader{generation, old_position, disclosures} = old
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   local(program, Session{route, drafts, (task, Reader{generation, position, disclosures}) <> Finite.remove(~Reader, readers, task),
-    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})
 
 def read(+task: Nat, intent: U.ReadingIntent, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   +old = reader(readers, task)
   reading_decision(intent, old, task, program, session)
 
@@ -724,8 +803,8 @@ def toggle_project_navigation(+id: Nat, +state: NavigationState) -> NavigationSt
   NavigationState{intent, toggle_collapsed(project_collapsed(state, id), id, collapsed), work, visits, generation}
 
 def toggle_project(id: Nat, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}} = application
-  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})
 
 def new_visit(reader: Reader) -> Reader:
   Reader{generation, position, disclosures} = reader
@@ -737,9 +816,9 @@ def visit_readers(route: U.Route, +readers: +List<Finite.Entry(Reader)>) -> +Lis
     case _: readers
 
 def navigate_with_attention(+route: U.Route, +target: String, application: Application) -> Decision:
-  Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   +current_readers = visit_readers(route, readers)
-  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git},
+  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive},
     [Attend{target}])
 
 def navigate(route: U.Route, application: Application) -> Decision:
@@ -750,7 +829,7 @@ def reader_generation(reader: Reader) -> Nat:
   generation
 
 def reading_owned(request: ReadingRequest) -> Bool:
-  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}} = request
+  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}} = request
   U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task)))
 
 def owned_reading() -> ReadingRequest -> Type:
@@ -849,7 +928,7 @@ def visit(route: U.Route, application: Application) -> Decision:
     case U.AgentCollection{}: navigate(U.AgentCollection{}, global_application(application))
     case U.Conversation{+task}:
       Application{+program, +session} = application
-      Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+      Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
       navigate(U.Conversation{task}, Application{program, ensure(find_draft(drafts, U.MessageEditor{task}),
         U.Message{task, U.initial_text(""), U.Send{}}, conversation_scope(task, program, session))})
     case other: navigate(other, application)
@@ -898,10 +977,10 @@ def without_panel(layers: +List<Layer>, +identity: String) -> +List<Layer>:
       keep_layer(String.eq(panel_target(panel), identity), Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, without_panel(rest, identity))
 
 def open_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, +next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, +next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   +target = panel_target(panel)
   local(program, Session{route, drafts, readers, Layer{panel, trigger, target, "", next_layer, False{}, None{}, None{}} <> without_panel(layers, panel_target(panel)),
-    target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat), model_preference, draft_model_manual, workspace_git}, [Attend{target}])
+    target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat), model_preference, draft_model_manual, workspace_git, interactive}, [Attend{target}])
 
 def panel_present(layers: +List<Layer>, +target: String) -> Bool:
   match layers:
@@ -913,14 +992,14 @@ def toggle_panel_selected(present: Bool, +panel: U.Panel, +trigger: String, appl
   match present:
     case False{}: open_panel(panel, trigger, application)
     case True{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
       local(program, Session{route, drafts, readers, without_panel(layers, panel_target(panel)), trigger,
-        navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{trigger}])
+        navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, [Attend{trigger}])
 
 def toggle_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   toggle_panel_selected(panel_present(layers, panel_target(panel)), panel, trigger,
-    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}})
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}})
 
 def fresh_editor_draft(+body: U.Body, +session: Session) -> Session:
   with_draft(session, U.Draft{next_layer(session), body, U.Editing{}, ""})
@@ -941,7 +1020,7 @@ def open_editor_found(found: Maybe<&2, U.Draft>, +body: U.Body, program: M.World
 
 def open_editor(+body: U.Body, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   open_editor_found(find_draft(drafts, U.owner(body)), body, program, session)
 
 def edit_project(found: Maybe<&2, D.Project>, id: Maybe<&2, Nat>, application: Application) -> Decision:
@@ -1105,7 +1184,7 @@ def permitted_preference(found: Maybe<&2, D.Profile>, reasoning: String) -> Bool
     case Some{profile}: D.profile_permitted(profile, reasoning)
 
 def preference(session: Session) -> Maybe<&2, ModelPreference>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   model_preference
 
 def valid_preference(value: ModelPreference, profiles: +List<D.Profile>) -> Bool:
@@ -1133,7 +1212,7 @@ def resolve_model_valid(+valid: Bool, +draft: U.Draft, +profiles: +List<D.Profil
     case _ _: session
 
 def manual_model(session: Session) -> Bool:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   draft_model_manual
 
 def creation_model_chosen(work: Maybe<&2, Nat>, manual: Bool) -> Bool:
@@ -1313,7 +1392,7 @@ def settle_found(found: Maybe<&2, U.Draft>, revision: Nat, result: J.Json, +sess
 
 def settle(submitted: U.Draft, +result: J.Json, +session: Session) -> Session:
   U.Draft{revision, body, feedback, directory_entry} = submitted
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   settle_found(find_draft(drafts, U.owner(body)), revision, result, session)
 
 def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
@@ -1323,7 +1402,7 @@ def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
 
 def owns_submission(draft: U.Draft, session: Session) -> Bool:
   U.Draft{revision, body, feedback, directory_entry} = draft
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   same_revision(find_draft(drafts, U.owner(body)), revision)
 
 def follow_created(id: Maybe<&2, Nat>, application: Application) -> Decision:
@@ -1357,7 +1436,7 @@ def capture_attention(open: Bool, application: Application) -> Decision:
     case False{}: unchanged(application)
 
 def continue_capture(+application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   capture_attention(capture_open(layers), application)
 
 def finish_task_graph_layer(same: Bool, application: Application) -> Decision:
@@ -1372,8 +1451,8 @@ def finish_task_graph(editor: U.Editor, layers: +List<Layer>, application: Appli
     case _: unchanged(application)
 
 def with_manual_model(value: Bool, session: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, previous, workspace_git} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, value, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, previous, workspace_git, interactive} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, value, workspace_git, interactive}
 
 def completed_creation_model(work: Maybe<&2, Nat>, session: Session) -> Session:
   match work:
@@ -1404,7 +1483,7 @@ def accepted_submission() -> SubmissionCompletion -> Type:
 
 def finish_submission_value(draft: U.Draft, result: J.Json, +application: Application) -> Decision:
   U.Draft{revision, body, feedback, directory_entry} = draft
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   finish_body(body, route, layers, result, application)
 
 def finish_submission(member: Categories.Membership<SubmissionCompletion, accepted_submission()>) -> Decision:
@@ -1428,8 +1507,8 @@ def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J
         Application{program, settle(draft, result, session)}), result, effects, durable)
 
 def retain_previews(session: Session, world: M.World()) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
 def native_result(decision: M.Decision(), session: Session, submitted: Maybe<&2, U.Draft>, durable: Bool) -> Decision:
   C.Decision{+program, +result, effects} = decision
@@ -1496,14 +1575,14 @@ def execute_direct(command: Maybe<&2, M.Command>, application: Application) -> D
     case Some{command}: execute(command, application, None{})
 
 def prepare_directories(application: Application, workspace: Maybe<&2, D.Workspace>, +draft: U.Draft) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   match workspace:
     case None{}:
       U.Draft{revision, body, feedback, directory_entry} = draft
-      execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}, Some{draft})
+      execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}, Some{draft})
     case Some{workspace}:
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat),
-        Pending{next, draft, now} <> pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [ObserveDirectories{next, workspace}])
+        Pending{next, draft, now} <> pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, [ObserveDirectories{next, workspace}])
 
 def prepare_checked(allowed: Bool, application: Application, workspace: Maybe<&2, D.Workspace>, draft: U.Draft) -> Decision:
   match allowed:
@@ -1539,11 +1618,11 @@ def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decisi
   match found:
     case None{}: refuse(application, "The editor is not open")
     case Some{+draft}:
-      Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+      Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
       submit_admitted(pending, program, draft, Categories.admit(U.Draft, (draft => submission_ready(pending, program, draft)), draft), application)
 
 def submit(editor: U.Editor, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   submit_found(find_draft(drafts, editor), application)
 
 def select_pending(hit: Bool, pending: Pending, rest: Maybe<&2, Pending>) -> Maybe<&2, Pending>:
@@ -1567,8 +1646,8 @@ def without_pending(pending: +List<Pending>, +ticket: Nat) -> +List<Pending>:
     case Con{Pending{+id, draft, now}, rest}: keep_pending(Nat.is_eq(id, ticket), Pending{id, draft, now}, without_pending(rest, ticket))
 
 def finish_preparation(ticket: Nat, application: Application) -> Application:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, without_pending(pending, ticket), previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, without_pending(pending, ticket), previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}
 
 def workspace_settlement(current: Bool, draft: U.Draft, revision: Nat, reason: String, session: Session) -> Session:
   match current:
@@ -1648,7 +1727,7 @@ def observed_pending(found: Maybe<&2, Pending>, result: Result<&2, &2, String, C
     case Some{pending}: observation_result(result, pending, application)
 
 def observed(ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   observed_pending(find_pending(pending, ticket), result, application)
 
 def confirmation_outcome(ok: Bool, destination: U.Route, application: Application) -> Decision:
@@ -1663,7 +1742,7 @@ def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: Stri
     case _: False{}
 
 def receipt_owned(receipt: ConfirmationReceipt) -> Bool:
-  ConfirmationReceipt{command, trigger, occurrence, result, destination, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}} = receipt
+  ConfirmationReceipt{command, trigger, occurrence, result, destination, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}} = receipt
   confirmation_owned(layers, command, trigger, occurrence)
 
 def owned_confirmation() -> ConfirmationReceipt -> Type:
@@ -1701,8 +1780,8 @@ def observe_program(program: M.World(), application: Application) -> Decision:
   observe_program_admitted(Categories.admit(M.World(), (world => I.world(world)), program), application)
 
 def with_preference(value: Maybe<&2, ModelPreference>, session: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, previous, draft_model_manual, workspace_git} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, value, draft_model_manual, workspace_git}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, previous, draft_model_manual, workspace_git, interactive} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, value, draft_model_manual, workspace_git, interactive}
 
 def remember_valid(+valid: Bool, +profile: String, +reasoning: String, +result: Decision) -> Decision:
   match valid result:
@@ -1772,9 +1851,12 @@ def complete_command_member(member: Categories.Membership<M.World(), program_wor
       native_session(Some{draft}, program, result, Nil{}, retain_previews(session, program), False{})
     case ConfirmationCompletion{command, trigger, destination, occurrence}:
       Application{previous, session} = application
-      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
       complete_confirmation_current(command, trigger, occurrence, result, destination,
         Application{program, retain_previews(session, program)})
+    case InteractiveCompletion{owner, path, ticket}:
+      Application{previous, session} = application
+      interactive_completed(owner, path, ticket, result, Application{program, retain_previews(session, program)})
 
 def complete_command_admitted(admitted: Maybe<&1, Categories.Membership<M.World(), program_world()>>, result: J.Json, completion: Completion, application: Application) -> Decision:
   match admitted:
@@ -1891,7 +1973,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.TogglePanel{+panel, trigger}: observe_workspace_panel(panel, toggle_panel(panel, trigger, application))
     case U.ClosePanel{}: dismiss_panel(application)
     case U.ConfirmAction{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
       confirm(layers, application)
 
 def keep_disclosure(same: Bool, value: Disclosure, rest: +List<Disclosure>) -> +List<Disclosure>:
@@ -1910,9 +1992,9 @@ def disclosed_reader(old: Reader, +group: Nat, occurrence: Nat, expanded: Bool) 
   Reader{generation, position, Disclosure{group, occurrence, expanded} <> without_disclosure(disclosures, group)}
 
 def disclose(+task: Nat, group: Nat, occurrence: Nat, expanded: Bool, application: Application) -> Decision:
-  Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   local(program, Session{route, drafts, (task, disclosed_reader(reader(readers, task), group, occurrence, expanded)) <> Finite.remove(~Reader, readers, task),
-    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})
 
 def navigation_focus(expanded: Bool) -> String:
   match expanded:
@@ -2012,11 +2094,11 @@ def enter_decision(editor: U.Editor, field_key: String, application: Application
   enter_known_decision(Forms.choice_field_by_key(field_key), editor, application)
 
 def search_choices(query: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   match layers:
-    case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+    case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})
     case Con{Layer{panel, trigger, initial, previous, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
-      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})
 
 def action_leaves_menu(action: U.Action) -> Bool:
   match action:
@@ -2034,8 +2116,8 @@ def dismiss_action_menu(leaves: Bool, application: Application) -> Application:
   match leaves:
     case False{}: application
     case True{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
-      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}
 
 def activate(+action: U.Action, application: Application) -> Decision:
   activate_selected(action, dismiss_action_menu(action_leaves_menu(action), application))
@@ -2159,33 +2241,197 @@ def user(input: U.Input, application: Application) -> Decision:
     case U.ReadTimeline{task, generation, intent}: read_current(task, generation, intent, application)
     case U.SetDisclosure{task, group, occurrence, expanded}: disclose(task, group, occurrence, expanded, application)
     case U.SetNavigation{+expanded}:
-      Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
       +target = navigation_focus(expanded)
-      local(program, Session{route, drafts, readers, layers, target, advance_navigation_selection(set_navigation(expanded, previous)), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{target}])
+      local(program, Session{route, drafts, readers, layers, target, advance_navigation_selection(set_navigation(expanded, previous)), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, [Attend{target}])
     case U.SearchChoices{query}: search_choices(query, application)
     case U.FilterBoard{filter}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
-      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})
 
-def observe_preview(observation: Live.Observation, application: Application) -> Decision:
-  Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
-  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
+def with_previews(+value: +List<Live.Output>, +state: Session) -> Session:
+  Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, +model_preference, +draft_model_manual, workspace_git, +interactive} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, value, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
 
-def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity) -> +List<Effect>:
+def partial_preview(+output: Live.Output, +application: Application) -> Decision:
+  Live.Output{+task, +operation, +parts} = output
+  Application{+program, +session} = application
+  +current: Session = with_previews(Live.observe(Live.PartialOutput{output}, previews(session), program), session)
+  interactive_result(Documents.preview_outputs([output], task, program, interactive_data(current)), Application{program, current})
+
+def preview_observation(+observation: Live.Observation, +application: Application) -> Decision:
+  Application{+program, +session} = application
+  local(program, with_previews(Live.observe(observation, previews(session), program), session), Nil{})
+
+def observe_preview(+observation: Live.Observation, +application: Application) -> Decision:
+  match observation:
+    case Live.ConnectionEnded{}: unchanged(application)
+    case Live.PartialOutput{+output}: partial_preview(output, application)
+    case other: preview_observation(other, application)
+
+def content_effects(+effects: +List<Content.Effect>, +identity: Content.Identity) -> +List<Effect>:
   match effects:
     case Nil{}: Nil{}
-    case Con{effect, rest}: ContentEffect{identity, effect} <> content_effects(rest, identity)
+    case Con{+effect, +rest}: ContentEffect{identity, effect} <> content_effects(rest, identity)
 
 def content_result(result: Content.Decision, +identity: Content.Identity, application: Application) -> Decision:
   Content.Decision{block, effects} = result
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
-  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block), next_layer, model_preference, draft_model_manual, workspace_git}, content_effects(effects, identity))
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block), next_layer, model_preference, draft_model_manual, workspace_git, interactive}, content_effects(effects, identity))
 
 def content_input(+identity: Content.Identity, input: Content.Input, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
   content_result(Content.step(Content.find_block(code_blocks, identity), input), identity,
-    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}})
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}})
 
 def restore_preference(+profile: String, +reasoning: String, +application: Application) -> Decision:
   Application{+program, +session} = application
   local(program, resolve_model_draft(with_preference(Some{ModelPreference{profile, reasoning}}, session), program), Nil{})
+
+def interactive_viewer(+value: U.Route) -> Maybe<&2, Nat>:
+  match value:
+    case U.Conversation{+task}: Some{task}
+    case _: None{}
+
+def interactive_synchronize(+application: Application) -> Decision:
+  +current = session(application)
+  interactive_result(Documents.reconcile(interactive_viewer(route(current)), previews(current), program(application), interactive_data(current)), application)
+
+def interactive_environment(+namespace: String, +sequence: Nat, +fresh: Bool, +allowed: Bool, +application: Application) -> Decision:
+  interactive_result(Documents.environment(namespace, sequence, fresh, allowed, interactive_data(session(application))), application)
+
+def interactive_fence(+observation: Documents.FenceObservation, +application: Application) -> Decision:
+  interactive_result(Documents.observe(observation, interactive_data(session(application))), application)
+
+def toggle_interactive_source(+identity: Content.Identity, +application: Application) -> Decision:
+  local(program(application), with_interactive(Documents.toggle_source(identity, interactive_data(session(application))), session(application)), Nil{})
+
+def preview_source_found(+found: Maybe<&2, D.OutputOrigin>, +namespace: String, +viewer: Nat, +task: Nat, +operation: Nat, +part: Nat) -> Content.Source:
+  match found:
+    case Some{+origin}: Content.Generated{namespace, viewer, origin, False{}}
+    case None{}: Content.StreamingPart{task, operation, part}
+
+def preview_source(+viewer: Nat, +output: Live.Output, +part: Nat, +state: Session, +world: M.World()) -> Content.Source:
+  Live.Output{+task, +operation, +parts} = output
+  preview_source_found(Live.origin(output, part, world), namespace(state), viewer, task, operation, part)
+
+def interactive_draft_empty(+found: Maybe<&2, U.Draft>) -> Bool:
+  match found:
+    case Some{U.Draft{+revision, U.Message{+task, U.Text{+text}, +delivery}, +feedback, +directory_entry}}: String.eq(text, "")
+    case _: False{}
+
+def interactive_fill_empty(+empty: Bool, +task: Nat, +message: String, +application: Application) -> Decision:
+  match empty:
+    case False{}: refuse(application, "Clear the message composer before filling it from this view")
+    case True{}: manual_edit(U.MessageEditor{task}, U.WriteMessage{U.initial_text(message)}, application)
+
+def interactive_fill_owned(+found: Maybe<&2, Nat>, +message: String, +application: Application) -> Decision:
+  match found:
+    case None{}: unchanged(application)
+    case Some{+task}: interactive_fill_empty(interactive_draft_empty(find_draft(drafts(session(application)), U.MessageEditor{task})), task, message, application)
+
+def interactive_send_resolved(+resolved: Commands.Operation, +command: M.Command, +owner: Interactive.Owner, +path: String, +ticket: Nat, +application: Application) -> Decision:
+  match resolved:
+    case Commands.Refuse{+code, +message}: interactive_completed(owner, path, ticket, D.failure(code, message), application)
+    case _: request_command(command, InteractiveCompletion{owner, path, ticket}, application)
+
+def interactive_send_checked(+ready: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +draft: U.Draft, +application: Application) -> Decision:
+  match ready:
+    case False{}: interactive_completed(owner, path, ticket, D.failure("interaction_refused", "This task cannot accept this message now"), application)
+    case True{}:
+      U.Draft{+revision, +body, +feedback, +directory_entry} = draft
+      +command: M.Command = U.command(body, now(session(application)))
+      interactive_send_resolved(Commands.resolve(command, program(application)), command, owner, path, ticket, application)
+
+def interactive_send_owned(+found: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: Application) -> Decision:
+  match found:
+    case None{}: interactive_completed(owner, path, ticket, D.failure("interaction_refused", "This view no longer owns a task"), application)
+    case Some{+task}:
+      +draft: U.Draft = U.Draft{0n, U.Message{task, U.initial_text(message), U.Send{}}, U.Editing{}, ""}
+      interactive_send_checked(submission_ready(pending(session(application)), program(application), draft), owner, path, ticket, draft, application)
+
+def interpret_interactive_effect(+effect: Interactive.Effect, +application: Application) -> Decision:
+  match effect:
+    case Interactive.FillDraft{+owner, +path, +message}:
+      interactive_fill_owned(Documents.current_owning_task(owner, interactive_data(session(application))), message, application)
+    case Interactive.SendMessage{+owner, +path, +ticket, +message}:
+      interactive_send_owned(Documents.current_owning_task(owner, interactive_data(session(application))), owner, path, ticket, message, application)
+    case other: local(program(application), session(application), [InteractiveEffect{other}])
+
+def interactive_reply(+succeeded: Bool, +first: J.Json, +second: J.Json) -> J.Json:
+  match succeeded:
+    case True{}: second
+    case False{}: first
+
+def combine_interactive(+first: Decision, +second: Decision) -> Decision:
+  Decision{+old_application, +first_reply, +first_runtime, +first_effects, +first_durable} = first
+  Decision{+application, +reply, +runtime, +effects, +durable} = second
+  Decision{application, interactive_reply(J.boolean(J.get(first_reply, "ok")), first_reply, reply), List.append(&2, M.Effect(), first_runtime, runtime), List.append(&2, Effect, first_effects, effects), first_durable || durable}
+
+def decision_application(+result: Decision) -> Application:
+  Decision{+application, +reply, +runtime, +interaction, +durable} = result
+  application
+
+def interpret_interactive_effects(+effects: +List<Effect>, +application: Application) -> Decision:
+  match effects:
+    case Nil{}: unchanged(application)
+    case Con{InteractiveEffect{+effect}, +rest}:
+      +decision: Decision = interpret_interactive_effect(effect, application)
+      +next: Application = decision_application(decision)
+      combine_interactive(decision, interpret_interactive_effects(rest, next))
+    case Con{+effect, +rest}:
+      +decision: Decision = local(program(application), session(application), [effect])
+      +next: Application = decision_application(decision)
+      combine_interactive(decision, interpret_interactive_effects(rest, next))
+
+def interpret_interactive_decision(+result: Decision) -> Decision:
+  Decision{+next, +reply, +runtime, +effects, +durable} = result
+  interpret_interactive_effects(effects, next)
+
+def interactive_input(+input: Interactive.Input, +application: Application) -> Decision:
+  interpret_interactive_decision(interactive_result(Documents.input(input, interactive_data(session(application))), application))
+
+def selected_interactive_scene_hit(+hit: Bool, +scene: Interactive.Scene, +fallback: Maybe<&2, Interactive.Scene>) -> Maybe<&2, Interactive.Scene>:
+  match hit:
+    case True{}: Some{scene}
+    case False{}: fallback
+
+def selected_interactive_scene(+scenes: +List<Documents.BlockScene>, +identity: Content.Identity) -> Maybe<&2, Interactive.Scene>:
+  match scenes:
+    case Nil{}: None{}
+    case Con{Documents.BlockScene{+current, +scene}, +rest}:
+      selected_interactive_scene_hit(Content.same(current, identity), scene, selected_interactive_scene(rest, identity))
+
+
+def interactive_scene(+identity: Content.Identity, +state: Session) -> Maybe<&2, Interactive.Scene>:
+  Content.Identity{+source, +ordinal} = identity
+  selected_interactive_scene(interactive_scenes(source, state), identity)
+
+def interactive_fresh(+state: Session) -> Bool:
+  Documents.fresh(interactive_data(state))
+
+def interactive_allowed(+state: Session) -> Bool:
+  Documents.allowed(interactive_data(state))
+
+
+def retained_discarded(+task: Nat, +state: Session) -> Nat:
+  Documents.discarded(task, interactive_data(state))
+
+def dismiss_retained(+key: String, +application: Application) -> Decision:
+  interactive_result(Documents.dismiss(key, interactive_data(session(application))), application)
+
+def toggle_archived(+key: String, +application: Application) -> Decision:
+  local(program(application), with_interactive(Documents.toggle_archive(key, interactive_data(session(application))), session(application)), Nil{})
+
+def clear_discarded(+task: Nat, +application: Application) -> Decision:
+  local(program(application), with_interactive(Documents.clear_discarded(task, interactive_data(session(application))), session(application)), Nil{})
+
+
+def code_generated_known(+source: Content.Source, +state: Session) -> Bool:
+  match source:
+    case Content.Generated{+namespace, +viewer, D.OutputOrigin{+producer, +operation, +part, D.InteractiveV1{}}, +complete}: Documents.source_known(source, interactive_data(state))
+    case _: True{}
+
+def code_source_known(+identity: Content.Identity, +state: Session) -> Bool:
+  Content.Identity{+source, +ordinal} = identity
+  code_generated_known(source, state)

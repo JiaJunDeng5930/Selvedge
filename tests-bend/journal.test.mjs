@@ -49,9 +49,11 @@ test('a failed SQLite commit cannot start a paid drafting request', async t => {
 test('the OS journal lock excludes a second owner and releases on close', async t => {
   const filename = path.join(await home(t), 'journal.sqlite');
   const first = await Journal.open(filename);
+  const namespace = first.namespace;
   t.after(() => first.close());
   await assert.rejects(Journal.open(filename), /locked|busy/i);
   await first.close();
   const second = await Journal.open(filename);
+  assert.equal(second.namespace, namespace);
   await second.close();
 });

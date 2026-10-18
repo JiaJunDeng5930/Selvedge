@@ -21,6 +21,13 @@ law start_meaning:
   for +world: M.World()
   {Actual.start(F.State(), F.Effect, task, world) == Spec.start(F.State(), F.Effect, task, world) : M.Decision()}
 
+law request_environment_meaning:
+  for +task: D.Task
+  for +world: M.World()
+  for +environment: D.Environment
+  {Actual.request_environment(F.State(), F.Effect, task, world, environment) ==
+    Spec.model_environment(F.State(), F.Effect, task, world, environment) : M.Decision()}
+
 law completion_meaning:
   for +revision: Nat
   for +outcome: R.Outcome

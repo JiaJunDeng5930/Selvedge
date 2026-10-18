@@ -24,7 +24,7 @@ test('the physical server issues a working cookie, delivers committed SSE and se
   try {
     assert.equal(JSON.parse((await iterator.next()).value).type, 'stream-state');
     assert.deepEqual(JSON.parse((await iterator.next()).value),
-      { type: 'commit', sequence: running.service.journal.sequence });
+      { type: 'commit', namespace: running.service.journal.namespace, sequence: running.service.journal.sequence });
   } finally {
     controller.abort();
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });

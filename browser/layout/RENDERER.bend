@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
 import ../../interaction/conversation/CODE.bend as Code
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./CONTENT.bend as Content
@@ -35,10 +36,16 @@ def attributes(+values: +List<Source.Attribute>) -> +List<Doc.Property>:
 
 # Observation identity does not grant interaction ownership to passive content.
 
+def authored_observation_key_match(matched: Bool, key: String, fallback: Unit -> String) -> String:
+  match matched:
+    case True{}: key
+    case False{}: fallback(Unit{})
+
 def authored_observation_key(+values: +List<Source.Attribute>, +fallback: String) -> String:
   match values:
     case Nil{}: fallback
-    case Con{Source.DataAttribute{"native-key", +key}, +rest}: key
+    case Con{Source.DataAttribute{name, key}, +rest}:
+      authored_observation_key_match(SafeText.string_equal(name, "native-key"), key, (_ => authored_observation_key(rest, fallback)))
     case Con{+other, +rest}: authored_observation_key(rest, fallback)
 
 def observation_key(value: Content.Value) -> String:
@@ -242,6 +249,8 @@ def field_tag(+kind: Source.NativeFieldKind) -> String:
     case Source.MultiSelectField{}: "select"
     case Source.ToggleField{}: "input"
     case Source.NumberField{+minimum}: "input"
+    case Source.RangeField{minimum, maximum, step}: "input"
+    case Source.DecimalField{minimum, maximum, step}: "input"
     case Source.FileField{multiple}: "input"
     case Source.DirectoryField{}: "input"
     case Source.SearchField{}: "input"
@@ -256,6 +265,8 @@ def field_attributes(+kind: Source.NativeFieldKind, +value: String) -> +List<Doc
     case Source.MultiSelectField{}: [Paint.property("multiple", "")]
     case Source.ToggleField{}: [Paint.property("type", "checkbox"), Paint.property("value", value)]
     case Source.NumberField{+minimum}: [Paint.property("type", "number"), Paint.property("min", Nat.show(minimum)), Paint.property("value", value)]
+    case Source.RangeField{minimum, maximum, step}: [Paint.property("type", "range"), Paint.property("min", minimum), Paint.property("max", maximum), Paint.property("step", step), Paint.property("value", value)]
+    case Source.DecimalField{minimum, maximum, step}: [Paint.property("type", "text"), Paint.property("inputmode", "decimal"), Paint.property("data-number-min", minimum), Paint.property("data-number-max", maximum), Paint.property("data-number-step", step), Paint.property("value", value)]
     case Source.FileField{multiple}: Paint.property("type", "file") <>
       choose(+List<Doc.Property>, multiple, [Paint.property("multiple", "")], Nil{})
     case Source.DirectoryField{}: [Paint.property("type", "text"), Paint.property("value", value)]
@@ -278,6 +289,8 @@ def field_authored(+kind: Source.NativeFieldKind, +values: +List<Source.Attribut
     case Source.MultiSelectField{}: attributes(values)
     case Source.ToggleField{}: attributes(values)
     case Source.NumberField{minimum}: attributes(values)
+    case Source.RangeField{minimum, maximum, step}: attributes(values)
+    case Source.DecimalField{minimum, maximum, step}: attributes(values)
     case Source.DirectoryField{}: attributes(values)
     case Source.SearchField{}: attributes(values)
     case Source.SecretField{}: attributes(values)
@@ -291,7 +304,8 @@ def owned_nodes(+values: +List<Owned>, +key: String) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Owned{+owner_key, +node}, +rest}:
-      choose(+List<Doc.Node>, String.eq(owner_key, key), node <> owned_nodes(rest, key), owned_nodes(rest, key))
+      +later = owned_nodes(rest, key)
+      choose(+List<Doc.Node>, String.eq(owner_key, key), node <> later, later)
 
 def drawing_offset(+alignment: Spatial.Alignment, +available: Nat, +size: Nat) -> Nat:
   match alignment:
@@ -314,11 +328,14 @@ def drawing_block_alignment(direction: Model.Direction, main: Spatial.Alignment,
     case Model.Layered{}: main
     case Model.ResponsiveHorizontal{}: cross
 
-def paths(+values: +List<Source.DrawingPath>, +key: UIIdentity.Key) -> +List<Doc.Node>:
+def indexed_paths(+values: +List<Source.DrawingPath>, +key: UIIdentity.Key, +index: Nat) -> +List<Doc.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{Source.DrawingPath{+data}, +rest}:
-      Doc.Element{UIIdentity.encode(UIIdentity.entity(key, "drawing-path", data)), "path", [Paint.property("d", data)], Nil{}, Nil{}, Nil{}} <> paths(rest, key)
+      Doc.Element{UIIdentity.encode(UIIdentity.entity(key, "drawing-path", Nat.show(index))), "path", [Paint.property("d", data)], Nil{}, Nil{}, Nil{}} <> indexed_paths(rest, key, 1n+index)
+
+def paths(+values: +List<Source.DrawingPath>, +key: UIIdentity.Key) -> +List<Doc.Node>:
+  indexed_paths(values, key, 0n)
 
 def drawing_paint(paint: Source.DrawingPaint) -> +List<Doc.Property>:
   match paint:
@@ -423,6 +440,8 @@ def observed_field(+kind: Source.NativeFieldKind, +key: String, node: Doc.Node) 
     case Source.SelectField{}: observed(key, node)
     case Source.MultiSelectField{}: observed(key, node)
     case Source.NumberField{minimum}: observed(key, node)
+    case Source.RangeField{minimum, maximum, step}: observed(key, node)
+    case Source.DecimalField{minimum, maximum, step}: observed(key, node)
     case Source.FileField{multiple}: observed(key, node)
     case Source.DirectoryField{}: observed(key, node)
     case Source.SearchField{}: observed(key, node)
@@ -552,6 +571,9 @@ def native_target_identity(target: Source.NativeTarget) -> UIIdentity.Key:
   match target:
     case Source.ToolbarTarget{identity}: UIIdentity.part(Code.ui_identity(identity), "toolbar")
     case Source.CodeBodyTarget{identity, wrap}: UIIdentity.part(Code.ui_identity(identity), "code")
+    case Source.InteractiveTarget{identity}: UIIdentity.part(Code.ui_identity(identity), "ui")
+    case Source.InteractiveSourceTarget{identity, exposed}: UIIdentity.part(Code.ui_identity(identity), "source")
+    case Source.InteractiveFrameTarget{identity, active}: UIIdentity.part(Code.ui_identity(identity), "frame")
 
 def allocated_native_properties(+owner: String, +target: Source.NativeTarget, +tree: Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>) -> Owned:
   +value: Content.Value = native_value(tree)
@@ -571,6 +593,15 @@ def native_wrapping(target: Source.NativeTarget) -> +List<Doc.Property>:
   match target:
     case Source.ToolbarTarget{identity}: Nil{}
     case Source.CodeBodyTarget{identity, wrap}: wrapping(code_wrapping(wrap))
+    case Source.InteractiveTarget{identity}: Nil{}
+    case Source.InteractiveSourceTarget{identity, exposed}:
+      match exposed:
+        case True{}: [Paint.property("display", "block")]
+        case False{}: [Paint.property("display", "none")]
+    case Source.InteractiveFrameTarget{identity, active}:
+      match active:
+        case True{}: [Paint.property("border", "0"), Paint.property("background", "transparent"), Paint.property("padding", "0")]
+        case False{}: Nil{}
 
 def native_style(+value: Source.ResolvedStyle, target: Source.NativeTarget) -> +List<Doc.Property>:
   Source.ResolvedStyle{+layout, +font, +surface, +states} = value

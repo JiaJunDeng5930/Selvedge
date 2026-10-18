@@ -1,20 +1,20 @@
 import { DatabaseSync } from 'node:sqlite';
 import { EventEmitter } from 'node:events';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { Kernel } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
 
-export const journalFormat = 'selvedge-bend-journal-6';
+export const journalFormat = 'selvedge-bend-journal-7';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
   journal: 'CREATE TABLE journal (seq INTEGER PRIMARY KEY CHECK (seq > 0), input TEXT NOT NULL, decision TEXT NOT NULL, previous TEXT NOT NULL, digest TEXT NOT NULL) STRICT',
 };
 const normalize = sql => sql.replace(/\s+/g, ' ').trim();
-const genesis = () => createHash('sha256').update(journalFormat).digest('hex');
+const genesis = namespace => createHash('sha256').update(journalFormat).update('\0').update(namespace).digest('hex');
 const digest = (previous, sequence, input, decision) => createHash('sha256')
   .update(previous).update('\0').update(String(sequence)).update('\0')
   .update(input).update('\0').update(decision).digest('hex');
@@ -32,7 +32,6 @@ export class Journal extends EventEmitter {
     const journal = new Journal();
     journal.filename = filename;
     journal.sequence = 0;
-    journal.#previous = genesis();
     try {
       await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
       // An OS-backed SQLite lock is released on process death. No stale-PID
@@ -42,6 +41,7 @@ export class Journal extends EventEmitter {
       journal.#database = new DatabaseSync(filename, { timeout: 1000 });
       await chmod(filename, 0o600);
       journal.#openSchema();
+      journal.#previous = genesis(journal.namespace);
       journal.#database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
       journal.kernel = new Kernel(kernelOptions);
       journal.description = await journal.kernel.initialize();
@@ -76,6 +76,7 @@ export class Journal extends EventEmitter {
       try {
         for (const sql of Object.values(schema)) this.#database.exec(sql);
         this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('format', journalFormat);
+        this.#database.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('namespace', randomBytes(16).toString('hex'));
         this.#database.exec('COMMIT');
       } catch (error) {
         this.#database.exec('ROLLBACK');
@@ -85,7 +86,11 @@ export class Journal extends EventEmitter {
       throw new Error('The database does not have the current Selvedge Bend journal schema');
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
-    if (entries.length === 1 && entries[0].key === 'format' && entries[0].value === journalFormat) return;
+    if (entries.length === 2 && entries[0].key === 'format' && entries[0].value === journalFormat &&
+        entries[1].key === 'namespace' && /^[0-9a-f]{32}$/.test(entries[1].value)) {
+      this.namespace = entries[1].value;
+      return;
+    }
     throw new Error('The database does not have the current Selvedge Bend journal format');
   }
 

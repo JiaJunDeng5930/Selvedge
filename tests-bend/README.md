@@ -56,6 +56,22 @@ HTTP default-cwd observation and real Git dirty-file copying across reopen. Work
 membership, graph admission and ordinary Task independence remain production
 construction and proof obligations.
 
+Interactive Markdown keeps focused checks for parser completion notifications,
+buffered storage writes and failures, provider output coordinates, legal SSE
+frames crossing HTTP backpressure, and the reproduced V8 stack overflow on
+ordinary streamed output. The language's semantics remain production proof
+obligations. The real Chromium checks exercise streaming controls and IME,
+restoration, live graph display and action delivery through a controlled model
+HTTP peer. The standalone command builds the production libraries once:
+
+```sh
+BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium bun run test:interactive-markdown
+```
+
+The browser script requires Python Playwright. It uses temporary local services
+and saves failures under `.workpad/interactive-browser-results`; no live model
+account is used.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

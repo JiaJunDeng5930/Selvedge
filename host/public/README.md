@@ -21,6 +21,11 @@ which facts have a presentation. Rendering and encoding failures have Bend-owned
 screens. The static HTML loading/error text only covers loading the compiled
 program itself.
 
+Stream notifications retain their order through the Bend adapter. Consecutive
+text observations can share a publication; commit and stream lifecycle boundaries
+flush earlier observations first. Notification turns yield so native input and
+physical measurement can progress during sustained output.
+
 `connection.mjs` observes one authenticated HTTP/SSE connection. Services own
 connection tickets and recovery timers; the adapter does not maintain a retry
 loop. `appearance.mjs` passes stored preferences back into that same service
@@ -52,3 +57,11 @@ links use approved protocols, and code/math decorations remain worker-bounded.
 `style.css` contains reset, font/token foundations and Markdown presentation.
 Product layout and control appearance are prescribed in Bend styles. The tokens
 are the pinned desktop asset; the browser does not import React components.
+
+Physical Markdown minimum-width observations measure unwrapped code through its
+horizontal scroll viewport. Only parser-created `pre` elements in the measured
+primitive's own Markdown root receive temporary inline-size containment; toolbar
+and native Portal content retain their minima. The adapter restores each original
+containment value and priority before measuring full preferred width, actual
+AtWidth height or targets, including when minimum observation throws. Visible
+Markdown layout and the allocated reading-width limits are unchanged.

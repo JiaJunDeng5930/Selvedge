@@ -70,7 +70,7 @@ async function browserExecutable() {
   throw new Error('Native browser checks require Chromium/Chrome; set SELVEDGE_BROWSER to its executable');
 }
 
-test('native IME confirmation after compositionend retains its default instead of submitting', async t => {
+test('the native browser preserves IME confirmation and accepts ordinary long streamed output', async t => {
   const executable = await browserExecutable();
   const profile = await mkdtemp(path.join(tmpdir(), 'selvedge-browser-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
@@ -80,18 +80,34 @@ test('native IME confirmation after compositionend retains its default instead o
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://localhost');
     const pathname = url.pathname;
-    if (pathname === '/result') { response.writeHead(204); response.end(); report(url.searchParams.get('preserved') === '1'); return; }
+    if (pathname === '/result') {
+      response.writeHead(204); response.end();
+      report({ preserved: url.searchParams.get('preserved') === '1',
+        streamed: url.searchParams.get('streamed') === '1', error: url.searchParams.get('error') });
+      return;
+    }
     if (pathname === '/') {
       response.setHeader('content-type', 'text/html');
       response.end(`<!doctype html><textarea id="editor"></textarea><script type="module">
 import * as Bend from '/public/generated/browser-model.mjs';
 import {editorKeyboard} from '/public/keyboard.mjs';
+import {boundary} from '/public/model-boundary.mjs';
 const editor=document.getElementById('editor'); let submitted=0;
 editor.addEventListener('keydown', event=>editorKeyboard(event,Bend.native_editor_key,()=>submitted++));
 editor.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
 const confirmation=new KeyboardEvent('keydown',{key:'Enter',keyCode:229,isComposing:false,bubbles:true,cancelable:true});
 editor.dispatchEvent(confirmation);
-fetch('/result?preserved='+Number(confirmation.keyCode===229&&submitted===0&&!confirmation.defaultPrevented));
+let streamed=false; let error='';
+try {
+  const text='x'.repeat(16*1024);
+  const entry=value=>({task_id:17,ticket:3,parts:[{output_index:5,text:value}]});
+  const result=boundary('browser.stream_step',{state:[entry('prefix:')],
+    notice:{type:'delta',task_id:17,ticket:3,output_index:5,text}});
+  streamed=result.publish&&result.state[0].parts[0].text==='prefix:'+text;
+} catch (failure) {error=String(failure);}
+fetch('/result?'+new URLSearchParams({
+  preserved:Number(confirmation.keyCode===229&&submitted===0&&!confirmation.defaultPrevented),
+  streamed:Number(streamed),error}));
 </script>`); return;
     }
     let filename;
@@ -126,7 +142,8 @@ fetch('/result?preserved='+Number(confirmation.keyCode===229&&submitted===0&&!co
     const result = await Promise.race([reported,
       browserClosed.then(code => { throw new Error(`Native browser exited before its result: ${browser.signalCode ?? code}`); }),
     ]);
-    assert.equal(result, true, 'The native IME confirmation was intercepted as submission');
+    assert.equal(result.preserved, true, 'The native IME confirmation was intercepted as submission');
+    assert.equal(result.streamed, true, result.error || 'The native browser rejected ordinary streamed output');
   } catch (error) { assert.fail(`${error.stack ?? error}\nstdout:\n${stdout}\nstderr:\n${stderr}`); }
   finally { stopBrowser(); await browserClosed; }
 });

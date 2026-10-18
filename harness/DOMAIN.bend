@@ -5,6 +5,7 @@ import ./transport/schema.bend as Schema
 import ./tools/SYNTAX.bend as Native
 import ./context/MODEL.bend as Context
 import ./context/instruction.bend as InstructionContext
+import ./context/interactive-markdown.bend as InteractiveMarkdownContext
 import ./context/project-guidance.bend as ProjectGuidanceContext
 import ../bendlib/association-map.bend as Finite
 
@@ -709,14 +710,31 @@ type HistoryContext is Data:
   TaskSettings{context: TaskContext, profile: String, reasoning: String}
   ReasoningConfiguration{effort: String}
 
+type OutputMode is Data:
+  Plain{}
+  InteractiveV1{}
+
+type OutputOrigin is Data:
+  OutputOrigin{producer_task: Nat, operation: Nat, part: Nat, mode: OutputMode}
+
+def output_mode_name(mode: OutputMode) -> String:
+  match mode:
+    case Plain{}: "plain"
+    case InteractiveV1{}: "interactive-v1"
+
+def output_origin_json(origin: OutputOrigin) -> J.Json:
+  OutputOrigin{producer_task, operation, part, mode} = origin
+  J.Object{[J.Field{"producer_task", J.nat(producer_task)}, J.Field{"operation", J.nat(operation)},
+    J.Field{"part", J.nat(part)}, J.Field{"mode", J.Text{output_mode_name(mode)}}]}
+
 type Message is Data:
   UserMessage{text: String}
-  AssistantMessage{text: String}
+  AssistantMessage{origin: OutputOrigin, text: String}
   FunctionCall{call: Call}
   FunctionOutput{call_id: String, value: J.Json, error: Bool}
   OperationResult{ticket: Nat, call_id: String, tool: String, value: J.Json, error: Bool}
   FailureMessage{text: String}
-  ModelContext{value: J.Json}
+  ModelContext{origin: OutputOrigin, value: J.Json}
   ContextReplacement{value: J.Json}
   ReasoningRecord{owner: Nat, effort: String, remaining: Nat, sampling: Bool}
   ContextMessage{context: HistoryContext}
@@ -731,9 +749,15 @@ type Message is Data:
 # without granting it the execution authority of a FunctionCall constructor.
 
 type ModelItem is Data:
-  Say{text: String}
+  Say{part: Nat, text: String}
   Invoke{call: Call}
-  Context{value: J.Json}
+  Context{part: Nat, value: J.Json}
+
+def message_origin(message: Message) -> Maybe<&2, OutputOrigin>:
+  match message:
+    case AssistantMessage{origin, text}: Some{origin}
+    case ModelContext{origin, value}: Some{origin}
+    case _: None{}
 
 # Sharing a prefix is a value-level relation, independent of task ownership.
 
@@ -778,7 +802,7 @@ type Phase is Data:
   ContextPending{ticket: Nat, revision: Nat, purpose: ContextPurpose}
   Idle{}
   Ready{calls: List<&2, Attempt>}
-  ModelPending{ticket: Nat, callable: +List<String>}
+  ModelPending{ticket: Nat, callable: +List<String>, mode: OutputMode}
   ReasoningPending{ticket: Nat, revision: Nat}
   HookPending{ticket: Nat, plugin: PluginRef, call: Call, pending: +List<PluginRef>, remaining: +List<Attempt>}
 
@@ -1029,6 +1053,11 @@ def history_append_context(context: HistoryContext, history: History) -> History
 def append_context(context: HistoryContext, +task: Task) -> Task:
   with_history(history_append_context(context, task_history(task)), task)
 
+def available_output_mode(available: Bool) -> OutputMode:
+  match available:
+    case True{}: InteractiveV1{}
+    case False{}: Plain{}
+
 def context_bindings(history: History) -> +List<Context.Snapshot>:
   match history:
     case EmptyHistory{}: Nil{}
@@ -1039,6 +1068,9 @@ def selected_guidance(found: Maybe<&2, ProjectGuidanceContext.Guidance>) -> Proj
   match found:
     case None{}: NoProject{}
     case Some{ProjectGuidanceContext.Guidance{workspace, path, revision, content}}: ProjectContext{workspace, path, revision, content}
+
+def history_output_mode(history: History) -> OutputMode:
+  available_output_mode(InteractiveMarkdownContext.available(context_bindings(history)))
 
 def bindings_project(bindings: +List<Context.Snapshot>) -> ProjectContext:
   selected_guidance(ProjectGuidanceContext.latest(bindings))

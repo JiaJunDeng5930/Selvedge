@@ -143,17 +143,17 @@ def model_result_semantics(+task: D.Task, +outcome: D.Outcome, +allowed: +List<S
       +source = D.task_id(task)
       +stored = P.store(T.model_outcome(outcome, allowed, task),
         C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, rest})
-      +actual = FeatureExec.react_outputs(~P.output_send, source, T.reply_outputs(outcome), stored)
-      +middle = FeatureSpec.react_outputs(~Commands.output_send, source, T.reply_outputs(outcome), stored)
-      +required = FeatureSpec.react_outputs(~Commands.output_send, source, TaskRequirements.reply_outputs(outcome), stored)
+      +actual = FeatureExec.react_outputs(~P.output_send, source, T.accepted_reply_outputs(outcome, allowed, task), stored)
+      +middle = FeatureSpec.react_outputs(~Commands.output_send, source, T.accepted_reply_outputs(outcome, allowed, task), stored)
+      +required = FeatureSpec.react_outputs(~Commands.output_send, source, TaskRequirements.accepted_reply_outputs(outcome, allowed, task), stored)
       Equal.cong(M.Decision(), M.Decision(), Protocol.accepted_reaction, actual, required,
         Equal.trans(M.Decision(), actual, middle, required,
           FeatureLaws.react_outputs(~P.output_send, ~Commands.output_send,
             ~(+target => +message => +state => Laws.command_semantics(M.Send{target, message}, state)),
-            source, T.reply_outputs(outcome), stored),
+            source, T.accepted_reply_outputs(outcome, allowed, task), stored),
           Equal.cong(+List<String>, M.Decision(),
             (outputs => FeatureSpec.react_outputs(~Commands.output_send, source, outputs, stored)),
-            T.reply_outputs(outcome), TaskRequirements.reply_outputs(outcome), TaskProof.reply_outputs_meaning(outcome))))
+            T.accepted_reply_outputs(outcome, allowed, task), TaskRequirements.accepted_reply_outputs(outcome, allowed, task), TaskProof.accepted_reply_outputs_meaning(outcome, allowed, task))))
 
 def context_result_semantics(waiting: Bool, +task: D.Task, +revision: Nat, +purpose: D.ContextPurpose,
   +outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, +world: M.World()) ->

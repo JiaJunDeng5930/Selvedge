@@ -15,6 +15,9 @@ import ./PROGRAM.bend as Allocation
 import ./GEOMETRY.bend as SpatialModel
 import ./enclosure.bend as E
 import ./SOURCE.bend as SourceSource
+import ./SPACE.bend as Space
+import ./allocation-proof.bend as AllocationProof
+import ../../bendlib/algebra-proof.bend as Alg
 
 def attributes_consume_control_states(tag: Source.ControlTag, attrs: +List<Source.Attribute>, name: String,
   interaction: Model.Interaction<Doc.DOMEvent>) -> RulePhysicalControlRules.control_attributes_claim(tag, attrs, name, interaction):
@@ -174,6 +177,8 @@ def field_observation(+kind: Source.NativeFieldKind, +key: Identity.Key, +style:
     case Source.SelectField{}: observation_appended(attributes, identity)
     case Source.MultiSelectField{}: observation_appended(attributes, identity)
     case Source.NumberField{minimum}: observation_appended(attributes, identity)
+    case Source.RangeField{minimum, maximum, step}: observation_appended(attributes, identity)
+    case Source.DecimalField{minimum, maximum, step}: observation_appended(attributes, identity)
     case Source.FileField{multiple}: observation_appended(attributes, identity)
     case Source.DirectoryField{}: observation_appended(attributes, identity)
     case Source.SearchField{}: observation_appended(attributes, identity)
@@ -355,3 +360,152 @@ def RulePhysicalControlRules.unbroken_render(capacity,key,text,choice,font,bound
 def RulePhysicalControlRules.unbroken_metric(metric):
   match metric:
     case T.Metric{key,minimum,preferred,height,advance}: {==}
+
+def owned_step_complete(+matches: Bool, +node: Doc.Node, +actual: +List<Doc.Node>, +expected: +List<Doc.Node>,
+  same: {actual == expected : +List<Doc.Node>}) ->
+  {Renderer.choose(+List<Doc.Node>, matches, node <> actual, actual) ==
+    RulePhysicalControlRules.required_owned_step(matches, node, expected) : +List<Doc.Node>}:
+  match matches:
+    case True{}: Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (later => node <> later), actual, expected, same)
+    case False{}: same
+
+def owned_complete(+values: +List<Renderer.Owned>, +key: String) ->
+  {Renderer.owned_nodes(values, key) == RulePhysicalControlRules.required_owned_nodes(values, key) : +List<Doc.Node>}:
+  match values:
+    case Nil{}: {==}
+    case Con{Renderer.Owned{+owner, +node}, +rest}:
+      owned_step_complete(String.eq(owner, key), node, Renderer.owned_nodes(rest, key),
+        RulePhysicalControlRules.required_owned_nodes(rest, key), owned_complete(rest, key))
+
+def required_owned_matches(+owner: String, +node: Doc.Node, +rest: +List<Renderer.Owned>, +key: String,
+  matches: {String.eq(owner, key) == True{} : Bool}) ->
+  {RulePhysicalControlRules.required_owned_nodes(Renderer.Owned{owner, node} <> rest, key) ==
+    node <> RulePhysicalControlRules.required_owned_nodes(rest, key) : +List<Doc.Node>}:
+  Equal.cong(Bool, +List<Doc.Node>,
+    (current => RulePhysicalControlRules.required_owned_step(current, node, RulePhysicalControlRules.required_owned_nodes(rest, key))),
+    String.eq(owner, key), True{}, matches)
+
+def required_owned_nonmatches(+owner: String, +node: Doc.Node, +rest: +List<Renderer.Owned>, +key: String,
+  matches: {String.eq(owner, key) == False{} : Bool}) ->
+  {RulePhysicalControlRules.required_owned_nodes(Renderer.Owned{owner, node} <> rest, key) ==
+    RulePhysicalControlRules.required_owned_nodes(rest, key) : +List<Doc.Node>}:
+  Equal.cong(Bool, +List<Doc.Node>,
+    (current => RulePhysicalControlRules.required_owned_step(current, node, RulePhysicalControlRules.required_owned_nodes(rest, key))),
+    String.eq(owner, key), False{}, matches)
+
+def required_owned_append_step(+matches: Bool, +node: Doc.Node, +actual: +List<Doc.Node>, +first: +List<Doc.Node>, +later: +List<Doc.Node>,
+  same: {actual == List.append(&2, Doc.Node, first, later) : +List<Doc.Node>}) ->
+  {RulePhysicalControlRules.required_owned_step(matches, node, actual) ==
+    List.append(&2, Doc.Node, RulePhysicalControlRules.required_owned_step(matches, node, first), later) : +List<Doc.Node>}:
+  match matches:
+    case True{}:
+      Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (values => node <> values), actual, List.append(&2, Doc.Node, first, later), same)
+    case False{}: same
+
+def required_owned_append(+first: +List<Renderer.Owned>, +later: +List<Renderer.Owned>, +key: String) ->
+  {RulePhysicalControlRules.required_owned_nodes(List.append(&2, Renderer.Owned, first, later), key) ==
+    List.append(&2, Doc.Node, RulePhysicalControlRules.required_owned_nodes(first, key), RulePhysicalControlRules.required_owned_nodes(later, key)) : +List<Doc.Node>}:
+  match first:
+    case Nil{}: {==}
+    case Con{Renderer.Owned{+owner, +node}, +rest}:
+      required_owned_append_step(String.eq(owner, key), node,
+        RulePhysicalControlRules.required_owned_nodes(List.append(&2, Renderer.Owned, rest, later), key),
+        RulePhysicalControlRules.required_owned_nodes(rest, key), RulePhysicalControlRules.required_owned_nodes(later, key),
+        required_owned_append(rest, later, key))
+
+def RulePhysicalControlRules.owned_nodes_complete(values, key): owned_complete(values, key)
+
+def RulePhysicalControlRules.owned_nodes_empty(key): {==}
+
+def RulePhysicalControlRules.owned_nodes_matching(owner, node, rest, key, matches):
+  Equal.trans(+List<Doc.Node>, Renderer.owned_nodes(Renderer.Owned{owner, node} <> rest, key),
+    RulePhysicalControlRules.required_owned_nodes(Renderer.Owned{owner, node} <> rest, key),
+    node <> RulePhysicalControlRules.required_owned_nodes(rest, key),
+    owned_complete(Renderer.Owned{owner, node} <> rest, key), required_owned_matches(owner, node, rest, key, matches))
+
+def RulePhysicalControlRules.owned_nodes_nonmatching(owner, node, rest, key, matches):
+  Equal.trans(+List<Doc.Node>, Renderer.owned_nodes(Renderer.Owned{owner, node} <> rest, key),
+    RulePhysicalControlRules.required_owned_nodes(Renderer.Owned{owner, node} <> rest, key),
+    RulePhysicalControlRules.required_owned_nodes(rest, key),
+    owned_complete(Renderer.Owned{owner, node} <> rest, key), required_owned_nonmatches(owner, node, rest, key, matches))
+
+def RulePhysicalControlRules.owned_nodes_concatenated(first, later, key):
+  Equal.trans(+List<Doc.Node>, Renderer.owned_nodes(List.append(&2, Renderer.Owned, first, later), key),
+    RulePhysicalControlRules.required_owned_nodes(List.append(&2, Renderer.Owned, first, later), key),
+    List.append(&2, Doc.Node, RulePhysicalControlRules.required_owned_nodes(first, key), RulePhysicalControlRules.required_owned_nodes(later, key)),
+    owned_complete(List.append(&2, Renderer.Owned, first, later), key), required_owned_append(first, later, key))
+
+def RulePhysicalControlRules.owned_nodes_repeated(first_owner, first, second_owner, second, rest, key, first_matches, second_matches):
+  Equal.trans(+List<Doc.Node>, Renderer.owned_nodes(Renderer.Owned{first_owner, first} <> Renderer.Owned{second_owner, second} <> rest, key),
+    first <> RulePhysicalControlRules.required_owned_nodes(Renderer.Owned{second_owner, second} <> rest, key),
+    first <> second <> RulePhysicalControlRules.required_owned_nodes(rest, key),
+    RulePhysicalControlRules.owned_nodes_matching(first_owner, first, Renderer.Owned{second_owner, second} <> rest, key, first_matches),
+    Equal.cong(+List<Doc.Node>, +List<Doc.Node>, (values => first <> values),
+      RulePhysicalControlRules.required_owned_nodes(Renderer.Owned{second_owner, second} <> rest, key),
+      second <> RulePhysicalControlRules.required_owned_nodes(rest, key), required_owned_matches(second_owner, second, rest, key, second_matches)))
+
+def chart_sub_self(+value: Nat) -> {Nat.sub(value, value) == 0n : Nat}:
+  match value:
+    case 0n: {==}
+    case 1n+rest: chart_sub_self(rest)
+
+def chart_mul_one(+value: Nat) -> {Nat.mul(value, 1n) == value : Nat}:
+  match value:
+    case 0n: {==}
+    case 1n+rest: Equal.cong(Nat, Nat, (n => 1n+n), Nat.mul(rest, 1n), rest, chart_mul_one(rest))
+
+def chart_div_one_acc(+value: Nat, +count: Nat) ->
+  {Nat.divmod.go(value, 0n, count, 0n) == (Nat.add(value, count), 0n) : (Nat & Nat)}:
+  match value:
+    case 0n: {==}
+    case 1n+rest:
+      Equal.trans(Nat & Nat, Nat.divmod.go(rest, 0n, 1n+count, 0n), (Nat.add(rest, 1n+count), 0n), (1n+Nat.add(rest, count), 0n),
+        chart_div_one_acc(rest, 1n+count),
+        Equal.cong(Nat, Nat & Nat, (n => (n, 0n)), Nat.add(rest, 1n+count), 1n+Nat.add(rest, count), Alg.nat_add_succ(rest, count)))
+
+def chart_div_one(+value: Nat) -> {Nat.div(value, 1n) == value : Nat}:
+  Equal.trans(Nat, Nat.div(value, 1n), Nat.add(value, 0n), value,
+    Equal.cong(Nat & Nat, Nat, (pair => Pair.fst(Nat, Nat, pair)), Nat.divmod.go(value, 0n, 0n, 0n), (Nat.add(value, 0n), 0n), chart_div_one_acc(value, 0n)),
+    Alg.nat_add_zero(value))
+
+def RulePhysicalControlRules.chart_scroll_allocation(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width):
+  # browser/layout/geometry-proof.zero_le
+  %Equal.sym(Bool, Cmp.is_le(Nat.cmp(0n, Nat.sub(width, 0n))), True{}, ProofGeometryProof.zero_le(Nat.sub(width, 0n))) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Allocation.redistribute_first_first(Model.Tree<Content.Value, Doc.DOMEvent>, Space.feasible_pack(Allocation.Tagged<Model.Tree<Content.Value, Doc.DOMEvent>>, _, [Space.Slot{Allocation.Tagged{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Fill{0n}}, Space.Rigid{0n}}], 0n, Nat.sub(width, 0n)), 1n, 0n, Nat.sub(width, 0n)), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/render-proof.chart_div_one
+  %Equal.sym(Nat, Pair.fst(Nat, Nat, Nat.divmod.go(Nat.sub(Nat.sub(Nat.sub(width, 0n), 0n), 0n), 0n, 0n, 0n)), Nat.sub(Nat.sub(Nat.sub(width, 0n), 0n), 0n), chart_div_one(Nat.sub(Nat.sub(Nat.sub(width, 0n), 0n), 0n))) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(Nat.sub(Nat.sub(Nat.sub(width, 0n), 0n), 0n), Nat.mul(_, 1n)), 0n)))), Nat.sub(width, 0n))), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(Nat.sub(Nat.sub(Nat.sub(width, 0n), 0n), 0n), Nat.mul(_, 1n)), 0n))))}}], 0n, Nat.sub(width, 0n)), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/allocation-proof.subtract_zero
+  %Equal.sym(Nat, Nat.sub(Nat.sub(Nat.sub(width, 0n), 0n), 0n), Nat.sub(Nat.sub(width, 0n), 0n), AllocationProof.subtract_zero(Nat.sub(Nat.sub(width, 0n), 0n))) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(_, Nat.mul(_, 1n)), 0n)))), Nat.sub(width, 0n))), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(_, Nat.mul(_, 1n)), 0n))))}}], 0n, Nat.sub(width, 0n)), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/allocation-proof.subtract_zero
+  %Equal.sym(Nat, Nat.sub(Nat.sub(width, 0n), 0n), Nat.sub(width, 0n), AllocationProof.subtract_zero(Nat.sub(width, 0n))) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(_, Nat.mul(_, 1n)), 0n)))), Nat.sub(width, 0n))), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(_, Nat.mul(_, 1n)), 0n))))}}], 0n, Nat.sub(width, 0n)), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/allocation-proof.subtract_zero
+  %Equal.sym(Nat, Nat.sub(width, 0n), width, AllocationProof.subtract_zero(width)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(_, Nat.mul(_, 1n)), 0n)))), _)), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{Nat.add(_, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(_, Nat.mul(_, 1n)), 0n))))}}], 0n, _), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/render-proof.chart_mul_one
+  %Equal.sym(Nat, Nat.mul(width, 1n), width, chart_mul_one(width)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(Nat.add(width, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(width, _), 0n)))), width)), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{Nat.add(width, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(Nat.sub(width, _), 0n))))}}], 0n, width), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/render-proof.chart_sub_self
+  %Equal.sym(Nat, Nat.sub(width, width), 0n, chart_sub_self(width)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(Nat.add(width, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(_, 0n)))), width)), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{Nat.add(width, Allocation.dispatch_surplus_extra_1(Cmp.is_eq(Nat.cmp(_, 0n))))}}], 0n, width), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # bendlib/algebra-proof.nat_add_zero
+  %Equal.sym(Nat, Nat.add(width, 0n), width, Alg.nat_add_zero(width)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, Cmp.is_le(Nat.cmp(_, width)), [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{_}}], 0n, width), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/geometry-proof.le_refl
+  %Equal.sym(Bool, Cmp.is_le(Nat.cmp(width, width)), True{}, ProofGeometryProof.le_refl(width)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.dispatch_fit_width_16(Content.Value, Doc.DOMEvent, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, _, [Space.Slot{RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), Space.Rigid{width}}], 0n, width), RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), []), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/geometry-proof.zero_le
+  %Equal.sym(Bool, Cmp.is_le(Nat.cmp(0n, width)), True{}, ProofGeometryProof.zero_le(width)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.finish_width_iteration(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.WidthMinimumChecked{_, RulePhysicalControlRules.chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values), width, 0n, RulePhysicalControlRules.chart_viewport_rule, 0n, Allocation.WidthRootReturn{}}, []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), viewport_key, width, 22n), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/geometry-proof.max_right
+  %Equal.sym(Bool, Cmp.is_le(Nat.cmp(480n, Nat.max(Nat.sub(width, 0n), 480n))), True{}, ProofGeometryProof.max_right(Nat.sub(width, 0n), 480n)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.finish_width_iteration(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.WidthContainerPlan{Allocation.dispatch_prepare_inline_children_11(Content.Value, Doc.DOMEvent, Allocation.dispatch_prepare_slots_9(Model.Tree<Content.Value, Doc.DOMEvent>, Allocation.redistribute_first_first(Model.Tree<Content.Value, Doc.DOMEvent>, Space.feasible_pack(Allocation.Tagged<Model.Tree<Content.Value, Doc.DOMEvent>>, _, [Space.Slot{Allocation.Tagged{Model.Container{canvas_key, canvas, Model.DisplayOnly{}, RulePhysicalControlRules.chart_canvas_rule, [Model.Leaf{axes_key, axes, Model.DisplayOnly{}, RulePhysicalControlRules.chart_glyph_rule, Space.Demand{E.Extent{480n, 240n}, E.Extent{480n, 240n}}, Model.FixedHeight{240n}}, Model.Leaf{values_key, values, Model.DisplayOnly{}, RulePhysicalControlRules.chart_glyph_rule, Space.Demand{E.Extent{480n, 240n}, E.Extent{480n, 240n}}, Model.FixedHeight{240n}}]}, Space.Rigid{480n}}, Space.Rigid{480n}}], 0n, Nat.max(Nat.sub(width, 0n), 480n)), 0n, 0n, Nat.max(Nat.sub(width, 0n), 480n)), viewport_key, Allocation.InlineAxis{}, SpatialModel.Leading{}, Nat.max(Nat.sub(width, 0n), 480n)), Allocation.Horizontal{}), viewport_key, viewport, Model.DisplayOnly{}, RulePhysicalControlRules.chart_viewport_rule, width, 0n, Allocation.WidthRootReturn{}}, []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), viewport_key, width, 22n), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/geometry-proof.max_right
+  %Equal.sym(Bool, Cmp.is_le(Nat.cmp(480n, Nat.max(Nat.sub(width, 0n), 480n))), True{}, ProofGeometryProof.max_right(Nat.sub(width, 0n), 480n)) :
+    {Allocation.dispatch_allocate_22(Content.Value, Doc.DOMEvent, Allocation.finish_width_iteration(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.width_step(Content.Value, Doc.DOMEvent, Allocation.WidthContainerPlan{Allocation.dispatch_prepare_inline_children_11(Content.Value, Doc.DOMEvent, Allocation.dispatch_prepare_slots_9(Model.Tree<Content.Value, Doc.DOMEvent>, Space.feasible_pack(Model.Tree<Content.Value, Doc.DOMEvent>, _, [Space.Slot{Model.Container{canvas_key, canvas, Model.DisplayOnly{}, RulePhysicalControlRules.chart_canvas_rule, [Model.Leaf{axes_key, axes, Model.DisplayOnly{}, RulePhysicalControlRules.chart_glyph_rule, Space.Demand{E.Extent{480n, 240n}, E.Extent{480n, 240n}}, Model.FixedHeight{240n}}, Model.Leaf{values_key, values, Model.DisplayOnly{}, RulePhysicalControlRules.chart_glyph_rule, Space.Demand{E.Extent{480n, 240n}, E.Extent{480n, 240n}}, Model.FixedHeight{240n}}]}, Space.Rigid{480n}}], 0n, Nat.max(Nat.sub(width, 0n), 480n)), viewport_key, Allocation.InlineAxis{}, SpatialModel.Leading{}, Nat.max(Nat.sub(width, 0n), 480n)), Allocation.Horizontal{}), viewport_key, viewport, Model.DisplayOnly{}, RulePhysicalControlRules.chart_viewport_rule, width, 0n, Allocation.WidthRootReturn{}}, []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), []), viewport_key, width, 22n), SpatialModel.Box{0n, 0n, width, 240n}) == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  # browser/layout/allocation-proof.subtract_zero
+  %Equal.sym(Nat, Nat.sub(width, 0n), width, AllocationProof.subtract_zero(width)) :
+    {Allocation.Allocated{Allocation.AllocatedContainer{viewport_key, viewport, Model.DisplayOnly{}, RulePhysicalControlRules.chart_viewport_rule, SpatialModel.Box{0n, 0n, width, 240n}, E.Extent{Nat.max(_, 480n), 240n}, Allocation.Horizontal{}, [Allocation.AllocatedContainer{canvas_key, canvas, Model.DisplayOnly{}, RulePhysicalControlRules.chart_canvas_rule, SpatialModel.Box{0n, 0n, 480n, 240n}, E.Extent{480n, 240n}, Allocation.Layered{}, [Allocation.AllocatedLeaf{axes_key, axes, Model.DisplayOnly{}, RulePhysicalControlRules.chart_glyph_rule, Space.Demand{E.Extent{480n, 240n}, E.Extent{480n, 240n}}, Model.FixedHeight{240n}, SpatialModel.Box{0n, 0n, 480n, 240n}, E.Extent{480n, 240n}}, Allocation.AllocatedLeaf{values_key, values, Model.DisplayOnly{}, RulePhysicalControlRules.chart_glyph_rule, Space.Demand{E.Extent{480n, 240n}, E.Extent{480n, 240n}}, Model.FixedHeight{240n}, SpatialModel.Box{0n, 0n, 480n, 240n}, E.Extent{480n, 240n}}]}]}} == Allocation.Allocated{RulePhysicalControlRules.allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}
+  {==}

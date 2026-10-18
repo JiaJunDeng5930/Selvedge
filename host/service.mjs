@@ -114,6 +114,7 @@ export class Service extends EventEmitter {
   }
 
   notify(event) {
+    event = { ...event, namespace: this.journal.namespace };
     this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
     for (const observer of this.listeners('notice')) {
       try { observer(event); } catch { /* An observer cannot roll back a commit. */ }
@@ -504,16 +505,16 @@ export class Service extends EventEmitter {
   browserSnapshot() {
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    return { sequence: this.journal.sequence, program: this.journal.program };
+    return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.journal.program };
   }
 
   browserStreams() {
-    return structuredClone(this.#streams);
+    return structuredClone(this.#streams).map(stream => ({ ...stream, namespace: this.journal.namespace }));
   }
 
   async browserCommand(command) {
     const result = await this.command(command);
-    return { sequence: result.sequence, program: result.program, reply: result.reply };
+    return { namespace: this.journal.namespace, sequence: result.sequence, program: result.program, reply: result.reply };
   }
 
   async browserObservation(observation) {
@@ -521,7 +522,7 @@ export class Service extends EventEmitter {
     if (this.#closing) throw new Error('Service is stopping');
     if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
     if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
-      return { kind: 'streams', streams: this.browserStreams() };
+      return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
     }
     if (observation.kind === 'workspace-git' && Object.keys(observation).length === 2 && typeof observation.primary === 'string') {
       const primary = observation.primary === '' ? this.cwd : observation.primary;

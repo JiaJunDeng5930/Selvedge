@@ -1,13 +1,22 @@
 import ../appearance/DESIGN.bend as Design
+import ../../interaction/conversation/OUTPUT.bend as Live
 import ../controls/NAVIGATION.bend as Navigation
 import ../../interaction/experience/MODEL.bend as UXTypes
 import Base
+import ../model-rules.bend as WebRules
+import ../../interaction/IDENTITY.bend as UIIdentity
+import ../../interaction/interactive_markdown/TYPES.bend as IM
+import ../../interaction/interactive_markdown/SCENE.bend as IMScene
+import ../../interaction/interactive_markdown/SYNTAX.bend as IMSyntax
+import ../../interaction/STATE.bend as ProductState
 import ../layout/ADAPTATION.bend as Adaptation
 import ../layout/natural-size.bend as NaturalSize
 import ../../bendlib/categories.bend as Categories
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/GEOMETRY.bend as AnchorGeometry
 import ../focus/MODEL.bend as Focus
+import ../focus/CONTRACT.bend as FocusRules
+import ../controls/GEOMETRY.bend as NativeGeometry
 import ./native-fields.bend as Native
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../document/FRAME.bend as SourceFrame
@@ -34,6 +43,8 @@ import ../../interaction/submission/MODEL.bend as Receipt
 import ../document/SOURCE.bend as Source
 import ../controls/CONTROLS.bend as Controls
 import ../../interaction/submission/FIELDS.bend as Forms
+import ../../interaction/submission/field-options.bend as FieldOptions
+import ../../interaction/services/CONTEXT.bend as Context
 import ../../interaction/services/MODEL.bend as Services
 import ./request.bend as Request
 import ../../interaction/MODEL.bend as Product
@@ -48,6 +59,7 @@ import ../CONTRACT.bend as Interaction
 import ../../interaction/presentation/CONTRACT.bend as Rules_interface_program_rules
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../document/render-contract.bend as FrameRules
+import ../document/SPEC.bend as FrameSpec
 import ../editor/MODEL.bend as Editor
 import ../../harness/features/MODEL.bend as F2
 import ../controls/PROGRAM.bend as Controls2
@@ -87,11 +99,89 @@ def transaction_claim(+record: Native.Record) -> Type:
   Native.Record{identity, canonical, session} = record
   {Native.step(Native.InputStarted{}, record) == Native.Decision{Native.Record{identity, canonical, Native.Idle{}}, False{}, False{}} : Native.Decision}
 
+def required_scalar_value(value: J.Json) -> String:
+  match value:
+    case J.Text{text}: text
+    case J.Number{text}: text
+    case J.Boolean{value}: Bool.show(value)
+    case _: ""
+
+def required_local_value(+tag: String, raw: String, canonical: J.Json) -> String:
+  Bool.pick(String, (String.eq(tag, "slider") || String.eq(tag, "select")) || String.eq(tag, "checkbox"),
+    required_scalar_value(canonical), raw)
+
+def required_origin_value(origin: Context.Origin) -> String:
+  match origin:
+    case Context.EnvironmentDefaults{}: "environment"
+    case Context.ProjectDefaults{project}: "project/" ++ Nat.show(project)
+    case Context.ParentTask{task}: "parent/" ++ Nat.show(task)
+    case Context.ProjectForParent{task, project}: "project-for-parent/" ++ Nat.show(task) ++ "/" ++ Nat.show(project)
+
+def required_workspace_primary(workspace: Context.WorkspaceValue) -> String:
+  match workspace:
+    case Context.InheritedWorkspace{D.Workspace{roots, primary}}: FieldOptions.optional_text(primary)
+    case Context.EnteredWorkspace{D.Workspace{roots, primary}}: FieldOptions.optional_text(primary)
+
+def required_network_value(sandbox: Context.SandboxValue) -> String:
+  match sandbox:
+    case Context.InheritedSandbox{D.Sandbox{mode, network}}: FieldOptions.boolean(network)
+    case Context.ChosenSandbox{D.Sandbox{mode, network}}: FieldOptions.boolean(network)
+
+def required_context_value(field: Forms.Field, origin: Context.Origin, workspace: Context.WorkspaceValue,
+  sandbox: Context.SandboxValue, approval: Context.ApprovalValue) -> String:
+  match field:
+    case Forms.ContextOrigin{}: required_origin_value(origin)
+    case Forms.WorkspaceDirectories{}: FieldOptions.workspace_text(workspace)
+    case Forms.WorkspacePrimary{}: required_workspace_primary(workspace)
+    case Forms.SandboxMode{}: FieldOptions.sandbox_text(sandbox)
+    case Forms.NetworkAccess{}: required_network_value(sandbox)
+    case Forms.ApprovalPolicy{}: Context.approval_option(Context.observed_approval(approval))
+    case Forms.ApprovalReviewer{}: Context.approval_option(Context.observed_approval(approval))
+    case _: ""
+
+def required_workspace_value(field: Forms.Field, roots: +List<String>, primary: Maybe<&2, String>) -> String:
+  match field:
+    case Forms.WorkspacePrimary{}: FieldOptions.optional_text(primary)
+    case _: FieldOptions.joined(roots)
+
+def required_model_value(field: Forms.Field, profile: String, reasoning: String) -> String:
+  match field:
+    case Forms.ReasoningEffort{}: reasoning
+    case _: profile
+
+def required_edit_value(field: Forms.Field, value: Forms.Observed) -> String:
+  match value:
+    case Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}:
+      required_context_value(field, origin, workspace, sandbox, approval)
+    case Forms.WorkspaceValue{D.Workspace{roots, primary}}: required_workspace_value(field, roots, primary)
+    case Forms.ModelValue{profile, reasoning}: required_model_value(field, profile, reasoning)
+    case other: FieldOptions.observed(other)
+
+def required_native_value(meaning: SurfaceTypes.Meaning) -> String:
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, IM.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: required_local_value(tag, raw, canonical)
+    case SurfaceTypes.Edit{editor, field, entry, value, choices}: required_edit_value(field, value)
+    case SurfaceTypes.BoardSearch{B.Filter{view, search, status, priority, date, assignee, creator, project, label}}: search
+    case SurfaceTypes.SearchChoices{query}: query
+    case SurfaceTypes.EnterDirectory{editor, text}: text
+    case SurfaceTypes.DirectoryBrowserLocation{value}: value
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: selected
+    case _: ""
+
+def required_checked(meaning: SurfaceTypes.Meaning) -> Bool:
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, IM.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: J.boolean(canonical)
+    case SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{D.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
+    case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.ChosenSandbox{D.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
+    case _: False{}
+
 def checkbox_claim(+key: String, +semantic: String, +meaning: SurfaceTypes.Meaning) -> Type:
-  {Native.projected(key, Source.ToggleField{}, semantic, meaning) == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetChecked{key, Controls.field_checked(meaning)}] : +List<Native.Update>}
+  {Native.projected(key, Source.ToggleField{}, semantic, meaning) == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetChecked{key, required_checked(meaning)}] : +List<Native.Update>}
 
 def text_claim(+key: String, +semantic: String, +meaning: SurfaceTypes.Meaning) -> Type:
-  {Native.projected(key, Source.TextField{}, semantic, meaning) == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetValue{key, Controls.node_value(meaning)}] : +List<Native.Update>}
+  {Native.projected(key, Source.TextField{}, semantic, meaning) == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetValue{key, required_native_value(meaning)}] : +List<Native.Update>}
 
 def editor_owner_claim(+editor: U.Editor, +other: U.Editor, +field: Forms.Field, +entry: Forms.Entry, +value: Forms.Observed, +choices: +List<Forms.ChoiceValue>, +new_field: Forms.Field, +new_entry: Forms.Entry, +new_value: Forms.Observed, +new_choices: +List<Forms.ChoiceValue>) -> Type:
   {Native.same_meaning(SurfaceTypes.Edit{editor, field, entry, value, choices}, SurfaceTypes.Edit{other, new_field, new_entry, new_value, new_choices}) == U.same_editor(editor, other) : Bool}
@@ -111,6 +201,26 @@ def rebind_composing_claim() -> Type:
 def rebind_idle_claim() -> Type:
   {Native.rebind_session(Native.Idle{}) == Native.SupersededTail{} : Native.Session}
 
+def required_rejected_session(session: Native.Session) -> Native.Session:
+  match session:
+    case Native.Idle{}: Native.Idle{}
+    case Native.Composing{}: Native.SupersededComposing{}
+    case Native.SupersededComposing{}: Native.SupersededComposing{}
+    case Native.SupersededTail{}: Native.SupersededTail{}
+
+def rejected_buffer_claim(+value: String, +record: Native.Record) -> Type:
+  Native.Record{identity, canonical, session} = record
+  {Native.step(Native.Reject{value}, record) ==
+    Native.Decision{Native.Record{identity, Some{value}, required_rejected_session(session)}, False{}, True{}} : Native.Decision}
+
+def rejected_equal_buffer_claim(+identity: Maybe<&2, Native.Identity>, +value: String, +session: Native.Session) -> Type:
+  {Native.step(Native.Reject{value}, Native.Record{identity, Some{value}, session}) ==
+    Native.Decision{Native.Record{identity, Some{value}, required_rejected_session(session)}, False{}, True{}} : Native.Decision}
+
+def rejected_composing_buffer_claim(+identity: Maybe<&2, Native.Identity>, +old: Maybe<&2, String>, +value: String) -> Type:
+  {Native.step(Native.Reject{value}, Native.Record{identity, old, Native.Composing{}}) ==
+    Native.Decision{Native.Record{identity, Some{value}, Native.SupersededComposing{}}, False{}, True{}} : Native.Decision}
+
 type NativeFieldsRequirements is Type:
   NativeFieldsRequirements{
     unbound: @+identity:Native.Identity -> @+canonical:Maybe<&2, String> -> @+session:Native.Session -> unbound_claim(identity, canonical, session),
@@ -127,6 +237,9 @@ type NativeFieldsRequirements is Type:
       {Native.owned_node(binding, Some{node}) == True{} : Bool} -> matching_claim(binding, node),
     changed_composing: @+identity:Maybe<&2, Native.Identity> -> @+old:Maybe<&2, String> -> @+value:String ->
       {Native.canonical_same(old, value) == False{} : Bool} -> changed_composing_claim(identity, old, value),
+    rejected_buffer: @+value:String -> @+record:Native.Record -> rejected_buffer_claim(value, record),
+    rejected_equal_buffer: @+identity:Maybe<&2, Native.Identity> -> @+value:String -> @+session:Native.Session -> rejected_equal_buffer_claim(identity, value, session),
+    rejected_composing_buffer: @+identity:Maybe<&2, Native.Identity> -> @+old:Maybe<&2, String> -> @+value:String -> rejected_composing_buffer_claim(identity, old, value),
     superseded_end: @+identity:Maybe<&2, Native.Identity> -> @+canonical:Maybe<&2, String> -> superseded_end_claim(identity, canonical),
     superseded_tail: @+identity:Maybe<&2, Native.Identity> -> @+canonical:Maybe<&2, String> -> superseded_tail_claim(identity, canonical),
     superseded_input: @+identity:Maybe<&2, Native.Identity> -> @+canonical:Maybe<&2, String> -> superseded_input_claim(identity, canonical),
@@ -165,9 +278,9 @@ law update_owner:
 
 def field_projection(kind: Source.NativeFieldKind, key: String, semantic: String, meaning: SurfaceTypes.Meaning, actual: +List<Native.Update>) -> Type:
   match kind:
-    case Source.ToggleField{}: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetChecked{key, Controls.field_checked(meaning)}] : +List<Native.Update>}
+    case Source.ToggleField{}: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetChecked{key, required_checked(meaning)}] : +List<Native.Update>}
     case Source.FileField{multiple}: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}] : +List<Native.Update>}
-    case _: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetValue{key, Controls.node_value(meaning)}] : +List<Native.Update>}
+    case _: {actual == [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetValue{key, required_native_value(meaning)}] : +List<Native.Update>}
 
 law all_field_projections:
   for +kind: Source.NativeFieldKind
@@ -374,16 +487,51 @@ law render_violations_realized:
   for +frame: Rendered.Frame
   {Browser.render_violations(Browser.with_legacy(Legacy.with_web(Web.with_realization(Rendered.Realized{observed_generation, frame}, Legacy.web(Browser.legacy(model_state))), Browser.legacy(model_state)), model_state)) == Nil{} : +List<Rendered.Violation>}
 
+def required_source_state(state: Browser.State) -> Browser.State:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{+latest, active, published, semantic_latest}} = state
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{(latest + 1n : Nat), active, published, (latest + 1n : Nat)}}
+
+def required_presentation_state(state: Browser.State) -> Browser.State:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{latest, active, published, semantic_latest}} = state
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{(latest + 1n : Nat), active, published, semantic_latest}}
+
+def required_semantic_pending(state: Browser.State) -> Bool:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{latest, active, published, semantic_latest}} = state
+  Nat.is_lt(published, semantic_latest)
+
+def required_active_semantic_pending(state: Browser.State) -> Bool:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{latest, active, published, semantic_latest}} = state
+  Nat.is_lt(active, semantic_latest)
+
+def required_source_update(lifecycle: Browser.Lifecycle, first: +List<Legacy.Effect>, state: Browser.State) -> Browser.Decision:
+  match lifecycle:
+    case Browser.Measuring{index, capacity, engine, semantic, round}: Browser.Decision{state, first}
+    case _: Browser.append(first, Browser.build(0n, state))
+
 def rebuilt_frame_decision_claim(+first: +List<Legacy.Effect>, +state: Browser.State) -> Type:
-  {Browser.accepted(True{}, first, state) == Browser.append(first, Browser.build(0n, state)) : Browser.Decision}
+  {Browser.accepted(True{}, first, state) == required_source_update(Browser.lifecycle(state), first, required_source_state(state)) : Browser.Decision}
+
+def required_dismissal(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key,
+  fallback: Maybe<&2, Legacy.DismissTarget>) -> Maybe<&2, Legacy.DismissTarget>:
+  match meaning:
+    case SurfaceTypes.LayerRegion{input, outside, escape}: Some{Legacy.DismissTarget{UIIdentity.encode(key), input, outside, escape}}
+    case SurfaceTypes.ActivityGroup{activity, input, outside, escape}: Some{Legacy.DismissTarget{UIIdentity.encode(key), input, outside, escape}}
+    case _: fallback
+
+def required_dismiss_target(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, Legacy.DismissTarget>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}:
+      required_dismissal(meaning, key,
+        Maybe.or(&2, Legacy.DismissTarget, required_dismiss_target(children), required_dismiss_target(rest)))
 
 def inspection_frame_expected(frame: Maybe<&2, Rendered.Frame>, +active: +List<SurfaceTypes.Node>, +layer: Maybe<&2, String>, +dismiss: Maybe<&2, Legacy.DismissTarget>) -> Browser.RenderInspection:
   match frame:
     case None{}: Browser.RenderInspection{None{}, None{}, None{}, layer, dismiss}
     case Some{+observed}:
       Rendered.Frame{viewport, elements, focused, tabs, native_focus} = observed
-      Browser.RenderInspection{Some{observed}, Some{Rendered.expected_tabs(active, elements, native_focus)},
-        Some{Rendered.native_valid(native_focus, active, elements)}, layer, dismiss}
+      Browser.RenderInspection{Some{observed}, Some{FrameSpec.expected_tabs(active, elements, native_focus)},
+        Some{FrameSpec.native_valid(native_focus, active, elements)}, layer, dismiss}
 
 def inspection_frame(realization: Rendered.State) -> Maybe<&2, Rendered.Frame>:
   match realization:
@@ -395,21 +543,79 @@ def inspection_display_expected(+frame: Maybe<&2, Rendered.Frame>, +layer: Maybe
   match displayed:
     case None{}: Browser.RenderInspection{frame, None{}, None{}, layer, None{}}
     case Some{Browser.Published{world, semantic, scope, basis, published_frame}}:
-      +active = InterfaceView.active_nodes(semantic)
-      +dismiss = Legacy.dismiss_target(active)
+      +active = FocusRules.required_active_nodes(semantic)
+      +dismiss = required_dismiss_target(active)
       inspection_frame_expected(frame, active, layer, dismiss)
+
+# Foreground services shield the underlying interaction. Detail panels do not.
+def required_layer_owner(layers: +List<View.Layer>, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match layers:
+    case Nil{}: fallback
+    case Con{View.Layer{View.ModalDialog{}, content, initial, restore, dismissal}, rest}:
+      Some{UIIdentity.encode(UIIdentity.Entity{UIIdentity.Place{"/layers"}, "layer", initial})}
+    case Con{View.Layer{View.AnchoredMenu{}, content, initial, restore, dismissal}, rest}:
+      Some{UIIdentity.encode(UIIdentity.Entity{UIIdentity.Place{"/layers"}, "layer", initial})}
+    case Con{other, rest}: required_layer_owner(rest, fallback)
+
+def required_navigation_owner(arrangement: View.Arrangement) -> Maybe<&2, String>:
+  match arrangement:
+    case View.Arrangement{View.ModalNavigation{}}: Some{UIIdentity.encode(UIIdentity.Place{"/navigation"})}
+    case _: None{}
+
+def required_settings_owner(open: Bool, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match open:
+    case True{}: Some{UIIdentity.encode(UIIdentity.Place{"/layers/settings"})}
+    case False{}: fallback
+
+def required_directory_owner(picker: Services.DirectoryPicker, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match picker:
+    case Services.NoDirectoryPicker{}: fallback
+    case _: Some{UIIdentity.encode(UIIdentity.Place{"/layers/directory-picker"})}
+
+def required_preview_owner(preview: Services.Preview, fallback: Maybe<&2, String>) -> Maybe<&2, String>:
+  match preview:
+    case Services.NoPreview{}: fallback
+    case _: Some{UIIdentity.encode(UIIdentity.Place{"/layers/attachment-preview"})}
+
+def required_foreground_owner(scene: InteractionTypes.Scene) -> Maybe<&2, String>:
+  InteractionTypes.Scene{View.Scene{nav, main, layers, arrangement, attention}, InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect_action}, transfers, preview, code, picker} = scene
+  required_preview_owner(preview, required_directory_owner(picker,
+    required_settings_owner(open, required_layer_owner(layers, required_navigation_owner(arrangement)))))
+
+def surface_owner(surface: SurfaceTypes.Surface) -> Maybe<&2, String>:
+  SurfaceTypes.Surface{content, base, overlays, scope} = surface
+  scope
+
+law assembled_foreground_owner:
+  for +full: Bool
+  for +scene: InteractionTypes.Scene
+  for +state: InteractionTypes.State
+  {surface_owner(InterfaceView.assemble(full, scene, state)) == required_foreground_owner(scene) : Maybe<&2, String>}
+
+law scene_foreground_owner:
+  for +scene: InteractionTypes.Scene
+  for state: InteractionTypes.State
+  {InterfaceView.assembled_scope(scene, state) == required_foreground_owner(scene) : Maybe<&2, String>}
+
+def required_current_layer_key(+stored: Legacy.State) -> Maybe<&2, String>:
+  +application = Web.application(Legacy.web(stored))
+  required_foreground_owner(ProductState.observe(Web.capacity(Platform.platform(application)), Platform.core(application)))
+
+law current_foreground_owner:
+  for +stored: Legacy.State
+  {Legacy.current_layer_key(stored) == required_current_layer_key(stored) : Maybe<&2, String>}
 
 def inspection_expected(+stored: Legacy.State, displayed: Maybe<&2, Browser.Published>) -> Browser.RenderInspection:
   +observed_web_1 = Legacy.web(stored)
   +realization = Web.realization(observed_web_1)
-  +layer = Legacy.current_layer_key(stored)
+  +layer = required_current_layer_key(stored)
   inspection_display_expected(inspection_frame(realization), layer, displayed)
 
 def inspection_utility_expected(displayed: Maybe<&2, Browser.Published>) -> Browser.RenderInspection:
   match displayed:
     case None{}: Browser.RenderInspection{None{}, None{}, None{}, None{}, None{}}
     case Some{Browser.Published{+world, semantic, scope, basis, frame}}:
-      Browser.RenderInspection{frame, Some{SourceFrame.tabs(SourceFrame.expected(world))}, Some{SourceFrame.no_native(world)}, None{}, None{}}
+      Browser.RenderInspection{frame, Some{FrameSpec.allocated_tabs(FrameSpec.allocated_expected(world))}, Some{FrameSpec.allocated_no_native(world)}, None{}, None{}}
 
 def inspection_owned_expected(utility: Bool, +stored: Legacy.State, displayed: Maybe<&2, Browser.Published>) -> Browser.RenderInspection:
   match utility:
@@ -559,8 +765,6 @@ type BrowserReceiptRequirements is Type:
       {Legacy.completion_receipt(E.DraftCompletion{draft}, receipt, decision) == decision : Legacy.Decision},
     unknown: @ticket:Nat -> @reason:String -> @+state:Legacy.State ->
       {Legacy.decision_receipt(Legacy.failed_completion(ticket, reason, state)) == Legacy.operation_receipt(state) : Maybe<&2, Receipt.Receipt>},
-    duplicate: @command:J.Json -> @completion:E.Completion -> @origin:String -> @+state:Legacy.State ->
-      {Legacy.request_ready(True{}, command, completion, origin, state) == Legacy.Decision{state, Nil{}} : Legacy.Decision},
     accepted: @command:J.Json -> @completion:E.Completion -> @origin:String -> @state:Legacy.State ->
       {Legacy.decision_receipt(Legacy.request_ready(False{}, command, completion, origin, state)) == None{} : Maybe<&2, Receipt.Receipt>}}
 
@@ -769,9 +973,10 @@ def pending_lifecycle(lifecycle: Browser.Lifecycle) -> Bool:
     case Browser.UtilityMeasuring{purpose, engine, round, glyph_only}: True{}
     case other: False{}
 
-def publication_pending(+state: Browser.State) -> Bool:
+def publication_pending(+last_published: Nat, +state: Browser.State) -> Bool:
   +lifecycle = Browser.lifecycle(state)
-  pending_lifecycle(lifecycle)
+  pending_lifecycle(lifecycle) && Browser.display_ready(state) &&
+    Nat.is_eq(Browser.displayed_generation(state), last_published)
 
 def blocked_publication_claim_at(+model_state: Browser.State, +capacity: Nat, +last_published: Nat, +problem: String) -> Type:
   {Browser.publication(capacity, last_published, Browser.with_lifecycle(Browser.Blocked{problem}, model_state)) ==
@@ -798,7 +1003,7 @@ type Requirements is Type:
     anchor_preserves_program: @+key:String -> @+left:AnchorGeometry.Origin -> @+top:AnchorGeometry.Origin -> @+width:Nat -> @+height:Nat -> @+state:Browser.State -> anchor_preserves_program_claim(key, left, top, width, height, state),
     publication_preserves_pending_at: @+capacity:Nat -> @+last_published:Nat -> @+state:Browser.State ->
       {Bool.not(Nat.is_eq(last_published, 0n)) == True{} : Bool} ->
-      {publication_pending(state) == True{} : Bool} -> publication_preserves_pending_claim_at(capacity, last_published, state),
+      {publication_pending(last_published, state) == True{} : Bool} -> publication_preserves_pending_claim_at(capacity, last_published, state),
     blocked_publication_at: @+model_state:Browser.State ->  @+capacity:Nat -> @+last_published:Nat -> @+problem:String -> blocked_publication_claim_at(Browser.with_lifecycle(Browser.Blocked{problem}, model_state), capacity, last_published, problem),
     publication_current_at: @+capacity:Nat -> @+last_published:Nat -> @+state:Browser.State ->
       {Bool.not(Nat.is_eq(last_published, 0n)) == True{} : Bool} ->
@@ -904,6 +1109,20 @@ law retained_frame_decision:
   for +first: +List<Legacy.Effect>
   for +state: Browser.State
   retained_frame_decision_claim(first, state)
+
+def observed_accept_expected(+next: Legacy.State, +first: +List<Legacy.Effect>, state: Browser.State) -> Browser.Decision:
+  match state:
+    case Browser.State{previous, +serial, +anchors, +lifecycle, +displayed, +attention, +updates}:
+      Browser.Decision{Browser.State{next, serial, anchors, lifecycle, displayed, attention, updates},
+        List.append(&2, Legacy.Effect, first,
+          pending_frame_effects_expected(Browser.State{next, serial, anchors, lifecycle, displayed, attention, updates}))}
+
+law non_rebuild_preserves_observed_decision:
+  for +next: Legacy.State
+  for +first: +List<Legacy.Effect>
+  for +state: Browser.State
+  {Browser.accept(False{}, Legacy.Decision{next, first}, state) ==
+    observed_accept_expected(next, first, state) : Browser.Decision}
 
 law evidence:
   Requirements
@@ -1057,7 +1276,7 @@ def fresh_attention_phase(phase: Browser.Lifecycle, +state: Browser.State) -> Ty
     case Browser.Displaying{capacity, engine, semantic}:
       {Browser.attention_refresh(state) == Browser.build(0n, state) : Browser.Decision}
     case Browser.Measuring{index, capacity, engine, semantic, round}:
-      {Browser.attention_refresh(state) == Browser.build(0n, state) : Browser.Decision}
+      {Browser.attention_refresh(state) == Browser.Decision{state, Nil{}} : Browser.Decision}
     case _:
       {Browser.attention_refresh(state) == Browser.Decision{state, Nil{}} : Browser.Decision}
 
@@ -1093,3 +1312,771 @@ law missing_activity_calibration_waits:
 law actual_activity_calibration:
   @+physical_capacity:Nat -> @body:T.Metric -> @primary:T.Metric -> @support:T.Metric -> @+index:Nat -> @+state:Browser.State ->
   {Browser.calibrated_activity_metrics_at(physical_capacity, body, Some{F.ActivityMetrics{primary, support}}, index, state) == Browser.calibrated_parameters_at(physical_capacity, Design.parameters(physical_capacity, F.scale(Browser.current_font(Browser.legacy(state))), body, primary, support), index, state) : Browser.Search}
+
+
+def required_freeze_state(state: Browser.State) -> Browser.State:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{+latest, active, published, semantic_latest}} = state
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{latest, latest, published, semantic_latest}}
+
+def required_publish_state(state: Browser.State) -> Browser.State:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{latest, +active, published, semantic_latest}} = state
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{latest, active, active, semantic_latest}}
+
+law frozen_candidate_captures_latest_update:
+  for +state: Browser.State
+  {Browser.freeze_update(state) == required_freeze_state(state) : Browser.State}
+
+law admitted_candidate_marks_active_update:
+  for +state: Browser.State
+  {Browser.publish_update(state) == required_publish_state(state) : Browser.State}
+
+law completed_display_remains_ready_while_measuring:
+  for +state: Browser.State
+  for +published: Browser.Published
+  for +index: Nat
+  for +capacity: View.Capacity
+  for +engine: World.Engine
+  for +semantic: SurfaceTypes.Surface
+  for +round: Nat
+  {Browser.display_ready(Browser.with_displayed(Some{published}, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, state))) == True{} : Bool}
+
+law remeasurement_retains_active_candidate:
+  for +state: Browser.State
+  for +index: Nat
+  for +capacity: View.Capacity
+  for +engine: World.Engine
+  for +semantic: SurfaceTypes.Surface
+  for +round: Nat
+  {Browser.remeasure(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, state)) ==
+    Browser.Decision{Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, state), Nil{}} : Browser.Decision}
+
+def required_invalidated_state(state: Browser.State) -> Browser.State:
+  Browser.State{legacy, generation, anchors, lifecycle, displayed, attention, updates} = state
+  Browser.State{legacy, generation, anchors, Browser.WaitingEnvironment{}, None{}, attention, updates}
+
+law invalidation_discards_active_and_displayed:
+  for +state: Browser.State
+  {Browser.invalidate_display(state) == required_invalidated_state(state) : Browser.State}
+
+# Refresh transactions interpret product, focus and physical-commit meanings.
+# Their IO is delivered in order; no accepted command is silently discarded.
+def refresh_session(stored: Legacy.State) -> E.Session:
+  E.session(ProductState.application(Platform.core(Web.application(Legacy.web(stored)))))
+
+def refresh_namespace(state: Browser.State) -> String:
+  E.namespace(refresh_session(Browser.legacy(state)))
+
+def refresh_stored_access(stored: Legacy.State) -> Services.Access:
+  Services.access(ProductState.services(Platform.core(Web.application(Legacy.web(stored)))))
+
+def refresh_access(state: Browser.State) -> Services.Access:
+  refresh_stored_access(Browser.legacy(state))
+
+def refresh_allowed(state: Browser.State) -> Bool:
+  E.interactive_allowed(refresh_session(Browser.legacy(state)))
+
+def connecting_ticket(access: Services.Access, ticket: Nat) -> Bool:
+  match access:
+    case Services.Connecting{expected}: Nat.is_eq(expected, ticket)
+    case _: False{}
+
+def authentication_owner(namespace: String, ticket: Nat, +state: Browser.State) -> Bool:
+  String.eq(namespace, refresh_namespace(state)) && connecting_ticket(refresh_access(state), ticket)
+
+def failure_owner(+namespace: String, sequence: Nat,+connection: Nat,  authentication: Maybe<&2, Nat>, +state: Browser.State) -> Bool:
+  match authentication:
+    case None{}: String.eq(namespace, refresh_namespace(state)) && (Nat.is_eq(sequence, Legacy.sequence(Browser.legacy(state))) && Services.live_connection(refresh_access(state), connection))
+    case Some{ticket}: authentication_owner(namespace, ticket, state)
+
+def failure_sequence(authentication: Maybe<&2, Nat>, sequence: Nat, state: Browser.State) -> Nat:
+  match authentication:
+    case None{}: sequence
+    case Some{ticket}: Legacy.sequence(Browser.legacy(state))
+
+def refresh_command_matches(+wire: J.Json, entry: Legacy.Pending) -> Bool:
+  Legacy.Pending{ticket, completion, command, origin, status} = entry
+  J.same(command, wire)
+
+def refresh_command_present(+wire: J.Json, pending: +List<Legacy.Pending>) -> Bool:
+  match pending:
+    case Nil{}: False{}
+    case Con{entry, rest}: refresh_command_matches(wire, entry) || refresh_command_present(wire, rest)
+
+def expected_realized_decision(decision: Platform.Decision) -> Platform.Decision:
+  Platform.Decision{InteractionTypes.Decision{+core, +reply, +runtime, +interaction, +services, +durable},
+    Platform.Platform{+readers, +editors, +focused, +ticket, +reduced, +capacity, +scope}, +source} = decision
+  Platform.Decision{InteractionTypes.Decision{core, reply, runtime, interaction, services, durable},
+    Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope},
+    expected_effects(InterfaceView.observe(capacity, core), source)}
+
+def refreshed_platform(input: Product.Input, state: Platform.State) -> Platform.Decision:
+  Platform.State{core, platform} = state
+  expected_realized_decision(Platform.after_core(Product.step(input, core), platform))
+
+def refresh_duplicate_delivered(value: Web.Decision, sequence: Nat, ticket: Nat,
+  pending: +List<Legacy.Pending>, receipt: Maybe<&2, Receipt.Receipt>) -> Legacy.Decision:
+  Web.Decision{web, InteractionTypes.Decision{core, reply, runtime, interaction, services, durable}, effects} = value
+  Legacy.Decision{Legacy.State{web, sequence, ticket, pending, receipt},
+    List.append(&2, Legacy.Effect,
+      List.foldr(~&2, ~Web.Effect, ~(+List<Legacy.Effect>), ~(effect => rest => Legacy.BrowserEffect{effect} <> rest), effects, Nil{}),
+      List.foldr(~&2, ~Services.Effect, ~(+List<Legacy.Effect>), ~(effect => rest => Legacy.Service{effect} <> rest), services, Nil{}))}
+
+# A duplicate wire cannot issue a second command. The second interactive
+# request must nevertheless settle its own captured feedback correlation.
+def refresh_duplicate_request(completion: E.Completion, stored: Legacy.State) -> Legacy.Decision:
+  match completion stored:
+    case E.InteractiveCompletion{owner, path, feedback} Legacy.State{+web, sequence, ticket, pending, receipt}:
+      refresh_duplicate_delivered(WebRules.committed_decision(refreshed_platform(Product.InterfaceInput{
+        InteractionTypes.Interactive{IM.EffectCompleted{owner, path, feedback, False{}, "This command is already pending"}}}, Web.application(web)),
+        (Web.generation(web) + 1n : Nat), Web.environment(web), Web.typography(web)), sequence, ticket, pending, receipt)
+    case _ state: Legacy.Decision{state, Nil{}}
+
+def refresh_command(duplicate: Bool, +wire: J.Json, completion: E.Completion, origin: String, state: Legacy.State) -> Legacy.Decision:
+  match duplicate state:
+    case True{} stored: refresh_duplicate_request(completion, stored)
+    case False{} Legacy.State{web, sequence, +ticket, pending, receipt}:
+      Legacy.Decision{Legacy.State{web, sequence, (ticket + 1n : Nat),
+        List.append(&2, Legacy.Pending, pending, [Legacy.Pending{ticket, completion, wire, origin, Legacy.AwaitingReceipt{}}]), None{}},
+        [Legacy.Command{ticket, wire}]}
+
+def refresh_io(effect: E.Effect, origin: String, +stored: Legacy.State) -> Legacy.Decision:
+  match effect:
+    case E.RequestCommand{command, completion}:
+      +wire = Request.client(Codec.command_json(command))
+      refresh_command(refresh_command_present(wire, Legacy.pending(stored)), wire, completion, origin, stored)
+    case E.InteractiveEffect{effect}: Legacy.Decision{stored, [Legacy.InteractiveEffect{effect}]}
+    case E.ObserveInteractiveMarkdown{document}: Legacy.Decision{stored, [Legacy.ObserveInteractiveMarkdown{document}]}
+    case E.ForgetInteractiveMarkdown{key}: Legacy.Decision{stored, [Legacy.ForgetInteractiveMarkdown{key}]}
+    case E.PersistModelPreference{profile, reasoning}: Legacy.Decision{stored, [Legacy.PersistModelPreference{profile, reasoning}]}
+    case E.ObserveWorkspaceGit{ticket, primary}: Legacy.Decision{stored, [Legacy.WorkspaceGit{ticket, primary}]}
+    case E.ObserveDirectories{ticket, entered}: Legacy.Decision{stored, [Legacy.Directories{ticket, entered}]}
+    case _: Legacy.Decision{stored, Nil{}}
+
+def refresh_append(value: Legacy.Decision, before: +List<Legacy.Effect>) -> Legacy.Decision:
+  Legacy.Decision{stored, after} = value
+  Legacy.Decision{stored, List.append(&2, Legacy.Effect, before, after)}
+
+def refresh_io_step(+origin: String, accumulator: Legacy.Decision, effect: E.Effect) -> Legacy.Decision:
+  Legacy.Decision{stored, previous} = accumulator
+  refresh_append(refresh_io(effect, origin, stored), previous)
+
+def refresh_io_sequence(effects: +List<E.Effect>, +origin: String, initial: Legacy.Decision) -> Legacy.Decision:
+  match effects:
+    case Nil{}: initial
+    case Con{effect, rest}: refresh_io_sequence(rest, origin, refresh_io_step(origin, initial, effect))
+
+def refresh_completed(value: Legacy.Decision, effects: +List<Web.Effect>, services: +List<Services.Effect>) -> Legacy.Decision:
+  Legacy.Decision{next, requests} = value
+  Legacy.Decision{next, List.append(&2, Legacy.Effect,
+    List.foldr(~&2, ~Web.Effect, ~(+List<Legacy.Effect>), ~(effect => rest => Legacy.BrowserEffect{effect} <> rest), effects, Nil{}),
+    List.append(&2, Legacy.Effect, requests,
+      List.foldr(~&2, ~Services.Effect, ~(+List<Legacy.Effect>), ~(effect => rest => Legacy.Service{effect} <> rest), services, Nil{})))}
+
+def refresh_finish(value: Web.Decision, sequence: Nat, ticket: Nat, pending: +List<Legacy.Pending>, receipt: Maybe<&2, Receipt.Receipt>) -> Legacy.Decision:
+  Web.Decision{web, InteractionTypes.Decision{core, reply, runtime, interaction, services, durable}, effects} = value
+  refresh_completed(refresh_io_sequence(interaction, "", Legacy.Decision{Legacy.State{web, sequence, ticket, pending, receipt}, Nil{}}), effects, services)
+
+def product_refresh(input: Product.Input, stored: Legacy.State) -> Legacy.Decision:
+  Legacy.State{+web, sequence, ticket, pending, receipt} = stored
+  refresh_finish(WebRules.committed_decision(refreshed_platform(input, Web.application(web)),
+    (Web.generation(web) + 1n : Nat), Web.environment(web), Web.typography(web)), sequence, ticket, pending, receipt)
+
+def refresh_environment(namespace: String, fresh: Bool, allowed: Bool, value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{+stored, effects} = value
+  refresh_append(product_refresh(Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{
+    namespace, Legacy.sequence(stored), fresh, allowed}}}, stored), effects)
+
+def refresh_stored(value: Legacy.Decision) -> Legacy.State:
+  Legacy.Decision{stored, effects} = value
+  stored
+
+def refresh_effects(value: Legacy.Decision) -> +List<Legacy.Effect>:
+  Legacy.Decision{stored, effects} = value
+  effects
+
+def refresh_sync(value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{+stored, effects} = value
+  +session = refresh_session(stored)
+  +observed = product_refresh(Product.InterfaceInput{InteractionTypes.ApplicationInput{
+    E.InteractiveEnvironmentObserved{E.namespace(session), Legacy.sequence(stored), E.interactive_fresh(session), E.interactive_allowed(session)}}}, stored)
+  refresh_append(product_refresh(Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveSynchronize{}}}, refresh_stored(observed)),
+    List.append(&2, Legacy.Effect, effects, refresh_effects(observed)))
+
+def refresh_reset(changed: Bool, stored: Legacy.State) -> Legacy.State:
+  match changed stored:
+    case False{} value: value
+    case True{} Legacy.State{web, sequence, ticket, pending, receipt}: Legacy.State{web, sequence, ticket, Nil{}, None{}}
+
+def refresh_world(newer: Bool, sequence: Nat, program: M.World(), stored: Legacy.State) -> Legacy.Decision:
+  match newer stored:
+    case False{} value: Legacy.Decision{value, Nil{}}
+    case True{} Legacy.State{web, old_sequence, ticket, pending, receipt}:
+      product_refresh(Product.ProgramObserved{program}, Legacy.State{web, sequence, ticket, pending, receipt})
+
+def reconnect_needed(changed: Bool, access: Services.Access) -> Bool:
+  match access:
+    case Services.ConnectionLost{connection, reason}: True{}
+    case _: changed
+
+def refresh_connect(needed: Bool, value: Legacy.Decision) -> Legacy.Decision:
+  match needed value:
+    case False{} result: result
+    case True{} Legacy.Decision{stored, before}:
+      refresh_append(product_refresh(Product.InterfaceInput{InteractionTypes.ServiceInput{Services.Connect{}}}, stored), before)
+
+def snapshot_transfer(+changed: Bool, namespace: String, +sequence: Nat, program: M.World(), +state: Browser.State) -> Legacy.Decision:
+  +value = refresh_environment(namespace, True{}, True{},
+    refresh_world(changed || Nat.is_lt(Legacy.sequence(Browser.legacy(state)), sequence), sequence, program, refresh_reset(changed, Browser.legacy(state))))
+  refresh_connect(reconnect_needed(changed, refresh_stored_access(refresh_stored(value))), value)
+
+def failed_service(authentication: Maybe<&2, Nat>, +connection: Nat, reason: String) -> Product.Input:
+  match authentication:
+    case None{}: Product.Disconnected{connection, reason}
+    case Some{ticket}: Product.Authenticated{ticket, Fail{reason}}
+
+def failure_transfer(namespace: String, sequence: Nat,+connection: Nat,  reason: String, revoked: Bool, +authentication: Maybe<&2, Nat>, +state: Browser.State) -> Legacy.Decision:
+  +observed = product_refresh(Product.InterfaceInput{InteractionTypes.ApplicationInput{
+    E.InteractiveEnvironmentObserved{namespace, sequence, False{}, Bool.not(revoked) && refresh_allowed(state)}}}, Browser.legacy(state))
+  refresh_append(product_refresh(failed_service(authentication, connection, reason), refresh_stored(observed)), refresh_effects(observed))
+
+def authenticated_transfer(ticket: Nat, value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{stored, first} = value
+  refresh_append(product_refresh(Product.Authenticated{ticket, Done{Unit{}}}, stored), first)
+
+def refresh_invalidated(invalid: Bool, state: Browser.State) -> Browser.State:
+  match invalid state:
+    case False{} retained: retained
+    case True{} Browser.State{legacy, serial, anchors, lifecycle, displayed, attention, updates}:
+      Browser.State{legacy, serial, anchors, Browser.WaitingEnvironment{}, None{}, attention, updates}
+
+def refresh_ready_synced(value: Legacy.Decision, state: Browser.State) -> (Browser.State & +List<Legacy.Effect>):
+  Legacy.Decision{stored, effects} = value
+  Browser.State{old, serial, anchors, lifecycle, displayed, attention, Browser.DisplayUpdates{+latest, active, published, semantic_latest}} = state
+  (Browser.State{stored, serial, anchors, lifecycle, displayed, attention,
+    Browser.DisplayUpdates{(latest + 1n : Nat), active, published, (latest + 1n : Nat)}}, effects)
+
+def refresh_ready(value: Legacy.Decision, state: Browser.State) -> (Browser.State & +List<Legacy.Effect>):
+  refresh_ready_synced(refresh_sync(value), state)
+
+# Layout owns candidate selection. This transaction owns the entire ordered IO
+# prefix. While a frozen measurement is active it must not restart that work.
+def refresh_delivered(value: Browser.Decision) -> +List<Legacy.Effect>:
+  Browser.Decision{state, effects} = value
+  effects
+
+type RefreshPrefix<-prefix: +List<Legacy.Effect>, -actual: Browser.Decision> is Type:
+  RefreshPrefix{suffix: +List<Legacy.Effect>, effects: {refresh_delivered(actual) == List.append(&2, Legacy.Effect, prefix, suffix) : +List<Legacy.Effect>}}
+
+def refresh_delivery_at(+prepared: Browser.State, prefix: +List<Legacy.Effect>, actual: Browser.Decision) -> Type:
+  Browser.State{stored, serial, anchors, lifecycle, displayed, attention, updates} = prepared
+  match lifecycle:
+    case Browser.Measuring{index, capacity, engine, semantic, round}: {actual == Browser.Decision{prepared, prefix} : Browser.Decision}
+    case _: RefreshPrefix<prefix, actual>
+
+def refresh_prepared_delivery(value: Browser.State & +List<Legacy.Effect>, actual: Browser.Decision) -> Type:
+  match value:
+    case (prepared, prefix): refresh_delivery_at(prepared, prefix, actual)
+
+def RefreshDelivery(value: Legacy.Decision, state: Browser.State, actual: Browser.Decision) -> Type:
+  refresh_prepared_delivery(refresh_ready(value, state), actual)
+
+def NetworkFailure(owned: Bool, +namespace: String, +sequence: Nat, +connection: Nat, +reason: String, +revoked: Bool,
+  +authentication: Maybe<&2, Nat>, +state: Browser.State, actual: Browser.Decision) -> Type:
+  match owned:
+    case False{}: {actual == Browser.Decision{state, Nil{}} : Browser.Decision}
+    case True{}:
+      RefreshDelivery(failure_transfer(namespace, failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
+        refresh_invalidated(revoked, state), actual)
+
+def refresh_product_intents(decision: InteractionTypes.Decision) -> +List<M.Effect()> & +List<E.Effect>:
+  InteractionTypes.Decision{core, reply, runtime, interaction, services, durable} = decision
+  (runtime, interaction)
+
+law duplicate_feedback_has_no_business_intents:
+  for +owner: IM.Owner
+  for +path: String
+  for +ticket: Nat
+  for +core: InteractionTypes.State
+  {refresh_product_intents(Product.step(Product.InterfaceInput{InteractionTypes.Interactive{
+    IM.EffectCompleted{owner, path, ticket, False{}, "This command is already pending"}}}, core)) ==
+    (Nil{}, Nil{}) : +List<M.Effect()> & +List<E.Effect>}
+
+law duplicate_command_settles_its_feedback:
+  @+wire:J.Json -> @+completion:E.Completion -> @+origin:String -> @+stored:Legacy.State ->
+  {Legacy.request_ready(True{}, wire, completion, origin, stored) == refresh_duplicate_request(completion, stored) : Legacy.Decision}
+
+law snapshot_recovery_complete:
+  @+changed:Bool -> @namespace:String -> @+sequence:Nat -> @program:M.World() -> @+state:Browser.State ->
+  {Browser.snapshot_result(changed, namespace, sequence, program, state) == snapshot_transfer(changed, namespace, sequence, program, state) : Legacy.Decision}
+
+law scoped_network_failure_complete:
+  @+namespace:String -> @+sequence:Nat -> @+connection:Nat -> @+reason:String -> @+revoked:Bool -> @+authentication:Maybe<&2, Nat> -> @+state:Browser.State ->
+  NetworkFailure(failure_owner(namespace, sequence, connection, authentication, state), namespace, sequence, connection, reason, revoked, authentication, state,
+    Browser.network_failed(namespace, sequence, connection, reason, revoked, authentication, state))
+
+def authenticated_current(stale: Bool, +changed: Bool, namespace: String, sequence: Nat, +program: M.World(), ticket: Nat, +state: Browser.State, actual: Browser.Decision) -> Type:
+  match stale:
+    case True{}: RefreshDelivery(authenticated_transfer(ticket, Legacy.Decision{Browser.legacy(state), Nil{}}), state, actual)
+    case False{}:
+      RefreshDelivery(authenticated_transfer(ticket, snapshot_transfer(changed, namespace, sequence, program, state)),
+        refresh_invalidated(changed || Browser.view_removed(program, state), state), actual)
+
+def authenticated_valid(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +ticket: Nat, +state: Browser.State, actual: Browser.Decision) -> Type:
+  match valid:
+    case False{}: NetworkFailure(authentication_owner(refresh_namespace(state), ticket, state), refresh_namespace(state), Legacy.sequence(Browser.legacy(state)), ticket,
+      "Invalid service data namespace", True{}, Some{ticket}, state, actual)
+    case True{}:
+      +changed = Bool.not(String.eq(refresh_namespace(state), namespace))
+      authenticated_current(Bool.not(changed) && Nat.is_lt(sequence, Legacy.sequence(Browser.legacy(state))), changed, namespace, sequence, program, ticket, state, actual)
+
+def AuthenticatedSnapshot(owned: Bool, +namespace: String, sequence: Nat, program: M.World(), ticket: Nat, state: Browser.State, actual: Browser.Decision) -> Type:
+  match owned:
+    case False{}: {actual == Browser.Decision{state, Nil{}} : Browser.Decision}
+    case True{}: authenticated_valid(Live.valid_namespace(namespace), namespace, sequence, program, ticket, state, actual)
+
+law scoped_authentication_complete:
+  @+expected_namespace:String -> @+namespace:String -> @+sequence:Nat -> @+program:M.World() -> @+ticket:Nat -> @+state:Browser.State ->
+  AuthenticatedSnapshot(authentication_owner(expected_namespace, ticket, state), namespace, sequence, program, ticket, state,
+    Browser.authenticated_snapshot(expected_namespace, namespace, sequence, program, ticket, state))
+
+law atomic_snapshot_rejects_stale:
+  for +expected_namespace: String
+  for +namespace: String
+  for +sequence: Nat
+  for +program: M.World()
+  for +state: Browser.State
+  for valid: {Live.valid_namespace(namespace) == True{} : Bool}
+  for owned: {String.eq(expected_namespace, Browser.current_namespace(state)) == True{} : Bool}
+  for same: {String.eq(Browser.current_namespace(state), namespace) == True{} : Bool}
+  for stale: {Nat.is_le(Legacy.sequence(Browser.legacy(state)), sequence) == False{} : Bool}
+  {Browser.snapshot_environment(expected_namespace, namespace, sequence, program, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law atomic_snapshot_changes_namespace:
+  for +expected_namespace: String
+  for +namespace: String
+  for +sequence: Nat
+  for +program: M.World()
+  for +state: Browser.State
+  for valid: {Live.valid_namespace(namespace) == True{} : Bool}
+  for owned: {String.eq(expected_namespace, Browser.current_namespace(state)) == True{} : Bool}
+  for changed: {String.eq(Browser.current_namespace(state), namespace) == False{} : Bool}
+  RefreshDelivery(snapshot_transfer(True{}, namespace, sequence, program, state), refresh_invalidated(True{}, state),
+    Browser.snapshot_environment(expected_namespace, namespace, sequence, program, state))
+
+
+law foreign_namespace_completion_ignored:
+  for +ticket: Nat
+  for +namespace: String
+  for +sequence: Nat
+  for +program: M.World()
+  for +reply: J.Json
+  for +state: Browser.State
+  for changed: {String.eq(Browser.current_namespace(state), namespace) == False{} : Bool}
+  {Browser.completed_environment(ticket, namespace, sequence, program, reply, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law same_namespace_completion_preserves_environment:
+  for +ticket: Nat
+  for +namespace: String
+  for +sequence: Nat
+  for +program: M.World()
+  for +reply: J.Json
+  for +state: Browser.State
+  for same: {String.eq(Browser.current_namespace(state), namespace) == True{} : Bool}
+  {Browser.completed_environment(ticket, namespace, sequence, program, reply, state) ==
+    Browser.accept(True{}, Legacy.step(Legacy.Completed{ticket, sequence, program, reply}, Browser.legacy(state)),
+      Browser.invalidate_if(Nat.is_le(Legacy.sequence(Browser.legacy(state)), sequence) && Browser.view_removed(program, state), state)) : Browser.Decision}
+
+
+law namespace_switch_clears_previous_requests:
+  for +web: Web.State
+  for +sequence: Nat
+  for +next: Nat
+  for pending: +List<Legacy.Pending>
+  for receipt: Maybe<&2, Receipt.Receipt>
+  {Legacy.namespace_reset(True{}, Legacy.State{web, sequence, next, pending, receipt}) ==
+    Legacy.State{web, sequence, next, Nil{}, None{}} : Legacy.State}
+
+law same_namespace_retains_requests:
+  for +state: Legacy.State
+  {Legacy.namespace_reset(False{}, state) == state : Legacy.State}
+
+
+law foreign_snapshot_request_ignored:
+  for +expected_namespace: String
+  for +namespace: String
+  for +sequence: Nat
+  for +program: M.World()
+  for +state: Browser.State
+  for foreign: {String.eq(expected_namespace, Browser.current_namespace(state)) == False{} : Bool}
+  {Browser.snapshot_environment(expected_namespace, namespace, sequence, program, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law foreign_transport_environment_ignored:
+  for +namespace: String
+  for +sequence: Nat
+  for +fresh: Bool
+  for +allowed: Bool
+  for +state: Browser.State
+  for foreign: {String.eq(namespace, Browser.current_namespace(state)) == False{} : Bool}
+  {Browser.transport_environment(namespace, sequence, fresh, allowed, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law stale_transport_environment_ignored:
+  for +namespace: String
+  for +sequence: Nat
+  for +fresh: Bool
+  for +allowed: Bool
+  for +state: Browser.State
+  for stale: {Nat.is_eq(sequence, Legacy.sequence(Browser.legacy(state))) == False{} : Bool}
+  {Browser.transport_environment(namespace, sequence, fresh, allowed, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+
+law invalidation_clears_publication:
+  for +capacity: Nat
+  for +last_published: Nat
+  for +state: Browser.State
+  {Browser.publication(capacity, last_published, Browser.invalidate_display(state)) ==
+    Browser.Publish{0n, Browser.observe(capacity, Browser.invalidate_display(state)), Nil{}} : Browser.Publication}
+
+
+def required_commit_covered(+notice: J.Json, sequence: Nat, +state: Browser.State) -> Bool:
+  String.eq(J.text(J.get(notice, "type")), "commit") &&
+    Live.valid_namespace(Browser.current_namespace(state)) &&
+    String.eq(J.text(J.get(notice, "namespace")), Browser.current_namespace(state)) &&
+    Browser.source_fresh(state) && Browser.source_allowed(state) && Browser.service_connected(state) &&
+    Nat.is_le(sequence, Legacy.sequence(Browser.legacy(state)))
+
+def required_commit_refresh_at(sequence: Maybe<&2, Nat>, notice: J.Json, state: Browser.State) -> Bool:
+  match sequence:
+    case None{}: True{}
+    case Some{received}: Bool.not(required_commit_covered(notice, received, state))
+
+def required_commit_refresh(+notice: J.Json, state: Browser.State) -> Bool:
+  required_commit_refresh_at(J.natural(J.get(notice, "sequence")), notice, state)
+
+law commit_refresh_needed_complete:
+  for +notice: J.Json
+  for +state: Browser.State
+  {Browser.commit_refresh_needed(notice, state) == required_commit_refresh(notice, state) : Bool}
+
+law undecodable_commit_refreshes:
+  for +notice: J.Json
+  for +state: Browser.State
+  for undecodable: {J.natural(J.get(notice, "sequence")) == None{} : Maybe<&2, Nat>}
+  {Browser.commit_refresh_needed(notice, state) == True{} : Bool}
+
+law covered_commit_skips_refresh:
+  for +notice: J.Json
+  for +state: Browser.State
+  for +sequence: Nat
+  for decoded: {J.natural(J.get(notice, "sequence")) == Some{sequence} : Maybe<&2, Nat>}
+  for covered: {required_commit_covered(notice, sequence, state) == True{} : Bool}
+  {Browser.commit_refresh_needed(notice, state) == False{} : Bool}
+
+law uncovered_commit_refreshes:
+  for +notice: J.Json
+  for +state: Browser.State
+  for +sequence: Nat
+  for decoded: {J.natural(J.get(notice, "sequence")) == Some{sequence} : Maybe<&2, Nat>}
+  for uncovered: {required_commit_covered(notice, sequence, state) == False{} : Bool}
+  {Browser.commit_refresh_needed(notice, state) == True{} : Bool}
+
+
+law unowned_activation_is_inert:
+  for +key: String
+  for +state: Browser.State
+  for ordinary: {String.eq(key, "@browser/retry") == False{} : Bool}
+  for unowned: {Browser.activation_owned(key, state) == False{} : Bool}
+  {Browser.activate(key, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law semantic_pending_external_activation_is_inert:
+  for +key: String
+  for +state: Browser.State
+  for ordinary: {String.eq(key, "@browser/retry") == False{} : Bool}
+  for pending: {Browser.semantic_pending(state) == True{} : Bool}
+  for external: {Browser.external_action(InterfaceView.find_node(InterfaceView.active_nodes(Browser.current_surface(state)), key)) == True{} : Bool}
+  {Browser.activate(key, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+law disconnected_submit_is_inert:
+  for +key: String
+  for +state: Browser.State
+  for ordinary: {String.eq(key, "@browser/retry") == False{} : Bool}
+  for disconnected: {Browser.service_connected(state) == False{} : Bool}
+  for submit: {Browser.submit_action(InterfaceView.find_node(InterfaceView.active_nodes(Browser.current_surface(state)), key)) == True{} : Bool}
+  {Browser.activate(key, state) == Browser.Decision{state, Nil{}} : Browser.Decision}
+
+
+law changed_attention_advances_latest:
+  for +attention: Navigation.Attention
+  for +state: Browser.State
+  {Browser.attention_changed(True{}, attention, state) ==
+    Browser.attention_refresh(required_presentation_state(Browser.with_attention(attention, state))) : Browser.Decision}
+
+law initial_update_stamps:
+  for +program: M.World()
+  for +sequence: Nat
+  {Browser.initial(program, sequence) ==
+    Browser.State{Legacy.initial(program, sequence), 0n, Nil{}, Browser.WaitingEnvironment{}, None{}, Navigation.initial(), Browser.DisplayUpdates{0n, 0n, 0n, 0n}} : Browser.State}
+
+law semantic_update_complete:
+  for +state: Browser.State
+  {Browser.advance_update(state) == required_source_state(state) : Browser.State}
+
+law presentation_update_complete:
+  for +state: Browser.State
+  {Browser.advance_presentation(state) == required_presentation_state(state) : Browser.State}
+
+law semantic_pending_is_publication_lag:
+  for +state: Browser.State
+  {Browser.semantic_pending(state) == required_semantic_pending(state) : Bool}
+
+law presentation_preserves_semantic_pending:
+  for +state: Browser.State
+  {Browser.semantic_pending(Browser.advance_presentation(state)) == Browser.semantic_pending(state) : Bool}
+
+law attention_preserves_prior_semantic_update:
+  for +state: Browser.State
+  {Browser.semantic_pending(Browser.advance_presentation(Browser.advance_update(state))) == Browser.semantic_pending(Browser.advance_update(state)) : Bool}
+
+law publication_uses_active_semantic_stamp:
+  for +state: Browser.State
+  {Browser.semantic_pending(Browser.publish_update(state)) == required_active_semantic_pending(state) : Bool}
+
+law old_active_publication_remains_blocked:
+  for +state: Browser.State
+  for behind: {required_active_semantic_pending(state) == True{} : Bool}
+  {Browser.semantic_pending(Browser.publish_update(state)) == True{} : Bool}
+
+def required_activation_ready(blocked: Bool, key: String, +state: Browser.State) -> Browser.Decision:
+  match blocked:
+    case True{}: Browser.Decision{state, Nil{}}
+    case False{}: Browser.accept(True{}, Legacy.activate(key, Browser.legacy(state)), state)
+
+def required_activation_reserved(reserved: Bool, +key: String, +state: Browser.State) -> Browser.Decision:
+  match reserved:
+    case True{}: Browser.accept(True{}, Legacy.activate(key, Browser.legacy(state)), state)
+    case False{}:
+      required_activation_ready(Bool.not(Browser.activation_owned(key, state)) ||
+        (required_semantic_pending(state) && Browser.external_action(InterfaceView.find_node(InterfaceView.active_nodes(Browser.current_surface(state)), key))) ||
+        (Bool.not(Browser.service_connected(state)) && Browser.submit_action(InterfaceView.find_node(InterfaceView.active_nodes(Browser.current_surface(state)), key))), key, state)
+
+law activation_complete:
+  for +key: String
+  for +state: Browser.State
+  {Browser.activate(key, state) == required_activation_reserved(String.eq(key, "@browser/retry"), key, state) : Browser.Decision}
+
+law caught_up_owned_activation_is_admitted:
+  for +key: String
+  for +state: Browser.State
+  for ordinary: {String.eq(key, "@browser/retry") == False{} : Bool}
+  for owned: {Browser.activation_owned(key, state) == True{} : Bool}
+  for caught_up: {Browser.semantic_pending(state) == False{} : Bool}
+  for connected: {Browser.service_connected(state) == True{} : Bool}
+  {Browser.activate(key, state) == Browser.accept(True{}, Legacy.activate(key, Browser.legacy(state)), state) : Browser.Decision}
+
+def required_model_external_kind(kind: IM.ActionKind) -> Bool:
+  match kind:
+    case IM.SetAction{}: False{}
+    case IM.ResetAction{}: False{}
+    case _: True{}
+
+def required_action_binding_updates(+key: String, found: Maybe<&2, SurfaceTypes.Node>, pending: Bool, owned: Bool) -> +List<Native.Update>:
+  match found:
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{component, occurrence, tag, attributes, IM.ActionBinding{kind, enabled, busy}, children}}, nested}}:
+      [Native.SetEnabled{key, owned && enabled && Bool.not(busy) && Bool.not(pending && required_model_external_kind(kind))}]
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.InteractiveView{event, command, label_value, enabled}, nested}}:
+      [Native.SetEnabled{key, owned && enabled}]
+    case _: [Native.SetEnabled{key, False{}}]
+
+law action_binding_updates_complete:
+  for +key: String
+  for +found: Maybe<&2, SurfaceTypes.Node>
+  for +pending: Bool
+  for +owned: Bool
+  {Browser.action_binding_updates(key, found, pending, owned) == required_action_binding_updates(key, found, pending, owned) : +List<Native.Update>}
+
+# A published mount may receive native writes only while its current semantic
+# owner, field contract and occurrence still agree. Draft value changes are not
+# a change of authority.
+def required_field_binding(original: SurfaceTypes.Meaning, current: SurfaceTypes.Meaning) -> Bool:
+  match original current:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, IM.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}} SurfaceTypes.InteractiveNode{IM.ExpandedNode{other_identity, other_occurrence, other_tag, other_attrs, IM.FieldBinding{other_state, other_schema, other_raw, other_canonical, other_validation, other_enabled}, other_children}}:
+      UIIdentity.same(IMScene.key(identity), IMScene.key(other_identity)) && Nat.is_eq(occurrence, other_occurrence) && String.eq(state_id, other_state) && String.eq(tag, other_tag) && IMSyntax.same_schema(schema, other_schema)
+    case SurfaceTypes.Edit{editor, field, entry, value, choices} SurfaceTypes.Edit{other, new_field, new_entry, new_value, new_choices}: U.same_editor(editor, other)
+    case SurfaceTypes.EnterDirectory{editor, text} SurfaceTypes.EnterDirectory{other, new_text}: U.same_editor(editor, other)
+    case SurfaceTypes.ReceiveFile{editor, enabled} SurfaceTypes.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
+    case SurfaceTypes.SearchChoices{query} SurfaceTypes.SearchChoices{new_query}: True{}
+    case SurfaceTypes.BoardSearch{filter} SurfaceTypes.BoardSearch{new_filter}: True{}
+    case SurfaceTypes.DirectoryBrowserLocation{value} SurfaceTypes.DirectoryBrowserLocation{new_value}: True{}
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled} SurfaceTypes.BoardProfile{new_automatic, new_selected, new_choices, new_enabled}: True{}
+    case _ _: False{}
+
+def required_mounted_field(binding: Native.Binding, found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match binding found:
+    case retained None{}: False{}
+    case Native.Binding{key, kind, identity, original} Some{SurfaceTypes.Node{current, semantic, label, role, meaning, children}}:
+      (String.eq(key, UIIdentity.encode(current)) && String.eq(identity, semantic)) && required_field_binding(original, meaning)
+
+def required_field_projection(kind: Source.NativeFieldKind, +key: String, semantic: String, +meaning: SurfaceTypes.Meaning) -> +List<Native.Update>:
+  match kind:
+    case Source.ToggleField{}: [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetChecked{key, required_checked(meaning)}]
+    case Source.FileField{multiple}: [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}]
+    case _: [Native.SetIdentity{key, Native.Identity{key, semantic, meaning}}, Native.SetValue{key, required_native_value(meaning)}]
+
+def required_field_write(owned: Bool, binding: Native.Binding, found: Maybe<&2, SurfaceTypes.Node>) -> +List<Native.Update>:
+  match owned binding found:
+    case True{} Native.Binding{key, kind, identity, original} Some{SurfaceTypes.Node{current, semantic, label, role, meaning, children}}:
+      required_field_projection(kind, key, semantic, meaning)
+    case _ _ _: Nil{}
+
+def required_field_updates(fields: +List<Native.Binding>, +current: +List<SurfaceTypes.Node>) -> +List<Native.Update>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{+binding, rest}:
+      Native.Binding{key, kind, identity, meaning} = binding
+      +found: Maybe<&2, SurfaceTypes.Node> = Rules_interface_program_rules.first_named_node(current, key)
+      List.append(&2, Native.Update, required_field_write(required_mounted_field(binding, found), binding, found),
+        required_field_updates(rest, current))
+
+def required_interactive_event(found: Maybe<&2, SurfaceTypes.Node>) -> Maybe<&2, IM.EventIdentity>:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, binding, children}}, nested}}: Some{IM.EventIdentity{identity, occurrence}}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveView{event, command, label_value, enabled}, nested}}: Some{event}
+    case _: None{}
+
+def required_same_mount(left: Maybe<&2, IM.EventIdentity>, right: Maybe<&2, IM.EventIdentity>) -> Bool:
+  match left right:
+    case Some{old} Some{current}: IMSyntax.same_event(old, current)
+    case None{} None{}: True{}
+    case _ _: False{}
+
+def required_action_update(+node: SurfaceTypes.Node, +current: +List<SurfaceTypes.Node>, pending: Bool) -> +List<Native.Update>:
+  SurfaceTypes.Node{+key, semantic, label, role, meaning, children} = node
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, IM.ActionBinding{kind, enabled, busy}, nested}}:
+      +encoded: String = UIIdentity.encode(key)
+      +found: Maybe<&2, SurfaceTypes.Node> = Rules_interface_program_rules.first_named_node(current, encoded)
+      required_action_binding_updates(encoded, found, pending,
+        required_same_mount(Some{IM.EventIdentity{identity, occurrence}}, required_interactive_event(found)))
+    case SurfaceTypes.InteractiveView{event, command, label_value, enabled}:
+      +encoded: String = UIIdentity.encode(key)
+      +found: Maybe<&2, SurfaceTypes.Node> = Rules_interface_program_rules.first_named_node(current, encoded)
+      required_action_binding_updates(encoded, found, pending,
+        required_same_mount(Some{event}, required_interactive_event(found)))
+    case _: Nil{}
+
+def required_action_updates(published: +List<SurfaceTypes.Node>, +current: +List<SurfaceTypes.Node>, +pending: Bool) -> +List<Native.Update>:
+  match published:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      List.append(&2, Native.Update, required_action_update(node, current, pending),
+        List.append(&2, Native.Update, required_action_updates(children, current, pending), required_action_updates(rest, current, pending)))
+
+def required_native_mounts(fields: +List<Native.Binding>, +published: SurfaceTypes.Surface,
+  +current: SurfaceTypes.Surface, pending: Bool) -> +List<Native.Update>:
+  SurfaceTypes.Surface{content, base, overlays, active} = current
+  List.append(&2, Native.Update, required_field_updates(fields, List.append(&2, SurfaceTypes.Node, base, overlays)),
+    required_action_updates(FocusRules.required_active_nodes(published), FocusRules.required_active_nodes(current), pending))
+
+def required_native_updates(+state: Browser.State) -> +List<Native.Update>:
+  Browser.State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  match displayed:
+    case None{}: Nil{}
+    case Some{Browser.Published{world, semantic, scope, Native.Basis{fields, controls}, frame}}:
+      required_native_mounts(fields, semantic, Browser.current_surface(state), required_semantic_pending(state))
+
+law native_updates_use_semantic_lag:
+  for +state: Browser.State
+  {Browser.native_updates(state) == required_native_updates(state) : +List<Native.Update>}
+
+
+def required_physical_reset(+before: Browser.State, +after: Browser.State) -> Bool:
+  Bool.not(String.eq(Browser.current_namespace(before), Browser.current_namespace(after))) ||
+    (Browser.source_allowed(before) && Bool.not(Browser.source_allowed(after))) ||
+    (Bool.not(Browser.view_removed(Browser.program(before), before)) &&
+      Browser.view_removed(Browser.program(after), before))
+
+law physical_invalidation_complete:
+  for +before: Browser.State
+  for +after: Browser.State
+  {Browser.physical_invalidated(before, after) == required_physical_reset(before, after) : Bool}
+
+law ordinary_updates_retain_physical_probes:
+  for +before: Browser.State
+  for +after: Browser.State
+  for same_namespace: {String.eq(Browser.current_namespace(before), Browser.current_namespace(after)) == True{} : Bool}
+  for same_access: {Browser.source_allowed(after) == Browser.source_allowed(before) : Bool}
+  for same_view: {Browser.view_removed(Browser.program(after), before) == Browser.view_removed(Browser.program(before), before) : Bool}
+  {Browser.physical_invalidated(before, after) == False{} : Bool}
+
+
+
+law realized_decision_exact:
+  for +decision: Platform.Decision
+  {Platform.realized_decision(decision) == expected_realized_decision(decision) : Platform.Decision}
+
+# A successful empty composer submission clears only that editor's transient
+# selection/composition. Other editors keep their native state.
+def required_submission_clear(body: U.Body) -> Bool:
+  match body:
+    case U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}: String.eq(text, "")
+    case U.Message{task, U.Text{text}, delivery}: String.eq(text, "")
+    case _: False{}
+
+def required_editor_reconciliation(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Editor.Editor:
+  match found editor:
+    case Some{U.Draft{revision, body, U.Accepted{submitted, result}, directory}} Editor.Editor{+owner, +selection, +composing}:
+      Bool.pick(Editor.Editor, required_submission_clear(body),
+        Editor.Editor{owner, NativeGeometry.Selection{0n, 0n, "none"}, False{}}, Editor.Editor{owner, selection, composing})
+    case ignored retained: retained
+
+def required_editors(editors: +List<Editor.Editor>, +drafts: +List<U.Draft>) -> +List<Editor.Editor>:
+  match editors:
+    case Nil{}: Nil{}
+    case Con{Editor.Editor{+owner, selection, composing}, rest}:
+      required_editor_reconciliation(E.find_draft(drafts, owner), Editor.Editor{owner, selection, composing}) <> required_editors(rest, drafts)
+
+def required_platform_commit(decision: InteractionTypes.Decision, platform: Platform.Platform) -> Platform.Decision:
+  InteractionTypes.Decision{+core, +reply, +runtime, +interaction, +services, +durable} = decision
+  Platform.Platform{+readers, editors, +focused, +ticket, reduced, +capacity, +previous} = platform
+  +application = ProductState.application(core)
+  +current = Focus.current(core, capacity)
+  +transition = FocusRules.required_transition(previous, current, focused, FocusRules.required_target_eligible(InterfaceView.observe(capacity, core), focused))
+  +next_ticket = FocusRules.required_focus_ticket(transition, interaction, ticket)
+  Platform.Decision{InteractionTypes.Decision{core, reply, runtime, interaction, services, durable},
+    Platform.Platform{readers, required_editors(editors, E.drafts(E.session(application))), focused, next_ticket, reduced, capacity, current},
+    List.append(&2, Platform.Effect, FocusRules.required_scope_effects(transition, previous, current, interaction, next_ticket),
+      FocusRules.required_layout(application, readers))}
+
+law after_core_complete:
+  for +decision: InteractionTypes.Decision
+  for +platform: Platform.Platform
+  {Platform.after_core(decision, platform) == required_platform_commit(decision, platform) : Platform.Decision}
+
+
+law action_update_complete:
+  for +node: SurfaceTypes.Node
+  for +current: +List<SurfaceTypes.Node>
+  for +pending: Bool
+  {Browser.action_update(node, current, pending) == required_action_update(node, current, pending) : +List<Native.Update>}
+
+
+law content_owner_classification:
+  for +found: Maybe<&2, SurfaceTypes.Node>
+  {Platform.found_content_owner(found) == FocusRules.required_content_owner(found) : Bool}
+
+def required_content_focus_observation(+core: InteractionTypes.State, platform: Platform.Platform, owner: String, identity: String) -> Platform.Decision:
+  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  Platform.Decision{Platform.unchanged(core),
+    Platform.Platform{readers, editors, Focus.Content{owner, identity}, (ticket + 1n : Nat), reduced, capacity, scope}, Nil{}}
+
+law available_surface_content_focus_observation:
+  for +core: InteractionTypes.State
+  for +platform: Platform.Platform
+  for +owner: String
+  for +identity: String
+  for +node: SurfaceTypes.Node
+  for found: {InterfaceView.find_node(InterfaceView.active_nodes(InterfaceView.observe(Platform.capacity(platform), core)), owner) ==
+    Some{node} : Maybe<&2, SurfaceTypes.Node>}
+  for eligible: {FocusRules.required_content_owner(Some{node}) == True{} : Bool}
+  {Platform.step(Platform.ContentFocusObserved{owner, identity}, Platform.State{core, platform}) ==
+    required_content_focus_observation(core, platform, owner, identity) : Platform.Decision}

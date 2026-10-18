@@ -34,6 +34,8 @@ def native_field_footprint(+kind: Source.NativeFieldKind, +style: Source.Resolve
     case Source.SelectField{}: {==}
     case Source.MultiSelectField{}: {==}
     case Source.NumberField{minimum}: {==}
+    case Source.RangeField{minimum, maximum, step}: {==}
+    case Source.DecimalField{minimum, maximum, step}: {==}
     case Source.FileField{multiple}: {==}
     case Source.DirectoryField{}: {==}
     case Source.SearchField{}: {==}
@@ -346,6 +348,9 @@ def owned_foreground(+owner: UIIdentity.Key, +role: Information.TextRole, value:
 
 def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Authored.Child>, +parameters: Design.LayoutParameters, +content: +List<Source.Node>) -> RuleSourceRules.experience_source(capacity, key, label, role, meaning, visual, representation, children, parameters, content):
   match meaning:
+    case SurfaceTypes.InteractiveRegion{identity, source_visible}: {==}
+    case SurfaceTypes.InteractiveNode{node}: {==}
+    case SurfaceTypes.InteractiveView{event, command, name, enabled}: {==}
     case SurfaceTypes.ActivityRow{row}: {==}
     case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: {==}
     case SurfaceTypes.DecisionGroup{decision}: {==}

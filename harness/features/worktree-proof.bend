@@ -194,28 +194,28 @@ def promote_when_contract(+status: D.Status, +phase: D.Phase, +task: D.Task) ->
     case D.Frozen{} D.Ready{Nil{}}: {==}
     case D.Frozen{} D.Ready{Con{first, rest}}: {==}
     case D.Frozen{} D.ContextPending{ticket, revision, purpose}: {==}
-    case D.Frozen{} D.ModelPending{ticket, callable}: {==}
+    case D.Frozen{} D.ModelPending{ticket, callable, mode}: {==}
     case D.Frozen{} D.ReasoningPending{ticket, revision}: {==}
     case D.Frozen{} D.HookPending{ticket, plugin, call, pending, remaining}: {==}
     case D.Archived{} D.Idle{}: {==}
     case D.Archived{} D.Ready{Nil{}}: {==}
     case D.Archived{} D.Ready{Con{first, rest}}: {==}
     case D.Archived{} D.ContextPending{ticket, revision, purpose}: {==}
-    case D.Archived{} D.ModelPending{ticket, callable}: {==}
+    case D.Archived{} D.ModelPending{ticket, callable, mode}: {==}
     case D.Archived{} D.ReasoningPending{ticket, revision}: {==}
     case D.Archived{} D.HookPending{ticket, plugin, call, pending, remaining}: {==}
     case D.Active{} D.Idle{}: drain_contract(task)
     case D.Active{} D.Ready{Nil{}}: drain_contract(task)
     case D.Active{} D.Ready{Con{first, rest}}: {==}
     case D.Active{} D.ContextPending{ticket, revision, purpose}: {==}
-    case D.Active{} D.ModelPending{ticket, callable}: {==}
+    case D.Active{} D.ModelPending{ticket, callable, mode}: {==}
     case D.Active{} D.ReasoningPending{ticket, revision}: {==}
     case D.Active{} D.HookPending{ticket, plugin, call, pending, remaining}: {==}
     case D.Stopped{} D.Idle{}: drain_contract(task)
     case D.Stopped{} D.Ready{Nil{}}: drain_contract(task)
     case D.Stopped{} D.Ready{Con{first, rest}}: {==}
     case D.Stopped{} D.ContextPending{ticket, revision, purpose}: {==}
-    case D.Stopped{} D.ModelPending{ticket, callable}: {==}
+    case D.Stopped{} D.ModelPending{ticket, callable, mode}: {==}
     case D.Stopped{} D.ReasoningPending{ticket, revision}: {==}
     case D.Stopped{} D.HookPending{ticket, plugin, call, pending, remaining}: {==}
 

@@ -15,6 +15,7 @@ import ../services/MODEL.bend as Services
 import ../conversation/CODE.bend as Code
 import ../services/CONTEXT.bend as Context
 import ../TYPES.bend as InteractionTypes
+import ../interactive_markdown/TYPES.bend as IM
 
 type Role is Data:
   GlobalNavigation{compact: Bool}
@@ -124,6 +125,9 @@ type Meaning is Data:
   RichText{source: Code.Source, value: String}
   TaskFacts{details: V.TaskDetails}
   CodeFacts{view: Code.Scene}
+  InteractiveRegion{identity: Code.Identity, source_visible: Bool}
+  InteractiveNode{node: IM.ExpandedNode}
+  InteractiveView{event: IM.EventIdentity, command: IM.ViewCommand, label: String, enabled: Bool}
   Activate{input: InteractionTypes.Input, availability: V.Availability}
   Edit{editor: U.Editor, field: OperationParameters.Field, entry: OperationParameters.Entry, value: OperationParameters.Observed, choices: +List<OperationParameters.ChoiceValue>}
   SearchChoices{query: String}

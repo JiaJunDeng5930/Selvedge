@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { compiler } from './toolchain.mjs';
+import { compiler, compilerEnvironment, compilerInvocation } from './toolchain.mjs';
 import { prepareUiVerification } from './ui-verification.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -10,9 +10,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 // Standalone CLI gate. Builds apply this same pinned verdict to their fresh prefix.
 export function verifyProof({ cwd = root, entry } = {}) {
   entry ??= prepareUiVerification(cwd).entry;
-  const result = spawnSync(compiler(), [entry, '--check-only'], {
+  const invocation = compilerInvocation(compiler(), [entry, '--check-only']);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd, encoding: 'utf8', maxBuffer: Infinity,
-    env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
+    env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
   if (result.error) throw new Error(`Pure proof gate could not check ${entry}`, { cause: result.error });
   const report = `${result.stdout ?? ''}${result.stderr ?? ''}`;
@@ -25,9 +26,10 @@ export function verifyProof({ cwd = root, entry } = {}) {
 // MAIN's three explicit IO assumptions are a separate boundary, never pure proof
 // evidence. Bend 2.0.34 reports these well-typed promises with a failing verdict.
 export function verifyNativeEntry({ cwd = root } = {}) {
-  const result = spawnSync(compiler(), ['MAIN.bend', '--check-only'], {
+  const invocation = compilerInvocation(compiler(), ['MAIN.bend', '--check-only']);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd, encoding: 'utf8', maxBuffer: Infinity,
-    env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
+    env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
   if (result.error) throw new Error('Native entry gate could not check MAIN.bend', { cause: result.error });
   const boundary = 'SOME PROOFS FAIL\nError: 3 defs rely on unsafe or foreign code:\n- Host.receive\n- serve\n- main';

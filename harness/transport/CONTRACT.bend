@@ -2,6 +2,9 @@ import Base
 import ../DOMAIN.bend as D
 import ../reasoning/MODEL.bend as R
 import ../../bendlib/json.bend as J
+import ../../bendlib/effects.bend as Effects
+import ../reasoning/SPEC.bend as ReasoningRequirements
+import ./presentation.bend as Presentation
 
 # Catalogue values cover executable efforts; Adaptive user selection remains auto.
 type ProfileRequirements is Type:
@@ -43,3 +46,17 @@ type JsonRenderRequirements is Type:
 
 law json_render_evidence:
   JsonRenderRequirements
+
+# The host receives the capability of this exact committed request history.
+law model_request_mode:
+  for +task: Nat
+  for +ticket: Nat
+  for +model: D.Model
+  for +history: D.History
+  for +tools: +List<D.Tool>
+  for +callable: +List<String>
+  for +context: D.TaskContext
+  for +scope: String
+  for +reserve: Nat
+  {J.get(Presentation.effect(Effects.RequestModel{task, ticket, model, history, tools, callable, context, scope, reserve}), "output_mode") ==
+    J.Text{D.output_mode_name(ReasoningRequirements.request_mode(history))} : J.Json}

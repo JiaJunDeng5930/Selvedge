@@ -7,6 +7,7 @@ contain the existing definitions and their business-specific projections.
 [CONTRACT.bend](CONTRACT.bend) and [PROOF.bend](PROOF.bend) bind the construction
 families to actual snapshot admission, patch application and history operations.
 Adding a definition reuses those properties rather than adding another proof.
+The `NativeText` observer carries a versioned runtime capability from its native definition; it does not read configuration or files. Interactive Markdown uses that source. Ordinary model requests freeze the advertised mode from its accepted exact snapshot; helper input projections omit the capability.
 
 The wire parser produces snapshot candidates once. `observed_resolution` owns their
 single semantic admission and consumes the admitted snapshot when producing an

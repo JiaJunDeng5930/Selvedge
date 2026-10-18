@@ -74,7 +74,7 @@ def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<Stri
 def assistant_outputs(messages: +List<D.Message>) -> +List<String>:
   match messages:
     case Nil{}: Nil{}
-    case Con{D.AssistantMessage{+text}, rest}:
+    case Con{D.AssistantMessage{+origin, +text}, rest}:
       output_text(Bool.not(String.is_empty(text)), text, assistant_outputs(rest))
     case Con{other, rest}: assistant_outputs(rest)
 
@@ -86,5 +86,18 @@ def normal_output_messages(calls: +List<D.Call>, messages: +List<D.Message>) -> 
 def reply_outputs(outcome: D.Outcome) -> +List<String>:
   match outcome:
     case D.ModelReply{+items}:
-      normal_output_messages(Tasks.item_calls(items), Tasks.item_messages(items))
+      normal_output_messages(Tasks.item_calls(items), Tasks.item_messages(0n, 0n, D.Plain{}, items))
+    case _: Nil{}
+
+# Output delivery is authorized by the same reply admission as the history write.
+# A rejected reply contributes neither assistant output nor graph deliveries.
+def permitted_outputs(accepted: Bool, outcome: D.Outcome) -> +List<String>:
+  match accepted:
+    case True{}: reply_outputs(outcome)
+    case False{}: Nil{}
+
+def accepted_reply_outputs(+outcome: D.Outcome, allowed: +List<String>, task: D.Task) -> +List<String>:
+  match outcome:
+    case D.ModelReply{+items}:
+      permitted_outputs(Tasks.model_reply_permitted(allowed, task, Tasks.ModelReplyCandidate{items}), D.ModelReply{items})
     case _: Nil{}

@@ -80,6 +80,10 @@ def input_widget_evidence(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, 
       Categories.Intersection{requested, Categories.Intersection{request_binding_projection(label, key, name, visual, request), Categories.Intersection{request_content_projection(label, key, name, visual, request), request_protocol_projection(label, key, name, visual, request)}}}
     case Controls.NumberInput{minimum}:
       Categories.Intersection{requested, Categories.Intersection{request_binding_projection(label, key, name, visual, request), Categories.Intersection{request_content_projection(label, key, name, visual, request), request_protocol_projection(label, key, name, visual, request)}}}
+    case Controls.RangeInput{minimum, maximum, step}:
+      Categories.Intersection{requested, Categories.Intersection{request_binding_projection(label, key, name, visual, request), Categories.Intersection{request_content_projection(label, key, name, visual, request), request_protocol_projection(label, key, name, visual, request)}}}
+    case Controls.DecimalInput{minimum, maximum, step}:
+      Categories.Intersection{requested, Categories.Intersection{request_binding_projection(label, key, name, visual, request), Categories.Intersection{request_content_projection(label, key, name, visual, request), request_protocol_projection(label, key, name, visual, request)}}}
     case Controls.ToggleInput{}:
       Categories.Intersection{requested, Categories.Intersection{request_binding_projection(label, key, name, visual, request), Categories.Intersection{request_content_projection(label, key, name, visual, request), request_protocol_projection(label, key, name, visual, request)}}}
     case Controls.SelectInput{}:

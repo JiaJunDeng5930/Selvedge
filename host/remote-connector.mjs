@@ -315,7 +315,7 @@ export class RemoteConnector {
 
   #snapshot() {
     const snapshot = this.#service.browserSnapshot();
-    return { incarnation: this.#incarnation, sequence: snapshot.sequence, program: encodeBendValue(snapshot.program),
+    return { incarnation: this.#incarnation, namespace: snapshot.namespace, sequence: snapshot.sequence, program: encodeBendValue(snapshot.program),
       streams: encodeBendValue(this.#service.browserStreams()), notice_sequence: this.#noticeSequence };
   }
 

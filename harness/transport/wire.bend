@@ -155,8 +155,8 @@ def item_kind_discriminant(+value: String) -> ItemKindName:
 def item_kind_classified(kind: ItemKindName, +value: J.Json) -> D.ModelItem:
   match kind:
     case ItemKindNameCall{}: D.Invoke{D.Call{J.text(J.get(value, "id")), J.text(J.get(value, "name")), J.get(value, "arguments")}}
-    case ItemKindNameContext{}: D.Context{J.get(value, "value")}
-    case ItemKindNameOther{}: D.Say{J.text(J.get(value, "text"))}
+    case ItemKindNameContext{}: D.Context{J.natural_or(J.natural(J.get(value, "part")), 0n), J.get(value, "value")}
+    case ItemKindNameOther{}: D.Say{J.natural_or(J.natural(J.get(value, "part")), 0n), J.text(J.get(value, "text"))}
 
 def item_kind(kind: String, +value: J.Json) -> D.ModelItem:
   item_kind_classified(item_kind_discriminant(kind), value)
@@ -181,18 +181,27 @@ def valid_item_kind_discriminant(+value: String) -> ValidItemKindName:
 
 def valid_item_kind_classified(kind: ValidItemKindName, +value: J.Json) -> Bool:
   match kind:
-    case ValidItemKindNameText{}: J.is_text(J.get(value, "text"))
-    case ValidItemKindNameCall{}: J.is_text(J.get(value, "id")) && J.is_text(J.get(value, "name")) && J.is_object(J.get(value, "arguments"))
-    case ValidItemKindNameContext{}: J.is_object(J.get(value, "value"))
+    case ValidItemKindNameText{}: Shape.object_keys(value, ["type", "part", "text"]) && Shape.is_natural(J.get(value, "part")) && J.is_text(J.get(value, "text"))
+    case ValidItemKindNameCall{}: Shape.object_keys(value, ["type", "id", "name", "arguments"]) && J.is_text(J.get(value, "id")) && J.is_text(J.get(value, "name")) && J.is_object(J.get(value, "arguments"))
+    case ValidItemKindNameContext{}: Shape.object_keys(value, ["type", "part", "value"]) && Shape.is_natural(J.get(value, "part")) && J.is_object(J.get(value, "value"))
     case ValidItemKindNameOther{}: False{}
 
 def valid_item_kind(kind: String, +value: J.Json) -> Bool:
   valid_item_kind_classified(valid_item_kind_discriminant(kind), value)
 
+def has_item_part(values: +List<J.Json>, +part: J.Json) -> Bool:
+  match values:
+    case Nil{}: False{}
+    case Con{+value, rest}:
+      ((String.eq(J.text(J.get(value, "type")), "text") || String.eq(J.text(J.get(value, "type")), "context")) && J.same(J.get(value, "part"), part)) || has_item_part(rest, part)
+
+def unique_item_part(+value: J.Json, rest: +List<J.Json>) -> Bool:
+  String.eq(J.text(J.get(value, "type")), "call") || Bool.not(has_item_part(rest, J.get(value, "part")))
+
 def valid_items(values: +List<J.Json>) -> Bool:
   match values:
     case Nil{}: True{}
-    case Con{+value, rest}: valid_item_kind(J.text(J.get(value, "type")), value) && valid_items(rest)
+    case Con{+value, +rest}: valid_item_kind(J.text(J.get(value, "type")), value) && unique_item_part(value, rest) && valid_items(rest)
 
 def is_array(value: J.Json) -> Bool:
   match value:

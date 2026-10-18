@@ -71,8 +71,8 @@ def reviewer_name(reviewer: D.Profile) -> String:
 def audit_message(message: D.Message) -> Bool:
   match message:
     case D.UserMessage{text}: False{}
-    case D.AssistantMessage{text}: False{}
-    case D.ModelContext{value}: False{}
+    case D.AssistantMessage{origin, text}: False{}
+    case D.ModelContext{origin, value}: False{}
     case _: True{}
 
 # Comparison reflexivity is needed to bind a reader's choice to its own group.

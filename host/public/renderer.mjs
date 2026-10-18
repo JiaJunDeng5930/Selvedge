@@ -23,6 +23,7 @@ export class Renderer {
     this.generation = null;
     this.isolated = isolated;
     this.disposed = false;
+    this.presentationPending = false;
   }
   target(key) {
     if (key === '@document/root') return this.isolated ? this.root : this.root.ownerDocument.documentElement;
@@ -50,6 +51,15 @@ export class Renderer {
     }
     return false;
   }
+  async whenCaughtUp() {
+    if (this.disposed) return false;
+    const prefixes = [...this.records.values()].flatMap(record => record.markdown
+      ? [{ markdown: record.markdown, length: record.text.length }] : []);
+    if ((await Promise.all(prefixes.map(({ markdown, length }) => markdown.whenCaughtUp(length)))).some(done => !done)
+        || this.disposed) return false;
+    if (this.document) this.render(this.document, this.generation);
+    return !this.disposed;
+  }
   dispose() {
     this.disposed = true;
     for (const record of this.records.values()) record.markdown?.dispose();
@@ -68,6 +78,7 @@ export class Renderer {
     for (const [name, value] of next) {
       if (name === 'value' && 'value' in node) continue;
       if (booleans.has(name)) {
+        if (name === 'checked' && this.presentationPending && record.fieldSession) continue;
         const enabled = value !== 'false';
         if (node[name] !== enabled) node[name] = enabled;
         if (enabled && !node.hasAttribute(name)) node.setAttribute(name, '');
@@ -104,6 +115,7 @@ export class Renderer {
   }
   controlledValue(record) {
     if (!record.attributes.has('value') || !('value' in record.node)) return;
+    if (!this.isolated && this.presentationPending && record.fieldSession) return;
     const value = record.attributes.get('value');
     // Isolated measurement documents have no user editing sessions.
     if (this.isolated) { this.replaceValue(record, value); return; }
@@ -118,12 +130,22 @@ export class Renderer {
       } else if (bendTag(update) === 'SetValue') {
         record.attributes.set('value', update.value);
         this.controlledValue(record);
+      } else if (bendTag(update) === 'SetEnabled') {
+        record.node.disabled = !update.enabled;
+        if (update.enabled) record.node.removeAttribute('disabled');
+        else record.node.setAttribute('disabled', '');
       } else if (bendTag(update) === 'SetChecked') {
         if (record.node.checked !== update.checked) record.node.checked = update.checked;
         if (update.checked) { record.attributes.set('checked', 'true'); record.node.setAttribute('checked', ''); }
         else { record.attributes.delete('checked'); record.node.removeAttribute('checked'); }
       } else throw new TypeError(`Unknown native field update ${update.$}`);
     }
+  }
+  rejectFieldBuffer(key, value) {
+    const record = this.records.get(key);
+    if (this.isolated || !record || !this.root.contains(record.node)) return;
+    record.attributes.set('value', value);
+    this.fieldSession(record, bendValue('browser/runtime/native-fields.Reject', { value }));
   }
   events(record, bindings) {
     record.bindings = list(bindings);
@@ -209,7 +231,9 @@ export class Renderer {
       else delete record.node.dataset.nativeContentOwner;
       const source = bendTag(value.source) === 'Some' ? value.source.value : null;
       const owner = source ? this.callbacks.codeKey(source, 0n) : null;
-      if (!record.markdown || record.text !== value.value || record.owner !== owner) {
+      const complete = this.callbacks.markdownComplete?.(source) ?? true;
+      if (!record.markdown || record.owner !== owner || !value.value.startsWith(record.text)
+          || record.markdown.buffer.done && (record.text !== value.value || !complete)) {
         record.markdown?.dispose();
         for (const target of record.targets ?? []) this.targets.delete(target);
         record.node.replaceChildren(); record.targets = [];
@@ -225,10 +249,14 @@ export class Renderer {
           target: (target, node) => { this.targets.set(target, node); record.targets.push(target); },
           onChange: () => this.callbacks.changed?.(),
         });
-        record.text = value.value;
+        record.text = '';
         record.owner = owner;
-        record.markdown.append(value.value); record.markdown.finish();
       }
+      record.parseGeneration = this.generation;
+      const suffix = value.value.slice(record.text.length);
+      record.text = value.value;
+      if (suffix) record.markdown.append(suffix);
+      if (complete && !record.markdown.buffer.done) record.markdown.finish();
     }
     return record.node;
   }

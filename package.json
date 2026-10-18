@@ -15,7 +15,8 @@
     "index:check": "bun scripts/agents-index.mjs check",
     "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
     "build:native": "bun scripts/build.mjs --native",
-    "verify": "bun scripts/validate.mjs"
+    "verify": "bun scripts/validate.mjs",
+    "test:interactive-markdown": "bun run build && python3 scripts/test-interactive-markdown-browser.py --mode all"
   },
   "dependencies": {
     "diff": "9.0.0",

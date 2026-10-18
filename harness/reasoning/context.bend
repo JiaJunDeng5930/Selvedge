@@ -37,7 +37,7 @@ def lease(history: D.History, +owner: Nat) -> R.Lease:
     case D.HistoryNode{previous, D.ContextMessage{D.ContextChange{change}}}: R.NoLease{}
     case D.HistoryNode{previous, D.FailureMessage{text}}: R.NoLease{}
     case D.HistoryNode{previous, D.ContextReplacement{text}}: R.NoLease{}
-    case D.HistoryNode{previous, D.ModelContext{value}}:
+    case D.HistoryNode{previous, D.ModelContext{origin, value}}:
       valid_after(provider_checkpoint(value), lease(previous, owner))
     case D.HistoryNode{previous, D.FunctionOutput{call, value, error}}:
       valid_after(failed_result(error, value), lease(previous, owner))
@@ -102,7 +102,7 @@ def last_record(history: D.History, +owner: Nat, +fallback: String) -> String:
     case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, True{}}}:
       select_record(Nat.is_eq(other, owner), effort, fallback)
     case D.HistoryNode{previous, D.ContextReplacement{summary}}: fallback
-    case D.HistoryNode{previous, D.ModelContext{+value}}:
+    case D.HistoryNode{previous, D.ModelContext{+origin, +value}}:
       select_record(provider_checkpoint(value), fallback, last_record(previous, owner, fallback))
     case D.HistoryNode{previous, other}: last_record(previous, owner, fallback)
 
@@ -247,10 +247,10 @@ def public_value(+fuel: Nat, +value: J.Json) -> J.Json:
 def public_message(message: D.Message, rest: +List<J.Json>) -> +List<J.Json>:
   match message:
     case D.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> rest
-    case D.AssistantMessage{text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
+    case D.AssistantMessage{origin, text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.FailureMessage{text}: J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.ContextReplacement{value}: rest
-    case D.ModelContext{value}: public_context(value, rest)
+    case D.ModelContext{origin, value}: public_context(value, rest)
     case D.FunctionCall{D.Call{id, name, arguments}}:
       J.Object{[J.Field{"role", J.Text{"function_call"}}, J.Field{"call_id", J.Text{id}},
         J.Field{"name", J.Text{name}}, J.Field{"arguments", public_value(512n, arguments)}]} <> rest

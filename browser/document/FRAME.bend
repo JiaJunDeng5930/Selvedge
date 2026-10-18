@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
 import ../layout/PROGRAM.bend as Allocation
 import ../layout/CONTENT.bend as Content
 import ../layout/physical-space.bend as Model
@@ -59,7 +60,7 @@ def occurrences(elements: +List<Rendered.Element>, +key: String) -> Nat:
   match elements:
     case Nil{}: 0n
     case Con{Rendered.Element{observed, visible, enabled, tab, keyboard, scroll, bounds, hit, paint}, rest}:
-      add_occurrence(String.eq(observed, key), occurrences(rest, key))
+      add_occurrence(SafeText.string_equal(observed, key), occurrences(rest, key))
 
 def same_rectangle(first: Geometry.Rect, second: Geometry.Rect) -> Bool:
   Geometry.Rect{left, top, right, bottom} = first
@@ -121,7 +122,7 @@ def controls(entries: +List<Expected>, +elements: +List<Rendered.Element>) -> +L
 def focused_owned(focused: Maybe<&2, String>, entries: +List<Expected>) -> Bool:
   match focused:
     case None{}: True{}
-    case Some{key}: List.contains(String, (first => second => String.eq(first, second)), tabs(entries), key)
+    case Some{key}: List.contains(String, (first => second => SafeText.string_equal(first, second)), tabs(entries), key)
 
 def no_native(world: Content.AllocatedWorld) -> Bool:
   Content.AllocatedWorld{snapshot, tree, roots, policies} = world

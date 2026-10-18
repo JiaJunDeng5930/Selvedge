@@ -1,4 +1,8 @@
 import Base
+import ./interaction/interactive_markdown/PROOF.bend as InteractiveMarkdownProof
+import ./interaction/interactive_markdown/documents-proof.bend as InteractiveDocumentProof
+import ./interaction/interactive_markdown/documents-contract.bend as InteractiveDocumentContract
+import ./interaction/interactive_markdown/scene-proof.bend as InteractiveSceneProof
 import ./features/remote/PROOF.bend as RemoteControlProof
 import ./harness/features/remote-proof.bend as RemoteStorageProof
 import ./host/adapters/PROOF.bend as HostAdaptersProof
@@ -131,3 +135,10 @@ def system() -> Model.SystemModel():
     (Semantics.State, (Semantics.Input, (Semantics.Decision, (Semantics.Pending, (Semantics.Effect,
       Model.Interface{RuntimeProof.application_model(), RuntimeProof.display_model()}))))),
     host_model()}))
+
+
+def interactive_document_requirements() -> InteractiveDocumentContract.Requirements:
+  InteractiveDocumentProof.requirements()
+
+def interactive_scene_requirements() -> InteractiveSceneProof.SourceRequirements:
+  InteractiveSceneProof.requirements()

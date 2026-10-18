@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/categories.bend as Categories
 import ../document/SOURCE.bend as Source
 import ./CONTENT.bend as Content
+import ./field-dimensions.bend as FieldDimensions
 import ./physical-content-measurement.bend as Measurements
 import ./physical-space.bend as Model
 import ./SPACE.bend as Space
@@ -71,23 +72,10 @@ def text_height(wrapping: T.Wrapping, key: String, height: Nat) -> Model.Height:
     case T.NormalWords{}: Model.HeightAtWidth{key}
 
 def multiline(kind: Source.NativeFieldKind) -> Bool:
-  match kind:
-    case Source.TextField{}: False{}
-    case Source.MessageField{}: True{}
-    case Source.TextAreaField{}: True{}
-    case Source.SelectField{}: False{}
-    case Source.MultiSelectField{}: False{}
-    case Source.ToggleField{}: False{}
-    case Source.NumberField{minimum}: False{}
-    case Source.FileField{multiple}: False{}
-    case Source.DirectoryField{}: False{}
-    case Source.SearchField{}: False{}
-    case Source.SecretField{}: False{}
+  FieldDimensions.multiline(kind)
 
 def field_height(variable: Bool, key: String, height: Nat) -> Model.Height:
-  match variable:
-    case True{}: Model.HeightAtWidth{key}
-    case False{}: Model.FixedHeight{height}
+  FieldDimensions.height(variable, key, height)
 
 def container(children: Forest, +key: String, +node: Source.Node, +style: Source.ResolvedStyle) -> Forest:
   match children:
@@ -127,6 +115,12 @@ def toolbar_minimum(roots: +List<Content.NativeRoot>) -> Enclosure.Extent:
     case Con{Content.NativeRoot{owner_key, Source.ToolbarTarget{identity}, tree, attributes, style}, rest}:
       Model.extent_max(Model.minimum_demand(Model.demand(~Content.Value, ~Doc.DOMEvent, tree)), toolbar_minimum(rest))
     case Con{Content.NativeRoot{owner_key, Source.CodeBodyTarget{identity, wrap}, tree, attributes, style}, rest}:
+      toolbar_minimum(rest)
+    case Con{Content.NativeRoot{owner_key, Source.InteractiveTarget{identity}, tree, attributes, style}, rest}:
+      toolbar_minimum(rest)
+    case Con{Content.NativeRoot{owner_key, Source.InteractiveSourceTarget{identity, exposed}, tree, attributes, style}, rest}:
+      toolbar_minimum(rest)
+    case Con{Content.NativeRoot{owner_key, Source.InteractiveFrameTarget{identity, active}, tree, attributes, style}, rest}:
       toolbar_minimum(rest)
 
 def rich_minimum(node: Source.Node, +roots: +List<Content.NativeRoot>, +observed: Nat) -> Nat:
@@ -172,15 +166,10 @@ def text_natural_demand(wrapping: T.Wrapping, +observation: Content.Observation)
   text_natural_dimensions(wrapping, observation_minimum(observation), observation_preferred(observation), observation_height(observation), observation_advance(observation))
 
 def field_height_extent(variable: Bool, +line_floor: Nat, maximum_lines: Nat, line_height: Nat, +measured: Nat) -> Nat:
-  match variable:
-    case True{}: Nat.max(line_floor, Nat.min(Nat.mul(maximum_lines, line_height), measured))
-    case False{}: Nat.max(line_floor, measured)
+  FieldDimensions.height_extent(variable, line_floor, maximum_lines, line_height, measured)
 
 def field_natural_height_at(capacity: Nat, variable: Bool, policy: Source.FieldPolicy, +font: T.Presentation, +measured: Nat) -> Nat:
-  Source.FieldPolicy{columns, minimum_lines, maximum_lines} = policy
-  +line_height = T.resolved_line_height(T.resolve_presentation(capacity, font))
-  +line_floor = Nat.mul(minimum_lines, line_height)
-  field_height_extent(variable, line_floor, maximum_lines, line_height, measured)
+  FieldDimensions.natural_height(variable, policy, T.resolved_line_height(T.resolve_presentation(capacity, font)), measured)
 
 def field_natural_height(variable: Bool, policy: Source.FieldPolicy, +font: T.Presentation, +measured: Nat) -> Nat:
   field_natural_height_at(NaturalSize.limit(), variable, policy, font, measured)
@@ -189,18 +178,15 @@ def field_natural_height(variable: Bool, policy: Source.FieldPolicy, +font: T.Pr
 # by the same line policy used when sampling their height at an allocated width.
 
 def field_natural_demand_at(capacity: Nat, +kind: Source.NativeFieldKind, +policy: Source.FieldPolicy,
-  +font: T.Presentation, +observation: Content.Observation) -> Space.Demand:
-  Source.FieldPolicy{columns, minimum_lines, maximum_lines} = policy
-  +minimum_width = Nat.max(Nat.mul(columns, observation_advance(observation)), observation_minimum(observation))
-  +preferred_width = Nat.max(minimum_width, observation_preferred(observation))
-  +height = field_natural_height_at(capacity, multiline(kind), policy, font, observation_height(observation))
-  Space.Demand{Enclosure.Extent{minimum_width, height}, Enclosure.Extent{preferred_width, height}}
+  +font: T.Presentation, observation: Content.Observation) -> Space.Demand:
+  Content.Observation{generation, key, purpose, minimum, preferred, measured, advance} = observation
+  FieldDimensions.natural_demand(kind, policy, T.resolved_line_height(T.resolve_presentation(capacity, font)), minimum, preferred, measured, advance)
 
 def field_natural_demand(+kind: Source.NativeFieldKind, +policy: Source.FieldPolicy,
   +font: T.Presentation, +observation: Content.Observation) -> Space.Demand:
   field_natural_demand_at(NaturalSize.limit(), kind, policy, font, observation)
 
-def observed_leaf_at(capacity: Nat, node: Source.Node, +key: String, +font: T.Presentation,
+def observed_leaf_resolved(+line_height: Nat, node: Source.Node, +key: String, +font: T.Presentation,
   +rule: Model.Rule, +observation: Content.Observation, +roots: +List<Content.NativeRoot>,
   +policies: +List<Content.NativePolicy>) -> Forest:
   match node:
@@ -213,13 +199,14 @@ def observed_leaf_at(capacity: Nat, node: Source.Node, +key: String, +font: T.Pr
         text_height(wrapping, key, height)}], roots, policies}
     case Source.Field{+label, +kind, +style, +attributes, +value, +placeholder, +options,
       Source.FieldPolicy{+columns, +lines, +maximum_lines}, +accessible_name, +enabled, +first_event, +remaining_events}:
+      Content.Observation{generation, observed_key, purpose, minimum, preferred, measured, advance} = observation
       +policy: Source.FieldPolicy = Source.FieldPolicy{columns, lines, maximum_lines}
-      +demand = field_natural_demand_at(capacity, kind, policy, font, observation)
+      +demand: Space.Demand = FieldDimensions.natural_demand(kind, policy, line_height, minimum, preferred, measured, advance)
       +height = Enclosure.extent_height(Model.minimum_demand(demand))
       +field: Source.Node = Source.Field{label, kind, style, attributes, value, placeholder, options,
         policy, accessible_name, enabled, first_event, remaining_events}
       ReadyForest{[Model.Leaf{key, Content.local_value(field, font), Source.interaction_of(field), rule,
-        demand, field_height(multiline(kind), key, height)}], roots, policies}
+        demand, FieldDimensions.height(FieldDimensions.multiline(kind), key, height)}], roots, policies}
     case Source.RichText{+label, +style, +content, +attachments, +native_owner}:
       +minimum = observation_minimum(observation)
       +preferred = observation_preferred(observation)
@@ -234,10 +221,15 @@ def observed_leaf_at(capacity: Nat, node: Source.Node, +key: String, +font: T.Pr
     case Source.Glyph{label, drawing, style}: InvalidForest{Content.InvalidObservation{key}}
     case Source.NativeAttachment{label, target, attributes, style, children}: InvalidForest{Content.InvalidObservation{key}}
 
+def observed_leaf_at(capacity: Nat, node: Source.Node, +key: String, +font: T.Presentation,
+  +rule: Model.Rule, +observation: Content.Observation, +roots: +List<Content.NativeRoot>,
+  +policies: +List<Content.NativePolicy>) -> Forest:
+  observed_leaf_resolved(T.resolved_line_height(T.resolve_presentation(capacity, font)), node, key, font, rule, observation, roots, policies)
+
 def observed_leaf(node: Source.Node, +key: String, +font: T.Presentation,
   +rule: Model.Rule, +observation: Content.Observation, +roots: +List<Content.NativeRoot>,
   +policies: +List<Content.NativePolicy>) -> Forest:
-  observed_leaf_at(NaturalSize.limit(), node, key, font, rule, observation, roots, policies)
+  observed_leaf_resolved(T.resolved_line_height(T.resolved(font)), node, key, font, rule, observation, roots, policies)
 
 def receipt(found: Maybe<&2, Content.Observation>, +request: Content.Request,
   +rule: Model.Rule, +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>) -> Forest:
@@ -366,6 +358,30 @@ def native_toolbar(context: Context, children: Forest, +key: String, node: Sourc
       attachment_valid(source, Categories.admit(Code.Identity, identity => owner_matches(source, identity), identity),
         children, owner_key, key, node, attributes, style)
 
+def interactive_region_admitted(accepted: Bool, children: Forest, owner: String, +key: String,
+  node: Source.Node, target: Source.NativeTarget, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
+  match accepted:
+    case True{}: toolbar(children, owner, key, node, target, attributes, style)
+    case False{}: InvalidForest{Content.InvalidNativeOwner{key}}
+
+def native_interactive(context: Context, children: Forest, +key: String, node: Source.Node,
+  +identity: Code.Identity, target: Source.NativeTarget, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
+  match context:
+    case Ordinary{}: InvalidForest{Content.InvalidNativeOwner{key}}
+    case RichSlots{owner, source}: interactive_region_admitted(owner_matches(source, identity), children, owner, key, node, target, attributes, style)
+
+def interactive_policy_admitted(accepted: Bool, children: +List<Source.Node>, owner: String, +key: String,
+  target: Source.NativeTarget, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
+  match accepted children:
+    case True{} Nil{}: ReadyForest{Nil{}, Nil{}, [Content.NativePolicy{owner, target, attributes, style}]}
+    case _ _: InvalidForest{Content.InvalidNativeOwner{key}}
+
+def native_interactive_policy(context: Context, children: +List<Source.Node>, +key: String,
+  +identity: Code.Identity, target: Source.NativeTarget, attributes: +List<Source.Attribute>, style: Source.ResolvedStyle) -> Forest:
+  match context:
+    case Ordinary{}: InvalidForest{Content.InvalidNativeOwner{key}}
+    case RichSlots{owner, source}: interactive_policy_admitted(owner_matches(source, identity), children, owner, key, target, attributes, style)
+
 def native_code_category() -> Source.ResolvedStyle -> Type:
   Categories.holds(Source.ResolvedStyle, Source.native_code_policy_valid)
 
@@ -466,6 +482,17 @@ def prepare_forest(nodes: +List<Source.Node>, +parent_font: T.Presentation, +gen
       +resolved = Source.resolve_style(style, parent_font)
       merge(native_code_body(context, children, path, identity, wrap, attributes, resolved),
         prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
+    case Con{Source.NativeAttachment{+key, Source.InteractiveTarget{+identity}, +attributes, +style, +children}, +rest}:
+      +path = prefix ++ "/" ++ Nat.show(index)
+      +resolved = Source.resolve_style(style, parent_font)
+      +node: Source.Node = Source.NativeAttachment{key, Source.InteractiveTarget{identity}, attributes, style, children}
+      merge(native_interactive(context, prepare_forest(children, resolved_font(resolved), generation, path, 0n, Ordinary{}, observations), path, node, identity, Source.InteractiveTarget{identity}, attributes, resolved), prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
+    case Con{Source.NativeAttachment{+key, Source.InteractiveSourceTarget{+identity, +exposed}, +attributes, +style, +children}, +rest}:
+      +path = prefix ++ "/" ++ Nat.show(index)
+      merge(native_interactive_policy(context, children, path, identity, Source.InteractiveSourceTarget{identity, exposed}, attributes, Source.resolve_style(style, parent_font)), prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
+    case Con{Source.NativeAttachment{+key, Source.InteractiveFrameTarget{+identity, +active}, +attributes, +style, +children}, +rest}:
+      +path = prefix ++ "/" ++ Nat.show(index)
+      merge(native_interactive_policy(context, children, path, identity, Source.InteractiveFrameTarget{identity, active}, attributes, Source.resolve_style(style, parent_font)), prepare_forest(rest, parent_font, generation, prefix, 1n+index, context, observations))
 
 # Native targets are admitted together before any prepared forest leaves this boundary.
 

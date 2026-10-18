@@ -27,6 +27,32 @@ function contentBox(node, window) {
     height: Math.max(0, Math.max(box.height - pixels('border-top-width') - pixels('border-bottom-width'), node.scrollHeight) - vertical),
   };
 }
+function withMarkdownScrollportMinimum(content, window, readWidth) {
+  const markdown = content.matches('.physical-markdown')
+    ? Array.from(content.children).find(node => node.classList.contains('markdown')) : null;
+  if (!markdown) return readWidth();
+  const restored = [];
+  try {
+    for (const pre of markdown.querySelectorAll('.code-block > pre')) {
+      if (pre.closest('.markdown') !== markdown || pre.closest('.interactive-markdown-target')) continue;
+      const style = window.getComputedStyle(pre);
+      if (style.display === 'none' || !['auto', 'scroll'].includes(style.overflowX) || style.whiteSpace !== 'pre') continue;
+      const containment = style.contain;
+      if (containment.split(/\s+/).some(value => ['strict', 'size', 'inline-size'].includes(value))) continue;
+      const value = containment === 'none' ? 'inline-size'
+        : containment === 'content' ? 'inline-size layout style paint' : `${containment} inline-size`;
+      restored.push({ node: pre, value: pre.style.getPropertyValue('contain'), priority: pre.style.getPropertyPriority('contain') });
+      // The scroll viewport can shrink independently of its unbroken text.
+      pre.style.setProperty('contain', value, 'important');
+    }
+    return readWidth();
+  } finally {
+    for (const { node, value, priority } of restored.reverse()) {
+      if (value) node.style.setProperty('contain', value, priority);
+      else node.style.removeProperty('contain');
+    }
+  }
+}
 function multilineContentHeight(owner, window) {
   const field = Array.from(owner.children).find(child =>
     child.localName === 'textarea' && child.hasAttribute('data-physical-field-content'));
@@ -133,6 +159,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
     probe.renderer = new Renderer(root, {
       event() {},
       codeKey: (source, ordinal) => bend.code_key(source, ordinal),
+      markdownComplete: source => bend.markdown_complete(source ? { $: 'Some', value: source } : { $: 'None' }),
       codeSource() {},
       changed: () => changed(probe),
     }, { isolated: true });
@@ -200,13 +227,15 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
             probe.observer?.disconnect(); probe.content = content; probe.observer?.observe(content);
           }
           imposeWidth(content, width === null ? 'max-content' : width);
-          if (!await wait(probe.renderer.whenSettled(), captured)) throw cancellation();
+          if (!await wait(probe.renderer.whenCaughtUp(), captured)) throw cancellation();
           await wait(document.fonts.ready, captured);
           // Rendering settlement replays Bend styles; apply the physical input after that replay.
           imposeWidth(content, width === null ? 'max-content' : width);
           if (bendTag(job.mode) === 'Measure') {
-            imposeWidth(content, 'min-content');
-            const minimum = extent(contentBox(content, window).width, 'minimum width');
+            const minimum = withMarkdownScrollportMinimum(content, window, () => {
+              imposeWidth(content, 'min-content');
+              return extent(contentBox(content, window).width, 'minimum width');
+            });
             imposeWidth(content, 'max-content');
             const preferred = extent(contentBox(content, window).width, 'preferred width');
             imposeWidth(content, width === null ? 'max-content' : width);

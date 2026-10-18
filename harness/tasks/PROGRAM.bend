@@ -4,6 +4,7 @@ import ../transport/schema.bend as Schema
 import ../../bendlib/effects.bend as Effects
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D
+import ../conversation/PROGRAM.bend as ConversationMeaning
 import ../conversation/CODEC.bend as Conversation
 import ../approval/HOOKS.bend as Hooks
 import ../../bendlib/stdlib.bend as Std
@@ -139,7 +140,7 @@ def phase_name(phase: D.Phase) -> String:
     case D.Idle{}: "idle"
     case D.Ready{calls}: "ready"
     case D.ContextPending{ticket, revision, purpose}: "context_pending"
-    case D.ModelPending{ticket, callable}: "model_pending"
+    case D.ModelPending{ticket, callable, mode}: "model_pending"
     case D.ReasoningPending{ticket, revision}: "reasoning_pending"
 
 def execution_summary(task: D.Task, model_value: D.Model, context: D.TaskContext) -> J.Json:
@@ -232,12 +233,28 @@ def item_calls(items: +List<D.ModelItem>) -> +List<D.Call>:
     case Con{D.Invoke{call}, rest}: call <> item_calls(rest)
     case Con{other, rest}: item_calls(rest)
 
-def item_messages(items: +List<D.ModelItem>) -> +List<D.Message>:
+def context_mode(assistant: Bool, mode: D.OutputMode) -> D.OutputMode:
+  match assistant:
+    case True{}: mode
+    case False{}: D.Plain{}
+
+def context_output_mode(+value: J.Json, mode: D.OutputMode) -> D.OutputMode:
+  context_mode(String.eq(J.text(J.get(ConversationMeaning.provider_value(value), "type")), "message") && ConversationMeaning.provider_assistant(value), mode)
+
+def phase_output_origin(phase: D.Phase, +producer: Nat, +part: Nat) -> D.OutputOrigin:
+  match phase:
+    case D.ModelPending{operation, names, mode}: D.OutputOrigin{producer, operation, part, mode}
+    case _: D.OutputOrigin{producer, 0n, part, D.Plain{}}
+
+def request_output_origin(+task: D.Task, part: Nat) -> D.OutputOrigin:
+  phase_output_origin(D.task_phase(task), D.task_id(task), part)
+
+def item_messages(+producer: Nat, +operation: Nat, +mode: D.OutputMode, items: +List<D.ModelItem>) -> +List<D.Message>:
   match items:
     case Nil{}: Nil{}
-    case Con{D.Say{text}, rest}: D.AssistantMessage{text} <> item_messages(rest)
-    case Con{D.Invoke{call}, rest}: D.FunctionCall{call} <> item_messages(rest)
-    case Con{D.Context{value}, rest}: D.ModelContext{value} <> item_messages(rest)
+    case Con{D.Say{part, text}, rest}: D.AssistantMessage{D.OutputOrigin{producer, operation, part, mode}, text} <> item_messages(producer, operation, mode, rest)
+    case Con{D.Invoke{call}, rest}: D.FunctionCall{call} <> item_messages(producer, operation, mode, rest)
+    case Con{D.Context{part, +value}, rest}: D.ModelContext{D.OutputOrigin{producer, operation, part, context_output_mode(value, mode)}, value} <> item_messages(producer, operation, mode, rest)
 
 def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<String>:
   match nonempty:
@@ -247,7 +264,7 @@ def output_text(nonempty: Bool, text: String, rest: +List<String>) -> +List<Stri
 def output_items(items: +List<D.ModelItem>) -> +List<String>:
   match items:
     case Nil{}: Nil{}
-    case Con{D.Say{+text}, rest}:
+    case Con{D.Say{part, +text}, rest}:
       output_text(Bool.not(String.is_empty(text)), text, output_items(rest))
     case Con{other, rest}: output_items(rest)
 
@@ -278,12 +295,42 @@ def after_model(calls: +List<D.Call>, +task: D.Task) -> D.Task:
 type ModelReplyCandidate is Data:
   ModelReplyCandidate{items: +List<D.ModelItem>}
 
+def contains_part(items: +List<D.ModelItem>, +part: Nat) -> Bool:
+  match items:
+    case Nil{}: False{}
+    case Con{D.Say{actual, text}, rest}: Nat.is_eq(actual, part) || contains_part(rest, part)
+    case Con{D.Context{actual, value}, rest}: Nat.is_eq(actual, part) || contains_part(rest, part)
+    case Con{D.Invoke{call}, rest}: contains_part(rest, part)
+
+def valid_parts(items: +List<D.ModelItem>) -> Bool:
+  match items:
+    case Nil{}: True{}
+    case Con{D.Say{part, text}, +rest}: Bool.not(contains_part(rest, part)) && valid_parts(rest)
+    case Con{D.Context{part, value}, +rest}: Bool.not(contains_part(rest, part)) && valid_parts(rest)
+    case Con{D.Invoke{call}, rest}: valid_parts(rest)
+
 def model_reply_permitted(+allowed: +List<String>, +task: D.Task, candidate: ModelReplyCandidate) -> Bool:
-  ModelReplyCandidate{items} = candidate
-  valid_calls(item_calls(items), allowed, D.task_history(task))
+  ModelReplyCandidate{+items} = candidate
+  valid_parts(items) && valid_calls(item_calls(items), allowed, D.task_history(task))
+
+def permitted_reply_outputs(accepted: Bool, outcome: D.Outcome) -> +List<String>:
+  match accepted:
+    case True{}: reply_outputs(outcome)
+    case False{}: Nil{}
+
+# Rejected provider content must not activate downstream graph deliveries.
+def accepted_reply_outputs(+outcome: D.Outcome, allowed: +List<String>, task: D.Task) -> +List<String>:
+  match outcome:
+    case D.ModelReply{+items}:
+      permitted_reply_outputs(model_reply_permitted(allowed, task, ModelReplyCandidate{items}), D.ModelReply{items})
+    case _: Nil{}
+
+def model_reply_at(origin: D.OutputOrigin, items: +List<D.ModelItem>, calls: +List<D.Call>, +task: D.Task) -> D.Task:
+  D.OutputOrigin{producer, operation, part, mode} = origin
+  after_model(calls, D.with_history(D.history_append(item_messages(producer, operation, mode, items), D.task_history(task)), task))
 
 def model_reply_calculation(items: +List<D.ModelItem>, calls: +List<D.Call>, +task: D.Task) -> D.Task:
-  after_model(calls, D.with_history(D.history_append(item_messages(items), D.task_history(task)), task))
+  model_reply_at(request_output_origin(task, 0n), items, calls, task)
 
 def model_reply(+allowed: +List<String>, +task: D.Task,
   member: Categories.Membership<ModelReplyCandidate, Categories.holds(ModelReplyCandidate, candidate => model_reply_permitted(allowed, task, candidate))>) -> D.Task:
@@ -296,7 +343,7 @@ def model_reply_admission(+allowed: +List<String>, +task: D.Task,
   match result:
     case Some{member}: model_reply(allowed, task, member)
     case None{}:
-      settled_model(D.task_notified(task), D.append_message(D.FailureMessage{"invalid model reply: duplicate call identity, unavailable tool, or invalid arguments"}, task))
+      settled_model(D.task_notified(task), D.append_message(D.FailureMessage{"invalid model reply: duplicate output part, duplicate call identity, unavailable tool, or invalid arguments"}, task))
 
 def context_limit(reducible: Bool, task: D.Task) -> D.Task:
   promote(D.with_phase(D.Idle{}, D.append_message(D.FailureMessage{"Model context limit reached; full task history retained"}, task)))
@@ -340,7 +387,7 @@ def interrupted_history(phase: D.Phase, history: D.History) -> D.History:
     case D.Idle{}: history
     case D.ContextPending{ticket, revision, purpose}:
       D.HistoryNode{history, D.FailureMessage{"Context observation interrupted by the user; no model request was sent"}}
-    case D.ModelPending{ticket, callable}:
+    case D.ModelPending{ticket, callable, mode}:
       D.HistoryNode{history, D.FailureMessage{"Model request interrupted by the user"}}
     case D.ReasoningPending{ticket, revision}:
       D.HistoryNode{history, D.FailureMessage{"Reasoning evaluation interrupted by the user; no model request was sent"}}
@@ -377,7 +424,7 @@ def steering_effects(-EffectRest: Data, phase: D.Phase, id: Nat) -> +List<Effect
   match phase:
     case D.HookPending{ticket, plugin, call, pending, remaining}: [Effects.CancelTicket{id, ticket}]
     case D.ContextPending{ticket, revision, purpose}: [Effects.CancelTicket{id, ticket}]
-    case D.ModelPending{ticket, allowed}: [Effects.CancelTicket{id, ticket}]
+    case D.ModelPending{ticket, allowed, mode}: [Effects.CancelTicket{id, ticket}]
     case D.ReasoningPending{ticket, revision}: [Effects.CancelTicket{id, ticket}]
     case _: Nil{}
 
@@ -385,7 +432,7 @@ def recover_phase(phase: D.Phase) -> D.Phase:
   match phase:
     case D.ContextPending{ticket, revision, D.GenerateContext{}}: D.Ready{Nil{}}
     case D.ContextPending{ticket, revision, D.SummaryContext{}}: D.Idle{}
-    case D.ModelPending{ticket, callable}: D.Ready{Nil{}}
+    case D.ModelPending{ticket, callable, mode}: D.Ready{Nil{}}
     case D.ReasoningPending{ticket, revision}: D.Ready{Nil{}}
     case other: other
 

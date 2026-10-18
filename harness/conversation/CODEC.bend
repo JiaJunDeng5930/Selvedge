@@ -26,8 +26,8 @@ def message_json(message: D.Message) -> J.Json:
         J.Field{"content", D.approval_outcome_json(outcome)}]}
     case D.UserMessage{text}:
       J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]}
-    case D.AssistantMessage{text}:
-      J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]}
+    case D.AssistantMessage{origin, text}:
+      J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"origin", D.output_origin_json(origin)}, J.Field{"content", J.Text{text}}]}
     case D.FunctionCall{call}:
       J.Object{[J.Field{"role", J.Text{"function_call"}}, J.Field{"content", call_json(call)}]}
     case D.FunctionOutput{call_id, value, error}:
@@ -39,8 +39,8 @@ def message_json(message: D.Message) -> J.Json:
         J.Field{"content", value}, J.Field{"is_error", J.Boolean{error}}]}
     case D.FailureMessage{text}:
       J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]}
-    case D.ModelContext{value}:
-      J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", value}]}
+    case D.ModelContext{origin, value}:
+      J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"origin", D.output_origin_json(origin)}, J.Field{"content", value}]}
     case D.ContextReplacement{value}:
       J.Object{[J.Field{"role", J.Text{"context_replacement"}}, J.Field{"content", value}]}
     case D.ReasoningRecord{owner, effort, remaining, sampling}:

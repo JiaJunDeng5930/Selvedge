@@ -37,6 +37,7 @@ import ../../features/board/STATE.bend as Board
 import ./COMPOSITION.bend as Composition
 import ../conversation/MODEL.bend as Conversation
 import ../conversation/CODE.bend as Code
+import ../interactive_markdown/TYPES.bend as IM
 import ../services/MODEL.bend as Services
 import ../session/PROGRAM.bend as ExperienceProgram
 import ../../harness/tasks/PROGRAM.bend as Tasks
@@ -44,6 +45,8 @@ import ../../bendlib/json.bend as J
 import ../../harness/workspace/WORKSPACE.bend as W
 import ../conversation/OUTPUT.bend as Live
 import ../../harness/conversation/PROGRAM.bend as Conversation2
+import ../interactive_markdown/DOCUMENTS.bend as InteractiveDocuments
+import ../interactive_markdown/SCENE.bend as InteractiveScene
 
 law global_navigation_entry_retains_actual_command:
   @+compact:Bool -> @+route:U.Route -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:U.Input -> @+availability:V.Availability -> @+state:InteractionTypes.State ->
@@ -1071,7 +1074,10 @@ def task_reading(+value: V.TaskScene, +parent: Identity.Key, +state: Interaction
   {find_region(Model.page_contents(V.TaskPage{value}, parent, state), Composition.TimelineContent{}) ==
     Some{[Model.region(owner, "timeline", "Conversation", SurfaceTypes.Timeline{},
       List.append(&2, SurfaceTypes.Node, Model.groups(groups, id, Identity.Part{owner, "timeline"}, state),
-        List.append(&2, SurfaceTypes.Node, Model.live_outputs(previews, owner, state), Model.operations(live, owner, state))))]} : Maybe<&2, +List<SurfaceTypes.Node>>}
+        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node,
+          Model.discarded_unfinished_count(E.retained_discarded(id, E.session(Core.application(state))), id, owner),
+          Model.retained_parts(E.retained_parts(id, E.session(Core.application(state))), owner, state)),
+          List.append(&2, SurfaceTypes.Node, Model.live_outputs(previews, owner, state), Model.operations(live, owner, state)))))]} : Maybe<&2, +List<SurfaceTypes.Node>>}
 
 def task_graph_value(scene: V.TaskGraphScene) -> G.Graph:
   V.TaskGraphScene{id, value, nodes, edit, remove} = scene
@@ -1186,6 +1192,20 @@ def expected_speaker_role(speaker: Conversation.Speaker) -> SurfaceTypes.Role:
   match speaker:
     case Conversation.UserSpeech{}: SurfaceTypes.UserMessage{}
     case Conversation.AssistantSpeech{}: SurfaceTypes.AssistantMessage{}
+
+def expected_origin_source(origin: Maybe<&2, D.OutputOrigin>, namespace: String, viewer: Nat, message: Nat) -> Code.Source:
+  match origin:
+    case None{}: Code.Message{viewer, message}
+    case Some{value}: Code.Generated{namespace, viewer, value, True{}}
+
+def expected_message_source(viewer: Nat, id: Nat, message: D.Message, state: InteractionTypes.State) -> Code.Source:
+  expected_origin_source(D.message_origin(message), E.namespace(E.session(Core.application(state))), viewer, id)
+
+def expected_output_key(+source: Code.Source, fallback: Identity.Key) -> Identity.Key:
+  match source:
+    case Code.Generated{namespace, viewer, origin, complete}:
+      Identity.Entity{Identity.Place{"generated-output"}, "part", Code.source_key(source)}
+    case _: fallback
 
 def first_speech_projection(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, SpeechProjection>:
   match nodes:
@@ -1319,8 +1339,8 @@ type CompositionRequirements is Type:
     visible_speaker: @+id:Nat -> @speaker:Conversation.Speaker -> @text:String -> @source:D.Message ->
       @+task:Nat -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {first_speech_projection(Model.groups([Conversation.VisibleSpeech{id, speaker, text, source}], task, parent, state)) ==
-        Some{SpeechProjection{Identity.Entity{parent, "message", Nat.show(id)}, "message/" ++ Nat.show(id), "Message",
-          expected_speaker_role(speaker), SurfaceTypes.RichText{Code.Message{task, id}, text}}} : Maybe<&2, SpeechProjection>},
+        Some{SpeechProjection{expected_output_key(expected_message_source(task, id, source, state), Identity.Entity{parent, "message", Nat.show(id)}), "message/" ++ Nat.show(id), "Message",
+          expected_speaker_role(speaker), SurfaceTypes.RichText{expected_message_source(task, id, source, state), text}}} : Maybe<&2, SpeechProjection>},
     activity_payload: @+id:Nat -> @attention:Maybe<&2, Nat> -> @+expanded:Bool -> @summary:String -> @audit:+List<Conversation.AuditFace> -> @expand:U.Input -> @collapse:U.Input -> @+task:Nat -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.groups([Conversation.VisibleActivity{id, attention, expanded, summary, audit, expand, collapse}], task, parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "activity", Nat.show(id)}, "activity/" ++ Nat.show(id), summary, SurfaceTypes.Activity{}, SurfaceTypes.ActivityContent{expanded, audit},
@@ -2672,6 +2692,322 @@ law inspection_root_precedes_its_retained_dependencies:
   @+decision:Experience.Decision -> @actual:+List<Activity.Relation> -> @+children:+List<+List<SurfaceTypes.Node>> -> @+activity:Activity.Activity -> @current:Activity.View -> @query:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
   {Model.activity_exposed_relation(Activity.DependencySummary{}, Activity.RootDecisionView{decision, actual}, children, activity, current, query, parent, state) ==
     List.append(&2, SurfaceTypes.Node, Model.activity_decision_summary(False{}, activity, decision, parent, state), Model.activity_flatten(children)) : +List<SurfaceTypes.Node>}
+
+def expected_interactive_event(node: IM.ExpandedNode) -> IM.EventIdentity:
+  IM.ExpandedNode{identity, occurrence, tag, attributes, binding, children} = node
+  IM.EventIdentity{identity, occurrence}
+
+law interactive_text_retains_exact_component_owner:
+  @+node:IM.ExpandedNode -> @raw:String ->
+  {Model.bind(SurfaceTypes.InteractiveNode{node}, SurfaceTypes.Change{Forms.Text{raw}}) ==
+    Some{InteractionTypes.Interactive{IM.FieldEdited{expected_interactive_event(node), raw}}} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_checked_retains_exact_component_owner:
+  @+node:IM.ExpandedNode ->
+  {Model.bind(SurfaceTypes.InteractiveNode{node}, SurfaceTypes.Change{Forms.Toggle{True{}}}) ==
+    Some{InteractionTypes.Interactive{IM.FieldEdited{expected_interactive_event(node), "true"}}} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_unchecked_retains_exact_component_owner:
+  @+node:IM.ExpandedNode ->
+  {Model.bind(SurfaceTypes.InteractiveNode{node}, SurfaceTypes.Change{Forms.Toggle{False{}}}) ==
+    Some{InteractionTypes.Interactive{IM.FieldEdited{expected_interactive_event(node), "false"}}} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_press_retains_exact_component_owner:
+  @+node:IM.ExpandedNode ->
+  {Model.bind(SurfaceTypes.InteractiveNode{node}, SurfaceTypes.Press{}) ==
+    Some{InteractionTypes.Interactive{IM.Activated{expected_interactive_event(node)}}} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_enabled_view_retains_command_and_owner:
+  @+event:IM.EventIdentity -> @+command:IM.ViewCommand -> @label:String ->
+  {Model.bind(SurfaceTypes.InteractiveView{event, command, label, True{}}, SurfaceTypes.Press{}) ==
+    Some{InteractionTypes.Interactive{IM.ViewChanged{event, command}}} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_disabled_view_has_no_input:
+  @event:IM.EventIdentity -> @command:IM.ViewCommand -> @label:String ->
+  {Model.bind(SurfaceTypes.InteractiveView{event, command, label, False{}}, SurfaceTypes.Press{}) ==
+    None{} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_region_has_no_control_input:
+  @identity:Code.Identity -> @visible:Bool -> @gesture:SurfaceTypes.Gesture ->
+  {Model.bind(SurfaceTypes.InteractiveRegion{identity, visible}, gesture) == None{} : Maybe<&2, InteractionTypes.Input>}
+
+law interactive_field_focus_follows_enabled:
+  @identity:IM.Identity -> @occurrence:Nat -> @tag:String -> @attributes:J.Json ->
+  @state_id:String -> @schema:IM.StateSchema -> @raw:String -> @canonical:J.Json ->
+  @validation:Maybe<&2, String> -> @+enabled:Bool -> @children:+List<IM.ExpandedNode> ->
+  {Model.focusable(SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes,
+    IM.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}) == enabled : Bool}
+
+law interactive_action_focus_requires_enabled_and_settled:
+  @identity:IM.Identity -> @occurrence:Nat -> @tag:String -> @attributes:J.Json ->
+  @kind:IM.ActionKind -> @+enabled:Bool -> @+pending:Bool -> @children:+List<IM.ExpandedNode> ->
+  {Model.focusable(SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes,
+    IM.ActionBinding{kind, enabled, pending}, children}}) == enabled && Bool.not(pending) : Bool}
+
+law interactive_view_focus_follows_enabled:
+  @event:IM.EventIdentity -> @command:IM.ViewCommand -> @label:String -> @+enabled:Bool ->
+  {Model.focusable(SurfaceTypes.InteractiveView{event, command, label, enabled}) == enabled : Bool}
+
+law interactive_passive_node_has_no_focus:
+  @identity:IM.Identity -> @occurrence:Nat -> @tag:String -> @attributes:J.Json -> @children:+List<IM.ExpandedNode> ->
+  {Model.focusable(SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes,
+    IM.NoBinding{}, children}}) == False{} : Bool}
+
+
+law discarded_unfinished_zero_has_no_notice:
+  @task:Nat -> @parent:Identity.Key ->
+  {Model.discarded_unfinished_count(0n, task, parent) == Nil{} : +List<SurfaceTypes.Node>}
+
+law discarded_unfinished_positive_discloses_count_and_clear_action:
+  @+count:Nat -> @+task:Nat -> @+parent:Identity.Key ->
+  {Model.discarded_unfinished_count(1n+count, task, parent) ==
+    [Model.region(parent, "discarded-unfinished", "未完成回复", SurfaceTypes.Content{},
+      [SurfaceTypes.Node{Identity.Part{parent, "discarded-unfinished-count"}, "discarded-unfinished-count", "", SurfaceTypes.Content{}, SurfaceTypes.Fact{"已有 " ++ Nat.show(1n+count) ++ " 条未完成回复因会话容量限制被移除。"}, Nil{}},
+       Model.product_action(parent, "clear-discarded-unfinished", "清除此提示", InteractionTypes.ApplicationInput{E.ClearDiscarded{task}}, True{})])] : +List<SurfaceTypes.Node>}
+
+# Lookup is the first complete node in parent-before-descendants-before-siblings
+# order. Flattening and a standard list fold specify that order independently
+# of the program's deferred recursive search.
+def preorder_nodes(nodes: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      node <> List.append(&2, SurfaceTypes.Node, preorder_nodes(children), preorder_nodes(rest))
+
+def lookup_node_key(node: SurfaceTypes.Node) -> String:
+  SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+  Identity.encode(key)
+
+def first_named_node_step(+key: String, +node: SurfaceTypes.Node, fallback: Maybe<&2, SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Node>:
+  Bool.pick((Maybe<&2, SurfaceTypes.Node>), String.eq(lookup_node_key(node), key), Some{node}, fallback)
+
+def first_named_flat(nodes: +List<SurfaceTypes.Node>, +key: String) -> Maybe<&2, SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: None{}
+    case Con{node, rest}: first_named_node_step(key, node, first_named_flat(rest, key))
+
+def first_named_node(nodes: +List<SurfaceTypes.Node>, key: String) -> Maybe<&2, SurfaceTypes.Node>:
+  first_named_flat(preorder_nodes(nodes), key)
+
+law complete_node_lookup:
+  @+nodes:+List<SurfaceTypes.Node> -> @+key:String ->
+  {Model.find_node(nodes, key) == first_named_node(nodes, key) : Maybe<&2, SurfaceTypes.Node>}
+
+# Fence order is ordinal order with code controls before UI at the same ordinal.
+# Group equality preserves complete payloads, duplicates and original equal-key order.
+def required_fence_before(left: Model.FenceAttachment, right: Model.FenceAttachment) -> Bool:
+  Model.FenceAttachment{+lo, li, ln} = left
+  Model.FenceAttachment{+ro, ri, rn} = right
+  Nat.is_lt(lo, ro) || (Nat.is_eq(lo, ro) && (Bool.not(li) || ri))
+
+def fence_all_after(+first: Model.FenceAttachment, values: +List<Model.FenceAttachment>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{value, rest}: required_fence_before(first, value) && fence_all_after(first, rest)
+
+def fence_values_ordered(values: +List<Model.FenceAttachment>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{+first, +rest}: fence_all_after(first, rest) && fence_values_ordered(rest)
+
+def same_fence_category(left: Bool, right: Bool) -> Bool:
+  match left right:
+    case False{} False{}: True{}
+    case False{} True{}: False{}
+    case True{} False{}: False{}
+    case True{} True{}: True{}
+
+def fence_in_group(value: Model.FenceAttachment, ordinal: Nat, interactive: Bool) -> Bool:
+  Model.FenceAttachment{value_ordinal, value_interactive, node} = value
+  Nat.is_eq(value_ordinal, ordinal) && same_fence_category(value_interactive, interactive)
+
+def fence_group_step(included: Bool, node: SurfaceTypes.Node, rest: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match included:
+    case False{}: rest
+    case True{}: node <> rest
+
+def fence_group(values: +List<Model.FenceAttachment>, +ordinal: Nat, +interactive: Bool) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Model.FenceAttachment{+vo, +vi, node}, rest}:
+      fence_group_step(Nat.is_eq(vo, ordinal) && same_fence_category(vi, interactive), node,
+        fence_group(rest, ordinal, interactive))
+
+def fence_attachment_node(value: Model.FenceAttachment) -> SurfaceTypes.Node:
+  Model.FenceAttachment{ordinal, interactive, node} = value
+  node
+
+def required_fence_nodes(values: +List<Model.FenceAttachment>) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Model.FenceAttachment{ordinal, interactive, node}, rest}: node <> required_fence_nodes(rest)
+
+type FenceOrder<-input: +List<Model.FenceAttachment>, -output: +List<Model.FenceAttachment>> is Type:
+  FenceOrder{
+    ordered: {fence_values_ordered(output) == True{} : Bool},
+    groups: @+ordinal:Nat -> @+interactive:Bool ->
+      {fence_group(output, ordinal, interactive) == fence_group(input, ordinal, interactive) : +List<SurfaceTypes.Node>}
+  }
+
+def required_attachment_availability(enabled: Bool) -> V.Availability:
+  match enabled:
+    case False{}: V.Unavailable{"Unavailable in the current state"}
+    case True{}: V.Available{}
+
+def required_attachment_action(parent: Identity.Key, +identity: String, label: String,
+  input: InteractionTypes.Input, enabled: Bool) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, SurfaceTypes.Button{},
+    SurfaceTypes.Activate{input, required_attachment_availability(enabled)}, Nil{}}
+
+def required_code_region(value: Code.Scene) -> SurfaceTypes.Node:
+  Code.Scene{+identity, literal, wrap, copy, +enabled, controls} = value
+  SurfaceTypes.Node{Code.ui_identity(identity), Code.key(identity), "Code", SurfaceTypes.CodeBlock{},
+    SurfaceTypes.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}},
+    [required_attachment_action(Code.ui_identity(identity), "copy", "Copy code",
+       InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.Copy{}}}, enabled),
+     required_attachment_action(Code.ui_identity(identity), "wrap", "Toggle word wrap",
+       InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.ToggleWrap{}}}, True{})]}
+
+def required_code_attachment(owned: Bool, scene: Code.Scene, parent: Identity.Key) -> +List<Model.FenceAttachment>:
+  match owned:
+    case False{}: Nil{}
+    case True{}:
+      Code.Scene{+identity, literal, wrap, copy, enabled, controls} = scene
+      Code.Identity{source, ordinal} = identity
+      [Model.FenceAttachment{ordinal, False{}, required_code_region(Code.Scene{identity, literal, wrap, copy, enabled, controls})}]
+
+def required_code_attachments(values: +List<Code.Scene>, +source: Code.Source, +parent: Identity.Key) -> +List<Model.FenceAttachment>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Code.Scene{+identity, literal, wrap, copy, enabled, controls}, rest}:
+      List.append(&2, Model.FenceAttachment,
+        required_code_attachment(Code.belongs(identity, source), Code.Scene{identity, literal, wrap, copy, enabled, controls}, parent),
+        required_code_attachments(rest, source, parent))
+
+def required_source_disclosure(visible: Bool) -> String:
+  match visible:
+    case False{}: "展开源码"
+    case True{}: "收起源码"
+
+def required_interactive_region(+identity: Code.Identity, +visible: Bool, scene: IM.Scene) -> SurfaceTypes.Node:
+  +key: Identity.Key = Identity.Part{Code.ui_identity(identity), "interactive"}
+  SurfaceTypes.Node{key, "interactive-markdown/region", "交互内容", SurfaceTypes.Content{},
+    SurfaceTypes.InteractiveRegion{identity, visible},
+    required_attachment_action(key, "source-disclosure", required_source_disclosure(visible),
+      InteractionTypes.ApplicationInput{E.ToggleInteractiveSource{identity}}, True{}) <> InteractiveScene.nodes(scene)}
+
+def required_interactive_attachments(values: +List<InteractiveDocuments.BlockScene>, +session: E.Session) -> +List<Model.FenceAttachment>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{InteractiveDocuments.BlockScene{+identity, scene}, rest}:
+      Code.Identity{source, ordinal} = identity
+      Model.FenceAttachment{ordinal, True{}, required_interactive_region(identity, E.interactive_source_visible(identity, session), scene)} <>
+        required_interactive_attachments(rest, session)
+
+def admitted_fence_attachments(+source: Code.Source, parent: Identity.Key, codes: +List<Code.Scene>,
+  scenes: +List<InteractiveDocuments.BlockScene>, session: E.Session) -> +List<Model.FenceAttachment>:
+  List.append(&2, Model.FenceAttachment, required_code_attachments(codes, source, parent),
+    required_interactive_attachments(scenes, session))
+
+# Positions are a logical witness of the public Node sequence, not a required runtime representation.
+type FenceAttachments<-input: +List<Model.FenceAttachment>, -nodes: +List<SurfaceTypes.Node>> is Type:
+  FenceAttachments{
+    positions: +List<Model.FenceAttachment>,
+    payloads: {required_fence_nodes(positions) == nodes : +List<SurfaceTypes.Node>},
+    order: FenceOrder<input, positions>
+  }
+
+def output_attachment_input(+source: Code.Source, parent: Identity.Key, +state: InteractionTypes.State) -> +List<Model.FenceAttachment>:
+  +session = E.session(Core.application(state))
+  admitted_fence_attachments(source, parent, Core.code_scenes(Core.application(state)),
+    E.interactive_scenes(source, session), session)
+
+def OutputAttachments(+source: Code.Source, parent: Identity.Key, state: InteractionTypes.State,
+  nodes: +List<SurfaceTypes.Node>) -> Type:
+  FenceAttachments<output_attachment_input(source, parent, state), nodes>
+
+law fence_order_complete:
+  @+values:+List<Model.FenceAttachment> -> FenceOrder<values, Model.ordered_fence_attachments(values)>
+
+law fence_attachments_complete:
+  @+source:Code.Source -> @+parent:Identity.Key -> @+codes:+List<Code.Scene> ->
+  @+scenes:+List<InteractiveDocuments.BlockScene> -> @+session:E.Session ->
+  FenceAttachments<admitted_fence_attachments(source, parent, codes, scenes, session),
+    Model.fence_attachments(source, parent, codes, scenes, session)>
+
+law output_attachments_complete:
+  @+source:Code.Source -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  OutputAttachments(source, parent, state, Model.output_attachments(source, parent, state))
+
+def message_frame(+id: Nat, speaker: Conversation.Speaker, text: String, message: D.Message,
+  +task: Nat, +parent: Identity.Key, +state: InteractionTypes.State, children: +List<SurfaceTypes.Node>) -> SurfaceTypes.Node:
+  +source = expected_message_source(task, id, message, state)
+  +key = expected_output_key(source, Identity.Entity{parent, "message", Nat.show(id)})
+  SurfaceTypes.Node{key, "message/" ++ Nat.show(id), "Message", expected_speaker_role(speaker),
+    SurfaceTypes.RichText{source, text}, children}
+
+def expected_preview_origin(origin: Maybe<&2, D.OutputOrigin>, namespace: String, +viewer: Nat, +operation: Nat, +part: Nat) -> Code.Source:
+  match origin:
+    case None{}: Code.StreamingPart{viewer, operation, part}
+    case Some{value}: Code.Generated{namespace, viewer, value, False{}}
+
+def expected_preview_source(+viewer: Nat, +operation: Nat, +part: Nat, +state: InteractionTypes.State) -> Code.Source:
+  expected_preview_origin(Live.origin(Live.Output{viewer, operation, Nil{}}, part, E.program(Core.application(state))),
+    E.namespace(E.session(Core.application(state))), viewer, operation, part)
+
+type MessageAttachments<-source: Code.Source, -parent: Identity.Key, -state: InteractionTypes.State,
+  -node: SurfaceTypes.Node, -frame: +List<SurfaceTypes.Node> -> SurfaceTypes.Node> is Type:
+  MessageAttachments{
+    children: +List<SurfaceTypes.Node>,
+    complete: {node == frame(children) : SurfaceTypes.Node},
+    attachments: OutputAttachments(source, parent, state, children)
+  }
+
+def SpeechAttachments(+id: Nat, speaker: Conversation.Speaker, text: String, +message: D.Message,
+  +task: Nat, +parent: Identity.Key, +state: InteractionTypes.State, node: SurfaceTypes.Node) -> Type:
+  +source = expected_message_source(task, id, message, state)
+  +key = expected_output_key(source, Identity.Entity{parent, "message", Nat.show(id)})
+  MessageAttachments<source, key, state, node,
+    (children => message_frame(id, speaker, text, message, task, parent, state, children))>
+
+def LivePartAttachments(+part: Nat, text: String, +task: Nat, operation: Nat,
+  +parent: Identity.Key, +state: InteractionTypes.State, node: SurfaceTypes.Node) -> Type:
+  +source = expected_preview_source(task, operation, part, state)
+  +key = expected_output_key(source, Identity.Entity{parent, "part", Nat.show(part)})
+  MessageAttachments<source, key, state, node,
+    (children => SurfaceTypes.Node{key, "generated-output", "Agent output", SurfaceTypes.AssistantMessage{},
+      SurfaceTypes.RichText{source, text}, children})>
+
+type RetainedMessage<-source: Code.Source, -text: String, -parent: Identity.Key,
+  -state: InteractionTypes.State, -nodes: +List<SurfaceTypes.Node>> is Type:
+  RetainedMessage{
+    children: +List<SurfaceTypes.Node>,
+    complete: {nodes == [SurfaceTypes.Node{expected_output_key(source, parent), "generated-output", "Interrupted output",
+      SurfaceTypes.AssistantMessage{}, SurfaceTypes.RichText{source, text}, children}] : +List<SurfaceTypes.Node>},
+    attachments: OutputAttachments(source, parent, state, children)
+  }
+
+def RetainedAttachments(source: Code.Source, text: String, parent: Identity.Key,
+  state: InteractionTypes.State, visible: Bool, nodes: +List<SurfaceTypes.Node>) -> Type:
+  match visible:
+    case False{}: {nodes == Nil{} : +List<SurfaceTypes.Node>}
+    case True{}: RetainedMessage<source, text, parent, state, nodes>
+
+law speech_attachments_complete:
+  @+id:Nat -> @+speaker:Conversation.Speaker -> @+text:String -> @+message:D.Message ->
+  @+task:Nat -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  SpeechAttachments(id, speaker, text, message, task, parent, state,
+    Model.speech_node(id, speaker, text, message, task, parent, state))
+
+law live_part_attachments_complete:
+  @+part:Nat -> @+text:String -> @+task:Nat -> @+operation:Nat -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  LivePartAttachments(part, text, task, operation, parent, state,
+    Model.live_part_node(part, text, task, operation, parent, state))
+
+law retained_attachments_complete:
+  @+source:Code.Source -> @+text:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+visible:Bool ->
+  RetainedAttachments(source, text, parent, state, visible, Model.retained_output(source, text, parent, state, visible))
 
 law workspace_worktree_choice_retains_its_creation_scope:
   @+work:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->

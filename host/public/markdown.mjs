@@ -15,13 +15,13 @@ function paint(time) {
   }
   if (displayJobs.size && displayFrame === null) displayFrame = requestAnimationFrame(paint);
 }
-function scheduleDisplay(callback) {
+export function scheduleDisplay(callback) {
   const id = ++displayId;
   displayJobs.set(id, callback);
   if (displayFrame === null) displayFrame = requestAnimationFrame(paint);
   return id;
 }
-function cancelDisplay(id) {
+export function cancelDisplay(id) {
   displayJobs.delete(id);
   if (!displayJobs.size && displayFrame !== null) { cancelAnimationFrame(displayFrame); displayFrame = null; }
 }
@@ -33,6 +33,7 @@ export class PacedText {
     Object.assign(this, { write, end, frame, cancel, smooth, target: '', visible: 0, done: false, stopped: false, scheduled: null, last: -Infinity });
     this.finished = null;
     this.completion = new Promise(resolve => { this.resolveCompletion = resolve; });
+    this.prefixWaiters = new Set();
     this.metrics = { characters: 0, batches: 0, largestBatch: 0, maxParseMs: 0 };
   }
   append(text) {
@@ -43,6 +44,19 @@ export class PacedText {
     this.schedule();
   }
   finish() { this.done = true; this.schedule(); }
+  whenCaughtUp(length = this.target.length) {
+    if (!Number.isSafeInteger(length) || length < 0 || length > this.target.length) throw new RangeError('Markdown prefix is outside the current input');
+    if (this.visible >= length) return Promise.resolve(!this.stopped || this.finished === true);
+    if (this.stopped) return Promise.resolve(false);
+    return new Promise(resolve => this.prefixWaiters.add({ length, resolve }));
+  }
+  settlePrefixes(alive = true) {
+    for (const waiter of this.prefixWaiters) {
+      if (!alive || this.visible >= waiter.length) {
+        this.prefixWaiters.delete(waiter); waiter.resolve(alive);
+      }
+    }
+  }
   schedule() {
     if (!this.stopped && this.scheduled === null) this.scheduled = this.frame(time => this.tick(time));
   }
@@ -65,6 +79,7 @@ export class PacedText {
       this.write(chunk);
       this.metrics.maxParseMs = Math.max(this.metrics.maxParseMs, performance.now() - start);
       this.visible = end;
+      this.settlePrefixes();
     }
     if (this.visible < this.target.length) this.schedule();
     else if (this.done) {
@@ -72,6 +87,7 @@ export class PacedText {
       const start = performance.now(); this.end();
       this.metrics.maxParseMs = Math.max(this.metrics.maxParseMs, performance.now() - start);
       if (this.finished === null) { this.finished = true; this.resolveCompletion(true); }
+      this.settlePrefixes();
     }
   }
   whenFinished() { return this.completion; }
@@ -80,6 +96,7 @@ export class PacedText {
     if (this.scheduled !== null) this.cancel(this.scheduled);
     this.scheduled = null;
     if (this.finished === null) { this.finished = false; this.resolveCompletion(false); }
+    this.settlePrefixes(false);
   }
 }
 
@@ -274,15 +291,19 @@ export class Markdown {
         if ([smd.CODE_BLOCK, smd.CODE_FENCE].includes(type)) {
           const block = document.createElement('div'); block.className = 'code-block';
           const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
+          const ui = document.createElement('div'); ui.className = 'interactive-markdown-target';
           const pre = document.createElement('pre'); node = document.createElement('code');
           const identity = ordinal++;
           const key = options.codeKey?.(identity);
           if (key) {
             options.target?.(`${key}/toolbar`, toolbar);
             options.target?.(`${key}/code`, node);
+            options.target?.(`${key}/source`, pre);
+            options.target?.(`${key}/ui`, ui);
+            options.target?.(`${key}/frame`, block);
           }
           codeSources.set(node, { ordinal: identity, text: null });
-          pre.append(node); block.append(toolbar, pre); parent.append(block);
+          pre.append(node); block.append(toolbar, pre, ui); parent.append(block);
         } else {
           node = document.createElement(tags.get(type) ?? 'span');
           if (type === smd.TABLE) {
@@ -327,6 +348,13 @@ export class Markdown {
   get text() { return this.buffer.target; }
   append(text) { this.buffer.append(text); }
   finish() { this.buffer.finish(); }
+  async whenCaughtUp(length = this.buffer.target.length) {
+    if (!await this.buffer.whenCaughtUp(length) || this.disposed) return false;
+    // A measurement snapshot waits only for work already introduced by its prefix.
+    const decorations = [...this.decorations];
+    if ((await Promise.all(decorations)).some(done => !done)) return false;
+    return !this.disposed;
+  }
   // Parser and formatting completion excludes image decoding and document fonts.
   whenSettled() { return this.disposed ? Promise.resolve(false) : this.settled; }
   settleIfFinished() {

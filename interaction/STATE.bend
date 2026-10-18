@@ -313,6 +313,7 @@ def edit_field(+editor: U.Editor, field: Forms.Field, value: Forms.Value, +appli
 def dispatch(state: InteractionTypes.State, +input: InteractionTypes.Input) -> InteractionTypes.Decision:
   InteractionTypes.State{+application, +services} = state
   match input:
+    case InteractionTypes.Interactive{input}: application_result(ExperienceProgram.step(E.InteractiveInput{input}, application), services)
     case InteractionTypes.ApplicationInput{+input}: application_admitted(Categories.admit(ApplicationRequest, application_available, ApplicationRequest{input, application, services}), application, services)
     case InteractionTypes.ServiceInput{+input}: service_input(input, application, services)
     case InteractionTypes.EditField{editor, field, value}: application_result(edit_field(editor, field, value, application), services)

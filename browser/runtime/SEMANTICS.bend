@@ -1,4 +1,7 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
+import ../../interaction/interactive_markdown/TYPES.bend as IM
+import ../../interaction/interactive_markdown/DOCUMENTS.bend as InteractiveDocuments
 import ../document/presentation-order.bend as Order
 import ../../interaction/submission/MODEL.bend as Receipt
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -73,6 +76,9 @@ type Input is Data:
 
 type Effect is Data:
   PersistModelPreference{profile: String, reasoning: String}
+  InteractiveEffect{effect: IM.Effect}
+  ObserveInteractiveMarkdown{document: InteractiveDocuments.Document}
+  ForgetInteractiveMarkdown{key: String}
   BrowserEffect{effect: Web.Effect}
   Command{ticket: Nat, command: J.Json}
   Service{effect: Services.Effect}
@@ -132,7 +138,7 @@ def contains_command(pending: +List<Pending>, +command: J.Json) -> Bool:
 def busy(pending: +List<Pending>, +key: String) -> Bool:
   match pending:
     case Nil{}: False{}
-    case Con{Pending{ticket, completion, text, origin, status}, rest}: String.eq(origin, key) || busy(rest, key)
+    case Con{Pending{ticket, completion, text, origin, status}, rest}: SafeText.string_equal(origin, key) || busy(rest, key)
 
 def mask_meaning(blocked: Bool, meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
   match blocked meaning:
@@ -190,9 +196,24 @@ def remove(pending: +List<Pending>, +ticket: Nat) -> +List<Pending>:
       Pending{current, completion, text, origin, status} = entry
       choose_removed(Nat.is_eq(current, ticket), entry, remove(rest, ticket))
 
+def duplicate_completed(decision: Web.Decision, sequence: Nat, next: Nat,
+  pending: +List<Pending>, receipt: Maybe<&2, Receipt.Receipt>) -> Decision:
+  Web.Decision{web, InteractionTypes.Decision{core, reply, runtime, interaction, services, durable}, effects} = decision
+  Decision{State{web, sequence, next, pending, receipt},
+    List.append(&2, Effect, wrap_web(effects), wrap_services(services))}
+
+def duplicate_request(completion: E.Completion, state: State) -> Decision:
+  match completion:
+    case E.InteractiveCompletion{owner, path, ticket}:
+      State{web, sequence, next, pending, receipt} = state
+      duplicate_completed(Web.step(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{
+        InteractionTypes.Interactive{IM.EffectCompleted{owner, path, ticket, False{}, "This command is already pending"}}}}}, web),
+        sequence, next, pending, receipt)
+    case _: Decision{state, Nil{}}
+
 def request_ready(duplicate: Bool, +command: J.Json, completion: E.Completion, origin: String, state: State) -> Decision:
   match duplicate:
-    case True{}: Decision{state, Nil{}}
+    case True{}: duplicate_request(completion, state)
     case False{}:
       State{web, sequence, +next, pending, receipt} = state
       Decision{State{web, sequence, (next + 1n : Nat), List.append(&2, Pending, pending, [Pending{next, completion, command, origin, AwaitingReceipt{}}]), None{}}, [Command{next, command}]}
@@ -344,14 +365,11 @@ def network_gesture(sandbox: D.Sandbox, enabled: Bool) -> Maybe<&2, SurfaceTypes
 
 def toggle_gesture(found: Maybe<&2, SurfaceTypes.Node>, enabled: Bool) -> Maybe<&2, SurfaceTypes.Gesture>:
   match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{node}, children}}: Some{SurfaceTypes.Change{Forms.Toggle{enabled}}}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{previous, profile}, choices}, children}}: Some{SurfaceTypes.Change{Forms.Assistance{enabled, profile}}}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, choices}, children}}: network_gesture(Context.unwrap_sandbox(sandbox), enabled)
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{previous}, choices}, children}}: Some{SurfaceTypes.Change{Forms.Toggle{enabled}}}
     case _: None{}
-
-def pending_of(state: State) -> +List<Pending>:
-  State{web, sequence, next, pending, receipt} = state
-  pending
 
 def request_payload(command: M.Command) -> J.Json:
   Request.client(Codec.command_json(command))
@@ -360,7 +378,10 @@ def collect_one(effect: E.Effect, origin: String, +state: State) -> Decision:
   match effect:
     case E.RequestCommand{command, completion}:
       +wire = request_payload(command)
-      request_ready(contains_command(pending_of(state), wire), wire, completion, origin, state)
+      request_ready(contains_command(pending(state), wire), wire, completion, origin, state)
+    case E.InteractiveEffect{effect}: Decision{state, [InteractiveEffect{effect}]}
+    case E.ObserveInteractiveMarkdown{document}: Decision{state, [ObserveInteractiveMarkdown{document}]}
+    case E.ForgetInteractiveMarkdown{key}: Decision{state, [ForgetInteractiveMarkdown{key}]}
     case E.PersistModelPreference{profile, reasoning}: Decision{state, [PersistModelPreference{profile, reasoning}]}
     case E.ObserveWorkspaceGit{ticket, primary}: Decision{state, [WorkspaceGit{ticket, primary}]}
     case E.ObserveDirectories{ticket, entered}: Decision{state, [Directories{ticket, entered}]}
@@ -523,6 +544,13 @@ def directories_completed(ticket: Nat, ok: Bool, +body: J.Json, state: State) ->
       guidance = Workspace.read_guidance(J.get(body, "guidance"), workspace, D.NoProject{})
       product_input(Product.Directories{ticket, Done{Context.DirectoryObservation{workspace, guidance}}}, state)
 
+def namespace_reset(changed: Bool, state: State) -> State:
+  match changed:
+    case False{}: state
+    case True{}:
+      State{web, sequence, next, pending, receipt} = state
+      State{web, sequence, next, Nil{}, None{}}
+
 def snapshot_new(newer: Bool, sequence: Nat, world: M.World(), state: State) -> Decision:
   match newer:
     case False{}: Decision{state, Nil{}}
@@ -565,8 +593,21 @@ def streams_fold(values: +List<J.Json>, decision: Decision) -> Decision:
     case Con{value, rest} Decision{state, effects}:
       streams_fold(rest, append_decision(effects, product_input(Product.LiveOutput{Live.PartialOutput{stream_output(value)}}, state)))
 
-def streams(body: J.Json, state: State) -> Decision:
-  streams_fold(J.items(J.get(body, "streams")), product_input(Product.LiveOutput{Live.ConnectionEnded{}}, state))
+def streams_decoded(output: Maybe<&2, Live.Output>, state: State) -> Decision:
+  match output:
+    case None{}: Decision{state, Nil{}}
+    case Some{value}: product_input(Product.LiveOutput{Live.PartialOutput{value}}, state)
+
+def streams_namespace_fold(values: +List<J.Json>, +namespace: String, decision: Decision) -> Decision:
+  match values decision:
+    case Nil{} Decision{state, effects}: Decision{state, effects}
+    case Con{value, rest} Decision{+state, effects}:
+      streams_namespace_fold(rest, namespace, append_decision(effects, streams_decoded(Live.decode_namespace(value, namespace, program(state)), state)))
+
+def streams(body: J.Json, +state: State) -> Decision:
+  State{+web, sequence, next, pending, receipt} = state
+  +namespace = E.namespace(E.session(Core.application(Platform.core(Web.application(web)))))
+  streams_namespace_fold(J.items(J.get(body, "streams")), namespace, product_input(Product.LiveOutput{Live.ConnectionEnded{}}, state))
 
 def complete_ticket(ticket: Nat, +received: Nat, supplied: M.World(), reply: J.Json, completion: E.Completion, state: State) -> Decision:
   State{web, +current, next, pending, receipt} = state
@@ -679,6 +720,7 @@ def field_text(editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: 
 
 def gesture_text(meaning: SurfaceTypes.Meaning, text: String, state: State) -> Maybe<&2, SurfaceTypes.Gesture>:
   match meaning:
+    case SurfaceTypes.InteractiveNode{node}: Some{SurfaceTypes.Change{Forms.Text{text}}}
     case SurfaceTypes.SearchChoices{query}: Some{SurfaceTypes.Search{text}}
     case SurfaceTypes.EnterDirectory{editor, current}: Some{SurfaceTypes.Directory{text}}
     case SurfaceTypes.DirectoryBrowserLocation{value}: Some{SurfaceTypes.Directory{text}}
@@ -807,7 +849,10 @@ def outside_target(+identity: String, found: Maybe<&2, DismissTarget>, current_l
 
 def current_layer_key(+state: State) -> Maybe<&2, String>:
   State{web, sequence, next, pending, receipt} = state
-  semantic_layer_key(Web.observed_surface(web))
+  +application = Web.application(web)
+  +core = Platform.core(application)
+  +platform = Platform.platform(application)
+  InterfaceView.observed_scope(Web.capacity(platform), core)
 
 def outside_event(+identity: String, +state: State) -> OutsideDecision:
   outside_target(identity, dismiss_target(nodes(state)), current_layer_key(state), state)

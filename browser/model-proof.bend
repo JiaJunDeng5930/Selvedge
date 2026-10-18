@@ -1,4 +1,5 @@
 import Base
+import ./appearance/FONT.bend as F
 import ./focus/MODEL.bend as Focus
 import ./MODEL.bend as Model
 import ./document/RENDERED.bend as Rendered
@@ -6,7 +7,9 @@ import ./document/SPEC.bend as Spec
 import ./document/CONTRACT.bend as RenderRules
 import ./model-rules.bend as Rule
 import ./runtime/PLATFORM.bend as Platform
+import ../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../interaction/TYPES.bend as InteractionTypes
 
 def Rule.resolved_scope_focus(ticket, previous, current, surface): {==}
 
@@ -72,3 +75,69 @@ def Rule.observed_realization_sound(model_state, received, surface, frame, owned
   match application:
     case Platform.State{core, Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}}:
       observation_sound(RenderRules.evidence, generation, received, surface, frame, previous, owned, realized)
+
+
+def focus_delivery_policy(ticket: Nat, selected: Maybe<&2, String>) ->
+  {Model.resolved_focus(ticket, selected) == Rule.focus_delivery(ticket, selected) : +List<Model.Effect>}:
+  match selected:
+    case None{}: {==}
+    case Some{identity}: {==}
+
+def content_focus_delivery_policy(owned: Bool, ticket: Nat, owner: String, identity: String) ->
+  {Model.resolved_content_focus(owned, ticket, owner, identity) == Rule.content_focus_delivery(owned, ticket, owner, identity) : +List<Model.Effect>}:
+  match owned:
+    case False{}: {==}
+    case True{}: {==}
+
+def resolved_effect_delivery(+effect: Platform.Effect, +surface: SurfaceTypes.Surface) ->
+  {Model.resolved_effect(effect, surface) == Rule.delivered_effect(effect, surface) : +List<Model.Effect>}:
+  match effect:
+    case Platform.Focus{ticket, Focus.Product{requested}}:
+      focus_delivery_policy(ticket, InterfaceView.focus_target(surface, requested))
+    case Platform.Focus{ticket, Focus.Content{+owner, identity}}:
+      content_focus_delivery_policy(Platform.found_content_owner(InterfaceView.find_node(InterfaceView.active_nodes(surface), owner)), ticket, owner, identity)
+    case Platform.ScopeFocus{ticket, previous, current}:
+      focus_delivery_policy(ticket, InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)))
+    case Platform.ApplyReading{task, generation, effect}: {==}
+    case Platform.Clipboard{block, effect}: {==}
+
+def platform_effect_delivery(+source: +List<Platform.Effect>, +surface: SurfaceTypes.Surface) ->
+  {Model.platform_effects(source, surface) == Rule.delivered_effects(source, surface) : +List<Model.Effect>}:
+  match source:
+    case Nil{}: {==}
+    case Con{+first, +rest}:
+      Equal.trans((+List<Model.Effect>),
+        List.append(&2, Model.Effect, Model.resolved_effect(first, surface), Model.platform_effects(rest, surface)),
+        List.append(&2, Model.Effect, Rule.delivered_effect(first, surface), Model.platform_effects(rest, surface)),
+        Rule.delivered_effects(first <> rest, surface),
+        Equal.cong((+List<Model.Effect>), (+List<Model.Effect>),
+          (head => List.append(&2, Model.Effect, head, Model.platform_effects(rest, surface))),
+          Model.resolved_effect(first, surface), Rule.delivered_effect(first, surface), resolved_effect_delivery(first, surface)),
+        Equal.cong((+List<Model.Effect>), (+List<Model.Effect>),
+          (tail => List.append(&2, Model.Effect, Rule.delivered_effect(first, surface), tail)),
+          Model.platform_effects(rest, surface), Rule.delivered_effects(rest, surface), platform_effect_delivery(rest, surface)))
+
+def deferred_effect_delivery(+source: +List<Platform.Effect>, +surface: SurfaceTypes.Surface) ->
+  {Model.deferred_platform_effects(source, (_ => surface)) == Rule.delivered_effects(source, surface) : +List<Model.Effect>}:
+  match source:
+    case Nil{}: {==}
+    case Con{Platform.Focus{+ticket, +target}, +rest}:
+      platform_effect_delivery(Platform.Focus{ticket, target} <> rest, surface)
+    case Con{Platform.ScopeFocus{+ticket, +previous, +current}, +rest}:
+      platform_effect_delivery(Platform.ScopeFocus{ticket, previous, current} <> rest, surface)
+    case Con{Platform.ApplyReading{+task, +generation, +effect}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.PlatformEffect{Platform.ApplyReading{task, generation, effect}} <> tail),
+        Model.deferred_platform_effects(rest, (_ => surface)), Rule.delivered_effects(rest, surface), deferred_effect_delivery(rest, surface))
+    case Con{Platform.Clipboard{+block, +effect}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.PlatformEffect{Platform.Clipboard{block, effect}} <> tail),
+        Model.deferred_platform_effects(rest, (_ => surface)), Rule.delivered_effects(rest, surface), deferred_effect_delivery(rest, surface))
+
+def Rule.production_commit_complete(decision, generation, environment, font):
+  Platform.Decision{+product, +platform, +source} = decision
+  InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable} = product
+  +application: Platform.State = Platform.next(Platform.Decision{product, platform, source})
+  Equal.cong(+List<Model.Effect>, Model.Decision,
+    (result => Model.Decision{Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)}, product, result}),
+    Model.deferred_platform_effects(source, (_ => Model.observed_surface(Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, font}))),
+    Rule.delivered_effects(source, Model.observed_surface(Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, font})),
+    deferred_effect_delivery(source, Model.observed_surface(Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, font})))

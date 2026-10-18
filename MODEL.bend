@@ -160,7 +160,7 @@ type DisplayOperations<-World: Data, -ApplicationState: Data, -Input: Data, -Eff
     effects: Decision -> +List<Effect>,
     observe: Nat -> State -> Document,
     publication: Nat -> Nat -> State -> Publication,
-    pending: State -> Bool,
+    pending: Nat -> State -> Bool,
     updates: State -> Fields,
     retain: Fields -> Publication}
 
@@ -175,11 +175,11 @@ def display_composed(-World: Data, -ApplicationState: Data, -Input: Data, -Effec
   match ops:
     case DisplayOperations{initial, application, program, run, state, effects, observe, publication, pending, updates, retain}: DisplayComposition<World, ApplicationState, State, initial, application, program, Initialize, Program>
 
-type DisplayRetention<-State: Data, -Publication: Data, -Fields: Data, -publication: Nat -> Nat -> State -> Publication, -pending: State -> Bool, -updates: State -> Fields, -retain: Fields -> Publication> is Type:
+type DisplayRetention<-State: Data, -Publication: Data, -Fields: Data, -publication: Nat -> Nat -> State -> Publication, -pending: Nat -> State -> Bool, -updates: State -> Fields, -retain: Fields -> Publication> is Type:
   DisplayRetention{
     pending_retention: @+capacity:Nat -> @+last:Nat -> @+s:State ->
       @published:{Bool.not(Nat.is_eq(last, 0n)) == True{} : Bool} ->
-      @pending_state:{pending(s) == True{} : Bool} ->
+      @pending_state:{pending(last, s) == True{} : Bool} ->
       {publication(capacity, last, s) == retain(updates(s)) : Publication}}
 
 def display_retaining(-World: Data, -ApplicationState: Data, -Input: Data, -Effect: Data, -State: Data, -Decision: Data, -Publication: Data, -Fields: Data, -Document: Data, -Initialize: World -> Nat -> ApplicationState, -Program: ApplicationState -> World, ops: DisplayOperations<World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document>) -> Type:
@@ -434,7 +434,7 @@ def display_field_publication(-World: Data, -ApplicationState: Data, -Input: Dat
   DisplayOperations{initial, application, program, run, state, effects, observe, publication, pending, updates, retain} = ops
   publication
 
-def display_field_pending(-World: Data, -ApplicationState: Data, -Input: Data, -Effect: Data, -State: Data, -Decision: Data, -Publication: Data, -Fields: Data, -Document: Data, ops: DisplayOperations<World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document>) -> State -> Bool:
+def display_field_pending(-World: Data, -ApplicationState: Data, -Input: Data, -Effect: Data, -State: Data, -Decision: Data, -Publication: Data, -Fields: Data, -Document: Data, ops: DisplayOperations<World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document>) -> Nat -> State -> Bool:
   DisplayOperations{initial, application, program, run, state, effects, observe, publication, pending, updates, retain} = ops
   pending
 
@@ -456,7 +456,7 @@ type DisplayFaithfulness<-World: Data, -ApplicationState: Data, -Input: Data, -E
     effects: @+a0:Decision -> {display_field_effects(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(a0) == display_field_effects(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(a0) : +List<Effect>},
     observe: @+a0:Nat -> @+a1:State -> {display_field_observe(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(a0, a1) == display_field_observe(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(a0, a1) : Document},
     publication: @+a0:Nat -> @+a1:Nat -> @+a2:State -> {display_field_publication(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(a0, a1, a2) == display_field_publication(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(a0, a1, a2) : Publication},
-    pending: @+a0:State -> {display_field_pending(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(a0) == display_field_pending(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(a0) : Bool},
+    pending: @+last:Nat -> @+a0:State -> {display_field_pending(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(last, a0) == display_field_pending(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(last, a0) : Bool},
     updates: @+a0:State -> {display_field_updates(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(a0) == display_field_updates(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(a0) : Fields},
     retain: @+a0:Fields -> {display_field_retain(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, operations)(a0) == display_field_retain(World, ApplicationState, Input, Effect, State, Decision, Publication, Fields, Document, specification)(a0) : Publication}}
 

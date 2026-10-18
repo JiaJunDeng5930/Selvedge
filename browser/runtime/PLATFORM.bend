@@ -14,6 +14,7 @@ import ../../interaction/conversation/CODE.bend as Code
 import ../controls/GEOMETRY.bend as Physical
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/interactive_markdown/TYPES.bend as IM
 
 type Platform is Data:
   Platform{readers: +List<Finite.Entry(Reading.Bookmark)>, editors: +List<Editor.Editor>,
@@ -294,6 +295,7 @@ def active_focus(core: InteractionTypes.State, capacity: View.Capacity, identity
 
 def found_content_owner(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
   match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, binding, original}}, children}}: String.eq(tag, "markdown")
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReadOnly{text}, children}}: True{}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InformationText{information_role}, children}}: True{}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.RichText{source, value}, children}}: True{}
@@ -302,25 +304,46 @@ def found_content_owner(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
 def active_content_owner(core: InteractionTypes.State, capacity: View.Capacity, owner: String) -> Bool:
   found_content_owner(InterfaceView.find_node(InterfaceView.active_nodes(InterfaceView.observe(capacity, core)), owner))
 
+def active_target_on(+surface: SurfaceTypes.Surface, target: Focus.Target) -> Bool:
+  match target:
+    case Focus.Product{identity}: found_focus(InterfaceView.find_node(InterfaceView.active_nodes(surface), identity))
+    case Focus.Content{owner, identity}: found_content_owner(InterfaceView.find_node(InterfaceView.active_nodes(surface), owner))
+
 def active_target(+core: InteractionTypes.State, +capacity: View.Capacity, target: Focus.Target) -> Bool:
   match target:
     case Focus.Product{identity}: active_focus(core, capacity, identity)
     case Focus.Content{owner, identity}: active_content_owner(core, capacity, owner)
 
-def after_core_scoped(decision: InteractionTypes.Decision, platform: Platform, +current_scope: Focus.Scope) -> Decision:
+def focus_transition_on(previous: Focus.Scope, current: Focus.Scope, +focused: Focus.Target,
+  surface: SurfaceTypes.Surface) -> Bool:
+  match current:
+    case Focus.Document{}: focus_transition(previous, Focus.Document{}, focused, False{})
+    case Focus.Temporary{identity, initial, restore, occurrence}:
+      focus_transition(previous, Focus.Temporary{identity, initial, restore, occurrence}, focused, active_target_on(surface, focused))
+
+def after_core_surface(decision: InteractionTypes.Decision, platform: Platform, +current_scope: Focus.Scope,
+  surface: SurfaceTypes.Surface) -> Decision:
   InteractionTypes.Decision{+observed_state_1, reply, runtime, +interaction, service, durable} = decision
   Platform{+readers, editors, +focused, +ticket, reduced, +capacity, +scope} = platform
   +application = Core.application(observed_state_1)
-  +transition = focus_transition(scope, current_scope, focused, active_target(observed_state_1, capacity, focused))
+  +transition = focus_transition_on(scope, current_scope, focused, surface)
   Decision{InteractionTypes.Decision{observed_state_1, reply, runtime, interaction, service, durable},
     Platform{readers, synchronize_editors(editors, application), focused, focus_revision(transition, interaction, ticket), reduced, capacity, current_scope},
     List.append(&2, Effect, scope_effects(transition, scope, current_scope, interaction, focus_revision(transition, interaction, ticket)), layout_for(application, readers))}
 
+def after_core_scoped(decision: InteractionTypes.Decision, platform: Platform, current_scope: Focus.Scope) -> Decision:
+  InteractionTypes.Decision{+state, reply, runtime, interaction, services, durable} = decision
+  Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
+  after_core_surface(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable},
+    Platform{readers, editors, focused, ticket, reduced, capacity, scope}, current_scope, InterfaceView.observe(capacity, state))
+
 def after_core(decision: InteractionTypes.Decision, platform: Platform) -> Decision:
   InteractionTypes.Decision{+state, reply, runtime, interaction, services, durable} = decision
   Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
-  after_core_scoped(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable},
-    Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Focus.current(state, capacity))
+  +surface: SurfaceTypes.Surface = InterfaceView.observe(capacity, state)
+  after_core_surface(InteractionTypes.Decision{state, reply, runtime, interaction, services, durable},
+    Platform{readers, editors, focused, ticket, reduced, capacity, scope},
+    Focus.realized_scope(surface, Focus.logical_scope(state, capacity)), surface)
 
 def submit_from_platform(core: InteractionTypes.State, owner: U.Editor, +platform: Platform) -> Decision:
   Platform{readers, editors, focused, ticket, reduced, +capacity, scope} = platform
@@ -403,13 +426,27 @@ def realized_effects(+surface: SurfaceTypes.Surface, effects: +List<Effect>) -> 
       realized_product_focus(InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)), ticket, realized_effects(surface, rest))
     case Con{effect, rest}: effect <> realized_effects(surface, rest)
 
+def deferred_realized_effects(source: +List<Effect>, surface: Unit -> SurfaceTypes.Surface) -> +List<Effect>:
+  match source:
+    case Nil{}: Nil{}
+    case Con{Focus{ticket, Focus.Product{requested}}, rest}:
+      realized_effects(surface(Unit{}), Focus{ticket, Focus.Product{requested}} <> rest)
+    case Con{ScopeFocus{ticket, previous, current}, rest}:
+      realized_effects(surface(Unit{}), ScopeFocus{ticket, previous, current} <> rest)
+    case Con{Focus{ticket, Focus.Content{owner, identity}}, rest}:
+      Focus{ticket, Focus.Content{owner, identity}} <> deferred_realized_effects(rest, surface)
+    case Con{ApplyReading{task, generation, effect}, rest}:
+      ApplyReading{task, generation, effect} <> deferred_realized_effects(rest, surface)
+    case Con{Clipboard{block, effect}, rest}:
+      Clipboard{block, effect} <> deferred_realized_effects(rest, surface)
+
 def realized_decision(decision: Decision) -> Decision:
   Decision{InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable},
     Platform{readers, editors, focused, ticket, reduced, +capacity, scope}, effects} = decision
   # NOTE: Resolve product focus once against the committed UI before host delivery.
-  +surface = InterfaceView.observe(capacity, core)
   Decision{InteractionTypes.Decision{core, reply, runtime, interaction, services, durable},
-    Platform{readers, editors, focused, ticket, reduced, capacity, scope}, realized_effects(surface, effects)}
+    Platform{readers, editors, focused, ticket, reduced, capacity, scope},
+    deferred_realized_effects(effects, (_ => InterfaceView.observe(capacity, core)))}
 
 def step(input: Input, state: State) -> Decision:
   realized_decision(step_raw(input, state))

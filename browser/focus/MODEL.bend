@@ -8,6 +8,7 @@ import ../../interaction/services/MODEL.bend as Services
 import ../../interaction/presentation/VIEW.bend as View2
 import ../../interaction/TYPES.bend as InteractionTypes
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../bendlib/string-equality.bend as SafeText
 
 type Target is Data:
   Product{identity: String}
@@ -15,8 +16,8 @@ type Target is Data:
 
 def same_target(first: Target, second: Target) -> Bool:
   match first second:
-    case Product{first} Product{second}: String.eq(first, second)
-    case Content{first_owner, first} Content{second_owner, second}: String.eq(first_owner, second_owner) && String.eq(first, second)
+    case Product{first} Product{second}: SafeText.string_equal(first, second)
+    case Content{first_owner, first} Content{second_owner, second}: SafeText.string_equal(first_owner, second_owner) && SafeText.string_equal(first, second)
     case _ _: False{}
 
 def target_key(target: Target) -> String:
@@ -199,7 +200,7 @@ def cycle_scan(order: +List<String>, +focused: String, previous: Maybe<&2, Strin
         case True{}: last
         case False{}: first
     case Con{+key, +rest}:
-      cycle_match(String.eq(key, focused), reverse, previous, rest, first, last,
+      cycle_match(SafeText.string_equal(key, focused), reverse, previous, rest, first, last,
         cycle_scan(rest, focused, Some{key}, first, last, reverse))
 
 def cycle_start(focused: Maybe<&2, String>, order: +List<String>, first: Maybe<&2, String>, last: Maybe<&2, String>, reverse: Bool) -> Maybe<&2, String>:

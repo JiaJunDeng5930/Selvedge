@@ -1,4 +1,5 @@
 import ./surface-proof.bend as SurfaceProof
+import ./interaction-proof.bend as InteractionEvidence
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../INPUT.bend as U
@@ -116,7 +117,7 @@ def task_visibility_transition_refinement(+expanded: Bool, +program: M.World(), 
   {Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{expanded}}}, Core.from_application(E.from_program(program, session), services)) ==
     Core.application_result(E.local(program, E.with_navigation(E.advance_navigation_selection(E.set_navigation(expanded, E.navigation(session))), E.with_attention(E.navigation_focus(expanded), session)),
       [E.Attend{E.navigation_focus(expanded)}]), services) : InteractionTypes.Decision}:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, workspace_git} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, workspace_git, interactive} = session
   {==}
 
 def Rule.task_visibility_transition_changes_only_task_navigation_and_attention(expanded, program, session, services):
@@ -124,7 +125,7 @@ def Rule.task_visibility_transition_changes_only_task_navigation_and_attention(e
 
 def task_visibility_context_preservation(+expanded: Bool, +state: InteractionTypes.State) ->
   {Rule.global_work_context(Rule.task_visibility_result(expanded, state)) == Rule.global_work_context(state) : Rule.GlobalWorkContext}:
-  InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, workspace_git}}, services} = state
+  InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, workspace_git, interactive}}, services} = state
   E.NavigationState{intent, collapsed, work, visits, generation} = navigation
   {==}
 
@@ -306,11 +307,20 @@ def compact_overview_session_input_role(+role: SurfaceTypes.Role, +input: E.Inpu
     case E.DirectoriesObserved{p0, p1}: {==}
     case E.ClockObserved{p0}: {==}
     case E.ModelPreferenceRestored{p0, p1}: {==}
+    case E.InteractiveInput{p0}: {==}
+    case E.InteractiveEnvironmentObserved{p0, p1, p2, p3}: {==}
+    case E.InteractiveFenceObserved{p0}: {==}
+    case E.InteractiveSynchronize{}: {==}
+    case E.ToggleInteractiveSource{p0}: {==}
+    case E.DismissRetained{p0}: {==}
+    case E.ToggleArchived{p0}: {==}
+    case E.ClearDiscarded{p0}: {==}
     case E.WorkspaceGitObserved{p0, p1}: {==}
 
 def compact_overview_input_role(+role: SurfaceTypes.Role, +input: InteractionTypes.Input, +availability: V.Availability) ->
   {Model.compact_navigation_action_role(role, SurfaceTypes.Activate{input, availability}) == Rule.required_compact_overview_action_role(role, SurfaceTypes.Activate{input, availability}) : SurfaceTypes.Role}:
   match input:
+    case InteractionTypes.Interactive{p0}: {==}
     case InteractionTypes.ApplicationInput{p0}: compact_overview_session_input_role(role, p0, availability)
     case InteractionTypes.ServiceInput{p0}: {==}
     case InteractionTypes.EditField{p0, p1, p2}: {==}
@@ -357,6 +367,9 @@ def Rule.compact_overview_action_roles_preserve_other_commands(role, meaning):
     case SurfaceTypes.RichText{p0, p1}: {==}
     case SurfaceTypes.TaskFacts{p0}: {==}
     case SurfaceTypes.CodeFacts{p0}: {==}
+    case SurfaceTypes.InteractiveRegion{p0, p1}: {==}
+    case SurfaceTypes.InteractiveNode{p0}: {==}
+    case SurfaceTypes.InteractiveView{p0, p1, p2, p3}: {==}
     case SurfaceTypes.Activate{p0, p1}: compact_overview_input_role(role, p0, p1)
     case SurfaceTypes.Edit{p0, p1, p2, p3, p4}: {==}
     case SurfaceTypes.SearchChoices{p0}: {==}
@@ -383,32 +396,6 @@ def Rule.compact_overview_layers_gate_only_the_actual_work_overview_key(key, sem
 def Rule.desktop_navigation_layers_are_unchanged(values): {==}
 
 def Rule.compact_navigation_layers_use_the_keyed_work_overview_adaptation(values): {==}
-
-def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
-  match creation_context execution_controls:
-    case Nil{} Nil{}: {==}
-    case Nil{} Con{first, rest}: {==}
-    case Con{first, rest} Nil{}: {==}
-    case Con{first, rest} Con{other, tail}: {==}
-
-def Rule.composer_tree_agreement(view, parent, state):
-  match view:
-    case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
-      Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
-
-def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
-  match creation_context execution_controls:
-    case Nil{} Nil{}: {==}
-    case Nil{} Con{first, rest}: {==}
-    case Con{first, rest} Nil{}: {==}
-    case Con{first, rest} Con{other, tail}: {==}
-
-def Rule.composer_enclosure_agreement(view, parent, state):
-  match view:
-    case None{}: {==}
-    case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
-      Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
 
 def Rule.relocated_valid_content(valid, node, scene, base, overlays):
   match valid:
@@ -502,7 +489,7 @@ def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
 
 def Rule.card_ordered_movement(view, parent, state):
   V.CardScene{id, value, open, actions, linked, destinations, candidates} = view
-  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}}, services} = state
+  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}, services} = state
   {==}
 
 def Rule.card_surface_placement(key, semantic, label, face, children, target): {==}
@@ -516,34 +503,6 @@ def Rule.interface_input(input, state):
 
 def Rule.interface_evidence():
   Rule.InterfaceRequirements{Rule.interface_input}
-
-def committed_permission_summary_agreement(+found: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) ->
-  {Model.committed_permission_summary(found, parent, state) == Rule.expected_committed_permission_summary(found, parent, state) : +List<SurfaceTypes.Node>}:
-  match found:
-    case Some{context}: {==}
-    case None{}: {==}
-
-def Rule.committed_permission_summary_agreement(task, preview, parent, state):
-  committed_permission_summary_agreement(View.committed_context(T.find(Commands.entries(E.program(Core.application(state))), task)), parent, state)
-
-def Rule.task_permission_resets_absent(task, config, parent, state):
-  {==}
-
-def Rule.permission_menu_agreement(editor, group, parent, state):
-  match group:
-    case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: {==}
-    case V.ExecutionInput{config, Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, controls, projects, reviewers}: {==}
-    case V.MessageInput{value}: {==}
-    case V.ModelInput{profile, reasoning, choices}: {==}
-    case V.DeliveryInput{selected, send, steer}: {==}
-    case V.ProjectNameInput{name}: {==}
-    case V.ProjectWorkspaceInput{workspace, controls}: {==}
-    case V.CardContentInput{value, projects, stages, priorities, owners}: {==}
-    case V.CardAssistanceInput{enabled, profile, choices}: {==}
-    case V.AgentIdentityInput{name, instructions, concurrency}: {==}
-    case V.ForkInput{count, messages}: {==}
-    case V.SummaryInput{summary}: {==}
-    case V.TaskGraphInput{declaration}: {==}
 
 def supporting_binding_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +gesture: SurfaceTypes.Gesture) ->
   {Model.bind(SurfaceTypes.SupportingControl{support, property, input, availability}, gesture) == Rule.expected_supporting_binding(support, input, availability, gesture) : Maybe<&2, InteractionTypes.Input>}:
@@ -561,6 +520,15 @@ def supporting_binding_agreement(+support: Experience.Support, +property: Experi
 def supporting_submission_agreement(+support: Experience.Support, +property: Experience.Property, +input: InteractionTypes.Input, +availability: V.Availability, +editor: U.Editor) ->
   {Model.submits(SurfaceTypes.SupportingControl{support, property, input, availability}, editor) == Rule.expected_supporting_submission(support, input, availability, editor) : Bool}:
   match input:
+    case InteractionTypes.Interactive{input}: {==}
+    case InteractionTypes.ApplicationInput{E.InteractiveInput{input}}: {==}
+    case InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, sequence, fresh, allowed}}: {==}
+    case InteractionTypes.ApplicationInput{E.InteractiveFenceObserved{observation}}: {==}
+    case InteractionTypes.ApplicationInput{E.InteractiveSynchronize{}}: {==}
+    case InteractionTypes.ApplicationInput{E.ToggleInteractiveSource{identity}}: {==}
+    case InteractionTypes.ApplicationInput{E.DismissRetained{key}}: {==}
+    case InteractionTypes.ApplicationInput{E.ToggleArchived{key}}: {==}
+    case InteractionTypes.ApplicationInput{E.ClearDiscarded{task}}: {==}
     case InteractionTypes.ApplicationInput{E.ContentInput{p0, p1}}: {==}
     case InteractionTypes.ApplicationInput{E.PreviewObserved{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{p0}}}}: {==}

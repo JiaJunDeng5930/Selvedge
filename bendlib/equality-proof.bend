@@ -14,46 +14,27 @@ def compared_heads(+left: String, +right: String, heads: (Char & Char) & Cmp) ->
     case EQ{}: reconstructed_order(a, b, String.cmp(left, right))
     case GT{}: {==}
 
-def conjunction_assoc(+a: Bool, +b: Bool, +c: Bool) ->
-  {((a && b) && c) == (a && (b && c)) : Bool}:
-  match a:
-    case False{}: {==}
-    case True{}: {==}
-
 def accumulator_refines(+left: String, +right: String, +same: Bool) ->
   {Same.string_equal_acc(left, right, same) == (same && String.eq(left, right)) : Bool}:
-  match left right:
-    case SNil{} SNil{}:
-      match same:
-        case False{}: {==}
-        case True{}: {==}
-    case SNil{} SCon{head, tail}:
-      match same:
-        case False{}: {==}
-        case True{}: {==}
-    case SCon{head, tail} SNil{}:
-      match same:
-        case False{}: {==}
-        case True{}: {==}
-    case SCon{+a, +rest_a} SCon{+b, +rest_b}:
+  match left right same:
+    case SNil{} SNil{} False{}: {==}
+    case SNil{} SNil{} True{}: {==}
+    case SNil{} SCon{head, tail} False{}: {==}
+    case SNil{} SCon{head, tail} True{}: {==}
+    case SCon{head, tail} SNil{} False{}: {==}
+    case SCon{head, tail} SNil{} True{}: {==}
+    case SCon{a, rest_a} SCon{b, rest_b} False{}: {==}
+    case SCon{+a, +rest_a} SCon{+b, +rest_b} True{}:
       +equal_heads = Same.char_equal(Char.cmp(a, b))
       Equal.trans(Bool,
-        Same.string_equal_acc(rest_a, rest_b, same && equal_heads),
-        ((same && equal_heads) && String.eq(rest_a, rest_b)),
-        (same && String.eq(SCon{a, rest_a}, SCon{b, rest_b})),
-        accumulator_refines(rest_a, rest_b, same && equal_heads),
-        Equal.trans(Bool,
-          ((same && equal_heads) && String.eq(rest_a, rest_b)),
-          (same && (equal_heads && String.eq(rest_a, rest_b))),
-          (same && String.eq(SCon{a, rest_a}, SCon{b, rest_b})),
-          conjunction_assoc(same, equal_heads, String.eq(rest_a, rest_b)),
-          Equal.cong(Bool, Bool, (value => same && value),
-            (equal_heads && String.eq(rest_a, rest_b)),
-            String.eq(SCon{a, rest_a}, SCon{b, rest_b}),
-            Equal.sym(Bool,
-              String.eq(SCon{a, rest_a}, SCon{b, rest_b}),
-              (equal_heads && String.eq(rest_a, rest_b)),
-              compared_heads(rest_a, rest_b, Char.cmp(a, b))))))
+        Same.string_equal_acc(rest_a, rest_b, equal_heads),
+        (equal_heads && String.eq(rest_a, rest_b)),
+        String.eq(SCon{a, rest_a}, SCon{b, rest_b}),
+        accumulator_refines(rest_a, rest_b, equal_heads),
+        Equal.sym(Bool,
+          String.eq(SCon{a, rest_a}, SCon{b, rest_b}),
+          (equal_heads && String.eq(rest_a, rest_b)),
+          compared_heads(rest_a, rest_b, Char.cmp(a, b))))
 
 def public_refines(+left: String, +right: String) ->
   {Same.string_equal(left, right) == String.eq(left, right) : Bool}:

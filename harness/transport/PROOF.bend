@@ -12,6 +12,8 @@ import ../../bendlib/logic-proof.bend as Logic
 import ./CONTRACT.bend as Rule
 import ../DOMAIN.bend as D
 import ../reasoning/MODEL.bend as R
+import ../reasoning/SPEC.bend as ReasoningRequirements
+import ../reasoning/PROOF.bend as ReasoningProof
 
 # Local proof obligations for the frontend boundary. No runtime policy lives here.
 def Laws.frontend_input(input, world):
@@ -243,3 +245,7 @@ def Rule.profile_evidence():
   Rule.ProfileRequirements{
     default_permitted, fixed_selection_member,
     profile => {==}, explicit_selection}
+
+def Rule.model_request_mode(task, ticket, model, history, tools, callable, context, scope, reserve):
+  Equal.cong(D.OutputMode, J.Json, mode => J.Text{D.output_mode_name(mode)},
+    D.history_output_mode(history), ReasoningRequirements.request_mode(history), ReasoningProof.request_mode_meaning(history))

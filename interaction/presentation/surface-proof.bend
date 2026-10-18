@@ -45,6 +45,9 @@ def layer_region_agreement(+meaning: Surface.Meaning) ->
     case Surface.RichText{source, value}: {==}
     case Surface.TaskFacts{details}: {==}
     case Surface.CodeFacts{view}: {==}
+    case Surface.InteractiveRegion{identity, source_visible}: {==}
+    case Surface.InteractiveNode{node}: {==}
+    case Surface.InteractiveView{event, command, label, enabled}: {==}
     case Surface.Activate{input, availability}: {==}
     case Surface.Edit{editor, field, entry, value, choices}: {==}
     case Surface.SearchChoices{query}: {==}

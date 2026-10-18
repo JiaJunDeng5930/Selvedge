@@ -8,11 +8,13 @@ import ./session/MODEL.bend as E
 import ./presentation/MODEL.bend as View
 import ./submission/FIELDS.bend as Forms
 import ./services/MODEL.bend as Services
+import ./interactive_markdown/TYPES.bend as IM
 
 type State is Data:
   State{application: E.Application, services: Services.State}
 
 type Input is Data:
+  Interactive{input: IM.Input}
   ApplicationInput{input: E.Input}
   ServiceInput{input: Services.Input}
   EditField{editor: U.Editor, field: Forms.Field, value: Forms.Value}

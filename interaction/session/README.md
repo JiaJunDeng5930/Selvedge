@@ -51,6 +51,14 @@ same draft, pending state and world used by presentation. A refused admission
 returns the first assessment obstruction, preserves the complete application and
 emits no directory observation. Accepted preparation keeps the immutable draft
 snapshot and the command resolver as the authoritative execution boundary.
+
+An interactive Send captures its declared message and the current document's
+owning task. It uses that captured draft through the same submission requirements
+and command resolver, emits one request carrying the owner/path/ticket completion,
+and leaves the composer untouched. Completion returns only correlated interactive
+feedback; the complete decision preserves the other session fields and maps core
+effects in order. These are specified independently in `captured_send` and
+`interactive_completion_spec`, with production caller evidence in `PROOF.bend`.
 `submission_requirements_gate` and `invalid_preparation_complete_refusal` bind
 these guarantees to the production admission and refusal operations.
 
@@ -93,3 +101,25 @@ above the discarded draft revision before reopening a project. That reserved
 occurrence seeds the fresh draft revision, preventing late accepted results from
 settling a different draft with the same editor identity. Already accepted
 kernel commands remain accepted and their persisted results are retained.
+
+Interactive Markdown output ownership is composed through
+`interactive_markdown/DOCUMENTS.bend`. `InteractiveSynchronize` reconciles the
+current conversation's accepted history and correlated previews before the
+runtime publishes its next semantic candidate. The document registry retains
+interrupted output in the session, preserves the output identity on final
+commit, and admits controls only through a current canonical document epoch.
+`InteractiveEnvironmentObserved` carries the accepted journal namespace and
+snapshot freshness; a namespace change discards old runtime and restoration
+ownership. `InteractiveInput` sends local controls to the bounded declaration
+reducer. Draft filling uses the existing message editor, while submission uses a
+captured ordinary Send assessment and leaves the user's composer untouched.
+`InteractiveCompletion` correlates the accepted command result with its original
+button ticket.
+
+Retained unfinished replies are session artifacts. The registry marks interruption
+only from a fresh authoritative world in which the model operation is absent;
+transport loss preserves the observed preview. Its retention policy keeps local
+controls for the newest unfinished outputs and folds overflow into source-only
+disclosures. Archive eviction records an explicit per-conversation count.
+`DismissRetained`, `ToggleArchived`, and `ClearDiscarded` are host-authored local
+controls; none changes committed conversation history or starts a model request.

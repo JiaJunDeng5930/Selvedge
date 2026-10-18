@@ -29,6 +29,7 @@ def workspace_skills_policy() -> DiscoveryPolicy:
   DiscoveryPolicy{["SKILL.md"], [".agents/skills", ".claude/skills"], [".git"], discovery_excluded(), 10000n, 100000n, 1024n, 262144n}
 
 type Observer is Data:
+  NativeText{revision: String, content: String}
   ConfigText{setting: String}
   HomeFile{relative: String}
   WorkspaceFile{relative: String}
@@ -228,6 +229,7 @@ def discovery_observer_json(kind: String, policy: DiscoveryPolicy) -> J.Json:
 
 def observer_json(observer: Observer) -> J.Json:
   match observer:
+    case NativeText{revision, content}: J.Object{[J.Field{"type", J.Text{"native_text"}}, J.Field{"revision", J.Text{revision}}, J.Field{"content", J.Text{content}}]}
     case ConfigText{setting}: J.Object{[J.Field{"type", J.Text{"config_text"}}, J.Field{"setting", J.Text{setting}}]}
     case HomeFile{relative}: J.Object{[J.Field{"type", J.Text{"home_file"}}, J.Field{"relative", J.Text{relative}}]}
     case WorkspaceFile{relative}: J.Object{[J.Field{"type", J.Text{"workspace_file"}}, J.Field{"relative", J.Text{relative}}]}
@@ -724,21 +726,22 @@ def discovery_policy(+item: J.Json) -> Maybe<&2, DiscoveryPolicy>:
     discovery_strings(J.get(item, "repository_markers")), discovery_strings(J.get(item, "excluded")),
     J.natural(J.get(item, "max_directories")), J.natural(J.get(item, "max_entries")), J.natural(J.get(item, "max_sources")), J.natural(J.get(item, "max_bytes")))
 
-def parsed_observer(kind: String, setting: J.Json, relative: J.Json, policy: Maybe<&2, DiscoveryPolicy>) -> Maybe<&2, Observer>:
-  match kind setting relative policy:
-    case "config_text" J.Text{setting} _ _: Some{ConfigText{setting}}
-    case "config_files" J.Text{setting} _ _: Some{ConfigFiles{setting}}
-    case "home_file" _ J.Text{relative} _: Some{HomeFile{relative}}
-    case "workspace_file" _ J.Text{relative} _: Some{WorkspaceFile{relative}}
-    case "home_guidance" _ _ Some{policy}: Some{HomeGuidance{policy}}
-    case "primary_guidance" _ _ Some{policy}: Some{PrimaryGuidance{policy}}
-    case "workspace_guidance" _ _ Some{policy}: Some{WorkspaceGuidance{policy}}
-    case "home_skills" _ _ Some{policy}: Some{HomeSkills{policy}}
-    case "workspace_skills" _ _ Some{policy}: Some{WorkspaceSkills{policy}}
-    case _ _ _ _: None{}
+def parsed_observer(kind: String, setting: J.Json, relative: J.Json, revision: J.Json, content: J.Json, policy: Maybe<&2, DiscoveryPolicy>) -> Maybe<&2, Observer>:
+  match kind setting relative revision content policy:
+    case "native_text" _ _ J.Text{revision} J.Text{content} _: Some{NativeText{revision, content}}
+    case "config_text" J.Text{setting} _ _ _ _: Some{ConfigText{setting}}
+    case "config_files" J.Text{setting} _ _ _ _: Some{ConfigFiles{setting}}
+    case "home_file" _ J.Text{relative} _ _ _: Some{HomeFile{relative}}
+    case "workspace_file" _ J.Text{relative} _ _ _: Some{WorkspaceFile{relative}}
+    case "home_guidance" _ _ _ _ Some{policy}: Some{HomeGuidance{policy}}
+    case "primary_guidance" _ _ _ _ Some{policy}: Some{PrimaryGuidance{policy}}
+    case "workspace_guidance" _ _ _ _ Some{policy}: Some{WorkspaceGuidance{policy}}
+    case "home_skills" _ _ _ _ Some{policy}: Some{HomeSkills{policy}}
+    case "workspace_skills" _ _ _ _ Some{policy}: Some{WorkspaceSkills{policy}}
+    case _ _ _ _ _ _: None{}
 
 def observer(+item: J.Json) -> Maybe<&2, Observer>:
-  parsed_observer(J.text(J.get(item, "type")), J.get(item, "setting"), J.get(item, "relative"), discovery_policy(J.get(item, "policy")))
+  parsed_observer(J.text(J.get(item, "type")), J.get(item, "setting"), J.get(item, "relative"), J.get(item, "revision"), J.get(item, "content"), discovery_policy(J.get(item, "policy")))
 
 def parsed_identity_source(kind: String, value: J.Json) -> Maybe<&2, IdentitySource>:
   match kind value:

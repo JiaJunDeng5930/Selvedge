@@ -19,22 +19,22 @@ def output_text_meaning(nonempty: Bool, +text: String, +rest: +List<String>) ->
     case False{}: {==}
 
 def output_items_meaning(+items: +List<D.ModelItem>) ->
-  {Tasks.output_items(items) == Spec.assistant_outputs(Tasks.item_messages(items)) : +List<String>}:
+  {Tasks.output_items(items) == Spec.assistant_outputs(Tasks.item_messages(0n, 0n, D.Plain{}, items)) : +List<String>}:
   match items:
     case Nil{}: {==}
-    case Con{D.Say{+text}, +rest}:
+    case Con{D.Say{part, +text}, +rest}:
       Equal.trans(+List<String>,
         Tasks.output_text(Bool.not(String.is_empty(text)), text, Tasks.output_items(rest)),
-        Tasks.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))),
-        Spec.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))),
+        Tasks.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(0n, 0n, D.Plain{}, rest))),
+        Spec.output_text(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(0n, 0n, D.Plain{}, rest))),
         Equal.cong(+List<String>, +List<String>, values => Tasks.output_text(Bool.not(String.is_empty(text)), text, values),
-          Tasks.output_items(rest), Spec.assistant_outputs(Tasks.item_messages(rest)), output_items_meaning(rest)),
-        output_text_meaning(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(rest))))
+          Tasks.output_items(rest), Spec.assistant_outputs(Tasks.item_messages(0n, 0n, D.Plain{}, rest)), output_items_meaning(rest)),
+        output_text_meaning(Bool.not(String.is_empty(text)), text, Spec.assistant_outputs(Tasks.item_messages(0n, 0n, D.Plain{}, rest))))
     case Con{D.Invoke{call}, +rest}: output_items_meaning(rest)
-    case Con{D.Context{value}, +rest}: output_items_meaning(rest)
+    case Con{D.Context{part, value}, +rest}: output_items_meaning(rest)
 
 def normal_outputs_meaning(calls: +List<D.Call>, +items: +List<D.ModelItem>) ->
-  {Tasks.normal_output_items(calls, items) == Spec.normal_output_messages(calls, Tasks.item_messages(items)) : +List<String>}:
+  {Tasks.normal_output_items(calls, items) == Spec.normal_output_messages(calls, Tasks.item_messages(0n, 0n, D.Plain{}, items)) : +List<String>}:
   match calls:
     case Nil{}: output_items_meaning(items)
     case Con{call, rest}: {==}
@@ -44,6 +44,20 @@ def reply_outputs_meaning(+outcome: D.Outcome) ->
   match outcome:
     case D.ModelReply{+items}:
       normal_outputs_meaning(Tasks.item_calls(items), items)
+    case D.ModelFailure{message}: {==}
+    case D.ContextLimit{}: {==}
+
+def permitted_outputs_meaning(+accepted: Bool, +outcome: D.Outcome) ->
+  {Tasks.permitted_reply_outputs(accepted, outcome) == Spec.permitted_outputs(accepted, outcome) : +List<String>}:
+  match accepted:
+    case True{}: reply_outputs_meaning(outcome)
+    case False{}: {==}
+
+def accepted_reply_outputs_meaning(+outcome: D.Outcome, +allowed: +List<String>, +task: D.Task) ->
+  {Tasks.accepted_reply_outputs(outcome, allowed, task) == Spec.accepted_reply_outputs(outcome, allowed, task) : +List<String>}:
+  match outcome:
+    case D.ModelReply{+items}:
+      permitted_outputs_meaning(Tasks.model_reply_permitted(allowed, task, Tasks.ModelReplyCandidate{items}), D.ModelReply{items})
     case D.ModelFailure{message}: {==}
     case D.ContextLimit{}: {==}
 
@@ -123,7 +137,7 @@ def Laws.stopped_no_model(phase):
     case D.Ready{Nil{}}: {==}
     case D.Ready{Con{call, rest}}: {==}
     case D.ContextPending{ticket, revision, purpose}: {==}
-    case D.ModelPending{ticket, callable}: {==}
+    case D.ModelPending{ticket, callable, mode}: {==}
     case D.ReasoningPending{ticket, revision}: {==}
 
 def Laws.stopped_input_reactivates():
@@ -190,7 +204,7 @@ def Laws.recover_phase_idempotent(phase):
     case D.Ready{calls}: {==}
     case D.ContextPending{ticket, revision, D.GenerateContext{}}: {==}
     case D.ContextPending{ticket, revision, D.SummaryContext{}}: {==}
-    case D.ModelPending{ticket, callable}: {==}
+    case D.ModelPending{ticket, callable, mode}: {==}
     case D.ReasoningPending{ticket, revision}: {==}
 
 def Laws.unmatched_model_result_unchanged(outcome, allowed, task, world):
@@ -199,7 +213,7 @@ def Laws.unmatched_model_result_unchanged(outcome, allowed, task, world):
 def Laws.unmatched_tool_result_unchanged(operation, value, error, task, world):
   {==}
 
-def Laws.context_has_no_call_authority(value):
+def Laws.context_has_no_call_authority(part, value):
   {==}
 
 def Laws.execution_configuration_status(configuration, task):

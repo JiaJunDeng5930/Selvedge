@@ -1,5 +1,6 @@
 import ../controls/NAVIGATION.bend as Navigation
 import Base
+import ../../bendlib/string-equality.bend as SafeText
 import ../layout/ADAPTATION.bend as Adaptation
 import ../controls/PROGRAM.bend as Controls
 import ../controls/MODEL.bend as Authored
@@ -32,15 +33,23 @@ import ../../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../../interaction/presentation/MODEL.bend as View
 import ../focus/MODEL.bend as Focus
 import ../../harness/MODEL.bend as M
+import ../../harness/DOMAIN.bend as D
+import ../../harness/COMMANDS.bend as Commands
+import ../../harness/tasks/PROGRAM.bend as Tasks
+import ../../interaction/INPUT.bend as UserInput
 import ../editor/MODEL.bend as Editor
 import ../reading/MODEL.bend as Reading
 import ../../interaction/services/MODEL.bend as Services
 import ../../interaction/conversation/CODE.bend as Code
+import ../../interaction/conversation/OUTPUT.bend as Live
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/MODEL.bend as Product
 import ../../bendlib/json.bend as J
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../../interaction/TYPES.bend as InteractionTypes
+import ../../interaction/interactive_markdown/TYPES.bend as IM
+import ../../interaction/interactive_markdown/SYNTAX.bend as IMSyntax
+import ../../interaction/STATE.bend as InteractionState
 
 type MeasurementTicket is Data:
   MeasurementTicket{generation: Nat, round: Nat}
@@ -62,33 +71,66 @@ type Published is Data:
   Published{world: Content.AllocatedWorld, semantic: SurfaceTypes.Surface, scope: Focus.Scope,
     basis: NativeFields.Basis, frame: Maybe<&2, Rendered.Frame>}
 
+type DisplayUpdates is Data:
+  DisplayUpdates{latest: Nat, active: Nat, published: Nat, semantic_latest: Nat}
+
 type State is Data:
   State{legacy: Legacy.State, generation: Nat, anchors: +List<Shell.Anchor>, lifecycle: Lifecycle,
-    displayed: Maybe<&2, Published>, attention: Navigation.Attention}
+    displayed: Maybe<&2, Published>, attention: Navigation.Attention, updates: DisplayUpdates}
+
+def display_pending(state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{latest, active, published, semantic_latest}} = state
+  Bool.not(Nat.is_eq(latest, published))
+
+def semantic_pending(state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{latest, active, published, semantic_latest}} = state
+  Nat.is_lt(published, semantic_latest)
+
+def advance_update(state: State) -> State:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{+latest, active, published, semantic_latest}} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{(latest + 1n : Nat), active, published, (latest + 1n : Nat)}}
+
+def advance_presentation(state: State) -> State:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{latest, active, published, semantic_latest}} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{(latest + 1n : Nat), active, published, semantic_latest}}
+
+def freeze_update(state: State) -> State:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{+latest, active, published, semantic_latest}} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{latest, latest, published, semantic_latest}}
+
+def publish_update(state: State) -> State:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{latest, +active, published, semantic_latest}} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, DisplayUpdates{latest, active, active, semantic_latest}}
+
+def active_measurement(state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  match lifecycle:
+    case Measuring{index, capacity, engine, semantic, round}: True{}
+    case _: False{}
 
 def generation(state: State) -> Nat:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
   value_generation
 
 def anchors(state: State) -> +List<Shell.Anchor>:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
   value_anchors
 
 def lifecycle(state: State) -> Lifecycle:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
   value_lifecycle
 
 def displayed(state: State) -> Maybe<&2, Published>:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
   value_displayed
 
 def with_lifecycle(value: Lifecycle, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
-  State{value_legacy, value_generation, value_anchors, value, value_displayed, attention}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
+  State{value_legacy, value_generation, value_anchors, value, value_displayed, attention, updates}
 
 def with_displayed(value: Maybe<&2, Published>, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value, attention}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value, attention, updates}
 
 type RenderInspection is Data:
   RenderInspection{frame: Maybe<&2, Rendered.Frame>, expected_tabs: Maybe<&2, +List<String>>,
@@ -134,7 +176,7 @@ def inspect_published(frame: Maybe<&2, Rendered.Frame>, +layer: Maybe<&2, String
       inspect_frame(frame, active, layer, dismiss)
 
 def utility_owned(state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}: Utility.owned(source)
     case None{}: False{}
@@ -159,11 +201,11 @@ def utility_rejected(lifecycle: Lifecycle) -> Bool:
     case _: False{}
 
 def auxiliary_owned(+state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   utility_owned(state) || utility_rejected(lifecycle)
 
 def render_inspection(+state: State) -> RenderInspection:
-  State{stored, serial, anchors, lifecycle, displayed, attention} = state
+  State{stored, serial, anchors, lifecycle, displayed, attention, updates} = state
   render_inspection_owned(auxiliary_owned(state), stored, displayed)
 
 def pending_frame_effects_for(lifecycle: Lifecycle, realization: Rendered.State, displayed: Maybe<&2, Published>) -> +List<Legacy.Effect>:
@@ -183,29 +225,29 @@ def pending_frame_effects_for(lifecycle: Lifecycle, realization: Rendered.State,
     case _: Nil{}
 
 def pending_frame_effects(+state: State) -> +List<Legacy.Effect>:
-  State{+observed_state_1, serial, anchors, lifecycle, displayed, attention} = state
+  State{+observed_state_1, serial, anchors, lifecycle, displayed, attention, updates} = state
   +observed_web_2 = Legacy.web(observed_state_1)
   +realization = Web.realization(observed_web_2)
   pending_frame_effects_for(lifecycle, realization, displayed)
 
 def with_generation(value: Nat, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
-  State{value_legacy, value, value_anchors, value_lifecycle, value_displayed, attention}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
+  State{value_legacy, value, value_anchors, value_lifecycle, value_displayed, attention, updates}
 
 def with_legacy(value: Legacy.State, state: State) -> State:
-  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention} = state
-  State{value, value_generation, value_anchors, value_lifecycle, value_displayed, attention}
+  State{value_legacy, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates} = state
+  State{value, value_generation, value_anchors, value_lifecycle, value_displayed, attention, updates}
 
 def attention(state: State) -> Navigation.Attention:
-  State{legacy, generation, anchors, lifecycle, displayed, value} = state
+  State{legacy, generation, anchors, lifecycle, displayed, value, updates} = state
   value
 
 
 def initial(+program: M.World(), +sequence: Nat) -> State:
-  State{Legacy.initial(program, sequence), 0n, Nil{}, WaitingEnvironment{}, None{}, Navigation.initial()}
+  State{Legacy.initial(program, sequence), 0n, Nil{}, WaitingEnvironment{}, None{}, Navigation.initial(), DisplayUpdates{0n, 0n, 0n, 0n}}
 
 def legacy(+state: State) -> Legacy.State:
-  State{value, generation, anchors, lifecycle, displayed, attention} = state
+  State{value, generation, anchors, lifecycle, displayed, attention, updates} = state
   value
 
 def candidate_form_remainder(remainder: Nat) -> Controls.SupportingForm:
@@ -233,9 +275,9 @@ def published(+world: Content.AllocatedWorld, +capacity: View.Capacity, +state: 
   Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies} = world
   Published{world, semantic, Focus.realized_scope(semantic, Legacy.active_focus_scope(state)), NativeFields.basis([source], semantic), None{}}
 
-def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>, +semantic: SurfaceTypes.Surface, attention: Navigation.Attention) -> Decision:
+def admitted(+decision: Legacy.Decision, +world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +serial: Nat, +anchors: +List<Shell.Anchor>, +semantic: SurfaceTypes.Surface, attention: Navigation.Attention, updates: DisplayUpdates) -> Decision:
   Legacy.Decision{+accepted, collected} = decision
-  Decision{State{accepted, serial, anchors, Displaying{capacity, engine, semantic}, Some{published(world, capacity, accepted, semantic)}, attention}, collected}
+  Decision{publish_update(State{accepted, serial, anchors, Displaying{capacity, engine, semantic}, Some{published(world, capacity, accepted, semantic)}, attention, updates}), collected}
 
 def current_legacy_surface(+state: Legacy.State) -> SurfaceTypes.Surface:
   +observed_web_1 = Legacy.web(state)
@@ -252,20 +294,170 @@ def published_world(value: Published) -> Content.AllocatedWorld:
   Published{world, semantic, scope, basis, frame} = value
   world
 
+def model_external_kind(kind: IM.ActionKind) -> Bool:
+  match kind:
+    case IM.SetAction{}: False{}
+    case IM.ResetAction{}: False{}
+    case _: True{}
+
+def interactive_event(found: Maybe<&2, SurfaceTypes.Node>) -> Maybe<&2, IM.EventIdentity>:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, binding, children}}, nested}}: Some{IM.EventIdentity{identity, occurrence}}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveView{event, command, label_value, enabled}, nested}}: Some{event}
+    case _: None{}
+
+def matching_interactive_events(left: Maybe<&2, IM.EventIdentity>, right: Maybe<&2, IM.EventIdentity>) -> Bool:
+  match left right:
+    case Some{old} Some{current}: IMSyntax.same_event(old, current)
+    case None{} None{}: True{}
+    case _ _: False{}
+
+def matching_interactive_nodes(old: Maybe<&2, SurfaceTypes.Node>, current: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  matching_interactive_events(interactive_event(old), interactive_event(current))
+
+def action_binding_updates(+key: String, found: Maybe<&2, SurfaceTypes.Node>, pending: Bool, owned: Bool) -> +List<NativeFields.Update>:
+  match found:
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{component, occurrence, tag, attributes, IM.ActionBinding{kind, enabled, busy}, children}}, nested}}:
+      [NativeFields.SetEnabled{key, owned && enabled && Bool.not(busy) && Bool.not(pending && model_external_kind(kind))}]
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.InteractiveView{event, command, label_value, enabled}, nested}}:
+      [NativeFields.SetEnabled{key, owned && enabled}]
+    case _: [NativeFields.SetEnabled{key, False{}}]
+
+def current_action_update(+node: SurfaceTypes.Node, key: UIIdentity.Key, +current: +List<SurfaceTypes.Node>, pending: Bool) -> +List<NativeFields.Update>:
+  +encoded: String = UIIdentity.encode(key)
+  +found: Maybe<&2, SurfaceTypes.Node> = InterfaceView.find_node(current, encoded)
+  action_binding_updates(encoded, found, pending, matching_interactive_nodes(Some{node}, found))
+
+def action_update(+node: SurfaceTypes.Node, +current: +List<SurfaceTypes.Node>, pending: Bool) -> +List<NativeFields.Update>:
+  SurfaceTypes.Node{+key, semantic, label, role, meaning, children} = node
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, IM.ActionBinding{kind, enabled, busy}, nested}}:
+      current_action_update(node, key, current, pending)
+    case SurfaceTypes.InteractiveView{event, command, label_value, enabled}:
+      current_action_update(node, key, current, pending)
+    case _: Nil{}
+
+def action_updates(nodes: +List<SurfaceTypes.Node>, +current: +List<SurfaceTypes.Node>, +pending: Bool) -> +List<NativeFields.Update>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      List.append(&2, NativeFields.Update, action_update(node, current, pending),
+        List.append(&2, NativeFields.Update, action_updates(children, current, pending), action_updates(rest, current, pending)))
+
+type ActionQueryCount is Data:
+  NoActions{}
+  OneAction{}
+  ManyActions{}
+
+def action_query(node: SurfaceTypes.Node) -> Bool:
+  SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, IM.ActionBinding{kind, enabled, busy}, nested}}: True{}
+    case SurfaceTypes.InteractiveView{event, command, label_value, enabled}: True{}
+    case _: False{}
+
+def action_count_add(present: Bool, count: ActionQueryCount) -> ActionQueryCount:
+  match present count:
+    case False{} retained: retained
+    case True{} NoActions{}: OneAction{}
+    case True{} OneAction{}: ManyActions{}
+    case True{} ManyActions{}: ManyActions{}
+
+def action_count_continue(count: ActionQueryCount, rest: ActionQueryCount -> ActionQueryCount) -> ActionQueryCount:
+  match count:
+    case ManyActions{}: ManyActions{}
+    case retained: rest(retained)
+
+def action_count(nodes: +List<SurfaceTypes.Node>, count: ActionQueryCount) -> ActionQueryCount:
+  match nodes count:
+    case retained ManyActions{}: ManyActions{}
+    case Nil{} initial: initial
+    case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, +children}, rest} initial:
+      action_count_continue(action_count_add(action_query(SurfaceTypes.Node{key, semantic, label, role, meaning, children}), initial), (after_node =>
+        action_count_continue(action_count(children, after_node), (after_children =>
+          action_count(rest, after_children)))))
+
+def action_count_many(count: ActionQueryCount) -> Bool:
+  match count:
+    case ManyActions{}: True{}
+    case _: False{}
+
+def actions_many(nodes: +List<SurfaceTypes.Node>) -> Bool:
+  action_count_many(action_count(nodes, NoActions{}))
+
+def current_action_named_update(+node: SurfaceTypes.Node, key: UIIdentity.Key,
+  +current: +List<NativeFields.NamedSemanticNode>, pending: Bool) -> +List<NativeFields.Update>:
+  +encoded: String = UIIdentity.encode(key)
+  +found: Maybe<&2, SurfaceTypes.Node> = NativeFields.find_named(current, encoded)
+  action_binding_updates(encoded, found, pending, matching_interactive_nodes(Some{node}, found))
+
+def action_named_update(+node: SurfaceTypes.Node, +current: +List<NativeFields.NamedSemanticNode>, pending: Bool) -> +List<NativeFields.Update>:
+  SurfaceTypes.Node{+key, semantic, label, role, meaning, children} = node
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, IM.ActionBinding{kind, enabled, busy}, nested}}:
+      current_action_named_update(node, key, current, pending)
+    case SurfaceTypes.InteractiveView{event, command, label_value, enabled}:
+      current_action_named_update(node, key, current, pending)
+    case _: Nil{}
+
+def action_updates_named(nodes: +List<SurfaceTypes.Node>, +current: +List<NativeFields.NamedSemanticNode>, +pending: Bool) -> +List<NativeFields.Update>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      List.append(&2, NativeFields.Update, action_named_update(node, current, pending),
+        List.append(&2, NativeFields.Update, action_updates_named(children, current, pending), action_updates_named(rest, current, pending)))
+
+def native_updates_named_scope(+basis: NativeFields.Basis, +old: +List<SurfaceTypes.Node>,
+  +surface: SurfaceTypes.Surface, +pending: Bool) -> +List<NativeFields.Update>:
+  NativeFields.Basis{fields, controls} = basis
+  SurfaceTypes.Surface{content, base, overlays, scope} = surface
+  match scope:
+    case None{}:
+      +named = NativeFields.prepare_named(NativeFields.forest(surface))
+      List.append(&2, NativeFields.Update, NativeFields.updates_fields_named(fields, named),
+        action_updates_named(old, named, pending))
+    case Some{key}:
+      +named_fields = NativeFields.prepare_named(NativeFields.forest(surface))
+      +named_actions = NativeFields.prepare_named(InterfaceView.active_nodes(surface))
+      List.append(&2, NativeFields.Update, NativeFields.updates_fields_named(fields, named_fields),
+        action_updates_named(old, named_actions, pending))
+
+def native_updates_families(fields_many: Bool, actions_many: Bool, +basis: NativeFields.Basis,
+  +old: +List<SurfaceTypes.Node>, +surface: SurfaceTypes.Surface, +pending: Bool) -> +List<NativeFields.Update>:
+  match fields_many actions_many basis:
+    case False{} False{} retained:
+      List.append(&2, NativeFields.Update, NativeFields.updates(retained, surface),
+        action_updates(old, InterfaceView.active_nodes(surface), pending))
+    case True{} False{} NativeFields.Basis{fields, controls}:
+      +named_fields = NativeFields.prepare_named(NativeFields.forest(surface))
+      List.append(&2, NativeFields.Update, NativeFields.updates_fields_named(fields, named_fields),
+        action_updates(old, InterfaceView.active_nodes(surface), pending))
+    case False{} True{} retained:
+      +named_actions = NativeFields.prepare_named(InterfaceView.active_nodes(surface))
+      List.append(&2, NativeFields.Update, NativeFields.updates(retained, surface),
+        action_updates_named(old, named_actions, pending))
+    case True{} True{} retained: native_updates_named_scope(retained, old, surface, pending)
+
 def native_updates(+state: State) -> +List<NativeFields.Update>:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: Nil{}
-    case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.updates(basis, current_surface(state))
+    case Some{Published{world, semantic, scope, +basis, frame}}:
+      NativeFields.Basis{fields, controls} = basis
+      +surface: SurfaceTypes.Surface = current_surface(state)
+      +old: +List<SurfaceTypes.Node> = InterfaceView.active_nodes(semantic)
+      native_updates_families(NativeFields.fields_many(fields), actions_many(old), basis, old, surface, semantic_pending(state))
 
 def field_owned(+key: String, +state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: False{}
     case Some{Published{world, semantic, scope, basis, frame}}: NativeFields.field_owned(basis, key, current_surface(state))
 
 def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: World.Engine, +state: State, +semantic: SurfaceTypes.Surface) -> Decision:
-  State{+observed_state_1, serial, anchors, lifecycle, displayed, attention} = state
+  State{+observed_state_1, serial, anchors, lifecycle, displayed, attention, updates} = state
   +observed_web_2 = Legacy.web(observed_state_1)
   +observed_application_3 = Web.application(observed_web_2)
   +core = Platform.core(observed_application_3)
@@ -278,17 +470,17 @@ def admit(+world: Content.AllocatedWorld, +capacity: View.Capacity, +engine: Wor
   +pending = Legacy.pending(observed_state_1)
   +receipt = Legacy.receipt(observed_state_1)
   +decision = Platform.reflow_capacity(Platform.Decision{Platform.unchanged(core), platform, Nil{}}, capacity)
-  admitted(Legacy.finish(Web.production_commit(decision, generation, environment, font), sequence, ticket, pending, "", receipt), world, capacity, engine, serial, anchors, semantic, attention)
+  admitted(Legacy.finish(Web.production_commit(decision, generation, environment, font), sequence, ticket, pending, "", receipt), world, capacity, engine, serial, anchors, semantic, attention, updates)
 
 def display_ready(+state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
-  match lifecycle:
-    case Displaying{capacity, engine, semantic}: True{}
-    case UtilityDisplaying{purpose, engine}: True{}
-    case _: False{}
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  match lifecycle displayed:
+    case UtilityRejected{problem} _: False{}
+    case _ Some{value}: True{}
+    case _ None{}: False{}
 
 def displayed_generation(+state: State) -> Nat:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: 0n
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}: generation
@@ -310,7 +502,7 @@ def utility_render_status(displayed: Maybe<&2, Published>) -> String:
     case _: "awaiting-frame"
 
 def render_status(+state: State) -> String:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
     case Displaying{capacity, engine, semantic}: legacy_render_status(legacy)
     case UtilityDisplaying{purpose, engine}: utility_render_status(displayed)
@@ -333,7 +525,7 @@ def measurement_request_plan(plan: Plan.Plan, generation: Nat, round: Nat) -> Ma
     case other: None{}
 
 def measurement_request(+state: State) -> Maybe<&2, MeasurementRequest>:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
     case Measuring{index, capacity, +engine, semantic, round}:
       measurement_request_plan(World.plan(engine), World.snapshot_generation(World.snapshot(engine)), round)
@@ -356,7 +548,7 @@ def observed(+displayed: Maybe<&2, Published>, +lifecycle: Lifecycle, +font: T.P
   observed_lifecycle(lifecycle, displayed, font)
 
 def observe(+capacity: Nat, +state: State) -> CodeObservation.Document:
-  State{+legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{+legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   +observed_web_1 = Legacy.web(legacy)
   +font = Web.typography(observed_web_1)
   observed_lifecycle_at(capacity, lifecycle, displayed, T.Presentation{T.Body{}, T.Regular{}, F.scale(font)})
@@ -381,7 +573,7 @@ type PublicationCandidate is Data:
 def publication_policy_predicate(candidate: PublicationCandidate) -> Bool:
   PublicationCandidate{capacity, +last_published, +state} = candidate
   Bool.not(Nat.is_eq(last_published, 0n)) &&
-    (Bool.not(display_ready(state)) || Nat.is_eq(displayed_generation(state), last_published))
+    display_ready(state) && Nat.is_eq(displayed_generation(state), last_published)
 
 def publication_policy_category() -> PublicationCandidate -> Type:
   Categories.holds(PublicationCandidate, publication_policy_predicate)
@@ -446,9 +638,9 @@ def visible_anchor(environment: Design.Environment, left: AnchorGeometry.Origin,
   AnchorGeometry.visible(left, top, width, height, viewport_width, viewport_height)
 
 def capture_anchor(key: String, left: AnchorGeometry.Origin, top: AnchorGeometry.Origin, width: Nat, height: Nat, +state: State) -> Decision:
-  State{+legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{+legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   bounds = visible_anchor(Web.environment(Legacy.web(legacy)), left, top, width, height)
-  Decision{State{legacy, serial, Shell.Anchor{key, bounds} <> anchors, lifecycle, displayed, attention}, Nil{}}
+  Decision{State{legacy, serial, Shell.Anchor{key, bounds} <> anchors, lifecycle, displayed, attention, updates}, Nil{}}
 
 def legacy_focus_ticket(+state: Legacy.State) -> Nat:
   +observed_web_1 = Legacy.web(state)
@@ -467,7 +659,7 @@ def scope_if_rejected(rejected: Bool, +scope: Focus.Scope) -> Focus.Scope:
     case False{}: scope
 
 def active_scope(+state: State) -> Focus.Scope:
-  State{+legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{+legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: scope_if_rejected(utility_rejected(lifecycle), Legacy.active_focus_scope(legacy))
     case Some{Published{world, semantic, scope, basis, frame}}: scope
@@ -527,8 +719,8 @@ def semantic_generation(+state: Legacy.State) -> Nat:
   generation
 
 def set_lifecycle(+state: State, lifecycle: Lifecycle) -> State:
-  State{legacy, serial, anchors, old, displayed, attention} = state
-  State{legacy, serial, anchors, lifecycle, displayed, attention}
+  State{legacy, serial, anchors, old, displayed, attention, updates} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates}
 
 def no_candidate(state: State) -> Decision:
   Decision{set_lifecycle(state, Blocked{"The interface does not fit the available space"}), Nil{}}
@@ -651,9 +843,9 @@ def feedback_root(+source: Source.Node, +entries: +List<Legacy.Pending>, +font: 
   only_root(feedback_nodes(source <> Nil{}, entries, font), source)
 
 def frozen(+source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: AnchorGeometry.Box, +state: State, +semantic: SurfaceTypes.Surface) -> Search:
-  State{legacy, +serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, +serial, anchors, lifecycle, displayed, attention, updates} = state
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), feedback_root(source, pending(legacy), font), font}, viewport)
-  selected(World.plan(engine), index, capacity, engine, State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed, attention}, semantic, 0n)
+  selected(World.plan(engine), index, capacity, engine, freeze_update(State{legacy, (serial + 1n : Nat), anchors, lifecycle, displayed, attention, updates}), semantic, 0n)
 
 def authored(+result: Shell.ShellAuthorship, +index: Nat, +capacity: View.Capacity, +font: T.Presentation,
   +viewport: AnchorGeometry.Box, +state: State, +semantic: SurfaceTypes.Surface) -> Search:
@@ -665,7 +857,7 @@ def calibrated_parameters_at(physical_capacity: Nat, parameters: Maybe<&2, Desig
   match parameters:
     case None{}: Stopped{Decision{set_lifecycle(state, Blocked{"Font metrics exceed supported layout size."}), Nil{}}}
     case Some{parameters}:
-      State{+observed_state_1, serial, +anchors, lifecycle, displayed, attention} = state
+      State{+observed_state_1, serial, +anchors, lifecycle, displayed, attention, updates} = state
       +observed_web_2 = Legacy.web(observed_state_1)
       +observed_application_3 = Web.application(observed_web_2)
       +environment = Web.environment(observed_web_2)
@@ -677,7 +869,7 @@ def calibrated_parameters_at(physical_capacity: Nat, parameters: Maybe<&2, Desig
       +surface = Web.appearance_surface_supporting_navigation(semantic, environment, font, candidate_form(index), attention)
       +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
       authored(Shell.source_supporting(physical_capacity, surface, parameters, capacity, layers, anchors, presentation, candidate_form(index)),
-        index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed, attention}, semantic)
+        index, capacity, presentation, viewport_box(environment), State{stored, serial, anchors, lifecycle, displayed, attention, updates}, semantic)
 
 def calibrated_parameters(parameters: Maybe<&2, Design.LayoutParameters>, index: Nat, state: State) -> Search:
   calibrated_parameters_at(NaturalSize.limit(), parameters, index, state)
@@ -727,9 +919,9 @@ def finish_search(search: Search) -> Decision:
     case Searching{index, state}: no_candidate(state)
 
 def utility_publish(+world: Content.AllocatedWorld, purpose: Utility.Purpose, engine: World.Engine, state: State) -> Decision:
-  State{+stored, serial, anchors, lifecycle, displayed, attention} = state
+  State{+stored, serial, anchors, lifecycle, displayed, attention, updates} = state
   Decision{State{stored, serial, anchors, UtilityDisplaying{purpose, engine},
-    Some{Published{world, current_legacy_surface(stored), Focus.Document{}, NativeFields.Basis{Nil{}, Nil{}}, None{}}}, attention}, Nil{}}
+    Some{Published{world, current_legacy_surface(stored), Focus.Document{}, NativeFields.Basis{Nil{}, Nil{}}, None{}}}, attention, updates}, Nil{}}
 
 def utility_selected(plan: Plan.Plan, +purpose: Utility.Purpose, +engine: World.Engine, round: Nat, glyph_only: Bool, +state: State) -> Decision:
   match plan:
@@ -739,17 +931,17 @@ def utility_selected(plan: Plan.Plan, +purpose: Utility.Purpose, +engine: World.
     case Plan.Invalid{error}: Decision{set_lifecycle(state, Blocked{"Frontend utility source is invalid"}), Nil{}}
 
 def utility_start(+purpose: Utility.Purpose, +glyph_only: Bool, +state: State) -> Decision:
-  State{+stored, +serial, anchors, lifecycle, displayed, attention} = state
+  State{+stored, +serial, anchors, lifecycle, displayed, attention, updates} = state
   +observed_web_1 = Legacy.web(stored)
   +environment = Web.environment(observed_web_1)
   +font = Web.typography(observed_web_1)
   +presentation: T.Presentation = T.Presentation{T.Body{}, T.Regular{}, F.scale(font)}
   +engine = World.initial(Content.Snapshot{(serial + 1n : Nat), UtilityProof.source(purpose, presentation, glyph_only), presentation}, viewport_box(environment))
-  utility_selected(World.plan(engine), purpose, engine, 0n, glyph_only, State{stored, (serial + 1n : Nat), anchors, lifecycle, displayed, attention})
+  utility_selected(World.plan(engine), purpose, engine, 0n, glyph_only, State{stored, (serial + 1n : Nat), anchors, lifecycle, displayed, attention, updates})
 
 def utility_if_needed(decision: Decision) -> Decision:
   Decision{+state, effects} = decision
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
     case WaitingEnvironment{}: append(effects, utility_start(Utility.Preparing{}, False{}, state))
     case WaitingFont{}: append(effects, utility_start(Utility.Preparing{}, False{}, state))
@@ -759,20 +951,282 @@ def utility_if_needed(decision: Decision) -> Decision:
 def build(index: Nat, state: State) -> Decision:
   utility_if_needed(finish_search(search_run(8n, Searching{index, state})))
 
+def continue_pending(pending: Bool, +state: State, effects: +List<Legacy.Effect>) -> Decision:
+  match pending:
+    case True{}: append(effects, build(0n, state))
+    case False{}: Decision{state, effects}
+
+def normal_candidate_finished(state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  match lifecycle:
+    case Displaying{capacity, engine, semantic}: True{}
+    case _: False{}
+
+def continue_latest(decision: Decision) -> Decision:
+  Decision{+state, effects} = decision
+  continue_pending(display_pending(state) && normal_candidate_finished(state), state, effects)
+
+def accept_measuring(measuring: Bool, first: +List<Legacy.Effect>, +state: State) -> Decision:
+  match measuring:
+    case True{}: Decision{state, first}
+    case False{}: append(first, build(0n, state))
+
+def accept_updated(first: +List<Legacy.Effect>, +state: State) -> Decision:
+  accept_measuring(active_measurement(state), first, state)
+
 def accepted(+rebuild: Bool, +first: +List<Legacy.Effect>, +state: State) -> Decision:
   match rebuild:
     case False{}: Decision{state, List.append(&2, Legacy.Effect, first, pending_frame_effects(state))}
-    case True{}:
-      append(first, build(0n, state))
+    case True{}: accept_updated(first, advance_update(state))
 
-def accept(+rebuild: Bool, +value: Legacy.Decision, +state: State) -> Decision:
+def synchronized_result(value: Legacy.Decision, first: +List<Legacy.Effect>) -> Legacy.Decision:
+  Legacy.Decision{synced, later} = value
+  Legacy.Decision{synced, List.append(&2, Legacy.Effect, first, later)}
+
+def synchronize_observed(value: Legacy.Decision, first: +List<Legacy.Effect>) -> Legacy.Decision:
+  Legacy.Decision{next, effects} = value
+  synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveSynchronize{}}}}}, next), List.append(&2, Legacy.Effect, first, effects))
+
+def synchronize_interactive(value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{+next, first} = value
+  +session = E.session(InteractionState.application(Platform.core(Web.application(Legacy.web(next)))))
+  synchronize_observed(Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{E.namespace(session), Legacy.sequence(next), E.interactive_fresh(session), E.interactive_allowed(session)}}}}}, next), first)
+
+def accept_synchronized(+rebuild: Bool, value: Legacy.Decision, +state: State) -> Decision:
   Legacy.Decision{next, first} = value
-  State{old, serial, anchors, lifecycle, displayed, attention} = state
-  accepted(rebuild, first, State{next, serial, anchors, lifecycle, displayed, attention})
+  State{old, serial, anchors, lifecycle, displayed, attention, updates} = state
+  accepted(rebuild, first, State{next, serial, anchors, lifecycle, displayed, attention, updates})
+
+def accept(+rebuild: Bool, value: Legacy.Decision, +state: State) -> Decision:
+  match rebuild:
+    case False{}: accept_synchronized(False{}, value, state)
+    case True{}: accept_synchronized(True{}, synchronize_interactive(value), state)
+
+def current_namespace(state: State) -> String:
+  E.namespace(E.session(InteractionState.application(Platform.core(Web.application(Legacy.web(legacy(state)))))))
+
+def source_allowed(state: State) -> Bool:
+  E.interactive_allowed(E.session(InteractionState.application(Platform.core(Web.application(Legacy.web(legacy(state)))))))
+
+def source_fresh(state: State) -> Bool:
+  E.interactive_fresh(E.session(InteractionState.application(Platform.core(Web.application(Legacy.web(legacy(state)))))))
+
+def invalidate_display(state: State) -> State:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  State{legacy, serial, anchors, WaitingEnvironment{}, None{}, attention, updates}
+
+def invalidate_if(changed: Bool, state: State) -> State:
+  match changed:
+    case True{}: invalidate_display(state)
+    case False{}: state
+
+def environment_result(namespace: String, fresh: Bool, allowed: Bool, value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{+next, first} = value
+  synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, Legacy.sequence(next), fresh, allowed}}}}}, next), first)
+
+def viewed_task_exists(found: Maybe<&2, D.Task>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{task}: True{}
+
+def viewed_task_removed(route: UserInput.Route, program: M.World()) -> Bool:
+  match route:
+    case UserInput.Conversation{task}: Bool.not(viewed_task_exists(Tasks.find(Commands.entries(program), task)))
+    case _: False{}
+
+def view_removed(program: M.World(), state: State) -> Bool:
+  viewed_task_removed(E.route(E.session(InteractionState.application(Platform.core(Web.application(Legacy.web(legacy(state))))))), program)
+
+def physical_invalidated(+before: State, +after: State) -> Bool:
+  Bool.not(String.eq(current_namespace(before), current_namespace(after))) ||
+    (source_allowed(before) && Bool.not(source_allowed(after))) ||
+    (Bool.not(view_removed(Legacy.program(legacy(before)), before)) &&
+      view_removed(Legacy.program(legacy(after)), before))
+
+def service_access(state: State) -> Services.Access:
+  Services.access(InteractionState.services(Platform.core(Web.application(Legacy.web(legacy(state))))))
+
+def connection_lost(access: Services.Access) -> Bool:
+  match access:
+    case Services.ConnectionLost{connection, reason}: True{}
+    case _: False{}
+
+def reconnect_current(needed: Bool, value: Legacy.Decision) -> Legacy.Decision:
+  match needed:
+    case False{}: value
+    case True{}:
+      Legacy.Decision{next, first} = value
+      synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ServiceInput{Services.Connect{}}}}}, next), first)
+
+def reconnect_result(+changed: Bool, value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{+next, first} = value
+  reconnect_current(changed || connection_lost(Services.access(InteractionState.services(Platform.core(Web.application(Legacy.web(next)))))), Legacy.Decision{next, first})
+
+def snapshot_result(+changed: Bool, +namespace: String, +sequence: Nat, program: M.World(), +state: State) -> Legacy.Decision:
+  reconnect_result(changed, environment_result(namespace, True{}, True{}, Legacy.snapshot_new(changed || Nat.is_lt(Legacy.sequence(legacy(state)), sequence), sequence, program, Legacy.namespace_reset(changed, legacy(state)))))
+
+def snapshot_current(accepted: Bool, +changed: Bool, +namespace: String, +sequence: Nat, +program: M.World(), +state: State) -> Decision:
+  match accepted:
+    case False{}: Decision{state, Nil{}}
+    case True{}:
+      accept(True{}, snapshot_result(changed, namespace, sequence, program, state), invalidate_if(changed || view_removed(program, state), state))
+
+def recover_namespace(value: Legacy.Decision, state: State) -> Decision:
+  Legacy.Decision{observed, effects} = value
+  utility_if_needed(Decision{set_lifecycle(with_legacy(observed, invalidate_display(state)), Blocked{"Invalid service data namespace"}), effects})
+
+def invalid_namespace(+state: State) -> Decision:
+  recover_namespace(synchronize_interactive(environment_result(current_namespace(state), False{}, False{}, Legacy.Decision{legacy(state), Nil{}})), state)
+
+def snapshot_namespace(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +state: State) -> Decision:
+  match valid:
+    case False{}: invalid_namespace(state)
+    case True{}:
+      +changed = Bool.not(String.eq(current_namespace(state), namespace))
+      snapshot_current(changed || Nat.is_le(Legacy.sequence(legacy(state)), sequence), changed, namespace, sequence, program, state)
+
+def snapshot_scope(owned: Bool, +namespace: String, sequence: Nat, program: M.World(), +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: snapshot_namespace(Live.valid_namespace(namespace), namespace, sequence, program, state)
+
+def snapshot_environment(expected_namespace: String, namespace: String, sequence: Nat, program: M.World(), +state: State) -> Decision:
+  snapshot_scope(String.eq(expected_namespace, current_namespace(state)), namespace, sequence, program, state)
+
+def transport_current(owned: Bool, namespace: String, sequence: Nat, fresh: Bool, +allowed: Bool, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}:
+      accept(True{}, Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, sequence, fresh, allowed}}}}}, legacy(state)), invalidate_if(Bool.not(allowed), state))
+
+def transport_environment(+namespace: String, +sequence: Nat, fresh: Bool, allowed: Bool, +state: State) -> Decision:
+  transport_current(String.eq(namespace, current_namespace(state)) && Nat.is_eq(sequence, Legacy.sequence(legacy(state))), namespace, sequence, fresh, allowed && source_allowed(state), state)
+
+def authentication_owned(+namespace: String, ticket: Nat, +state: State) -> Bool:
+  String.eq(namespace, current_namespace(state)) && Services.expected_access(service_access(state), ticket)
+
+def network_failure_owned(+namespace: String, sequence: Nat,+connection: Nat,  authentication: Maybe<&2, Nat>, +state: State) -> Bool:
+  match authentication:
+    case None{}: String.eq(namespace, current_namespace(state)) && (Nat.is_eq(sequence, Legacy.sequence(legacy(state))) && Services.live_connection(service_access(state), connection))
+    case Some{ticket}: authentication_owned(namespace, ticket, state)
+
+def network_failure_sequence(authentication: Maybe<&2, Nat>, sequence: Nat, state: State) -> Nat:
+  match authentication:
+    case None{}: sequence
+    case Some{ticket}: Legacy.sequence(legacy(state))
+
+def network_failure_input(authentication: Maybe<&2, Nat>, +connection: Nat, reason: String) -> Product.Input:
+  match authentication:
+    case None{}: Product.Disconnected{connection, reason}
+    case Some{ticket}: Product.Authenticated{ticket, Fail{reason}}
+
+def network_failure_after(authentication: Maybe<&2, Nat>, +connection: Nat, reason: String, value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{next, first} = value
+  synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{network_failure_input(authentication, connection, reason)}}, next), first)
+
+def network_failure_result(namespace: String, sequence: Nat,+connection: Nat,  reason: String, revoked: Bool, authentication: Maybe<&2, Nat>, +state: State) -> Legacy.Decision:
+  network_failure_after(authentication, connection, reason, Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, sequence, False{}, Bool.not(revoked) && source_allowed(state)}}}}}, legacy(state)))
+
+def network_failed_current(owned: Bool, namespace: String, sequence: Nat,+connection: Nat,  reason: String, +revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}:
+      accept(True{}, network_failure_result(namespace, network_failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state), invalidate_if(revoked, state))
+
+def network_failed(+namespace: String, +sequence: Nat,+connection: Nat,  reason: String, revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
+  network_failed_current(network_failure_owned(namespace, sequence, connection, authentication, state), namespace, sequence, connection, reason, revoked, authentication, state)
+
+def authenticated_result(ticket: Nat, value: Legacy.Decision) -> Legacy.Decision:
+  Legacy.Decision{next, first} = value
+  synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.Authenticated{ticket, Done{Unit{}}}}}, next), first)
+
+def authenticated_snapshot_current(stale: Bool, +changed: Bool, namespace: String, sequence: Nat, +program: M.World(), ticket: Nat, +state: State) -> Decision:
+  match stale:
+    case True{}: accept(True{}, authenticated_result(ticket, Legacy.Decision{legacy(state), Nil{}}), state)
+    case False{}:
+      accept(True{}, authenticated_result(ticket, snapshot_result(changed, namespace, sequence, program, state)), invalidate_if(changed || view_removed(program, state), state))
+
+def authenticated_snapshot_valid(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +ticket: Nat, +state: State) -> Decision:
+  match valid:
+    case False{}: network_failed(current_namespace(state), Legacy.sequence(legacy(state)), ticket, "Invalid service data namespace", True{}, Some{ticket}, state)
+    case True{}:
+      +changed = Bool.not(String.eq(current_namespace(state), namespace))
+      authenticated_snapshot_current(Bool.not(changed) && Nat.is_lt(sequence, Legacy.sequence(legacy(state))), changed, namespace, sequence, program, ticket, state)
+
+def authenticated_snapshot_owned(owned: Bool, +namespace: String, sequence: Nat, program: M.World(), ticket: Nat, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: authenticated_snapshot_valid(Live.valid_namespace(namespace), namespace, sequence, program, ticket, state)
+
+def authenticated_snapshot(expected_namespace: String, namespace: String, sequence: Nat, program: M.World(), +ticket: Nat, +state: State) -> Decision:
+  authenticated_snapshot_owned(authentication_owned(expected_namespace, ticket, state), namespace, sequence, program, ticket, state)
+
+def completed_current(changed: Bool, ticket: Nat, namespace: String, +sequence: Nat, +program: M.World(), reply: J.Json, +state: State) -> Decision:
+  match changed:
+    case True{}: Decision{state, Nil{}}
+    case False{}: accept(True{}, Legacy.step(Legacy.Completed{ticket, sequence, program, reply}, legacy(state)),
+      invalidate_if(Nat.is_le(Legacy.sequence(legacy(state)), sequence) && view_removed(program, state), state))
+
+def completed_environment(ticket: Nat, +namespace: String, sequence: Nat, program: M.World(), reply: J.Json, +state: State) -> Decision:
+  completed_current(Bool.not(String.eq(current_namespace(state), namespace)), ticket, namespace, sequence, program, reply, state)
 
 def command_rejected(+ticket: Nat, +reason: String, +state: State) -> Decision: accept(True{}, Legacy.command_rejected(ticket, reason, legacy(state)), state)
 
-def activate(+key: String, +state: State) -> Decision: accept(True{}, Legacy.activate(key, legacy(state)), state)
+def external_action(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, IM.ActionBinding{kind, enabled, pending}, children}}, nested}}:
+      model_external_kind(kind)
+    case _: False{}
+
+def interactive_native_owned(event: Maybe<&2, IM.EventIdentity>, basis: NativeFields.Basis, key: String) -> Bool:
+  match event:
+    case None{}: True{}
+    case Some{identity}: NativeFields.control_owned(basis, key)
+
+def activation_owned(+key: String, +state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  match displayed:
+    case None{}: matching_interactive_nodes(None{}, InterfaceView.find_node(InterfaceView.active_nodes(current_surface(state)), key))
+    case Some{Published{world, semantic, scope, basis, frame}}:
+      interactive_native_owned(interactive_event(InterfaceView.find_node(InterfaceView.active_nodes(current_surface(state)), key)), basis, key) &&
+        matching_interactive_nodes(InterfaceView.find_node(InterfaceView.active_nodes(semantic), key), InterfaceView.find_node(InterfaceView.active_nodes(current_surface(state)), key))
+
+def submit_action(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, IM.ActionBinding{IM.SubmitAction{}, enabled, pending}, children}}, nested}}: True{}
+    case _: False{}
+
+def service_connected(state: State) -> Bool:
+  Services.connected(Services.access(InteractionState.services(Platform.core(Web.application(Legacy.web(legacy(state)))))))
+
+def commit_refresh_needed_at(sequence: Maybe<&2, Nat>, +notice: J.Json, +state: State) -> Bool:
+  match sequence:
+    case None{}: True{}
+    case Some{received}:
+      Bool.not(String.eq(J.text(J.get(notice, "type")), "commit") &&
+        Live.valid_namespace(current_namespace(state)) &&
+        String.eq(J.text(J.get(notice, "namespace")), current_namespace(state)) &&
+        source_fresh(state) && source_allowed(state) && service_connected(state) &&
+        Nat.is_le(received, Legacy.sequence(legacy(state))))
+
+def commit_refresh_needed(+notice: J.Json, state: State) -> Bool:
+  commit_refresh_needed_at(J.natural(J.get(notice, "sequence")), notice, state)
+
+def activate_ready(blocked: Bool, +key: String, +state: State) -> Decision:
+  match blocked:
+    case True{}: Decision{state, Nil{}}
+    case False{}: accept(True{}, Legacy.activate(key, legacy(state)), state)
+
+def activate_reserved(reserved: Bool, +key: String, +state: State) -> Decision:
+  match reserved:
+    case True{}: accept(True{}, Legacy.activate(key, legacy(state)), state)
+    case False{}:
+      activate_ready(Bool.not(activation_owned(key, state)) ||
+        (semantic_pending(state) && external_action(InterfaceView.find_node(InterfaceView.active_nodes(current_surface(state)), key))) ||
+        (Bool.not(service_connected(state)) && submit_action(InterfaceView.find_node(InterfaceView.active_nodes(current_surface(state)), key))), key, state)
+
+def activate(+key: String, +state: State) -> Decision:
+  activate_reserved(String.eq(key, "@browser/retry"), key, state)
 
 type TextEditCandidate is Data:
   TextEditCandidate{key: String, text: String, state: State}
@@ -896,21 +1350,12 @@ def workspace_git_completed(+ticket: Nat, +available: Bool, +state: State) -> De
 def directories_completed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directories_completed(ticket, ok, body, legacy(state)), state)
 
 def code_same_source(left: Code.Source, right: Code.Source) -> Bool:
-  match left:
-    case Code.Message{task, message}:
-      match right:
-        case Code.Message{other_task, other_message}: Nat.is_eq(task, other_task) && Nat.is_eq(message, other_message)
-        case _: False{}
-    case Code.StreamingPart{task, operation, part}:
-      match right:
-        case Code.StreamingPart{other_task, other_operation, other_part}:
-          Nat.is_eq(task, other_task) && Nat.is_eq(operation, other_operation) && Nat.is_eq(part, other_part)
-        case _: False{}
+  String.eq(Code.source_key(left), Code.source_key(right))
 
 def code_declared_owned(declared: Maybe<&2, Code.Source>, value: String, source: Code.Source, source_value: String) -> Bool:
   match declared:
     case None{}: False{}
-    case Some{owner}: code_same_source(owner, source) && String.eq(value, source_value)
+    case Some{owner}: code_same_source(owner, source) && SafeText.string_equal(value, source_value)
 
 def code_content_owned(content: Source.RichContent, +identity: Code.Identity, +source_value: String) -> Bool:
   Source.RichContent{declared, value, policy} = content
@@ -955,12 +1400,19 @@ def code_batch_owned(observations: +List<CodeObservation.Observation>, source: S
     case Nil{}: False{}
     case Con{observation, rest}: code_observations_owned(Con{observation, rest}, source)
 
-def code_batch_qualified(+generation: Nat, observations: +List<CodeObservation.Observation>, state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+def known_code_observations(observations: +List<CodeObservation.Observation>, +session: E.Session) -> Bool:
+  match observations:
+    case Nil{}: True{}
+    case Con{CodeObservation.Observation{identity, text, source_value}, rest}:
+      E.code_source_known(identity, session) && known_code_observations(rest, session)
+
+def code_batch_qualified(+generation: Nat, +observations: +List<CodeObservation.Observation>, state: State) -> Bool:
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: False{}
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
-      code_batch_owned(observations, source)
+      code_batch_owned(observations, source) && known_code_observations(observations,
+        E.session(InteractionState.application(Platform.core(Web.application(Legacy.web(legacy))))))
 
 # NOTE: Qualify against one published snapshot before any source update can publish a new generation.
 
@@ -997,7 +1449,16 @@ def editor_event(+key: String, +event: Editor.EditorEvent, +state: State) -> Dec
 
 def reading(+task: Nat, +generation: Nat, +event: Reading.ReadingEvent, +state: State) -> Decision: accept(False{}, Legacy.reading(task, generation, event, legacy(state)), state)
 
-def streams(+body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.streams(body, legacy(state)), state)
+def stream_notice_owned(+body: J.Json, +state: State) -> Bool:
+  Bool.not(String.eq(current_namespace(state), "")) && String.eq(J.text(J.get(body, "namespace")), current_namespace(state))
+
+def streams_current(owned: Bool, body: J.Json, +state: State) -> Decision:
+  match owned:
+    case False{}: Decision{state, Nil{}}
+    case True{}: accept(True{}, Legacy.streams(body, legacy(state)), state)
+
+def streams(+body: J.Json, +state: State) -> Decision:
+  streams_current(stream_notice_owned(body, state), body, state)
 
 def directory_listed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directory_listed(ticket, ok, body, legacy(state)), state)
 
@@ -1014,13 +1475,13 @@ def forward_frame_predicate(candidate: ForwardFrameCandidate) -> Bool:
 def forward_frame_category() -> ForwardFrameCandidate -> Type: Categories.holds(ForwardFrameCandidate, forward_frame_predicate)
 
 def frame_forward_calculation(+state: State, +frame: Rendered.Frame) -> Decision:
-  State{+stored, serial, anchors, lifecycle, displayed, attention} = state
+  State{+stored, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
-    case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}, attention}, Nil{}}
+    case None{}: Decision{State{stored, serial, anchors, lifecycle, None{}, attention, updates}, Nil{}}
     case Some{+value}:
       Published{+world, semantic, scope, basis, old} = value
       accept(False{}, Legacy.observe_frame_with(semantic_generation(stored), semantic, frame, stored, SourceFrame.expectations(world, frame)),
-        State{stored, serial, anchors, lifecycle, Some{value}, attention})
+        State{stored, serial, anchors, lifecycle, Some{value}, attention, updates})
 
 def frame_forward_ready(member: Categories.Membership<ForwardFrameCandidate, forward_frame_category()>) -> Decision:
   Categories.Membership{ForwardFrameCandidate{state, frame}, evidence} = member
@@ -1035,14 +1496,14 @@ def frame_forward(+state: State, +frame: Rendered.Frame) -> Decision:
   frame_forward_admitted(Categories.admit(ForwardFrameCandidate, forward_frame_predicate, ForwardFrameCandidate{state, frame}), state)
 
 def frame_capture(+frame: Rendered.Frame, state: State) -> State:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
-    case None{}: State{legacy, serial, anchors, lifecycle, None{}, attention}
+    case None{}: State{legacy, serial, anchors, lifecycle, None{}, attention, updates}
     case Some{Published{world, semantic, scope, basis, old}}:
-      State{legacy, serial, anchors, lifecycle, Some{Published{world, semantic, scope, basis, Some{frame}}}, attention}
+      State{legacy, serial, anchors, lifecycle, Some{Published{world, semantic, scope, basis, Some{frame}}}, attention, updates}
 
 def frame_owned(+received: Nat, +state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: False{}
     case Some{published}: Nat.is_eq(received, displayed_generation(state))
@@ -1051,8 +1512,8 @@ def utility_frame_calculation(frame: Rendered.Frame, state: State) -> Decision:
   Decision{frame_capture(frame, state), Nil{}}
 
 def utility_frame_rejection(state: State) -> Decision:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
-  Decision{State{legacy, serial, anchors, UtilityRejected{"Frontend utility frame does not match its admitted source"}, None{}, attention}, Nil{}}
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
+  Decision{State{legacy, serial, anchors, UtilityRejected{"Frontend utility frame does not match its admitted source"}, None{}, attention, updates}, Nil{}}
 
 def frame_violations_empty(violations: +List<Rendered.Violation>) -> Bool:
   match violations:
@@ -1084,7 +1545,7 @@ def correlated_frame_owned(utility: Bool, +frame: Rendered.Frame, +state: State)
   match utility:
     case False{}: frame_forward(frame_capture(frame, state), frame)
     case True{}:
-      State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+      State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
       match displayed:
         case None{}: Decision{state, Nil{}}
         case Some{Published{world, semantic, scope, basis, old}}:
@@ -1117,7 +1578,7 @@ def receive_frame(+received: Nat, +frame: Rendered.Frame, +state: State) -> Deci
 
 def rich_delegates(node: Source.Node, +owner: String) -> Bool:
   match node:
-    case Source.RichText{key, style, content, attachments, Some{delegated}}: String.eq(delegated, owner)
+    case Source.RichText{key, style, content, attachments, Some{delegated}}: SafeText.string_equal(delegated, owner)
     case _: False{}
 
 def source_children_delegate(nodes: +List<Source.Node>, +owner: String) -> Bool:
@@ -1146,7 +1607,7 @@ def source_delegates(+node: Source.Node, +owner: String) -> Bool:
 def native_pair(entries: +List<Rendered.NativeFocus>, +owner: String, +identity: String) -> Bool:
   match entries:
     case Nil{}: False{}
-    case Con{Rendered.NativeFocus{key, parent}, rest}: (String.eq(key, identity) && String.eq(parent, owner)) || native_pair(rest, owner, identity)
+    case Con{Rendered.NativeFocus{key, parent}, rest}: (SafeText.string_equal(key, identity) && SafeText.string_equal(parent, owner)) || native_pair(rest, owner, identity)
 
 def native_frame_owned(frame: Maybe<&2, Rendered.Frame>, +semantic: SurfaceTypes.Surface, +owner: String, +identity: String) -> Bool:
   match frame:
@@ -1155,7 +1616,7 @@ def native_frame_owned(frame: Maybe<&2, Rendered.Frame>, +semantic: SurfaceTypes
       Rendered.native_valid(native_focus, InterfaceView.active_nodes(semantic), elements) && native_pair(native_focus, owner, identity)
 
 def native_observation_owned(+generation: Nat, +owner: String, +identity: String, state: State) -> Bool:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: False{}
     case Some{Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, +semantic, scope, basis, frame}}:
@@ -1266,7 +1727,7 @@ def native_target(entries: +List<Rendered.NativeFocus>, +key: String) -> Focus.T
   match entries:
     case Nil{}: Focus.Product{key}
     case Con{Rendered.NativeFocus{+identity, owner}, rest}:
-      native_target_match(String.eq(identity, key), owner, identity, native_target(rest, key))
+      native_target_match(SafeText.string_equal(identity, key), owner, identity, native_target(rest, key))
 
 def native_focus_predicate(semantic: SurfaceTypes.Surface, elements: +List<Rendered.Element>, entries: +List<Rendered.NativeFocus>) -> Bool:
   Rendered.native_valid(entries, InterfaceView.active_nodes(semantic), elements)
@@ -1314,7 +1775,7 @@ def published_key(+key: String, shift: Bool, +scope: Focus.Scope, basis: NativeF
       published_key_kind(String.eq(key, "Tab"), String.eq(key, "Escape"), shift, scope, basis, semantic, frame, state)
 
 def key_captured(+key: String, +shift: Bool, +state: State) -> KeyResult:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match displayed:
     case None{}: KeyResult{False{}, Decision{state, Nil{}}}
     case Some{Published{world, semantic, scope, basis, frame}}: published_key(key, shift, scope, basis, semantic, frame, state)
@@ -1331,7 +1792,7 @@ def utility_fallback(reason: String, state: State) -> Decision:
   utility_start(Utility.Recovery{reason}, True{}, state)
 
 def utility_measurement_failure(reason: String, +state: State) -> Decision:
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
     case UtilityMeasuring{purpose, engine, round, False{}}: utility_fallback(reason, state)
     case UtilityMeasuring{purpose, engine, round, True{}}: Decision{set_lifecycle(state, Blocked{reason}), Nil{}}
@@ -1344,17 +1805,17 @@ def utility_receipt(status: World.ReceiptStatus, +purpose: Utility.Purpose, +eng
 
 def measured_pending(+receipts: +List<String>, +state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic, +round}, displayed, attention}:
+    case State{legacy, serial, anchors, Measuring{index, capacity, +engine, semantic, +round}, displayed, attention, updates}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
-      utility_if_needed(receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}, semantic, (round + 1n : Nat)))
-    case State{legacy, serial, anchors, UtilityMeasuring{purpose, +engine, +round, glyph_only}, displayed, attention}:
+      utility_if_needed(receipt_selection(World.receipt_status(next), index, capacity, next, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention, updates}, semantic, (round + 1n : Nat)))
+    case State{legacy, serial, anchors, UtilityMeasuring{purpose, +engine, +round, glyph_only}, displayed, attention, updates}:
       +next = World.receive(World.snapshot_generation(World.snapshot(engine)), receipts, engine)
-      utility_receipt(World.receipt_status(next), purpose, next, (round + 1n : Nat), glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention})
+      utility_receipt(World.receipt_status(next), purpose, next, (round + 1n : Nat), glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention, updates})
     case other: Decision{other, Nil{}}
 
 def measurement_owned(ticket: MeasurementTicket, state: State) -> Bool:
   MeasurementTicket{generation, received_round} = ticket
-  State{legacy, serial, anchors, lifecycle, displayed, attention} = state
+  State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
     case Measuring{index, capacity, engine, semantic, round}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) && Nat.is_eq(received_round, round)
     case UtilityMeasuring{purpose, engine, round, glyph_only}: Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) && Nat.is_eq(received_round, round)
@@ -1372,7 +1833,7 @@ def physical_measured_category() -> MeasurementCandidate -> Type: Categories.hol
 def measured_current(member: Categories.Membership<MeasurementCandidate, physical_measured_category()>) -> Decision:
   Categories.Membership{candidate, evidence} = member
   MeasurementCandidate{+ticket, +receipts, +state} = candidate
-  measured_pending(receipts, state)
+  continue_latest(measured_pending(receipts, state))
 
 def physical_measured_admitted(admission: Maybe<&1, Categories.Membership<MeasurementCandidate, physical_measured_category()>>, state: State) -> Decision:
   match admission:
@@ -1406,12 +1867,12 @@ def physical_measurement_failed(+ticket: MeasurementTicket, +reason: String, +st
 
 def remeasure(+state: State) -> Decision:
   match state:
-    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention}: build(0n, State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention})
-    case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention}: build(0n, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention})
-    case State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention}:
-      utility_start(purpose, glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention})
-    case State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention}:
-      utility_start(purpose, False{}, State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention})
+    case State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention, updates}: Decision{State{legacy, serial, anchors, Measuring{index, capacity, engine, semantic, round}, displayed, attention, updates}, Nil{}}
+    case State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention, updates}: build(0n, State{legacy, serial, anchors, Displaying{capacity, engine, semantic}, displayed, attention, updates})
+    case State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention, updates}:
+      utility_start(purpose, glyph_only, State{legacy, serial, anchors, UtilityMeasuring{purpose, engine, round, glyph_only}, displayed, attention, updates})
+    case State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention, updates}:
+      utility_start(purpose, False{}, State{legacy, serial, anchors, UtilityDisplaying{purpose, engine}, displayed, attention, updates})
     case other: Decision{other, Nil{}}
 
 def key_decision(result: KeyResult) -> Decision:
@@ -1429,20 +1890,20 @@ def key_handled(result: KeyResult) -> Bool:
 
 
 def with_attention(value: Navigation.Attention, state: State) -> State:
-  State{legacy, generation, anchors, lifecycle, displayed, previous} = state
-  State{legacy, generation, anchors, lifecycle, displayed, value}
+  State{legacy, generation, anchors, lifecycle, displayed, previous, updates} = state
+  State{legacy, generation, anchors, lifecycle, displayed, value, updates}
 
 def attention_refresh(+state: State) -> Decision:
-  State{legacy, generation, anchors, lifecycle, displayed, attention} = state
+  State{legacy, generation, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
     case Displaying{capacity, +engine, semantic}: build(0n, state)
-    case Measuring{index, capacity, engine, semantic, round}: build(0n, state)
+    case Measuring{index, capacity, engine, semantic, round}: Decision{state, Nil{}}
     case _: Decision{state, Nil{}}
 
 def attention_changed(changed: Bool, value: Navigation.Attention, state: State) -> Decision:
   match changed:
     case False{}: Decision{state, Nil{}}
-    case True{}: attention_refresh(with_attention(value, state))
+    case True{}: attention_refresh(advance_presentation(with_attention(value, state)))
 
 
 def attention_change(valid: Bool, +value: Navigation.Attention, +state: State) -> Decision:
@@ -1487,9 +1948,13 @@ def step(+input: Legacy.Input, +state: State) -> Decision:
     case Legacy.Native{Web.PlatformInput{Platform.FocusObserved{identity}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusObserved{identity}}, state)
     case Legacy.Native{Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}}: auxiliary_focus(Web.PlatformInput{Platform.FocusApplied{ticket, identity, observed}}, state)
     case Legacy.Native{Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}}: auxiliary_focus(Web.PlatformInput{Platform.PublicationFocusObserved{ticket, before, after}}, state)
+    case Legacy.Native{Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, sequence, fresh, allowed}}}}}}:
+      transport_environment(namespace, sequence, fresh, allowed, state)
+    case Legacy.Native{Web.EnvironmentObserved{environment}}:
+      accept(True{}, Legacy.native(Web.EnvironmentObserved{environment}, legacy(state)), with_lifecycle(WaitingEnvironment{}, state))
     case Legacy.Native{+input}: accept(source_changed(input), Legacy.native(input, legacy(state)), state)
     case other: accept(True{}, Legacy.step(other, legacy(state)), state)
 
 def presentation_phase(state: State) -> Lifecycle:
-  State{legacy, generation, anchors, phase, displayed, attention} = state
+  State{legacy, generation, anchors, phase, displayed, attention, updates} = state
   phase

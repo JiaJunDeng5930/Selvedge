@@ -1,4 +1,5 @@
 import Base
+import ../../harness/context/interactive-markdown.bend as InteractiveMarkdown
 import ../../harness/conversation/TITLE.bend as Title
 import ../../bendlib/json.bend as J
 import ../../bendlib/stdlib.bend as Std
@@ -347,20 +348,23 @@ def independent_task_text(+effect: J.Json) -> J.Json:
   put(put(put(put(effect, "instructions", J.Text{""}), "tools", J.Array{Nil{}}), "callable", J.Array{Nil{}}), "history", J.Array{Con{J.Object{Con{J.Field{"role", J.Text{"user"}}, Con{J.Field{"content", J.get(effect, "prompt")}, Nil{}}}}, Nil{}}})
 
 type IndependentEffectKindName is Data:
+  IndependentEffectKindNameCompaction{}
   IndependentEffectKindNameTaskTitle{}
   IndependentEffectKindNameApproval{}
   IndependentEffectKindNameOther{}
 
 def independent_effect_kind_discriminant(+value: String) -> IndependentEffectKindName:
-  Bool.pick(IndependentEffectKindName, String.eq(value, "task_title"), IndependentEffectKindNameTaskTitle{},
+  Bool.pick(IndependentEffectKindName, String.eq(value, "context_compaction"), IndependentEffectKindNameCompaction{},
+    Bool.pick(IndependentEffectKindName, String.eq(value, "task_title"), IndependentEffectKindNameTaskTitle{},
     Bool.pick(IndependentEffectKindName, String.eq(value, "board_text"), IndependentEffectKindNameTaskTitle{},
     Bool.pick(IndependentEffectKindName, String.eq(value, "approval"), IndependentEffectKindNameApproval{},
-    IndependentEffectKindNameOther{})))
+    IndependentEffectKindNameOther{}))))
 
 def independent_effect_kind_classified(kind: IndependentEffectKindName, +effect: J.Json) -> J.Json:
   match kind:
-    case IndependentEffectKindNameTaskTitle{}: independent_task_text(effect)
-    case IndependentEffectKindNameApproval{}: put(put(put(effect, "tools", J.Array{Nil{}}), "callable", J.Array{Nil{}}), "history", J.Array{Con{J.Object{Con{J.Field{"role", J.Text{"user"}}, Con{J.Field{"content", J.Text{json_text(J.Object{Con{J.Field{"task_id", J.get(effect, "task_id")}, Con{J.Field{"request_id", J.get(effect, "ticket")}, Con{J.Field{"command", J.get(effect, "call")}, Con{J.Field{"task_settings", J.get(effect, "settings")}, Con{J.Field{"recent_user_requests_newest_first", J.get(effect, "user_requests")}, Con{J.Field{"context_boundary", J.Text{"Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted."}}, Nil{}}}}}}}})}}, Nil{}}}}, Nil{}}})
+    case IndependentEffectKindNameCompaction{}: put(put(effect, "output_mode", J.Text{"plain"}), "history", J.Array{InteractiveMarkdown.helper_history(J.items(J.get(effect, "history")))})
+    case IndependentEffectKindNameTaskTitle{}: put(independent_task_text(effect), "output_mode", J.Text{"plain"})
+    case IndependentEffectKindNameApproval{}: put(put(put(put(effect, "tools", J.Array{Nil{}}), "callable", J.Array{Nil{}}), "history", J.Array{Con{J.Object{Con{J.Field{"role", J.Text{"user"}}, Con{J.Field{"content", J.Text{json_text(J.Object{Con{J.Field{"task_id", J.get(effect, "task_id")}, Con{J.Field{"request_id", J.get(effect, "ticket")}, Con{J.Field{"command", J.get(effect, "call")}, Con{J.Field{"task_settings", J.get(effect, "settings")}, Con{J.Field{"recent_user_requests_newest_first", J.get(effect, "user_requests")}, Con{J.Field{"context_boundary", J.Text{"Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted."}}, Nil{}}}}}}}})}}, Nil{}}}}, Nil{}}}), "output_mode", J.Text{"plain"})
     case IndependentEffectKindNameOther{}: effect
 
 def independent_effect_kind(kind: String, +effect: J.Json) -> J.Json:
@@ -764,21 +768,55 @@ def output_join_checked(hok: Bool, tok: Bool, +head: J.Json, +tail: J.Json) -> J
 def output_join(+head: J.Json, +tail: J.Json) -> J.Json:
   output_join_checked(J.boolean(J.get(head, "ok")), J.boolean(J.get(tail, "ok")), head, tail)
 
-def output_items(items: +List<J.Json>, +profile: J.Json, +observations: +List<J.Json>, +index: Nat) -> J.Json:
+def indexed_output_checked(ok: Bool, +index: Nat, +result: J.Json) -> J.Json:
+  match ok:
+    case False{}: result
+    case True{}: Model.success(put(J.get(result, "value"), "part", J.nat(index)))
+
+def indexed_output(+index: Nat, +result: J.Json) -> J.Json:
+  indexed_output_checked(J.boolean(J.get(result, "ok")) && Bool.not(equal(J.get(J.get(result, "value"), "type"), "call")), index, result)
+
+def output_coordinate(coordinates: +List<J.Json>, fallback: Nat) -> Nat:
+  match coordinates:
+    case Nil{}: fallback
+    case Con{head, rest}: J.natural_or(J.natural(head), fallback)
+
+def remaining_coordinates(coordinates: +List<J.Json>) -> +List<J.Json>:
+  match coordinates:
+    case Nil{}: Nil{}
+    case Con{head, rest}: rest
+
+def coordinate_natural(value: Maybe<&2, Nat>, safe: Bool, previous: Maybe<&2, Nat>) -> Bool:
+  match value previous:
+    case None{} _: False{}
+    case Some{current} None{}: safe
+    case Some{current} Some{old}: safe && Nat.is_lt(old, current)
+
+def coordinate_values(values: +List<J.Json>, previous: Maybe<&2, Nat>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{+value, rest}: coordinate_natural(J.natural(value), Model.safe_integer(value), previous) && coordinate_values(rest, J.natural(value))
+
+def coordinates_valid(values: +List<J.Json>, count: Nat) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{+head, +rest}: Nat.is_eq(List.length(&2, J.Json, head <> rest), count) && coordinate_values(head <> rest, None{})
+
+def output_items(items: +List<J.Json>, +coordinates: +List<J.Json>, +profile: J.Json, +observations: +List<J.Json>, +index: Nat) -> J.Json:
   match items:
     case Nil{}: Model.success(J.Array{Nil{}})
-    case Con{+item, +rest}: output_join(output_item(item, profile, arguments_observation(observations, index)), output_items(rest, profile, observations, Nat.add(index, 1n)))
+    case Con{+item, +rest}: output_join(indexed_output(output_coordinate(coordinates, index), output_item(item, profile, arguments_observation(observations, index))), output_items(rest, remaining_coordinates(coordinates), profile, observations, Nat.add(index, 1n)))
 
 def output_array(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("Completed response has no output array")
-    case True{}: output_items(J.items(J.get(source, "output")), J.get(source, "profile"), J.items(J.get(source, "arguments_observations")), 0n)
+    case True{}: output_items(J.items(J.get(source, "output")), J.items(J.get(source, "output_indices")), J.get(source, "profile"), J.items(J.get(source, "arguments_observations")), 0n)
 
 # Stream observations mark exposure before interpreting the event, just as the
 # upstream API did; reasoning deltas and summary deltas count as exposure too.
 
 def output(+source: J.Json) -> J.Json:
-  output_array(is_array(J.get(source, "output")), source)
+  output_array(is_array(J.get(source, "output")) && coordinates_valid(J.items(J.get(source, "output_indices")), List.length(&2, J.Json, J.items(J.get(source, "output")))), source)
 
 def completed_natural(value: Maybe<&2, Nat>, +original: J.Json) -> Bool:
   match value:
@@ -843,10 +881,19 @@ def terminal_select(nonempty: Bool, +output: J.Json, items: +List<J.Json>) -> J.
 def terminal_output(+output: J.Json, items: +List<J.Json>) -> J.Json:
   terminal_select(is_array(output) && Bool.not(List.is_empty(&2, J.Json, J.items(output))), output, items)
 
-def stream_terminal(completed: Bool, event: J.Json, +state: J.Json) -> J.Json:
+def terminal_index_selection(has_output: Bool, items: +List<J.Json>) -> J.Json:
+  match has_output:
+    case True{}: J.Array{Nil{}}
+    case False{}: J.Array{Std.map(~J.Json, ~J.Json, ~(item => J.get(item, "index")), items)}
+
+def terminal_indices(+output: J.Json, items: +List<J.Json>) -> J.Json:
+  terminal_index_selection(is_array(output) && Bool.not(List.is_empty(&2, J.Json, J.items(output))), items)
+
+
+def stream_terminal(completed: Bool, +event: J.Json, +state: J.Json) -> J.Json:
   match completed:
     case False{}: stream_failure(state, "Terminal model response is not completed", False{})
-    case True{}: stream_action(state, "terminal", Con{J.Field{"output", terminal_output(J.get(J.get(event, "response"), "output"), J.items(J.get(state, "completed_items")))}, Nil{}})
+    case True{}: stream_action(state, "terminal", [J.Field{"output", terminal_output(J.get(J.get(event, "response"), "output"), J.items(J.get(state, "completed_items")))}, J.Field{"output_indices", terminal_indices(J.get(J.get(event, "response"), "output"), J.items(J.get(state, "completed_items")))}])
 
 def stream_delta(valid: Bool, +event: J.Json, +state: J.Json) -> J.Json:
   match valid:
@@ -855,7 +902,7 @@ def stream_delta(valid: Bool, +event: J.Json, +state: J.Json) -> J.Json:
 
 def stream_event(+kind: String, +event: J.Json, +state: J.Json) -> J.Json:
   match kind:
-    case "response.output_text.delta": stream_delta(J.is_text(J.get(event, "delta")), event, state)
+    case "response.output_text.delta": stream_delta(J.is_text(J.get(event, "delta")) && completed_index(J.get(event, "output_index")), event, state)
     case "response.output_item.done": stream_done(completed_index(J.get(event, "output_index")) && J.is_object(J.get(event, "item")), event, state)
     case "response.completed": stream_terminal(equal(J.get(J.get(event, "response"), "status"), "completed"), event, state)
     case "error": stream_failure(state, "Model stream ended with " ++ kind, Bool.not(J.boolean(J.get(state, "output_started"))) && equal(J.get(event, "code"), "context_length_exceeded"))
@@ -1040,7 +1087,7 @@ def echo_last(history: +List<J.Json>, +fallback: J.Json) -> J.Json:
     case Con{+item, +rest}: echo_last(rest, choose(equal(J.get(item, "role"), "user"), default(J.get(item, "content"), J.Text{"Task resumed."}), fallback))
 
 def echo(source: J.Json) -> J.Json:
-  Model.success(J.Array{Con{J.Object{Con{J.Field{"type", J.Text{"text"}}, Con{J.Field{"text", J.Text{"[Offline demo] " ++ J.text(echo_last(J.items(J.get(source, "history")), J.Text{"Task resumed."}))}}, Nil{}}}}, Nil{}}})
+  Model.success(J.Array{Con{J.Object{Con{J.Field{"type", J.Text{"text"}}, Con{J.Field{"part", J.nat(0n)}, Con{J.Field{"text", J.Text{"[Offline demo] " ++ J.text(echo_last(J.items(J.get(source, "history")), J.Text{"Task resumed."}))}}, Nil{}}}}}, Nil{}}})
 
 def profile_unknown_choice(known: Bool, name: String, rest: J.Json) -> J.Json:
   match known:
@@ -1704,13 +1751,13 @@ law profile_catalog_model:
 law profile_catalog_default:
   @profile:J.Json -> @first:J.Json -> @rest:+List<J.Json> -> {J.get(profile_catalog_reasoning(profile, Con{first, rest}), "default") == J.get(J.get(profile, "model_info"), "default_reasoning_level") : J.Json}
 
-# Preparation preserves the exact committed alphabet before provider encoding.
+# Ordinary preparation preserves the committed alphabet; helper projection removes output capabilities.
 law accepted_prepare_history:
   @effect:J.Json -> {J.get(J.get(prepare_checked(False{}, effect), "value"), "history") == J.get(effect, "history") : J.Json}
 law model_independent_history:
   @effect:J.Json -> {independent_effect_kind("model", effect) == effect : J.Json}
 law compaction_independent_history:
-  @effect:J.Json -> {independent_effect_kind("context_compaction", effect) == effect : J.Json}
+  @effect:J.Json -> {independent_effect_kind("context_compaction", effect) == put(put(effect, "output_mode", J.Text{"plain"}), "history", J.Array{InteractiveMarkdown.helper_history(J.items(J.get(effect, "history")))}) : J.Json}
 
 law tool_receipt_input_success:
   @message:J.Json -> @profile:J.Json -> {J.get(input_item(put(message, "role", J.Text{"tool_receipt"}), profile), "ok") == J.Boolean{True{}} : J.Json}
@@ -1737,3 +1784,10 @@ law context_amendment_patch_encoding:
 law context_removal_encoding:
   @key:J.Json -> @base_revision:J.Json ->
   {context_change_text_kind("remove", J.Object{[J.Field{"key", key}, J.Field{"base_revision", base_revision}]}) == context_removal_text(key) : String}
+
+
+law board_text_output_mode_plain:
+  @effect:J.Json -> {J.get(independent_effect_kind("board_text", effect), "output_mode") == J.Text{"plain"} : J.Json}
+
+law approval_output_mode_plain:
+  @effect:J.Json -> {J.get(independent_effect_kind("approval", effect), "output_mode") == J.Text{"plain"} : J.Json}

@@ -327,11 +327,11 @@ def later_output(+operation: D.Operation(), +value: J.Json, +error: Bool) ->
   {==}
 
 def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, current: D.ExecutionConfiguration, status: D.Status,
-  history: D.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, operations: +List<D.Operation()>,
+  history: D.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, +mode: D.OutputMode, operations: +List<D.Operation()>,
   notified: Bool, operation: D.Operation(), value: J.Json, error: Bool) ->
   {D.task_phase(T.complete_operation(operation, value, error,
-    D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
-    D.ModelPending{ticket, allowed} : D.Phase}:
+    D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed, mode}, operations, notified})) ==
+    D.ModelPending{ticket, allowed, mode} : D.Phase}:
   match status:
     case D.Active{}: {==}
     case D.Frozen{}: {==}
@@ -346,8 +346,8 @@ def A.coordination():
     (task => abandonment(task)), (task => publication(task)),
     (ticket => call => value => error => final_output(ticket, call, value, error)),
     (operation => value => error => later_output(operation, value, error)),
-    (id => lineage => contract => current => status => history => queued => ticket => allowed => operations => notified => operation => value => error =>
-      pending_model(id, lineage, contract, current, status, history, queued, ticket, allowed, operations, notified, operation, value, error))}
+    (id => lineage => contract => current => status => history => queued => ticket => allowed => mode => operations => notified => operation => value => error =>
+      pending_model(id, lineage, contract, current, status, history, queued, ticket, allowed, mode, operations, notified, operation, value, error))}
 
 
 law work_construction_meaning:

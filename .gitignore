@@ -4,6 +4,7 @@
 .workpad/
 .build/
 node_modules/
+__pycache__/
 
 # Browser ESM libraries and their compiler/source fingerprint manifests.
 /host/public/generated/

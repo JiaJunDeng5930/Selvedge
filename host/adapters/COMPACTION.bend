@@ -1,4 +1,5 @@
 import Base
+import ../../harness/context/interactive-markdown.bend as InteractiveMarkdown
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
@@ -58,7 +59,7 @@ def call_effect(+source: J.Json) -> J.Json:
   +plan = J.get(effect, "plan")
   J.Object{[J.Field{"kind", J.Text{"context_compaction"}}, J.Field{"context_selected", J.Boolean{True{}}}, J.Field{"model", J.get(effect, "model")},
     J.Field{"sampling", J.get(effect, "sampling")}, J.Field{"tools", J.Array{Nil{}}},
-    J.Field{"callable", J.Array{Nil{}}}, J.Field{"history", choose(String.eq(J.text(J.get(plan, "method")), "native"), J.get(plan, "history"), call_history(plan))}]}
+    J.Field{"callable", J.Array{Nil{}}}, J.Field{"history", choose(String.eq(J.text(J.get(plan, "method")), "native"), J.Array{InteractiveMarkdown.helper_history(J.items(J.get(plan, "history")))}, call_history(plan))}]}
 
 def portable_request(+source: J.Json) -> J.Json:
   put(J.get(source, "request"), "max_output_tokens", J.get(J.get(J.get(source, "effect"), "plan"), "output_reserve_tokens"))
@@ -126,7 +127,7 @@ def scope(+source: J.Json) -> J.Json:
 def bind_item(scoped: Bool, +item: J.Json, scope: J.Json) -> J.Json:
   match scoped:
     case False{}: item
-    case True{}: J.Object{[J.Field{"type", J.Text{"context"}}, J.Field{"value", J.Object{[
+    case True{}: J.Object{[J.Field{"type", J.Text{"context"}}, J.Field{"part", J.get(item, "part")}, J.Field{"value", J.Object{[
       J.Field{"type", J.Text{"provider_receipt"}}, J.Field{"scope", scope}, J.Field{"item", J.get(item, "value")} ]}}]}
 
 def bind_items(items: +List<J.Json>, +scope: J.Json) -> +List<J.Json>:

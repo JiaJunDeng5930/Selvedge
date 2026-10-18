@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { compiler, expectedVersion } from './toolchain.mjs';
+import { compiler, compilerEnvironment, compilerInvocation, expectedVersion } from './toolchain.mjs';
 import { checkBundle } from './import-stdlib.mjs';
 import { checkRelations } from './import-relations.mjs';
 import { checkMaps } from './import-maps.mjs';
@@ -102,7 +102,8 @@ export async function build({ native = false, force = false } = {}) {
     let outputSha256;
     try { outputSha256 = createHash('sha256').update(await readFile(output)).digest('hex'); } catch {}
     if (previous?.fingerprint !== identity.fingerprint || !outputSha256 || previous.outputSha256 !== outputSha256 || force) {
-      const result = spawnSync(bend, compileArguments, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
+      const invocation = compilerInvocation(bend, compileArguments);
+      const result = spawnSync(invocation.command, invocation.args, { cwd: root, stdio: 'inherit', env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1' } });
       if (result.error) throw result.error;
       if (result.status !== 0) throw new Error(`Native Bend compilation failed (${result.status})`);
       await writeFile(path.join(directory, 'native.json'), JSON.stringify({ ...identity,

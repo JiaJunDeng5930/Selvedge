@@ -1,4 +1,5 @@
 import Base
+import ./string-equality.bend as SafeText
 import ./stdlib.bend as Std
 
 type Json is Data:
@@ -155,7 +156,7 @@ def find(fields: +List<Field>, +name: String) -> Json:
     case Nil{}:
       Null{}
     case Con{Field{key, value}, rest}:
-      choose_field(String.eq(key, name), value, find(rest, name))
+      choose_field(SafeText.string_equal(key, name), value, find(rest, name))
 
 def get(value: Json, name: String) -> Json:
   match value:

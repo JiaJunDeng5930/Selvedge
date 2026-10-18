@@ -16,6 +16,9 @@ import ./browser/layout/natural-size.bend as NaturalSize
 import ./browser/appearance/FONT.bend as F
 import ./interaction/services/MODEL.bend as Services
 import ./interaction/conversation/CODE.bend as Code
+import ./interaction/interactive_markdown/TYPES.bend as Interactive
+import ./interaction/interactive_markdown/SCENE.bend as InteractiveScene
+import ./interaction/IDENTITY.bend as Identity
 import ./bendlib/json.bend as J
 
 # Pure browser entry. The host executes only Browser.Effect values.
@@ -52,6 +55,8 @@ def workspace_git_completed(ticket: Nat, available: Bool, state: Browser.State) 
 def directories_completed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directories_completed(ticket, ok, body, state)
 
 def code_key(source: Code.Source, ordinal: Nat) -> String: Browser.code_key(source, ordinal)
+
+def markdown_complete(source: Maybe<&2, Code.Source>) -> Bool: Code.complete(source)
 
 def code_sources(generation: Nat, observations: +List<CodeObservation.Observation>, state: Browser.State) -> Browser.Decision: Browser.code_sources(generation, observations, state)
 
@@ -125,3 +130,49 @@ def navigation_focus_observed(owner: Maybe<&2, String>, state: Browser.State) ->
 
 def navigation_hover_observed(capable: Bool, state: Browser.State) -> Browser.Decision:
   Browser.step(Legacy.Native{Web.PlatformInput{Platform.NavigationHoverObserved{capable}}}, state)
+
+
+def display_pending(state: Browser.State) -> Bool: Browser.display_pending(state)
+
+
+def markdown_source_key(source: Code.Source) -> String: Code.source_key(source)
+
+
+type InteractiveStoragePolicy is Data:
+  InteractiveStoragePolicy{maximum_documents: Nat, maximum_bytes: Nat}
+
+def interactive_storage_policy() -> InteractiveStoragePolicy:
+  InteractiveStoragePolicy{100n, 5242880n}
+
+
+def snapshot_environment(expected_namespace: String, namespace: String, sequence: Nat, program: M.World(), state: Browser.State) -> Browser.Decision:
+  Browser.snapshot_environment(expected_namespace, namespace, sequence, program, state)
+
+def authenticated_snapshot(expected_namespace: String, namespace: String, sequence: Nat, program: M.World(), ticket: Nat, state: Browser.State) -> Browser.Decision:
+  Browser.authenticated_snapshot(expected_namespace, namespace, sequence, program, ticket, state)
+
+def network_failed(namespace: String, sequence: Nat, connection_ticket: Nat, reason: String, revoked: Bool, authentication: Maybe<&2, Nat>, state: Browser.State) -> Browser.Decision:
+  Browser.network_failed(namespace, sequence, connection_ticket, reason, revoked, authentication, state)
+
+def completed_environment(ticket: Nat, namespace: String, sequence: Nat, program: M.World(), reply: J.Json, state: Browser.State) -> Browser.Decision:
+  Browser.completed_environment(ticket, namespace, sequence, program, reply, state)
+
+
+def store_namespace(state: Browser.State) -> String: Browser.current_namespace(state)
+
+def accepted_sequence(state: Browser.State) -> Nat: Legacy.sequence(Browser.legacy(state))
+
+
+def source_fresh(state: Browser.State) -> Bool: Browser.source_fresh(state)
+
+def physical_invalidated(before: Browser.State, after: Browser.State) -> Bool:
+  Browser.physical_invalidated(before, after)
+
+def interactive_event_key(event: Interactive.EventIdentity) -> String:
+  Interactive.EventIdentity{component, occurrence} = event
+  Identity.encode(InteractiveScene.mounted_key(component, occurrence))
+
+
+def stream_notice_owned(body: J.Json, state: Browser.State) -> Bool: Browser.stream_notice_owned(body, state)
+
+def commit_refresh_needed(notice: J.Json, state: Browser.State) -> Bool: Browser.commit_refresh_needed(notice, state)

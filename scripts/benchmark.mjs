@@ -32,7 +32,7 @@ for (const taskCount of sizes) {
         assert.ok(['observe_context', 'model'].includes(effect.kind), `Unexpected benchmark effect: ${effect.kind}`);
         const next = await execute(effect.kind === 'observe_context'
           ? { kind: 'context_observed', task_id: effect.task_id, ticket: effect.ticket, ok: true, observations: [] }
-          : { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items: [{ type: 'text', text: 'done' }] });
+          : { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items: [{ type: 'text', part: 0, text: 'done' }] });
         pending.push(...next.effects);
       }
     };

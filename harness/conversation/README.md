@@ -8,6 +8,8 @@ Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend), [CONTRACT.ben
 selection belongs to [context](../context/README.md), so observing the conversation
 does not replace its original records with a compressed input.
 
+Model replies retain immutable producer task, accepted request ticket, explicit provider part, and frozen output mode. Native provider context stays intact under this outer provenance. [origin-contract.bend](origin-contract.bend) specifies the complete conversion and [origin-proof.bend](origin-proof.bend) binds it to the production task commit; preview coordinates use that same pending request.
+
 [TITLE.bend](TITLE.bend) owns the shared task-title prompt, structured output
 schema, input budget and output normalization. The independent
 [titles feature](../../features/titles/README.md) owns background requests and

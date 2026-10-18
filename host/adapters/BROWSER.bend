@@ -9,10 +9,13 @@ def character_units(basic: Bool) -> Nat:
     case True{}: 1n
     case False{}: 2n
 
-def text_units(text: String) -> Nat:
+def text_units_scan(text: String, units: Nat) -> Nat:
   match text:
-    case SNil{}: 0n
-    case SCon{Chr{code}, rest}: (character_units(U32.is_lt(code, 65536)) + text_units(rest) : Nat)
+    case SNil{}: units
+    case SCon{Chr{code}, rest}: text_units_scan(rest, (units + character_units(U32.is_lt(code, 65536)) : Nat))
+
+def text_units(text: String) -> Nat:
+  text_units_scan(text, 0n)
 
 def raw_characters_scan(text: String, valid: Bool) -> Bool:
   match text:

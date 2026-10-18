@@ -48,8 +48,8 @@ function metadataFields(content) {
 }
 
 async function snapshotSource(definition, environment, key, limits, options) {
-  const content = definition.observer.type === 'config_text'
-    ? environment.config[definition.observer.setting]
+  const content = definition.observer.type === 'native_text' ? definition.observer.content
+    : definition.observer.type === 'config_text' ? environment.config[definition.observer.setting]
     : (await snapshotContextFile(environment.filename, limits, options))?.content;
   if (content === undefined) return null;
   const metadata = definition.fields.some(field => field.source.type === 'metadata') ? metadataFields(content) : undefined;
@@ -65,7 +65,7 @@ async function snapshotSource(definition, environment, key, limits, options) {
     return [field.name, boundary('config.context_field', { definition, identity: false, field: field.name, value })];
   }));
   const value = { type: definition.kind, fields };
-  return { key, revision: revision(value), value };
+  return { key, revision: definition.observer.type === 'native_text' ? definition.observer.revision : revision(value), value };
 }
 
 async function mutableConfiguration(config, definitions, limits, options) {
@@ -181,6 +181,7 @@ export async function observeContextSources(effect, { home, config, limits, sign
     }
     let filenames;
     switch (source.type) {
+      case 'native_text':
       case 'config_text': filenames = [undefined]; break;
       case 'home_file': filenames = [path.resolve(installation, source.relative)]; break;
       case 'workspace_file': filenames = workspace === null ? [] : [path.resolve(workspace, source.relative)]; break;

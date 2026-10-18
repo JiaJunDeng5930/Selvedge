@@ -92,7 +92,7 @@ def context_observed(found: Maybe<&2, D.Task>, ticket: Nat, outcome: Result<&2, 
 def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +outcome: D.Outcome) -> ResolvedEvent:
   match status phase:
     case D.Archived{} _: Ignore{}
-    case _ D.ModelPending{expected, allowed}:
+    case _ D.ModelPending{expected, allowed, mode}:
       matching(ticket, expected, ModelResult{task, outcome, allowed})
     case _ _: Ignore{}
 
@@ -222,8 +222,8 @@ def accepted_reaction(decision: M.Decision()) -> M.Decision():
   C.Decision{world, reply, effects} = decision
   C.Decision{world, acknowledgement(True{}), effects}
 
-def model_result(+task: D.Task, +outcome: D.Outcome, allowed: +List<String>, world: M.World()) -> M.Decision():
-  accepted_reaction(FeatureSpec.react_outputs(~Commands.output_send, D.task_id(task), TaskRequirements.reply_outputs(outcome),
+def model_result(+task: D.Task, +outcome: D.Outcome, +allowed: +List<String>, world: M.World()) -> M.Decision():
+  accepted_reaction(FeatureSpec.react_outputs(~Commands.output_send, D.task_id(task), TaskRequirements.accepted_reply_outputs(outcome, allowed, task),
     Commands.replace(T.model_outcome(outcome, allowed, task), world)))
 
 # A manual summary resumes through the assembled compaction component only

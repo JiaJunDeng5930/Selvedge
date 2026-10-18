@@ -28,6 +28,12 @@ Project and execution settings.
 connections over ordinary tasks. Their declarations drive both execution and
 display; task settings and scheduling remain owned by the harness.
 
+[Interactive Markdown](interaction/interactive_markdown/README.md) embeds bounded
+declarative interfaces in explicit `selvedge-ui` fences in model replies. Local
+inputs, tables, charts and live task graphs update without another model call;
+ordinary Markdown uses the existing parser. The [design](interaction/interactive_markdown/DESIGN.md)
+describes the streaming, ownership, state, persistence and publication contracts.
+
 The independent [ChatGPT plugin](plugins/selvedge-chatgpt/README.md) exposes
 explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection grants
 apply across conversations, and local operations run in the selected project's
@@ -505,9 +511,10 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-The current journal format is `selvedge-bend-journal-6`, independent of build
+The current journal format is `selvedge-bend-journal-7`, independent of build
 fingerprints and compiler versions, with task-local workspace settings stored in
-its inputs. Reopening validates integrity and complete committed decisions
+its inputs. Its metadata persists one random 128-bit data namespace, bound to
+the journal hash chain and retained across service restarts. Reopening validates integrity and complete committed decisions
 against the current kernel. Ordinary source, compiler and UI updates do not
 require a new service home. There is no migration of persisted formats. Unknown
 formats or incompatible committed decisions are rejected;

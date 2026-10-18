@@ -102,21 +102,21 @@ def audit_failed(message: D.Message) -> Bool:
     case D.AfterRecord{task, operation, plugin, outcome}: after_failed(outcome)
     case _: False{}
 
-def provider_speech(is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
+def provider_speech(+origin: D.OutputOrigin, is_assistant: Bool, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
   match is_assistant:
-    case True{}: Speech{index, AssistantSpeech{}, Content.provider_text(value), D.ModelContext{value}} <> tail
-    case False{}: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+    case True{}: Speech{index, AssistantSpeech{}, Content.provider_text(value), D.ModelContext{origin, value}} <> tail
+    case False{}: prepend_audit(index, audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
 
-def provider_group(kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
+def provider_group(+origin: D.OutputOrigin, kind: Content.ContextKind, index: Nat, +value: J.Json, tail: +List<Group>) -> +List<Group>:
   match kind:
-    case Content.SpeechContext{}: provider_speech(Content.provider_assistant(value), index, value, tail)
-    case _: prepend_audit(index, audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+    case Content.SpeechContext{}: provider_speech(origin, Content.provider_assistant(value), index, value, tail)
+    case _: prepend_audit(index, audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
 
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
     case D.UserMessage{+text}: Speech{index, UserSpeech{}, text, D.UserMessage{text}} <> tail
-    case D.AssistantMessage{+text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{text}} <> tail
-    case D.ModelContext{+value}: provider_group(Content.provider_kind(value), index, value, tail)
+    case D.AssistantMessage{+origin, +text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{origin, text}} <> tail
+    case D.ModelContext{+origin, +value}: provider_group(origin, Content.provider_kind(value), index, value, tail)
     case +other: prepend_audit(index, audit_failed(other), other, tail)
 
 def audit_kind(message: D.Message) -> AuditKind:
@@ -151,7 +151,7 @@ def audit_title(message: D.Message) -> String:
     case D.ForkResult{task, call, branch}: "Task fork"
     case D.ContextReplacement{value}: "Context compacted"
     case D.ContextMessage{D.ReasoningConfiguration{effort}}: "Reasoning changed to " ++ effort
-    case D.ModelContext{value}: "Model activity"
+    case D.ModelContext{+origin, value}: "Model activity"
     case _: "Conversation event"
 
 def audit_faces(entries: +List<Audit>) -> +List<AuditFace>:
@@ -217,7 +217,7 @@ def audit_detail(message: D.Message) -> String:
     case D.AfterRecord{task, operation, plugin, outcome}: json_detail(J.show(D.after_json(outcome)))
     case D.FailureMessage{text}: text
     case D.ContextReplacement{value}: "Context compacted; original conversation retained."
-    case D.ModelContext{value}: json_detail(J.show(value))
+    case D.ModelContext{+origin, value}: json_detail(J.show(value))
     case other: audit_title(other)
 
 def groups(messages: +List<D.Message>, +index: Nat) -> +List<Group>:
