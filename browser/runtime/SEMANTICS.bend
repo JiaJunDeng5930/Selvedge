@@ -83,6 +83,7 @@ type Effect is Data:
   Command{ticket: Nat, command: J.Json}
   Service{effect: Services.Effect}
   Directories{ticket: Nat, workspace: D.Workspace}
+  WorkspaceGit{ticket: Nat, primary: String}
   RenderingFailed{generation: Nat, violations: +List<Rendered.Violation>}
 
 type Decision is Data:
@@ -309,11 +310,24 @@ def model_gesture(value: Forms.Observed, text: String, effort: Bool) -> Maybe<&2
     case Forms.ModelValue{profile, reasoning}: model_field(profile, reasoning, text, effort)
     case _: None{}
 
-def delivery_gesture(text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
+type DeliveryGestureName is Data:
+  DeliveryGestureNameSend{}
+  DeliveryGestureNameSteer{}
+  DeliveryGestureNameOther{}
+
+def delivery_gesture_discriminant(+value: String) -> DeliveryGestureName:
+  Bool.pick(DeliveryGestureName, String.eq(value, "send"), DeliveryGestureNameSend{},
+    Bool.pick(DeliveryGestureName, String.eq(value, "steer"), DeliveryGestureNameSteer{},
+    DeliveryGestureNameOther{}))
+
+def delivery_gesture_classified(text: DeliveryGestureName) -> Maybe<&2, SurfaceTypes.Gesture>:
   match text:
-    case "send": Some{SurfaceTypes.Change{Forms.Delivery{U.Send{}}}}
-    case "steer": Some{SurfaceTypes.Change{Forms.Delivery{U.Steer{}}}}
-    case _: None{}
+    case DeliveryGestureNameSend{}: Some{SurfaceTypes.Change{Forms.Delivery{U.Send{}}}}
+    case DeliveryGestureNameSteer{}: Some{SurfaceTypes.Change{Forms.Delivery{U.Steer{}}}}
+    case DeliveryGestureNameOther{}: None{}
+
+def delivery_gesture(text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
+  delivery_gesture_classified(delivery_gesture_discriminant(text))
 
 def assistance_gesture(value: Forms.Observed, text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
   match value:
@@ -369,6 +383,7 @@ def collect_one(effect: E.Effect, origin: String, +state: State) -> Decision:
     case E.ObserveInteractiveMarkdown{document}: Decision{state, [ObserveInteractiveMarkdown{document}]}
     case E.ForgetInteractiveMarkdown{key}: Decision{state, [ForgetInteractiveMarkdown{key}]}
     case E.PersistModelPreference{profile, reasoning}: Decision{state, [PersistModelPreference{profile, reasoning}]}
+    case E.ObserveWorkspaceGit{ticket, primary}: Decision{state, [WorkspaceGit{ticket, primary}]}
     case E.ObserveDirectories{ticket, entered}: Decision{state, [Directories{ticket, entered}]}
     case _: Decision{state, Nil{}}
 
@@ -517,6 +532,9 @@ def directory_listed(ticket: Nat, ok: Bool, +body: J.Json, state: State) -> Deci
   match ok:
     case False{}: product_input(Product.DirectoryListed{ticket, Fail{J.text(J.get(body, "error"))}}, state)
     case True{}: product_input(Product.DirectoryListed{ticket, directory_response(body)}, state)
+
+def workspace_git_completed(ticket: Nat, available: Bool, state: State) -> Decision:
+  product_input(Product.WorkspaceGitObserved{ticket, available}, state)
 
 def directories_completed(ticket: Nat, ok: Bool, +body: J.Json, state: State) -> Decision:
   match ok:

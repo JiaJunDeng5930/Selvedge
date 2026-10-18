@@ -54,11 +54,11 @@ def with_now(+now: Nat, +state: A.State) -> A.State:
 def entry_change(+id: Nat, +entry: A.Entry, +task: Maybe<&2, D.Task>, +reserved: Bool, +effects: +List<A.Effect>, +state: A.State) -> Change:
   Change{A.with_entry(id, entry, state), task, reserved, effects}
 
-def measured_snapshot(+current: Bool, +snapshot: D.History, +model: D.Model, +value: J.Json) -> A.Measurement:
+def measured_snapshot(+current: Bool, +snapshot: D.History, +model: D.Model, +value: A.InputCount) -> A.Measurement:
   match current:
     case False{}: A.Unmeasured{}
-    case True{}: A.Measured{snapshot, model, J.text(J.get(value, "scope")), A.number(J.get(value, "input_tokens")),
-      A.number(J.get(value, "window_tokens")), A.number(J.get(value, "output_reserve_tokens"))}
+    case True{}: A.Measured{snapshot, model, A.count_scope(value), A.count_tokens(value),
+      A.window_tokens(A.count_budget(value)), A.reserve_tokens(A.count_budget(value))}
 
 def same_input(+snapshot: D.History, +expected: D.Model, +task: D.Task) -> Bool:
   Same.model(expected, model(task)) && Same.history(1048576n, snapshot, D.task_history(task))
@@ -118,12 +118,11 @@ def dispatch_compact(+progress: Bounded.State, +snapshot: D.History, +selected: 
   +fitted = Rebuild.fit_transport(progress, available)
   commit_compact(Rebuild.transport_fits(fitted, available), fitted, snapshot, selected, reason, scope, target, task, entry, world)
 
-def start(+task: D.Task, +entry: A.Entry, +snapshot: D.History, +selected: D.Model, +reason: A.Reason, +target: A.Target, +value: J.Json, +world: M.World()) -> Change:
+def start(+task: D.Task, +entry: A.Entry, +snapshot: D.History, +selected: D.Model, +reason: A.Reason, +target: A.Target, +scope: String, input_tokens: Nat, +world: M.World()) -> Change:
   A.Target{+profile, +window, +reserve, +ttl, +method} = target
-  +scope = J.text(J.get(value, "scope"))
   +messages = Context.history_json(snapshot)
   +progress = Rebuild.start(J.Array{Context.dialogue(Context.target_messages(messages, scope))}, J.Array{Context.dialogue(Context.raw_messages(messages))}, provider(selected), method,
-    A.number(J.get(value, "input_tokens")), window, reserve)
+    input_tokens, window, reserve)
   dispatch_compact(progress, snapshot, selected, reason, scope, A.Target{profile, window, reserve, ttl, method}, task, entry, world)
 
 def current_target(+task: D.Task, +state: A.State) -> Maybe<&2, A.Target>:
@@ -150,18 +149,18 @@ def attempted(+entry: A.Entry) -> Nat:
 def eligible(+task: D.Task, +entry: A.Entry) -> Bool:
   Nat.is_lt(attempted(entry), A.useful(D.task_history(task))) && Bool.not(A.job_pending(A.job(entry))) && Context.settled_calls(D.task_history(task), D.task_history(task))
 
-def start_if(+reason: Maybe<&2, A.Reason>, +target: Maybe<&2, A.Target>, +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
+def start_if(+reason: Maybe<&2, A.Reason>, +target: Maybe<&2, A.Target>, +task: D.Task, +entry: A.Entry, +value: A.InputCount, +world: M.World()) -> Change:
   match reason target:
-    case Some{+reason} Some{+target}: start(task, entry, D.task_history(task), model(task), reason, target, value, world)
+    case Some{+reason} Some{+target}: start(task, entry, D.task_history(task), model(task), reason, target, A.count_scope(value), A.count_tokens(value), world)
     case _ _: entry_change(D.task_id(task), entry, None{}, False{}, Nil{}, State.registry(world))
 
-def finish_measure(+snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
+def finish_measure(+snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, +value: A.InputCount, +world: M.World()) -> Change:
   +current = same_input(snapshot, selected, task)
   +entry = A.with_measurement(measured_snapshot(current, snapshot, selected, value), entry)
   A.branch(~Change, current && Bool.not(A.job_pending(A.job(entry))) && Context.settled_calls(snapshot, snapshot) &&
-    (eligible(task, entry) || must_wait(A.settings(State.registry(world)), A.number(J.get(value, "input_tokens")), A.number(J.get(value, "window_tokens")), A.number(J.get(value, "output_reserve_tokens")))),
+    (eligible(task, entry) || must_wait(A.settings(State.registry(world)), A.count_tokens(value), A.window_tokens(A.count_budget(value)), A.reserve_tokens(A.count_budget(value)))),
     (unused =>
-      start_if(selected_reason(A.settings(State.registry(world)), A.number(J.get(value, "input_tokens")), A.number(J.get(value, "window_tokens")), A.number(J.get(value, "output_reserve_tokens"))),
+      start_if(selected_reason(A.settings(State.registry(world)), A.count_tokens(value), A.window_tokens(A.count_budget(value)), A.reserve_tokens(A.count_budget(value))),
       current_target(task, State.registry(world)), task, entry, value, world)),
     (unused =>
       entry_change(D.task_id(task), entry, None{}, False{}, Nil{}, State.registry(world))))
@@ -200,26 +199,25 @@ def portable_target(target: Maybe<&2, A.Target>, +scope: String, +task: D.Task, 
         (unused => entry_change(D.task_id(task), entry, None{}, False{}, Nil{}, State.registry(world))),
         (unused =>
           A.branch(~Change, Context.settled_calls(snapshot, snapshot),
-            (unused => start(task, entry, snapshot, selected, A.Blocking{}, A.Target{profile, window, reserve, ttl, "summary"},
-              J.Object{[J.Field{"scope", J.Text{scope}}, J.Field{"input_tokens", J.nat(window)}]}, world)),
+            (unused => start(task, entry, snapshot, selected, A.Blocking{}, A.Target{profile, window, reserve, ttl, "summary"}, scope, window, world)),
             (unused => entry_change(D.task_id(task), A.with_job(A.Resuming{snapshot, selected, A.Blocking{}}, entry), None{}, False{}, Nil{}, State.registry(world))))))
 
 def adopt_fits(+fits: Bool, +snapshot: D.History, +selected: D.Model, +reason: A.Reason, +candidate: J.Json, +preview: D.History,
-  +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
+  +task: D.Task, +entry: A.Entry, +value: A.InputCount, +world: M.World()) -> Change:
   match fits:
-    case False{}: portable_target(current_target(task, State.registry(world)), J.text(J.get(value, "scope")), task, entry, world)
+    case False{}: portable_target(current_target(task, State.registry(world)), A.count_scope(value), task, entry, world)
     case True{}:
       +observation = measured_snapshot(True{}, preview, selected, value)
       entry_change(D.task_id(task), mark_finished(snapshot, entry, observation), Some{D.with_history(preview, task)}, False{}, Nil{}, State.registry(world))
 
 def finish_validation(+snapshot: D.History, +selected: D.Model, +reason: A.Reason, +candidate: J.Json, +preview: D.History,
-  +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
+  +task: D.Task, +entry: A.Entry, +value: A.InputCount, +world: M.World()) -> Change:
   A.branch(~Change, relevant(snapshot, selected, task) && Context.adoptable(snapshot, candidate, D.task_history(task)),
     (unused =>
       A.branch(~Change, Same.history(1048576n, preview, Context.adopt(snapshot, candidate, D.task_history(task))),
         (unused =>
-          adopt_fits(Nat.is_le(Nat.add(A.number(J.get(value, "input_tokens")), A.number(J.get(value, "output_reserve_tokens"))), A.number(J.get(value, "window_tokens"))) &&
-          Bool.not(String.eq(J.text(J.get(candidate, "format")), "native") && A.blocking(A.settings(State.registry(world)), A.number(J.get(value, "input_tokens")), A.number(J.get(value, "window_tokens")))),
+          adopt_fits(Nat.is_le(Nat.add(A.count_tokens(value), A.reserve_tokens(A.count_budget(value))), A.window_tokens(A.count_budget(value))) &&
+          Bool.not(String.eq(J.text(J.get(candidate, "format")), "native") && A.blocking(A.settings(State.registry(world)), A.count_tokens(value), A.window_tokens(A.count_budget(value)))),
           snapshot, selected, reason, candidate, preview, task, entry, value, world)),
         (unused =>
           validate(snapshot, selected, reason, candidate, task, entry, world)))),
@@ -227,10 +225,10 @@ def finish_validation(+snapshot: D.History, +selected: D.Model, +reason: A.Reaso
       entry_change(D.task_id(task), A.with_job(A.NoJob{}, entry), None{}, False{}, Nil{}, State.registry(world))))
 
 def prepared_target(+target: Maybe<&2, A.Target>, +snapshot: D.History, +selected: D.Model, +reason: A.Reason,
-  +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
+  +task: D.Task, +entry: A.Entry, +value: A.InputCount, +world: M.World()) -> Change:
   match target:
     case None{}: failed(task, entry, "The selected profile does not support compaction", State.registry(world))
-    case Some{+target}: start(task, A.with_measurement(measured_snapshot(same_input(snapshot, selected, task), snapshot, selected, value), entry), snapshot, selected, reason, target, value, world)
+    case Some{+target}: start(task, A.with_measurement(measured_snapshot(same_input(snapshot, selected, task), snapshot, selected, value), entry), snapshot, selected, reason, target, A.count_scope(value), A.count_tokens(value), world)
 
 def rendered_bytes(result: Result<&2, &2, String, String>, limit: Nat) -> Nat:
   match result:
@@ -250,93 +248,98 @@ def measured_call(+history: D.History, +selected: D.Model, +scope: String, +vali
   +bytes = rendered_bytes(J.show(J.Object{[J.Field{"history", J.Array{Context.target_messages(Context.history_json(history), scope)}}, J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}}]}), limit)
   measure_fits(Nat.is_le(bytes, limit), history, selected, scope, validating, task, entry, world)
 
-def ordinary_input(+snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
-  +scope = J.text(J.get(value, "scope"))
+def ordinary_input(+snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, +scope: String, +world: M.World()) -> Change:
   measured_call(snapshot, selected, scope, False{}, task,
     A.with_measurement(A.Measuring{State.ticket(world), snapshot, selected, Some{scope}}, entry), world)
 
-def ordinary_inspected(scope: Maybe<&2, String>, +snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
-  match scope:
-    case Some{scope}:
-      A.branch(~Change, String.eq(scope, J.text(J.get(value, "scope"))),
+def ordinary_inspected(scope: Maybe<&2, String>, +snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, outcome: A.Inspection, +world: M.World()) -> Change:
+  match scope outcome:
+    case _ A.InspectionFailed{message}: failed(task, entry, message, State.registry(world))
+    case None{} A.ScopeObserved{scope}: ordinary_input(snapshot, selected, task, entry, scope, world)
+    case Some{+expected} A.ScopeObserved{+scope}:
+      A.branch(~Change, String.eq(expected, scope),
+        (unused => failed(task, entry, "The input meter returned a scope without a token measurement", State.registry(world))),
+        (unused => ordinary_input(snapshot, selected, task, entry, scope, world)))
+    case Some{+scope} A.InputMeasured{+value}:
+      A.branch(~Change, String.eq(scope, A.count_scope(value)),
         (unused => finish_measure(snapshot, selected, task, entry, value, world)),
-        (unused => ordinary_input(snapshot, selected, task, entry, value, world)))
-    case None{}: ordinary_input(snapshot, selected, task, entry, value, world)
+        (unused => ordinary_input(snapshot, selected, task, entry, A.count_scope(value), world)))
+    case None{} A.InputMeasured{value}: failed(task, entry, "The scope observation returned an unexpected token measurement", State.registry(world))
 
-def ordinary_measurement(+observation: A.Measurement, +ticket: Nat, +value: J.Json, +error: Bool, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
+def ordinary_measurement(+observation: A.Measurement, +ticket: Nat, +outcome: A.Inspection, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
   match observation:
     case A.Measuring{+expected, +snapshot, +selected, +scope}:
       A.branch(~Change, Nat.is_eq(ticket, expected),
-        (unused =>
-          A.branch(~Change, error,
-            (unused =>
-              failed(task, entry, J.text(J.get(value, "message")), State.registry(world))),
-            (unused =>
-              ordinary_inspected(scope, snapshot, selected, task, entry, value, world)),))
+        (unused => ordinary_inspected(scope, snapshot, selected, task, entry, outcome, world)),
         (unused =>
           Unchanged{}))
     case _: Unchanged{}
 
-def preparing_input(+snapshot: D.History, +selected: D.Model, +reason: A.Reason, +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
-  +scope = J.text(J.get(value, "scope"))
+def preparing_input(+snapshot: D.History, +selected: D.Model, +reason: A.Reason, +task: D.Task, +entry: A.Entry, +scope: String, +world: M.World()) -> Change:
   measured_call(snapshot, selected, scope, False{}, task,
     A.with_job(A.Preparing{State.ticket(world), snapshot, selected, reason, Some{scope}}, entry), world)
 
-def preparing_inspected(scope: Maybe<&2, String>, +snapshot: D.History, +selected: D.Model, +reason: A.Reason, +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
-  match scope:
-    case Some{scope}:
-      A.branch(~Change, String.eq(scope, J.text(J.get(value, "scope"))),
+def preparing_inspected(scope: Maybe<&2, String>, +snapshot: D.History, +selected: D.Model, +reason: A.Reason, +task: D.Task, +entry: A.Entry, outcome: A.Inspection, +world: M.World()) -> Change:
+  match scope outcome:
+    case _ A.InspectionFailed{message}: failed(task, entry, message, State.registry(world))
+    case None{} A.ScopeObserved{scope}: preparing_input(snapshot, selected, reason, task, entry, scope, world)
+    case Some{+expected} A.ScopeObserved{+scope}:
+      A.branch(~Change, String.eq(expected, scope),
+        (unused => failed(task, entry, "The input meter returned a scope without a token measurement", State.registry(world))),
+        (unused => preparing_input(snapshot, selected, reason, task, entry, scope, world)))
+    case Some{+scope} A.InputMeasured{+value}:
+      A.branch(~Change, String.eq(scope, A.count_scope(value)),
         (unused => prepared_target(current_target(task, State.registry(world)), snapshot, selected, reason, task, entry, value, world)),
-        (unused => preparing_input(snapshot, selected, reason, task, entry, value, world)))
-    case None{}: preparing_input(snapshot, selected, reason, task, entry, value, world)
+        (unused => preparing_input(snapshot, selected, reason, task, entry, A.count_scope(value), world)))
+    case None{} A.InputMeasured{value}: failed(task, entry, "The scope observation returned an unexpected token measurement", State.registry(world))
 
 def validation_input(+snapshot: D.History, +selected: D.Model, +reason: A.Reason, +candidate: J.Json, +preview: D.History,
-  +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
-  +scope = J.text(J.get(value, "scope"))
+  +task: D.Task, +entry: A.Entry, +scope: String, +world: M.World()) -> Change:
   A.branch(~Change, ContextModel.compatible(candidate, scope),
     (unused => measured_call(preview, selected, scope, True{}, task,
       A.with_job(A.Validating{State.ticket(world), snapshot, selected, reason, candidate, preview, Some{scope}}, entry), world)),
     (unused => measure(task, A.with_job(A.NoJob{}, entry), Some{reason}, world)))
 
 def validation_inspected(scope: Maybe<&2, String>, +snapshot: D.History, +selected: D.Model, +reason: A.Reason, +candidate: J.Json, +preview: D.History,
-  +task: D.Task, +entry: A.Entry, +value: J.Json, +world: M.World()) -> Change:
-  match scope:
-    case Some{scope}:
-      A.branch(~Change, String.eq(scope, J.text(J.get(value, "scope"))),
+  +task: D.Task, +entry: A.Entry, outcome: A.Inspection, +world: M.World()) -> Change:
+  match scope outcome:
+    case _ A.InspectionFailed{message}: failed(task, entry, message, State.registry(world))
+    case None{} A.ScopeObserved{scope}: validation_input(snapshot, selected, reason, candidate, preview, task, entry, scope, world)
+    case Some{+expected} A.ScopeObserved{+scope}:
+      A.branch(~Change, String.eq(expected, scope),
+        (unused => failed(task, entry, "The input meter returned a scope without a token measurement", State.registry(world))),
+        (unused => validation_input(snapshot, selected, reason, candidate, preview, task, entry, scope, world)))
+    case Some{+scope} A.InputMeasured{+value}:
+      A.branch(~Change, String.eq(scope, A.count_scope(value)),
         (unused => finish_validation(snapshot, selected, reason, candidate, preview, task, entry, value, world)),
-        (unused => validation_input(snapshot, selected, reason, candidate, preview, task, entry, value, world)))
-    case None{}: validation_input(snapshot, selected, reason, candidate, preview, task, entry, value, world)
+        (unused => validation_input(snapshot, selected, reason, candidate, preview, task, entry, A.count_scope(value), world)))
+    case None{} A.InputMeasured{value}: failed(task, entry, "The scope observation returned an unexpected token measurement", State.registry(world))
 
-def measurement_job(+job: A.Job, +ticket: Nat, +value: J.Json, +error: Bool, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
+def preparing_observed(outcome: A.Inspection, +scope: Maybe<&2, String>, +snapshot: D.History, +selected: D.Model, +reason: A.Reason,
+  +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
+  match outcome:
+    case A.InspectionFailed{message}: failed(task, entry, message, State.registry(world))
+    case +success:
+      A.branch(~Change, relevant(snapshot, selected, task),
+        (unused => preparing_inspected(scope, snapshot, selected, reason, task, entry, success, world)),
+        (unused => entry_change(D.task_id(task), A.with_job(A.NoJob{}, entry), None{}, False{}, Nil{}, State.registry(world))))
+
+def measurement_job(+job: A.Job, +ticket: Nat, +outcome: A.Inspection, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
   match job:
     case A.Validating{+expected, +snapshot, +selected, +reason, +candidate, +preview, +scope}:
       A.branch(~Change, Nat.is_eq(ticket, expected),
-        (unused =>
-          A.branch(~Change, error,
-            (unused =>
-              failed(task, entry, J.text(J.get(value, "message")), State.registry(world))),
-            (unused =>
-              validation_inspected(scope, snapshot, selected, reason, candidate, preview, task, entry, value, world)),))
+        (unused => validation_inspected(scope, snapshot, selected, reason, candidate, preview, task, entry, outcome, world)),
         (unused =>
           Unchanged{}))
     case A.Preparing{+expected, +snapshot, +selected, +reason, +scope}:
       A.branch(~Change, Nat.is_eq(ticket, expected),
-        (unused =>
-          A.branch(~Change, error,
-            (unused =>
-              failed(task, entry, J.text(J.get(value, "message")), State.registry(world))),
-            (unused =>
-              A.branch(~Change, relevant(snapshot, selected, task),
-                (unused =>
-                  preparing_inspected(scope, snapshot, selected, reason, task, entry, value, world)),
-                (unused =>
-                  entry_change(D.task_id(task), A.with_job(A.NoJob{}, entry), None{}, False{}, Nil{}, State.registry(world))))),))
+        (unused => preparing_observed(outcome, scope, snapshot, selected, reason, task, entry, world)),
         (unused =>
           Unchanged{}))
-    case _: ordinary_measurement(A.measurement(entry), ticket, value, error, task, entry, world)
+    case _: ordinary_measurement(A.measurement(entry), ticket, outcome, task, entry, world)
 
-def measurement_result(+ticket: Nat, +value: J.Json, +error: Bool, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
-  measurement_job(A.job(entry), ticket, value, error, task, entry, world)
+def measurement_result(+ticket: Nat, +outcome: A.Inspection, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
+  measurement_job(A.job(entry), ticket, outcome, task, entry, world)
 
 def continue_target(+target: Maybe<&2, A.Target>, +progress: Bounded.State, +scope: String, +snapshot: D.History, +selected: D.Model, +reason: A.Reason,
   +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
@@ -395,7 +398,7 @@ def activity_target(+target: Maybe<&2, A.Target>, +snapshot: D.History, +now: Na
 
 def active_completion(+completion: A.Completion, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
   match completion:
-    case A.MeasuredInput{+id, +ticket, +value, +error}: measurement_result(ticket, value, error, task, entry, world)
+    case A.MeasuredInput{+id, +ticket, +outcome}: measurement_result(ticket, outcome, task, entry, world)
     case A.Completed{+id, +ticket, +value, +error}: compact_result(ticket, value, error, task, entry, world)
     case A.Activity{+id, +source_length, +now, +scope}:
       entry_change(id, activity_target(current_target(task, State.registry(world)), Same.drop_history(Nat.sub(D.history_length(D.task_history(task)), source_length), D.task_history(task)), now, scope, entry), None{}, False{}, Nil{}, with_now(now, State.registry(world)))
@@ -429,7 +432,7 @@ def resolve(+completion: A.Completion, +world: M.World()) -> Change:
     case A.Configure{+policy, +now}: configure(policy, now, State.registry(world))
     case A.Clock{+now}: clock(now, State.registry(world))
     case A.Activity{+id, +source_length, +now, +scope}: task_result(State.task(id, world), A.Activity{id, source_length, now, scope}, id, world)
-    case A.MeasuredInput{+id, +ticket, +value, +error}: task_result(State.task(id, world), A.MeasuredInput{id, ticket, value, error}, id, world)
+    case A.MeasuredInput{+id, +ticket, +outcome}: task_result(State.task(id, world), A.MeasuredInput{id, ticket, outcome}, id, world)
     case A.Completed{+id, +ticket, +value, +error}: task_result(State.task(id, world), A.Completed{id, ticket, value, error}, id, world)
 
 def pending_measurement(+value: A.Measurement) -> Bool:

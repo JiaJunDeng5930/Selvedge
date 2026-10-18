@@ -1,4 +1,6 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
+import ../../harness/transport/wire-shape.bend as Shape
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
@@ -136,20 +138,46 @@ def extract_message(+assistant: Bool, +items: +List<&2, J.Json>) -> Result<&2, &
     case True{} Con{+item, Nil{}}: extract_direct(String.eq(J.text(J.get(item, "type")), "output_text"), J.get(item, "text"))
     case _ _: Fail{"tool"}
 
-def extract_context_type(+kind: String, +value: J.Json) -> Result<&2, &2, String, ResponseText>:
+type ExtractContextTypeName is Data:
+  ExtractContextTypeNameReasoning{}
+  ExtractContextTypeNameMessage{}
+  ExtractContextTypeNameOther{}
+
+def extract_context_type_discriminant(+value: String) -> ExtractContextTypeName:
+  Bool.pick(ExtractContextTypeName, String.eq(value, "reasoning"), ExtractContextTypeNameReasoning{},
+    Bool.pick(ExtractContextTypeName, String.eq(value, "message"), ExtractContextTypeNameMessage{},
+    ExtractContextTypeNameOther{}))
+
+def extract_context_type_classified(+kind: ExtractContextTypeName, +value: J.Json) -> Result<&2, &2, String, ResponseText>:
   match kind:
-    case "reasoning": Done{Skipped{}}
-    case "message": extract_message(String.eq(J.text(J.get(value, "role")), "assistant"), J.items(J.get(value, "content")))
-    case _: Fail{"tool"}
+    case ExtractContextTypeNameReasoning{}: Done{Skipped{}}
+    case ExtractContextTypeNameMessage{}: extract_message(String.eq(J.text(J.get(value, "role")), "assistant"), J.items(J.get(value, "content")))
+    case ExtractContextTypeNameOther{}: Fail{"tool"}
+
+def extract_context_type(+kind: String, +value: J.Json) -> Result<&2, &2, String, ResponseText>:
+  extract_context_type_classified(extract_context_type_discriminant(kind), value)
 
 def extract_context(+value: J.Json) -> Result<&2, &2, String, ResponseText>:
   extract_context_type(J.text(J.get(value, "type")), value)
 
-def extract_kind(+kind: String, +item: J.Json) -> Result<&2, &2, String, ResponseText>:
+type ExtractKindName is Data:
+  ExtractKindNameText{}
+  ExtractKindNameContext{}
+  ExtractKindNameOther{}
+
+def extract_kind_discriminant(+value: String) -> ExtractKindName:
+  Bool.pick(ExtractKindName, String.eq(value, "text"), ExtractKindNameText{},
+    Bool.pick(ExtractKindName, String.eq(value, "context"), ExtractKindNameContext{},
+    ExtractKindNameOther{}))
+
+def extract_kind_classified(+kind: ExtractKindName, +item: J.Json) -> Result<&2, &2, String, ResponseText>:
   match kind:
-    case "text": extract_direct(J.is_text(J.get(item, "text")), J.get(item, "text"))
-    case "context": extract_context(J.get(item, "value"))
-    case _: Fail{"tool"}
+    case ExtractKindNameText{}: extract_direct(J.is_text(J.get(item, "text")), J.get(item, "text"))
+    case ExtractKindNameContext{}: extract_context(J.get(item, "value"))
+    case ExtractKindNameOther{}: Fail{"tool"}
+
+def extract_kind(+kind: String, +item: J.Json) -> Result<&2, &2, String, ResponseText>:
+  extract_kind_classified(extract_kind_discriminant(kind), item)
 
 def extract_text(+item: J.Json) -> Result<&2, &2, String, ResponseText>:
   extract_kind(J.text(J.get(item, "type")), item)
@@ -239,26 +267,45 @@ def approval_value(+value: J.Json, +limit: J.Json) -> J.Json:
     (String.eq(J.text(J.get(value, "decision")), "allow") || String.eq(J.text(J.get(value, "decision")), "deny")) &&
     J.is_text(reason) && content(J.text(reason)) && well(J.text(reason)) && no_nul(J.text(reason)) && bytes_within(J.text(reason), limit), value, "The approval reviewer returned a malformed decision")
 
-def board_value(+value: J.Json) -> J.Json:
-  +title = J.get(value, "title")
-  +description = J.get(value, "description")
-  type_outcome_value(has(value, "title") && has(value, "description") && J.is_text(title) && J.is_text(description) &&
-    content(J.text(title)) && well(J.text(title)) && well(J.text(description)) && no_nul(J.text(title)) && no_nul(J.text(description)), value, "The drafting endpoint returned invalid title or description fields")
+def approval_pair(+valid: Bool, +value: J.Json, +limit: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure_code("TypeError", "The approval reviewer must return exactly two string fields")
+    case True{}: approval_value(value, limit)
 
-def outcome_pair(+valid: Bool, +value: J.Json, +limit: J.Json, +approval: Bool) -> J.Json:
-  match valid approval:
-    case False{} True{}: Model.failure_code("TypeError", "The approval reviewer must return exactly two string fields")
-    case False{} False{}: Model.failure_code("TypeError", "The drafting endpoint must return exactly title and description strings")
-    case True{} True{}: approval_value(value, limit)
-    case True{} False{}: board_value(value)
-
-def outcome_decoded(+result: Result<&2, &2, String, J.Json>, +limit: J.Json, +approval: Bool) -> J.Json:
+def approval_decoded(+result: Result<&2, &2, String, J.Json>, +limit: J.Json) -> J.Json:
   match result:
-    case Done{+value}: outcome_pair(pair_strings(value), value, limit, approval)
-    case Fail{error}: outcome_pair(False{}, J.Null{}, limit, approval)
+    case Done{+value}: approval_pair(pair_strings(value), value, limit)
+    case Fail{error}: approval_pair(False{}, J.Null{}, limit)
+
+def task_text_normalized(+title: String, description: String) -> J.Json:
+  type_outcome_value(Bool.not(String.is_empty(title)), J.Object{[field("title", J.Text{title}), field("description", J.Text{description})]}, "The task text endpoint returned an empty title")
+
+def task_text_admitted(valid: Bool, +value: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure_code("TypeError", "The task text endpoint returned invalid title or description fields")
+    case True{}: task_text_normalized(Title.normalize(J.text(J.get(value, "title"))), J.text(J.get(value, "description")))
+
+def task_text_fields(+value: J.Json, capture: Bool) -> Bool:
+  match capture:
+    case False{}: Shape.object_keys(value, ["title"]) && J.is_text(J.get(value, "title"))
+    case True{}: Shape.object_keys(value, ["title", "description"]) && J.is_text(J.get(value, "title")) && J.is_text(J.get(value, "description"))
+
+def task_text_value(+value: J.Json, +capture: Bool) -> J.Json:
+  task_text_admitted(task_text_fields(value, capture) && Nat.is_le(J.utf8_length(J.text(J.get(value, "title"))), Title.response_title_bytes()) && well(J.text(J.get(value, "title"))) && no_nul(J.text(J.get(value, "title"))) &&
+    well(J.text(J.get(value, "description"))) && no_nul(J.text(J.get(value, "description"))), value)
+
+def task_text_decoded(result: Result<&2, &2, String, J.Json>, +context: J.Json) -> J.Json:
+  match result:
+    case Fail{message}: Model.failure_code("TypeError", "The task text endpoint must return one JSON object")
+    case Done{value}: task_text_value(value, Bool.not(String.eq(J.text(J.get(context, "kind")), "task_title") || J.boolean(J.get(context, "retitle"))))
+
+def outcome_kind(approval: Bool, +source: J.Json) -> J.Json:
+  match approval:
+    case True{}: approval_decoded(observation(source), J.get(source, "limit"))
+    case False{}: task_text_decoded(observation(source), J.get(source, "context"))
 
 def outcome(+source: J.Json, +approval: Bool) -> J.Json:
-  outcome_decoded(observation(source), J.get(source, "limit"), approval)
+  outcome_kind(approval, source)
 
 def filename_tail(+text: String) -> Bool:
   match text:
@@ -312,36 +359,109 @@ def callback_result_fields(+items: List<&2, J.Field>, +reserved: List<&2, String
       callback_field(names(reserved, name), J.Field{name, value}, callback_result_fields(rest, reserved))
 
 type CallbackKind is Data:
+  CallbackTaskTitle{}
   CallbackChatgptExec{}
   CallbackBoardText{}
   CallbackApproval{}
   CallbackHook{}
   CallbackAfterHook{}
   CallbackContext{}
+  CallbackCompaction{completed: Bool}
+  CallbackWorktree{created: Bool}
   CallbackReasoning{}
   CallbackModel{}
   CallbackDefaultTool{}
 
-def classify_callback_kind(+kind: String) -> CallbackKind:
+type ClassifyCallbackKindName is Data:
+  ClassifyCallbackKindNameTaskTitle{}
+  ClassifyCallbackKindNameChatgptExec{}
+  ClassifyCallbackKindNameBoardText{}
+  ClassifyCallbackKindNameApproval{}
+  ClassifyCallbackKindNameHook{}
+  ClassifyCallbackKindNameAfterHook{}
+  ClassifyCallbackKindNameObserveContext{}
+  ClassifyCallbackKindNameContextScope{}
+  ClassifyCallbackKindNameContextCompaction{}
+  ClassifyCallbackKindNameWorktreeCreate{}
+  ClassifyCallbackKindNameWorktreeArchive{}
+  ClassifyCallbackKindNameReasoning{}
+  ClassifyCallbackKindNameModel{}
+  ClassifyCallbackKindNameOther{}
+
+def classify_callback_kind_discriminant(+value: String) -> ClassifyCallbackKindName:
+  Bool.pick(ClassifyCallbackKindName, String.eq(value, "task_title"), ClassifyCallbackKindNameTaskTitle{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "chatgpt_exec"), ClassifyCallbackKindNameChatgptExec{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "board_text"), ClassifyCallbackKindNameBoardText{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "approval"), ClassifyCallbackKindNameApproval{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "hook"), ClassifyCallbackKindNameHook{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "after_hook"), ClassifyCallbackKindNameAfterHook{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "observe_context"), ClassifyCallbackKindNameObserveContext{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "context_scope"), ClassifyCallbackKindNameContextScope{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "context_measure"), ClassifyCallbackKindNameContextScope{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "context_compaction"), ClassifyCallbackKindNameContextCompaction{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "worktree_create"), ClassifyCallbackKindNameWorktreeCreate{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "worktree_archive"), ClassifyCallbackKindNameWorktreeArchive{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "reasoning"), ClassifyCallbackKindNameReasoning{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "model"), ClassifyCallbackKindNameModel{},
+    ClassifyCallbackKindNameOther{}))))))))))))))
+
+def classify_callback_kind_classified(+kind: ClassifyCallbackKindName) -> CallbackKind:
   match kind:
-    case "chatgpt_exec": CallbackChatgptExec{}
-    case "board_text": CallbackBoardText{}
-    case "approval": CallbackApproval{}
-    case "hook": CallbackHook{}
-    case "after_hook": CallbackAfterHook{}
-    case "observe_context": CallbackContext{}
-    case "reasoning": CallbackReasoning{}
-    case "model": CallbackModel{}
-    case _: CallbackDefaultTool{}
+    case ClassifyCallbackKindNameTaskTitle{}: CallbackTaskTitle{}
+    case ClassifyCallbackKindNameChatgptExec{}: CallbackChatgptExec{}
+    case ClassifyCallbackKindNameBoardText{}: CallbackBoardText{}
+    case ClassifyCallbackKindNameApproval{}: CallbackApproval{}
+    case ClassifyCallbackKindNameHook{}: CallbackHook{}
+    case ClassifyCallbackKindNameAfterHook{}: CallbackAfterHook{}
+    case ClassifyCallbackKindNameObserveContext{}: CallbackContext{}
+    case ClassifyCallbackKindNameContextScope{}: CallbackCompaction{False{}}
+    case ClassifyCallbackKindNameContextCompaction{}: CallbackCompaction{True{}}
+    case ClassifyCallbackKindNameWorktreeCreate{}: CallbackWorktree{True{}}
+    case ClassifyCallbackKindNameWorktreeArchive{}: CallbackWorktree{False{}}
+    case ClassifyCallbackKindNameReasoning{}: CallbackReasoning{}
+    case ClassifyCallbackKindNameModel{}: CallbackModel{}
+    case ClassifyCallbackKindNameOther{}: CallbackDefaultTool{}
+
+def classify_callback_kind(+kind: String) -> CallbackKind:
+  classify_callback_kind_classified(classify_callback_kind_discriminant(kind))
+
+def compaction_callback_kind(completed: Bool) -> String:
+  match completed:
+    case True{}: "compaction_completed"
+    case False{}: "compaction_measured"
+
+def compaction_callback(completed: Bool, +effect: J.Json, result: J.Json, error: Bool) -> J.Json:
+  J.Object{List.append(&2, J.Field, callback_base(effect, compaction_callback_kind(completed)),
+    [field("result", result), field("error", J.Boolean{error})])}
+
+def worktree_callback_kind(created: Bool) -> String:
+  match created:
+    case True{}: "worktree_created"
+    case False{}: "worktree_archived"
+
+def worktree_callback_fields(created: Bool, ok: Bool, +result: J.Json) -> +List<J.Field>:
+  match created ok:
+    case True{} True{}: [field("root", J.get(result, "root")), field("workspace", J.get(result, "workspace")), field("guidance", J.get(result, "guidance"))]
+    case True{} False{}: [field("root", J.get(result, "root")), field("message", J.Text{take(J.text(J.get(result, "message")), 1024n)})]
+    case False{} True{}: [field("root", J.get(result, "root"))]
+    case False{} False{}: [field("message", J.Text{take(J.text(J.get(result, "message")), 1024n)})]
+
+def worktree_callback(+created: Bool, +effect: J.Json, +result: J.Json) -> J.Json:
+  J.Object{List.append(&2, J.Field, [field("kind", J.Text{worktree_callback_kind(created)}),
+    field("task_id", J.get(effect, "task_id")), field("ok", J.Boolean{J.boolean(J.get(result, "ok"))})],
+    worktree_callback_fields(created, J.boolean(J.get(result, "ok")), result))}
 
 def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -> J.Json:
   match kind:
+    case CallbackTaskTitle{}: J.Object{List.append(&2, J.Field, callback_base(effect, "task_title"), [field("ok", J.Boolean{True{}}), field("title", J.get(result, "title"))])}
     case CallbackChatgptExec{}: J.Object{List.append(&2, J.Field, Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Nil{}}}, callback_result_fields(fields(result), ["kind", "operation_id"]))}
     case CallbackBoardText{}: J.Object{List.append(&2, J.Field, Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{True{}}), Nil{}}}}}, callback_result_fields(fields(result), ["kind", "card_id", "ticket", "ok"]))}
     case CallbackApproval{}: J.Object{List.append(&2, J.Field, callback_base(effect, "approval"), Con{field("outcome", result), Nil{}})}
     case CallbackHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "hook"), Con{field("outcome", result), Nil{}})}
     case CallbackAfterHook{}: J.Object{List.append(&2, J.Field, callback_base(effect, "after_hook"), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("outcome", result), Nil{}}})}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{True{}}), Con{field("observations", J.get(result, "observations")), Nil{}}})}
+    case CallbackCompaction{completed}: compaction_callback(completed, effect, result, False{})
+    case CallbackWorktree{created}: worktree_callback(created, effect, result)
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{True{}}), callback_result_fields(fields(result), ["kind", "task_id", "ticket", "ok"])})}
     case CallbackModel{}: J.Object{List.append(&2, J.Field, callback_base(effect, "model"), Con{field("ok", J.Boolean{True{}}), Con{field("items", result), Nil{}}})}
     case CallbackDefaultTool{}: J.Object{List.append(&2, J.Field, callback_base(effect, "tool"), callback_result_fields(fields(result), ["kind", "task_id", "ticket"]))}
@@ -368,9 +488,12 @@ def failed_model(+effect: J.Json, +message: String) -> J.Json:
 
 def failure_classified(+kind: CallbackKind, +effect: J.Json, +message: String) -> J.Json:
   match kind:
+    case CallbackTaskTitle{}: J.Object{List.append(&2, J.Field, callback_base(effect, "task_title"), [field("ok", J.Boolean{False{}}), field("message", J.Text{take(message, 400n)})])}
     case CallbackChatgptExec{}: J.Object{Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("error", J.Boolean{True{}}), Con{field("value", error_value(message)), Nil{}}}}}}
     case CallbackBoardText{}: J.Object{Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}}}}}}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
+    case CallbackCompaction{completed}: compaction_callback(completed, effect, J.Object{[field("message", J.Text{message})]}, True{})
+    case CallbackWorktree{created}: worktree_callback(created, effect, J.Object{[field("ok", J.Boolean{False{}}), field("root", J.Null{}), field("message", J.Text{message})]})
     case CallbackReasoning{}: J.Object{List.append(&2, J.Field, callback_base(effect, "reasoning"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
     case CallbackHook{}: failed_outcome(effect, "hook", message)
     case CallbackApproval{}: failed_outcome(effect, "approval", take(message, 400n))
@@ -482,11 +605,24 @@ def platform_admission(+valid: Bool, +plan: J.Json) -> J.Json:
     case False{}: Model.failure("Selvedge supports Linux and macOS only")
     case True{}: execution_admission(plan)
 
+def paths_valid(+items: +List<&2, J.Json>) -> Bool:
+  match items:
+    case Nil{}: True{}
+    case Con{+head, rest}: J.is_text(head) && no_nul(J.text(head)) && well(J.text(head)) && paths_valid(rest)
+
+def launch_next_case(+accepted: Bool, +result: J.Json, +next: J.Json) -> J.Json:
+  match accepted:
+    case False{}: result
+    case True{}: next
+
+def launch_next(+result: J.Json, +next: J.Json) -> J.Json:
+  launch_next_case(J.boolean(J.get(result, "ok")), result, next)
+
 def plan_admission(+source: J.Json) -> J.Json:
   +plan = J.get(source, "plan")
   +options = J.get(source, "options")
   +platform = J.text(J.get(options, "platform"))
-  platform_admission(String.eq(platform, "linux") || String.eq(platform, "darwin"), plan)
+  launch_next(type_outcome_value(Bool.not(has(options, "managedWorktreeRoot")) || paths_valid([J.get(options, "managedWorktreeRoot")]), J.Null{}, "Invalid managed Worktree root"), platform_admission(String.eq(platform, "linux") || String.eq(platform, "darwin"), plan))
 
 def writable_mode(+writable: Bool, +workspace: J.Json) -> J.Json:
   match writable:
@@ -527,6 +663,34 @@ def any_within(+roots: +List<&2, J.Json>, +protected: List<&2, J.Json>, +separat
     case Nil{}: False{}
     case Con{head, rest}: within(J.text(head), protected, separator) || any_within(rest, protected, separator)
 
+def strictly_within(+root: String, +protected: +List<&2, J.Json>, +separator: String) -> Bool:
+  match protected:
+    case Nil{}: False{}
+    case Con{head, rest}: String.starts_with(root, J.text(head) ++ separator) || strictly_within(root, rest, separator)
+
+def managed_worktree_admission(+source: J.Json) -> J.Json:
+  +root = J.get(source, "managedWorktreeRoot")
+  +option = J.get(J.get(source, "options"), "managedWorktreeRoot")
+  outcome_value(J.same(root, option) && (J.same(root, J.Null{}) ||
+    (paths_valid([root]) && Bool.not(J.boolean(J.get(source, "projectOnly"))) &&
+      strictly_within(J.text(root), J.items(J.get(source, "protectedRoots")), J.text(J.get(source, "separator"))) &&
+      Bool.not(any_within(J.items(J.get(source, "protectedRoots")), [root], J.text(J.get(source, "separator")))) &&
+      within(J.text(J.get(J.get(source, "workspace"), "primary_root")), [root], J.text(J.get(source, "separator"))))), J.Null{}, "Managed Worktree does not match its committed Workspace and private service home")
+
+def managed_writable_item(+managed: Bool, +root: J.Json, +rest: +List<&2, J.Json>) -> +List<&2, J.Json>:
+  match managed:
+    case True{}: Con{root, rest}
+    case False{}: rest
+
+def managed_writable_items(+items: +List<&2, J.Json>, +root: J.Json, +separator: String) -> +List<&2, J.Json>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{+head, rest}:
+      managed_writable_item(Bool.not(J.same(root, J.Null{})) && within(J.text(head), [root], separator), head, managed_writable_items(rest, root, separator))
+
+def managed_writable_roots(+source: J.Json) -> +List<&2, J.Json>:
+  managed_writable_items(J.items(J.get(source, "writableRoots")), J.get(source, "managedWorktreeRoot"), J.text(J.get(source, "separator")))
+
 def protected_workspace(+source: J.Json) -> J.Json:
   outcome_value(Bool.not(J.boolean(J.get(source, "projectOnly")) && any_within(J.items(J.get(J.get(source, "workspace"), "roots")), J.items(J.get(source, "protectedRoots")), J.text(J.get(source, "separator")))), J.Null{}, "A ChatGPT Workspace cannot be inside the private service home")
 
@@ -548,10 +712,21 @@ def environment_names(+project: Bool, +source: J.Json) -> J.Json:
     case True{}: J.Array{Nil{}}
     case False{}: J.Array{clean_environment_names(J.items(J.get(source, "names")))}
 
-def environment_path(+platform: String) -> String:
+type EnvironmentPathName is Data:
+  EnvironmentPathNameDarwin{}
+  EnvironmentPathNameOther{}
+
+def environment_path_discriminant(+value: String) -> EnvironmentPathName:
+  Bool.pick(EnvironmentPathName, String.eq(value, "darwin"), EnvironmentPathNameDarwin{},
+    EnvironmentPathNameOther{})
+
+def environment_path_classified(+platform: EnvironmentPathName) -> String:
   match platform:
-    case "darwin": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
-    case _: "/usr/bin:/bin:/usr/sbin:/sbin"
+    case EnvironmentPathNameDarwin{}: "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+    case EnvironmentPathNameOther{}: "/usr/bin:/bin:/usr/sbin:/sbin"
+
+def environment_path(+platform: String) -> String:
+  environment_path_classified(environment_path_discriminant(platform))
 
 # Instruction selection is native; the host only writes the observed little-endian ABI bytes.
 
@@ -575,10 +750,21 @@ def bpf_denied(+syscalls: +List<&2, J.Json>) -> +List<&2, J.Json>:
     case Nil{}: Nil{}
     case Con{number, rest}: Con{bpf_instruction(21n, 0n, 1n, number), Con{bpf_instruction(6n, 0n, 0n, J.Number{"327681"}), bpf_denied(rest)}}
 
-def bpf_x32(+architecture: String) -> +List<&2, J.Json>:
+type BpfX32Name is Data:
+  BpfX32NameX64{}
+  BpfX32NameOther{}
+
+def bpf_x32_discriminant(+value: String) -> BpfX32Name:
+  Bool.pick(BpfX32Name, String.eq(value, "x64"), BpfX32NameX64{},
+    BpfX32NameOther{})
+
+def bpf_x32_classified(+architecture: BpfX32Name) -> +List<&2, J.Json>:
   match architecture:
-    case "x64": [bpf_instruction(53n, 0n, 1n, J.Number{"1073741824"}), bpf_instruction(6n, 0n, 0n, J.Number{"327681"})]
-    case _: Nil{}
+    case BpfX32NameX64{}: [bpf_instruction(53n, 0n, 1n, J.Number{"1073741824"}), bpf_instruction(6n, 0n, 0n, J.Number{"327681"})]
+    case BpfX32NameOther{}: Nil{}
+
+def bpf_x32(+architecture: String) -> +List<&2, J.Json>:
+  bpf_x32_classified(bpf_x32_discriminant(architecture))
 
 def bpf_socket(+network: Bool, +socket: Nat) -> +List<&2, J.Json>:
   match network:
@@ -600,11 +786,6 @@ def seccomp_arch(+architecture: String, +network: Bool) -> J.Json:
 
 def seccomp(+source: J.Json) -> J.Json:
   seccomp_arch(J.text(J.get(source, "architecture")), J.boolean(J.get(source, "networkAccess")))
-
-def paths_valid(+items: +List<&2, J.Json>) -> Bool:
-  match items:
-    case Nil{}: True{}
-    case Con{+head, rest}: J.is_text(head) && no_nul(J.text(head)) && well(J.text(head)) && paths_valid(rest)
 
 def sbpl_char(+code: U32) -> String:
   match code:
@@ -642,12 +823,17 @@ def deny_read(+root: J.Json, +readable: Bool) -> +List<&2, String>:
     case True{}: Con{"(deny file-read* " ++ path_rule(root, "subpath") ++ ")", Nil{}}
     case False{}: Nil{}
 
-def protected_rules(+roots: +List<&2, J.Json>, +ancestors: +List<&2, J.Json>, +readable: Bool) -> +List<&2, String>:
+def protected_write_path(+root: J.Json, +exceptions: +List<&2, J.Json>) -> String:
+  match exceptions:
+    case Nil{}: path_rule(root, "subpath")
+    case exceptions: "(require-all " ++ path_rule(root, "subpath") ++ " " ++ join(Std.map(~J.Json, ~String, ~(exception => "(require-not " ++ path_rule(exception, "subpath") ++ ")"), exceptions), " ") ++ ")"
+
+def protected_rules(+roots: +List<&2, J.Json>, +ancestors: +List<&2, J.Json>, +readable: Bool, +exceptions: List<&2, J.Json>) -> +List<&2, String>:
   match roots ancestors:
     case Nil{} _: Nil{}
     case Con{+root, rest} Con{parents, tail}:
-      List.append(&2, String, Con{"(deny file-write* " ++ path_rule(root, "subpath") ++ ")", deny_read(root, readable)},
-        List.append(&2, String, Std.map(~J.Json, ~String, ~(parent => "(deny file-write-unlink " ++ path_rule(parent, "literal") ++ ")"), J.items(parents)), protected_rules(rest, tail, readable)))
+      List.append(&2, String, Con{"(deny file-write* " ++ protected_write_path(root, exceptions) ++ ")", deny_read(root, readable)},
+        List.append(&2, String, Std.map(~J.Json, ~String, ~(parent => "(deny file-write-unlink " ++ path_rule(parent, "literal") ++ ")"), J.items(parents)), protected_rules(rest, tail, readable, exceptions)))
     case _ _: Nil{}
 
 def unique_append(+found: Bool, +text: String, +acc: +List<&2, String>) -> +List<&2, String>:
@@ -679,7 +865,8 @@ def seatbelt_rules(+source: J.Json, +writes: +List<&2, J.Json>, +reads: +List<&2
   List.append(&2, String, ["(version 1)", "(deny default)", "(allow process-exec process-fork)", "(allow signal (target same-sandbox))", "(allow process-info* (target same-sandbox))"],
     List.append(&2, String, seatbelt_reads(has(source, "readableRoots") && Bool.not(J.same(J.get(source, "readableRoots"), J.Null{})), reads, unique_paths(flatten(J.items(J.get(source, "readAncestors"))), Nil{})),
       List.append(&2, String, ["(allow sysctl-read)", "(allow mach-lookup (global-name \"com.apple.system.opendirectoryd.libinfo\"))", "(allow ipc-posix-sem)", "(allow file-write-data (require-all (literal \"/dev/null\") (vnode-type CHARACTER-DEVICE)))", "(allow file-write*\n  " ++ join(path_rules(writes, "subpath"), "\n  ") ++ ")"],
-        List.append(&2, String, protected_rules(J.items(J.get(source, "readOnlyPaths")), J.items(J.get(source, "protectedAncestors")), has(source, "readableRoots") && Bool.not(J.same(J.get(source, "readableRoots"), J.Null{}))), seatbelt_network(J.boolean(J.get(source, "networkAccess")))))))
+        List.append(&2, String, protected_rules(J.items(J.get(source, "readOnlyPaths")), J.items(J.get(source, "protectedAncestors")), has(source, "readableRoots") && Bool.not(J.same(J.get(source, "readableRoots"), J.Null{})), J.items(J.get(source, "readOnlyExceptions"))),
+          List.append(&2, String, Std.map(~J.Json, ~String, ~(root => "(deny file-write-unlink " ++ path_rule(root, "literal") ++ ")"), J.items(J.get(source, "readOnlyExceptions"))), seatbelt_network(J.boolean(J.get(source, "networkAccess"))))))))
 
 def seatbelt_valid(+valid: Bool, +source: J.Json, +writes: +List<&2, J.Json>, +reads: +List<&2, J.Json>) -> J.Json:
   match valid:
@@ -689,7 +876,7 @@ def seatbelt_valid(+valid: Bool, +source: J.Json, +writes: +List<&2, J.Json>, +r
 def seatbelt(+source: J.Json) -> J.Json:
   +writes = List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})
   +reads = List.append(&2, J.Json, J.items(J.get(source, "readableRoots")), Con{J.get(source, "scratch"), Nil{}})
-  seatbelt_valid(paths_valid(writes) && paths_valid(J.items(J.get(source, "readOnlyPaths"))) && paths_valid(reads), source, writes, reads)
+  seatbelt_valid(paths_valid(writes) && paths_valid(J.items(J.get(source, "readOnlyPaths"))) && paths_valid(J.items(J.get(source, "readOnlyExceptions"))) && paths_valid(reads), source, writes, reads)
 
 def binding(+root: J.Json, +readonly: Bool) -> J.Json:
   J.Object{Con{field("root", root), Con{field("readonly", J.Boolean{readonly}), Nil{}}}}
@@ -702,7 +889,8 @@ def binding_items(+items: List<&2, J.Json>, +readonly: Bool) -> List<&2, J.Json>
 def binding_project(+project: Bool, +source: J.Json) -> J.Json:
   match project:
     case True{}: J.Array{List.append(&2, J.Json, binding_items(J.items(J.get(J.get(source, "workspace"), "roots")), String.eq(J.text(J.get(J.get(J.get(source, "plan"), "sandbox"), "mode")), "read-only")), Con{binding(J.get(source, "scratch"), False{}), Nil{}})}
-    case False{}: J.Array{List.append(&2, J.Json, Std.map(~J.Json, ~J.Json, ~(root => binding(root, False{})), List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})), Std.map(~J.Json, ~J.Json, ~(root => binding(root, True{})), J.items(J.get(source, "protectedRoots"))))}
+    case False{}: J.Array{List.append(&2, J.Json, Std.map(~J.Json, ~J.Json, ~(root => binding(root, False{})), List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})),
+      List.append(&2, J.Json, binding_items(J.items(J.get(source, "protectedRoots")), True{}), binding_items(managed_writable_roots(source), False{})))}
 
 def bindings(+source: J.Json) -> J.Json:
   binding_project(J.boolean(J.get(source, "projectOnly")), source)
@@ -758,14 +946,14 @@ def darwin_prefix(+source: J.Json) -> J.Json:
 def request_approval(+source: J.Json) -> J.Json:
   type_outcome_value(String.eq(J.text(J.get(J.get(source, "effect"), "kind")), "approval"), J.Null{}, "Expected a committed approval effect")
 
-def request_board_kind(+valid: Bool, +effect: J.Json) -> J.Json:
+def request_task_text_kind(+valid: Bool, +effect: J.Json) -> J.Json:
   match valid:
-    case False{}: Model.failure_code("TypeError", "Expected a committed board drafting effect")
-    case True{}: type_outcome_value(Bool.not(truthy(J.get(J.get(effect, "model"), "adaptive_reasoning"))), J.Null{}, "Board drafting requires an ordinary model profile")
+    case False{}: Model.failure_code("TypeError", "Expected a committed task text effect")
+    case True{}: type_outcome_value(Bool.not(truthy(J.get(J.get(effect, "model"), "adaptive_reasoning"))), J.Null{}, "Task text generation requires an ordinary model profile")
 
-def request_board(+source: J.Json) -> J.Json:
+def request_task_text(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
-  request_board_kind(String.eq(J.text(J.get(effect, "kind")), "board_text") && J.is_text(J.get(effect, "prompt")), effect)
+  request_task_text_kind((String.eq(J.text(J.get(effect, "kind")), "board_text") || String.eq(J.text(J.get(effect, "kind")), "task_title")) && J.is_text(J.get(effect, "prompt")), effect)
 
 def workspace_admit(+value: J.Json) -> J.Json:
   type_outcome_value(J.is_object(value) && array(J.get(value, "roots")) && Nat.is_le(length(J.items(J.get(value, "roots"))), 32n) && allowed(fields(value), ["roots", "primary_root"]), value, "A workspace requires at most 32 roots and an optional primary_root")
@@ -785,6 +973,82 @@ def workspace_distinct(+source: J.Json) -> J.Json:
 def workspace_selected(+source: J.Json) -> J.Json:
   +primary = J.get(source, "primary")
   type_outcome_value(J.same(primary, J.Null{}) || names(J.text_values(J.items(J.get(source, "roots"))), J.text(primary)), J.Object{Con{field("roots", J.get(source, "roots")), Con{field("primary_root", primary), Nil{}}}}, "The primary root must be one of the workspace roots")
+
+# Worktree paths and receipt meaning are derived once from the observed home
+# and the committed task coordinates. Git and filesystem calls observe facts.
+def worktree_select(accepted: Bool, yes: J.Json, no: J.Json) -> J.Json:
+  match accepted:
+    case True{}: yes
+    case False{}: no
+
+def worktree_child(+parent: String, +leaf: String) -> String:
+  J.text(worktree_select(String.ends_with(parent, "/"), J.Text{parent ++ leaf}, J.Text{parent ++ "/" ++ leaf}))
+
+def worktree_contains(+root: String, +parent: String) -> Bool:
+  String.eq(root, parent) || String.starts_with(root, worktree_child(parent, ""))
+
+def worktree_locations_value(+source: J.Json) -> J.Json:
+  +home = J.text(J.get(source, "home"))
+  +storage = worktree_child(home, "worktrees")
+  +name = "task-" ++ Nat.show(J.natural_or(J.natural(J.get(source, "task_id")), 0n))
+  J.Object{[field("home", J.Text{home}), field("storage", J.Text{storage}),
+    field("active", J.Text{worktree_child(storage, name)}),
+    field("archived", J.Text{worktree_child(worktree_child(storage, "archived"), name)}),
+    field("receipt", J.Text{worktree_child(worktree_child(storage, "receipts"), name ++ ".json")})]}
+
+def worktree_locations(+source: J.Json) -> J.Json:
+  type_outcome_value(J.is_text(J.get(source, "home")) && String.starts_with(J.text(J.get(source, "home")), "/") &&
+    Model.nonnegative_le(J.get(source, "task_id"), "9007199254740991"), worktree_locations_value(source), "Invalid managed worktree task identity or service home")
+
+def worktree_path_admission(+source: J.Json) -> J.Json:
+  +operation = J.text(J.get(source, "operation"))
+  +root = J.get(source, "root")
+  outcome_value((String.eq(operation, "source") &&
+      worktree_contains(J.text(J.get(source, "primary")), J.text(J.get(source, "repository"))) &&
+      Bool.not(worktree_contains(J.text(J.get(source, "home")), J.text(J.get(source, "repository"))))) ||
+    (String.eq(operation, "archive") && (J.same(root, J.get(J.get(source, "files"), "active")) || J.same(root, J.get(J.get(source, "files"), "archived")))) ||
+    (String.eq(operation, "copy") && worktree_contains(J.text(J.get(source, "source")), J.text(J.get(source, "repository"))) &&
+      worktree_contains(J.text(J.get(source, "destination")), J.text(root)) && Bool.not(J.same(J.get(source, "destination"), root))),
+    J.Null{}, "Managed worktree path must remain in its admitted repository or owned storage; service home must stay outside the source repository")
+
+def worktree_receipt(+source: J.Json) -> J.Json:
+  +value = J.get(source, "value")
+  +workspace = J.get(value, "workspace")
+  +root = J.get(value, "root")
+  +files = J.get(source, "files")
+  type_outcome_value(J.is_object(value) && allowed(fields(value), ["task_id", "source_root", "root", "workspace", "status"]) &&
+    J.same(J.get(value, "task_id"), J.get(source, "task_id")) && J.same(J.get(value, "source_root"), J.get(source, "source_root")) &&
+    ((J.same(J.get(value, "status"), J.Text{"ready"}) && J.same(root, J.get(files, "active"))) ||
+      (J.same(J.get(value, "status"), J.Text{"archived"}) && J.same(root, J.get(files, "archived")))) &&
+    J.boolean(J.get(workspace_admit(workspace), "ok")) && paths_valid(J.items(J.get(workspace, "roots"))) &&
+    names(J.text_values(J.items(J.get(workspace, "roots"))), J.text(J.get(workspace, "primary_root"))) &&
+    worktree_contains(J.text(J.get(workspace, "primary_root")), J.text(root)), value, "Invalid managed worktree receipt")
+
+def worktree_relocated_path(selected: Bool, +value: String, +previous: String, next: String) -> String:
+  match selected:
+    case False{}: value
+    case True{}: next ++ String.drop(value, String.length(previous))
+
+def worktree_map_path(+value: J.Json, +previous: String, +next: String, descendants: Bool) -> J.Json:
+  J.Text{worktree_relocated_path(String.eq(J.text(value), previous) || (descendants && worktree_contains(J.text(value), previous)), J.text(value), previous, next)}
+
+def worktree_map_roots(roots: +List<J.Json>, +previous: String, +next: String, +descendants: Bool) -> +List<J.Json>:
+  match roots:
+    case Nil{}: Nil{}
+    case Con{root, rest}: Con{worktree_map_path(root, previous, next, descendants), worktree_map_roots(rest, previous, next, descendants)}
+
+def worktree_workspace(+source: J.Json) -> J.Json:
+  +workspace = J.get(source, "workspace")
+  +previous = J.text(J.get(source, "previous"))
+  +next = J.text(J.get(source, "next"))
+  +descendants = J.boolean(J.get(source, "descendants"))
+  Model.success(J.Object{[field("roots", J.Array{worktree_map_roots(J.items(J.get(workspace, "roots")), previous, next, descendants)}),
+    field("primary_root", worktree_map_path(J.get(workspace, "primary_root"), previous, next, descendants))]})
+
+def worktree_recovery_effect(+source: J.Json) -> J.Json:
+  +entry = J.get(source, "entry")
+  Model.success(J.Object{[field("kind", worktree_select(names(["creating", "creating_archived"], J.text(J.get(entry, "status"))), J.Text{"worktree_create"}, J.Text{"worktree_archive"})),
+    field("task_id", J.get(entry, "task_id")), field("source_root", J.get(entry, "source_root")), field("root", J.get(entry, "root"))]})
 
 def board_command_operation(+observe: Bool, +command: J.Json) -> J.Json:
   Model.success(J.Object{[field("observe", J.Boolean{observe}), field("attachments", J.Boolean{observe && has(command, "attachments") && names(["create_card", "update_card"], J.text(J.get(command, "op")))})]})
@@ -819,15 +1083,37 @@ def reference_match(+keys: +List<&2, String>, +value: J.Json, +attachment: J.Jso
 def board_clock(+source: J.Json) -> J.Json:
   range_outcome_value(Model.nonnegative_le(J.get(source, "seconds"), "4294967295"), J.Text{scalar_text(J.get(source, "seconds"))}, "The clock is outside the native board timestamp range")
 
-def runtime_candidates(+platform: String) -> J.Json:
+type RuntimeCandidatesName is Data:
+  RuntimeCandidatesNameDarwin{}
+  RuntimeCandidatesNameOther{}
+
+def runtime_candidates_discriminant(+value: String) -> RuntimeCandidatesName:
+  Bool.pick(RuntimeCandidatesName, String.eq(value, "darwin"), RuntimeCandidatesNameDarwin{},
+    RuntimeCandidatesNameOther{})
+
+def runtime_candidates_classified(+platform: RuntimeCandidatesName) -> J.Json:
   match platform:
-    case "darwin": J.Array{[J.Text{"/System/Library"}, J.Text{"/System/Volumes/Preboot/Cryptexes/OS"}, J.Text{"/usr/bin"}, J.Text{"/usr/lib"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/usr/sbin"}, J.Text{"/opt/homebrew/bin"}, J.Text{"/opt/homebrew/sbin"}, J.Text{"/opt/homebrew/lib"}, J.Text{"/opt/homebrew/opt"}, J.Text{"/opt/homebrew/Cellar"}, J.Text{"/opt/homebrew/share"}, J.Text{"/Library/Developer/CommandLineTools"}, J.Text{"/Library/Apple"}, J.Text{"/private/etc/passwd"}, J.Text{"/private/etc/group"}, J.Text{"/private/etc/localtime"}, J.Text{"/private/etc/hosts"}, J.Text{"/private/etc/resolv.conf"}, J.Text{"/private/etc/ssl/cert.pem"}, J.Text{"/private/etc/ssl/certs"}, J.Text{"/dev/null"}, J.Text{"/dev/zero"}, J.Text{"/dev/random"}, J.Text{"/dev/urandom"}, J.Text{"/dev/fd"}]}
-    case _: J.Array{[J.Text{"/usr/bin"}, J.Text{"/usr/sbin"}, J.Text{"/usr/lib"}, J.Text{"/usr/lib64"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/lib"}, J.Text{"/lib64"}, J.Text{"/etc/ld.so.cache"}, J.Text{"/etc/nsswitch.conf"}, J.Text{"/etc/passwd"}, J.Text{"/etc/group"}, J.Text{"/etc/localtime"}, J.Text{"/etc/hosts"}, J.Text{"/etc/resolv.conf"}, J.Text{"/etc/ssl/certs"}, J.Text{"/etc/os-release"}]}
+    case RuntimeCandidatesNameDarwin{}: J.Array{[J.Text{"/System/Library"}, J.Text{"/System/Volumes/Preboot/Cryptexes/OS"}, J.Text{"/usr/bin"}, J.Text{"/usr/lib"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/usr/sbin"}, J.Text{"/opt/homebrew/bin"}, J.Text{"/opt/homebrew/sbin"}, J.Text{"/opt/homebrew/lib"}, J.Text{"/opt/homebrew/opt"}, J.Text{"/opt/homebrew/Cellar"}, J.Text{"/opt/homebrew/share"}, J.Text{"/Library/Developer/CommandLineTools"}, J.Text{"/Library/Apple"}, J.Text{"/private/etc/passwd"}, J.Text{"/private/etc/group"}, J.Text{"/private/etc/localtime"}, J.Text{"/private/etc/hosts"}, J.Text{"/private/etc/resolv.conf"}, J.Text{"/private/etc/ssl/cert.pem"}, J.Text{"/private/etc/ssl/certs"}, J.Text{"/dev/null"}, J.Text{"/dev/zero"}, J.Text{"/dev/random"}, J.Text{"/dev/urandom"}, J.Text{"/dev/fd"}]}
+    case RuntimeCandidatesNameOther{}: J.Array{[J.Text{"/usr/bin"}, J.Text{"/usr/sbin"}, J.Text{"/usr/lib"}, J.Text{"/usr/lib64"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/lib"}, J.Text{"/lib64"}, J.Text{"/etc/ld.so.cache"}, J.Text{"/etc/nsswitch.conf"}, J.Text{"/etc/passwd"}, J.Text{"/etc/group"}, J.Text{"/etc/localtime"}, J.Text{"/etc/hosts"}, J.Text{"/etc/resolv.conf"}, J.Text{"/etc/ssl/certs"}, J.Text{"/etc/os-release"}]}
+
+def runtime_candidates(+platform: String) -> J.Json:
+  runtime_candidates_classified(runtime_candidates_discriminant(platform))
+
+type ExecutableCandidatesName is Data:
+  ExecutableCandidatesNameDarwin{}
+  ExecutableCandidatesNameOther{}
+
+def executable_candidates_discriminant(+value: String) -> ExecutableCandidatesName:
+  Bool.pick(ExecutableCandidatesName, String.eq(value, "darwin"), ExecutableCandidatesNameDarwin{},
+    ExecutableCandidatesNameOther{})
+
+def executable_candidates_classified(+platform: ExecutableCandidatesName) -> J.Json:
+  match platform:
+    case ExecutableCandidatesNameDarwin{}: J.Array{[J.Text{"/usr/bin/sandbox-exec"}]}
+    case ExecutableCandidatesNameOther{}: J.Array{[J.Text{"/usr/bin/bwrap"}, J.Text{"/bin/bwrap"}]}
 
 def executable_candidates(+platform: String) -> J.Json:
-  match platform:
-    case "darwin": J.Array{[J.Text{"/usr/bin/sandbox-exec"}]}
-    case _: J.Array{[J.Text{"/usr/bin/bwrap"}, J.Text{"/bin/bwrap"}]}
+  executable_candidates_classified(executable_candidates_discriminant(platform))
 
 def mac_readable_roots(+project: Bool, +source: J.Json) -> +List<&2, J.Field>:
   match project:
@@ -835,7 +1121,7 @@ def mac_readable_roots(+project: Bool, +source: J.Json) -> +List<&2, J.Field>:
     case True{}: Con{field("readableRoots", J.Array{List.append(&2, J.Json, J.items(J.get(J.get(source, "workspace"), "roots")), Std.map(~J.Json, ~J.Json, ~(entry => J.get(entry, "canonical")), J.items(J.get(source, "runtimeReads"))))}), Nil{}}
 
 def seatbelt_input(+source: J.Json) -> J.Json:
-  J.Object{List.append(&2, J.Field, [field("writableRoots", J.get(source, "writableRoots")), field("scratch", J.get(source, "scratch")), field("readOnlyPaths", J.get(source, "protectedRoots")), field("networkAccess", J.get(J.get(J.get(source, "plan"), "sandbox"), "network_access"))], mac_readable_roots(J.boolean(J.get(source, "projectOnly")), source))}
+  J.Object{List.append(&2, J.Field, [field("writableRoots", J.get(source, "writableRoots")), field("scratch", J.get(source, "scratch")), field("readOnlyPaths", J.get(source, "protectedRoots")), field("readOnlyExceptions", J.Array{managed_writable_roots(source)}), field("networkAccess", J.get(J.get(J.get(source, "plan"), "sandbox"), "network_access"))], mac_readable_roots(J.boolean(J.get(source, "projectOnly")), source))}
 
 def first_root(+roots: +List<&2, J.Json>) -> J.Json:
   match roots:
@@ -856,14 +1142,6 @@ def launch_json_value(value: J.Json) -> J.Json:
   value
 
 # Tagged path observations are OS facts; policy and source coordinates remain native.
-def launch_next_case(+accepted: Bool, +result: J.Json, +next: J.Json) -> J.Json:
-  match accepted:
-    case False{}: result
-    case True{}: next
-
-def launch_next(+result: J.Json, +next: J.Json) -> J.Json:
-  launch_next_case(J.boolean(J.get(result, "ok")), result, next)
-
 def launch_root_observation(+root: J.Json, +observation: J.Json) -> J.Json:
   launch_next(outcome_value(J.is_object(observation) && allowed(fields(observation), ["root", "absolute"]) && has(observation, "root") && bool_type(J.get(observation, "absolute")) && J.same(observation, J.Object{[field("root", root), field("absolute", J.get(observation, "absolute"))]}), J.Null{}, "Workspace path observation does not match its source"), root_admit(observation))
 
@@ -996,7 +1274,7 @@ def unrestricted_launch(+source: J.Json) -> J.Json:
 
 def launch_context(+source: J.Json) -> J.Json:
   +bound = J.get(workspace_bound(source), "value")
-  J.Object{[field("plan", J.get(source, "plan")), field("options", J.get(source, "options")), field("workspace", J.get(source, "workspace")), field("cwd", J.get(bound, "cwd")), field("projectOnly", J.get(bound, "projectOnly")), field("writableRoots", J.get(bound, "writableRoots")), field("scratch", J.get(source, "scratch")), field("protectedRoots", J.get(source, "protectedRoots")), field("separator", J.get(source, "separator")), field("runtimeReads", J.get(source, "runtimeReads"))]}
+  J.Object{[field("plan", J.get(source, "plan")), field("options", J.get(source, "options")), field("workspace", J.get(source, "workspace")), field("cwd", J.get(bound, "cwd")), field("projectOnly", J.get(bound, "projectOnly")), field("writableRoots", J.get(bound, "writableRoots")), field("scratch", J.get(source, "scratch")), field("protectedRoots", J.get(source, "protectedRoots")), field("managedWorktreeRoot", J.get(source, "managedWorktreeRoot")), field("separator", J.get(source, "separator")), field("runtimeReads", J.get(source, "runtimeReads"))]}
 
 def launch_legacy_fields(+keys: +List<&2, String>, +source: J.Json, +context: J.Json) -> Bool:
   match keys:
@@ -1014,7 +1292,7 @@ def launch_resource_admission(+source: J.Json) -> J.Json:
 
 def sandbox_security_admission(+source: J.Json) -> J.Json:
   launch_next(outcome_value(String.eq(J.text(J.get(J.get(source, "plan"), "access")), "sandboxed"), J.Null{}, "Malformed committed sandbox execution plan"),
-    launch_next(launch_resource_admission(source), protected_workspace(launch_context(source))))
+    launch_next(launch_resource_admission(source), launch_next(managed_worktree_admission(launch_context(source)), protected_workspace(launch_context(source)))))
 
 def sandbox_security_accepted(+source: J.Json) -> Bool:
   J.boolean(J.get(sandbox_security_admission(source), "ok"))
@@ -1161,6 +1439,7 @@ def task_coordinate(+kind: String, +value: J.Json) -> J.Json:
 def ticket_coordinate_classified(+kind: CallbackKind, +value: J.Json) -> J.Json:
   match kind:
     case CallbackChatgptExec{}: J.Null{}
+    case CallbackWorktree{created}: J.Null{}
     case _: J.get(value, "ticket")
 
 def ticket_coordinate(+kind: String, +value: J.Json) -> J.Json:
@@ -1351,13 +1630,13 @@ def meaning_route_6(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 
 def meaning_route_5(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: request_board(source)
+    case True{}: request_task_text(source)
     case False{}: meaning_route_6(String.eq(operation, "effect.filename"), operation, source)
 
 def meaning_route_4(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: request_approval(source)
-    case False{}: meaning_route_5(String.eq(operation, "effect.request_board_text"), operation, source)
+    case False{}: meaning_route_5(String.eq(operation, "effect.request_task_text"), operation, source)
 
 def meaning_route_3(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -1367,7 +1646,7 @@ def meaning_route_3(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 def meaning_route_2(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: outcome(source, True{})
-    case False{}: meaning_route_3(String.eq(operation, "effect.board_text_outcome"), operation, source)
+    case False{}: meaning_route_3(String.eq(operation, "effect.task_text_outcome"), operation, source)
 
 def meaning_route_1(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -1377,10 +1656,16 @@ def meaning_route_1(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: response_text(source, True{})
-    case False{}: meaning_route_1(String.eq(operation, "effect.board_text_text"), operation, source)
+    case False{}: meaning_route_1(String.eq(operation, "effect.task_text_text"), operation, source)
 
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  meaning_route_0(String.eq(operation, "effect.approval_text"), operation, source)
+  match operation:
+    case "effect.worktree_locations": worktree_locations(source)
+    case "effect.worktree_path": worktree_path_admission(source)
+    case "effect.worktree_receipt": worktree_receipt(source)
+    case "effect.worktree_workspace": worktree_workspace(source)
+    case "effect.worktree_recovery_effect": worktree_recovery_effect(source)
+    case +operation: meaning_route_0(String.eq(operation, "effect.approval_text"), operation, source)
 
 def family(+operation: String) -> Model.Adapter(source => meaning(operation, source)):
   Model.adapter(source => meaning(operation, source), source => meaning(operation, source), source => {==})
@@ -1504,6 +1789,16 @@ law sandbox_launch_context_writes:
   @source:J.Json -> {J.get(launch_context(source), "writableRoots") == J.get(J.get(workspace_bound(source), "value"), "writableRoots") : J.Json}
 law sandbox_launch_context_scope:
   @source:J.Json -> {J.get(launch_context(source), "projectOnly") == J.get(J.get(workspace_bound(source), "value"), "projectOnly") : J.Json}
+law sandbox_without_managed_root:
+  @roots:List<&2, J.Json> -> @separator:String ->
+  {managed_writable_items(roots, J.Null{}, separator) == Nil{} : List<&2, J.Json>}
+law sandbox_readonly_managed_roots:
+  @workspace:J.Json -> @root:J.Json -> @separator:String ->
+  {managed_writable_items(J.items(writable_mode(False{}, workspace)), root, separator) == Nil{} : List<&2, J.Json>}
+law sandbox_managed_binding_order:
+  @source:J.Json -> {binding_project(False{}, source) == J.Array{List.append(&2, J.Json,
+    Std.map(~J.Json, ~J.Json, ~(root => binding(root, False{})), List.append(&2, J.Json, J.items(J.get(source, "writableRoots")), Con{J.get(source, "scratch"), Nil{}})),
+    List.append(&2, J.Json, binding_items(J.items(J.get(source, "protectedRoots")), True{}), binding_items(managed_writable_roots(source), False{})))} : J.Json}
 law sandbox_launch_descriptor_coordinates:
   @source:J.Json -> {launch_expected_bindings(source) == J.Array{launch_bound_bindings(J.items(bindings(launch_context(source))), 4n)} : J.Json}
 law sandbox_launch_binding_head:
@@ -1528,3 +1823,20 @@ law context_callback_kind:
 law context_failure_kind:
   @effect:J.Json -> @message:String ->
   {J.get(failure_classified(CallbackContext{}, effect, message), "kind") == J.Text{"context_observed"} : J.Json}
+
+law compaction_callback_result:
+  @completed:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackCompaction{completed}, effect, result), "result") == result : J.Json}
+law compaction_callback_error:
+  @completed:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(callback_classified(CallbackCompaction{completed}, effect, result), "error") == J.Boolean{False{}} : J.Json}
+law compaction_failure_error:
+  @completed:Bool -> @effect:J.Json -> @message:String ->
+  {J.get(failure_classified(CallbackCompaction{completed}, effect, message), "error") == J.Boolean{True{}} : J.Json}
+
+law worktree_callback_coordinates:
+  @created:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(worktree_callback(created, effect, result), "task_id") == J.get(effect, "task_id") : J.Json}
+law worktree_callback_operation:
+  @created:Bool -> @effect:J.Json -> @result:J.Json ->
+  {J.get(worktree_callback(created, effect, result), "kind") == J.Text{worktree_callback_kind(created)} : J.Json}

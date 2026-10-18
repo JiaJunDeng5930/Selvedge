@@ -68,22 +68,90 @@ def policy_json(+policy: A.Policy) -> J.Json:
 def envelope(+body: J.Json) -> Bool:
   Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "error")) && J.is_object(J.get(body, "result"))
 
+def has_field(fields: +List<J.Field>, +name: String) -> Bool:
+  match fields:
+    case Nil{}: False{}
+    case Con{J.Field{key, value}, rest}: String.eq(key, name) || has_field(rest, name)
+
+def counted_budget(valid: Bool, scope: String, tokens: Nat, window: Nat, +reserve: Nat) -> Result<&2, &2, String, A.Inspection>:
+  match valid:
+    case False{}: Fail{"Malformed compaction measurement budget"}
+    case True{}:
+      Done{A.InputMeasured{A.InputCount{scope, tokens, A.TokenBudget{
+        Nat.sub(reserve, Bounded.minimum_reserve()),
+        Nat.sub(window, Nat.max(Bounded.minimum_window(), Nat.mul(4n, reserve)))}}}}
+
+def counted(scope: String, tokens: Maybe<&2, Nat>, window: Maybe<&2, Nat>, reserve: Maybe<&2, Nat>) -> Result<&2, &2, String, A.Inspection>:
+  match tokens window reserve:
+    case Some{tokens} Some{+window} Some{+reserve}: counted_budget(Bounded.legal_budget(window, reserve), scope, tokens, window, reserve)
+    case _ _ _: Fail{"A compaction measurement requires input_tokens, window_tokens and output_reserve_tokens"}
+
+def inspected_scope(has_count: Bool, scope: String, +value: J.Json) -> Result<&2, &2, String, A.Inspection>:
+  match has_count:
+    case False{}: Done{A.ScopeObserved{scope}}
+    case True{}: counted(scope, J.natural(J.get(value, "input_tokens")), J.natural(J.get(value, "window_tokens")), J.natural(J.get(value, "output_reserve_tokens")))
+
+def inspection_failure(message: J.Json) -> Result<&2, &2, String, A.Inspection>:
+  match message:
+    case J.Text{message}: Done{A.InspectionFailed{message}}
+    case _: Fail{"A failed compaction observation requires a message"}
+
+def inspection_scope(scope: J.Json, +fields: +List<J.Field>) -> Result<&2, &2, String, A.Inspection>:
+  match scope:
+    case J.Text{scope}: inspected_scope(has_field(fields, "input_tokens") || has_field(fields, "window_tokens") || has_field(fields, "output_reserve_tokens"), scope, J.Object{fields})
+    case _: Fail{"A compaction observation requires its actual scope"}
+
+def inspection(error: Bool, +value: J.Json) -> Result<&2, &2, String, A.Inspection>:
+  match error value:
+    case True{} J.Object{fields}: inspection_failure(J.get(J.Object{fields}, "message"))
+    case False{} J.Object{+fields}: inspection_scope(J.get(J.Object{fields}, "scope"), fields)
+    case _ _: Fail{"Malformed compaction observation"}
+
+def measured_completion(id: Nat, ticket: Nat, parsed: Result<&2, &2, String, A.Inspection>) -> Result<&2, &2, String, A.Completion>:
+  match parsed:
+    case Fail{message}: Fail{message}
+    case Done{outcome}: Done{A.MeasuredInput{id, ticket, outcome}}
+
+def measured_envelope(valid: Bool, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
+  match valid:
+    case False{}: Fail{"Malformed compaction observation"}
+    case True{}: measured_completion(A.number(J.get(body, "task_id")), A.number(J.get(body, "ticket")), inspection(J.boolean(J.get(body, "error")), J.get(body, "result")))
+
 def checked(+valid: Bool, +completion: A.Completion) -> Result<&2, &2, String, A.Completion>:
   match valid:
     case False{}: Fail{"Malformed compaction observation"}
     case True{}: Done{completion}
 
-def completion(+kind: String, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
+type CompletionName is Data:
+  CompletionNameCompactionConfigure{}
+  CompletionNameCompactionClock{}
+  CompletionNameCompactionActivity{}
+  CompletionNameCompactionMeasured{}
+  CompletionNameCompactionCompleted{}
+  CompletionNameOther{}
+
+def completion_discriminant(+value: String) -> CompletionName:
+  Bool.pick(CompletionName, String.eq(value, "compaction_configure"), CompletionNameCompactionConfigure{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_clock"), CompletionNameCompactionClock{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_activity"), CompletionNameCompactionActivity{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_measured"), CompletionNameCompactionMeasured{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_completed"), CompletionNameCompactionCompleted{},
+    CompletionNameOther{})))))
+
+def completion_classified(+kind: CompletionName, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
   match kind:
-    case "compaction_configure": checked(J.is_object(J.get(body, "policy")) && A.valid_policy(A.policy_json(J.get(body, "policy"))) && Shape.is_natural(J.get(body, "now")),
+    case CompletionNameCompactionConfigure{}: checked(J.is_object(J.get(body, "policy")) && A.valid_policy(A.policy_json(J.get(body, "policy"))) && Shape.is_natural(J.get(body, "now")),
       A.Configure{A.policy_json(J.get(body, "policy")), A.number(J.get(body, "now"))})
-    case "compaction_clock": checked(Shape.is_natural(J.get(body, "now")), A.Clock{A.number(J.get(body, "now"))})
-    case "compaction_activity": checked(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "source_length")) &&
+    case CompletionNameCompactionClock{}: checked(Shape.is_natural(J.get(body, "now")), A.Clock{A.number(J.get(body, "now"))})
+    case CompletionNameCompactionActivity{}: checked(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "source_length")) &&
       Shape.is_natural(J.get(body, "now")) && J.is_text(J.get(body, "scope")),
       A.Activity{A.number(J.get(body, "task_id")), A.number(J.get(body, "source_length")), A.number(J.get(body, "now")), J.text(J.get(body, "scope"))})
-    case "compaction_measured": checked(envelope(body), A.MeasuredInput{A.number(J.get(body, "task_id")), A.number(J.get(body, "ticket")), J.get(body, "result"), J.boolean(J.get(body, "error"))})
-    case "compaction_completed": checked(envelope(body), A.Completed{A.number(J.get(body, "task_id")), A.number(J.get(body, "ticket")), J.get(body, "result"), J.boolean(J.get(body, "error"))})
-    case _: Fail{"Unknown compaction input"}
+    case CompletionNameCompactionMeasured{}: measured_envelope(envelope(body), body)
+    case CompletionNameCompactionCompleted{}: checked(envelope(body), A.Completed{A.number(J.get(body, "task_id")), A.number(J.get(body, "ticket")), J.get(body, "result"), J.boolean(J.get(body, "error"))})
+    case CompletionNameOther{}: Fail{"Unknown compaction input"}
+
+def completion(+kind: String, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
+  completion_classified(completion_discriminant(kind), body)
 
 def job_name(job: A.Job) -> String:
   match job:

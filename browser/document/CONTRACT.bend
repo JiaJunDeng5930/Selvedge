@@ -92,7 +92,7 @@ type ProjectPresentationRequirements is Type:
     more_face: @+name:String -> @+expanded:Bool -> @+fallback:Controls.Face -> {Controls.project_face(Controls.ProjectMore{}, name, expanded, fallback) == Controls.IconFace{Controls.MoreDots{}} : Controls.Face},
     chooser_draft_observation: @+id:Nat -> @+fallback:Design.Style -> chooser_draft_observation_law(id, fallback),
     source_group_style: @+typography:T.Presentation -> @+key:UIIdentity.Key -> @+context:Controls.Context -> @+representation:Controls.Representation -> @+fallback:Design.Style -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> {Appearance.final_style(key, SurfaceTypes.ProjectGroup{project, selected, expanded}, context, representation, fallback, typography) == Appearance.project_group_style(typography) : Design.Style},
-    source_task_style: @+typography:T.Presentation -> @+key:UIIdentity.Key -> @+context:Controls.Context -> @+representation:Controls.Representation -> @+fallback:Design.Style -> @+task:Nat -> @+status:View.TaskStatus -> @+selected:Bool -> {Appearance.final_style(key, SurfaceTypes.TaskRow{task, status, selected}, context, representation, fallback, typography) == Appearance.navigation_family_style(selected, 6n, 5n, typography) : Design.Style},
+    source_task_style: @+typography:T.Presentation -> @+key:UIIdentity.Key -> @+context:Controls.Context -> @+representation:Controls.Representation -> @+fallback:Design.Style -> @+task:Nat -> @+status:View.TaskStatus -> @+selected:Bool -> {Appearance.final_style(key, SurfaceTypes.TaskRow{task, status, selected}, context, representation, fallback, typography) == Appearance.navigation_family_style(selected, 6n, 0n, typography) : Design.Style},
     project_reference: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+children:+List<SurfaceTypes.Node> -> @+context:Controls.Context -> @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> project_reference_law(key, semantic, label, role, children, context, project, selected, expanded),
     task_reference: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+children:+List<SurfaceTypes.Node> -> @+context:Controls.Context -> @+task:Nat -> @+status:View.TaskStatus -> @+selected:Bool -> task_reference_law(key, semantic, label, role, children, context, task, status, selected),
     chooser_reference: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+children:+List<SurfaceTypes.Node> -> @+context:Controls.Context -> @+selected:Maybe<&2, Nat> -> chooser_reference_law(key, semantic, label, role, children, context, selected),
@@ -124,8 +124,8 @@ def instructions_text_when(empty: Bool, value: String) -> String:
 def instructions_text(+value: String) -> String:
   instructions_text_when(String.eq(value, ""), value)
 
-def project_law(+owner: UIIdentity.Key, +label: String, +directory: String, +revision: String, +instructions: String, +visual: Design.Style) -> Type:
-  {Authored.project_context_facts(owner, label, Domain.ProjectContext{directory, revision, instructions}, visual) ==
+def project_law(+owner: UIIdentity.Key, +label: String, +directory: String, +path: String, +revision: String, +instructions: String, +visual: Design.Style) -> Type:
+  {Authored.project_context_facts(owner, label, Domain.ProjectContext{directory, path, revision, instructions}, visual) ==
     [Authored.group(owner, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(UIIdentity.part(owner, "title"), label, visual, T.Body{}, T.Strong{}), Authored.fact(UIIdentity.part(owner, "directory"), "Directory", directory, visual), Authored.fact(UIIdentity.part(owner, "revision"), "Revision", revision, visual), Authored.fact(UIIdentity.part(owner, "instructions"), "Instructions", instructions_text(instructions), visual)])] : +List<Source.Node>}
 
 def projection_law(+owner: UIIdentity.Key, +task: Nat, +roots: +List<String>, +primary: Maybe<&2, String>, +mode: Domain.SandboxMode, +network: Bool, +approval: Domain.ApprovalPolicy, +project: Maybe<&2, Nat>, +guidance: Domain.ProjectContext, +access: Domain.ExecutionAccess, +id: String, +provider: String, +name: String, +policy: Reasoning.Policy, +options: Maybe<&2, Domain.ReasoningOptions>, +reasoning: String, +tools: +List<Domain.Tool>, +lineage: +List<Nat>, +queued: +List<String>, +status: Domain.Status, +phase: Domain.Phase, +visual: Design.Style) -> Type:
@@ -135,7 +135,7 @@ def projection_law(+owner: UIIdentity.Key, +task: Nat, +roots: +List<String>, +p
 type TaskDetailsRequirements is Type:
   TaskDetailsRequirements{
     missing_project: @+owner:UIIdentity.Key -> @+label:String -> @+visual:Design.Style -> {Authored.project_context_facts(owner, label, Domain.NoProject{}, visual) == Nil{} : +List<Source.Node>},
-    frozen_project: @+owner:UIIdentity.Key -> @+label:String -> @+directory:String -> @+revision:String -> @+instructions:String -> @+visual:Design.Style -> project_law(owner, label, directory, revision, instructions, visual),
+    frozen_project: @+owner:UIIdentity.Key -> @+label:String -> @+directory:String -> @+path:String -> @+revision:String -> @+instructions:String -> @+visual:Design.Style -> project_law(owner, label, directory, path, revision, instructions, visual),
     no_tools: @+owner:UIIdentity.Key -> @+visual:Design.Style -> {Authored.tool_detail_nodes(owner, Nil{}, visual) == Nil{} : +List<Source.Node>},
     every_tool: @+owner:UIIdentity.Key -> @+name:String -> @+description:String -> @+schema:J.Json -> @+source:Domain.Source -> @+rest:+List<Domain.Tool> -> @+visual:Design.Style ->
       {Authored.tool_detail_nodes(owner, Con{Domain.Tool{name, description, schema, source}, rest}, visual) == Authored.fact(UIIdentity.entity(owner, "tool", name), name, description, visual) <> Authored.tool_detail_nodes(owner, rest, visual) : +List<Source.Node>},
@@ -322,6 +322,39 @@ law remaining_region:
   for +role: SurfaceTypes.Role
   {Order.base_region_navigation(False{}, key, role) == Order.base_region_role(key, role) : Order.BaseRegion}
 
+law global_navigation_precedence:
+  for +key: UIIdentity.Key
+  for +compact: Bool
+  {Order.base_region_role(key, SurfaceTypes.GlobalNavigation{compact}) == Order.GlobalNavigationRegion{} : Order.BaseRegion}
+
+law base_partition_global_navigation:
+  for +node: SurfaceTypes.Node
+  for +navigation: +List<SurfaceTypes.Node>
+  for +footer: +List<SurfaceTypes.Node>
+  for +main: +List<SurfaceTypes.Node>
+  for +other: +List<SurfaceTypes.Node>
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.prepend_base(Order.GlobalNavigationRegion{}, node, Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == Order.BaseParts{navigation, footer, main, other, work_tabs, node <> global_navigation} : Order.BaseParts}
+
+law compact_header_precedence:
+  for +key: UIIdentity.Key
+  {Order.base_region_role(key, SurfaceTypes.CompactHeader{}) == Order.WorkTabsRegion{} : Order.BaseRegion}
+
+law work_tabs_precedence:
+  for +key: UIIdentity.Key
+  {Order.base_region_role(key, SurfaceTypes.WorkTabs{}) == Order.WorkTabsRegion{} : Order.BaseRegion}
+
+law base_partition_work_tabs:
+  for +node: SurfaceTypes.Node
+  for +navigation: +List<SurfaceTypes.Node>
+  for +footer: +List<SurfaceTypes.Node>
+  for +main: +List<SurfaceTypes.Node>
+  for +other: +List<SurfaceTypes.Node>
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.prepend_base(Order.WorkTabsRegion{}, node, Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == Order.BaseParts{navigation, footer, main, other, node <> work_tabs, global_navigation} : Order.BaseParts}
+
 law main_precedence:
   for +key: UIIdentity.Key
   {Order.base_region_role(key, SurfaceTypes.Main{}) == Order.MainRegion{} : Order.BaseRegion}
@@ -338,7 +371,9 @@ law base_partition_navigation:
   for +footer: +List<SurfaceTypes.Node>
   for +main: +List<SurfaceTypes.Node>
   for +other: +List<SurfaceTypes.Node>
-  {Order.prepend_base(Order.NavigationRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{node <> navigation, footer, main, other} : Order.BaseParts}
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.prepend_base(Order.NavigationRegion{}, node, Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == Order.BaseParts{node <> navigation, footer, main, other, work_tabs, global_navigation} : Order.BaseParts}
 
 law base_partition_footer:
   for +node: SurfaceTypes.Node
@@ -346,7 +381,9 @@ law base_partition_footer:
   for +footer: +List<SurfaceTypes.Node>
   for +main: +List<SurfaceTypes.Node>
   for +other: +List<SurfaceTypes.Node>
-  {Order.prepend_base(Order.NavigationFooterRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, node <> footer, main, other} : Order.BaseParts}
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.prepend_base(Order.NavigationFooterRegion{}, node, Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == Order.BaseParts{navigation, node <> footer, main, other, work_tabs, global_navigation} : Order.BaseParts}
 
 law base_partition_main:
   for +node: SurfaceTypes.Node
@@ -354,7 +391,9 @@ law base_partition_main:
   for +footer: +List<SurfaceTypes.Node>
   for +main: +List<SurfaceTypes.Node>
   for +other: +List<SurfaceTypes.Node>
-  {Order.prepend_base(Order.MainRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, footer, node <> main, other} : Order.BaseParts}
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.prepend_base(Order.MainRegion{}, node, Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == Order.BaseParts{navigation, footer, node <> main, other, work_tabs, global_navigation} : Order.BaseParts}
 
 law base_partition_other:
   for +node: SurfaceTypes.Node
@@ -362,10 +401,12 @@ law base_partition_other:
   for +footer: +List<SurfaceTypes.Node>
   for +main: +List<SurfaceTypes.Node>
   for +other: +List<SurfaceTypes.Node>
-  {Order.prepend_base(Order.OtherRegion{}, node, Order.BaseParts{navigation, footer, main, other}) == Order.BaseParts{navigation, footer, main, node <> other} : Order.BaseParts}
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.prepend_base(Order.OtherRegion{}, node, Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == Order.BaseParts{navigation, footer, main, node <> other, work_tabs, global_navigation} : Order.BaseParts}
 
 law base_partition_empty:
-  {Order.partition_base(Nil{}) == Order.BaseParts{Nil{}, Nil{}, Nil{}, Nil{}} : Order.BaseParts}
+  {Order.partition_base(Nil{}) == Order.BaseParts{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}} : Order.BaseParts}
 
 law base_partition_step:
   for +key: UIIdentity.Key
@@ -382,7 +423,9 @@ law base_region_order:
   for +footer: +List<SurfaceTypes.Node>
   for +main: +List<SurfaceTypes.Node>
   for +other: +List<SurfaceTypes.Node>
-  {Order.flatten_base(Order.BaseParts{navigation, footer, main, other}) == List.append(&2, SurfaceTypes.Node, navigation, List.append(&2, SurfaceTypes.Node, footer, List.append(&2, SurfaceTypes.Node, main, other))) : +List<SurfaceTypes.Node>}
+  for +work_tabs: +List<SurfaceTypes.Node>
+  for +global_navigation: +List<SurfaceTypes.Node>
+  {Order.flatten_base(Order.BaseParts{navigation, footer, main, other, work_tabs, global_navigation}) == List.append(&2, SurfaceTypes.Node, global_navigation, List.append(&2, SurfaceTypes.Node, work_tabs, List.append(&2, SurfaceTypes.Node, navigation, List.append(&2, SurfaceTypes.Node, footer, List.append(&2, SurfaceTypes.Node, main, other))))) : +List<SurfaceTypes.Node>}
 
 law ordered_base_partition:
   for +values: +List<SurfaceTypes.Node>
@@ -397,6 +440,9 @@ law ordered_surface_base:
 
 def non_main_role(role: SurfaceTypes.Role) -> Bool:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: False{}
+    case SurfaceTypes.CompactHeader{}: False{}
+    case SurfaceTypes.WorkTabs{}: False{}
     case SurfaceTypes.Main{}: False{}
     case _: True{}
 

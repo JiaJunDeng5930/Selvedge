@@ -10,17 +10,43 @@ type ContextKind is Data:
   CompactionContext{}
   OtherContext{}
 
-def context_kind(kind: String) -> ContextKind:
+type ContextKindName is Data:
+  ContextKindNameMessage{}
+  ContextKindNameReasoning{}
+  ContextKindNameCompaction{}
+  ContextKindNameOther{}
+
+def context_kind_discriminant(+value: String) -> ContextKindName:
+  Bool.pick(ContextKindName, String.eq(value, "message"), ContextKindNameMessage{},
+    Bool.pick(ContextKindName, String.eq(value, "reasoning"), ContextKindNameReasoning{},
+    Bool.pick(ContextKindName, String.eq(value, "compaction"), ContextKindNameCompaction{},
+    ContextKindNameOther{})))
+
+def context_kind_classified(kind: ContextKindName) -> ContextKind:
   match kind:
-    case "message": SpeechContext{}
-    case "reasoning": ReasoningContext{}
-    case "compaction": CompactionContext{}
-    case _: OtherContext{}
+    case ContextKindNameMessage{}: SpeechContext{}
+    case ContextKindNameReasoning{}: ReasoningContext{}
+    case ContextKindNameCompaction{}: CompactionContext{}
+    case ContextKindNameOther{}: OtherContext{}
+
+def context_kind(kind: String) -> ContextKind:
+  context_kind_classified(context_kind_discriminant(kind))
+
+type ProviderValueKindName is Data:
+  ProviderValueKindNameProviderReceipt{}
+  ProviderValueKindNameOther{}
+
+def provider_value_kind_discriminant(+value: String) -> ProviderValueKindName:
+  Bool.pick(ProviderValueKindName, String.eq(value, "provider_receipt"), ProviderValueKindNameProviderReceipt{},
+    ProviderValueKindNameOther{})
+
+def provider_value_kind_classified(kind: ProviderValueKindName, +value: J.Json) -> J.Json:
+  match kind:
+    case ProviderValueKindNameProviderReceipt{}: J.get(value, "item")
+    case ProviderValueKindNameOther{}: value
 
 def provider_value_kind(kind: String, +value: J.Json) -> J.Json:
-  match kind:
-    case "provider_receipt": J.get(value, "item")
-    case _: value
+  provider_value_kind_classified(provider_value_kind_discriminant(kind), value)
 
 def provider_value(+value: J.Json) -> J.Json:
   provider_value_kind(J.text(J.get(value, "type")), value)
@@ -31,22 +57,21 @@ def provider_kind(value: J.Json) -> ContextKind:
 def provider_assistant(value: J.Json) -> Bool:
   String.eq(J.text(J.get(provider_value(value), "role")), "assistant")
 
-# Titles are observations of the user's request, never browser-generated names
-# or mutable task identities. Whitespace-only messages do not name a thread.
+# Request-derived fallback titles are shared by every title observer.
 
-def request_title(text: String, fallback: String) -> String:
+def request_title(text: String, fallback: Unit -> String) -> String:
   match text:
-    case "": fallback
-    case title: String.take(title, 96n)
+    case "": fallback(Unit{})
+    case title: title
 
 def first_request(messages: +List<D.Message>, fallback: String) -> String:
   match messages:
     case Nil{}: fallback
-    case Con{D.UserMessage{text}, rest}: request_title(String.trim(text), first_request(rest, fallback))
+    case Con{D.UserMessage{text}, rest}: request_title(String.trim(text), unused => first_request(rest, fallback))
     case Con{other, rest}: first_request(rest, fallback)
 
 def title(+task: D.Task) -> String:
-  first_request(D.history_messages(D.task_history(task), Nil{}), "Task #" ++ Nat.show(D.task_id(task)))
+  String.take(first_request(D.history_messages(D.task_history(task), Nil{}), "Task #" ++ Nat.show(D.task_id(task))), 96n)
 
 def working(phase: D.Phase, operations: +List<D.Operation()>) -> Bool:
   match phase:
@@ -71,12 +96,25 @@ def status(+task: D.Task) -> String:
 # The provider's textual content is a shared decoding primitive. It does not
 # decide placement, visibility of diagnostics, authorization, or execution.
 
-def content_part(kind: String, value: J.Json) -> String:
+type ContentPartName is Data:
+  ContentPartNameOutputText{}
+  ContentPartNameRefusal{}
+  ContentPartNameOther{}
+
+def content_part_discriminant(+value: String) -> ContentPartName:
+  Bool.pick(ContentPartName, String.eq(value, "output_text"), ContentPartNameOutputText{},
+    Bool.pick(ContentPartName, String.eq(value, "summary_text"), ContentPartNameOutputText{},
+    Bool.pick(ContentPartName, String.eq(value, "refusal"), ContentPartNameRefusal{},
+    ContentPartNameOther{})))
+
+def content_part_classified(kind: ContentPartName, value: J.Json) -> String:
   match kind:
-    case "output_text": J.text(J.get(value, "text"))
-    case "summary_text": J.text(J.get(value, "text"))
-    case "refusal": J.text(J.get(value, "refusal"))
-    case _: ""
+    case ContentPartNameOutputText{}: J.text(J.get(value, "text"))
+    case ContentPartNameRefusal{}: J.text(J.get(value, "refusal"))
+    case ContentPartNameOther{}: ""
+
+def content_part(kind: String, value: J.Json) -> String:
+  content_part_classified(content_part_discriminant(kind), value)
 
 def content_parts(parts: +List<J.Json>) -> String:
   match parts:

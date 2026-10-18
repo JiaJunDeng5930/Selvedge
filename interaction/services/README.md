@@ -4,6 +4,10 @@ Owns client service state, execution context and permissions used by interaction
 
 Start with [MODEL.bend](MODEL.bend), [CONTEXT.bend](CONTEXT.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
 
+[connection-contract.bend](connection-contract.bend) binds upload retry admission,
+correlated connection recovery and restored appearance to the production service
+operations; [connection-proof.bend](connection-proof.bend) supplies their evidence.
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;

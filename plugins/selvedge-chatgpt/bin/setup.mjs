@@ -1,12 +1,22 @@
 #!/usr/bin/env node
-import { mkdir, open, cp, readFile, writeFile, realpath } from 'node:fs/promises';
+import { mkdir, open, readFile, writeFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { settings } from '../src/client.mjs';
-import { requirePackagedModel } from '../scripts/build-model.mjs';
+import { requirePackagedModel, packagedModelFiles } from '../scripts/build-model.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
+
+// Deployment packages contain only these shipped files. Local connection data
+// and arbitrary source-directory contents cannot become publication inputs.
+const deploymentFiles = [
+  'README.md', 'package.json', 'package-lock.json', 'plugin.json',
+  'bin/server.mjs', 'bin/setup.mjs', 'bin/tunnel.mjs',
+  'src/client.mjs', 'src/server.mjs', 'scripts/build-model.mjs',
+  ...packagedModelFiles.map(filename => `generated/${filename}`),
+  'skills/local-projects/SKILL.md',
+];
 
 export async function saveConnection(directory, env = process.env) {
   if (!path.isAbsolute(directory)) throw new Error('Use an absolute plugin data directory');
@@ -34,8 +44,20 @@ export async function packageConnection(id, directory) {
   if (directory === source || directory.startsWith(source + path.sep)) throw new Error('The output must stay outside the source plugin');
   await requirePackagedModel();
   await mkdir(directory, { mode: 0o700 });
-  await cp(root, directory, { recursive: true, filter: source =>
-    source !== path.join(root, 'MODEL.bend') && !['node_modules', 'mcp.json'].includes(path.basename(source)) });
+  for (const relative of deploymentFiles) {
+    const filename = path.join(root, relative);
+    if (!(await realpath(filename)).startsWith(source + path.sep)) {
+      throw new Error(`Invalid deployment file: ${relative}`);
+    }
+    const target = path.join(directory, relative);
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const file = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const observed = await file.stat();
+      if (!observed.isFile()) throw new Error(`Invalid deployment file: ${relative}`);
+      await writeFile(target, await file.readFile(), { flag: 'wx', mode: observed.mode & 0o777 });
+    } finally { await file.close(); }
+  }
   const filename = path.join(directory, 'plugin.json');
   const manifest = JSON.parse(await readFile(filename, 'utf8'));
   manifest.extensions['com.openai'].apps = './.app.json';

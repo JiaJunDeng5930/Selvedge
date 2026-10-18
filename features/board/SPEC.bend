@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../bendlib/effects.bend as Effects
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
@@ -58,7 +59,7 @@ def change(change: R.Change, +world: M.World()) -> M.Decision():
     case R.RequestText{+id, +card, profile, +retitle, next} C.Frame{+core, +board}:
       C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(core), core), F.with_board(B.put(id, B.with_enrichment(B.Enriching{D.state_next_ticket(core), B.revision(card), retitle}, card), F.board(board), next), board)},
         D.success(J.Object{[J.Field{"card_id", J.nat(id)}, J.Field{"revision", J.nat(B.revision(card))}]}),
-        [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
+        [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card), S.title_prompts(world)), retitle}}]}
 
 def started(+id: Nat, +task_id: Nat, +card: B.Card, now: U32, decision: M.Decision()) -> M.Decision():
   C.Decision{C.Frame{+core, +board}, reply, effects} = decision
@@ -90,7 +91,7 @@ def valid_suggestion(+title: String, +description: String, +card: B.Card) -> B.C
 def complete(outcome: B.Outcome, retitle: Bool, +card: B.Card) -> B.Card:
   match outcome:
     case B.SuggestionFailed{reason}: failed(reason, card)
-    case B.Suggested{title, description}: valid_suggestion(String.trim(title), selected_description(retitle, description, card), card)
+    case B.Suggested{title, description}: valid_suggestion(Title.normalize(title), selected_description(retitle, description, card), card)
 
 def completed(id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool, world: M.World()) -> M.Decision():
   C.Frame{+core, +board} = world

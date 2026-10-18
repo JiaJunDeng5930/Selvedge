@@ -1048,7 +1048,7 @@ def service_access(state: State) -> Services.Access:
 
 def connection_lost(access: Services.Access) -> Bool:
   match access:
-    case Services.ConnectionLost{reason}: True{}
+    case Services.ConnectionLost{connection, reason}: True{}
     case _: False{}
 
 def reconnect_current(needed: Bool, value: Legacy.Decision) -> Legacy.Decision:
@@ -1105,9 +1105,9 @@ def transport_environment(+namespace: String, +sequence: Nat, fresh: Bool, allow
 def authentication_owned(+namespace: String, ticket: Nat, +state: State) -> Bool:
   String.eq(namespace, current_namespace(state)) && Services.expected_access(service_access(state), ticket)
 
-def network_failure_owned(+namespace: String, sequence: Nat, authentication: Maybe<&2, Nat>, +state: State) -> Bool:
+def network_failure_owned(+namespace: String, sequence: Nat,+connection: Nat,  authentication: Maybe<&2, Nat>, +state: State) -> Bool:
   match authentication:
-    case None{}: String.eq(namespace, current_namespace(state)) && Nat.is_eq(sequence, Legacy.sequence(legacy(state)))
+    case None{}: String.eq(namespace, current_namespace(state)) && (Nat.is_eq(sequence, Legacy.sequence(legacy(state))) && Services.live_connection(service_access(state), connection))
     case Some{ticket}: authentication_owned(namespace, ticket, state)
 
 def network_failure_sequence(authentication: Maybe<&2, Nat>, sequence: Nat, state: State) -> Nat:
@@ -1115,26 +1115,26 @@ def network_failure_sequence(authentication: Maybe<&2, Nat>, sequence: Nat, stat
     case None{}: sequence
     case Some{ticket}: Legacy.sequence(legacy(state))
 
-def network_failure_input(authentication: Maybe<&2, Nat>, reason: String) -> Product.Input:
+def network_failure_input(authentication: Maybe<&2, Nat>, +connection: Nat, reason: String) -> Product.Input:
   match authentication:
-    case None{}: Product.Disconnected{reason}
+    case None{}: Product.Disconnected{connection, reason}
     case Some{ticket}: Product.Authenticated{ticket, Fail{reason}}
 
-def network_failure_after(authentication: Maybe<&2, Nat>, reason: String, value: Legacy.Decision) -> Legacy.Decision:
+def network_failure_after(authentication: Maybe<&2, Nat>, +connection: Nat, reason: String, value: Legacy.Decision) -> Legacy.Decision:
   Legacy.Decision{next, first} = value
-  synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{network_failure_input(authentication, reason)}}, next), first)
+  synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{network_failure_input(authentication, connection, reason)}}, next), first)
 
-def network_failure_result(namespace: String, sequence: Nat, reason: String, revoked: Bool, authentication: Maybe<&2, Nat>, +state: State) -> Legacy.Decision:
-  network_failure_after(authentication, reason, Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, sequence, False{}, Bool.not(revoked) && source_allowed(state)}}}}}, legacy(state)))
+def network_failure_result(namespace: String, sequence: Nat,+connection: Nat,  reason: String, revoked: Bool, authentication: Maybe<&2, Nat>, +state: State) -> Legacy.Decision:
+  network_failure_after(authentication, connection, reason, Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{namespace, sequence, False{}, Bool.not(revoked) && source_allowed(state)}}}}}, legacy(state)))
 
-def network_failed_current(owned: Bool, namespace: String, sequence: Nat, reason: String, +revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
+def network_failed_current(owned: Bool, namespace: String, sequence: Nat,+connection: Nat,  reason: String, +revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
   match owned:
     case False{}: Decision{state, Nil{}}
     case True{}:
-      accept(True{}, network_failure_result(namespace, network_failure_sequence(authentication, sequence, state), reason, revoked, authentication, state), invalidate_if(revoked, state))
+      accept(True{}, network_failure_result(namespace, network_failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state), invalidate_if(revoked, state))
 
-def network_failed(+namespace: String, +sequence: Nat, reason: String, revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
-  network_failed_current(network_failure_owned(namespace, sequence, authentication, state), namespace, sequence, reason, revoked, authentication, state)
+def network_failed(+namespace: String, +sequence: Nat,+connection: Nat,  reason: String, revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
+  network_failed_current(network_failure_owned(namespace, sequence, connection, authentication, state), namespace, sequence, connection, reason, revoked, authentication, state)
 
 def authenticated_result(ticket: Nat, value: Legacy.Decision) -> Legacy.Decision:
   Legacy.Decision{next, first} = value
@@ -1146,9 +1146,9 @@ def authenticated_snapshot_current(stale: Bool, +changed: Bool, namespace: Strin
     case False{}:
       accept(True{}, authenticated_result(ticket, snapshot_result(changed, namespace, sequence, program, state)), invalidate_if(changed || view_removed(program, state), state))
 
-def authenticated_snapshot_valid(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), ticket: Nat, +state: State) -> Decision:
+def authenticated_snapshot_valid(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +ticket: Nat, +state: State) -> Decision:
   match valid:
-    case False{}: network_failed(current_namespace(state), Legacy.sequence(legacy(state)), "Invalid service data namespace", True{}, Some{ticket}, state)
+    case False{}: network_failed(current_namespace(state), Legacy.sequence(legacy(state)), ticket, "Invalid service data namespace", True{}, Some{ticket}, state)
     case True{}:
       +changed = Bool.not(String.eq(current_namespace(state), namespace))
       authenticated_snapshot_current(Bool.not(changed) && Nat.is_lt(sequence, Legacy.sequence(legacy(state))), changed, namespace, sequence, program, ticket, state)
@@ -1344,6 +1344,8 @@ def attach(+key: String, +file: Services.SelectedFile, +state: State) -> Decisio
 def place(+key: String, +target: String, +state: State) -> Decision: accept(True{}, Legacy.place(key, target, legacy(state)), state)
 
 def connect(+state: State) -> Decision: accept(True{}, Legacy.connect(legacy(state)), state)
+
+def workspace_git_completed(+ticket: Nat, +available: Bool, +state: State) -> Decision: accept(True{}, Legacy.workspace_git_completed(ticket, available, legacy(state)), state)
 
 def directories_completed(+ticket: Nat, +ok: Bool, +body: J.Json, +state: State) -> Decision: accept(True{}, Legacy.directories_completed(ticket, ok, body, legacy(state)), state)
 

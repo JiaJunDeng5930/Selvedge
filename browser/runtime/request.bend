@@ -28,14 +28,28 @@ def settings_fields(fields: +List<J.Field>) -> +List<J.Field>:
     case Con{J.Field{+name, value}, rest}:
       settings_field(String.eq(name, "settings"), name, value) <> settings_fields(rest)
 
-def object_request(op: String, fields: +List<J.Field>) -> J.Json:
+type ObjectRequestName is Data:
+  ObjectRequestNameCreate{}
+  ObjectRequestNameCreateProject{}
+  ObjectRequestNameOther{}
+
+def object_request_discriminant(+value: String) -> ObjectRequestName:
+  Bool.pick(ObjectRequestName, String.eq(value, "create"), ObjectRequestNameCreate{},
+    Bool.pick(ObjectRequestName, String.eq(value, "create_worktree_task"), ObjectRequestNameCreate{},
+    Bool.pick(ObjectRequestName, String.eq(value, "fork"), ObjectRequestNameCreate{},
+    Bool.pick(ObjectRequestName, String.eq(value, "save_board_agent"), ObjectRequestNameCreate{},
+    Bool.pick(ObjectRequestName, String.eq(value, "create_project"), ObjectRequestNameCreateProject{},
+    Bool.pick(ObjectRequestName, String.eq(value, "update_project"), ObjectRequestNameCreateProject{},
+    ObjectRequestNameOther{}))))))
+
+def object_request_classified(op: ObjectRequestName, fields: +List<J.Field>) -> J.Json:
   match op:
-    case "create": J.Object{settings_fields(fields)}
-    case "fork": J.Object{settings_fields(fields)}
-    case "save_board_agent": J.Object{settings_fields(fields)}
-    case "create_project": J.Object{without_guidance(fields)}
-    case "update_project": J.Object{without_guidance(fields)}
-    case _: J.Object{fields}
+    case ObjectRequestNameCreate{}: J.Object{settings_fields(fields)}
+    case ObjectRequestNameCreateProject{}: J.Object{without_guidance(fields)}
+    case ObjectRequestNameOther{}: J.Object{fields}
+
+def object_request(op: String, fields: +List<J.Field>) -> J.Json:
+  object_request_classified(object_request_discriminant(op), fields)
 
 def client(value: J.Json) -> J.Json:
   match value:

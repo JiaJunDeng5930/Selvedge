@@ -49,15 +49,6 @@ def event(member: ConstructedEvent()) -> M.Decision():
 def complete(+completion: A.Completion, +world: M.World()) -> M.Decision():
   event(construct_event(completion, world))
 
-def world(+decision: M.Decision()) -> M.World():
-  C.Decision{+world, +reply, +effects} = decision
-  world
-
-def combine(+before: M.Decision(), +after: M.Decision()) -> M.Decision():
-  C.Decision{+previous, +reply, +effects} = before
-  C.Decision{+world, +ignored, +added} = after
-  C.Decision{world, reply, List.append(&2, M.Effect(), effects, added)}
-
 def synchronize(+tasks: +List<D.Task>, +decision: M.Decision()) -> M.Decision():
   match tasks:
     case Nil{}: decision

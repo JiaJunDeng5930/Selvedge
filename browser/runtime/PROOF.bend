@@ -60,6 +60,7 @@ import ../layout/MODEL.bend as World
 import ../layout/CONTENT.bend as Content
 import ../controls/SHELL.bend as Shell
 import ../../interaction/presentation/MODEL.bend as View
+import ../../interaction/presentation/VIEW.bend as ViewProgram
 import ../../bendlib/logic-proof.bend as Logic
 import ../document/FRAME.bend as SourceFrame
 import ../document/render-contract.bend as FrameRules
@@ -292,6 +293,10 @@ def native_context_value_requirement(field: Forms.Field, origin: Context.Origin,
   match field:
     case Forms.MessageText{}: {==}
     case Forms.ProjectName{}: {==}
+    case Forms.WorkName{}: {==}
+    case Forms.CreateWorktree{}: {==}
+    case Forms.TaskTitlePrompt{}: {==}
+    case Forms.AgentTitlePrompt{}: {==}
     case Forms.WorkspaceDirectories{}: {==}
     case Forms.WorkspacePrimary{}: native_primary_requirement(workspace)
     case Forms.ContextOrigin{}: native_origin_requirement(origin)
@@ -326,6 +331,10 @@ def native_workspace_value_requirement(field: Forms.Field, roots: +List<String>,
   match field:
     case Forms.MessageText{}: {==}
     case Forms.ProjectName{}: {==}
+    case Forms.WorkName{}: {==}
+    case Forms.CreateWorktree{}: {==}
+    case Forms.TaskTitlePrompt{}: {==}
+    case Forms.AgentTitlePrompt{}: {==}
     case Forms.WorkspaceDirectories{}: {==}
     case Forms.WorkspacePrimary{}: {==}
     case Forms.ContextOrigin{}: {==}
@@ -360,6 +369,10 @@ def native_model_value_requirement(field: Forms.Field, profile: String, reasonin
   match field:
     case Forms.MessageText{}: {==}
     case Forms.ProjectName{}: {==}
+    case Forms.WorkName{}: {==}
+    case Forms.CreateWorktree{}: {==}
+    case Forms.TaskTitlePrompt{}: {==}
+    case Forms.AgentTitlePrompt{}: {==}
     case Forms.WorkspaceDirectories{}: {==}
     case Forms.WorkspacePrimary{}: {==}
     case Forms.ContextOrigin{}: {==}
@@ -430,21 +443,85 @@ def native_edit_checked_requirement(field: Forms.Field, value: Forms.Observed, e
     case Forms.MessageText{} Forms.OptionalTextValue{text}: {==}
     case Forms.MessageText{} Forms.NotApplicable{}: {==}
     case Forms.ProjectName{} Forms.ToggleValue{enabled}: {==}
+    case Forms.WorkName{} Forms.ToggleValue{enabled}: {==}
+    case Forms.CreateWorktree{} Forms.ToggleValue{enabled}: {==}
+    case Forms.TaskTitlePrompt{} Forms.ToggleValue{enabled}: {==}
+    case Forms.AgentTitlePrompt{} Forms.ToggleValue{enabled}: {==}
     case Forms.ProjectName{} Forms.TextValue{text}: {==}
+    case Forms.WorkName{} Forms.TextValue{text}: {==}
+    case Forms.CreateWorktree{} Forms.TextValue{text}: {==}
+    case Forms.TaskTitlePrompt{} Forms.TextValue{text}: {==}
+    case Forms.AgentTitlePrompt{} Forms.TextValue{text}: {==}
     case Forms.ProjectName{} Forms.CountValue{count}: {==}
+    case Forms.WorkName{} Forms.CountValue{count}: {==}
+    case Forms.CreateWorktree{} Forms.CountValue{count}: {==}
+    case Forms.TaskTitlePrompt{} Forms.CountValue{count}: {==}
+    case Forms.AgentTitlePrompt{} Forms.CountValue{count}: {==}
     case Forms.ProjectName{} Forms.TextsValue{values}: {==}
+    case Forms.WorkName{} Forms.TextsValue{values}: {==}
+    case Forms.CreateWorktree{} Forms.TextsValue{values}: {==}
+    case Forms.TaskTitlePrompt{} Forms.TextsValue{values}: {==}
+    case Forms.AgentTitlePrompt{} Forms.TextsValue{values}: {==}
     case Forms.ProjectName{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.WorkName{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.CreateWorktree{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.TaskTitlePrompt{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.AgentTitlePrompt{} Forms.WorkspaceValue{workspace}: {==}
     case Forms.ProjectName{} Forms.ContextValue{preview, reviewers}: {==}
+    case Forms.WorkName{} Forms.ContextValue{preview, reviewers}: {==}
+    case Forms.CreateWorktree{} Forms.ContextValue{preview, reviewers}: {==}
+    case Forms.TaskTitlePrompt{} Forms.ContextValue{preview, reviewers}: {==}
+    case Forms.AgentTitlePrompt{} Forms.ContextValue{preview, reviewers}: {==}
     case Forms.ProjectName{} Forms.ModelValue{profile, reasoning}: {==}
+    case Forms.WorkName{} Forms.ModelValue{profile, reasoning}: {==}
+    case Forms.CreateWorktree{} Forms.ModelValue{profile, reasoning}: {==}
+    case Forms.TaskTitlePrompt{} Forms.ModelValue{profile, reasoning}: {==}
+    case Forms.AgentTitlePrompt{} Forms.ModelValue{profile, reasoning}: {==}
     case Forms.ProjectName{} Forms.DeliveryValue{delivery}: {==}
+    case Forms.WorkName{} Forms.DeliveryValue{delivery}: {==}
+    case Forms.CreateWorktree{} Forms.DeliveryValue{delivery}: {==}
+    case Forms.TaskTitlePrompt{} Forms.DeliveryValue{delivery}: {==}
+    case Forms.AgentTitlePrompt{} Forms.DeliveryValue{delivery}: {==}
     case Forms.ProjectName{} Forms.StageValue{stage}: {==}
+    case Forms.WorkName{} Forms.StageValue{stage}: {==}
+    case Forms.CreateWorktree{} Forms.StageValue{stage}: {==}
+    case Forms.TaskTitlePrompt{} Forms.StageValue{stage}: {==}
+    case Forms.AgentTitlePrompt{} Forms.StageValue{stage}: {==}
     case Forms.ProjectName{} Forms.PriorityValue{priority}: {==}
+    case Forms.WorkName{} Forms.PriorityValue{priority}: {==}
+    case Forms.CreateWorktree{} Forms.PriorityValue{priority}: {==}
+    case Forms.TaskTitlePrompt{} Forms.PriorityValue{priority}: {==}
+    case Forms.AgentTitlePrompt{} Forms.PriorityValue{priority}: {==}
     case Forms.ProjectName{} Forms.OwnerValue{owner}: {==}
+    case Forms.WorkName{} Forms.OwnerValue{owner}: {==}
+    case Forms.CreateWorktree{} Forms.OwnerValue{owner}: {==}
+    case Forms.TaskTitlePrompt{} Forms.OwnerValue{owner}: {==}
+    case Forms.AgentTitlePrompt{} Forms.OwnerValue{owner}: {==}
     case Forms.ProjectName{} Forms.ProjectValue{project}: {==}
+    case Forms.WorkName{} Forms.ProjectValue{project}: {==}
+    case Forms.CreateWorktree{} Forms.ProjectValue{project}: {==}
+    case Forms.TaskTitlePrompt{} Forms.ProjectValue{project}: {==}
+    case Forms.AgentTitlePrompt{} Forms.ProjectValue{project}: {==}
     case Forms.ProjectName{} Forms.AttachmentsValue{files}: {==}
+    case Forms.WorkName{} Forms.AttachmentsValue{files}: {==}
+    case Forms.CreateWorktree{} Forms.AttachmentsValue{files}: {==}
+    case Forms.TaskTitlePrompt{} Forms.AttachmentsValue{files}: {==}
+    case Forms.AgentTitlePrompt{} Forms.AttachmentsValue{files}: {==}
     case Forms.ProjectName{} Forms.AssistanceValue{enabled, profile}: {==}
+    case Forms.WorkName{} Forms.AssistanceValue{enabled, profile}: {==}
+    case Forms.CreateWorktree{} Forms.AssistanceValue{enabled, profile}: {==}
+    case Forms.TaskTitlePrompt{} Forms.AssistanceValue{enabled, profile}: {==}
+    case Forms.AgentTitlePrompt{} Forms.AssistanceValue{enabled, profile}: {==}
     case Forms.ProjectName{} Forms.OptionalTextValue{text}: {==}
+    case Forms.WorkName{} Forms.OptionalTextValue{text}: {==}
+    case Forms.CreateWorktree{} Forms.OptionalTextValue{text}: {==}
+    case Forms.TaskTitlePrompt{} Forms.OptionalTextValue{text}: {==}
+    case Forms.AgentTitlePrompt{} Forms.OptionalTextValue{text}: {==}
     case Forms.ProjectName{} Forms.NotApplicable{}: {==}
+    case Forms.WorkName{} Forms.NotApplicable{}: {==}
+    case Forms.CreateWorktree{} Forms.NotApplicable{}: {==}
+    case Forms.TaskTitlePrompt{} Forms.NotApplicable{}: {==}
+    case Forms.AgentTitlePrompt{} Forms.NotApplicable{}: {==}
     case Forms.WorkspaceDirectories{} Forms.ToggleValue{enabled}: {==}
     case Forms.WorkspaceDirectories{} Forms.TextValue{text}: {==}
     case Forms.WorkspaceDirectories{} Forms.CountValue{count}: {==}
@@ -922,6 +999,7 @@ def native_checked_requirement(meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -975,6 +1053,7 @@ def native_value_requirement(meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -1042,6 +1121,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1074,6 +1154,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.ActivityContent{left_expanded, left_audit} other: {==}
     case SurfaceTypes.ProjectGroup{left_project, left_selected, left_expanded} other: {==}
     case SurfaceTypes.TaskRow{left_task, left_status, left_selected} other: {==}
+    case SurfaceTypes.TaskChildren{left_task} other: {==}
     case SurfaceTypes.ProjectChooser{left_selected} other: {==}
     case SurfaceTypes.DirectoryRow{left_path, left_primary} other: {==}
     case SurfaceTypes.ContextSummary{left_observation} other: {==}
@@ -1105,6 +1186,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1160,6 +1242,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1212,6 +1295,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1259,6 +1343,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1306,6 +1391,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1353,6 +1439,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -1400,6 +1487,7 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.ContextSummary{right_observation}: {==}
@@ -2308,49 +2396,105 @@ def layers_owner_policy(values: +List<View.Layer>, +state: InteractionTypes.Stat
     case Con{View.Layer{View.AnchoredMenu{}, content, initial, restore, dismissal}, rest}: {==}
     case Con{View.Layer{View.TrailingDetails{}, content, initial, restore, dismissal}, rest}: layers_owner_policy(rest, state, tail)
 
-def navigation_owner_policy(arrangement: View.Arrangement, nav: View.Navigation, state: InteractionTypes.State) ->
-  {InterfaceView.active_scope(InterfaceView.modal_navigation(arrangement, nav, state)) == Rule.required_navigation_owner(arrangement) : Maybe<&2, String>}:
-  match arrangement nav:
-    case View.Arrangement{View.ModalNavigation{}} View.Navigation{expanded, create, destinations, projects, tasks, toggle}: {==}
-    case View.Arrangement{View.LeadingNavigation{}} retained: {==}
-    case View.Arrangement{View.CollapsedNavigation{}} retained: {==}
+def compact_layer_head_owner(+selected: Bool, +kind: View.LayerKind, +key: UIIdentity.Key, +semantic: String, +label: String,
+  +meaning: SurfaceTypes.Meaning, +children: +List<SurfaceTypes.Node>, +tail: +List<SurfaceTypes.Node>) ->
+  {InterfaceView.active_scope(Con{InterfaceView.compact_overview_when(selected,
+      SurfaceTypes.Node{key, semantic, label, InterfaceView.layer_role(kind), meaning, children}), tail}) ==
+    InterfaceView.active_scope(Con{SurfaceTypes.Node{key, semantic, label, InterfaceView.layer_role(kind), meaning, children}, tail}) : Maybe<&2, String>}:
+  match selected kind:
+    case False{} original: {==}
+    case True{} View.ModalDialog{}: {==}
+    case True{} View.AnchoredMenu{}: {==}
+    case True{} View.TrailingDetails{}: {==}
 
-def layers_navigation_policy(+views: +List<View.Layer>, +arrangement: View.Arrangement, +nav: View.Navigation, +state: InteractionTypes.State) ->
-  {InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.layers(views, state), InterfaceView.modal_navigation(arrangement, nav, state))) ==
+def compact_layers_owner_policy(values: +List<View.Layer>, +state: InteractionTypes.State, +tail: +List<SurfaceTypes.Node>) ->
+  {InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.compact_overview_layers(InterfaceView.layers(values, state)), tail)) ==
+    Rule.required_layer_owner(values, InterfaceView.active_scope(tail)) : Maybe<&2, String>}:
+  match values:
+    case Nil{}: {==}
+    case Con{View.Layer{View.ModalDialog{}, +content, +initial, restore, +dismissal}, +rest}:
+      +key: UIIdentity.Key = InterfaceView.layer_key(initial)
+      +label: String = InterfaceView.activity_layer_label(InterfaceView.layer_activity(content, state), ViewProgram.layer_title(content), state)
+      +meaning: SurfaceTypes.Meaning = InterfaceView.layer_meaning(InterfaceView.layer_activity(content, state), dismissal)
+      +children: +List<SurfaceTypes.Node> = InterfaceView.layer_content(content, key, state)
+      +remaining: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.compact_overview_layers(InterfaceView.layers(rest, state)), tail)
+      +selected: Bool = String.eq(UIIdentity.encode(key), UIIdentity.encode(InterfaceView.layer_key("work-overview")))
+      compact_layer_head_owner(selected, View.ModalDialog{}, key, initial, label, meaning, children, remaining)
+    case Con{View.Layer{View.AnchoredMenu{}, +content, +initial, restore, +dismissal}, +rest}:
+      +key: UIIdentity.Key = InterfaceView.layer_key(initial)
+      +label: String = InterfaceView.activity_layer_label(InterfaceView.layer_activity(content, state), ViewProgram.layer_title(content), state)
+      +meaning: SurfaceTypes.Meaning = InterfaceView.layer_meaning(InterfaceView.layer_activity(content, state), dismissal)
+      +children: +List<SurfaceTypes.Node> = InterfaceView.layer_content(content, key, state)
+      +remaining: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.compact_overview_layers(InterfaceView.layers(rest, state)), tail)
+      +selected: Bool = String.eq(UIIdentity.encode(key), UIIdentity.encode(InterfaceView.layer_key("work-overview")))
+      compact_layer_head_owner(selected, View.AnchoredMenu{}, key, initial, label, meaning, children, remaining)
+    case Con{View.Layer{View.TrailingDetails{}, +content, +initial, restore, +dismissal}, +rest}:
+      +key: UIIdentity.Key = InterfaceView.layer_key(initial)
+      +label: String = InterfaceView.activity_layer_label(InterfaceView.layer_activity(content, state), ViewProgram.layer_title(content), state)
+      +meaning: SurfaceTypes.Meaning = InterfaceView.layer_meaning(InterfaceView.layer_activity(content, state), dismissal)
+      +children: +List<SurfaceTypes.Node> = InterfaceView.layer_content(content, key, state)
+      +remaining: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.compact_overview_layers(InterfaceView.layers(rest, state)), tail)
+      +selected: Bool = String.eq(UIIdentity.encode(key), UIIdentity.encode(InterfaceView.layer_key("work-overview")))
+      Equal.trans((Maybe<&2, String>),
+        InterfaceView.active_scope(Con{InterfaceView.compact_overview_when(selected,
+          SurfaceTypes.Node{key, initial, label, SurfaceTypes.Details{}, meaning, children}), remaining}),
+        InterfaceView.active_scope(remaining), Rule.required_layer_owner(rest, InterfaceView.active_scope(tail)),
+        compact_layer_head_owner(selected, View.TrailingDetails{}, key, initial, label, meaning, children, remaining),
+        compact_layers_owner_policy(rest, state, tail))
+
+def navigation_layers_owner_policy(full: Bool, +views: +List<View.Layer>, +state: InteractionTypes.State, +tail: +List<SurfaceTypes.Node>) ->
+  {InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.navigation_layers(full, InterfaceView.layers(views, state)), tail)) ==
+    Rule.required_layer_owner(views, InterfaceView.active_scope(tail)) : Maybe<&2, String>}:
+  match full:
+    case True{}: layers_owner_policy(views, state, tail)
+    case False{}: compact_layers_owner_policy(views, state, tail)
+
+def navigation_owner_policy(full: Bool, arrangement: View.Arrangement, nav: View.Navigation, state: InteractionTypes.State) ->
+  {InterfaceView.active_scope(InterfaceView.workspace_modal_navigation(full, arrangement, nav, state)) == Rule.required_navigation_owner(arrangement) : Maybe<&2, String>}:
+  match full arrangement nav:
+    case True{} View.Arrangement{View.ModalNavigation{}} View.Navigation{expanded, create, destinations, projects, tasks, toggle}: {==}
+    case False{} View.Arrangement{View.ModalNavigation{}} View.Navigation{expanded, create, destinations, projects, tasks, toggle}: {==}
+    case True{} View.Arrangement{View.LeadingNavigation{}} original: {==}
+    case False{} View.Arrangement{View.LeadingNavigation{}} original: {==}
+    case True{} View.Arrangement{View.CollapsedNavigation{}} original: {==}
+    case False{} View.Arrangement{View.CollapsedNavigation{}} original: {==}
+
+def layers_navigation_policy(+full: Bool, +views: +List<View.Layer>, +arrangement: View.Arrangement, +nav: View.Navigation, +state: InteractionTypes.State) ->
+  {InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.navigation_layers(full, InterfaceView.layers(views, state)), InterfaceView.workspace_modal_navigation(full, arrangement, nav, state))) ==
     Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement)) : Maybe<&2, String>}:
   Equal.trans((Maybe<&2, String>),
-    InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.layers(views, state), InterfaceView.modal_navigation(arrangement, nav, state))),
-    Rule.required_layer_owner(views, InterfaceView.active_scope(InterfaceView.modal_navigation(arrangement, nav, state))),
-    Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement)), layers_owner_policy(views, state, InterfaceView.modal_navigation(arrangement, nav, state)),
+    InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.navigation_layers(full, InterfaceView.layers(views, state)), InterfaceView.workspace_modal_navigation(full, arrangement, nav, state))),
+    Rule.required_layer_owner(views, InterfaceView.active_scope(InterfaceView.workspace_modal_navigation(full, arrangement, nav, state))),
+    Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement)), navigation_layers_owner_policy(full, views, state, InterfaceView.workspace_modal_navigation(full, arrangement, nav, state)),
     Equal.cong((Maybe<&2, String>), (Maybe<&2, String>), (owner => Rule.required_layer_owner(views, owner)),
-      InterfaceView.active_scope(InterfaceView.modal_navigation(arrangement, nav, state)), Rule.required_navigation_owner(arrangement), navigation_owner_policy(arrangement, nav, state)))
+      InterfaceView.active_scope(InterfaceView.workspace_modal_navigation(full, arrangement, nav, state)), Rule.required_navigation_owner(arrangement), navigation_owner_policy(full, arrangement, nav, state)))
 
-def settings_layers_policy(+open: Bool, +close: InteractionTypes.Input, +connect: InteractionTypes.Input,
+def settings_layers_policy(+full: Bool, +open: Bool, +close: InteractionTypes.Input, +connect: InteractionTypes.Input,
   +views: +List<View.Layer>, +arrangement: View.Arrangement, +nav: View.Navigation, +state: InteractionTypes.State) ->
   {InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.settings_visible(open, close, connect),
-      List.append(&2, SurfaceTypes.Node, InterfaceView.layers(views, state), InterfaceView.modal_navigation(arrangement, nav, state)))) ==
+      List.append(&2, SurfaceTypes.Node, InterfaceView.navigation_layers(full, InterfaceView.layers(views, state)), InterfaceView.workspace_modal_navigation(full, arrangement, nav, state)))) ==
     Rule.required_settings_owner(open, Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement))) : Maybe<&2, String>}:
-  +tail: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.layers(views, state), InterfaceView.modal_navigation(arrangement, nav, state))
+  +tail: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.navigation_layers(full, InterfaceView.layers(views, state)), InterfaceView.workspace_modal_navigation(full, arrangement, nav, state))
   Equal.trans((Maybe<&2, String>), InterfaceView.active_scope(List.append(&2, SurfaceTypes.Node, InterfaceView.settings_visible(open, close, connect), tail)),
     Rule.required_settings_owner(open, InterfaceView.active_scope(tail)), Rule.required_settings_owner(open, Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement))),
     settings_owner_policy(open, close, connect, tail),
     Equal.cong((Maybe<&2, String>), (Maybe<&2, String>), (owner => Rule.required_settings_owner(open, owner)),
-      InterfaceView.active_scope(tail), Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement)), layers_navigation_policy(views, arrangement, nav, state)))
+      InterfaceView.active_scope(tail), Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement)), layers_navigation_policy(full, views, arrangement, nav, state)))
 
-def Rule.assembled_foreground_owner(scene, state):
+def Rule.assembled_foreground_owner(full, scene, state):
   InteractionTypes.Scene{View.Scene{+nav, main, +views, +arrangement, attention}, InteractionTypes.Settings{+open, access, appearance, open_action, +close_action, +connect_action}, transfers, +preview, code, +picker} = scene
   +tail: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.settings_visible(open, close_action, connect_action),
-    List.append(&2, SurfaceTypes.Node, InterfaceView.layers(views, state), InterfaceView.modal_navigation(arrangement, nav, state)))
+    List.append(&2, SurfaceTypes.Node, InterfaceView.navigation_layers(full, InterfaceView.layers(views, state)), InterfaceView.workspace_modal_navigation(full, arrangement, nav, state)))
   +directory: +List<SurfaceTypes.Node> = List.append(&2, SurfaceTypes.Node, InterfaceView.directory_picker(picker), tail)
   +required_tail: Maybe<&2, String> = Rule.required_settings_owner(open, Rule.required_layer_owner(views, Rule.required_navigation_owner(arrangement)))
-  Equal.trans((Maybe<&2, String>), Rule.surface_owner(InterfaceView.assemble(scene, state)),
+  Equal.trans((Maybe<&2, String>), Rule.surface_owner(InterfaceView.assemble(full, scene, state)),
     Rule.required_preview_owner(preview, InterfaceView.active_scope(directory)), Rule.required_foreground_owner(scene), preview_owner_policy(preview, directory),
     Equal.cong((Maybe<&2, String>), (Maybe<&2, String>), (owner => Rule.required_preview_owner(preview, owner)),
       InterfaceView.active_scope(directory), Rule.required_directory_owner(picker, required_tail),
       Equal.trans((Maybe<&2, String>), InterfaceView.active_scope(directory), Rule.required_directory_owner(picker, InterfaceView.active_scope(tail)), Rule.required_directory_owner(picker, required_tail),
         directory_owner_policy(picker, tail),
         Equal.cong((Maybe<&2, String>), (Maybe<&2, String>), (owner => Rule.required_directory_owner(picker, owner)), InterfaceView.active_scope(tail), required_tail,
-          settings_layers_policy(open, close_action, connect_action, views, arrangement, nav, state)))))
+          settings_layers_policy(full, open, close_action, connect_action, views, arrangement, nav, state)))))
 
 def scene_navigation_owner_policy(arrangement: View.Arrangement) ->
   {InterfaceView.navigation_scope(arrangement) == Rule.required_navigation_owner(arrangement) : Maybe<&2, String>}:
@@ -2473,6 +2617,7 @@ def dismiss_meaning_requirement(meaning: SurfaceTypes.Meaning, key: UIIdentity.K
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -2740,9 +2885,65 @@ def Rule.recovery_evidence():
     +state => {==},
     +input => +state => {==}}
 
-def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json, guidance: +List<J.Field>) ->
-  {Browser.request_payload(M.UpdateProject{id, selected_name, selected_workspace, J.Object{guidance}}) ==
-    Codec.command_json(M.UpdateProject{id, selected_name, selected_workspace, J.Null{}}) : J.Json}:
+def project_request_at(+fields: +List<J.Field>, +operation: String,
+  observed: {J.text(J.get(J.Object{fields}, "op")) == operation : String}) ->
+  {Request.client(J.Object{fields}) == Request.object_request(operation, fields) : J.Json}:
+  Equal.cong(String, J.Json, selected => Request.object_request(selected, fields),
+    J.text(J.get(J.Object{fields}, "op")), operation, observed)
+
+def worktree_field_operation(+value: J.Json, +guidance: +List<J.Field>, +fields: +List<J.Field>, +operation: String,
+  observed: {J.text(J.get(J.Object{fields}, "op")) == operation : String}) ->
+  {J.text(J.get(J.Object{Codec.optional_field("create_worktree", value, J.Field{"guidance", J.Object{guidance}} <> fields)}, "op")) == operation : String}:
+  match value:
+    case J.Null{}: observed
+    case J.Boolean{enabled}: observed
+    case J.Number{lexeme}: observed
+    case J.Text{text}: observed
+    case J.Array{items}: observed
+    case J.Object{entries}: observed
+
+def worktree_guidance_fields(+value: J.Json, guidance: +List<J.Field>, +fields: +List<J.Field>,
+  retained: {Request.without_guidance(fields) == fields : +List<J.Field>}) ->
+  {Request.without_guidance(Codec.optional_field("create_worktree", value, J.Field{"guidance", J.Object{guidance}} <> fields)) ==
+    Codec.optional_field("create_worktree", value, fields) : +List<J.Field>}:
+  match value:
+    case J.Null{}: retained
+    case J.Boolean{enabled}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Boolean{enabled}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Number{lexeme}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Number{lexeme}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Text{text}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Text{text}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Array{items}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Array{items}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Object{entries}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Object{entries}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+
+def project_payload(name: String, workspace: J.Json, guidance: +List<J.Field>, create_worktree: J.Json) ->
+  {Browser.request_payload(M.CreateProject{name, workspace, J.Object{guidance}, create_worktree}) ==
+    J.Object{Codec.optional_field("create_worktree", create_worktree,
+      [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}])} : J.Json}:
+  +guidance_value: +List<J.Field> = guidance
+  +worktree_value: J.Json = create_worktree
+  +fields: +List<J.Field> = [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]
+  +request = Codec.optional_field("create_worktree", worktree_value, J.Field{"guidance", J.Object{guidance_value}} <> fields)
+  Equal.trans(J.Json, Request.client(J.Object{request}), Request.object_request("create_project", request),
+    J.Object{Codec.optional_field("create_worktree", worktree_value, fields)},
+    project_request_at(request, "create_project", worktree_field_operation(worktree_value, guidance_value, fields, "create_project", {==})),
+    Equal.cong(+List<J.Field>, J.Json, kept => J.Object{kept}, Request.without_guidance(request),
+      Codec.optional_field("create_worktree", worktree_value, fields), worktree_guidance_fields(worktree_value, guidance_value, fields, {==})))
+
+def update_payload_fields(id: Nat, selected_name: Maybe<&2, String>, selected_workspace: J.Json) -> +List<J.Field>:
+  Codec.optional_field("workspace", selected_workspace, Codec.optional_field("name", D.optional_string(selected_name),
+    [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}]))
+
+def update_payload_operation(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json) ->
+  {J.text(J.get(J.Object{update_payload_fields(id, selected_name, selected_workspace)}, "op")) == "update_project" : String}:
   match selected_name:
     case None{}:
       match selected_workspace:
@@ -2761,6 +2962,42 @@ def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspa
         case J.Array{items}: {==}
         case J.Object{fields}: {==}
 
+def update_payload_retained(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json) ->
+  {Request.without_guidance(update_payload_fields(id, selected_name, selected_workspace)) ==
+    update_payload_fields(id, selected_name, selected_workspace) : +List<J.Field>}:
+  match selected_name:
+    case None{}:
+      match selected_workspace:
+        case J.Null{}: {==}
+        case J.Boolean{value}: {==}
+        case J.Number{lexeme}: {==}
+        case J.Text{text}: {==}
+        case J.Array{items}: {==}
+        case J.Object{fields}: {==}
+    case Some{selected}:
+      match selected_workspace:
+        case J.Null{}: {==}
+        case J.Boolean{value}: {==}
+        case J.Number{lexeme}: {==}
+        case J.Text{text}: {==}
+        case J.Array{items}: {==}
+        case J.Object{fields}: {==}
+
+def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json, guidance: +List<J.Field>, +create_worktree: J.Json) ->
+  {Browser.request_payload(M.UpdateProject{id, selected_name, selected_workspace, J.Object{guidance}, create_worktree}) ==
+    Codec.command_json(M.UpdateProject{id, selected_name, selected_workspace, J.Null{}, create_worktree}) : J.Json}:
+  +id_value: Nat = id
+  +guidance_value: +List<J.Field> = guidance
+  +fields = update_payload_fields(id_value, selected_name, selected_workspace)
+  +request = Codec.optional_field("create_worktree", create_worktree, J.Field{"guidance", J.Object{guidance_value}} <> fields)
+  Equal.trans(J.Json, Request.client(J.Object{request}), Request.object_request("update_project", request),
+    J.Object{Codec.optional_field("create_worktree", create_worktree, fields)},
+    project_request_at(request, "update_project", worktree_field_operation(create_worktree, guidance_value, fields, "update_project",
+      update_payload_operation(id_value, selected_name, selected_workspace))),
+    Equal.cong(+List<J.Field>, J.Json, kept => J.Object{kept}, Request.without_guidance(request),
+      Codec.optional_field("create_worktree", create_worktree, fields), worktree_guidance_fields(create_worktree, guidance_value, fields,
+        update_payload_retained(id_value, selected_name, selected_workspace))))
+
 def unrelated_pending(+entry: Browser.Pending, +rest: +List<Browser.Pending>, +ticket: Nat,
   distinct: {Nat.is_eq(Browser.ticket_of(entry), ticket) == False{} : Bool}) ->
   {Browser.remove(entry <> rest, ticket) == entry <> Browser.remove(rest, ticket) : +List<Browser.Pending>}:
@@ -2776,6 +3013,12 @@ def confirmation_failed_world(owned: Bool, reason: String, destination: U.Route,
     case False{}: {==}
     case True{}: {==}
 
+def rejected_work_creation_world(current: Bool, reason: String, +program: M.World(), +session: E.Session) ->
+  {Rule.decision_world(SessionRule.work_creation_spec(current, D.failure("command_not_submitted", reason), E.from_program(program, E.retain_previews(session, program)))) == program : M.World()}:
+  match current:
+    case False{}: {==}
+    case True{}: {==}
+
 def interactive_result_world(result: InteractiveDocuments.Decision, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(E.interactive_result(result, E.Application{program, session})) == program : M.World()}:
   match result:
@@ -2784,6 +3027,7 @@ def interactive_result_world(result: InteractiveDocuments.Decision, +program: M.
 def rejected_valid_world(completion: E.Completion, +reason: String, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(SessionRule.valid_completion_spec(completion, program, D.failure("command_not_submitted", reason), session)) == program : M.World()}:
   match completion:
+    case E.WorkCreationCompletion{generation, layer_generation}: rejected_work_creation_world(E.work_creation_current(generation, layer_generation, session), reason, program, session)
     case E.InteractiveCompletion{+owner, +path, +ticket}:
       +retained: E.Session = E.retain_previews(session, program)
       +application: E.Application = E.Application{program, retained}
@@ -2798,11 +3042,12 @@ def rejected_valid_world(completion: E.Completion, +reason: String, +program: M.
     case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
     case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: {==}
     case E.DirectCompletion{}: {==}
+    case E.WorktreePreferenceCompletion{draft, command}: {==}
     case E.DraftCompletion{draft}: {==}
     case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer, model_preference, draft_model_manual, interactive} = session
+      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
       confirmation_failed_world(SessionRule.confirmation_spec(layers, command, trigger, occurrence), reason, destination, program,
-        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, interactive}, program))
+        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, program))
 
 def rejected_checked_world(+valid: Bool, +completion: E.Completion, +reason: String, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(SessionRule.completion_checked_spec(valid, completion, program, D.failure("command_not_submitted", reason), session, program)) == program : M.World()}:
@@ -2879,7 +3124,7 @@ def Rule.request_evidence():
     owned_field_absent,
     profile => reasoning => message => fields => {==},
     id => count => messages => fields => {==},
-    name => workspace => guidance => {==},
+    project_payload,
     update_payload,
     id => revision => name => profile => reasoning => instructions => fields => concurrency => {==},
     +name => +value => +rest => unrelated =>
@@ -3146,6 +3391,8 @@ def refresh_commit_requirement(+decision: Platform.Decision, +generation: Nat,
 def refresh_duplicate_request_meaning(+completion: E.Completion, +stored: Browser.State) ->
   {Browser.duplicate_request(completion, stored) == Rule.refresh_duplicate_request(completion, stored) : Browser.Decision}:
   match completion stored:
+    case E.WorkCreationCompletion{generation, layer_generation} _: {==}
+    case E.WorktreePreferenceCompletion{draft, command} _: {==}
     case E.DirectCompletion{} _: {==}
     case E.DraftCompletion{draft} _: {==}
     case E.ExecutionCompletion{task, profile, reasoning, remember} _: {==}
@@ -3220,6 +3467,7 @@ def refresh_io_meaning(+effect: E.Effect, +origin: String, +state: Browser.State
           Browser.contains_command(Browser.pending(state), wire), Rule.refresh_command_present(wire, Browser.pending(state)), refresh_commands_meaning(Browser.pending(state), wire)),
         refresh_request_meaning(Rule.refresh_command_present(wire, Browser.pending(state)), wire, completion, origin, state))
     case E.ContentEffect{identity, value}: {==}
+    case E.ObserveWorkspaceGit{ticket, primary}: {==}
     case E.ObserveDirectories{ticket, entered}: {==}
     case E.Attend{target}: {==}
     case E.PersistModelPreference{profile, reasoning}: {==}
@@ -3353,12 +3601,12 @@ def refresh_connection_meaning(+changed: Bool, +access: Services.Access) ->
   match changed access:
     case False{} Services.NotConnected{}: {==}
     case False{} Services.Connecting{ticket}: {==}
-    case False{} Services.Connected{}: {==}
-    case False{} Services.ConnectionLost{reason}: {==}
+    case False{} Services.Connected{connection}: {==}
+    case False{} Services.ConnectionLost{connection, reason}: {==}
     case True{} Services.NotConnected{}: {==}
     case True{} Services.Connecting{ticket}: {==}
-    case True{} Services.Connected{}: {==}
-    case True{} Services.ConnectionLost{reason}: {==}
+    case True{} Services.Connected{connection}: {==}
+    case True{} Services.ConnectionLost{connection, reason}: {==}
 
 def refresh_connect_meaning(+needed: Bool, +value: Browser.Decision) ->
   {BrowserModel.reconnect_current(needed, value) == Rule.refresh_connect(needed, value) : Browser.Decision}:
@@ -3475,8 +3723,8 @@ def refresh_connecting_meaning(+access: Services.Access, +ticket: Nat) ->
   match access:
     case Services.NotConnected{}: {==}
     case Services.Connecting{expected}: {==}
-    case Services.Connected{}: {==}
-    case Services.ConnectionLost{reason}: {==}
+    case Services.Connected{connection}: {==}
+    case Services.ConnectionLost{connection, reason}: {==}
 
 def refresh_authentication_owner(+namespace: String, +ticket: Nat, +state: BrowserModel.State) ->
   {BrowserModel.authentication_owned(namespace, ticket, state) == Rule.authentication_owner(namespace, ticket, state) : Bool}:
@@ -3484,8 +3732,8 @@ def refresh_authentication_owner(+namespace: String, +ticket: Nat, +state: Brows
     Services.expected_access(Rule.refresh_access(state), ticket), Rule.connecting_ticket(Rule.refresh_access(state), ticket),
     refresh_connecting_meaning(Rule.refresh_access(state), ticket))
 
-def refresh_failure_owner(+namespace: String, +sequence: Nat, +authentication: Maybe<&2, Nat>, +state: BrowserModel.State) ->
-  {BrowserModel.network_failure_owned(namespace, sequence, authentication, state) == Rule.failure_owner(namespace, sequence, authentication, state) : Bool}:
+def refresh_failure_owner(+namespace: String, +sequence: Nat,+connection: Nat,  +authentication: Maybe<&2, Nat>, +state: BrowserModel.State) ->
+  {BrowserModel.network_failure_owned(namespace, sequence, connection, authentication, state) == Rule.failure_owner(namespace, sequence, connection, authentication, state) : Bool}:
   match authentication:
     case None{}: {==}
     case Some{ticket}: refresh_authentication_owner(namespace, ticket, state)
@@ -3496,60 +3744,60 @@ def refresh_failure_sequence(+authentication: Maybe<&2, Nat>, +sequence: Nat, +s
     case None{}: {==}
     case Some{ticket}: {==}
 
-def refresh_failure_service(+authentication: Maybe<&2, Nat>, +reason: String, +value: Browser.Decision) ->
-  {BrowserModel.network_failure_after(authentication, reason, value) ==
-    Rule.refresh_append(Rule.product_refresh(Rule.failed_service(authentication, reason), Rule.refresh_stored(value)), Rule.refresh_effects(value)) : Browser.Decision}:
+def refresh_failure_service(+authentication: Maybe<&2, Nat>, +connection: Nat, +reason: String, +value: Browser.Decision) ->
+  {BrowserModel.network_failure_after(authentication, connection, reason, value) ==
+    Rule.refresh_append(Rule.product_refresh(Rule.failed_service(authentication, connection, reason), Rule.refresh_stored(value)), Rule.refresh_effects(value)) : Browser.Decision}:
   match authentication value:
     case None{} Browser.Decision{+stored, +effects}:
-      refresh_product_chain(Product.Disconnected{reason}, Browser.Decision{stored, effects})
+      refresh_product_chain(Product.Disconnected{connection, reason}, Browser.Decision{stored, effects})
     case Some{ticket} Browser.Decision{+stored, +effects}:
       refresh_product_chain(Product.Authenticated{ticket, Fail{reason}}, Browser.Decision{stored, effects})
 
-def refresh_failure_transfer(+namespace: String, +sequence: Nat, +reason: String, +revoked: Bool,
+def refresh_failure_transfer(+namespace: String, +sequence: Nat,+connection: Nat,  +reason: String, +revoked: Bool,
   +authentication: Maybe<&2, Nat>, +state: BrowserModel.State) ->
-  {BrowserModel.network_failure_result(namespace, sequence, reason, revoked, authentication, state) ==
-    Rule.failure_transfer(namespace, sequence, reason, revoked, authentication, state) : Browser.Decision}:
+  {BrowserModel.network_failure_result(namespace, sequence, connection, reason, revoked, authentication, state) ==
+    Rule.failure_transfer(namespace, sequence, connection, reason, revoked, authentication, state) : Browser.Decision}:
   +input: Product.Input = Product.InterfaceInput{InteractionTypes.ApplicationInput{E.InteractiveEnvironmentObserved{
     namespace, sequence, False{}, Bool.not(revoked) && Rule.refresh_allowed(state)}}}
   +actual = Browser.product_input(input, BrowserModel.legacy(state))
   +required = Rule.product_refresh(input, BrowserModel.legacy(state))
-  Equal.trans(Browser.Decision, BrowserModel.network_failure_result(namespace, sequence, reason, revoked, authentication, state),
-    BrowserModel.network_failure_after(authentication, reason, required), Rule.failure_transfer(namespace, sequence, reason, revoked, authentication, state),
-    Equal.cong(Browser.Decision, Browser.Decision, (result => BrowserModel.network_failure_after(authentication, reason, result)),
+  Equal.trans(Browser.Decision, BrowserModel.network_failure_result(namespace, sequence, connection, reason, revoked, authentication, state),
+    BrowserModel.network_failure_after(authentication, connection, reason, required), Rule.failure_transfer(namespace, sequence, connection, reason, revoked, authentication, state),
+    Equal.cong(Browser.Decision, Browser.Decision, (result => BrowserModel.network_failure_after(authentication, connection, reason, result)),
       actual, required, refresh_product_meaning(input, BrowserModel.legacy(state))),
-    refresh_failure_service(authentication, reason, required))
+    refresh_failure_service(authentication, connection, reason, required))
 
-def refresh_failure_at_sequence(+namespace: String, +sequence: Nat, +reason: String, +revoked: Bool,
+def refresh_failure_at_sequence(+namespace: String, +sequence: Nat,+connection: Nat,  +reason: String, +revoked: Bool,
   +authentication: Maybe<&2, Nat>, +state: BrowserModel.State) ->
-  {BrowserModel.network_failure_result(namespace, BrowserModel.network_failure_sequence(authentication, sequence, state), reason, revoked, authentication, state) ==
-    Rule.failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), reason, revoked, authentication, state) : Browser.Decision}:
+  {BrowserModel.network_failure_result(namespace, BrowserModel.network_failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state) ==
+    Rule.failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state) : Browser.Decision}:
   Equal.trans(Browser.Decision,
-    BrowserModel.network_failure_result(namespace, BrowserModel.network_failure_sequence(authentication, sequence, state), reason, revoked, authentication, state),
-    BrowserModel.network_failure_result(namespace, Rule.failure_sequence(authentication, sequence, state), reason, revoked, authentication, state),
-    Rule.failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), reason, revoked, authentication, state),
-    Equal.cong(Nat, Browser.Decision, (at => BrowserModel.network_failure_result(namespace, at, reason, revoked, authentication, state)),
+    BrowserModel.network_failure_result(namespace, BrowserModel.network_failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
+    BrowserModel.network_failure_result(namespace, Rule.failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
+    Rule.failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
+    Equal.cong(Nat, Browser.Decision, (at => BrowserModel.network_failure_result(namespace, at, connection, reason, revoked, authentication, state)),
       BrowserModel.network_failure_sequence(authentication, sequence, state), Rule.failure_sequence(authentication, sequence, state), refresh_failure_sequence(authentication, sequence, state)),
-    refresh_failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), reason, revoked, authentication, state))
+    refresh_failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state))
 
-def refresh_failure_current(+owned: Bool, +namespace: String, +sequence: Nat, +reason: String, +revoked: Bool,
+def refresh_failure_current(+owned: Bool, +namespace: String, +sequence: Nat,+connection: Nat,  +reason: String, +revoked: Bool,
   +authentication: Maybe<&2, Nat>, +state: BrowserModel.State) ->
-  Rule.NetworkFailure(owned, namespace, sequence, reason, revoked, authentication, state,
-    BrowserModel.network_failed_current(owned, namespace, sequence, reason, revoked, authentication, state)):
+  Rule.NetworkFailure(owned, namespace, sequence, connection, reason, revoked, authentication, state,
+    BrowserModel.network_failed_current(owned, namespace, sequence, connection, reason, revoked, authentication, state)):
   match owned:
     case False{}: {==}
     case True{}:
       refresh_accept_transport(
-        BrowserModel.network_failure_result(namespace, BrowserModel.network_failure_sequence(authentication, sequence, state), reason, revoked, authentication, state),
-        Rule.failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), reason, revoked, authentication, state),
+        BrowserModel.network_failure_result(namespace, BrowserModel.network_failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
+        Rule.failure_transfer(namespace, Rule.failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
         BrowserModel.invalidate_if(revoked, state), Rule.refresh_invalidated(revoked, state),
-        refresh_failure_at_sequence(namespace, sequence, reason, revoked, authentication, state), refresh_invalidation_meaning(revoked, state))
+        refresh_failure_at_sequence(namespace, sequence, connection, reason, revoked, authentication, state), refresh_invalidation_meaning(revoked, state))
 
-def Rule.scoped_network_failure_complete(namespace, sequence, reason, revoked, authentication, state):
-  Std.transport(Bool, Rule.failure_owner(namespace, sequence, authentication, state),
-    (owned => Rule.NetworkFailure(Rule.failure_owner(namespace, sequence, authentication, state), namespace, sequence, reason, revoked, authentication, state,
-      BrowserModel.network_failed_current(owned, namespace, sequence, reason, revoked, authentication, state))),
-    refresh_failure_current(Rule.failure_owner(namespace, sequence, authentication, state), namespace, sequence, reason, revoked, authentication, state),
-    BrowserModel.network_failure_owned(namespace, sequence, authentication, state), refresh_failure_owner(namespace, sequence, authentication, state))
+def Rule.scoped_network_failure_complete(namespace, sequence, connection, reason, revoked, authentication, state):
+  Std.transport(Bool, Rule.failure_owner(namespace, sequence, connection, authentication, state),
+    (owned => Rule.NetworkFailure(Rule.failure_owner(namespace, sequence, connection, authentication, state), namespace, sequence, connection, reason, revoked, authentication, state,
+      BrowserModel.network_failed_current(owned, namespace, sequence, connection, reason, revoked, authentication, state))),
+    refresh_failure_current(Rule.failure_owner(namespace, sequence, connection, authentication, state), namespace, sequence, connection, reason, revoked, authentication, state),
+    BrowserModel.network_failure_owned(namespace, sequence, connection, authentication, state), refresh_failure_owner(namespace, sequence, connection, authentication, state))
 
 def refresh_authenticated_transfer(+ticket: Nat, +value: Browser.Decision) ->
   {BrowserModel.authenticated_result(ticket, value) == Rule.authenticated_transfer(ticket, value) : Browser.Decision}:
@@ -3590,7 +3838,7 @@ def refresh_authenticated_valid(+valid: Bool, +namespace: String, +sequence: Nat
     BrowserModel.authenticated_snapshot_valid(valid, namespace, sequence, program, ticket, state)):
   match valid:
     case False{}:
-      Rule.scoped_network_failure_complete(Rule.refresh_namespace(state), Browser.sequence(BrowserModel.legacy(state)),
+      Rule.scoped_network_failure_complete(Rule.refresh_namespace(state), Browser.sequence(BrowserModel.legacy(state)), ticket,
         "Invalid service data namespace", True{}, Some{ticket}, state)
     case True{}:
       +changed = Bool.not(String.eq(Rule.refresh_namespace(state), namespace))
@@ -3959,6 +4207,7 @@ def Rule.action_binding_updates_complete(key, found, pending, owned):
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.ActivityContent{meaning_expanded, meaning_audit}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.ProjectGroup{meaning_project, meaning_selected, meaning_expanded}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.TaskRow{meaning_task, meaning_status, meaning_selected}, nested}}: {==}
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.TaskChildren{meaning_task}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.ProjectChooser{meaning_selected}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.DirectoryRow{meaning_path, meaning_primary}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.ContextSummary{meaning_observation}, nested}}: {==}
@@ -4149,6 +4398,7 @@ def interactive_event_requirement(found: Maybe<&2, SurfaceTypes.Node>) ->
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ActivityContent{meaning_expanded, meaning_audit}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ProjectGroup{meaning_project, meaning_selected, meaning_expanded}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.TaskRow{meaning_task, meaning_status, meaning_selected}, nested}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.TaskChildren{meaning_task}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ProjectChooser{meaning_selected}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.DirectoryRow{meaning_path, meaning_primary}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ContextSummary{meaning_observation}, nested}}: {==}
@@ -4265,6 +4515,7 @@ def Rule.action_update_complete(node, current, pending):
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -4366,6 +4617,7 @@ def native_named_action_complete(+node: SurfaceTypes.Node, +current: +List<Surfa
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}

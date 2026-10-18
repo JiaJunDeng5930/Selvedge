@@ -192,12 +192,18 @@ export async function startServer(options) {
           return;
         }
         case 'account_refresh':
+        case 'remote_pair':
+        case 'remote_enable':
+        case 'remote_disable':
+        case 'remote_approve':
+        case 'remote_revoke':
         case 'browser_command':
         case 'browser_observation':
         case 'command':
         case 'connection_command': {
           if (!bodyObserved) {
-            const text = await readText(request, plan.action === 'account_refresh' ? 1024 : service.limits.frame_bytes);
+            const maximum = plan.action === 'account_refresh' ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
+            const text = await readText(request, maximum);
             const parsed = parseJson(text);
             const tokens = [];
             emitJsonTokens(parsed, token => tokens.push(token));
@@ -209,6 +215,21 @@ export async function startServer(options) {
           }
           const body = plan.body;
           switch (plan.action) {
+            case 'remote_pair':
+              json(response, 200, { ok: true, result: await service.remote.pair() });
+              return;
+            case 'remote_enable':
+              json(response, 200, { ok: true, result: await service.remote.enable() });
+              return;
+            case 'remote_disable':
+              json(response, 200, { ok: true, result: await service.remote.disable() });
+              return;
+            case 'remote_approve':
+              json(response, 200, { ok: true, result: await service.remote.approve(body.request_id, body.permissions) });
+              return;
+            case 'remote_revoke':
+              json(response, 200, { ok: true, result: await service.remote.revoke(body.controller_id) });
+              return;
             case 'account_refresh':
               json(response, 200, { ok: true, result: await service.refreshAccounts() });
               return;
@@ -241,6 +262,12 @@ export async function startServer(options) {
         }
         case 'describe':
           json(response, 200, { ok: true, result: service.description });
+          return;
+        case 'remote_status':
+          json(response, 200, { ok: true, result: await service.remote.status() });
+          return;
+        case 'remote_pending':
+          json(response, 200, { ok: true, result: await service.remote.pending() });
           return;
         case 'events': {
           const supplied = request.headers['last-event-id'] ?? url.searchParams.get('after');

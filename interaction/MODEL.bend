@@ -27,12 +27,15 @@ type Input is Data:
   Reading{task: Nat, generation: Nat, intent: U.ReadingIntent}
   Directories{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   Clock{now: U32}
+  WorkspaceGitObserved{ticket: Nat, available: Bool}
   LiveOutput{observation: Live.Observation}
   CodeSource{identity: Code.Identity, source: String}
   ClipboardCompleted{identity: Code.Identity, ticket: Nat, success: Bool}
   ClipboardFeedbackExpired{identity: Code.Identity, ticket: Nat}
   Authenticated{ticket: Nat, result: Result<&2, &2, String, Unit>}
-  Disconnected{reason: String}
+  Disconnected{ticket: Nat, reason: String}
+  RetryConnection{ticket: Nat}
+  AppearanceRestored{stored: Maybe<&2, String>}
   Uploaded{ticket: Nat, result: Result<&2, &2, String, B.Attachment>}
   DirectoryListed{ticket: Nat, result: Result<&2, &2, String, Services.DirectoryCatalog>}
   AttachmentRead{ticket: Nat, result: Result<&2, &2, String, String>}
@@ -53,13 +56,16 @@ def step(input: Input, state: InteractionTypes.State) -> InteractionTypes.Decisi
     case SubmitComposer{capacity, editor}: Interface.submit_composer(capacity, editor, state)
     case Reading{task, generation, intent}: Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.ReadTimeline{task, generation, intent}}}, state)
     case Directories{ticket, result}: Core.step(InteractionTypes.ApplicationInput{E.DirectoriesObserved{ticket, result}}, state)
+    case WorkspaceGitObserved{ticket, available}: Core.step(InteractionTypes.ApplicationInput{E.WorkspaceGitObserved{ticket, available}}, state)
     case Clock{now}: Core.step(InteractionTypes.ApplicationInput{E.ClockObserved{now}}, state)
     case LiveOutput{observation}: Core.step(InteractionTypes.ApplicationInput{E.PreviewObserved{observation}}, state)
     case CodeSource{identity, source}: Core.step(InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.SourceChanged{source}}}, state)
     case ClipboardCompleted{identity, ticket, success}: Core.step(InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.Copied{ticket, success}}}, state)
     case ClipboardFeedbackExpired{identity, ticket}: Core.step(InteractionTypes.ApplicationInput{E.ContentInput{identity, Code.ExpireFeedback{ticket}}}, state)
     case Authenticated{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.Authenticated{ticket, result}}, state)
-    case Disconnected{reason}: Core.step(InteractionTypes.ServiceInput{Services.Disconnected{reason}}, state)
+    case Disconnected{ticket, reason}: Core.step(InteractionTypes.ServiceInput{Services.Disconnected{ticket, reason}}, state)
+    case RetryConnection{ticket}: Core.step(InteractionTypes.ServiceInput{Services.RetryConnection{ticket}}, state)
+    case AppearanceRestored{stored}: Core.step(InteractionTypes.ServiceInput{Services.AppearanceRestored{stored}}, state)
     case Uploaded{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.Uploaded{ticket, result}}, state)
     case DirectoryListed{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.DirectoryListed{ticket, result}}, state)
     case AttachmentRead{ticket, result}: Core.step(InteractionTypes.ServiceInput{Services.Previewed{ticket, result}}, state)

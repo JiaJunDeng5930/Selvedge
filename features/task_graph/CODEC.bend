@@ -61,8 +61,8 @@ def command_schema(properties: +List<J.Field>, required: +List<J.Json>) -> J.Jso
   Schema.object(J.Field{"op", text_schema()} <> properties, J.Text{"op"} <> required)
 
 def specifications(+task_settings: J.Json) -> +List<Spec>:
-  [Spec{"create_task_graph", "Create Tasks and install their output handlers atomically before scheduling them.", Write{CreateKind{}},
-      command_schema(declaration_properties(task_settings), [J.Text{"name"}, J.Text{"nodes"}, J.Text{"rules"}])},
+  [Spec{"create_task_graph", "Create Tasks and install their output handlers atomically before scheduling them. Optional work_id scopes the graph: existing Tasks must already belong to that Work and new Tasks join it.", Write{CreateKind{}},
+      command_schema(J.Field{"work_id", integer_schema()} <> declaration_properties(task_settings), [J.Text{"name"}, J.Text{"nodes"}, J.Text{"rules"}])},
    Spec{"update_task_graph", "Replace a graph declaration atomically; retained Task references keep their existing settings and history.", Write{UpdateKind{}},
       command_schema(J.Field{"graph_id", integer_schema()} <> declaration_properties(task_settings),
         [J.Text{"graph_id"}, J.Text{"name"}, J.Text{"nodes"}, J.Text{"rules"}])},
@@ -100,6 +100,9 @@ def is_array(value: J.Json) -> Bool:
 
 def natural(value: J.Json) -> Bool:
   Schema.valid(integer_schema(), value)
+
+def optional_work(+body: J.Json) -> Bool:
+  Bool.not(present(body, "work_id")) || natural(J.get(body, "work_id"))
 
 def valid_node_variant(existing: Bool, +node: J.Json) -> Bool:
   match existing:
@@ -172,8 +175,8 @@ def operation_matches(+body: J.Json, name: String) -> Bool:
 
 def valid(kind: WriteKind, +body: J.Json) -> Bool:
   match kind:
-    case CreateKind{}: Schema.keys(body, ["op", "name", "nodes", "rules"]) &&
-      operation_matches(body, "create_task_graph") && valid_declaration(body)
+    case CreateKind{}: Schema.keys(body, ["op", "work_id", "name", "nodes", "rules"]) &&
+      operation_matches(body, "create_task_graph") && optional_work(body) && valid_declaration(body)
     case UpdateKind{}: Schema.keys(body, ["op", "graph_id", "name", "nodes", "rules"]) &&
       operation_matches(body, "update_task_graph") && natural(J.get(body, "graph_id")) && valid_declaration(body)
     case DeleteKind{}: Schema.keys(body, ["op", "graph_id"]) && operation_matches(body, "delete_task_graph") && natural(J.get(body, "graph_id"))
@@ -241,9 +244,14 @@ def rules(values: +List<J.Json>) -> +List<G.Rule>:
 def declaration(+body: J.Json) -> G.Declaration:
   G.Declaration{J.text(J.get(body, "name")), nodes(J.items(J.get(body, "nodes"))), rules(J.items(J.get(body, "rules")))}
 
+def work_identifier(present: Bool, value: J.Json) -> Maybe<&2, Nat>:
+  match present:
+    case False{}: None{}
+    case True{}: Some{number(value)}
+
 def construct(kind: WriteKind, +body: J.Json) -> G.Command:
   match kind:
-    case CreateKind{}: G.Create{declaration(body)}
+    case CreateKind{}: G.Create{work_identifier(present(body, "work_id"), J.get(body, "work_id")), declaration(body)}
     case UpdateKind{}: G.Update{number(J.get(body, "graph_id")), declaration(body)}
     case DeleteKind{}: G.Delete{number(J.get(body, "graph_id"))}
 
@@ -300,9 +308,14 @@ def declaration_fields(declaration: G.Declaration) -> +List<J.Field>:
 def command(op: String, fields: +List<J.Field>) -> J.Json:
   J.Object{J.Field{"op", J.Text{op}} <> fields}
 
+def work_fields(work: Maybe<&2, Nat>, fields: +List<J.Field>) -> +List<J.Field>:
+  match work:
+    case None{}: fields
+    case Some{id}: J.Field{"work_id", J.nat(id)} <> fields
+
 def command_json(input: G.Command) -> J.Json:
   match input:
-    case G.Create{declaration}: command("create_task_graph", declaration_fields(declaration))
+    case G.Create{work, declaration}: command("create_task_graph", work_fields(work, declaration_fields(declaration)))
     case G.Update{id, declaration}: command("update_task_graph", J.Field{"graph_id", J.nat(id)} <> declaration_fields(declaration))
     case G.Delete{id}: command("delete_task_graph", [J.Field{"graph_id", J.nat(id)}])
 

@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
 import ../context/MODEL.bend as Context
 import ../context/KINDS.bend as ContextKinds
 import ../tools/MODEL.bend as Tools
@@ -29,22 +30,48 @@ def find_spec(specs: +List<M.CommandSpec>, +name: String) -> Maybe<&2, M.Command
     case Con{M.CommandSpec{+key, +description, +kind, +schema}, rest}:
       choose_spec(String.eq(key, name), M.CommandSpec{key, description, kind, schema}, find_spec(rest, name))
 
-def approval_outcome(kind: String, +value: J.Json) -> D.ApprovalOutcome:
+type ApprovalOutcomeName is Data:
+  ApprovalOutcomeNameAllow{}
+  ApprovalOutcomeNameDeny{}
+  ApprovalOutcomeNameOther{}
+
+def approval_outcome_discriminant(+value: String) -> ApprovalOutcomeName:
+  Bool.pick(ApprovalOutcomeName, String.eq(value, "allow"), ApprovalOutcomeNameAllow{},
+    Bool.pick(ApprovalOutcomeName, String.eq(value, "deny"), ApprovalOutcomeNameDeny{},
+    ApprovalOutcomeNameOther{}))
+
+def approval_outcome_classified(kind: ApprovalOutcomeName, +value: J.Json) -> D.ApprovalOutcome:
   match kind:
-    case "allow": D.ApprovalAllowed{J.text_or(J.get(value, "reason"), "")}
-    case "deny": D.ApprovalDenied{J.text_or(J.get(value, "reason"), "")}
-    case _: D.ApprovalFailed{J.text_or(J.get(value, "reason"), "The review did not return a valid decision")}
+    case ApprovalOutcomeNameAllow{}: D.ApprovalAllowed{J.text_or(J.get(value, "reason"), "")}
+    case ApprovalOutcomeNameDeny{}: D.ApprovalDenied{J.text_or(J.get(value, "reason"), "")}
+    case ApprovalOutcomeNameOther{}: D.ApprovalFailed{J.text_or(J.get(value, "reason"), "The review did not return a valid decision")}
+
+def approval_outcome(kind: String, +value: J.Json) -> D.ApprovalOutcome:
+  approval_outcome_classified(approval_outcome_discriminant(kind), value)
 
 def execution_sandbox(read_only: Bool, network: Bool) -> D.Sandbox:
   match read_only:
     case True{}: D.Sandbox{D.ReadOnly{}, network}
     case False{}: D.Sandbox{D.WorkspaceWrite{}, network}
 
-def execution_approval(mode: String, key: String) -> D.ApprovalPolicy:
+type ExecutionApprovalName is Data:
+  ExecutionApprovalNameFullAccess{}
+  ExecutionApprovalNameAskForApproval{}
+  ExecutionApprovalNameOther{}
+
+def execution_approval_discriminant(+value: String) -> ExecutionApprovalName:
+  Bool.pick(ExecutionApprovalName, String.eq(value, "full-access"), ExecutionApprovalNameFullAccess{},
+    Bool.pick(ExecutionApprovalName, String.eq(value, "ask-for-approval"), ExecutionApprovalNameAskForApproval{},
+    ExecutionApprovalNameOther{}))
+
+def execution_approval_classified(mode: ExecutionApprovalName, key: String) -> D.ApprovalPolicy:
   match mode:
-    case "full-access": D.FullAccess{}
-    case "ask-for-approval": D.AskForApproval{}
-    case _: D.ApprovalForMe{D.Profile{key, "", "", Reasoning.Fixed{}, None{}}}
+    case ExecutionApprovalNameFullAccess{}: D.FullAccess{}
+    case ExecutionApprovalNameAskForApproval{}: D.AskForApproval{}
+    case ExecutionApprovalNameOther{}: D.ApprovalForMe{D.Profile{key, "", "", Reasoning.Fixed{}, None{}}}
+
+def execution_approval(mode: String, key: String) -> D.ApprovalPolicy:
+  execution_approval_classified(execution_approval_discriminant(mode), key)
 
 def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
   match kind:
@@ -72,9 +99,9 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), J.optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
     case M.CreateProjectCommand{}:
-      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance"), J.get(body, "create_worktree")}
     case M.UpdateProjectCommand{}:
-      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance"), J.get(body, "create_worktree")}
     case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
     case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
     case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}
@@ -115,11 +142,24 @@ def command_spec(found: Maybe<&2, M.CommandSpec>, +body: J.Json) -> Result<&2, &
 def decode_command(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   command_spec(find_spec(M.commands(), J.text(J.get(body, "op"))), body)
 
-def item_kind(kind: String, +value: J.Json) -> D.ModelItem:
+type ItemKindName is Data:
+  ItemKindNameCall{}
+  ItemKindNameContext{}
+  ItemKindNameOther{}
+
+def item_kind_discriminant(+value: String) -> ItemKindName:
+  Bool.pick(ItemKindName, String.eq(value, "call"), ItemKindNameCall{},
+    Bool.pick(ItemKindName, String.eq(value, "context"), ItemKindNameContext{},
+    ItemKindNameOther{}))
+
+def item_kind_classified(kind: ItemKindName, +value: J.Json) -> D.ModelItem:
   match kind:
-    case "call": D.Invoke{D.Call{J.text(J.get(value, "id")), J.text(J.get(value, "name")), J.get(value, "arguments")}}
-    case "context": D.Context{J.natural_or(J.natural(J.get(value, "part")), 0n), J.get(value, "value")}
-    case _: D.Say{J.natural_or(J.natural(J.get(value, "part")), 0n), J.text(J.get(value, "text"))}
+    case ItemKindNameCall{}: D.Invoke{D.Call{J.text(J.get(value, "id")), J.text(J.get(value, "name")), J.get(value, "arguments")}}
+    case ItemKindNameContext{}: D.Context{J.natural_or(J.natural(J.get(value, "part")), 0n), J.get(value, "value")}
+    case ItemKindNameOther{}: D.Say{J.natural_or(J.natural(J.get(value, "part")), 0n), J.text(J.get(value, "text"))}
+
+def item_kind(kind: String, +value: J.Json) -> D.ModelItem:
+  item_kind_classified(item_kind_discriminant(kind), value)
 
 def model_items(values: +List<J.Json>) -> +List<D.ModelItem>:
   match values:
@@ -127,12 +167,27 @@ def model_items(values: +List<J.Json>) -> +List<D.ModelItem>:
     case Con{+value, rest}:
       item_kind(J.text(J.get(value, "type")), value) <> model_items(rest)
 
-def valid_item_kind(kind: String, +value: J.Json) -> Bool:
+type ValidItemKindName is Data:
+  ValidItemKindNameText{}
+  ValidItemKindNameCall{}
+  ValidItemKindNameContext{}
+  ValidItemKindNameOther{}
+
+def valid_item_kind_discriminant(+value: String) -> ValidItemKindName:
+  Bool.pick(ValidItemKindName, String.eq(value, "text"), ValidItemKindNameText{},
+    Bool.pick(ValidItemKindName, String.eq(value, "call"), ValidItemKindNameCall{},
+    Bool.pick(ValidItemKindName, String.eq(value, "context"), ValidItemKindNameContext{},
+    ValidItemKindNameOther{})))
+
+def valid_item_kind_classified(kind: ValidItemKindName, +value: J.Json) -> Bool:
   match kind:
-    case "text": Shape.object_keys(value, ["type", "part", "text"]) && Shape.is_natural(J.get(value, "part")) && J.is_text(J.get(value, "text"))
-    case "call": Shape.object_keys(value, ["type", "id", "name", "arguments"]) && J.is_text(J.get(value, "id")) && J.is_text(J.get(value, "name")) && J.is_object(J.get(value, "arguments"))
-    case "context": Shape.object_keys(value, ["type", "part", "value"]) && Shape.is_natural(J.get(value, "part")) && J.is_object(J.get(value, "value"))
-    case _: False{}
+    case ValidItemKindNameText{}: Shape.object_keys(value, ["type", "part", "text"]) && Shape.is_natural(J.get(value, "part")) && J.is_text(J.get(value, "text"))
+    case ValidItemKindNameCall{}: Shape.object_keys(value, ["type", "id", "name", "arguments"]) && J.is_text(J.get(value, "id")) && J.is_text(J.get(value, "name")) && J.is_object(J.get(value, "arguments"))
+    case ValidItemKindNameContext{}: Shape.object_keys(value, ["type", "part", "value"]) && Shape.is_natural(J.get(value, "part")) && J.is_object(J.get(value, "value"))
+    case ValidItemKindNameOther{}: False{}
+
+def valid_item_kind(kind: String, +value: J.Json) -> Bool:
+  valid_item_kind_classified(valid_item_kind_discriminant(kind), value)
 
 def has_item_part(values: +List<J.Json>, +part: J.Json) -> Bool:
   match values:
@@ -164,16 +219,10 @@ def valid_failure_kind(kind: J.Json) -> Bool:
     case J.Text{"context_limit"}: True{}
     case _: False{}
 
-def context_observations_valid(observations: Maybe<&2, +List<D.ContextObservation()>>) -> Bool:
-  match observations:
-    case Some{items}: True{}
-    case None{}: False{}
-
 def context_payload(ok: Bool, +body: J.Json) -> Bool:
   match ok:
     case True{}:
-      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "observations"]) &&
-        context_observations_valid(Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
+      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "observations"])
     case False{}:
       Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
         Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
@@ -182,27 +231,24 @@ def context_completion_payload(+body: J.Json) -> Bool:
   Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "ok")) &&
     context_payload(J.boolean(J.get(body, "ok")), body)
 
-def parsed_context_outcome(parsed: Maybe<&2, +List<D.ContextObservation()>>) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
+def parsed_context_input(id: Nat, ticket: Nat, parsed: Maybe<&2, +List<D.ContextObservation()>>) -> Result<&2, &2, String, M.Input>:
   match parsed:
-    case Some{items}: Done{items}
+    case Some{items}: Done{M.ContextObserved{id, ticket, Done{items}}}
     case None{}: Fail{"Malformed context observation"}
 
-def context_outcome(ok: Bool, +body: J.Json) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
+def context_input(ok: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match ok:
-    case False{}: Fail{J.text(J.get(body, "message"))}
-    case True{}: parsed_context_outcome(Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
+    case False{}: Done{M.ContextObserved{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n), Fail{J.text(J.get(body, "message"))}}}
+    case True{}: parsed_context_input(Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+      Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
 
-def context_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>) -> Result<&2, &2, String, M.Input>:
-  Categories.Membership{+body, evidence} = member
-  Done{M.ContextObserved{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n), context_outcome(J.boolean(J.get(body, "ok")), body)}}
-
-def context_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
-  match admission:
-    case Some{member}: context_accepted(member)
-    case None{}: Fail{"Malformed context completion"}
+def context_envelope(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed context completion"}
+    case True{}: context_input(J.boolean(J.get(body, "ok")), body)
 
 def decode_context(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  context_admission(Categories.admit(J.Json, (value => context_completion_payload(value)), body))
+  context_envelope(context_completion_payload(body), body)
 
 def model_outcome(ok: Bool, +body: J.Json) -> D.Outcome:
   match ok:
@@ -279,10 +325,21 @@ def tool_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories
 def decode_tool(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   tool_admission(Categories.admit(J.Json, (value => tool_payload(value)), body))
 
-def reasoning_transport(value: String) -> Reasoning.Transport:
+type ReasoningTransportName is Data:
+  ReasoningTransportNameConfigurationUpdate{}
+  ReasoningTransportNameOther{}
+
+def reasoning_transport_discriminant(+value: String) -> ReasoningTransportName:
+  Bool.pick(ReasoningTransportName, String.eq(value, "configuration_update"), ReasoningTransportNameConfigurationUpdate{},
+    ReasoningTransportNameOther{})
+
+def reasoning_transport_classified(value: ReasoningTransportName) -> Reasoning.Transport:
   match value:
-    case "configuration_update": Reasoning.ConfigurationUpdates{}
-    case _: Reasoning.RequestEffort{}
+    case ReasoningTransportNameConfigurationUpdate{}: Reasoning.ConfigurationUpdates{}
+    case ReasoningTransportNameOther{}: Reasoning.RequestEffort{}
+
+def reasoning_transport(value: String) -> Reasoning.Transport:
+  reasoning_transport_classified(reasoning_transport_discriminant(value))
 
 def reasoning_policy(+value: J.Json) -> Reasoning.Policy:
   match value:
@@ -424,14 +481,14 @@ def valid_plugins(value: J.Json) -> Bool:
 def project(+value: J.Json) -> D.ProjectContext:
   match value:
     case J.Null{}: D.NoProject{}
-    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
+    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "path")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
 
 def valid_project(+value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
     case J.Object{fields}:
       +body : J.Json = J.Object{fields}
-      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
+      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "path")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
         I.project_context(project(body))
     case _: False{}
 
@@ -479,24 +536,54 @@ def config_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categori
 def decode_config(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   config_admission(Categories.admit(J.Json, (value => config_payload(value)), body))
 
-def hook_outcome(kind: String, +value: J.Json) -> D.HookOutcome:
+type HookOutcomeName is Data:
+  HookOutcomeNameAllow{}
+  HookOutcomeNameRewrite{}
+  HookOutcomeNameDeny{}
+  HookOutcomeNameOther{}
+
+def hook_outcome_discriminant(+value: String) -> HookOutcomeName:
+  Bool.pick(HookOutcomeName, String.eq(value, "allow"), HookOutcomeNameAllow{},
+    Bool.pick(HookOutcomeName, String.eq(value, "rewrite"), HookOutcomeNameRewrite{},
+    Bool.pick(HookOutcomeName, String.eq(value, "deny"), HookOutcomeNameDeny{},
+    HookOutcomeNameOther{})))
+
+def hook_outcome_classified(kind: HookOutcomeName, +value: J.Json) -> D.HookOutcome:
   match kind:
-    case "allow": D.AllowTool{}
-    case "rewrite": D.RewriteTool{J.get(value, "arguments")}
-    case "deny": D.DenyTool{J.text(J.get(value, "reason"))}
-    case _: D.HookFailure{J.text(J.get(value, "reason"))}
+    case HookOutcomeNameAllow{}: D.AllowTool{}
+    case HookOutcomeNameRewrite{}: D.RewriteTool{J.get(value, "arguments")}
+    case HookOutcomeNameDeny{}: D.DenyTool{J.text(J.get(value, "reason"))}
+    case HookOutcomeNameOther{}: D.HookFailure{J.text(J.get(value, "reason"))}
+
+def hook_outcome(kind: String, +value: J.Json) -> D.HookOutcome:
+  hook_outcome_classified(hook_outcome_discriminant(kind), value)
 
 def hook_reason(+value: J.Json) -> Bool:
   Shape.object_keys(value, ["decision", "reason"]) && D.nonempty(J.text(J.get(value, "reason"))) &&
     Nat.is_le(J.utf8_length(J.text(J.get(value, "reason"))), 4096n)
 
-def valid_hook_outcome(kind: String, +value: J.Json) -> Bool:
+type ValidHookOutcomeName is Data:
+  ValidHookOutcomeNameAllow{}
+  ValidHookOutcomeNameRewrite{}
+  ValidHookOutcomeNameDeny{}
+  ValidHookOutcomeNameOther{}
+
+def valid_hook_outcome_discriminant(+value: String) -> ValidHookOutcomeName:
+  Bool.pick(ValidHookOutcomeName, String.eq(value, "allow"), ValidHookOutcomeNameAllow{},
+    Bool.pick(ValidHookOutcomeName, String.eq(value, "rewrite"), ValidHookOutcomeNameRewrite{},
+    Bool.pick(ValidHookOutcomeName, String.eq(value, "deny"), ValidHookOutcomeNameDeny{},
+    Bool.pick(ValidHookOutcomeName, String.eq(value, "failed"), ValidHookOutcomeNameDeny{},
+    ValidHookOutcomeNameOther{}))))
+
+def valid_hook_outcome_classified(kind: ValidHookOutcomeName, +value: J.Json) -> Bool:
   match kind:
-    case "allow": Shape.object_keys(value, ["decision"])
-    case "rewrite": Shape.object_keys(value, ["decision", "arguments"]) && J.is_object(J.get(value, "arguments"))
-    case "deny": hook_reason(value)
-    case "failed": hook_reason(value)
-    case _: False{}
+    case ValidHookOutcomeNameAllow{}: Shape.object_keys(value, ["decision"])
+    case ValidHookOutcomeNameRewrite{}: Shape.object_keys(value, ["decision", "arguments"]) && J.is_object(J.get(value, "arguments"))
+    case ValidHookOutcomeNameDeny{}: hook_reason(value)
+    case ValidHookOutcomeNameOther{}: False{}
+
+def valid_hook_outcome(kind: String, +value: J.Json) -> Bool:
+  valid_hook_outcome_classified(valid_hook_outcome_discriminant(kind), value)
 
 def hook_payload(+body: J.Json) -> Bool:
   Shape.object_keys(body, ["kind", "task_id", "ticket", "outcome"]) && Shape.is_natural(J.get(body, "task_id")) &&
@@ -515,20 +602,50 @@ def hook_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories
 def decode_hook(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   hook_admission(Categories.admit(J.Json, (value => hook_payload(value)), body))
 
-def after_outcome(kind: String, +value: J.Json) -> D.AfterOutcome:
+type AfterOutcomeName is Data:
+  AfterOutcomeNameAllow{}
+  AfterOutcomeNameRewrite{}
+  AfterOutcomeNameDeny{}
+  AfterOutcomeNameOther{}
+
+def after_outcome_discriminant(+value: String) -> AfterOutcomeName:
+  Bool.pick(AfterOutcomeName, String.eq(value, "allow"), AfterOutcomeNameAllow{},
+    Bool.pick(AfterOutcomeName, String.eq(value, "rewrite"), AfterOutcomeNameRewrite{},
+    Bool.pick(AfterOutcomeName, String.eq(value, "deny"), AfterOutcomeNameDeny{},
+    AfterOutcomeNameOther{})))
+
+def after_outcome_classified(kind: AfterOutcomeName, +value: J.Json) -> D.AfterOutcome:
   match kind:
-    case "allow": D.KeepResult{}
-    case "rewrite": D.RewriteResult{J.get(value, "value")}
-    case "deny": D.DenyResult{J.text(J.get(value, "reason"))}
-    case _: D.AfterFailure{J.text(J.get(value, "reason"))}
+    case AfterOutcomeNameAllow{}: D.KeepResult{}
+    case AfterOutcomeNameRewrite{}: D.RewriteResult{J.get(value, "value")}
+    case AfterOutcomeNameDeny{}: D.DenyResult{J.text(J.get(value, "reason"))}
+    case AfterOutcomeNameOther{}: D.AfterFailure{J.text(J.get(value, "reason"))}
+
+def after_outcome(kind: String, +value: J.Json) -> D.AfterOutcome:
+  after_outcome_classified(after_outcome_discriminant(kind), value)
+
+type ValidAfterOutcomeName is Data:
+  ValidAfterOutcomeNameAllow{}
+  ValidAfterOutcomeNameRewrite{}
+  ValidAfterOutcomeNameDeny{}
+  ValidAfterOutcomeNameOther{}
+
+def valid_after_outcome_discriminant(+value: String) -> ValidAfterOutcomeName:
+  Bool.pick(ValidAfterOutcomeName, String.eq(value, "allow"), ValidAfterOutcomeNameAllow{},
+    Bool.pick(ValidAfterOutcomeName, String.eq(value, "rewrite"), ValidAfterOutcomeNameRewrite{},
+    Bool.pick(ValidAfterOutcomeName, String.eq(value, "deny"), ValidAfterOutcomeNameDeny{},
+    Bool.pick(ValidAfterOutcomeName, String.eq(value, "failed"), ValidAfterOutcomeNameDeny{},
+    ValidAfterOutcomeNameOther{}))))
+
+def valid_after_outcome_classified(kind: ValidAfterOutcomeName, +value: J.Json) -> Bool:
+  match kind:
+    case ValidAfterOutcomeNameAllow{}: Shape.object_keys(value, ["decision"])
+    case ValidAfterOutcomeNameRewrite{}: Shape.object_keys(value, ["decision", "value"])
+    case ValidAfterOutcomeNameDeny{}: hook_reason(value)
+    case ValidAfterOutcomeNameOther{}: False{}
 
 def valid_after_outcome(kind: String, +value: J.Json) -> Bool:
-  match kind:
-    case "allow": Shape.object_keys(value, ["decision"])
-    case "rewrite": Shape.object_keys(value, ["decision", "value"])
-    case "deny": hook_reason(value)
-    case "failed": hook_reason(value)
-    case _: False{}
+  valid_after_outcome_classified(valid_after_outcome_discriminant(kind), value)
 
 def after_payload(+body: J.Json) -> Bool:
   Shape.object_keys(body, ["kind", "task_id", "operation_id", "ticket", "outcome"]) &&
@@ -578,9 +695,71 @@ def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> 
     case Fail{reason}: Fail{reason}
     case Done{completion}: Done{M.FeatureCompleted{completion}}
 
+def remote_request(+body: J.Json) -> Remote.Request:
+  Remote.Request{J.text(J.get(body, "controller_id")), Protocol.number(body, "grant_epoch", 0n),
+    J.text(J.get(body, "request_id")), J.get(body, "intent")}
+
+def remote_request_shape(+body: J.Json) -> Bool:
+  J.is_text(J.get(body, "controller_id")) && Shape.is_natural(J.get(body, "grant_epoch")) &&
+    J.is_text(J.get(body, "request_id")) && J.is_object(J.get(body, "intent")) && Remote.request_valid(remote_request(body))
+
+def remote_probe_command(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.UserCommand{command}}: Done{M.RemoteProbe{request, command}}
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote command intent"}
+
+def remote_probe_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote probe"}
+    case True{}: remote_probe_command(decode_command(J.get(body, "intent")), remote_request(body))
+
+def root_environment_command(command: M.Command) -> Bool:
+  match command:
+    case M.Create{profile, reasoning, message, settings}: True{}
+    case M.Fork{task, count, messages, settings}: True{}
+    case M.FeatureCommand{command}: Features.root_environment(command)
+    case _: False{}
+
+def remote_configured(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request, command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.Configure{environment}}: Done{M.RemoteCommand{request, command, Some{environment}}}
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote environment observation"}
+
+def remote_configuration_valid(valid: Bool, configuration: J.Json, request: Remote.Request, command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Remote environment observations are limited to task creation"}
+    case True{}: remote_configured(decode_config(configuration), request, command)
+
+def remote_configuration(+configuration: J.Json, request: Remote.Request, +command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match configuration:
+    case J.Null{}: Done{M.RemoteCommand{request, command, None{}}}
+    case other: remote_configuration_valid(String.eq(J.text(J.get(other, "kind")), "configure") && root_environment_command(command), other, request, command)
+
+def remote_decoded_command(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request, configuration: J.Json) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.UserCommand{command}}: remote_configuration(configuration, request, command)
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote prepared command"}
+
+def remote_command_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote command envelope"}
+    case True{}: remote_decoded_command(decode_command(J.get(body, "command")), remote_request(body), J.get(body, "configuration"))
+
+def remote_check_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote observation authorization"}
+    case True{}: Done{M.RemoteCheck{J.text(J.get(body, "controller_id")), Protocol.number(body, "grant_epoch", 0n)}}
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
+    case "remote_probe": remote_probe_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch", "request_id", "intent"]) && remote_request_shape(body), body)
+    case "remote_command": remote_command_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch", "request_id", "intent", "command", "configuration"]) && remote_request_shape(body), body)
+    case "remote_check": remote_check_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch"]) &&
+      J.is_text(J.get(body, "controller_id")) && Shape.is_natural(J.get(body, "grant_epoch")), body)
     case "context_observed": decode_context(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)

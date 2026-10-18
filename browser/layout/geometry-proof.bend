@@ -152,7 +152,10 @@ def actual_choice_normalization(+key: Identity.Key, +selected: Bool, +descriptio
     case C.Context{C.PageArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
-    case C.Context{C.NavigationArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
+    case C.Context{C.NavigationArea{compact}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
+      +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
+      choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
+    case C.Context{C.TouchNavigationArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
       +intent = C.purpose_fields(key, input, selection, code, appearance, access, settings_open, layers)
       choice_style_normalization(A.feedback_style(A.alternative_button(selected, D.style_text(fallback)), C.feedback_for(intent), typography), C.Geometry{Space.fixed_demand(0n, 28n), 16n, 6n, 20n}, C.name_for(intent, label), C.choice_description(description), selected)
     case C.Context{C.ComposerArea{}, selection, code, appearance, access, settings_open, layers, execution, source_family, supporting_form, attention, navigation_depth}:
@@ -213,10 +216,10 @@ def Rule.frame_relation_evidence():
     +typography => +meaning => {==}}
 
 def addition_capacity(+capacity: Nat, +left: Nat, +right: Nat,
-  conflict: {Nat.is_le(left, Nat.sub(capacity, right)) == False{} : Bool}) ->
+  conflict: {Size.addition_fits(capacity, left, right) == False{} : Bool}) ->
   {Size.checked_add(capacity, left, right) == None{} : Maybe<&2, Nat>}:
   Equal.cong(Bool, Maybe<&2, Nat>, (accepted => Size.add_if_capacity(accepted, left, right)),
-    Nat.is_le(left, Nat.sub(capacity, right)), False{}, conflict)
+    Size.addition_fits(capacity, left, right), False{}, conflict)
 
 def multiplication_capacity(+capacity: Nat, +left: Nat, +right: Nat,
   nonzero: {Nat.is_eq(right, 0n) == False{} : Bool},
@@ -231,12 +234,6 @@ def multiplication_capacity(+capacity: Nat, +left: Nat, +right: Nat,
 def multiplication_zero(+capacity: Nat, left: Nat) ->
   {Size.checked_mul(capacity, left, 0n) == Some{0n} : Maybe<&2, Nat>}:
   {==}
-
-def Rule.natural_size_evidence():
-  Rule.NaturalSizeRequirements{
-    (capacity => left => right => conflict => addition_capacity(capacity, left, right, conflict)),
-    (capacity => left => right => nonzero => conflict => multiplication_capacity(capacity, left, right, nonzero, conflict)),
-    (capacity => left => multiplication_zero(capacity, left))}
 
 def choose_extent_successor(+choice: Bool, +first: Nat, +second: Nat) ->
   {Space.choose_extent(choice, 1n+first, 1n+second) == 1n+Space.choose_extent(choice, first, second) : Nat}:
@@ -412,6 +409,241 @@ def reserved_use(+own: Nat, +reserve: Nat, +budget: Nat,
     case 1n+rest 1n+remaining:
       %Equal.sym(Nat, Nat.add(own, 1n+rest), 1n+Nat.add(own, rest), Alg.nat_add_succ(own, rest)) : {Nat.is_le(_, 1n+remaining) == True{} : Bool}
       reserved_use(own, rest, remaining, reserve_in_budget, own_in_room)
+
+def le_weaken(+left: Nat, +right: Nat, evidence: {Nat.is_le(left, right) == True{} : Bool}) ->
+  {Nat.is_le(left, 1n+right) == True{} : Bool}:
+  match left right:
+    case 0n _: {==}
+    case 1n+rest 0n: Logic.impossible({Nat.is_le(1n+rest, 1n) == True{} : Bool}, evidence)
+    case 1n+a 1n+b: le_weaken(a, b, evidence)
+
+def add_prefix_le(+prefix: Nat, +left: Nat, +right: Nat, evidence: {Nat.is_le(left, right) == True{} : Bool}) ->
+  {Nat.is_le(Nat.add(prefix, left), Nat.add(prefix, right)) == True{} : Bool}:
+  match prefix:
+    case 0n: evidence
+    case 1n+rest: add_prefix_le(rest, left, right, evidence)
+
+def le_rewrite_bound(+value: Nat, +before: Nat, +after: Nat, equality: {before == after : Nat}, bounded: {Nat.is_le(value, before) == True{} : Bool}) ->
+  {Nat.is_le(value, after) == True{} : Bool}:
+  %equality : {Nat.is_le(value, _) == True{} : Bool}
+  bounded
+
+def quotient_go_bound(+n: Nat, +m: Nat, +d: Nat, +r: Nat) ->
+  {Nat.is_le(Pair.fst(Nat, Nat, Nat.divmod.go(n, m, d, r)), Nat.add(n, d)) == True{} : Bool}:
+  match n m:
+    case 0n _: le_refl(d)
+    case 1n+np 0n:
+      le_rewrite_bound(Pair.fst(Nat, Nat, Nat.divmod.go(np, r, 1n+d, 0n)), Nat.add(np, 1n+d), 1n+Nat.add(np, d),
+        Alg.nat_add_succ(np, d), quotient_go_bound(np, r, 1n+d, 0n))
+    case 1n+np 1n+mp:
+      le_weaken(Pair.fst(Nat, Nat, Nat.divmod.go(np, mp, d, 1n+r)), Nat.add(np, d), quotient_go_bound(np, mp, d, 1n+r))
+
+def remainder_go_bound(+n: Nat, +m: Nat, +d: Nat, +r: Nat) ->
+  {Nat.is_le(Pair.snd(Nat, Nat, Nat.divmod.go(n, m, d, r)), Nat.add(n, r)) == True{} : Bool}:
+  match n m:
+    case 0n _: le_refl(r)
+    case 1n+np 0n:
+      le_weaken(Pair.snd(Nat, Nat, Nat.divmod.go(np, r, 1n+d, 0n)), Nat.add(np, r),
+        le_trans(Pair.snd(Nat, Nat, Nat.divmod.go(np, r, 1n+d, 0n)), Nat.add(np, 0n), Nat.add(np, r),
+          remainder_go_bound(np, r, 1n+d, 0n), add_prefix_le(np, 0n, r, zero_le(r))))
+    case 1n+np 1n+mp:
+      le_rewrite_bound(Pair.snd(Nat, Nat, Nat.divmod.go(np, mp, d, 1n+r)), Nat.add(np, 1n+r), 1n+Nat.add(np, r),
+        Alg.nat_add_succ(np, r), remainder_go_bound(np, mp, d, 1n+r))
+
+def quotient_bound(+numerator: Nat, +denominator: Nat) -> {Nat.is_le(Nat.div(numerator, denominator), numerator) == True{} : Bool}:
+  match denominator:
+    case 0n: zero_le(numerator)
+    case 1n+rest:
+      le_rewrite_bound(Pair.fst(Nat, Nat, Nat.divmod.go(numerator, rest, 0n, 0n)), Nat.add(numerator, 0n), numerator,
+        Alg.nat_add_zero(numerator), quotient_go_bound(numerator, rest, 0n, 0n))
+
+def remainder_bound(+numerator: Nat, +denominator: Nat) -> {Nat.is_le(Nat.mod(numerator, denominator), numerator) == True{} : Bool}:
+  match denominator:
+    case 0n: le_refl(numerator)
+    case 1n+rest:
+      le_rewrite_bound(Pair.snd(Nat, Nat, Nat.divmod.go(numerator, rest, 0n, 0n)), Nat.add(numerator, 0n), numerator,
+        Alg.nat_add_zero(numerator), remainder_go_bound(numerator, rest, 0n, 0n))
+
+def zero_division_budget(+n: Nat, +d: Nat, +r: Nat) ->
+  {Nat.add(n, Nat.add(Nat.mul(1n+d, 1n+r), 0n)) == Nat.add(1n+n, Nat.add(Nat.mul(d, 1n+r), r)) : Nat}:
+  +product = Nat.mul(d, 1n+r)
+  Equal.trans(Nat,
+    Nat.add(n, Nat.add(1n+Nat.add(r, product), 0n)), Nat.add(n, 1n+Nat.add(r, product)), Nat.add(1n+n, Nat.add(product, r)),
+    Equal.cong(Nat, Nat, (value => Nat.add(n, value)), Nat.add(1n+Nat.add(r, product), 0n), 1n+Nat.add(r, product), Alg.nat_add_zero(1n+Nat.add(r, product))),
+    Equal.trans(Nat, Nat.add(n, 1n+Nat.add(r, product)), Nat.add(n, 1n+Nat.add(product, r)), Nat.add(1n+n, Nat.add(product, r)),
+      Equal.cong(Nat, Nat, (value => Nat.add(n, 1n+value)), Nat.add(r, product), Nat.add(product, r), add_comm(r, product)),
+      Alg.nat_add_succ(n, Nat.add(product, r))))
+
+def successor_division_budget(+n: Nat, +product: Nat, +r: Nat) ->
+  {Nat.add(n, Nat.add(product, 1n+r)) == Nat.add(1n+n, Nat.add(product, r)) : Nat}:
+  Equal.trans(Nat, Nat.add(n, Nat.add(product, 1n+r)), Nat.add(n, 1n+Nat.add(product, r)), Nat.add(1n+n, Nat.add(product, r)),
+    Equal.cong(Nat, Nat, (value => Nat.add(n, value)), Nat.add(product, 1n+r), 1n+Nat.add(product, r), Alg.nat_add_succ(product, r)),
+    Alg.nat_add_succ(n, Nat.add(product, r)))
+
+def division_product_go_bound(+n: Nat, +m: Nat, +d: Nat, +r: Nat, +bp: Nat, period: {Nat.add(m, r) == bp : Nat}) ->
+  {Nat.is_le(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(n, m, d, r)), 1n+bp), Nat.add(n, Nat.add(Nat.mul(d, 1n+bp), r))) == True{} : Bool}:
+  match n m:
+    case 0n _: le_add(Nat.mul(d, 1n+bp), r)
+    case 1n+np 0n:
+      %period : {Nat.is_le(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(np, r, 1n+d, 0n)), 1n+_), Nat.add(1n+np, Nat.add(Nat.mul(d, 1n+_), r))) == True{} : Bool}
+      le_rewrite_bound(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(np, r, 1n+d, 0n)), 1n+r),
+        Nat.add(np, Nat.add(Nat.mul(1n+d, 1n+r), 0n)), Nat.add(1n+np, Nat.add(Nat.mul(d, 1n+r), r)),
+        zero_division_budget(np, d, r), division_product_go_bound(np, r, 1n+d, 0n, r, Alg.nat_add_zero(r)))
+    case 1n+np 1n+mp:
+      le_rewrite_bound(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(np, mp, d, 1n+r)), 1n+bp),
+        Nat.add(np, Nat.add(Nat.mul(d, 1n+bp), 1n+r)), Nat.add(1n+np, Nat.add(Nat.mul(d, 1n+bp), r)),
+        successor_division_budget(np, Nat.mul(d, 1n+bp), r),
+        division_product_go_bound(np, mp, d, 1n+r, bp,
+          Equal.trans(Nat, Nat.add(mp, 1n+r), 1n+Nat.add(mp, r), bp, Alg.nat_add_succ(mp, r), period)))
+
+def division_product_bound(+numerator: Nat, +denominator: Nat) ->
+  {Nat.is_le(Nat.mul(Nat.div(numerator, denominator), denominator), numerator) == True{} : Bool}:
+  match denominator:
+    case 0n: zero_le(numerator)
+    case 1n+rest:
+      le_rewrite_bound(Nat.mul(Pair.fst(Nat, Nat, Nat.divmod.go(numerator, rest, 0n, 0n)), 1n+rest),
+        Nat.add(numerator, 0n), numerator, Alg.nat_add_zero(numerator), division_product_go_bound(numerator, rest, 0n, 0n, rest, Alg.nat_add_zero(rest)))
+
+def multiplication_monotone(+left: Nat, +right: Nat, +factor: Nat, bounded: {Nat.is_le(left, right) == True{} : Bool}) ->
+  {Nat.is_le(Nat.mul(left, factor), Nat.mul(right, factor)) == True{} : Bool}:
+  match left right:
+    case 0n _: zero_le(Nat.mul(right, factor))
+    case 1n+rest 0n: Logic.impossible({Nat.is_le(Nat.mul(1n+rest, factor), Nat.mul(0n, factor)) == True{} : Bool}, bounded)
+    case 1n+a 1n+b: add_prefix_le(factor, Nat.mul(a, factor), Nat.mul(b, factor), multiplication_monotone(a, b, factor, bounded))
+
+def multiplication_fits_division(+capacity: Nat, +left: Nat, +right: Nat,
+  fits: {Nat.is_le(left, Nat.div(capacity, right)) == True{} : Bool}) ->
+  {Nat.is_le(Nat.mul(left, right), capacity) == True{} : Bool}:
+  le_trans(Nat.mul(left, right), Nat.mul(Nat.div(capacity, right), right), capacity,
+    multiplication_monotone(left, Nat.div(capacity, right), right, fits), division_product_bound(capacity, right))
+
+def literal_capacity_observed(+accepted: Bool, +capacity: Nat, +value: Nat,
+  observed: {Nat.is_le(value, capacity) == accepted : Bool}) ->
+  Rule.result_in_capacity(capacity, Size.value_if_capacity(accepted, value)):
+  match accepted:
+    case False{}: Unit{}
+    case True{}: observed
+
+def literal_capacity(+capacity: Nat, +value: Nat) ->
+  Rule.result_in_capacity(capacity, Size.checked_value(capacity, value)):
+  literal_capacity_observed(Nat.is_le(value, capacity), capacity, value, {==})
+
+def addition_with_bounds(+capacity: Nat, +left: Nat, +right: Nat,
+  bounds: {Nat.is_le(right, capacity) == True{} : Bool} & {Nat.is_le(left, Nat.sub(capacity, right)) == True{} : Bool}) ->
+  Rule.result_in_capacity(capacity, Some{Nat.add(left, right)}):
+  (right_fits, left_fits) = bounds
+  reserved_use(left, right, capacity, right_fits, left_fits)
+
+def addition_result_observed(+accepted: Bool, +capacity: Nat, +left: Nat, +right: Nat,
+  observed: {Size.addition_fits(capacity, left, right) == accepted : Bool}) ->
+  Rule.result_in_capacity(capacity, Size.add_if_capacity(accepted, left, right)):
+  match accepted:
+    case False{}: Unit{}
+    case True{}:
+      addition_with_bounds(capacity, left, right,
+        and_parts(Nat.is_le(right, capacity), Nat.is_le(left, Nat.sub(capacity, right)), observed))
+
+def addition_result(+capacity: Nat, +left: Nat, +right: Nat) ->
+  Rule.result_in_capacity(capacity, Size.checked_add(capacity, left, right)):
+  addition_result_observed(Size.addition_fits(capacity, left, right), capacity, left, right, {==})
+
+def multiplication_observed(+accepted: Bool, +capacity: Nat, +left: Nat, +right: Nat,
+  observed: {Nat.is_le(left, Nat.div(capacity, right)) == accepted : Bool}) ->
+  Rule.result_in_capacity(capacity, Size.multiply_if_capacity(accepted, left, right)):
+  match accepted:
+    case False{}: Unit{}
+    case True{}: multiplication_fits_division(capacity, left, right, observed)
+
+def multiplication_zero_capacity(zero: Bool, +capacity: Nat, +left: Nat, +right: Nat) ->
+  Rule.result_in_capacity(capacity, Size.multiply_zero_with_capacity(zero, capacity, left, right)):
+  match zero:
+    case True{}: zero_le(capacity)
+    case False{}: multiplication_observed(Nat.is_le(left, Nat.div(capacity, right)), capacity, left, right, {==})
+
+def multiplication_result(+capacity: Nat, +left: Nat, +right: Nat) ->
+  Rule.result_in_capacity(capacity, Size.checked_mul(capacity, left, right)):
+  multiplication_zero_capacity(Nat.is_eq(right, 0n), capacity, left, right)
+
+def sum_pair_capacity(+capacity: Nat, +left: Maybe<&2, Nat>, +right: Maybe<&2, Nat>) ->
+  Rule.result_in_capacity(capacity, Size.sum_pair(capacity, left, right)):
+  match left right:
+    case Some{left} Some{right}: addition_result(capacity, left, right)
+    case None{} _: Unit{}
+    case Some{value} None{}: Unit{}
+
+def product_pair_capacity(+capacity: Nat, +left: Maybe<&2, Nat>, +right: Maybe<&2, Nat>) ->
+  Rule.result_in_capacity(capacity, Size.product_pair(capacity, left, right)):
+  match left right:
+    case Some{left} Some{right}: multiplication_result(capacity, left, right)
+    case None{} _: Unit{}
+    case Some{value} None{}: Unit{}
+
+def maximum_in_capacity(+left: Nat, +right: Nat, +capacity: Nat,
+  first: {Nat.is_le(left, capacity) == True{} : Bool}, second: {Nat.is_le(right, capacity) == True{} : Bool}) ->
+  {Nat.is_le(Nat.max(left, right), capacity) == True{} : Bool}:
+  match left right capacity:
+    case 0n _ _: second
+    case 1n+rest _ 0n: Logic.impossible({Nat.is_le(Nat.max(1n+rest, right), 0n) == True{} : Bool}, first)
+    case 1n+rest 0n 1n+remaining: first
+    case 1n+a 1n+b 1n+remaining: maximum_in_capacity(a, b, remaining, first, second)
+
+def maximum_pair_capacity(+capacity: Nat, +left: Maybe<&2, Nat>, +right: Maybe<&2, Nat>,
+  first: Rule.result_in_capacity(capacity, left), second: Rule.result_in_capacity(capacity, right)) ->
+  Rule.result_in_capacity(capacity, Size.maximum_pair(left, right)):
+  match left right:
+    case Some{left} Some{right}: maximum_in_capacity(left, right, capacity, first, second)
+    case None{} _: Unit{}
+    case Some{value} None{}: Unit{}
+
+def quotient_if_zero_capacity(zero: Bool, +capacity: Nat, +numerator: Nat, +denominator: Nat,
+  bounded: {Nat.is_le(numerator, capacity) == True{} : Bool}) ->
+  Rule.result_in_capacity(capacity, Size.quotient_if_zero(zero, numerator, denominator)):
+  match zero:
+    case True{}: Unit{}
+    case False{}: le_trans(Nat.div(numerator, denominator), numerator, capacity, quotient_bound(numerator, denominator), bounded)
+
+def quotient_pair_capacity(+capacity: Nat, +numerator: Maybe<&2, Nat>, +denominator: Maybe<&2, Nat>,
+  bounded: Rule.result_in_capacity(capacity, numerator)) ->
+  Rule.result_in_capacity(capacity, Size.quotient_pair(numerator, denominator)):
+  match numerator denominator:
+    case Some{numerator} Some{+denominator}: quotient_if_zero_capacity(Nat.is_eq(denominator, 0n), capacity, numerator, denominator, bounded)
+    case None{} _: Unit{}
+    case Some{value} None{}: Unit{}
+
+def remainder_if_zero_capacity(zero: Bool, +capacity: Nat, +numerator: Nat, +denominator: Nat,
+  bounded: {Nat.is_le(numerator, capacity) == True{} : Bool}) ->
+  Rule.result_in_capacity(capacity, Size.remainder_if_zero(zero, numerator, denominator)):
+  match zero:
+    case True{}: Unit{}
+    case False{}: le_trans(Nat.mod(numerator, denominator), numerator, capacity, remainder_bound(numerator, denominator), bounded)
+
+def remainder_pair_capacity(+capacity: Nat, +numerator: Maybe<&2, Nat>, +denominator: Maybe<&2, Nat>,
+  bounded: Rule.result_in_capacity(capacity, numerator)) ->
+  Rule.result_in_capacity(capacity, Size.remainder_pair(numerator, denominator)):
+  match numerator denominator:
+    case Some{numerator} Some{+denominator}: remainder_if_zero_capacity(Nat.is_eq(denominator, 0n), capacity, numerator, denominator, bounded)
+    case None{} _: Unit{}
+    case Some{value} None{}: Unit{}
+
+def evaluation_capacity(+calculation: Size.Calculation, +capacity: Nat) ->
+  Rule.result_in_capacity(capacity, Size.evaluate(capacity, calculation)):
+  match calculation:
+    case Size.Value{value}: literal_capacity(capacity, value)
+    case Size.Sum{left, right}: sum_pair_capacity(capacity, Size.evaluate(capacity, left), Size.evaluate(capacity, right))
+    case Size.Product{left, right}: product_pair_capacity(capacity, Size.evaluate(capacity, left), Size.evaluate(capacity, right))
+    case Size.Maximum{+left, +right}: maximum_pair_capacity(capacity, Size.evaluate(capacity, left), Size.evaluate(capacity, right), evaluation_capacity(left, capacity), evaluation_capacity(right, capacity))
+    case Size.Quotient{+numerator, denominator}: quotient_pair_capacity(capacity, Size.evaluate(capacity, numerator), Size.evaluate(capacity, denominator), evaluation_capacity(numerator, capacity))
+    case Size.Remainder{+numerator, denominator}: remainder_pair_capacity(capacity, Size.evaluate(capacity, numerator), Size.evaluate(capacity, denominator), evaluation_capacity(numerator, capacity))
+
+def Rule.natural_size_evidence():
+  Rule.NaturalSizeRequirements{
+    literal_capacity,
+    addition_capacity,
+    addition_result,
+    multiplication_result,
+    capacity => calculation => evaluation_capacity(calculation, capacity),
+    multiplication_capacity,
+    multiplication_zero}
 
 def chosen_lower(+dimension: Space.Dimension, +room: Nat,
   fits: {Nat.is_le(Space.minimum(dimension), room) == True{} : Bool}) ->

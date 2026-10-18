@@ -54,7 +54,8 @@ proofs still require the representation and are deliberately owned accordingly.
 Neither mechanism claims a runtime speedup.
 
 The proof gate continues to require complete decisions, completion correlation and
-ordered effects. `test:locality` supplies separate evidence through frozen clients,
-contract-preserving replacements and native extension round trips. These checks
-serve different boundaries; reorganizing contracts or passing a source ownership
-check does not establish native or host integration success.
+ordered effects. Generic contracts and their production instances own replacement
+and surrounding-state properties. Focused physical regressions are selected by
+the policy in [the test responsibilities](../../tests-bend/README.md);
+reorganizing contracts or passing a source ownership check does not establish
+native or host integration success.

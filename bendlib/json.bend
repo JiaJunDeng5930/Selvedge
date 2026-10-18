@@ -39,6 +39,51 @@ def same(left: Json, right: Json) -> Bool:
     case _ _: False{}
     case _ _: False{}
 
+# Objects with unique keys compare independently of field order. Array order
+# and numeric lexemes retain their structural meaning.
+type UnorderedFieldSelection is Data:
+  UnorderedFieldSelection{found: Bool, value: Json, rest: +List<Field>}
+
+def same_unordered_select(equal: Bool, value: Json, rest: +List<Field>, field: Field, selected: UnorderedFieldSelection) -> UnorderedFieldSelection:
+  match equal:
+    case True{}: UnorderedFieldSelection{True{}, value, rest}
+    case False{}:
+      UnorderedFieldSelection{found, value, tail} = selected
+      UnorderedFieldSelection{found, value, Con{field, tail}}
+
+def same_unordered_take(+name: String, fields: +List<Field>) -> UnorderedFieldSelection:
+  match fields:
+    case Nil{}: UnorderedFieldSelection{False{}, Null{}, Nil{}}
+    case Con{Field{+key, +value}, +rest}:
+      same_unordered_select(same_text(key, name), value, rest, Field{key, value}, same_unordered_take(name, rest))
+
+def same_unordered_selected_found(selected: UnorderedFieldSelection) -> Bool:
+  UnorderedFieldSelection{found, value, rest} = selected
+  found
+
+def same_unordered_selected_value(selected: UnorderedFieldSelection) -> Json:
+  UnorderedFieldSelection{found, value, rest} = selected
+  value
+
+def same_unordered_selected_rest(selected: UnorderedFieldSelection) -> +List<Field>:
+  UnorderedFieldSelection{found, value, rest} = selected
+  rest
+
+def same_unordered(left: Json, right: Json) -> Bool:
+  match left right:
+    case Null{} Null{}: True{}
+    case Boolean{left} Boolean{right}: same_bool(left, right)
+    case Number{left} Number{right}: same_text(left, right)
+    case Text{left} Text{right}: same_text(left, right)
+    case Array{Nil{}} Array{Nil{}}: True{}
+    case Array{Con{left, left_rest}} Array{Con{right, right_rest}}:
+      same_unordered(left, right) && same_unordered(Array{left_rest}, Array{right_rest})
+    case Object{Nil{}} Object{Nil{}}: True{}
+    case Object{Con{Field{name, value}, left_rest}} Object{right_fields}:
+      +selection = same_unordered_take(name, right_fields)
+      same_unordered_selected_found(selection) && same_unordered(value, same_unordered_selected_value(selection)) && same_unordered(Object{left_rest}, Object{same_unordered_selected_rest(selection)})
+    case _ _: False{}
+
 type StackItem is Data:
   Value{value: Json}
   ArrayStart{}
@@ -221,14 +266,14 @@ def escaped_other(control: Bool, +code: U32) -> String:
     case False{}:
       SCon{Chr{code}, SNil{}}
 
-def escaped_selected(quoted: Bool, backslash: Bool, +code: U32) -> String:
-  match quoted backslash:
+def escaped_decision(quote: Bool, backslash: Bool, +code: U32) -> String:
+  match quote backslash:
     case True{} _: "\\\""
     case False{} True{}: "\\\\"
     case False{} False{}: escaped_other(U32.is_lt(code, 32), code)
 
 def escaped_char(+code: U32) -> String:
-  escaped_selected(U32.is_eq(code, 34), U32.is_eq(code, 92), code)
+  escaped_decision(U32.is_eq(code, 34), U32.is_eq(code, 92), code)
 
 # Each escaped character contributes at most six characters, bounding append depth.
 

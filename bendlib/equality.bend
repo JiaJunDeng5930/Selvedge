@@ -71,8 +71,8 @@ def json(budget: Nat, left: J.Json, right: J.Json) -> Bool:
 def project(left: D.ProjectContext, right: D.ProjectContext) -> Bool:
   match left right:
     case D.NoProject{} D.NoProject{}: True{}
-    case D.ProjectContext{root_a, revision_a, text_a} D.ProjectContext{root_b, revision_b, text_b}:
-      string_equal(root_a, root_b) && string_equal(revision_a, revision_b) && string_equal(text_a, text_b)
+    case D.ProjectContext{root_a, path_a, revision_a, text_a} D.ProjectContext{root_b, path_b, revision_b, text_b}:
+      string_equal(root_a, root_b) && string_equal(path_a, path_b) && string_equal(revision_a, revision_b) && string_equal(text_a, text_b)
     case _ _: False{}
 
 def optional_string(left: Maybe<&2, String>, right: Maybe<&2, String>) -> Bool:
@@ -151,8 +151,8 @@ def inherited_creation(+budget: Nat, left: D.Contract, right: D.Contract) -> Boo
 
 def execution(+budget: Nat, left: D.ExecutionConfiguration, right: D.ExecutionConfiguration) -> Bool:
   match left right:
-    case D.ExecutionConfiguration{profile_a, reasoning_a, model_a, sandbox_a, approval_a} D.ExecutionConfiguration{profile_b, reasoning_b, model_b, sandbox_b, approval_b}:
-      string_equal(profile_a, profile_b) && string_equal(reasoning_a, reasoning_b) && model(model_a, model_b) &&
+    case D.ExecutionConfiguration{model_a, sandbox_a, approval_a} D.ExecutionConfiguration{model_b, sandbox_b, approval_b}:
+      model(model_a, model_b) &&
         json(budget, D.sandbox_json(sandbox_a), D.sandbox_json(sandbox_b)) && approval(approval_a, approval_b)
 
 def call(budget: Nat, left: D.Call, right: D.Call) -> Bool:

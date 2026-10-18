@@ -3,6 +3,8 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
 import ../../features/chatgpt/CODEC.bend as Wire
+import ../../features/chatgpt/MODEL.bend as ChatGPT
+import ../../harness/transport/schema.bend as Schema
 
 def names(+values: +List<String>, +name: String) -> Bool:
   match values:
@@ -132,16 +134,39 @@ def default_value(+value: J.Json, +fallback: J.Json) -> J.Json:
     case J.Null{}: fallback
     case other: other
 
-def route(+tool: String) -> String:
+type RouteName is Data:
+  RouteNameListProjects{}
+  RouteNameGetProject{}
+  RouteNameExec{}
+  RouteNameGetOperation{}
+  RouteNameListOperations{}
+  RouteNameCancelOperation{}
+  RouteNameForgetOperation{}
+  RouteNameOther{}
+
+def route_discriminant(+value: String) -> RouteName:
+  Bool.pick(RouteName, String.eq(value, "list_projects"), RouteNameListProjects{},
+    Bool.pick(RouteName, String.eq(value, "get_project"), RouteNameGetProject{},
+    Bool.pick(RouteName, String.eq(value, "exec"), RouteNameExec{},
+    Bool.pick(RouteName, String.eq(value, "get_operation"), RouteNameGetOperation{},
+    Bool.pick(RouteName, String.eq(value, "list_operations"), RouteNameListOperations{},
+    Bool.pick(RouteName, String.eq(value, "cancel_operation"), RouteNameCancelOperation{},
+    Bool.pick(RouteName, String.eq(value, "forget_operation"), RouteNameForgetOperation{},
+    RouteNameOther{})))))))
+
+def route_classified(+tool: RouteName) -> String:
   match tool:
-    case "list_projects": "chatgpt_projects"
-    case "get_project": "chatgpt_project"
-    case "exec": "chatgpt_exec"
-    case "get_operation": "chatgpt_operation"
-    case "list_operations": "chatgpt_operations"
-    case "cancel_operation": "chatgpt_cancel"
-    case "forget_operation": "chatgpt_forget"
-    case _: ""
+    case RouteNameListProjects{}: "chatgpt_projects"
+    case RouteNameGetProject{}: "chatgpt_project"
+    case RouteNameExec{}: "chatgpt_exec"
+    case RouteNameGetOperation{}: "chatgpt_operation"
+    case RouteNameListOperations{}: "chatgpt_operations"
+    case RouteNameCancelOperation{}: "chatgpt_cancel"
+    case RouteNameForgetOperation{}: "chatgpt_forget"
+    case RouteNameOther{}: ""
+
+def route(+tool: String) -> String:
+  route_classified(route_discriminant(tool))
 
 def field_names(+fields: +List<J.Field>) -> +List<String>:
   match fields:
@@ -153,36 +178,57 @@ def argument_keys_guard_1(+guard: J.Json) -> +List<String>:
     case J.Object{fields}: field_names(fields)
     case _: []
 
-def string_schema(+minimum: Nat, +maximum: Nat, +description: String) -> J.Json:
-  J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"minLength", J.nat(minimum)}, J.Field{"maxLength", J.nat(maximum)}, J.Field{"description", J.Text{description}}]}
+def native_schema_selected(found: Bool, schema: J.Json, rest: J.Json) -> J.Json:
+  match found:
+    case True{}: schema
+    case False{}: rest
 
-def integer_schema(+minimum: J.Json, +maximum: J.Json, +description: String) -> J.Json:
-  J.Object{[J.Field{"type", J.Text{"integer"}}, J.Field{"minimum", minimum}, J.Field{"maximum", maximum}, J.Field{"description", J.Text{description}}]}
+def native_schema(entries: +List<Wire.Spec>, +operation: String) -> J.Json:
+  match entries:
+    case Nil{}: J.Null{}
+    case Con{Wire.Spec{name, description, kind, schema}, rest}:
+      native_schema_selected(String.eq(name, operation), schema, native_schema(rest, operation))
 
-def project_schema() -> J.Json:
-  integer_schema(J.Number{"0"}, J.Number{"4294967295"}, "A project_id returned by selvedge_list_projects")
+def schema_properties(value: J.Json) -> +List<J.Field>:
+  match value:
+    case J.Object{fields}: fields
+    case _: []
 
-def default_schema(+schema: J.Json, +value: J.Json) -> J.Json:
-  merge(schema, J.Object{[J.Field{"default", value}]})
+# These defaults belong to the local MCP connection, while field shapes and
+# numeric bounds come from the same native declarations that admit execution.
+def client_argument_default(key: String) -> J.Json:
+  match key:
+    case "timeout_ms": J.nat(120000n)
+    case "max_output_length": J.nat(4096n)
+    case _: J.Null{}
 
-def operation_schema() -> J.Json:
-  integer_schema(J.Number{"0"}, J.Number{"4294967295"}, "The retained operation_id returned by selvedge_exec")
+def client_field_default(value: J.Json, +key: String, schema: J.Json) -> J.Field:
+  match value:
+    case J.Null{}: J.Field{key, schema}
+    case value: J.Field{key, merge(schema, J.Object{[J.Field{"default", value}]})}
 
-def object_schema(+properties: J.Json, +required: +List<String>) -> J.Json:
-  J.Object{[J.Field{"type", J.Text{"object"}}, J.Field{"properties", properties},
-    J.Field{"required", J.Array{J.text_items(required)}}, J.Field{"additionalProperties", J.Boolean{False{}}}]}
+def client_argument_fields(fields: +List<J.Field>) -> +List<J.Field>:
+  match fields:
+    case Nil{}: []
+    case Con{J.Field{+key, value}, rest}:
+      client_field_default(client_argument_default(key), key, value) <> client_argument_fields(rest)
+
+def public_schema_properties(+schema: J.Json) -> +List<J.Field>:
+  Schema.without_field(Schema.without_field(schema_properties(J.get(schema, "properties")), "op"), "connection_id")
+
+def public_schema_required(+schema: J.Json) -> +List<J.Json>:
+  Schema.without_required(Schema.without_required(J.items(J.get(schema, "required")), "op"), "connection_id")
+
+def tool_schema_selected(exec: Bool, +schema: J.Json) -> J.Json:
+  match exec:
+    case False{}: Schema.object(public_schema_properties(schema), public_schema_required(schema))
+    case True{}:
+      +arguments = ChatGPT.args_schema()
+      Schema.object(prepend_fields(Schema.without_field(public_schema_properties(schema), "arguments"), client_argument_fields(schema_properties(J.get(arguments, "properties")))),
+        append(Schema.without_required(public_schema_required(schema), "arguments"), Schema.without_required(Schema.without_required(J.items(J.get(arguments, "required")), "timeout_ms"), "max_output_length")))
 
 def tool_schema(+tool: String) -> J.Json:
-  match tool:
-    case "list_projects": object_schema(J.Object{[]}, [])
-    case "get_project": object_schema(J.Object{[J.Field{"project_id", project_schema()}]}, ["project_id"])
-    case "list_operations": object_schema(J.Object{[J.Field{"project_id", project_schema()}]}, ["project_id"])
-    case "exec": object_schema(J.Object{[J.Field{"project_id", project_schema()},
-      J.Field{"request_id", string_schema(1n, 128n, "Stable unique ID for this intentional command; preserve it on transport retry")},
-      J.Field{"command", string_schema(1n, 32768n, "")},
-      J.Field{"timeout_ms", default_schema(integer_schema(J.Number{"100"}, J.Number{"1800000"}, ""), J.Number{"120000"})},
-      J.Field{"max_output_length", default_schema(integer_schema(J.Number{"1"}, J.Number{"8192"}, ""), J.Number{"4096"})}]}, ["project_id", "request_id", "command"])
-    case _: object_schema(J.Object{[J.Field{"project_id", project_schema()}, J.Field{"operation_id", operation_schema()}]}, ["project_id", "operation_id"])
+  tool_schema_selected(String.eq(tool, "exec"), native_schema(Wire.specs(), route(tool)))
 
 # These categories concern capabilities of the same declaration, independently
 # of its transport name. Clients can combine them without a provider taxonomy.
@@ -200,8 +246,8 @@ def command_value_selected(+exec: Bool, +connection: J.Json, +tool: String, +arg
     case True{}: J.Object{[J.Field{"op", J.Text{route(tool)}}, J.Field{"connection_id", connection},
       J.Field{"project_id", J.get(args, "project_id")}, J.Field{"request_id", J.get(args, "request_id")},
       J.Field{"arguments", J.Object{[J.Field{"command", J.get(args, "command")},
-        J.Field{"timeout_ms", default_value(J.get(args, "timeout_ms"), J.get(J.get(J.get(tool_schema("exec"), "properties"), "timeout_ms"), "default"))},
-        J.Field{"max_output_length", default_value(J.get(args, "max_output_length"), J.get(J.get(J.get(tool_schema("exec"), "properties"), "max_output_length"), "default"))}]}}]}
+        J.Field{"timeout_ms", default_value(J.get(args, "timeout_ms"), client_argument_default("timeout_ms"))},
+        J.Field{"max_output_length", default_value(J.get(args, "max_output_length"), client_argument_default("max_output_length"))}]}}]}
     case False{}: J.Object{Con{J.Field{"op", J.Text{route(tool)}},
       Con{J.Field{"connection_id", connection}, command_argument_fields(args)}}}
 
@@ -302,16 +348,31 @@ def call_request(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
   call_request_guard_1(matching(J.get(J.get(J.get(effect, "tool"), "source"), "plugin"), J.get(source, "reference")), effect)
 
-def hook_valid_guard_1(+guard: String, +outcome: J.Json, +after: Bool) -> Bool:
+type HookValidGuard1Name is Data:
+  HookValidGuard1NameAllow{}
+  HookValidGuard1NameRewrite{}
+  HookValidGuard1NameDeny{}
+  HookValidGuard1NameOther{}
+
+def hook_valid_guard_1_discriminant(+value: String) -> HookValidGuard1Name:
+  Bool.pick(HookValidGuard1Name, String.eq(value, "allow"), HookValidGuard1NameAllow{},
+    Bool.pick(HookValidGuard1Name, String.eq(value, "rewrite"), HookValidGuard1NameRewrite{},
+    Bool.pick(HookValidGuard1Name, String.eq(value, "deny"), HookValidGuard1NameDeny{},
+    HookValidGuard1NameOther{})))
+
+def hook_valid_guard_1_classified(+guard: HookValidGuard1Name, +outcome: J.Json, +after: Bool) -> Bool:
   match guard:
-    case "allow": keys(outcome, ["decision"]) && Nat.is_eq(field_count(outcome), 1n)
-    case "rewrite":
+    case HookValidGuard1NameAllow{}: keys(outcome, ["decision"]) && Nat.is_eq(field_count(outcome), 1n)
+    case HookValidGuard1NameRewrite{}:
       match after:
         case True{}: keys(outcome, ["decision", "value"]) && has(outcome, "value") && Nat.is_eq(field_count(outcome), 2n)
         case False{}: keys(outcome, ["decision", "arguments"]) && J.is_object(J.get(outcome, "arguments")) && Nat.is_eq(field_count(outcome), 2n)
-    case "deny": keys(outcome, ["decision", "reason"]) && Nat.is_eq(field_count(outcome), 2n) &&
+    case HookValidGuard1NameDeny{}: keys(outcome, ["decision", "reason"]) && Nat.is_eq(field_count(outcome), 2n) &&
       text(J.get(outcome, "reason")) && Nat.is_le(J.utf8_length(J.text(J.get(outcome, "reason"))), 4096n)
-    case _: False{}
+    case HookValidGuard1NameOther{}: False{}
+
+def hook_valid_guard_1(+guard: String, +outcome: J.Json, +after: Bool) -> Bool:
+  hook_valid_guard_1_classified(hook_valid_guard_1_discriminant(guard), outcome, after)
 
 def hook_valid(+outcome: J.Json, +after: Bool) -> Bool:
   hook_valid_guard_1(J.text(J.get(outcome, "decision")), outcome, after)
@@ -636,36 +697,15 @@ def response_error_match_1(+scrutinee: J.Json, +kind: Maybe<&2, Wire.EntryKind>,
 def response_error(+kind: Maybe<&2, Wire.EntryKind>, +reply: J.Json) -> Bool:
   response_error_match_1(J.get(reply, "ok"), kind, reply)
 
-def response_admitted(+admitted: Bool, +tool: String, +reply: J.Json) -> J.Json:
-  match admitted:
-    case False{}: Model.failure("Malformed Selvedge response")
-    case True{}: response_content(response_value(reply), response_error(routed_kind(tool), reply))
-
 def connection_failure() -> J.Json:
   response_content(J.Object{[J.Field{"error", J.Object{[J.Field{"code", J.Text{"connection_failed"}},
     J.Field{"message", J.Text{"The Selvedge connection failed. An accepted operation may still be running. Reconnect and query the operation, or retry exec with the identical request_id and arguments; do not invent a new ID."}}]}}]}, True{})
 
-def reply_shape_guard_1(+guard: Bool, +source: J.Json, +reply: J.Json) -> J.Json:
-  match guard:
-    case True{}: Model.failure("Selvedge returned HTTP " ++ J.text(J.get(source, "status_text")))
-    case False{}: Model.success(reply)
-
-def reply_shape_guard_2(+guard: Bool, +source: J.Json, +reply: J.Json) -> J.Json:
-  match guard:
-    case False{}: Model.failure("Malformed Selvedge response")
-    case True{}:
-      reply_shape_guard_1(Nat.is_le(300n, J.natural_or(J.natural(J.get(source, "status")), 0n)) && J.boolean(J.get(reply, "ok")), source, reply)
-
 def receipt_reply_shape(+value: J.Json) -> Bool:
   J.is_object(value) && has(value, "error") && bool_value(J.get(value, "error")) && has(value, "value")
 
-def forget_reply_shape_match_1(+scrutinee: J.Json, +value: J.Json) -> Bool:
-  match scrutinee:
-    case J.Number{lexeme}: J.is_object(value) && has(value, "operation_id")
-    case _: False{}
-
 def forget_reply_shape(+value: J.Json) -> Bool:
-  forget_reply_shape_match_1(J.get(value, "operation_id"), value)
+  J.is_object(value) && Model.nonnegative_le(J.get(value, "operation_id"), "4294967295")
 
 def reply_result_shape(+kind: Maybe<&2, Wire.EntryKind>, +value: J.Json) -> Bool:
   match kind:
@@ -678,10 +718,13 @@ def reply_result_shape(+kind: Maybe<&2, Wire.EntryKind>, +value: J.Json) -> Bool
     case Some{Wire.Write{Wire.ForgetKind{}}}: forget_reply_shape(value)
     case _: False{}
 
-def reply_success_shape(+tool: String, +ok: Bool, +reply: J.Json) -> Bool:
+def reply_error_shape(+value: J.Json) -> Bool:
+  keys(value, ["code", "message"]) && text(J.get(value, "code")) && J.is_text(J.get(value, "message"))
+
+def reply_payload_shape(+tool: String, +ok: Bool, +reply: J.Json) -> Bool:
   match ok:
-    case False{}: True{}
-    case True{}: has(reply, "result") && reply_result_shape(routed_kind(tool), J.get(reply, "result"))
+    case False{}: keys(reply, ["ok", "error", "sequence"]) && reply_error_shape(J.get(reply, "error"))
+    case True{}: keys(reply, ["ok", "result", "sequence"]) && has(reply, "result") && reply_result_shape(routed_kind(tool), J.get(reply, "result"))
 
 def unique_reply(+value: J.Json) -> Bool:
   match value:
@@ -692,18 +735,41 @@ def unique_reply(+value: J.Json) -> Bool:
     case J.Array{Con{nested, rest}}: unique_reply(nested) && unique_reply(J.Array{rest})
     case _: True{}
 
-def reply_admission(+tool: String, +reply: J.Json) -> Bool:
-  J.is_object(reply) && unique_reply(reply) && bool_value(J.get(reply, "ok")) &&
-    reply_success_shape(tool, J.boolean(J.get(reply, "ok")), reply)
+def reply_syntax(+reply: J.Json) -> Bool:
+  J.is_object(reply) && unique_reply(reply) && bool_value(J.get(reply, "ok"))
 
-def response(+source: J.Json) -> J.Json:
-  +reply = J.get(source, "reply")
-  +tool = J.text(J.get(source, "tool"))
-  response_admitted(reply_admission(tool, reply), tool, reply)
+def reply_payload(+tool: String, +reply: J.Json) -> Bool:
+  reply_payload_shape(tool, J.boolean(J.get(reply, "ok")), reply)
 
-def reply_shape(+source: J.Json) -> J.Json:
-  +reply = J.get(source, "reply")
-  reply_shape_guard_2(reply_admission(J.text(J.get(source, "tool")), reply), source, reply)
+def ReplySyntax() -> J.Json -> Type:
+  Categories.holds(J.Json, reply => reply_syntax(reply))
+
+def ReplyPayload(-tool: String) -> J.Json -> Type:
+  Categories.holds(J.Json, reply => reply_payload(tool, reply))
+
+def AdmittedReply(-tool: String) -> Type:
+  Categories.Membership<J.Json, reply => Categories.intersection(J.Json, ReplySyntax(), ReplyPayload(tool), reply)>
+
+# The HTTP boundary creates this membership once. MCP presentation consumes it
+# directly, retaining the actual admitted reply instead of rechecking JSON.
+def admitted_reply(+tool: String, member: AdmittedReply(tool)) -> J.Json:
+  Categories.Membership{+reply, evidence} = member
+  response_content(response_value(reply), response_error(routed_kind(tool), reply))
+
+def http_reply_member(+tool: String, candidate: Maybe<&1, AdmittedReply(tool)>) -> J.Json:
+  match candidate:
+    case None{}: Model.failure("Malformed Selvedge response")
+    case Some{member}: admitted_reply(tool, member)
+
+def http_reply_status(rejected: Bool, +source: J.Json, +reply: J.Json) -> J.Json:
+  match rejected:
+    case True{}: Model.failure("Selvedge returned HTTP " ++ J.text(J.get(source, "status_text")))
+    case False{}: http_reply_member(J.text(J.get(source, "tool")), Categories.admit_intersection(J.Json, (reply => reply_syntax(reply)), (reply => reply_payload(J.text(J.get(source, "tool")), reply)), reply))
+
+def http_reply_observed(+source: J.Json, observed: Result<&2, &2, String, J.Json>) -> J.Json:
+  match observed:
+    case Fail{reason}: Model.failure("Malformed Selvedge response")
+    case Done{+reply}: http_reply_status(J.boolean(J.get(reply, "ok")) && Nat.is_le(300n, J.natural_or(J.natural(J.get(source, "status")), 0n)), source, reply)
 
 def lower_code_guard_1(+guard: Bool, +code: U32) -> U32:
   match guard:
@@ -718,31 +784,14 @@ def lowercase(+value: String) -> String:
     case SNil{}: SNil{}
     case SCon{Chr{code}, rest}: SCon{Chr{lower_code(code)}, lowercase(rest)}
 
-def reply_type_guard_1(+guard: Bool) -> J.Json:
-  match guard:
-    case True{}: Model.success(J.Null{})
+def http_response_json(json: Bool, +source: J.Json) -> J.Json:
+  match json:
     case False{}: Model.failure("Selvedge returned a non-JSON response")
+    case True{}: http_reply_observed(source, Model.parsed_observation(source))
 
-def reply_type(+source: J.Json) -> J.Json:
-  reply_type_guard_1(String.starts_with(lowercase(J.text(J.get(source, "content_type"))), "application/json"))
-
-def reply_unique_checked(+accepted: Bool, +source: J.Json, +reply: J.Json) -> J.Json:
-  match accepted:
-    case False{}: Model.failure("Malformed Selvedge response")
-    case True{}: reply_shape(merge(J.Object{[J.Field{"reply", reply}]}, source))
-
-def reply_observation_result(+source: J.Json, +observed: Result<&2, &2, String, J.Json>) -> J.Json:
-  match observed:
-    case Fail{reason}: Model.failure("Malformed Selvedge response")
-    case Done{+reply}: reply_unique_checked(unique_reply(reply), source, reply)
-
-def reply_guard_1(+guard: Bool, +source: J.Json) -> J.Json:
-  match guard:
-    case True{}: reply_observation_result(source, Model.parsed_observation(source))
-    case False{}: reply_type(source)
-
-def reply(+source: J.Json) -> J.Json:
-  reply_guard_1(J.boolean(J.get(reply_type(source), "ok")), source)
+def http_response(+source: J.Json) -> J.Json:
+  +content_type = lowercase(J.text(J.get(source, "content_type")))
+  http_response_json(String.eq(content_type, "application/json") || String.starts_with(content_type, "application/json;"), source)
 
 def mcp_call_request(+source: J.Json) -> J.Json:
   J.Object{[J.Field{"name", J.get(source, "name")}, J.Field{"arguments", J.get(source, "arguments")}]}
@@ -982,14 +1031,29 @@ def settings_file_match_2(+scrutinee: Bool) -> J.Json:
     case True{}: Model.success(J.Null{})
     case False{}: Model.failure("The connection file must be a private, owned regular file of at most 4096 bytes")
 
-def settings_file_match_3(+scrutinee: String, +source: J.Json) -> J.Json:
+type SettingsFileMatch3Name is Data:
+  SettingsFileMatch3NamePath{}
+  SettingsFileMatch3NameMetadata{}
+  SettingsFileMatch3NameKeys{}
+  SettingsFileMatch3NameOther{}
+
+def settings_file_match_3_discriminant(+value: String) -> SettingsFileMatch3Name:
+  Bool.pick(SettingsFileMatch3Name, String.eq(value, "path"), SettingsFileMatch3NamePath{},
+    Bool.pick(SettingsFileMatch3Name, String.eq(value, "metadata"), SettingsFileMatch3NameMetadata{},
+    Bool.pick(SettingsFileMatch3Name, String.eq(value, "keys"), SettingsFileMatch3NameKeys{},
+    SettingsFileMatch3NameOther{})))
+
+def settings_file_match_3_classified(+scrutinee: SettingsFileMatch3Name, +source: J.Json) -> J.Json:
   match scrutinee:
-    case "path": Model.success(J.Null{})
-    case "metadata":
+    case SettingsFileMatch3NamePath{}: Model.success(J.Null{})
+    case SettingsFileMatch3NameMetadata{}:
       settings_file_match_2(J.boolean(J.get(source, "nofollow")) && J.boolean(J.get(source, "regular")) && Model.nonnegative_le(J.get(source, "bytes"), "4096") && Model.nonnegative_le(J.get(source, "mode"), "4294967295") && Nat.is_eq(Nat.mod(J.natural_or(J.natural(J.get(source, "mode")), 1n), 64n), 0n) && J.same(J.get(source, "owner_uid"), J.get(source, "current_uid")))
-    case "keys":
+    case SettingsFileMatch3NameKeys{}:
       settings_file_match_1(J.boolean(J.get(source, "object")) && settings_keys(J.items(J.get(source, "keys"))))
-    case _: Model.failure("Invalid connection file")
+    case SettingsFileMatch3NameOther{}: Model.failure("Invalid connection file")
+
+def settings_file_match_3(+scrutinee: String, +source: J.Json) -> J.Json:
+  settings_file_match_3_classified(settings_file_match_3_discriminant(scrutinee), source)
 
 def settings_file_match_4(+scrutinee: Bool, +source: J.Json) -> J.Json:
   match scrutinee:
@@ -1002,130 +1066,120 @@ def settings_file(+source: J.Json) -> J.Json:
 
 # NOTE: Bool routing avoids long literal pattern expansion in the pinned checker.
 
-def meaning_route_27(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
-  match accepted:
-    case True{}: reply(source)
-    case False{}: Model.failure("Unknown plugin model operation: " ++ operation)
-
-def meaning_route_26(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
-  match accepted:
-    case True{}: connection_failure()
-    case False{}: meaning_route_27(String.eq(operation, "plugin.reply"), operation, source)
-
 def meaning_route_25(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: response(source)
-    case False{}: meaning_route_26(String.eq(operation, "plugin.connection_failure"), operation, source)
+    case True{}: http_response(source)
+    case False{}: Model.failure("Unknown plugin model operation: " ++ operation)
 
 def meaning_route_24(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: Model.success(instructions())
-    case False{}: meaning_route_25(String.eq(operation, "plugin.response"), operation, source)
+    case True{}: connection_failure()
+    case False{}: meaning_route_25(String.eq(operation, "plugin.http_response"), operation, source)
 
 def meaning_route_23(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: Model.success(tools())
-    case False{}: meaning_route_24(String.eq(operation, "plugin.instructions"), operation, source)
+    case True{}: Model.success(instructions())
+    case False{}: meaning_route_24(String.eq(operation, "plugin.connection_failure"), operation, source)
 
 def meaning_route_22(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: mcp_version(source)
-    case False{}: meaning_route_23(String.eq(operation, "plugin.tools"), operation, source)
+    case True{}: Model.success(tools())
+    case False{}: meaning_route_23(String.eq(operation, "plugin.instructions"), operation, source)
 
 def meaning_route_21(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: mcp_page(source)
-    case False{}: meaning_route_22(String.eq(operation, "plugin.mcp_version"), operation, source)
+    case True{}: mcp_version(source)
+    case False{}: meaning_route_22(String.eq(operation, "plugin.tools"), operation, source)
 
 def meaning_route_20(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: mcp_result(source)
-    case False{}: meaning_route_21(String.eq(operation, "plugin.mcp_page"), operation, source)
+    case True{}: mcp_page(source)
+    case False{}: meaning_route_21(String.eq(operation, "plugin.mcp_version"), operation, source)
 
 def meaning_route_19(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: call_result(source)
-    case False{}: meaning_route_20(String.eq(operation, "plugin.mcp_result"), operation, source)
+    case True{}: mcp_result(source)
+    case False{}: meaning_route_20(String.eq(operation, "plugin.mcp_page"), operation, source)
 
 def meaning_route_18(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: hook_result(source, True{})
-    case False{}: meaning_route_19(String.eq(operation, "plugin.call_result"), operation, source)
+    case True{}: call_result(source)
+    case False{}: meaning_route_19(String.eq(operation, "plugin.mcp_result"), operation, source)
 
 def meaning_route_17(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: hook_result(source, False{})
-    case False{}: meaning_route_18(String.eq(operation, "plugin.after_result"), operation, source)
+    case True{}: hook_result(source, True{})
+    case False{}: meaning_route_18(String.eq(operation, "plugin.call_result"), operation, source)
 
 def meaning_route_16(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: call_request(source)
-    case False{}: meaning_route_17(String.eq(operation, "plugin.before_result"), operation, source)
+    case True{}: hook_result(source, False{})
+    case False{}: meaning_route_17(String.eq(operation, "plugin.after_result"), operation, source)
 
 def meaning_route_15(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: hook_request(source, True{})
-    case False{}: meaning_route_16(String.eq(operation, "plugin.call_request"), operation, source)
+    case True{}: call_request(source)
+    case False{}: meaning_route_16(String.eq(operation, "plugin.before_result"), operation, source)
 
 def meaning_route_14(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: hook_request(source, False{})
-    case False{}: meaning_route_15(String.eq(operation, "plugin.after_request"), operation, source)
+    case True{}: hook_request(source, True{})
+    case False{}: meaning_route_15(String.eq(operation, "plugin.call_request"), operation, source)
 
 def meaning_route_13(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: manifest(source)
-    case False{}: meaning_route_14(String.eq(operation, "plugin.before_request"), operation, source)
+    case True{}: hook_request(source, False{})
+    case False{}: meaning_route_14(String.eq(operation, "plugin.after_request"), operation, source)
 
 def meaning_route_12(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: Model.success(J.Boolean{matching(J.get(source, "reference"), J.get(source, "expected"))})
-    case False{}: meaning_route_13(String.eq(operation, "plugin.manifest"), operation, source)
+    case True{}: manifest(source)
+    case False{}: meaning_route_13(String.eq(operation, "plugin.before_request"), operation, source)
 
 def meaning_route_11(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: Model.success(J.Boolean{valid_name(J.text(J.get(source, "name")))})
-    case False{}: meaning_route_12(String.eq(operation, "plugin.matches"), operation, source)
+    case True{}: Model.success(J.Boolean{matching(J.get(source, "reference"), J.get(source, "expected"))})
+    case False{}: meaning_route_12(String.eq(operation, "plugin.manifest"), operation, source)
 
 def meaning_route_10(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: settings_file(source)
-    case False{}: meaning_route_11(String.eq(operation, "plugin.valid_name"), operation, source)
+    case True{}: Model.success(J.Boolean{valid_name(J.text(J.get(source, "name")))})
+    case False{}: meaning_route_11(String.eq(operation, "plugin.matches"), operation, source)
 
 def meaning_route_9(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: client_settings(source)
-    case False{}: meaning_route_10(String.eq(operation, "plugin.settings_file"), operation, source)
+    case True{}: settings_file(source)
+    case False{}: meaning_route_10(String.eq(operation, "plugin.valid_name"), operation, source)
 
 def meaning_route_8(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: Model.success(credential_plan())
-    case False{}: meaning_route_9(String.eq(operation, "plugin.client_settings"), operation, source)
+    case True{}: client_settings(source)
+    case False{}: meaning_route_9(String.eq(operation, "plugin.settings_file"), operation, source)
 
 def meaning_route_7(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: connection_grants(source)
-    case False{}: meaning_route_8(String.eq(operation, "plugin.credential_plan"), operation, source)
+    case True{}: Model.success(credential_plan())
+    case False{}: meaning_route_8(String.eq(operation, "plugin.client_settings"), operation, source)
 
 def meaning_route_6(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: connection_config(source)
-    case False{}: meaning_route_7(String.eq(operation, "plugin.connection_grants"), operation, source)
+    case True{}: connection_grants(source)
+    case False{}: meaning_route_7(String.eq(operation, "plugin.credential_plan"), operation, source)
 
 def meaning_route_5(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: command(source)
-    case False{}: meaning_route_6(String.eq(operation, "plugin.connection_config"), operation, source)
+    case True{}: connection_config(source)
+    case False{}: meaning_route_6(String.eq(operation, "plugin.connection_grants"), operation, source)
 
 def meaning_route_4(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: reply_type(source)
-    case False{}: meaning_route_5(String.eq(operation, "plugin.command"), operation, source)
+    case True{}: command(source)
+    case False{}: meaning_route_5(String.eq(operation, "plugin.connection_config"), operation, source)
 
 def meaning_route_3(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: Model.success(mcp_call_request(source))
-    case False{}: meaning_route_4(String.eq(operation, "plugin.reply_type"), operation, source)
+    case False{}: meaning_route_4(String.eq(operation, "plugin.command"), operation, source)
 
 def meaning_route_2(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -1218,10 +1272,18 @@ law enqueue_rejection_preserves_queue:
 
 law malformed_reply_observation:
   @source:J.Json -> @reason:String ->
-  {reply_observation_result(source, Fail{reason}) == Model.failure("Malformed Selvedge response") : J.Json}
+  {http_reply_observed(source, Fail{reason}) == Model.failure("Malformed Selvedge response") : J.Json}
+
+law missing_failure_rejected:
+  @source:J.Json ->
+  {http_reply_observed(source, Done{J.Object{[J.Field{"ok", J.Boolean{False{}}}]}}) == Model.failure("Malformed Selvedge response") : J.Json}
+
+law scalar_failure_rejected:
+  @source:J.Json -> @error:Nat ->
+  {http_reply_observed(source, Done{J.Object{[J.Field{"ok", J.Boolean{False{}}}, J.Field{"error", J.nat(error)}]}}) == Model.failure("Malformed Selvedge response") : J.Json}
 
 law successful_reply_requires_result:
-  @tool:String -> {reply_success_shape(tool, True{}, J.Object{[]}) == False{} : Bool}
+  @tool:String -> {reply_payload_shape(tool, True{}, J.Object{[]}) == False{} : Bool}
 
 law duplicate_reply_status_rejected:
   {unique_reply(J.Object{[J.Field{"ok", J.Boolean{True{}}}, J.Field{"ok", J.Boolean{False{}}}]}) == False{} : Bool}
@@ -1264,30 +1326,20 @@ law client_settings_correspondence:
 law settings_file_correspondence:
   @source:J.Json -> {run("plugin.settings_file", source) == settings_file(source) : J.Json}
 
-law reply_admission_equation:
+law admitted_reply_projection:
   @tool:String -> @reply:J.Json ->
-  {reply_admission(tool, reply) ==
-    (J.is_object(reply) && unique_reply(reply) && bool_value(J.get(reply, "ok")) &&
-      reply_success_shape(tool, J.boolean(J.get(reply, "ok")), reply)) : Bool}
+  @evidence:Categories.intersection(J.Json, ReplySyntax(), ReplyPayload(tool), reply) ->
+  {admitted_reply(tool, Categories.Membership{reply, evidence}) ==
+    response_content(response_value(reply), response_error(routed_kind(tool), reply)) : J.Json}
 
-law response_admission_equation:
-  @source:J.Json ->
-  {response(source) == response_admitted(reply_admission(J.text(J.get(source, "tool")), J.get(source, "reply")),
-    J.text(J.get(source, "tool")), J.get(source, "reply")) : J.Json}
-
-law malformed_response_rejected:
-  @tool:String -> @reply:J.Json ->
-  {response_admitted(False{}, tool, reply) == Model.failure("Malformed Selvedge response") : J.Json}
-
-law admitted_response_projection:
-  @tool:String -> @reply:J.Json ->
-  {response_admitted(True{}, tool, reply) == response_content(response_value(reply), response_error(routed_kind(tool), reply)) : J.Json}
+law malformed_reply_rejected:
+  @tool:String -> {http_reply_member(tool, None{}) == Model.failure("Malformed Selvedge response") : J.Json}
 
 law receipt_reply_error_preserved:
   @error:Bool -> @value:J.Json ->
   {receipt_reply_error(J.Object{[J.Field{"error", J.Boolean{error}}, J.Field{"value", value}]}) == error : Bool}
 
-law reply_shape_admission_equation:
-  @source:J.Json ->
-  {reply_shape(source) == reply_shape_guard_2(reply_admission(J.text(J.get(source, "tool")), J.get(source, "reply")),
-    source, J.get(source, "reply")) : J.Json}
+law admitted_reply_payload:
+  @tool:String -> @reply:J.Json ->
+  @evidence:Categories.intersection(J.Json, ReplySyntax(), ReplyPayload(tool), reply) ->
+  {reply_payload_shape(tool, J.boolean(J.get(reply, "ok")), reply) == True{} : Bool}

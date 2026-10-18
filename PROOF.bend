@@ -3,6 +3,8 @@ import ./interaction/interactive_markdown/PROOF.bend as InteractiveMarkdownProof
 import ./interaction/interactive_markdown/documents-proof.bend as InteractiveDocumentProof
 import ./interaction/interactive_markdown/documents-contract.bend as InteractiveDocumentContract
 import ./interaction/interactive_markdown/scene-proof.bend as InteractiveSceneProof
+import ./features/remote/PROOF.bend as RemoteControlProof
+import ./harness/features/remote-proof.bend as RemoteStorageProof
 import ./host/adapters/PROOF.bend as HostAdaptersProof
 import ./harness/LAWS.bend as Laws
 import ./interaction/presentation/CONTRACT.bend as InterfaceProgramRules
@@ -17,6 +19,7 @@ import ./harness/context/PROOF.bend as TrackedContextProof
 import ./harness/tasks/PROOF.bend as TasksProof
 import ./features/board/PROOF.bend as BoardProof
 import ./features/task_graph/PROOF.bend as TaskGraphProof
+import ./features/work/PROOF.bend as WorkProof
 import ./harness/features/laws.bend as FeatureLaws
 import ./harness/protocol/PROOF.bend as ProtocolProof
 import ./harness/execution/PROOF.bend as ExecutionProof

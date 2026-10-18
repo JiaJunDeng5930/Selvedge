@@ -1,101 +1,42 @@
-import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { build } from './build.mjs';
+import { runTestProcess, terminateTestProcessGroup } from './test-process.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-if (process.argv.slice(2).some(arg => arg !== '--ci') || process.argv.length > 3) {
-  console.error('Usage: bun scripts/test.mjs [--ci]');
-  process.exit(1);
-}
-const ci = process.argv[2] === '--ci';
-// NOTE: Direct invocation must prepare the same assets as the root test command.
-const build = Bun.spawn([process.execPath, 'scripts/build.mjs'], {
-  cwd: root, env: process.env, stdout: 'inherit', stderr: 'inherit',
-});
-const buildExitCode = await build.exited;
-if (buildExitCode !== 0) process.exit(buildExitCode);
-// NOTE: Extension compiler workloads remain in full validation.
-const fullValidationOnly = new Set(['locality.test.mjs', 'context-definitions.test.mjs']);
-const files = (await readdir(new URL('../tests-bend/', import.meta.url)))
-  .filter(name => name.endsWith('.test.mjs') && (!ci || !fullValidationOnly.has(name)))
-  .sort().map(name => `tests-bend/${name}`);
-console.log(`${ci ? 'CI integration' : 'Full validation'} suite: ${files.length} files; 1 isolated Bun process${ci ? `; ${fullValidationOnly.size} full-validation files deferred` : ''}.`);
 
-const active = new Set();
-const records = [];
-let next = 0;
-let interrupted = null;
-
-function terminate(proc) {
-  try {
-    process.kill(-proc.pid, 'SIGKILL');
-  } catch (error) {
-    if (error.code !== 'ESRCH') {
-      console.error(`Could not kill process group ${proc.pid}: ${error.message}`);
-    }
-    if (proc.exitCode === null) proc.kill('SIGKILL');
-  }
-}
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    interrupted = signal;
-    process.exitCode = 1;
-    for (const proc of active) terminate(proc);
+// Run the complete focused suite through Bun's standard sequential test runner.
+export async function runTests() {
+  const active = new Set();
+  let interrupted = false;
+  const handlers = ['SIGINT', 'SIGTERM'].map(signal => {
+    const handler = () => {
+      interrupted = true;
+      process.exitCode = 1;
+      for (const child of active) terminateTestProcessGroup(child);
+    };
+    process.on(signal, handler);
+    return [signal, handler];
   });
+  try {
+    const result = await runTestProcess('focused physical regression suite',
+      [process.execPath, 'test', '--timeout', '0', './tests-bend'], { cwd: root, active });
+    const output = `${result.out}\n${result.err}`;
+    const passes = [...output.matchAll(/^\s*(\d+) pass\s*$/gm)];
+    const failures = [...output.matchAll(/^\s*(\d+) fail\s*$/gm)];
+    const runs = [...output.matchAll(/^Ran (\d+) tests? across (\d+) files?\./gm)];
+    const normal = passes.length === 1 && failures.length === 1 && runs.length === 1
+      && Number(passes[0][1]) === Number(runs[0][1]) && Number(failures[0][1]) === 0
+      && Number(runs[0][1]) > 0 && Number(runs[0][2]) > 0;
+    if (interrupted || result.exitCode !== 0 || result.signal || !normal) {
+      throw new Error(`Physical regression suite failed: exit=${result.exitCode}, signal=${result.signal ?? 'none'}, normalFooter=${normal}`);
+    }
+  } finally {
+    for (const [signal, handler] of handlers) process.off(signal, handler);
+    for (const child of active) terminateTestProcessGroup(child);
+  }
 }
 
-async function runFile(file) {
-  console.log(`Running ${file}`);
-  let proc;
-  let timer;
-  let timedOut = false;
-  try {
-    proc = Bun.spawn([process.execPath, 'test', '--max-concurrency', '1', file], {
-      cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe', detached: true,
-    });
-    active.add(proc);
-    // NOTE: Drain both pipes immediately so a full pipe cannot block test completion.
-    const stdout = new Response(proc.stdout).text();
-    const stderr = new Response(proc.stderr).text();
-    timer = setTimeout(() => {
-      timedOut = true;
-      terminate(proc);
-    }, 900_000);
-    const [exitCode, out, err] = await Promise.all([proc.exited, stdout, stderr]);
-    if (out) process.stdout.write(out);
-    if (err) process.stderr.write(err);
-    const raw = `${out}\n${err}`;
-    const pass = [...raw.matchAll(/^\s*(\d+) pass\s*$/gm)];
-    const fail = [...raw.matchAll(/^\s*(\d+) fail\s*$/gm)];
-    const ran = [...raw.matchAll(/^Ran (\d+) tests? across (\d+) files?\./gm)];
-    const footer = pass.length === 1 && fail.length === 1 && ran.length === 1;
-    const passed = footer ? Number(pass[0][1]) : 0;
-    const failed = footer ? Number(fail[0][1]) : 0;
-    const count = footer ? Number(ran[0][1]) : 0;
-    const fileCount = footer ? Number(ran[0][2]) : 0;
-    const signal = proc.signalCode;
-    const success = exitCode === 0 && !signal && !timedOut && footer && failed === 0
-      && fileCount === 1 && passed + failed === count;
-    if (!success) console.error(`Failed ${file}: exit=${exitCode}, signal=${signal ?? 'none'}, timeout=${timedOut}, normalFooter=${footer}, pass=${passed}, fail=${failed}, tests=${count}, files=${fileCount}`);
-    records.push({ file, success, passed, failed, count, fileCount });
-  } catch (error) {
-    if (proc) terminate(proc);
-    console.error(`Failed ${file}: ${error.stack ?? error}`);
-    records.push({ file, success: false, passed: 0, failed: 0, count: 0, fileCount: 0 });
-  } finally {
-    clearTimeout(timer);
-    if (proc) active.delete(proc);
-  }
+if (import.meta.main) {
+  await build();
+  await runTests();
 }
-async function worker() {
-  while (!interrupted && next < files.length) {
-    const file = files[next++];
-    await runFile(file);
-  }
-}
-// NOTE: Serialize compiler and native extension workloads to bound memory use.
-await worker();
-const sum = key => records.reduce((total, record) => total + record[key], 0);
-const unsuccessful = records.filter(record => !record.success).length;
-const incomplete = files.length - records.length;
-console.log(`Total ${sum('passed')} pass, ${sum('failed')} fail; ${sum('count')} tests across ${sum('fileCount')} files; ${unsuccessful} unsuccessful files, ${incomplete} not completed${interrupted ? `; interrupted by ${interrupted}` : ''}.`);
-if (unsuccessful || incomplete || interrupted) process.exitCode = 1;

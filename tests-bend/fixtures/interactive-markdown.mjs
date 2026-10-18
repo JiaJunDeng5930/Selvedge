@@ -38,6 +38,14 @@ export async function interactiveMarkdownFixture() {
     void (async () => {
       const input = await body(request);
       if (request.url.endsWith('/input_tokens')) return json(response, { input_tokens: 100 });
+      if (input.text?.format?.name === 'task_title') {
+        const prompt = input.input[0].content.split('\n\nUser prompt:\n').at(-1);
+        const title = prompt.split('\n')[0].slice(0, input.text.format.schema.properties.title.maxLength);
+        const output = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ title }) }] }];
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\n\n`);
+        return;
+      }
       const entry = { index: requests.length, input, text: '', outputIndex: 0, closed: false, response };
       requests.push(entry);
       peers.add(response);

@@ -3,6 +3,19 @@ import { open, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
+import { boundary } from './public/model-boundary.mjs';
+
+const contextDefinitions = boundary('config.context_definitions', {});
+
+async function snapshotGuidance(directory, kind, limits, options) {
+  const definition = contextDefinitions.find(definition => definition.kind === kind);
+  if (!definition?.observer.policy) throw new Error('The kernel did not declare a guidance discovery policy');
+  for (const filename of definition.observer.policy.files) {
+    const snapshot = await snapshotContextFile(path.join(directory, filename), limits, options);
+    if (snapshot !== null) return snapshot;
+  }
+  return null;
+}
 
 export async function snapshotContextFile(filename, limits, { signal } = {}) {
   signal?.throwIfAborted();
@@ -43,25 +56,12 @@ export async function snapshotContextFile(filename, limits, { signal } = {}) {
 /** Observe guidance before a birth command; the journal owns the snapshot. */
 export async function snapshotProject(cwd, limits, options) {
   const workspace = await realpath(cwd);
-  const snapshot = await snapshotContextFile(path.join(workspace, 'AGENTS.md'), limits, options);
-  return { workspace, revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
+  const snapshot = await snapshotGuidance(workspace, 'project_guidance', limits, options);
+  return { workspace, path: snapshot?.path ?? '', revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
 }
 
 export async function snapshotGlobalInstructions(home, limits, options) {
-  return snapshotContextFile(path.join(await realpath(home), 'AGENTS.md'), limits, options);
-}
-
-export function configuredInstructions(config, limits) {
-  const value = config.instructions;
-  const maximum = limits.project_context_bytes;
-  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('The kernel did not declare an instruction bound');
-  if (typeof value !== 'string' || !value.isWellFormed() || value.includes('\0')) {
-    throw new TypeError('Configured instructions must be a valid UTF-8 string without NUL bytes');
-  }
-  if (Buffer.byteLength(value, 'utf8') > maximum) {
-    throw new RangeError('Configured instructions exceed the instruction byte limit');
-  }
-  return value;
+  return snapshotGuidance(await realpath(home), 'global_agents', limits, options);
 }
 
 /**
@@ -70,7 +70,7 @@ export function configuredInstructions(config, limits) {
  */
 export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
   if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
-  const settingCommand = ['create', 'fork', 'save_board_agent'].includes(command.op);
+  const settingCommand = ['create', 'create_work_task', 'create_worktree_task', 'fork', 'save_board_agent'].includes(command.op);
   const projectCommand = ['create_project', 'update_project'].includes(command.op);
   if (graphCommand(command) && Array.isArray(command.nodes)) {
     const nodes = await Promise.all(command.nodes.map(async node => {
@@ -96,7 +96,7 @@ function newGraphNode(node) {
 }
 
 export function hasRootTaskCreation(command) {
-  return command?.op === 'create' || (command !== null && typeof command === 'object' &&
+  return ['create', 'create_work_task', 'create_worktree_task'].includes(command?.op) || (command !== null && typeof command === 'object' &&
     graphCommand(command) && Array.isArray(command.nodes) && command.nodes.some(newGraphNode));
 }
 

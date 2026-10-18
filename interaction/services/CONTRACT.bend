@@ -23,6 +23,14 @@ import ./MODEL.bend as Services
 import ../presentation/SURFACE.bend as SurfaceTypes
 import ../TYPES.bend as InteractionTypes
 
+law settings_open_changes_only_its_open_flag:
+  @+state:Services.State ->
+  {Services.step(Services.OpenSettings{}, state) == Services.Decision{Services.with_settings_open(True{}, state), Nil{}} : Services.Decision}
+
+law settings_close_changes_only_its_open_flag:
+  @+state:Services.State ->
+  {Services.step(Services.CloseSettings{}, state) == Services.Decision{Services.with_settings_open(False{}, state), Nil{}} : Services.Decision}
+
 type PermissionsRequirements is Type:
   PermissionsRequirements{
     unrestricted_filesystem: @mode:D.SandboxMode -> {Context.filesystem_summary(D.Unrestricted{}, mode) == "Full access" : String},
@@ -146,7 +154,7 @@ type ContextRequirements is Type:
     committed_source_label: @task:Nat -> @context:D.TaskContext -> @guidance:D.ProjectContext -> @access:D.ExecutionAccess -> @world:M.World() ->
       {View.execution_source_summary(Context.CommittedExecution{Context.EffectiveContext{task, context, guidance, access}}, world) == "Task settings" : String},
     committed_project_name: @id:Nat -> @+name:String -> @workspace:D.Workspace -> @guidance:D.ProjectContext ->
-      {InterfaceView.committed_project_name(Some{D.Project{name, workspace, guidance}}, id) == name : String},
+      {InterfaceView.committed_project_name(Some{D.Project{name, workspace, guidance, False{}}}, id) == name : String},
     committed_project_missing: @+id:Nat -> {InterfaceView.committed_project_name(None{}, id) == "Project unavailable (ID " ++ Nat.show(id) ++ ")" : String},
     committed_project_lookup: @+id:Nat -> @+world:M.World() ->
       {InterfaceView.committed_project_text(Some{id}, world) == InterfaceView.committed_project_name(Projects.find(Projects.registry(F.State(), world), id), id) : String},
@@ -190,7 +198,7 @@ type ContextRequirements is Type:
     overridden_sandbox_reset: @origin:Context.Origin -> @workspace:Maybe<&2, D.Workspace> -> @sandbox:D.Sandbox -> @approval:Maybe<&2, Context.ApprovalChoice> -> {InterfaceView.reset_change(Context.Configuration{origin, workspace, Some{sandbox}, approval}, Forms.SandboxMode{}) == Some{Context.UseDefaultSandbox{}} : Maybe<&2, Context.Change>},
     overridden_approval_reset: @origin:Context.Origin -> @workspace:Maybe<&2, D.Workspace> -> @sandbox:Maybe<&2, D.Sandbox> -> @approval:Context.ApprovalChoice -> {InterfaceView.reset_change(Context.Configuration{origin, workspace, sandbox, Some{approval}}, Forms.ApprovalPolicy{}) == Some{Context.UseDefaultApproval{}} : Maybe<&2, Context.Change>},
     draft_source: @+message:U.Text -> @profile:String -> @reasoning:String -> @+config:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() ->
-      {composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config}, scene, world)) == Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>},
+      {composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config, False{}, None{}}, scene, world)) == Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>},
     committed_source: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @+world:M.World() ->
       {composer_context(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == View.committed_observation(View.committed_context(Tasks.find(Commands.entries(world), task))) : Maybe<&2, Context.Observation>},
     admitted_contract: @+task:D.Task -> {View.committed_context(Some{task}) == Some{Context.effective(task)} : Maybe<&2, Context.EffectiveContext>},

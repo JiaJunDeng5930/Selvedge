@@ -40,6 +40,11 @@ The native tools are `create_task_graph`, `update_task_graph`,
 command exposes their current command schemas; add `op` to the declaration for
 command input, and `graph_id` when updating.
 
+`create_task_graph` accepts an optional top-level `work_id`. Existing nodes in a
+Work graph must already belong to that Work; newly created nodes join it in the
+same committed decision. Updates retain the graph's Work. Deleting a graph leaves
+its Tasks and Work intact. Omit `work_id` for an independent graph.
+
 Ordinary Bend functions build declarations. A new arrangement of existing
 capabilities requires a new construction, rather than a new interpreter case.
 In [MODEL.bend](MODEL.bend), `paired(name, tests, implementation, rule, message)`

@@ -4,13 +4,15 @@ import ../controls/PROGRAM.bend as Controls
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 
 type BaseRegion is Data:
+  GlobalNavigationRegion{}
+  WorkTabsRegion{}
   NavigationRegion{}
   MainRegion{}
   NavigationFooterRegion{}
   OtherRegion{}
 
 type BaseParts is Data:
-  BaseParts{navigation: +List<SurfaceTypes.Node>, footer: +List<SurfaceTypes.Node>, main: +List<SurfaceTypes.Node>, other: +List<SurfaceTypes.Node>}
+  BaseParts{navigation: +List<SurfaceTypes.Node>, footer: +List<SurfaceTypes.Node>, main: +List<SurfaceTypes.Node>, other: +List<SurfaceTypes.Node>, work_tabs: +List<SurfaceTypes.Node>, global_navigation: +List<SurfaceTypes.Node>}
 
 def is_navigation(+key: UIIdentity.Key, role: SurfaceTypes.Role) -> Bool:
   match role:
@@ -24,6 +26,9 @@ def footer_region(found: Bool) -> BaseRegion:
 
 def base_region_role(key: UIIdentity.Key, role: SurfaceTypes.Role) -> BaseRegion:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: GlobalNavigationRegion{}
+    case SurfaceTypes.CompactHeader{}: WorkTabsRegion{}
+    case SurfaceTypes.WorkTabs{}: WorkTabsRegion{}
     case SurfaceTypes.Main{}: MainRegion{}
     case _: footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open")))
 
@@ -37,21 +42,23 @@ def base_region(+key: UIIdentity.Key, +role: SurfaceTypes.Role) -> BaseRegion:
 
 def prepend_base(region: BaseRegion, node: SurfaceTypes.Node, parts: BaseParts) -> BaseParts:
   match region parts:
-    case NavigationRegion{} BaseParts{navigation, footer, main, other}: BaseParts{node <> navigation, footer, main, other}
-    case NavigationFooterRegion{} BaseParts{navigation, footer, main, other}: BaseParts{navigation, node <> footer, main, other}
-    case MainRegion{} BaseParts{navigation, footer, main, other}: BaseParts{navigation, footer, node <> main, other}
-    case OtherRegion{} BaseParts{navigation, footer, main, other}: BaseParts{navigation, footer, main, node <> other}
+    case GlobalNavigationRegion{} BaseParts{navigation, footer, main, other, work_tabs, global_navigation}: BaseParts{navigation, footer, main, other, work_tabs, node <> global_navigation}
+    case WorkTabsRegion{} BaseParts{navigation, footer, main, other, work_tabs, global_navigation}: BaseParts{navigation, footer, main, other, node <> work_tabs, global_navigation}
+    case NavigationRegion{} BaseParts{navigation, footer, main, other, work_tabs, global_navigation}: BaseParts{node <> navigation, footer, main, other, work_tabs, global_navigation}
+    case NavigationFooterRegion{} BaseParts{navigation, footer, main, other, work_tabs, global_navigation}: BaseParts{navigation, node <> footer, main, other, work_tabs, global_navigation}
+    case MainRegion{} BaseParts{navigation, footer, main, other, work_tabs, global_navigation}: BaseParts{navigation, footer, node <> main, other, work_tabs, global_navigation}
+    case OtherRegion{} BaseParts{navigation, footer, main, other, work_tabs, global_navigation}: BaseParts{navigation, footer, main, node <> other, work_tabs, global_navigation}
 
 def partition_base(values: +List<SurfaceTypes.Node>) -> BaseParts:
   match values:
-    case Nil{}: BaseParts{Nil{}, Nil{}, Nil{}, Nil{}}
+    case Nil{}: BaseParts{Nil{}, Nil{}, Nil{}, Nil{}, Nil{}, Nil{}}
     case Con{+node, rest}:
       SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
       prepend_base(base_region(key, role), node, partition_base(rest))
 
 def flatten_base(parts: BaseParts) -> +List<SurfaceTypes.Node>:
-  BaseParts{navigation, footer, main, other} = parts
-  List.append(&2, SurfaceTypes.Node, navigation, List.append(&2, SurfaceTypes.Node, footer, List.append(&2, SurfaceTypes.Node, main, other)))
+  BaseParts{navigation, footer, main, other, work_tabs, global_navigation} = parts
+  List.append(&2, SurfaceTypes.Node, global_navigation, List.append(&2, SurfaceTypes.Node, work_tabs, List.append(&2, SurfaceTypes.Node, navigation, List.append(&2, SurfaceTypes.Node, footer, List.append(&2, SurfaceTypes.Node, main, other)))))
 
 def ordered_base(values: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
   flatten_base(partition_base(values))

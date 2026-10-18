@@ -1,5 +1,6 @@
 import Base
 import ../../harness/features/MODEL.bend as F
+import ../../harness/features/STATE.bend as FeatureState
 import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../harness/MODEL.bend as World
 import ../../harness/COMMANDS.bend as Commands
@@ -180,11 +181,11 @@ type SharedRequirements is Type:
     assessment_ready: @+assessment:M.Assessment -> {P.assessment_ready(assessment) == P.state_ready(P.assessment_state(assessment)) : Bool},
     directory_ready: {P.state_ready(M.NeedsDirectoryObservation{}) == True{} : Bool},
     blocked_not_ready: {P.state_ready(M.Blocked{}) == False{} : Bool},
-    new_task_content: @message:U.Text -> @+profile:String -> @+reasoning:String -> @context:Context.Configuration -> @+world:World.World() -> {P.body_requirements(U.NewTask{message, profile, reasoning, context}, world) == List.append(&2, M.Obstruction, P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.NewTaskEditor{}, Forms.MessageText{}, "empty_message", "Write a task to start")), P.model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{})) : +List<M.Obstruction>},
+    new_task_content: @message:U.Text -> @+profile:String -> @+reasoning:String -> @context:Context.Configuration -> @+world:World.World() -> {P.body_requirements(U.NewTask{message, profile, reasoning, context, False{}, None{}}, world) == List.append(&2, M.Obstruction, P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.NewTaskEditor{None{}}, Forms.MessageText{}, "empty_message", "Write a task to start")), P.model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{None{}})) : +List<M.Obstruction>},
     message_content: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @world:World.World() -> {P.body_requirements(U.Message{task, message, delivery}, world) == P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send")) : +List<M.Obstruction>},
-    project_name: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.body_requirements(U.Project{id, name, workspace}, world) == P.failed_requirement(Projects.name_valid(name), P.obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes")) : +List<M.Obstruction>},
+    project_name: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.body_requirements(U.Project{id, name, workspace, False{}}, world) == P.failed_requirement(Projects.name_valid(name), P.obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes")) : +List<M.Obstruction>},
     agent_guard: @revision:Nat -> @+name:String -> @+profile:String -> @+reasoning:String -> @+instructions:String -> @settings:J.Json -> @+concurrency:Nat -> {Board.valid_agent(Board.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}) == Board.agent_name_valid(name) && Board.agent_profile_valid(profile) && Board.agent_reasoning_valid(reasoning) && Board.agent_instructions_valid(instructions) && Board.agent_concurrency_valid(concurrency) : Bool},
-    fork_guard: @+count:Nat -> @+messages:+List<String> -> @+parent:D.Task -> @+world:World.World() -> {Commands.branch_fits(count, messages, parent, world) == Commands.branch_count_valid(count, parent) && Commands.branch_messages_valid(count, messages) && Commands.branch_capacity_valid(count, parent, world) : Bool},
+    fork_guard: @+count:Nat -> @+messages:+List<String> -> @+parent:D.Task -> @+world:World.World() -> {Commands.branch_fits(count, messages, parent, world) == FeatureState.execution_allowed(D.task_id(parent), world) && Commands.branch_count_valid(count, parent) && Commands.branch_messages_valid(count, messages) && Commands.branch_capacity_valid(count, parent, world) : Bool},
     lookup_selected: @+id:Nat -> @world:World.World() -> {P.selected_project(Some{id}, world) == Projects.find(Projects.registry(F.State(), world), id) : Maybe<&2, D.Project>},
     project_name_guard: @+name:String -> {Projects.name_valid(name) == D.nonempty(name) && Nat.is_le(J.utf8_length(name), 256n) : Bool},
     agent_name_valid: @+name:String -> {Board.agent_name_valid(name) == D.nonempty(name) && Board.limited(name, 160n) : Bool},
@@ -198,7 +199,7 @@ type SharedRequirements is Type:
     context_failure: @+editor:U.Editor -> @+reason:String -> {P.origin_failure(Context.ContextUnavailable{reason}, editor) == [P.obstruction(editor, Forms.ContextOrigin{}, "context_unavailable", reason)] : +List<M.Obstruction>},
     model_missing: @effort:String -> @+editor:U.Editor -> {P.model_requirements(None{}, effort, editor) == [P.obstruction(editor, Forms.ModelProfile{}, "model_not_found", "Choose a configured model")] : +List<M.Obstruction>},
     model_permitted: @+profile:D.Profile -> @+effort:String -> @+editor:U.Editor -> {P.model_requirements(Some{profile}, effort, editor) == P.failed_requirement(D.profile_permitted(profile, D.profile_selection(effort, profile)), P.obstruction(editor, Forms.ReasoningEffort{}, "invalid_reasoning", "Choose an allowed reasoning effort")) : +List<M.Obstruction>},
-    project_record: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.record_requirements(U.Project{id, name, workspace}, world) == P.failed_requirement(Projects.reference_valid(id, Projects.registry(F.State(), world)), M.Obstruction{P.root_object(U.ProjectEditor{id}), None{}, "project_not_found", "The project does not exist"}) : +List<M.Obstruction>},
+    project_record: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.record_requirements(U.Project{id, name, workspace, False{}}, world) == P.failed_requirement(Projects.reference_valid(id, Projects.registry(F.State(), world)), M.Obstruction{P.root_object(U.ProjectEditor{id}), None{}, "project_not_found", "The project does not exist"}) : +List<M.Obstruction>},
     agent_record: @+editor:U.Editor -> {P.agent_reference_requirement(None{}, editor) == [M.Obstruction{P.root_object(editor), None{}, "agent_not_found", "The agent does not exist"}] : +List<M.Obstruction>},
     obstruction_failure: @+obstruction:M.Obstruction -> {P.failed_requirement(False{}, obstruction) == [obstruction] : +List<M.Obstruction>},
     obstruction_pass: @obstruction:M.Obstruction -> {P.failed_requirement(True{}, obstruction) == Nil{} : +List<M.Obstruction>},
@@ -265,7 +266,7 @@ type Requirements is Type:
       {P.same_group_owner(field <> rest, editor, object) == String.eq(P.object_key(P.owner(M.Subject{editor, field})), P.object_key(object)) && P.same_group_owner(rest, editor, object) : Bool},
     common_group_owner: @+object:M.Object -> @editor:U.Editor -> {P.resolved_group_owner(True{}, object, editor) == object : M.Object},
     mixed_group_owner: @object:M.Object -> @+editor:U.Editor -> {P.resolved_group_owner(False{}, object, editor) == P.root_object(editor) : M.Object},
-    creation_root: {P.root_object(U.NewTaskEditor{}) == M.TaskDraft{} : M.Object},
+    creation_root: {P.root_object(U.NewTaskEditor{None{}}) == M.TaskDraft{} : M.Object},
     task_root: @+task:Nat -> {P.root_object(U.MessageEditor{task}) == M.Task{task} : M.Object},
     project_root: @+project:Maybe<&2, Nat> -> {P.root_object(U.ProjectEditor{project}) == M.Project{project} : M.Object},
     task_message_owner: @+task:Nat -> {P.owner(M.Subject{U.MessageEditor{task}, Forms.MessageText{}}) == M.MessageDraft{task} : M.Object},
@@ -334,11 +335,11 @@ type Requirements is Type:
     graph_declaration_owner: @+graph:Maybe<&2, Nat> -> {P.owner(M.Subject{U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}}) == M.TaskGraph{graph} : M.Object},
     graph_action_content: @graph:Maybe<&2, Nat> -> {P.content_field(U.TaskGraphEditor{graph}) == Forms.TaskGraphDeclaration{} : Forms.Field},
     graph_invalid_json_requirement: @+graph:Maybe<&2, Nat> -> @source:String -> @world:World.World() ->
-      {P.body_requirements(U.TaskGraph{graph, source, None{}}, world) ==
+      {P.body_requirements(U.TaskGraph{graph, source, None{}, None{}}, world) ==
         [P.obstruction(U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}, "invalid_task_graph_declaration", "Enter a valid task graph declaration")] : +List<M.Obstruction>},
     graph_failed_parse_replaces_previous: @+graph:Maybe<&2, Nat> -> @old:String -> @previous:Maybe<&2, J.Json> -> @+source:String -> @world:World.World() ->
-      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, old, previous}, world) ==
-        Done{U.TaskGraph{graph, source, None{}}} : Result<&2, &2, String, U.Body>}
+      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, old, previous, None{}}, world) ==
+        Done{U.TaskGraph{graph, source, None{}, None{}}} : Result<&2, &2, String, U.Body>}
   }
 
 def subject_field(subject: M.Subject) -> Forms.Field:
@@ -379,14 +380,16 @@ law empty_message_obstruction_is_passive:
 
 def workspace_operation_meaning(body: U.Body) -> Bool:
   match body:
-    case U.NewTask{message, profile, reasoning, context}: True{}
-    case U.Project{id, name, workspace}: True{}
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: True{}
+    case U.WorkName{work, name}: False{}
+    case U.Project{id, name, workspace, create_worktree}: True{}
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
     case U.Fork{task, count, messages, context}: True{}
     case U.Message{task, message, delivery}: False{}
     case U.Card{id, revision, value, assist, profile, keep_open}: False{}
     case U.Compact{task, summary}: False{}
-    case U.TaskGraph{graph, declaration, parsed}: False{}
+    case U.TaskGraph{graph, declaration, parsed, work}: False{}
+    case U.TitlePrompts{revision, prompts}: False{}
 
 law workspace_operation_classification:
   @+body:U.Body -> {U.workspace_operation(body) == workspace_operation_meaning(body) : Bool}
@@ -440,7 +443,7 @@ type ActivityRequirements is Type:
     draft_complete: @+revision:Nat -> @+body:U.Body -> @+feedback:U.Feedback -> @+entry:String -> @+pending:Bool -> @+world:World.World() ->
       {P.draft_requirements(U.Draft{revision, body, feedback, entry}, pending, world) == List.append(&2, M.Obstruction, P.known_workspace_requirement(P.workspace_rejection_current(feedback, revision), U.owner(body), P.workspace_rejection_reason(feedback)), List.append(&2, M.Obstruction, P.project_edit_requirements(body, entry, world), P.requirements(body, pending, world))) : +List<M.Obstruction>},
     unchanged_project: @+id:Maybe<&2, Nat> -> @+name:String -> @+workspace:D.Workspace -> @+entry:String -> @+world:World.World() ->
-      {P.project_edit_requirements(U.Project{id, name, workspace}, entry, world) == List.append(&2, M.Obstruction, P.failed_requirement(String.eq(entry, ""), P.obstruction(U.ProjectEditor{id}, Forms.WorkspaceDirectories{}, "unadded_directory", "Add or clear the directory before saving")), P.failed_requirement(P.project_draft_changed(P.project_original(U.Project{id, name, workspace}, world), name, workspace, entry), M.Obstruction{P.root_object(U.ProjectEditor{id}), None{}, "unchanged_project", "No project changes to save"})) : +List<M.Obstruction>},
+      {P.project_edit_requirements(U.Project{id, name, workspace, False{}}, entry, world) == List.append(&2, M.Obstruction, P.failed_requirement(String.eq(entry, ""), P.obstruction(U.ProjectEditor{id}, Forms.WorkspaceDirectories{}, "unadded_directory", "Add or clear the directory before saving")), P.failed_requirement(P.project_draft_changed(P.project_original(U.Project{id, name, workspace, False{}}, world), name, workspace, False{}, entry), M.Obstruction{P.root_object(U.ProjectEditor{id}), None{}, "unchanged_project", "No project changes to save"})) : +List<M.Obstruction>},
     reviewer_intent: @origin:Context.Origin -> @project:Maybe<&2, Nat> -> @workspace:Context.WorkspaceValue -> @sandbox:Context.SandboxValue -> @+approval:Context.ApprovalValue -> @guidance:Context.GuidancePreview -> @+choice:Context.ApprovalChoice -> @+reviewers:+List<D.Profile> ->
       {P.property_intent(Forms.ApprovalReviewer{}, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}, reviewers}, M.Approval{choice}) == P.reviewer_intent(Context.observed_approval(approval), choice, reviewers) : Maybe<&2, U.Edit>}}
 
@@ -449,7 +452,7 @@ law activity_evidence:
 
 def project_relations_order_requirement(+property:M.Property, +edit:M.ProjectEdit, +revision:Nat, +body:U.Body, +feedback:U.Feedback, +entry:String) -> Type:
   match body:
-    case U.Project{+id, name, +workspace}:
+    case U.Project{+id, name, +workspace, create_worktree}:
       {Activity.project_relations_from_draft(property, edit, U.Draft{revision, body, feedback, entry}) ==
         [Activity.RequiredValue{property}, Activity.CollectionMembers{P.collection(U.ProjectEditor{id}, workspace)},
           Activity.SupportingValue{property}, Activity.AssessedAction{P.action(U.ProjectEditor{id}, revision, P.project_edit_pending(edit)), P.project_edit_assessment(edit)}] : +List<Activity.Relation>}

@@ -1,9 +1,11 @@
 import Base
+import ../../features/worktree/MODEL.bend as Worktree
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as F
 import ../MODEL.bend as M
 import ../../features/board/MODEL.bend as B
 import ./operations.bend as O
+import ./worktree-state.bend as WorktreeState
 import ../../features/board/STATE.bend as State
 import ../../features/chatgpt/MODEL.bend as ChatGPT
 import ../../features/chatgpt/STATE.bend as ChatGPTState
@@ -41,6 +43,8 @@ def board_text(found: Maybe<&2, B.Card>, id: Nat, ticket: Nat, outcome: B.Outcom
 
 def resolve_calculation(completion: F.Completion, world: M.World()) -> Maybe<&2, O.ResolvedEvent>:
   match completion:
+    case F.TitleCompleted{completion}: Some{O.TitleResult{completion}}
+    case F.WorktreeCompleted{+completion}: WorktreeState.correlated(completion, world)
     case F.CompactionCompleted{completion}: Some{O.CompactionResult{completion}}
     case F.ChatGPTCompleted{+id, value, error}: chatgpt(ChatGPT.completion_value(ChatGPT.construct_completion(id, value, error, ChatGPTState.registry(world))))
     case F.BoardTextCompleted{+id, ticket, outcome}: board_text(B.find(State.registry(world), id), id, ticket, outcome)

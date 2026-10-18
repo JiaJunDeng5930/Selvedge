@@ -10,7 +10,7 @@ case "$(uname -s)" in
   *) echo 'Selvedge supports Linux and macOS only' >&2; exit 1 ;;
 esac
 if ! bun scripts/toolchain.mjs >/dev/null 2>&1; then bash scripts/install-bend.sh; fi
-bun install --frozen-lockfile --ignore-scripts
+bun install --frozen-lockfile
 bun run build
 if command -v pre-commit >/dev/null; then
   pre-commit install

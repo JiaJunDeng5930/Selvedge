@@ -142,12 +142,25 @@ def sampling(owner: Nat, model: D.Model, history: D.History) -> J.Json:
 # reasoning or an arbitrary ModelContext object. Only these public text parts
 # can cross the evaluator intent boundary. Transport truncation is labelled.
 
-def public_part_named(kind: String, +part: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+type PublicPartNamedName is Data:
+  PublicPartNamedNameOutputText{}
+  PublicPartNamedNameRefusal{}
+  PublicPartNamedNameOther{}
+
+def public_part_named_discriminant(+value: String) -> PublicPartNamedName:
+  Bool.pick(PublicPartNamedName, String.eq(value, "output_text"), PublicPartNamedNameOutputText{},
+    Bool.pick(PublicPartNamedName, String.eq(value, "summary_text"), PublicPartNamedNameOutputText{},
+    Bool.pick(PublicPartNamedName, String.eq(value, "refusal"), PublicPartNamedNameRefusal{},
+    PublicPartNamedNameOther{})))
+
+def public_part_named_classified(kind: PublicPartNamedName, +part: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
-    case "output_text": J.Object{[J.Field{"text", J.Text{J.text(J.get(part, "text"))}}]} <> rest
-    case "summary_text": J.Object{[J.Field{"text", J.Text{J.text(J.get(part, "text"))}}]} <> rest
-    case "refusal": J.Object{[J.Field{"text", J.Text{J.text(J.get(part, "refusal"))}}]} <> rest
-    case _: rest
+    case PublicPartNamedNameOutputText{}: J.Object{[J.Field{"text", J.Text{J.text(J.get(part, "text"))}}]} <> rest
+    case PublicPartNamedNameRefusal{}: J.Object{[J.Field{"text", J.Text{J.text(J.get(part, "refusal"))}}]} <> rest
+    case PublicPartNamedNameOther{}: rest
+
+def public_part_named(kind: String, +part: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  public_part_named_classified(public_part_named_discriminant(kind), part, rest)
 
 def public_part(+part: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   public_part_named(J.text(J.get(part, "type")), part, rest)
@@ -157,13 +170,26 @@ def public_parts(parts: +List<J.Json>) -> +List<J.Json>:
     case Nil{}: Nil{}
     case Con{part, rest}: public_part(part, public_parts(rest))
 
-def public_context_named(kind: String, +value: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+type PublicContextNamedName is Data:
+  PublicContextNamedNameMessage{}
+  PublicContextNamedNameReasoning{}
+  PublicContextNamedNameOther{}
+
+def public_context_named_discriminant(+value: String) -> PublicContextNamedName:
+  Bool.pick(PublicContextNamedName, String.eq(value, "message"), PublicContextNamedNameMessage{},
+    Bool.pick(PublicContextNamedName, String.eq(value, "reasoning"), PublicContextNamedNameReasoning{},
+    PublicContextNamedNameOther{}))
+
+def public_context_named_classified(kind: PublicContextNamedName, +value: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
-    case "message":
+    case PublicContextNamedNameMessage{}:
       J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Array{public_parts(J.items(J.get(value, "content")))}}]} <> rest
-    case "reasoning":
+    case PublicContextNamedNameReasoning{}:
       J.Object{[J.Field{"role", J.Text{"reasoning_summary"}}, J.Field{"content", J.Array{public_parts(J.items(J.get(value, "summary")))}}]} <> rest
-    case _: rest
+    case PublicContextNamedNameOther{}: rest
+
+def public_context_named(kind: String, +value: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  public_context_named_classified(public_context_named_discriminant(kind), value, rest)
 
 def public_context(value: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   +item = Content.provider_value(value)
@@ -178,12 +204,25 @@ def public_field(name: String, value: J.Json) -> J.Field:
     case "encrypted_content": J.Field{"encrypted_content", J.Text{"[Private provider continuation omitted]"}}
     case _: J.Field{name, value}
 
-def public_object(kind: String, source: J.Json, projected: J.Json) -> J.Json:
+type PublicObjectName is Data:
+  PublicObjectNameReasoning{}
+  PublicObjectNameCompaction{}
+  PublicObjectNameOther{}
+
+def public_object_discriminant(+value: String) -> PublicObjectName:
+  Bool.pick(PublicObjectName, String.eq(value, "reasoning"), PublicObjectNameReasoning{},
+    Bool.pick(PublicObjectName, String.eq(value, "compaction"), PublicObjectNameCompaction{},
+    PublicObjectNameOther{}))
+
+def public_object_classified(kind: PublicObjectName, source: J.Json, projected: J.Json) -> J.Json:
   match kind:
-    case "reasoning": J.Object{[J.Field{"type", J.Text{"reasoning"}},
+    case PublicObjectNameReasoning{}: J.Object{[J.Field{"type", J.Text{"reasoning"}},
       J.Field{"summary", J.Array{public_parts(J.items(J.get(source, "summary")))}}]}
-    case "compaction": J.Object{[J.Field{"type", J.Text{"compaction"}}, J.Field{"omitted", J.Text{"Opaque provider checkpoint"}}]}
-    case _: projected
+    case PublicObjectNameCompaction{}: J.Object{[J.Field{"type", J.Text{"compaction"}}, J.Field{"omitted", J.Text{"Opaque provider checkpoint"}}]}
+    case PublicObjectNameOther{}: projected
+
+def public_object(kind: String, source: J.Json, projected: J.Json) -> J.Json:
+  public_object_classified(public_object_discriminant(kind), source, projected)
 
 def public_object_prepend(field: J.Field, rest: J.Json) -> J.Json:
   match rest:

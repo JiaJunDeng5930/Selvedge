@@ -258,7 +258,7 @@ def focus_revision(scope_changed: Bool, effects: +List<E.Effect>, ticket: Nat) -
 
 def empty_message(body: U.Body) -> Bool:
   match body:
-    case U.NewTask{U.Text{text}, profile, reasoning, context}: String.eq(text, "")
+    case U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}: String.eq(text, "")
     case U.Message{task, U.Text{text}, delivery}: String.eq(text, "")
     case _: False{}
 

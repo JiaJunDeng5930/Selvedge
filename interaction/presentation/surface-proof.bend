@@ -29,6 +29,7 @@ def layer_region_agreement(+meaning: Surface.Meaning) ->
     case Surface.ActivityContent{expanded, audit}: {==}
     case Surface.ProjectGroup{project, selected, expanded}: {==}
     case Surface.TaskRow{task, status, selected}: {==}
+    case Surface.TaskChildren{task}: {==}
     case Surface.ProjectChooser{selected}: {==}
     case Surface.DirectoryRow{path, primary}: {==}
     case Surface.ContextSummary{observation}: {==}

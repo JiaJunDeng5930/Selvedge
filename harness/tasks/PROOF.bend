@@ -8,6 +8,7 @@ import ./PROGRAM.bend as Tasks
 import ./CONTRACT.bend as Spec
 import ../LAWS.bend as Laws
 import ../../bendlib/theory.bend as Theory
+import ../../bendlib/stdlib.bend as Std
 import ../CONTRACT.bend as Concepts
 import ../../bendlib/json.bend as J
 
@@ -60,9 +61,40 @@ def accepted_reply_outputs_meaning(+outcome: D.Outcome, +allowed: +List<String>,
     case D.ModelFailure{message}: {==}
     case D.ContextLimit{}: {==}
 
+def replacement_entry(same: Bool, +previous: D.Task, +task: D.Task) ->
+  {Tasks.replacement(same, previous, task) == Spec.required_entry(same, previous, task) : D.Task}:
+  match same:
+    case True{}: {==}
+    case False{}: {==}
+
+def Replacement(tasks: +List<D.Task>) -> Type:
+  @+task:D.Task -> {(task, Tasks.replace(tasks, task)) == Spec.required_fold(task, tasks) : (D.Task & +List<D.Task>)}
+
+def replacement_empty() -> Replacement(Nil{}):
+  task => {==}
+
+def replacement_cons(+previous: D.Task, +rest: +List<D.Task>, induction: Replacement(rest)) -> Replacement(previous <> rest):
+  +task =>
+    +same = Nat.is_eq(D.task_id(previous), D.task_id(task))
+    Equal.trans((D.Task & +List<D.Task>),
+      (task, Tasks.replacement(same, previous, task) <> Tasks.replace(rest, task)),
+      (task, Spec.required_entry(same, previous, task) <> Tasks.replace(rest, task)),
+      Spec.required_step(previous, Spec.required_fold(task, rest)),
+      Equal.cong(D.Task, (D.Task & +List<D.Task>), head => (task, head <> Tasks.replace(rest, task)),
+        Tasks.replacement(same, previous, task), Spec.required_entry(same, previous, task), replacement_entry(same, previous, task)),
+      Equal.cong((D.Task & +List<D.Task>), (D.Task & +List<D.Task>), state => Spec.required_step(previous, state),
+        (task, Tasks.replace(rest, task)), Spec.required_fold(task, rest), induction(task)))
+
+def replace_meaning(+task: D.Task, +tasks: +List<D.Task>) ->
+  {Tasks.replace(tasks, task) == Spec.required_tasks(task, tasks) : +List<D.Task>}:
+  Equal.cong((D.Task & +List<D.Task>), +List<D.Task>, Spec.required_entries,
+    (task, Tasks.replace(tasks, task)), Spec.required_fold(task, tasks),
+    Std.list_ind(~D.Task, ~Replacement, ~replacement_empty(), ~(previous => rest => induction => replacement_cons(previous, rest, induction)), tasks)(task))
+
 def update_meaning(-R: Data, +task: D.Task, +state: D.State, +rest: R) ->
   {Tasks.update_world(R, task, C.Frame{state, rest}) == C.Frame{Spec.required_update(task, state), rest} : C.Frame<D.State, R>}:
-  {==}
+  Equal.cong(+List<D.Task>, C.Frame<D.State, R>, tasks => C.Frame{D.with_state_tasks(tasks, state), rest},
+    Tasks.replace(D.state_tasks(state), task), Spec.required_tasks(task, D.state_tasks(state)), replace_meaning(task, D.state_tasks(state)))
 
 def update_frame(-StateRest: Data, task: D.Task, world: C.Frame<D.State, StateRest>) ->
   {C.rest(D.State, StateRest, Tasks.update_world(StateRest, task, world)) == C.rest(D.State, StateRest, world) : StateRest}:
@@ -230,12 +262,12 @@ def Laws.initial_history_order(instructions, project, message, id, lineage, prof
   match instructions project:
     case D.InitialInstructions{configured, None{}} D.NoProject{}:
       initial_history_meaning(D.configured_context(configured), None{}, None{}, context, profile, reasoning, message, history)
-    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, project_revision, project_content}:
-      initial_history_meaning(D.configured_context(configured), None{}, D.project_guidance_context(root, project_revision, project_content), context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, None{}} D.ProjectContext{root, project_path, project_revision, project_content}:
+      initial_history_meaning(D.configured_context(configured), None{}, D.project_guidance_context(root, project_path, project_revision, project_content), context, profile, reasoning, message, history)
     case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.NoProject{}:
       initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), None{}, context, profile, reasoning, message, history)
-    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_revision, project_content}:
-      initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), D.project_guidance_context(root, project_revision, project_content), context, profile, reasoning, message, history)
+    case D.InitialInstructions{configured, Some{D.InstructionSnapshot{path, revision, content}}} D.ProjectContext{root, project_path, project_revision, project_content}:
+      initial_history_meaning(D.configured_context(configured), D.global_context(path, revision, content), D.project_guidance_context(root, project_path, project_revision, project_content), context, profile, reasoning, message, history)
 
 def Laws.context_append_preserves_prefix(context, task):
   match task:
@@ -244,7 +276,7 @@ def Laws.context_append_preserves_prefix(context, task):
 def Laws.recorded_selection_history(changed, selection, parent):
   match changed selection parent:
     case False{} Workspace.Selection{context, guidance} D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}
-    case True{} Workspace.Selection{D.TaskContext{workspace, selected_sandbox, selected_approval, project}, guidance} D.Task{id, lineage, D.Contract{created_model, tools, max_fork, max_descendants, plugins, previous_context}, D.ExecutionConfiguration{current_profile, current_reasoning, D.Model{profile, reasoning}, sandbox, approval}, status, history, queued, phase, operations, notified}: {==}
+    case True{} Workspace.Selection{D.TaskContext{workspace, selected_sandbox, selected_approval, project}, guidance} D.Task{id, lineage, D.Contract{created_model, tools, max_fork, max_descendants, plugins, previous_context}, D.ExecutionConfiguration{D.Model{profile, reasoning}, sandbox, approval}, status, history, queued, phase, operations, notified}: {==}
 
 
 def Laws.selected_parent_history(context, guidance, parent):

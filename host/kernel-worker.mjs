@@ -4,7 +4,7 @@ import { parseJson } from './codec.mjs';
 
 const { default: model } = await import(pathToFileURL(workerData.module).href);
 let world = model.initial();
-parentPort.on('message', ({ frame: bytes, maximum }) => {
+parentPort.on('message', ({ frame: bytes, maximum, snapshot }) => {
   try {
     // The native frame already defines the generic JSON token vocabulary.
     const frame = Buffer.from(bytes);
@@ -27,7 +27,7 @@ parentPort.on('message', ({ frame: bytes, maximum }) => {
       throw new Error('Malformed kernel decision');
     }
     world = model.state(output);
-    parentPort.postMessage({ text, program: world });
+    parentPort.postMessage(snapshot ? { text, program: world } : { text });
   } catch (error) {
     parentPort.postMessage({ error: String(error?.message ?? error) });
   }

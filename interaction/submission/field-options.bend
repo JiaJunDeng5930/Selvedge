@@ -92,10 +92,20 @@ def options(values: +List<String>) -> +List<Forms.ChoiceValue>:
     case Nil{}: Nil{}
     case Con{+value, rest}: option(value, value) <> options(rest)
 
+def task_profile_option_hidden(hidden: Bool, profile: Domain.Profile, rest: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+  match hidden:
+    case True{}: rest
+    case False{}:
+      Domain.Profile{id, provider, name, policy, options} = profile
+      option(id, name) <> rest
+
+def task_profile_option(+profile: Domain.Profile, rest: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+  task_profile_option_hidden(Domain.is_codex_auto_review(profile), profile, rest)
+
 def profile_options(values: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
-    case Con{Domain.Profile{id, provider, name, policy, options}, rest}: option(id, name) <> profile_options(rest)
+    case Con{profile, rest}: task_profile_option(profile, profile_options(rest))
 
 def origin_option_values(origin: Context.Origin) -> +List<Forms.ChoiceValue>:
   match origin:
@@ -129,22 +139,48 @@ def policy_options(policy: Reasoning.Policy) -> +List<Forms.ChoiceValue>:
     case Reasoning.Fixed{}: Nil{}
     case Reasoning.Adaptive{evaluator, efforts, baseline, transport, maximum}: [option("auto", "Automatic")]
 
-def assistance_options(field: String, profiles: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+type AssistanceOptionsName is Data:
+  AssistanceOptionsNameAssistanceProfile{}
+  AssistanceOptionsNameOther{}
+
+def assistance_options_discriminant(+value: String) -> AssistanceOptionsName:
+  Bool.pick(AssistanceOptionsName, String.eq(value, "assistance-profile"), AssistanceOptionsNameAssistanceProfile{},
+    AssistanceOptionsNameOther{})
+
+def assistance_options_classified(field: AssistanceOptionsName, profiles: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match field:
-    case "assistance-profile": option("", "使用看板默认模型") <> profile_options(profiles)
-    case _: Nil{}
+    case AssistanceOptionsNameAssistanceProfile{}: option("", "使用看板默认模型") <> profile_options(profiles)
+    case AssistanceOptionsNameOther{}: Nil{}
+
+def assistance_options(field: String, profiles: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+  assistance_options_classified(assistance_options_discriminant(field), profiles)
 
 def priority_options(values: +List<Board.Priority>) -> +List<Forms.ChoiceValue>:
   match values:
     case Nil{}: Nil{}
     case Con{+value, rest}: option(Board.priority_name(value), Board.priority_label(value)) <> priority_options(rest)
 
-def card_options(field: String, projects: +List<View.ProjectChoice>, priorities: +List<Board.Priority>, owners: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+type CardOptionsName is Data:
+  CardOptionsNameCardProject{}
+  CardOptionsNameCardOwner{}
+  CardOptionsNameCardPriority{}
+  CardOptionsNameOther{}
+
+def card_options_discriminant(+value: String) -> CardOptionsName:
+  Bool.pick(CardOptionsName, String.eq(value, "card-project"), CardOptionsNameCardProject{},
+    Bool.pick(CardOptionsName, String.eq(value, "card-owner"), CardOptionsNameCardOwner{},
+    Bool.pick(CardOptionsName, String.eq(value, "card-priority"), CardOptionsNameCardPriority{},
+    CardOptionsNameOther{})))
+
+def card_options_classified(field: CardOptionsName, projects: +List<View.ProjectChoice>, priorities: +List<Board.Priority>, owners: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
   match field:
-    case "card-project": option("", "No project") <> project_options(projects)
-    case "card-owner": owners
-    case "card-priority": priority_options(priorities)
-    case _: Nil{}
+    case CardOptionsNameCardProject{}: option("", "No project") <> project_options(projects)
+    case CardOptionsNameCardOwner{}: owners
+    case CardOptionsNameCardPriority{}: priority_options(priorities)
+    case CardOptionsNameOther{}: Nil{}
+
+def card_options(field: String, projects: +List<View.ProjectChoice>, priorities: +List<Board.Priority>, owners: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
+  card_options_classified(card_options_discriminant(field), projects, priorities, owners)
 
 def stage_options(values: +List<Board.Stage>) -> +List<Forms.ChoiceValue>:
   match values:
@@ -173,12 +209,27 @@ def approval_reviewer_options(preview: Context.Preview, reviewers: +List<Domain.
     case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: approval_choice_reviewer_options(Context.observed_approval(approval), reviewers)
     case _: Nil{}
 
-def execution_options(field: String, configuration: Context.Configuration, preview: Context.Preview, projects: +List<View.ProjectChoice>, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+type ExecutionOptionsName is Data:
+  ExecutionOptionsNameContextOrigin{}
+  ExecutionOptionsNameApprovalReviewer{}
+  ExecutionOptionsNameApprovalPolicy{}
+  ExecutionOptionsNameOther{}
+
+def execution_options_discriminant(+value: String) -> ExecutionOptionsName:
+  Bool.pick(ExecutionOptionsName, String.eq(value, "context-origin"), ExecutionOptionsNameContextOrigin{},
+    Bool.pick(ExecutionOptionsName, String.eq(value, "approval-reviewer"), ExecutionOptionsNameApprovalReviewer{},
+    Bool.pick(ExecutionOptionsName, String.eq(value, "approval-policy"), ExecutionOptionsNameApprovalPolicy{},
+    ExecutionOptionsNameOther{})))
+
+def execution_options_classified(field: ExecutionOptionsName, configuration: Context.Configuration, preview: Context.Preview, projects: +List<View.ProjectChoice>, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match field:
-    case "context-origin": List.append(&2, Forms.ChoiceValue, origin_options(Forms.ContextValue{preview, reviewers}), project_origin_options(projects))
-    case "approval-reviewer": approval_reviewer_options(preview, reviewers)
-    case "approval-policy": List.append(&2, Forms.ChoiceValue, [option("ask", "Ask for approval"), option("full-access", "Full access")], reviewer_options(reviewers))
-    case _: Nil{}
+    case ExecutionOptionsNameContextOrigin{}: List.append(&2, Forms.ChoiceValue, origin_options(Forms.ContextValue{preview, reviewers}), project_origin_options(projects))
+    case ExecutionOptionsNameApprovalReviewer{}: approval_reviewer_options(preview, reviewers)
+    case ExecutionOptionsNameApprovalPolicy{}: List.append(&2, Forms.ChoiceValue, [option("ask", "Ask for approval"), option("full-access", "Full access")], reviewer_options(reviewers))
+    case ExecutionOptionsNameOther{}: Nil{}
+
+def execution_options(field: String, configuration: Context.Configuration, preview: Context.Preview, projects: +List<View.ProjectChoice>, reviewers: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+  execution_options_classified(execution_options_discriminant(field), configuration, preview, projects, reviewers)
 
 def permitted_option(permitted: Bool, value: Forms.ChoiceValue, rest: +List<Forms.ChoiceValue>) -> +List<Forms.ChoiceValue>:
   match permitted:
@@ -206,11 +257,24 @@ def reasoning_options(+profile: String, values: +List<Domain.Profile>) -> +List<
     case Nil{}: Nil{}
     case Con{Domain.Profile{+id, provider, name, policy, options}, rest}: selected_reasoning(String.eq(id, profile), Domain.Profile{id, provider, name, policy, options}, reasoning_options(profile, rest))
 
-def model_group_options(field: String, profile: String, choices: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+type ModelGroupOptionsName is Data:
+  ModelGroupOptionsNameModelProfile{}
+  ModelGroupOptionsNameReasoningEffort{}
+  ModelGroupOptionsNameOther{}
+
+def model_group_options_discriminant(+value: String) -> ModelGroupOptionsName:
+  Bool.pick(ModelGroupOptionsName, String.eq(value, "model-profile"), ModelGroupOptionsNameModelProfile{},
+    Bool.pick(ModelGroupOptionsName, String.eq(value, "reasoning-effort"), ModelGroupOptionsNameReasoningEffort{},
+    ModelGroupOptionsNameOther{}))
+
+def model_group_options_classified(field: ModelGroupOptionsName, profile: String, choices: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
   match field:
-    case "model-profile": profile_options(choices)
-    case "reasoning-effort": reasoning_options(profile, choices)
-    case _: Nil{}
+    case ModelGroupOptionsNameModelProfile{}: profile_options(choices)
+    case ModelGroupOptionsNameReasoningEffort{}: reasoning_options(profile, choices)
+    case ModelGroupOptionsNameOther{}: Nil{}
+
+def model_group_options(field: String, profile: String, choices: +List<Domain.Profile>) -> +List<Forms.ChoiceValue>:
+  model_group_options_classified(model_group_options_discriminant(field), profile, choices)
 
 def group_options(field: String, value: View.InputGroup) -> +List<Forms.ChoiceValue>:
   match value:

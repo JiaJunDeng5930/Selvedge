@@ -41,50 +41,8 @@ def failure(message: String) -> J.Json:
 def failure_code(code: String, message: String) -> J.Json:
   J.Object{Con{J.Field{"ok", J.Boolean{False{}}}, Con{J.Field{"error", J.Text{message}}, Con{J.Field{"code", J.Text{code}}, Nil{}}}}}
 
-# Store and resource objects originate in ordinary JSON observations with unique
-# keys. Removing the selected field preserves order-independent comparison.
-type JsonFieldSelection is Data:
-  JsonFieldSelection{found: Bool, value: J.Json, rest: +List<J.Field>}
-
-def same_json_select(equal: Bool, value: J.Json, rest: +List<J.Field>, field: J.Field, selected: JsonFieldSelection) -> JsonFieldSelection:
-  match equal:
-    case True{}: JsonFieldSelection{True{}, value, rest}
-    case False{}:
-      JsonFieldSelection{found, value, tail} = selected
-      JsonFieldSelection{found, value, Con{field, tail}}
-
-def same_json_take(+name: String, fields: +List<J.Field>) -> JsonFieldSelection:
-  match fields:
-    case Nil{}: JsonFieldSelection{False{}, J.Null{}, Nil{}}
-    case Con{J.Field{+key, +value}, +rest}:
-      same_json_select(J.same_text(key, name), value, rest, J.Field{key, value}, same_json_take(name, rest))
-
-def same_json_selected_found(selected: JsonFieldSelection) -> Bool:
-  JsonFieldSelection{found, value, rest} = selected
-  found
-
-def same_json_selected_value(selected: JsonFieldSelection) -> J.Json:
-  JsonFieldSelection{found, value, rest} = selected
-  value
-
-def same_json_selected_rest(selected: JsonFieldSelection) -> +List<J.Field>:
-  JsonFieldSelection{found, value, rest} = selected
-  rest
-
 def same_json(left: J.Json, right: J.Json) -> Bool:
-  match left right:
-    case J.Null{} J.Null{}: True{}
-    case J.Boolean{left} J.Boolean{right}: J.same_bool(left, right)
-    case J.Number{left} J.Number{right}: J.same_text(left, right)
-    case J.Text{left} J.Text{right}: J.same_text(left, right)
-    case J.Array{Nil{}} J.Array{Nil{}}: True{}
-    case J.Array{Con{left, left_rest}} J.Array{Con{right, right_rest}}:
-      same_json(left, right) && same_json(J.Array{left_rest}, J.Array{right_rest})
-    case J.Object{Nil{}} J.Object{Nil{}}: True{}
-    case J.Object{Con{J.Field{name, value}, left_rest}} J.Object{right_fields}:
-      +selection = same_json_take(name, right_fields)
-      same_json_selected_found(selection) && same_json(value, same_json_selected_value(selection)) && same_json(J.Object{left_rest}, J.Object{same_json_selected_rest(selection)})
-    case _ _: False{}
+  J.same_unordered(left, right)
 
 # Decimal strings avoid normalizing the JavaScript safe-integer bound into a
 # giant unary Nat during checked adapter elaboration.

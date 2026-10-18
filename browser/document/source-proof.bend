@@ -179,6 +179,14 @@ def user_message_width(+visual: Design.Style) -> RuleSourceRules.user_message_wi
     Factory.adaptive_natural_width(visual), RuleSourceRules.adaptive_user_width(visual), user_width_policy(visual))
 
 
+def RuleSourceRules.placement_choices_empty(): {==}
+
+def RuleSourceRules.placement_choices_available(target, label, input, rest): {==}
+
+def RuleSourceRules.placement_choices_needs_directory_observation(target, label, input, rest): {==}
+
+def RuleSourceRules.placement_choices_unavailable(target, label, input, reason, rest): {==}
+
 def RuleSourceRules.movement_field_has_own_identity(key, destinations, face, name, handle, geometry, visual, parameters): {==}
 
 def RuleSourceRules.movement_child_is_authored(key, role, destinations, face, control, nodes, rest): {==}
@@ -365,6 +373,7 @@ def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +rol
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -473,7 +482,9 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
         case Forms.OptionalTextValue{text}: {==}
         case Forms.NotApplicable{}: {==}
     case Forms.MessageText{}: {==}
+    case Forms.WorkName{}: {==}
     case Forms.ProjectName{}: {==}
+    case Forms.CreateWorktree{}: {==}
     case Forms.WorkspacePrimary{}: {==}
     case Forms.ContextOrigin{}: {==}
     case Forms.SandboxMode{}: {==}
@@ -501,6 +512,8 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
     case Forms.ForkMessages{}: {==}
     case Forms.CompactionSummary{}: {==}
     case Forms.TaskGraphDeclaration{}: {==}
+    case Forms.TaskTitlePrompt{}: {==}
+    case Forms.AgentTitlePrompt{}: {==}
 
 def directory_source(+capacity: Nat, +editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.directory_source(capacity, editor, field, value, choices, key, label, role, visual, representation, children, parameters, content):
   {==}

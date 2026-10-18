@@ -15,3 +15,6 @@ activity-derived label alongside the original layer key, role, dismissal meaning
 and content. Focus and outside/Escape ownership continue to use those actual
 keys and occurrence values, independently of whether the activity needs an outer
 heading.
+
+Settings restoration follows actual simultaneous-navigation capacity: the desktop
+returns to Settings, while the compact view returns to its global menu launcher.

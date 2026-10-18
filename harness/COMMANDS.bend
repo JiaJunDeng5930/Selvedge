@@ -1,4 +1,5 @@
 import Base
+import ../features/titles/STATE.bend as Titles
 import ../features/compaction/SPEC.bend as Compaction
 import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
@@ -7,6 +8,7 @@ import ./features/resolution.bend as FeatureResolution
 import ./features/operations.bend as FeatureOps
 import ./features/SPEC.bend as FeatureSpec
 import ./features/MODEL.bend as F
+import ./features/work-state.bend as WorkState
 import ../bendlib/effects.bend as Effects
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
@@ -131,12 +133,21 @@ def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +pro
       require(start_permitted, Start{profile, reasoning, message, selection},
         "invalid_arguments", "Create requires a nonempty message and a permitted reasoning effort. Adaptive endpoints accept only auto.")
 
+def workspace_permitted(+world: M.World(), operation: Operation) -> Bool:
+  match operation:
+    case Start{profile, reasoning, message, Workspace.Selection{context, guidance}}: FeatureState.workspace_available(Workspace.workspace(context), world)
+    case Branch{task, count, messages, Workspace.Selection{context, guidance}}: FeatureState.workspace_available(Workspace.workspace(context), world)
+    case _: True{}
+
+def available_workspace(operation: Operation, +world: M.World()) -> Operation:
+  require(value => workspace_permitted(world, value), operation, "worktree_unavailable", "This managed worktree is not ready. Select an available workspace or wait for its operation to finish.")
+
 def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: String, options: J.Json, +world: M.World()) -> Operation:
   match profile:
     case None{}: Refuse{"unknown_profile", "Select a configured model profile"}
     case Some{+profile}:
-      start_selection(selected_settings(options, environment_selection(settings(world)), profile, world),
-        profile, D.profile_selection(reasoning, profile), message)
+      available_workspace(start_selection(selected_settings(options, environment_selection(settings(world)), profile, world),
+        profile, D.profile_selection(reasoning, profile), message), world)
 
 def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, parent: D.Task,
   count: Nat, messages: +List<String>) -> Operation:
@@ -144,10 +155,10 @@ def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, par
     case Fail{reason}: Refuse{"invalid_settings", reason}
     case Done{selection}: Branch{parent, count, messages, selection}
 
-def configure_branch(operation: Operation, options: J.Json, world: M.World()) -> Operation:
+def configure_branch(operation: Operation, options: J.Json, +world: M.World()) -> Operation:
   match operation:
     case Branch{+parent, count, messages, base}:
-      branch_selection(selected_settings(options, base, D.model_profile(D.task_model(parent)), world), parent, count, messages)
+      available_workspace(branch_selection(selected_settings(options, base, D.model_profile(D.task_model(parent)), world), parent, count, messages), world)
     case other: other
 
 def selected_contract(selection: Workspace.Selection, contract: D.Contract) -> D.Contract:
@@ -227,8 +238,8 @@ def branch_parent_valid(status: D.Status, phase: D.Phase) -> Bool:
     case D.Active{} D.Idle{}: True{}
     case _ _: False{}
 
-def branch_fits(+count: Nat, messages: +List<String>, +parent: D.Task, world: M.World()) -> Bool:
-  branch_count_valid(count, parent) && branch_messages_valid(count, messages) && branch_capacity_valid(count, parent, world)
+def branch_fits(+count: Nat, messages: +List<String>, +parent: D.Task, +world: M.World()) -> Bool:
+  FeatureState.execution_allowed(D.task_id(parent), world) && branch_count_valid(count, parent) && branch_messages_valid(count, messages) && branch_capacity_valid(count, parent, world)
 
 def branch_permitted(+world: M.World(), operation: Operation) -> Bool:
   match operation:
@@ -268,20 +279,27 @@ def compacted(found: Maybe<&2, D.Task>, summary: Maybe<&2, String>) -> Operation
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+task}: checkpoint_ready(D.task_status(task), D.task_phase(task), task, summary)
 
-def project_fields(+workspace: J.Json, +guidance: J.Json) -> Bool:
-  (Workspace.absent(workspace) || Schema.valid(D.workspace_schema(), workspace)) &&
-    (Workspace.absent(guidance) || Schema.valid(D.guidance_schema(), guidance))
+def project_worktree_preference(value: J.Json) -> Bool:
+  match value:
+    case J.Null{}: True{}
+    case J.Boolean{create_worktree}: True{}
+    case _: False{}
 
-def project_creation_permitted(+workspace: J.Json, +guidance: J.Json, +registry: D.Projects, operation: Operation) -> Bool:
+def project_fields(+workspace: J.Json, +guidance: J.Json, create_worktree: J.Json) -> Bool:
+  (Workspace.absent(workspace) || Schema.valid(D.workspace_schema(), workspace)) &&
+    (Workspace.absent(guidance) || Schema.valid(D.guidance_schema(), guidance)) &&
+    project_worktree_preference(create_worktree)
+
+def project_creation_permitted(+workspace: J.Json, +guidance: J.Json, +create_worktree: J.Json, +registry: D.Projects, operation: Operation) -> Bool:
   match operation:
     case StoreProject{id, project, next_id}:
-      Schema.valid(D.workspace_schema(), workspace) && project_fields(workspace, guidance) && Projects.valid_project(project) &&
+      Schema.valid(D.workspace_schema(), workspace) && project_fields(workspace, guidance, create_worktree) && Projects.valid_project(project) &&
         Nat.is_lt(Projects.count(registry), 256n) && (Projects.next_word(registry) < 4294967295 : U32)
     case _: False{}
 
-def project_update_permitted(+workspace: J.Json, +guidance: J.Json, operation: Operation) -> Bool:
+def project_update_permitted(+workspace: J.Json, +guidance: J.Json, +create_worktree: J.Json, operation: Operation) -> Bool:
   match operation:
-    case StoreProject{id, project, next_id}: project_fields(workspace, guidance) && Projects.valid_project(project)
+    case StoreProject{id, project, next_id}: project_fields(workspace, guidance, create_worktree) && Projects.valid_project(project)
     case _: False{}
 
 def project_removal_permitted(+world: M.World(), operation: Operation) -> Bool:
@@ -291,20 +309,20 @@ def project_removal_permitted(+world: M.World(), operation: Operation) -> Bool:
         Bool.not(FeatureState.project_used(id, world))
     case _: False{}
 
-def create_project(name: String, +workspace: J.Json, +guidance: J.Json, +world: M.World()) -> Operation:
-  +project = Projects.proposal(Some{name}, workspace, guidance, D.Project{"", D.Workspace{Nil{}, None{}}, D.NoProject{}})
+def create_project(name: String, +workspace: J.Json, +guidance: J.Json, +create_worktree: J.Json, +world: M.World()) -> Operation:
+  +project = Projects.proposal(Some{name}, workspace, guidance, create_worktree, D.Project{"", D.Workspace{Nil{}, None{}}, D.NoProject{}, False{}})
   +registry = Projects.registry(F.State(), world)
   +id = Projects.next_id(registry)
-  require(operation => project_creation_permitted(workspace, guidance, registry, operation),
+  require(operation => project_creation_permitted(workspace, guidance, create_worktree, registry, operation),
     StoreProject{id, project, (Projects.next_word(registry) + 1 : U32)}, "invalid_project", "A project requires a nonempty bounded name, valid workspace defaults, and available project capacity")
 
 def update_project(found: Maybe<&2, D.Project>, id: Nat, name: Maybe<&2, String>, +workspace: J.Json,
-  +guidance: J.Json, next_id: U32) -> Operation:
+  +guidance: J.Json, +create_worktree: J.Json, next_id: U32) -> Operation:
   match found:
     case None{}: Refuse{"project_not_found", "The project does not exist"}
     case Some{previous}:
-      +project = Projects.proposal(name, workspace, guidance, previous)
-      require(operation => project_update_permitted(workspace, guidance, operation), StoreProject{id, project, next_id},
+      +project = Projects.proposal(name, workspace, guidance, create_worktree, previous)
+      require(operation => project_update_permitted(workspace, guidance, create_worktree, operation), StoreProject{id, project, next_id},
         "invalid_project", "Project defaults require a valid name, workspace and matching guidance")
 
 def delete_project(+id: Nat, +world: M.World()) -> Operation:
@@ -352,7 +370,7 @@ def configuration_reasoning(permitted: Bool, +task: D.Task, +profile: D.Profile,
     case False{}: Refuse{"invalid_reasoning", "Select a permitted reasoning effort for the execution profile"}
     case True{}:
       model : D.Model = D.Model{profile, reasoning}
-      configuration_policy(Workspace.valid_approval(approval), task, D.ExecutionConfiguration{D.profile_key(profile), reasoning, model, sandbox, approval})
+      configuration_policy(Workspace.valid_approval(approval), task, D.ExecutionConfiguration{model, sandbox, approval})
 
 def configuration_profile(found: Maybe<&2, D.Profile>, task: D.Task, +reasoning: String, sandbox: D.Sandbox, approval: D.ApprovalPolicy) -> Operation:
   match found:
@@ -379,22 +397,47 @@ def configure_execution(found: Maybe<&2, D.Task>, profile: String, reasoning: St
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{task}: configuration_reviewed(configuration_approval(approval, configured(settings(world))), task, profile, reasoning, sandbox, world)
 
+def pending_operation(allowed: Bool, operation: Operation) -> Operation:
+  match allowed:
+    case True{}: operation
+    case False{}: Refuse{"worktree_pending", "Wait for worktree creation or archive the task before changing its execution"}
+
+def executable_operation(allowed: Bool, operation: Operation) -> Operation:
+  match allowed:
+    case True{}: operation
+    case False{}: Refuse{"worktree_creation_failed", "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace."}
+
+def execution_control_allowed(request: D.Control, id: Nat, world: M.World()) -> Bool:
+  match request:
+    case D.Archive{}: True{}
+    case _: FeatureState.execution_allowed(id, world)
+
+def archive_operation(allowed: Bool, operation: Operation) -> Operation:
+  match allowed:
+    case True{}: operation
+    case False{}: Refuse{"worktree_in_use", "This worktree is shared by other tasks. Archive those tasks before archiving its owner."}
+
+def archival_control_allowed(request: D.Control, id: Nat, world: M.World()) -> Bool:
+  match request:
+    case D.Archive{}: FeatureState.archive_allowed(id, world)
+    case _: True{}
+
 def resolve(command: M.Command, +world: M.World()) -> Operation:
   match command:
-    case M.ConfigureTaskExecution{id, profile, reasoning, sandbox, approval}:
-      configure_execution(T.find(entries(world), id), profile, reasoning, sandbox, approval, world)
+    case M.ConfigureTaskExecution{+id, profile, reasoning, sandbox, approval}:
+      executable_operation(FeatureState.execution_allowed(id, world), pending_operation(Bool.not(FeatureState.pending_task(id, world)), configure_execution(T.find(entries(world), id), profile, reasoning, sandbox, approval, world)))
     case M.Create{profile, reasoning, message, options}:
       selected(D.find_profile(configured(settings(world)), profile), reasoning, message, options, world)
-    case M.Send{id, message}: recipient(T.find(entries(world), id), message)
-    case M.Steer{id, message}: steering(T.find(entries(world), id), message)
+    case M.Send{+id, message}: executable_operation(FeatureState.execution_allowed(id, world), recipient(T.find(entries(world), id), message))
+    case M.Steer{+id, message}: executable_operation(FeatureState.execution_allowed(id, world), steering(T.find(entries(world), id), message))
     case M.Cancel{id, ticket}: cancellation(T.find(entries(world), id), ticket)
-    case M.ChangeStatus{id, control}: controlled(T.find(entries(world), id), control)
-    case M.Fork{id, count, messages, options}: configure_branch(branched(T.find(entries(world), id), count, messages, world), options, world)
+    case M.ChangeStatus{+id, +control}: archive_operation(archival_control_allowed(control, id, world), executable_operation(execution_control_allowed(control, id, world), pending_operation(FeatureState.control_allowed(control, id, world), controlled(T.find(entries(world), id), control))))
+    case M.Fork{+id, count, messages, options}: executable_operation(FeatureState.execution_allowed(id, world), configure_branch(branched(T.find(entries(world), id), count, messages, world), options, world))
     case M.Compact{id, summary}: compacted(T.find(entries(world), id), summary)
     case M.Observe{query}: Observe{query}
-    case M.CreateProject{name, workspace, guidance}: create_project(name, workspace, guidance, world)
-    case M.UpdateProject{+id, name, workspace, guidance}:
-      update_project(Projects.find(Projects.registry(F.State(), world), id), id, name, workspace, guidance, Projects.next_word(Projects.registry(F.State(), world)))
+    case M.CreateProject{name, workspace, guidance, create_worktree}: create_project(name, workspace, guidance, create_worktree, world)
+    case M.UpdateProject{+id, name, workspace, guidance, create_worktree}:
+      update_project(Projects.find(Projects.registry(F.State(), world), id), id, name, workspace, guidance, create_worktree, Projects.next_word(Projects.registry(F.State(), world)))
     case M.DeleteProject{id}: delete_project(id, world)
     case M.ReviewApproval{id, operation, outcome}:
       Review{Approvals.resolution(F.State(), Approvals.construct_review(F.State(),
@@ -438,8 +481,8 @@ def configuration_input(input: M.Input, +before: M.World()) -> Maybe<&2, Configu
 # Unlike bounded persisted-state validation, this comparison cannot run out of fuel.
 def configuration_session_same(left: D.ExecutionConfiguration, right: D.ExecutionConfiguration) -> Bool:
   match left right:
-    case D.ExecutionConfiguration{profile_a, reasoning_a, model_a, D.Sandbox{mode_a, network_a}, approval_a} D.ExecutionConfiguration{profile_b, reasoning_b, model_b, D.Sandbox{mode_b, network_b}, approval_b}:
-      String.eq(profile_a, profile_b) && String.eq(reasoning_a, reasoning_b) && Same.model(model_a, model_b) &&
+    case D.ExecutionConfiguration{model_a, D.Sandbox{mode_a, network_a}, approval_a} D.ExecutionConfiguration{model_b, D.Sandbox{mode_b, network_b}, approval_b}:
+      Same.model(model_a, model_b) &&
         String.eq(D.sandbox_mode_name(mode_a), D.sandbox_mode_name(mode_b)) && Same.booleans(network_a, network_b) && Same.approval(approval_a, approval_b)
 
 def configuration_changed(found: Maybe<&2, D.Task>, configuration: D.ExecutionConfiguration) -> Bool:
@@ -505,7 +548,7 @@ def start(profile: D.Profile, reasoning: String, message: String, selection: Wor
 def status_change(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match next:
     case D.Archived{}:
-      C.Decision{Compaction.cancelled_world(task, replace(T.archive(task), world)), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
+      FeatureState.archived_task(D.task_id(task), C.Decision{Compaction.cancelled_world(task, replace(T.archive(task), world)), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]})
     case status: changed(D.task_id(task), T.promote(D.with_status(status, task)), world, Nil{})
 
 def lifecycle(request: D.Control, next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
@@ -570,22 +613,46 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
 def summarize(task: D.Task, world: M.World()) -> M.Decision():
   RequiredReasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world)
 
-def page_checked(valid: Bool, task: D.Task, after: Nat, limit: Nat) -> J.Json:
+def task_work_summary_value(value: J.Json, work: Maybe<&2, Nat>) -> J.Json:
+  match value:
+    case J.Object{fields}: J.Object{J.Field{"work_id", J.optional_nat(work)} <> fields}
+    case value: value
+
+def task_work_summary(+task: D.Task, +world: M.World()) -> J.Json:
+  task_work_summary_value(Titles.summary(task, world), WorkState.task_work(task, world))
+
+def task_work_summaries(tasks: +List<D.Task>, +world: M.World()) -> +List<J.Json>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{task, rest}: task_work_summary(task, world) <> task_work_summaries(rest, world)
+
+def task_work_page(fields: +List<J.Field>, +task: D.Task, +world: M.World()) -> +List<J.Field>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{"task", value}, rest}: J.Field{"task", task_work_summary_value(value, WorkState.task_work(task, world))} <> rest
+    case Con{field, rest}: field <> task_work_page(rest, task, world)
+
+def task_work_page_value(value: J.Json, task: D.Task, world: M.World()) -> J.Json:
+  match value:
+    case J.Object{fields}: D.success(J.Object{task_work_page(fields, task, world)})
+    case value: D.success(value)
+
+def page_checked(valid: Bool, +task: D.Task, after: Nat, limit: Nat, +world: M.World()) -> J.Json:
   match valid:
     case False{}: D.failure("invalid_page", "The page requires 1..100 messages and an offset on the task history")
-    case True{}: D.success(T.page(task, after, limit))
+    case True{}: task_work_page_value(Titles.page(task, after, limit, world), task, world)
 
-def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat) -> J.Json:
+def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat, world: M.World()) -> J.Json:
   match found:
     case None{}: D.failure("task_not_found", "The target task does not exist")
     case Some{+task}:
-      page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, D.history_length(D.task_history(task))), task, after, limit)
+      page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, D.history_length(D.task_history(task))), task, after, limit, world)
 
-def listing_environment(world: M.World(), environment_value: D.Environment) -> J.Json:
+def listing_environment(+world: M.World(), environment_value: D.Environment) -> J.Json:
   match world environment_value:
     case C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
-      D.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
+      D.success(J.Object{[J.Field{"tasks", J.Array{task_work_summaries(tasks, world)}},
         J.Field{"profiles", J.Array{D.profiles_json(profiles)}}, J.Field{"tools", J.Array{D.tools_json(catalog)}},
         J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"compaction", FeatureCodec.compaction_json(board)},
         J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
@@ -595,7 +662,7 @@ def listing(+world: M.World()) -> J.Json:
 
 def query(query: M.Query, +world: M.World()) -> J.Json:
   match query:
-    case M.Read{id, after, limit}: page(T.find(entries(world), id), after, limit)
+    case M.Read{id, after, limit}: page(T.find(entries(world), id), after, limit, world)
     case M.ListTasks{}: listing(world)
     case M.Describe{}: D.success(M.description())
     case M.ListProjects{}: D.success(J.Array{Projects.summaries(Projects.entries(Projects.registry(F.State(), world)), entries(world))})

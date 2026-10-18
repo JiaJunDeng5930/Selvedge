@@ -8,6 +8,7 @@ import ../../bendlib/stdlib.bend as Std
 import ../../harness/DOMAIN.bend as D
 import ../../harness/MODEL.bend as Harness
 import ../../harness/conversation/PROGRAM.bend as Conversation
+import ../../features/titles/STATE.bend as TitleState
 import ../presentation/SURFACE.bend as Surface
 
 def first(values: +List<J.Json>) -> J.Json:
@@ -47,8 +48,8 @@ def awaiting_authoritative_human(+operations: +List<D.Operation()>) ->
           Sources.awaiting_human(rest), List.any(~&2, ~D.Operation(), ~pending_human_approval, rest),
           awaiting_authoritative_human(rest)))
 
-def task_awaiting_human(+task: D.Task) ->
-  {J.get(Sources.task_value(Some{task}), "awaitingHuman") ==
+def task_awaiting_human(+task: D.Task, +world: Harness.World()) ->
+  {J.get(Sources.task_value(Some{task}, world), "awaitingHuman") ==
     J.Boolean{List.any(~&2, ~D.Operation(), ~pending_human_approval, D.task_operations(task))} : J.Json}:
   Equal.cong(Bool, J.Json, (waiting => J.Boolean{waiting}),
     Sources.awaiting_human(D.task_operations(task)),
@@ -57,13 +58,15 @@ def task_awaiting_human(+task: D.Task) ->
 
 type SourceRequirements is Type:
   SourceRequirements{
-    working_fact: @+task:D.Task ->
-      {J.get(Sources.task_value(Some{task}), "working") == J.Boolean{Conversation.working(D.task_phase(task), D.task_operations(task))} : J.Json},
-    status_fact: @+task:D.Task ->
-      {J.get(Sources.task_value(Some{task}), "statusLabel") == J.Text{Conversation.status(task)} : J.Json},
-    approval_fact: @+task:D.Task ->
-      {J.get(Sources.task_value(Some{task}), "awaitingHuman") == J.Boolean{List.any(~&2, ~D.Operation(), ~pending_human_approval, D.task_operations(task))} : J.Json},
-    missing_task: {Sources.task_value(None{}) == J.Null{} : J.Json},
+    title_fact: @+task:D.Task -> @+world:Harness.World() ->
+      {J.get(Sources.task_value(Some{task}, world), "title") == J.Text{TitleState.title(task, world)} : J.Json},
+    working_fact: @+task:D.Task -> @+world:Harness.World() ->
+      {J.get(Sources.task_value(Some{task}, world), "working") == J.Boolean{Conversation.working(D.task_phase(task), D.task_operations(task))} : J.Json},
+    status_fact: @+task:D.Task -> @+world:Harness.World() ->
+      {J.get(Sources.task_value(Some{task}, world), "statusLabel") == J.Text{Conversation.status(task)} : J.Json},
+    approval_fact: @+task:D.Task -> @+world:Harness.World() ->
+      {J.get(Sources.task_value(Some{task}, world), "awaitingHuman") == J.Boolean{List.any(~&2, ~D.Operation(), ~pending_human_approval, D.task_operations(task))} : J.Json},
+    missing_task: @world:Harness.World() -> {Sources.task_value(None{}, world) == J.Null{} : J.Json},
     missing_graph: @id:Nat -> @world:Harness.World() -> @sequence:Nat -> @fresh:Bool ->
       {Sources.graph_observation(None{}, id, world, sequence, fresh) == Sources.source_handle("missing", fresh, sequence, J.Null{}) : J.Json},
     field_identity: @+identity:UI.Identity -> @occurrence:Nat -> @tag:String -> @attrs:J.Json -> @binding:UI.Binding -> @children:+List<UI.ExpandedNode> ->
@@ -71,7 +74,7 @@ type SourceRequirements is Type:
 
 def requirements() -> SourceRequirements:
   SourceRequirements{
-    task => {==}, task => {==}, task_awaiting_human, {==},
+    task => world => {==}, task => world => {==}, task => world => {==}, task_awaiting_human, world => {==},
     id => world => sequence => fresh => {==},
     identity => occurrence => tag => attrs => binding => children => {==}}
 

@@ -82,10 +82,21 @@ def numbers(values: +List<J.Json>) -> +List<Nat>:
     case Nil{}: Nil{}
     case Con{value, rest}: number(value) <> numbers(rest)
 
-def mode(name: String) -> D.SandboxMode:
+type ModeName is Data:
+  ModeNameReadOnly{}
+  ModeNameOther{}
+
+def mode_discriminant(+value: String) -> ModeName:
+  Bool.pick(ModeName, String.eq(value, "read-only"), ModeNameReadOnly{},
+    ModeNameOther{})
+
+def mode_classified(name: ModeName) -> D.SandboxMode:
   match name:
-    case "read-only": D.ReadOnly{}
-    case _: D.WorkspaceWrite{}
+    case ModeNameReadOnly{}: D.ReadOnly{}
+    case ModeNameOther{}: D.WorkspaceWrite{}
+
+def mode(name: String) -> D.SandboxMode:
+  mode_classified(mode_discriminant(name))
 
 def sandbox(+value: J.Json) -> D.Sandbox:
   D.Sandbox{mode(J.text(J.get(value, "mode"))), J.boolean(J.get(value, "network_access"))}
@@ -118,11 +129,11 @@ def grant_modes(values: +List<J.Json>) -> Bool:
       (String.eq(J.text(J.get(J.get(value, "sandbox"), "mode")), "read-only") ||
        String.eq(J.text(J.get(J.get(value, "sandbox"), "mode")), "workspace-write")) && grant_modes(rest)
 
-def valid(kind: EntryKind, +body: J.Json) -> Bool:
+# The outer command codec already admitted the declared schema.
+def additional_constraints(kind: EntryKind, +body: J.Json) -> Bool:
   match kind:
-    case Write{ConfigureKind{}}: Schema.valid(write_schema(ConfigureKind{}), body) && grant_modes(J.items(J.get(body, "connections")))
-    case Write{kind}: Schema.valid(write_schema(kind), body)
-    case Read{kind}: Schema.valid(read_schema(kind), body)
+    case Write{ConfigureKind{}}: grant_modes(J.items(J.get(body, "connections")))
+    case _: True{}
 
 def number_json(values: +List<Nat>) -> +List<J.Json>:
   match values:

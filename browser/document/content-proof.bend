@@ -133,11 +133,22 @@ def partition_matches_specification(+values: +List<SurfaceTypes.Node>, +context:
 def ordered_children_matches_specification(+values: +List<SurfaceTypes.Node>, role: SurfaceTypes.Role, +context: Controls.Context) ->
   {Order.ordered_children(role, values, context) == Rule.specified_children(role, values, context) : +List<SurfaceTypes.Node>}:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: {==}
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: {==}
+    case SurfaceTypes.CompactHeader{}: {==}
+    case SurfaceTypes.CompactWorkScope{title, count}: {==}
+    case SurfaceTypes.CompactNavigationMenu{}: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}: {==}
     case SurfaceTypes.Dialog{}:
       +parts_evidence = partition_matches_specification(values, context)
       Equal.cong(Order.DialogParts, +List<SurfaceTypes.Node>, (parts => Order.ordered_dialog_children(parts)),
         Order.partition_dialog_children(values, context), Rule.specified_parts(values, context), parts_evidence)
+    case SurfaceTypes.WorkTabs{}: {==}
+    case SurfaceTypes.WorkTabGroup{}: {==}
+    case SurfaceTypes.WorkChoiceRow{}: {==}
+    case SurfaceTypes.WorkOverviewButton{count}: {==}
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.WorkTab{selected}: {==}
     case SurfaceTypes.NavigationEntry{selected}: {==}
     case SurfaceTypes.NavigationCollection{}: {==}
     case SurfaceTypes.NavigationSection{}: {==}
@@ -170,8 +181,19 @@ def ordered_children_matches_specification(+values: +List<SurfaceTypes.Node>, ro
 def non_dialog_order(role: SurfaceTypes.Role, +values: +List<SurfaceTypes.Node>, +context: Controls.Context) ->
   {Rule.non_dialog_order_observation(role, values, context) == values : +List<SurfaceTypes.Node>}:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: {==}
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: {==}
+    case SurfaceTypes.CompactHeader{}: {==}
+    case SurfaceTypes.CompactWorkScope{title, count}: {==}
+    case SurfaceTypes.CompactNavigationMenu{}: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}: {==}
     case SurfaceTypes.Dialog{}: {==}
+    case SurfaceTypes.WorkTabs{}: {==}
+    case SurfaceTypes.WorkTabGroup{}: {==}
+    case SurfaceTypes.WorkChoiceRow{}: {==}
+    case SurfaceTypes.WorkOverviewButton{count}: {==}
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.WorkTab{selected}: {==}
     case SurfaceTypes.NavigationEntry{selected}: {==}
     case SurfaceTypes.NavigationCollection{}: {==}
     case SurfaceTypes.NavigationSection{}: {==}
@@ -621,25 +643,35 @@ def Rule.navigation_precedence(key, role): {==}
 
 def Rule.remaining_region(key, role): {==}
 
+def Rule.global_navigation_precedence(key, compact): {==}
+
+def Rule.base_partition_global_navigation(node, navigation, footer, main, other, work_tabs, global_navigation): {==}
+
+def Rule.compact_header_precedence(key): {==}
+
+def Rule.work_tabs_precedence(key): {==}
+
+def Rule.base_partition_work_tabs(node, navigation, footer, main, other, work_tabs, global_navigation): {==}
+
 def Rule.main_precedence(key): {==}
 
 def Rule.footer_region(): {==}
 
 def Rule.other_region(): {==}
 
-def Rule.base_partition_navigation(node, navigation, footer, main, other): {==}
+def Rule.base_partition_navigation(node, navigation, footer, main, other, work_tabs, global_navigation): {==}
 
-def Rule.base_partition_footer(node, navigation, footer, main, other): {==}
+def Rule.base_partition_footer(node, navigation, footer, main, other, work_tabs, global_navigation): {==}
 
-def Rule.base_partition_main(node, navigation, footer, main, other): {==}
+def Rule.base_partition_main(node, navigation, footer, main, other, work_tabs, global_navigation): {==}
 
-def Rule.base_partition_other(node, navigation, footer, main, other): {==}
+def Rule.base_partition_other(node, navigation, footer, main, other, work_tabs, global_navigation): {==}
 
 def Rule.base_partition_empty(): {==}
 
 def Rule.base_partition_step(key, semantic, label, role, meaning, children, rest): {==}
 
-def Rule.base_region_order(navigation, footer, main, other): {==}
+def Rule.base_region_order(navigation, footer, main, other, work_tabs, global_navigation): {==}
 
 def Rule.ordered_base_partition(values): {==}
 
@@ -647,7 +679,18 @@ def Rule.ordered_surface_base(content, base, overlays, scope): {==}
 
 def Rule.remaining_role_classification(key, role, belongs):
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: Logic.impossible({Order.base_region_role(key, SurfaceTypes.GlobalNavigation{compact}) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}, belongs)
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: {==}
+    case SurfaceTypes.CompactHeader{}: Logic.impossible({Order.base_region_role(key, SurfaceTypes.CompactHeader{}) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}, belongs)
+    case SurfaceTypes.CompactWorkScope{title, count}: {==}
+    case SurfaceTypes.CompactNavigationMenu{}: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}: {==}
+    case SurfaceTypes.WorkTabs{}: Logic.impossible({Order.base_region_role(key, SurfaceTypes.WorkTabs{}) == Order.footer_region(UIIdentity.same(key, UIIdentity.part(UIIdentity.place(""), "settings/open"))) : Order.BaseRegion}, belongs)
+    case SurfaceTypes.WorkTabGroup{}: {==}
+    case SurfaceTypes.WorkChoiceRow{}: {==}
+    case SurfaceTypes.WorkOverviewButton{count}: {==}
     case SurfaceTypes.Navigation{}: {==}
+    case SurfaceTypes.WorkTab{selected}: {==}
     case SurfaceTypes.NavigationEntry{selected}: {==}
     case SurfaceTypes.NavigationCollection{}: {==}
     case SurfaceTypes.NavigationSection{}: {==}
@@ -709,7 +752,8 @@ def project_family_projection(+area: Controls.Area, +owner: UIIdentity.Key, +sem
     Controls.project_presentation(Controls.project_control_matches(input, project), Controls.project_control_input(input), expanded, name, face, behavior, geometry) : Controls.ActionPresentation}:
   match area:
     case Controls.PageArea{}: {==}
-    case Controls.NavigationArea{}: {==}
+    case Controls.NavigationArea{compact}: {==}
+    case Controls.TouchNavigationArea{}: {==}
     case Controls.ComposerArea{}: {==}
     case Controls.ToolbarArea{}: {==}
     case Controls.CodeArea{}: {==}
@@ -727,7 +771,8 @@ def unscoped_projection(+area: Controls.Area, +input: InteractionTypes.Input, +n
   {Controls.contextual_source_presentation(area, Controls.Unscoped{}, input, name, face, behavior, geometry) == Controls.ActionPresentation{face, behavior, geometry} : Controls.ActionPresentation}:
   match area:
     case Controls.PageArea{}: {==}
-    case Controls.NavigationArea{}: {==}
+    case Controls.NavigationArea{compact}: {==}
+    case Controls.TouchNavigationArea{}: {==}
     case Controls.ComposerArea{}: {==}
     case Controls.ToolbarArea{}: {==}
     case Controls.CodeArea{}: {==}
@@ -786,7 +831,7 @@ def instructions_same(empty: Bool, +value: String) -> {Authored.project_instruct
     case True{}: {==}
     case False{}: {==}
 
-def frozen_project(+owner: UIIdentity.Key, +label: String, +directory: String, +revision: String, +instructions: String, +visual: Design.Style) -> Rule.project_law(owner, label, directory, revision, instructions, visual):
+def frozen_project(+owner: UIIdentity.Key, +label: String, +directory: String, +path: String, +revision: String, +instructions: String, +visual: Design.Style) -> Rule.project_law(owner, label, directory, path, revision, instructions, visual):
   Equal.cong(String, +List<Source.Node>,
     supplied_text => [Authored.group(owner, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(UIIdentity.part(owner, "title"), label, visual, T.Body{}, T.Strong{}), Authored.fact(UIIdentity.part(owner, "directory"), "Directory", directory, visual), Authored.fact(UIIdentity.part(owner, "revision"), "Revision", revision, visual), Authored.fact(UIIdentity.part(owner, "instructions"), "Instructions", supplied_text, visual)])],
     Authored.project_instructions(String.eq(instructions, ""), instructions),

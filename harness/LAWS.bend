@@ -1,4 +1,5 @@
 import Base
+import ../features/titles/SPEC.bend as TitleSpec
 import ./tools/SYNTAX.bend as Native
 import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
@@ -132,14 +133,14 @@ law delivery_observation_world:
   for +decision: M.Decision()
   for +previous: M.World()
   for unchanged: {P.decision_world(decision) == previous : M.World()}
-  {P.decision_world(P.deliver(durable, decision, previous)) == previous : M.World()}
+  {P.decision_world(Commit.deliver(durable, decision, previous)) == previous : M.World()}
 
 law delivery_observation_effects:
   for +durable: Bool
   for +decision: M.Decision()
   for +previous: M.World()
   for silent: {P.decision_effects(decision) == Nil{} : +List<M.Effect()>}
-  {P.decision_effects(P.deliver(durable, decision, previous)) == Nil{} : +List<M.Effect()>}
+  {P.decision_effects(Commit.deliver(durable, decision, previous)) == Nil{} : +List<M.Effect()>}
 
 # Unlike safety, these equalities prohibit both an always-rejecting command
 # interpreter and a safe no-op. State, reply, and effects are all observable.
@@ -186,17 +187,6 @@ law builtin_semantics:
   for +world: M.World()
   {P.builtin(tool, arguments, call, remaining, task, world) ==
     Protocol.invoked(Protocol.invocation(tool, arguments, task, world), call, remaining, task, world) : M.Decision()}
-
-law commit_semantics:
-  for +decision: M.Decision()
-  for +previous: M.World()
-  {P.checked(decision, previous) == Commit.checked(decision, previous) : M.Decision()}
-
-law output_semantics:
-  for +durable: Bool
-  for +decision: M.Decision()
-  for +previous: M.World()
-  {P.deliver(durable, decision, previous) == Commit.deliver(durable, decision, previous) : M.Decision()}
 
 law command_transition:
   for +command: M.Command
@@ -292,7 +282,7 @@ law scheduling_disabled:
 law scheduling_enabled:
   for +decision: M.Decision()
   {P.scheduled(True{}, decision) ==
-    Execution.scheduled_prepared(CompactionSpec.required_prepare(BoardScheduling.required_prepare(decision))) : M.Decision()}
+    Execution.scheduled_prepared(CompactionSpec.required_prepare(TitleSpec.prepare(BoardScheduling.required_prepare(decision)))) : M.Decision()}
 
 law scheduling_idle:
   for fuel: Nat
@@ -414,9 +404,7 @@ law context_replacement_preserves_project_contract:
 # declared world and transition predicates. This also covers rejected replies.
 
 def Admitted(+previous: M.World(), +decision: M.Decision()) -> Type:
-  Result<&1, &1,
-    {P.decision_world(decision) == previous : M.World()} & {P.decision_effects(decision) == Nil{} : +List<M.Effect()>},
-    {P.valid_world(decision) == True{} : Bool} & {I.decision(previous, decision) == True{} : Bool}>
+  Commit.admitted(previous, decision)
 
 law transition_admitted:
   for world: M.World()
@@ -654,16 +642,6 @@ law observation_replay:
   for +world: M.World()
   {P.replay(List.append(&2, M.Input, first, M.UserCommand{M.Observe{query}} <> second), world) ==
     P.replay(List.append(&2, M.Input, first, second), world) : M.World()}
-
-law rejected_delivery_unchanged:
-  for decision: M.Decision()
-  for +world: M.World()
-  {P.decision_world(P.output_admitted(False{}, decision, world)) == world : M.World()}
-
-law rejected_delivery_no_effects:
-  for decision: M.Decision()
-  for world: M.World()
-  {P.decision_effects(P.output_admitted(False{}, decision, world)) == Nil{} : +List<M.Effect()>}
 
 law context_has_no_call_authority:
   for part: Nat

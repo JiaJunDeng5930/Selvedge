@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir, platform, arch } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath } from 'node:url';
 import { Journal } from '../host/journal.mjs';
 import { buildIdentity } from '../host/kernel.mjs';
 
@@ -15,25 +14,9 @@ const results = [];
 for (const taskCount of sizes) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-benchmark-'));
   const filename = path.join(directory, 'journal.sqlite');
-  const resourceFile = path.join(directory, 'native-resources.txt');
-  const options = {};
-  if (platform() === 'darwin') {
-    const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
-    const wrapper = path.join(directory, 'timed-kernel.sh');
-    const binary = fileURLToPath(new URL('../.build/selvedge-kernel', import.meta.url));
-    await writeFile(wrapper, `#!/bin/sh\nexec /usr/bin/time -l ${quote(binary)} 2>${quote(resourceFile)}\n`, { mode: 0o700 });
-    options.kernelOptions = { binary: wrapper };
-  }
-  const nativePeak = async () => {
-    if (platform() !== 'darwin') return null;
-    const report = await readFile(resourceFile, 'utf8');
-    const matched = report.match(/^\s*(\d+)\s+maximum resident set size\s*$/m);
-    assert.ok(matched, `macOS time did not report native maximum resident set size:\n${report}`);
-    return Number(matched[1]);
-  };
   let journal;
   try {
-    journal = await Journal.open(filename, options);
+    journal = await Journal.open(filename);
     const latencies = [];
     const execute = async input => {
       const start = performance.now();
@@ -46,13 +29,15 @@ for (const taskCount of sizes) {
       const pending = [...decision.effects];
       while (pending.length) {
         const effect = pending.shift();
-        assert.equal(effect.kind, 'model');
-        const next = await execute({ kind: 'model', task_id: effect.task_id, ticket: effect.ticket,
-          ok: true, items: [{ type: 'text', text: 'done' }] });
+        assert.ok(['observe_context', 'model'].includes(effect.kind), `Unexpected benchmark effect: ${effect.kind}`);
+        const next = await execute(effect.kind === 'observe_context'
+          ? { kind: 'context_observed', task_id: effect.task_id, ticket: effect.ticket, ok: true, observations: [] }
+          : { kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true, items: [{ type: 'text', part: 0, text: 'done' }] });
         pending.push(...next.effects);
       }
     };
-    await execute({ kind: 'configure', profiles: [{ key: 'fixture', provider: 'echo', name: 'fixture' }],
+    await execute({ kind: 'configure', instructions: { configured: 'Benchmark workload', global: null },
+      profiles: [{ key: 'fixture', provider: 'echo', name: 'fixture', reasoning_options: null }],
       tools: [], max_fork: 4, max_descendants: taskCount - 1 });
     await settle(await execute({ kind: 'command', command: { op: 'create', profile: 'fixture', message: 'x'.repeat(messageBytes) } }));
     for (let turn = 1; turn < historyTurns; turn++) {
@@ -65,27 +50,27 @@ for (const taskCount of sizes) {
     assert.equal(before.tasks.length, taskCount);
     const sequence = journal.sequence;
     await journal.close();
-    const nativePeakBytes = await nativePeak();
-    const bytes = (await stat(filename)).size;
+    const databaseBytes = (await stat(filename)).size;
+    let walBytes = 0;
+    try { walBytes = (await stat(`${filename}-wal`)).size; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
     const replayStart = performance.now();
-    journal = await Journal.open(filename, options);
+    journal = await Journal.open(filename);
     const replayMs = performance.now() - replayStart;
     assert.equal(journal.sequence, sequence);
     assert.deepEqual((await journal.execute({ kind: 'command', command: { op: 'list' } })).reply.result, before);
     await journal.close();
-    const replayPeakBytes = await nativePeak();
     latencies.sort((a, b) => a - b);
     results.push({ tasks: taskCount, history_turns_before_fork: historyTurns, message_bytes: messageBytes,
-      committed_inputs: sequence, journal_bytes: bytes,
+      committed_inputs: sequence, journal_bytes: databaseBytes + walBytes, database_bytes: databaseBytes, wal_bytes: walBytes,
       median_transition_ms: latencies[Math.floor(latencies.length * 0.5)],
       p95_transition_ms: latencies[Math.floor(latencies.length * 0.95)],
-      max_transition_ms: latencies.at(-1), replay_ms: replayMs,
-      native_peak_rss_bytes: nativePeakBytes, replay_native_peak_rss_bytes: replayPeakBytes });
+      max_transition_ms: latencies.at(-1), replay_ms: replayMs });
   } finally {
     await journal?.close();
     await rm(directory, { recursive: true, force: true });
   }
 }
-console.log(JSON.stringify({ measured_at: new Date().toISOString(), platform: `${platform()}-${arch()}`, node: process.version,
+console.log(JSON.stringify({ measured_at: new Date().toISOString(), platform: `${platform()}-${arch()}`, bun: Bun.version,
   kernel: await buildIdentity(), measurements: results,
-  scope: 'SQLite commit and native kernel latency; replay includes native startup. On macOS, time -l measures native maximum RSS, excluding Node. RSS is null on other platforms. Measurements do not prove physical history sharing or asymptotic complexity.' }, null, 2));
+  scope: 'SQLite journal and compiled Bend JavaScript Worker request latency, including durable commits where required; replay includes Worker startup and committed-input validation. Journal bytes include the database and any retained WAL. Model replies and empty context observations are deterministic fixtures. Measurements do not establish OS process memory use, physical history sharing or asymptotic complexity.' }, null, 2));

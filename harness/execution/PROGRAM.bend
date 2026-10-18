@@ -1,4 +1,5 @@
 import Base
+import ../../features/titles/SPEC.bend as TitleSpec
 import ../../features/compaction/SPEC.bend as Compaction
 import ../../features/compaction/STATE.bend as CompactionState
 import ../tools/SYNTAX.bend as Native
@@ -53,14 +54,14 @@ def context(+task: D.Task) -> J.Json:
 def model(+task: D.Task, world: M.World()) -> Action:
   Model{task}
 
-def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json) -> Bool:
+def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json, caller: Nat) -> Bool:
   match source:
     case D.Extension{plugin, remote}: Schema.valid(schema, arguments)
     case D.Mcp{server, remote}: J.is_object(arguments)
     case D.Harness{Native.Process{}}:
       Schema.valid(schema, arguments) && D.nonempty(J.text(J.get(arguments, "command"))) &&
         Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}})) && Approvals.valid_request(arguments)
-    case D.Harness{other}: Schema.valid(schema, arguments)
+    case D.Harness{other}: Schema.valid(schema, arguments) && Native.caller_arguments_valid(other, arguments, caller)
 
 def external_review(needed: Bool, tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task) -> Action:
   match needed:
@@ -135,7 +136,7 @@ type ValidatedRequest is Data:
 def validated_accepts(request: ValidatedRequest) -> Bool:
   ValidatedRequest{+tool, +call, +remaining, +task, +world} = request
   D.Tool{name, description, schema, source} = tool
-  arguments_valid(source, schema, T.call_arguments(call))
+  arguments_valid(source, schema, T.call_arguments(call), D.task_id(task))
 
 def validated_category() -> ValidatedRequest -> Type:
   Categories.holds(ValidatedRequest, validated_accepts)
@@ -438,7 +439,7 @@ def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
-    case True{}: scheduled_prepared(Compaction.required_prepare(BoardScheduling.required_prepare(decision)))
+    case True{}: scheduled_prepared(Compaction.required_prepare(TitleSpec.prepare(BoardScheduling.required_prepare(decision))))
 
 
 type WorkRequest is Data:

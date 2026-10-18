@@ -51,13 +51,16 @@ export class Journal extends EventEmitter {
             row.digest !== digest(row.previous, row.seq, row.input, row.decision)) {
           throw new Error(`Journal integrity failure at sequence ${row.seq}`);
         }
-        const replayed = await journal.kernel.request(parseJson(row.input));
+        const replayed = await journal.kernel.replay(parseJson(row.input));
         if (!replayed.value.durable || !isDeepStrictEqual(replayed.value, parseJson(row.decision))) {
           throw new Error(`Committed decision incompatibility at sequence ${row.seq}: current kernel replay disagrees with the saved decision`);
         }
-        journal.program = replayed.program;
         journal.sequence = row.seq;
         journal.#previous = row.digest;
+      }
+      if (journal.sequence > 0) {
+        const snapshot = await journal.kernel.request({ kind: 'command', command: { op: 'describe' } });
+        journal.program = snapshot.program;
       }
       return journal;
     } catch (error) {

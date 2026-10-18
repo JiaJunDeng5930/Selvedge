@@ -16,9 +16,7 @@ test:
     bun run test
 
 check:
-    bun run check
-    bun run test
-    bun run index:check
+    bun run verify
 
 agents-index:
     bun run index

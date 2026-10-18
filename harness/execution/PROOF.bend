@@ -1,4 +1,7 @@
 import Base
+import ../../features/titles/PROGRAM.bend as Titles
+import ../../features/titles/SPEC.bend as TitleSpec
+import ../../features/titles/PROOF.bend as TitleProof
 import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../features/compaction/SPEC.bend as CompactionSpec
 import ../../features/compaction/PROGRAM.bend as CompactionActual
@@ -166,8 +169,8 @@ def Laws.scheduling_semantics(enabled, decision):
   match enabled:
     case False{}: {==}
     case True{}:
-      +board_actual = BoardScheduling.prepare(~P.board_dispatch, decision)
-      +board_required = BoardSchedulingSpec.required_prepare(decision)
+      +board_actual = Titles.prepare(BoardScheduling.prepare(~P.board_dispatch, decision))
+      +board_required = TitleSpec.prepare(BoardSchedulingSpec.required_prepare(decision))
       +actual = CompactionActual.prepare(board_actual)
       +required = CompactionSpec.required_prepare(board_required)
       Equal.trans(M.Decision(), P.scheduled(True{}, decision), Execution.scheduled_prepared(actual),
@@ -176,7 +179,11 @@ def Laws.scheduling_semantics(enabled, decision):
           Equal.trans(M.Decision(), actual, CompactionSpec.required_prepare(board_actual), required,
             CompactionProof.preparation(board_actual),
             Equal.cong(M.Decision(), M.Decision(), (value => CompactionSpec.required_prepare(value)),
-              board_actual, board_required, board_preparation(decision)))))
+              board_actual, board_required,
+              Equal.trans(M.Decision(), board_actual, TitleSpec.prepare(BoardScheduling.prepare(~P.board_dispatch, decision)), board_required,
+                TitleProof.preparation(BoardScheduling.prepare(~P.board_dispatch, decision)),
+                Equal.cong(M.Decision(), M.Decision(), (value => TitleSpec.prepare(value)),
+                  BoardScheduling.prepare(~P.board_dispatch, decision), BoardSchedulingSpec.required_prepare(decision), board_preparation(decision)))))))
 
 def Laws.scheduling_disabled(decision):
   {==}

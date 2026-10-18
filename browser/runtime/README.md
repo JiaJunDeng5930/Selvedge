@@ -91,6 +91,12 @@ specifications. Candidate construction remains `WaitingFont` until both activity
 metrics are retained; the existing font cache supplies the additional observations.
 The preferred navigation width, readable navigation minimum and main writing
 minimum are inputs to joint allocation, not a guarantee that any candidate fits.
+`SHELL.workspace` reserves the simultaneous Task-navigation and main-content
+minimum for navigation-capable candidates, independently of whether the user has
+collapsed the Task tree. The enclosing global rail occupies its actual allocated
+width separately. A hidden tree therefore cannot make a narrow viewport acquire
+desktop Work navigation. The same source minimum remains in force when pending
+physical measurements resume.
 
 New layout derivations, including explicit remeasurement and navigation attention
 changes, begin at the full candidate. Each ready full form compares the preferred
@@ -122,7 +128,7 @@ after the world advances without installing its older snapshot. Accepted namespa
 replacement starts a fresh authentication ticket; a same-namespace snapshot
 reconnects only a lost service. Only an owned successful authentication emits the
 `SessionReady` effect that starts the physical watch. `network_failed` correlates
-ordinary failures with their namespace and sequence, and authentication failures
+ordinary failures with their namespace, sequence and captured connection ticket, and authentication failures
 with their current ticket, before observing staleness or explicit revocation and
 the corresponding service transition. The complete ordered decisions are bound
 in the runtime contract and proofs.

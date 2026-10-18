@@ -306,6 +306,34 @@ def adaptive_user_width(visual: Design.Style) -> Model.AxisSize:
 def user_message_width(+visual: Design.Style) -> Type:
   {Authored.role_style(visual, SurfaceTypes.UserMessage{}) == Factory.style(visual, adaptive_user_width(visual), Model.NaturalSize{}, Model.Confined{}) : Source.Style}
 
+law placement_choices_empty:
+  {AuthoredControls.placement_choices(Nil{}) == Nil{} : +List<Source.Choice>}
+
+law placement_choices_available:
+  for +target: String
+  for +label: String
+  for input: InteractionTypes.Input
+  for +rest: +List<SurfaceTypes.Placement>
+  {AuthoredControls.placement_choices(SurfaceTypes.Placement{target, label, input, View.Available{}} <> rest) ==
+    Source.Choice{target, label, False{}} <> AuthoredControls.placement_choices(rest) : +List<Source.Choice>}
+
+law placement_choices_needs_directory_observation:
+  for +target: String
+  for +label: String
+  for input: InteractionTypes.Input
+  for +rest: +List<SurfaceTypes.Placement>
+  {AuthoredControls.placement_choices(SurfaceTypes.Placement{target, label, input, View.NeedsDirectoryObservation{}} <> rest) ==
+    Source.Choice{target, label, False{}} <> AuthoredControls.placement_choices(rest) : +List<Source.Choice>}
+
+law placement_choices_unavailable:
+  for target: String
+  for label: String
+  for input: InteractionTypes.Input
+  for reason: String
+  for +rest: +List<SurfaceTypes.Placement>
+  {AuthoredControls.placement_choices(SurfaceTypes.Placement{target, label, input, View.Unavailable{reason}} <> rest) ==
+    AuthoredControls.placement_choices(rest) : +List<Source.Choice>}
+
 law movement_field_has_own_identity:
   for +key: Identity.Key
   for +destinations: +List<SurfaceTypes.Placement>

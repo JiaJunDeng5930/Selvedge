@@ -2,14 +2,17 @@ import * as Bend from './generated/browser-model.mjs';
 import { boundary } from './model-boundary.mjs';
 import { bendValue, bendTag, decodeBendValue, encodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
-import { EventFrames } from './events.mjs';
 import { MarkdownFenceObserver } from './markdown-fences.mjs';
 import { scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
+import { observeConnection } from './connection.mjs';
+import { editorKeyboard } from './keyboard.mjs';
+import { appearanceObservation, persistAppearance } from './appearance.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { parseJson, tokenizeJsonValue } from './json-tokens.mjs';
+import { createLayoutRevealer } from './layout-reveal.mjs';
 
 const bool = enabled => Boolean(enabled);
 const linked = items => items.reduceRight((tail, head) => bendValue('Con', { head, tail }), bendValue('Nil'));
@@ -33,6 +36,7 @@ function showJson(input) {
   }
 }
 const root = document.getElementById('surface');
+const revealLayoutTargets = createLayoutRevealer(root);
 let textMeasurementScope = root;
 let textMeasurer = createTextMeasurer(textMeasurementScope);
 let state = Bend.initial(Bend.empty(), 0n);
@@ -43,8 +47,10 @@ let renderQueued = false;
 let renderedGeneration = null;
 let displayedFrameRequest = null;
 let requestedFrameGeneration = null;
-let pendingFocus = null;
+let pendingFocus = [];
+let drainingFocus = false;
 let applyingFocus = false;
+let focusAttemptRevision = 0;
 let physicalRevision = 0;
 let physicalActive = false;
 let physicalQueued = null;
@@ -181,23 +187,25 @@ function render() {
   renderer.presentationPending = Bend.display_pending(state);
   root.dataset.displayPending = String(renderer.presentationPending);
   root.dataset.sourcesFresh = String(sourceFresh);
-  if (pendingFocus && pendingFocus.ticket !== Bend.focus_ticket(state)) pendingFocus = null;
+  pendingFocus = pendingFocus.filter(physical => physical.ticket === Bend.focus_ticket(state));
   switch (bendTag(publication)) {
     case 'KeepPublished': break;
     case 'Publish': {
       const ticket = Bend.focus_ticket(state);
       const before = observedFocus();
       renderer.render(publication.document, publication.generation);
+      revealLayoutTargets();
       const after = observedFocus();
+      const focusRevision = focusAttemptRevision;
       const feedback = Bend.publication_focus_feedback(publication, ticket, before, after);
       if (bendTag(feedback) === 'Some') queueMicrotask(() => {
-        if (!disposed) platform(feedback.value);
+        if (!disposed && focusRevision === focusAttemptRevision) platform(feedback.value);
       });
       renderedGeneration = publication.generation > 0n ? publication.generation : null;
       // Publication establishes the baseline; only later native content reflow requests a new measurement.
       displayedGeometry = geometrySignature();
       if (renderedGeneration !== null) requestDisplayedFrame(renderedGeneration);
-      if (pendingFocus) applyFocus(pendingFocus);
+      retryPendingFocus();
       break;
     }
     default: throw new TypeError(`Unknown publication ${publication.$}`);
@@ -289,21 +297,36 @@ function sameFocus(target, observed) {
   return target.identity === observed.value.identity && (bendTag(target) !== 'Content' || target.owner === observed.value.owner);
 }
 function applyFocus(physical) {
-  if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus = null; return; }
-  const target = physical.target;
-  const node = bendTag(target) === 'Product' ? renderer.target(target.identity)
-    : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
-  pendingFocus = physical;
-  if (!node) return;
-  // Programmatic focus is correlated by its receipt; user focus changes revoke its ticket.
-  applyingFocus = true;
-  try { node.focus({ preventScroll: false }); } finally { applyingFocus = false; }
-  const observed = observedFocus();
-  if (sameFocus(target, observed)) pendingFocus = null;
-  platform(bendValue('browser/runtime/PLATFORM.FocusApplied', { ticket: physical.ticket, target, observed }));
+  if (physical.ticket !== Bend.focus_ticket(state)) return;
+  pendingFocus.push(physical);
+  retryPendingFocus();
 }
 function retryPendingFocus() {
-  if (!disposed && pendingFocus && document.visibilityState === 'visible') applyFocus(pendingFocus);
+  if (disposed || drainingFocus || document.visibilityState !== 'visible') return;
+  drainingFocus = true;
+  try {
+    while (pendingFocus.length) {
+      const physical = pendingFocus[0];
+      if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus.shift(); continue; }
+      const target = physical.target;
+      const node = bendTag(target) === 'Product' ? renderer.target(target.identity)
+        : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
+      if (!node) break;
+      // Keep effect order while publication prepares a missing target. A later
+      // focus must not replace an earlier request that also exposes its target.
+      focusAttemptRevision++;
+      applyingFocus = true;
+      try {
+        node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        node.focus({ preventScroll: false });
+      } finally { applyingFocus = false; }
+      const observed = observedFocus();
+      const confirmed = sameFocus(target, observed);
+      if (confirmed) pendingFocus.shift();
+      platform(bendValue('browser/runtime/PLATFORM.FocusApplied', { ticket: physical.ticket, target, observed }));
+      if (!confirmed) break;
+    }
+  } finally { drainingFocus = false; }
 }
 
 function commit(decision) {
@@ -339,7 +362,7 @@ function clockVisibilityChanged() {
   if (document.visibilityState === 'visible') observeClock();
 }
 function requestScope(authentication = null, controller = connection ?? null, bound = false) {
-  return { namespace: storeNamespace, sequence: revision, controller, authentication, bound };
+  return { namespace: storeNamespace, sequence: revision, connectionTicket: controller?.connectionTicket ?? 0n, controller, authentication, bound };
 }
 function currentRequest(scope) {
   return !disposed && scope.controller === (connection ?? null) && !scope.controller?.signal.aborted;
@@ -356,7 +379,7 @@ function networkFailed(reason, scope = reason?.requestScope) {
   if (!scope || !currentRequest(scope) || reason?.networkReported) return;
   const error = requestError(reason, scope);
   error.networkReported = true;
-  commit(Bend.network_failed(scope.namespace, BigInt(scope.sequence), error.message,
+  commit(Bend.network_failed(scope.namespace, BigInt(scope.sequence), scope.connectionTicket, error.message,
     error.status === 401 || error.status === 403,
     scope.authentication === null ? bendValue('None') : bendValue('Some', { value: scope.authentication }), state));
 }
@@ -389,11 +412,6 @@ function interactiveInput(input) {
 function snapshot(body, expectedNamespace) {
   commit(Bend.snapshot_environment(expectedNamespace, typeof body.namespace === 'string' ? body.namespace : '', BigInt(body.sequence), decodeBendValue(body.program), state));
   streamFacts();
-}
-async function refresh(scope = requestScope()) {
-  const body = await request('/api/browser/state', {}, scope);
-  requireCurrentRequest(scope);
-  snapshot(body, scope.namespace);
 }
 function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
 function result(ok, payload) { return ok ? bendValue('Done', { value: payload }) : bendValue('Fail', { error: payload }); }
@@ -496,6 +514,13 @@ async function execute(effect) {
       catch (error) { commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state)); }
       break;
     }
+    case 'WorkspaceGit': {
+      let available = false;
+      try { available = (await post('/api/browser/observation', JSON.stringify({ kind: 'workspace-git', primary: effect.primary }))).available === true; }
+      catch { /* A failed observation does not establish Git eligibility. */ }
+      commit(Bend.workspace_git_completed(effect.ticket, bool(available), state));
+      break;
+    }
     case 'PersistModelPreference': localStorage.setItem('selvedge-model-preference', JSON.stringify({ profile: effect.profile, reasoning: effect.reasoning })); break;
     case 'ObserveInteractiveMarkdown': observeInteractiveMarkdown(effect.document); break;
     case 'ForgetInteractiveMarkdown': {
@@ -514,24 +539,53 @@ async function execute(effect) {
 async function service(effect) {
   switch (bendTag(effect)) {
     case 'Authenticate': {
-      const scope = requestScope(effect.ticket, connection ?? null, true);
-      try {
-        const body = await request('/api/browser/state', {}, scope);
-        requireCurrentRequest(scope);
-        commit(Bend.authenticated_snapshot(scope.namespace, typeof body.namespace === 'string' ? body.namespace : '',
-          BigInt(body.sequence), decodeBendValue(body.program), effect.ticket, state));
-      } catch (error) { networkFailed(error, scope); }
+      connection?.abort();
+      const controller = new AbortController();
+      controller.connectionTicket = effect.ticket;
+      connection = controller;
+      const authentication = requestScope(effect.ticket, controller, true);
+      let subscription = null;
+      void observeConnection({
+        request: (url, signal, initial) => request(url, { signal },
+          initial ? authentication : requestScope(null, controller, true)),
+        fetchEvents: (url, signal) => {
+          subscription = requestScope(null, controller, true);
+          return fetch(url, { credentials: 'same-origin', signal });
+        },
+        signal: controller.signal,
+        current: () => currentRequest({ controller }),
+        namespace: () => storeNamespace,
+        sequence: () => revision,
+        snapshot: (body, initial) => {
+          if (initial) {
+            commit(Bend.authenticated_snapshot(authentication.namespace, typeof body.namespace === 'string' ? body.namespace : '',
+              BigInt(body.sequence), decodeBendValue(body.program), effect.ticket, state));
+          } else snapshot(body, subscription.namespace);
+        },
+        ready() {},
+        refreshNeeded: notice => Bend.commit_refresh_needed(json(notice), state),
+        notice: streamNotice,
+        publish: streamFacts,
+      }).catch(error => {
+        if (!currentRequest({ controller })) return;
+        const scope = error.requestScope ?? (subscription ? { ...subscription, sequence: revision } : authentication);
+        networkFailed(requestError(error, scope));
+      });
       break;
     }
-    case 'SessionReady': {
-      connection?.abort(); connection = new AbortController();
-      void watch(connection);
+    case 'SessionReady': break;
+    case 'SessionEnded': connection?.abort(); break;
+    case 'ScheduleReconnect': {
+      if (disposed) break;
+      const timer = setTimeout(() => {
+        feedbackTimers.delete(timer);
+        if (!disposed) product(bendValue('interaction/MODEL.RetryConnection', { ticket: effect.ticket }));
+      }, safeNumber(effect.delay_ms, 'connection retry delay'));
+      feedbackTimers.add(timer);
       break;
     }
     case 'StoreAppearance': {
-      const appearance = bendTag(effect.appearance);
-      localStorage.setItem('selvedge-appearance', appearance);
-      document.documentElement.style.colorScheme = appearance === 'DarkAppearance' ? 'dark' : appearance === 'LightAppearance' ? 'light' : 'light dark';
+      persistAppearance(localStorage, effect.appearance);
       break;
     }
     case 'Upload': {
@@ -814,112 +868,6 @@ function streamNotice(notice) {
   return next.publish;
 }
 
-async function watch(controller) {
-  const current = () => currentRequest({ controller });
-  while (current()) {
-    let response;
-    let reader;
-    let subscription;
-    let opening;
-    let dirty = false;
-    let dirtyNamespace = null;
-    let dirtyNoticeCount = 0;
-    let flushTimer = null;
-    let flushTick = null;
-    const flushSignal = Symbol('stream publication');
-    const subscribed = () => current() && subscription?.namespace === storeNamespace;
-    const clearFlush = () => {
-      if (flushTimer !== null) clearTimeout(flushTimer);
-      flushTimer = null;
-      flushTick = null;
-    };
-    const flushStreams = () => {
-      const publish = dirty && subscribed() && dirtyNamespace === storeNamespace;
-      clearFlush();
-      dirty = false;
-      dirtyNamespace = null;
-      dirtyNoticeCount = 0;
-      if (publish) streamFacts();
-    };
-    const queueStreams = () => {
-      if (dirty) return;
-      dirty = true;
-      dirtyNamespace = storeNamespace;
-      flushTick = new Promise(resolve => {
-        flushTimer = setTimeout(() => {
-          flushTimer = null;
-          resolve(flushSignal);
-        }, 0);
-      });
-    };
-    try {
-      await refresh(requestScope(null, controller, true));
-      if (!current()) return;
-      opening = requestScope(null, controller);
-      response = await fetch(`/api/events?after=${opening.sequence}`, { credentials: 'same-origin', signal: controller.signal });
-      if (!current() || opening.namespace !== storeNamespace) return;
-      if (!response.ok || !response.body) { const error = new Error(`Event connection: HTTP ${response.status}`); error.status = response.status; throw error; }
-      subscription = opening;
-      reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      const notices = [];
-      const frames = new EventFrames(notice => notices.push(notice));
-      let reading = null;
-      let turnStarted = performance.now();
-      for (;;) {
-        if (!subscribed()) return;
-        if (performance.now() - turnStarted >= 8) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-          if (!subscribed()) return;
-          turnStarted = performance.now();
-        }
-        if (notices.length) {
-          const notice = notices.shift();
-          const lifecycle = notice.type === 'stream_start' || notice.type === 'stream_end' || notice.type === 'stream_cancel';
-          if (lifecycle || notice.type === 'stream-state' || notice.type === 'commit' || notice.type === 'fatal' ||
-              (typeof notice.namespace === 'string' && notice.namespace !== storeNamespace)) {
-            flushStreams();
-            if (!subscribed()) return;
-          }
-          if (notice.type === 'commit') {
-            if (Bend.commit_refresh_needed(json(notice), state)) {
-              await refresh(requestScope(null, controller, true));
-              if (!subscribed()) return;
-            }
-          } else if (notice.type === 'fatal') throw new Error(notice.message);
-          else {
-            const publish = streamNotice(notice);
-            if (publish) queueStreams();
-            if (dirty) dirtyNoticeCount++;
-            if (lifecycle || dirtyNoticeCount >= 64) flushStreams();
-          }
-          continue;
-        }
-        reading ??= reader.read();
-        const received = await (flushTick ? Promise.race([reading, flushTick]) : reading);
-        if (!subscribed()) return;
-        if (received === flushSignal) { flushStreams(); continue; }
-        reading = null;
-        if (received.done) throw new Error('Event connection ended');
-        frames.write(decoder.decode(received.value, { stream: true }));
-      }
-    } catch (error) {
-      if (!current() || (subscription && subscription.namespace !== storeNamespace)) return;
-      try { flushStreams(); } catch (flushError) { error = flushError; }
-      if (!current() || (subscription && subscription.namespace !== storeNamespace)) return;
-      const scope = error.requestScope ?? (subscription ? { ...subscription, sequence: revision } : opening);
-      networkFailed(requestError(error, scope));
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    } finally {
-      clearFlush();
-      dirty = false;
-      dirtyNamespace = null;
-      dirtyNoticeCount = 0;
-      const cancelled = reader ? reader.cancel() : response?.body?.cancel();
-      cancelled?.catch(() => {});
-    }
-  }
-}
 function environmentInput() {
   const fontSize = getComputedStyle(document.documentElement).fontSize;
   if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(fontSize)) throw new TypeError(`Invalid observed root font size: ${fontSize}`);
@@ -948,6 +896,8 @@ const motion = matchMedia('(prefers-reduced-motion: reduce)');
 motion.addEventListener('change', () => platform(bendValue('browser/runtime/PLATFORM.MotionPreference', { reduced: bool(motion.matches) })));
 root.addEventListener('focusin', () => {
   if (applyingFocus) return;
+  focusAttemptRevision++;
+  pendingFocus = [];
   nativeLinks();
   const anchor = nativeAnchor(document.activeElement);
   if (!anchor) { platform(bendValue('browser/runtime/PLATFORM.FocusObserved', { identity: owner(document.activeElement) })); return; }
@@ -960,6 +910,7 @@ root.addEventListener('focusin', () => {
 });
 window.addEventListener('pagehide', () => {
   disposed = true;
+  pendingFocus = [];
   if (displayedFrameRequest !== null) cancelAnimationFrame(displayedFrameRequest);
   displayedFrameRequest = null;
   requestedFrameGeneration = null;
@@ -985,6 +936,15 @@ window.addEventListener('pagehide', () => {
   for (const resource of resources) URL.revokeObjectURL(resource);
 });
 const bootEffects = [];
+const appearanceDecision = Bend.step(bendValue('browser/runtime/SEMANTICS.Native', {
+  input: bendValue('browser/MODEL.PlatformInput', {
+    input: bendValue('browser/runtime/PLATFORM.ProductInput', {
+      input: appearanceObservation(localStorage),
+    }),
+  }),
+}), state);
+state = appearanceDecision.state;
+bootEffects.push(...list(appearanceDecision.effects));
 let storedModelPreference;
 try { storedModelPreference = JSON.parse(localStorage.getItem('selvedge-model-preference')); } catch {}
 if (storedModelPreference && typeof storedModelPreference.profile === 'string' && typeof storedModelPreference.reasoning === 'string') {
@@ -1025,10 +985,8 @@ root.addEventListener('keydown', event => {
     commit(result.decision);
     return;
   }
-  if (event.key === 'Enter' && event.target.hasAttribute('data-native-editor-key')) {
-    if (!event.isComposing && !event.shiftKey && !event.altKey) event.preventDefault();
-    editorEvent(event.target, bendValue('browser/editor/MODEL.Enter', { shift: bool(event.shiftKey), alt: bool(event.altKey), modified: bool(event.ctrlKey || event.metaKey) }));
-  }
+  if (event.target.hasAttribute('data-native-editor-key')) editorKeyboard(event,
+    observation => Bend.native_editor_key(observation), input => editorEvent(event.target, input));
 });
 root.addEventListener('select', event => {
   const node = event.target;

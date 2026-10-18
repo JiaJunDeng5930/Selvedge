@@ -175,11 +175,24 @@ def mark_icon_extent(layout: C.ChoiceContentLayout) -> Nat:
   C.ChoiceContentLayout{text_gap, extent, icon_extent} = layout
   icon_extent
 
+def result_in_capacity(+capacity: Nat, result: Maybe<&2, Nat>) -> Type:
+  match result:
+    case None{}: Unit
+    case Some{value}: {Nat.is_le(value, capacity) == True{} : Bool}
+
 type NaturalSizeRequirements is Type:
   NaturalSizeRequirements{
+    literal_capacity: @+capacity:Nat -> @+value:Nat ->
+      result_in_capacity(capacity, Size.checked_value(capacity, value)),
     addition_capacity: @+capacity:Nat -> @+left:Nat -> @+right:Nat ->
-      @conflict:{Nat.is_le(left, Nat.sub(capacity, right)) == False{} : Bool} ->
+      @conflict:{Size.addition_fits(capacity, left, right) == False{} : Bool} ->
       {Size.checked_add(capacity, left, right) == None{} : Maybe<&2, Nat>},
+    addition_result: @+capacity:Nat -> @+left:Nat -> @+right:Nat ->
+      result_in_capacity(capacity, Size.checked_add(capacity, left, right)),
+    multiplication_result: @+capacity:Nat -> @+left:Nat -> @+right:Nat ->
+      result_in_capacity(capacity, Size.checked_mul(capacity, left, right)),
+    evaluation_capacity: @+capacity:Nat -> @calculation:Size.Calculation ->
+      result_in_capacity(capacity, Size.evaluate(capacity, calculation)),
     multiplication_capacity: @+capacity:Nat -> @+left:Nat -> @+right:Nat ->
       @nonzero:{Nat.is_eq(right, 0n) == False{} : Bool} ->
       @conflict:{Nat.is_le(left, Nat.div(capacity, right)) == False{} : Bool} ->

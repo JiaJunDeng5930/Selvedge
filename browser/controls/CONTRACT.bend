@@ -183,7 +183,7 @@ def creation_reading_width(+parameters: Design.LayoutParameters) -> Type:
 
 def creation_assembly(+content: InteractionTypes.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<S.Node>, +overlay_nodes: +List<S.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: T.Presentation) -> Type:
   {Shell.assemble_surface(Design.Surface{content, theme, base, overlays, scope}, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font) ==
-    Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, Design.reading_maximum_width(parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme) : Shell.ShellAuthorship}
+    Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, Design.reading_maximum_width(parameters), base_nodes, base, Shell.scene_navigation_placement(content), capacity, parameters, font, theme) : Shell.ShellAuthorship}
 
 def creation_child_layout(+layout: S.Layout, maximum: Nat) -> Type:
   S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
@@ -216,12 +216,15 @@ def navigation_box(key: UIIdentity.Key, tag: S.BoxTag, +style: S.Style, attribut
 
 def settings_role(role: SurfaceTypes.Role) -> Bool:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: False{}
+    case SurfaceTypes.WorkTabs{}: False{}
+    case SurfaceTypes.CompactHeader{}: False{}
     case SurfaceTypes.Main{}: False{}
     case SurfaceTypes.Navigation{}: False{}
     case _: True{}
 
 def settings_classification(+node: S.Node, role: SurfaceTypes.Role, +navigation: +List<S.Node>, +main: +List<S.Node>, +settings: +List<S.Node>, +other: +List<S.Node>) -> Type:
-  {Shell.split_base_role(node, role, navigation, main, settings, other) == Shell.BaseParts{navigation, main, node <> settings, other} : Shell.BaseParts}
+  {Shell.split_base_role(node, role, navigation, main, settings, other) == Shell.BaseParts{navigation, main, node <> settings, other, Nil{}, Nil{}} : Shell.BaseParts}
 
 def recipe_structure(recipe: Composition.Recipe) -> Type:
   Composition.Recipe{measure, heading, organization, composer, decisions, latest} = recipe
@@ -281,7 +284,7 @@ def navigation_projection(content: InteractionTypes.Scene) -> Type:
   {Shell.scene_navigation_placement(InteractionTypes.Scene{View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker}) == placement : View.NavigationPlacement}
 
 def assembly_placement(+content: InteractionTypes.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<S.Node>, +overlay_nodes: +List<S.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: T.Presentation, placement: View.NavigationPlacement) -> Type:
-  {Shell.assemble_surface(Design.Surface{content, theme, base, overlays, scope}, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font) == Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, placement, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, placement, parameters, font, theme) : Shell.ShellAuthorship}
+  {Shell.assemble_surface(Design.Surface{content, theme, base, overlays, scope}, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font) == Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, placement, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, placement, capacity, parameters, font, theme) : Shell.ShellAuthorship}
 
 def chronological_main_frame(frame: E.Frame) -> Type:
   {Shell.main_frame(Composition.ChronologicalReading{}, frame) == E.Frame{E.area(E.PageContent{}), E.SeparateFrames{E.Sections{}}} : E.Frame}
@@ -446,7 +449,9 @@ law base_group_navigation:
   for +main: +List<S.Node>
   for +settings: +List<S.Node>
   for +other: +List<S.Node>
-  {Shell.split_base_region(Order.NavigationRegion{}, node, Shell.BaseParts{navigation, main, settings, other}) == Shell.BaseParts{node <> navigation, main, settings, other} : Shell.BaseParts}
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  {Shell.split_base_region(Order.NavigationRegion{}, node, Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}) == Shell.BaseParts{node <> navigation, main, settings, other, work_tabs, global_navigation} : Shell.BaseParts}
 
 law base_group_main:
   for +node: S.Node
@@ -454,7 +459,9 @@ law base_group_main:
   for +main: +List<S.Node>
   for +settings: +List<S.Node>
   for +other: +List<S.Node>
-  {Shell.split_base_region(Order.MainRegion{}, node, Shell.BaseParts{navigation, main, settings, other}) == Shell.BaseParts{navigation, node <> main, settings, other} : Shell.BaseParts}
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  {Shell.split_base_region(Order.MainRegion{}, node, Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}) == Shell.BaseParts{navigation, node <> main, settings, other, work_tabs, global_navigation} : Shell.BaseParts}
 
 law base_group_footer:
   for +node: S.Node
@@ -462,7 +469,9 @@ law base_group_footer:
   for +main: +List<S.Node>
   for +settings: +List<S.Node>
   for +other: +List<S.Node>
-  {Shell.split_base_region(Order.NavigationFooterRegion{}, node, Shell.BaseParts{navigation, main, settings, other}) == Shell.BaseParts{navigation, main, node <> settings, other} : Shell.BaseParts}
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  {Shell.split_base_region(Order.NavigationFooterRegion{}, node, Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}) == Shell.BaseParts{navigation, main, node <> settings, other, work_tabs, global_navigation} : Shell.BaseParts}
 
 law base_group_other:
   for +node: S.Node
@@ -470,7 +479,27 @@ law base_group_other:
   for +main: +List<S.Node>
   for +settings: +List<S.Node>
   for +other: +List<S.Node>
-  {Shell.split_base_region(Order.OtherRegion{}, node, Shell.BaseParts{navigation, main, settings, other}) == Shell.BaseParts{navigation, main, settings, node <> other} : Shell.BaseParts}
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  {Shell.split_base_region(Order.OtherRegion{}, node, Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}) == Shell.BaseParts{navigation, main, settings, node <> other, work_tabs, global_navigation} : Shell.BaseParts}
+
+law desktop_modal_navigation_width:
+  for details_beside: Bool
+  for +parameters: Design.LayoutParameters
+  {Shell.modal_navigation_width(View.Capacity{True{}, details_beside}, parameters) == Model.ExactSize{Design.navigation_width(parameters)} : Model.AxisSize}
+
+law compact_modal_navigation_width:
+  for details_beside: Bool
+  for parameters: Design.LayoutParameters
+  {Shell.modal_navigation_width(View.Capacity{False{}, details_beside}, parameters) == Model.StretchSize{} : Model.AxisSize}
+
+law desktop_modal_navigation_scroll:
+  for details_beside: Bool
+  {Shell.modal_navigation_scroll(View.Capacity{True{}, details_beside}) == Model.ScrollVertically{} : Model.Scroll}
+
+law compact_modal_navigation_scroll:
+  for details_beside: Bool
+  {Shell.modal_navigation_scroll(View.Capacity{False{}, details_beside}) == Model.Confined{} : Model.Scroll}
 
 law modal_navigation_geometry:
   for +node: S.Node
@@ -482,8 +511,9 @@ law modal_navigation_geometry:
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.split_overlay_node(node, SurfaceTypes.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors, Shell.OverlayParts{docked, floating}) ==
-    Shell.OverlayParts{docked, Shell.resize(node, Model.ExactSize{Design.navigation_width(parameters)}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.AlignedLayer{E.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> floating} : Shell.OverlayParts}
+  for workspace_layers: +List<S.Node>
+  {Shell.split_overlay_node(node, SurfaceTypes.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors, Shell.OverlayParts{docked, floating, workspace_layers}) ==
+    Shell.OverlayParts{docked, floating,Shell.resize(node, Shell.modal_navigation_width(capacity, parameters), Model.StretchSize{}, Shell.modal_navigation_scroll(capacity), Spatial.Stretch{}, Spatial.AlignedLayer{E.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}) <> workspace_layers} : Shell.OverlayParts}
 
 law modal_navigation_population:
   for +key: UIIdentity.Key
@@ -528,8 +558,9 @@ law modal_navigation_box_preserved:
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.split_overlay_node(S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, SurfaceTypes.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors, Shell.OverlayParts{docked, floating}) ==
-    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Model.ExactSize{Design.navigation_width(parameters)}, Model.StretchSize{}, minimum, Model.ScrollVertically{}, Spatial.AlignedLayer{E.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
+  for workspace_layers: +List<S.Node>
+  {Shell.split_overlay_node(S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, SurfaceTypes.Navigation{}, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors, Shell.OverlayParts{docked, floating, workspace_layers}) ==
+    Shell.OverlayParts{docked, floating,S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.modal_navigation_width(capacity, parameters), Model.StretchSize{}, minimum, Shell.modal_navigation_scroll(capacity), Spatial.AlignedLayer{E.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Leading{}}}, font, chrome, states}, attributes, children} <> workspace_layers} : Shell.OverlayParts}
 
 law dialog_reading_span:
   for navigation_width: Nat
@@ -562,8 +593,9 @@ law dialog_floating_geometry:
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, Shell.resize(node, Shell.outer_width(coordinate_capacity, parameters, S.key_of(node), overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating} : Shell.OverlayParts}
+  for workspace_layers: +List<S.Node>
+  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, node, layers, base, overlays, anchors, docked, floating, workspace_layers) ==
+    Shell.OverlayParts{docked, Shell.resize(node, Shell.outer_width(coordinate_capacity, parameters, S.key_of(node), overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, Model.Confined{}, Spatial.Stretch{}, Spatial.CenteredLayer{dialog_clearance(parameters)}) <> floating, workspace_layers} : Shell.OverlayParts}
 
 law dialog_floating_box_preserved:
   for +coordinate_capacity: Nat
@@ -590,8 +622,9 @@ law dialog_floating_box_preserved:
   for anchors: +List<Shell.Anchor>
   for docked: +List<S.Node>
   for floating: +List<S.Node>
-  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating) ==
-    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.outer_width(coordinate_capacity, parameters, key, overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating} : Shell.OverlayParts}
+  for workspace_layers: +List<S.Node>
+  {Shell.float_overlay(coordinate_capacity, SurfaceTypes.Dialog{}, parameters, S.Box{key, tag, S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, attributes, children}, layers, base, overlays, anchors, docked, floating, workspace_layers) ==
+    Shell.OverlayParts{docked, S.Box{key, tag, S.Style{S.Layout{direction, main, Spatial.Stretch{}, frame, Shell.outer_width(coordinate_capacity, parameters, key, overlays, Model.CappedStretchSize{Shell.dialog_reading_width(parameters)}), Model.CappedNaturalSize{100n}, minimum, Model.Confined{}, Spatial.CenteredLayer{dialog_clearance(parameters)}}, font, chrome, states}, attributes, children} <> floating, workspace_layers} : Shell.OverlayParts}
 
 def reading_encoding(+task: Nat, +generation: Nat, +part: Reading.Part) -> Type:
   {S.attribute_properties(S.ReadingAttribute{Reading.Binding{Reading.Context{task, generation}, part}}) ==
@@ -912,9 +945,9 @@ type PersistentTriggerRequirements is Type:
     {InterfaceView.relocate_found_trigger(Some{SurfaceTypes.Node{key, semantic, label, role,
             SurfaceTypes.PanelToggle{expanded, InteractionTypes.ServiceInput{service}, availability}, children}}, target, scene, base, overlays) ==
           InterfaceView.finish(scene, base, overlays) : SurfaceTypes.Surface},
-    navigation_kept: @+scene: InteractionTypes.Scene -> @+nav: +List<SurfaceTypes.Node> -> @+reachable: SurfaceTypes.Surface -> @+settings: SurfaceTypes.Node -> @+scope: Maybe<&2, String> ->
-    {InterfaceView.surface_base(InterfaceView.with_navigation(scene, nav, reachable, settings, scope)) ==
-    List.append(&2, SurfaceTypes.Node, nav, List.append(&2, SurfaceTypes.Node, InterfaceView.surface_base(reachable), [settings])) : +List<SurfaceTypes.Node>},
+    navigation_kept: @+scene: InteractionTypes.Scene -> @+nav: +List<SurfaceTypes.Node> -> @+reachable: SurfaceTypes.Surface -> @+scope: Maybe<&2, String> ->
+    {InterfaceView.surface_base(InterfaceView.with_workspace_navigation(scene, nav, reachable, scope)) ==
+    List.append(&2, SurfaceTypes.Node, nav, InterfaceView.surface_base(reachable)) : +List<SurfaceTypes.Node>},
     rejected_source_stays: @+scene: InteractionTypes.Scene -> @+base: +List<SurfaceTypes.Node> -> @+overlays: +List<SurfaceTypes.Node> -> @+key: UIIdentity.Key -> @+semantic: String -> @+label: String -> @+role: SurfaceTypes.Role -> @+meaning: SurfaceTypes.Meaning -> @+children: +List<SurfaceTypes.Node> -> @+target: Nat -> @rejected: {InterfaceView.persistent_trigger_source(meaning, target) == False{} : Bool} ->
     {InterfaceView.relocate_found_trigger(Some{SurfaceTypes.Node{key, semantic, label, role, meaning, children}}, target, scene, base, overlays) ==
     InterfaceView.finish(scene, base, overlays) : SurfaceTypes.Surface},
@@ -1066,6 +1099,7 @@ def source_binding(+meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Meaning:
     case SurfaceTypes.PanelToggle{expanded, input, availability}: SurfaceTypes.Activate{input, availability}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: SurfaceTypes.Region{}
     case SurfaceTypes.TaskRow{task, status, selected}: SurfaceTypes.Region{}
+    case SurfaceTypes.TaskChildren{task}: SurfaceTypes.Region{}
     case SurfaceTypes.ProjectChooser{selected}: SurfaceTypes.Region{}
     case SurfaceTypes.DirectoryRow{path, primary}: SurfaceTypes.Region{}
     case SurfaceTypes.ContextSummary{observation}: SurfaceTypes.Region{}
@@ -1180,10 +1214,10 @@ def message_uses_arrow_law(-key: UIIdentity.Key, -task: Nat, -availability: View
       label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n}) ==
       expected_message(User.MessageEditor{task}, availability, label) : Controls.Representation}
 
-def creation_uses_arrow_law(-key: UIIdentity.Key, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
-  {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{}}}}}, availability},
+def creation_uses_arrow_law(-key: UIIdentity.Key, -work: Maybe<&2, Nat>, -availability: View.Availability, -label: String, -role: SurfaceTypes.Role, -selection: Controls.Selection, -code: Maybe<&2, Code.Scene>, -appearance: Services.Appearance, -access: Services.Access, -open: Bool, -layers: +List<View.Layer>) -> Type:
+  {Controls.represent(key, SurfaceTypes.Activate{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{User.NewTaskEditor{work}}}}}, availability},
       label, role, Controls.Context{Controls.ComposerArea{}, selection, code, appearance, access, open, layers, None{}, Controls.Unscoped{}, Controls.FullSupporting{}, Navigation.initial(), 0n}) ==
-      expected_message(User.NewTaskEditor{}, availability, label) : Controls.Representation}
+      expected_message(User.NewTaskEditor{work}, availability, label) : Controls.Representation}
 
 def menu_text(face: Controls.Face) -> Maybe<&2, String>:
   match face:
@@ -1264,10 +1298,10 @@ type Requirements is Type:
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
       message_uses_arrow_law(key, task, availability, label, role, selection, code, appearance, access, open, layers),
-    creation_uses_arrow: @+key:UIIdentity.Key -> @+availability:View.Availability -> @+label:String -> @role:SurfaceTypes.Role ->
+    creation_uses_arrow: @+key:UIIdentity.Key -> @+work:Maybe<&2, Nat> -> @+availability:View.Availability -> @+label:String -> @role:SurfaceTypes.Role ->
       @selection:Controls.Selection -> @code:Maybe<&2, Code.Scene> -> @appearance:Services.Appearance ->
       @access:Services.Access -> @open:Bool -> @layers:+List<View.Layer> ->
-      creation_uses_arrow_law(key, availability, label, role, selection, code, appearance, access, open, layers),
+      creation_uses_arrow_law(key, work, availability, label, role, selection, code, appearance, access, open, layers),
     menu_preserves_labels: @+purpose:Controls.Purpose -> @+label:String ->
       {menu_text(Controls.face_for(purpose, label, Controls.MenuArea{})) == required_menu_text(purpose, label) : Maybe<&2, String>},
     copy_keeps_space: @state:Code.CopyState ->
@@ -1513,7 +1547,37 @@ law compact_property_current_values:
   for property: UXTypes.Property
   for key: UIIdentity.Key
   for parent: Design.Style
-  {A.compact_property_text(property,key,parent) == A.property_summary_text(False{},property,key,parent) : +List<S.Node>}
+  {A.compact_property_text(property,key,parent) == A.compact_summary_captions(A.property_summary_text(False{},property,key,parent)) : +List<S.Node>}
+
+law compact_summary_preserves_complete_caption:
+  for +key: UIIdentity.Key
+  for +value: String
+  for +font: S.FontChoice
+  for wrapping: T.Wrapping
+  for +rest: +List<S.Node>
+  {A.compact_summary_captions(S.Text{key, value, font, wrapping} <> rest) == S.Text{key, value, font, T.SingleLine{}} <> A.compact_summary_captions(rest) : +List<S.Node>}
+
+law compact_summary_preserves_box_fields:
+  for +key: UIIdentity.Key
+  for +tag: S.BoxTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +children: +List<S.Node>
+  for +rest: +List<S.Node>
+  {A.compact_summary_captions(S.Box{key, tag, style, attributes, children} <> rest) == S.Box{key, tag, style, attributes, A.compact_summary_captions(children)} <> A.compact_summary_captions(rest) : +List<S.Node>}
+
+law compact_summary_preserves_native_fields:
+  for +key: UIIdentity.Key
+  for +tag: S.ControlTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +name: String
+  for +enabled: Bool
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
+  for +children: +List<S.Node>
+  for +rest: +List<S.Node>
+  {A.compact_summary_captions(S.Control{key, tag, style, attributes, name, enabled, first, remaining, children} <> rest) == S.Control{key, tag, style, attributes, name, enabled, first, remaining, children} <> A.compact_summary_captions(rest) : +List<S.Node>}
 
 law property_caption_wraps:
   for property: UXTypes.Property
@@ -2173,6 +2237,10 @@ type NavigationPolicyRequirements is Type:
       {Navigation.revealed(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Bool.not(capable) || Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool},
     project_depth: @+project:Nat -> @+selected:Bool -> @+expanded:Bool -> @+depth:Nat ->
       {Navigation.descend(SurfaceTypes.ProjectGroup{project, selected, expanded}, depth) == (depth + 1n : Nat) : Nat},
+    task_children_depth: @+task:Nat -> @+depth:Nat ->
+      {Navigation.descend(SurfaceTypes.TaskChildren{task}, depth) == (depth + 1n : Nat) : Nat},
+    task_row_depth: @+task:Nat -> @+status:View.TaskStatus -> @+selected:Bool -> @+depth:Nat ->
+      {Navigation.descend(SurfaceTypes.TaskRow{task, status, selected}, depth) == depth : Nat},
     nullable_owner: @+nodes:+List<SurfaceTypes.Node> -> {Navigation.admitted(None{}, nodes) == True{} : Bool}}
 
 type NavigationRequirements is Type:
@@ -2183,23 +2251,29 @@ type NavigationRequirements is Type:
     context_depth: @+key:UIIdentity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+context:Controls.Context ->
       {Controls.navigation_depth(Controls.enter(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, context)) == Navigation.descend(meaning, Controls.navigation_depth(context)) : Nat},
     idle_truth: {Controls.task_status_glyph(View.TaskStatus{Domain.Active{}, False{}}) == Controls.IdleCircle{} : Controls.Icon},
-    actual_visibility: @+owner:UIIdentity.Key -> @+project:Nat -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
-      {Controls.navigation_header(True{}, owner, project, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.revealed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)}))), Navigation.feedback_active(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
+    actual_visibility: @+owner:UIIdentity.Key -> @+project:Nat -> @+selected:Bool -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+      {Controls.navigation_header(True{}, owner, project, selected, depth, attention, layers, fallback) == Controls.NavigationRow{owner, Nat.sub(depth, 1n), Navigation.auxiliary_exposed(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})), selected), Navigation.feedback_active(attention, UIIdentity.encode(owner), Navigation.menu_owned(layers, UIIdentity.encode(UIIdentity.Part{owner, "project/new-task/" ++ Nat.show(project)}), UIIdentity.encode(UIIdentity.Part{owner, "project/more/" ++ Nat.show(project)})))} : Controls.Representation},
     exposed_slot: @+capacity:Nat -> @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
       {Sidebar.slot_at(capacity, key, Navigation.role_name(role), width, True{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap_at(capacity, visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Exposed{}}], children} : Source.Node},
     concealed_slot: @+capacity:Nat -> @+key:UIIdentity.Key -> @+role:Navigation.ContentRole -> @+width:Model.AxisSize -> @+visual:Design.Style -> @+children:+List<Source.Node> ->
       {Sidebar.slot_at(capacity, key, Navigation.role_name(role), width, False{}, visual, children) == Source.Box{UIIdentity.Part{key, "@navigation-slot/" ++ Navigation.role_name(role)}, Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, width, Model.NaturalSize{}, Sidebar.navigation_gap_at(capacity, visual)), Spatial.Leading{}, Spatial.Centered{}), [Source.DataAttribute{"navigation-slot", Navigation.role_name(role)}, Source.ExposureAttribute{Source.Concealed{}}], children} : Source.Node},
     caption_frame: @+content:E.ContentArea -> @arrangement:E.Arrangement ->
-      {Sidebar.navigation_caption_frame(E.Frame{content, arrangement}) == E.Frame{E.ambient(0n, E.block(content)), arrangement} : E.Frame},
+      {Sidebar.navigation_caption_frame(E.Frame{content, arrangement}) == E.Frame{E.ambient(0n, 0n), arrangement} : E.Frame},
     title_style: @direction:Model.Direction -> @main:Spatial.Alignment -> @cross:Spatial.Alignment -> @frame:E.Frame -> @width:Model.AxisSize -> @height:Model.AxisSize -> @minimum:E.Extent -> @scroll:Model.Scroll -> @position:Spatial.Position -> @font:Source.FontChoice -> @chrome:Design.Chrome -> @states:Design.ControlStates ->
       {Sidebar.navigation_title_style(Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}) == Source.Style{Source.Layout{direction, Spatial.Leading{}, cross, Sidebar.navigation_caption_frame(frame), Model.StretchSize{}, height, minimum, scroll, position}, font, chrome, states} : Source.Style},
     title_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> ->
-      {Sidebar.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Sidebar.attributes(Source.Control{key, tag, Sidebar.navigation_title_style(style), attributes, name, enabled, first, remaining, children}, [Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})}]) : Source.Node},
+      {Sidebar.navigation_title(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) == Sidebar.attributes(Source.Control{key, tag, Sidebar.navigation_title_style(style), attributes, name, enabled, first, remaining, Sidebar.caption_nodes(children)}, Source.DataAttribute{"navigation-slot", Navigation.role_name(Navigation.TitleSlot{})} <> Sidebar.navigation_title_help(Sidebar.has_title_attribute(attributes), name)) : Source.Node},
     complete_command: @+key:UIIdentity.Key -> @+tag:Source.ControlTag -> @+style:Source.Style -> @+attributes:+List<Source.Attribute> -> @+name:String -> @+enabled:Bool -> @+first:Doc.DOMEvent -> @+remaining:+List<Doc.DOMEvent> -> @+children:+List<Source.Node> -> @+width:Model.AxisSize ->
       {Sidebar.sized(Source.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, width) == Source.Control{key, tag, Sidebar.sized_style(style, width), attributes, name, enabled, first, remaining, children} : Source.Node}}
 
 law navigation_evidence:
   NavigationRequirements
+
+law task_children_collection:
+  @+key:UIIdentity.Key -> @+task:Nat -> @+label:String -> @+visual:Design.Style -> @+content:+List<Source.Node> ->
+  {Authored.navigation_collection(key, SurfaceTypes.TaskChildren{task}, label, visual, content) ==
+    Source.Box{key, Source.Div{}, Factory.with_frame(Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Sidebar.collection_frame(Sidebar.Members{})),
+      [Source.DataAttribute{"task-parent", Nat.show(task)}, Source.RoleAttribute{"group"}, Source.AriaAttribute{"label", label}], content} : Source.Node}
 
 
 law navigation_entry_selected:
@@ -2214,8 +2288,8 @@ law navigation_feedback_active:
     {Navigation.feedback_active(Navigation.Attention{hovered, focused, capable}, owner, menu) == (Navigation.owns(hovered, owner) || Navigation.owns(focused, owner) || menu) : Bool}
 
 law navigation_fields_project_feedback:
-  @+key:UIIdentity.Key -> @+owner:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+project:Nat -> @selected:Bool -> @expanded:Bool -> @children:+List<SurfaceTypes.Node> -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
-    {Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}, depth, attention, layers, fallback) == Controls.navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.part(owner, "actions"))), owner, project, depth, attention, layers, fallback) : Controls.Representation}
+  @+key:UIIdentity.Key -> @+owner:UIIdentity.Key -> @semantic:String -> @label:String -> @role:SurfaceTypes.Role -> @+project:Nat -> @+selected:Bool -> @expanded:Bool -> @children:+List<SurfaceTypes.Node> -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
+    {Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, SurfaceTypes.ProjectGroup{project, selected, expanded}, children}}, depth, attention, layers, fallback) == Controls.navigation_header(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.part(owner, "actions"))), owner, project, selected, depth, attention, layers, fallback) : Controls.Representation}
 
 law navigation_fields_task_feedback:
   @+key:UIIdentity.Key -> @task:Nat -> @status:View.TaskStatus -> @selected:Bool -> @family:Controls.SourceFamily -> @+depth:Nat -> @+attention:Navigation.Attention -> @+layers:+List<View.Layer> -> @+fallback:Controls.Representation ->
@@ -2438,3 +2512,653 @@ law ordered_fence_speech_source:
   @+capacity:Nat -> @+context:Controls.Context -> @+typography:T.Presentation -> @+in_main:Bool -> @+start:Bool -> @+parameters:Design.LayoutParameters ->
   {Authored.nodes(capacity, Appearance.nodes_at([InterfaceView.speech_node(id, speaker, text, message, task, parent, state)], context, typography, in_main, start), parameters) ==
     Authored.nodes(capacity, Appearance.nodes_at([speech_authorship_input(id, speaker, text, message, task, parent, state)], context, typography, in_main, start), parameters) : Authored.Authorship}
+
+
+law base_group_work_tabs:
+  for +node: S.Node
+  for +navigation: +List<S.Node>
+  for +main: +List<S.Node>
+  for +settings: +List<S.Node>
+  for +other: +List<S.Node>
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  {Shell.split_base_region(Order.WorkTabsRegion{}, node, Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}) == Shell.BaseParts{navigation, main, settings, other, node <> work_tabs, global_navigation} : Shell.BaseParts}
+
+law base_group_global_navigation:
+  for +node: S.Node
+  for +navigation: +List<S.Node>
+  for +main: +List<S.Node>
+  for +settings: +List<S.Node>
+  for +other: +List<S.Node>
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  {Shell.split_base_region(Order.GlobalNavigationRegion{}, node, Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}) == Shell.BaseParts{navigation, main, settings, other, work_tabs, node <> global_navigation} : Shell.BaseParts}
+
+law global_navigation_compact_width:
+  {Authored.global_navigation_nominal_width(True{}) == 48n : Nat}
+
+law global_navigation_full_width:
+  {Authored.global_navigation_nominal_width(False{}) == 84n : Nat}
+
+law global_navigation_compact_face:
+  for +icon: Controls.Icon
+  for label: String
+  for fallback: Controls.Face
+  {Controls.global_navigation_entry_face(True{}, Some{icon}, label, fallback) == Controls.IconFace{icon} : Controls.Face}
+
+law global_navigation_full_face:
+  for +icon: Controls.Icon
+  for +label: String
+  for fallback: Controls.Face
+  {Controls.global_navigation_entry_face(False{}, Some{icon}, label, fallback) == Controls.IconTextFace{icon, label} : Controls.Face}
+
+law global_navigation_home_icon:
+  {Controls.global_navigation_icon(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Navigate{User.Start{}}}}}) == Some{Controls.Home{}} : Maybe<&2, Controls.Icon>}
+
+law global_navigation_graph_icon:
+  {Controls.global_navigation_icon(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Navigate{User.TaskGraphs{}}}}}) == Some{Controls.Branch{}} : Maybe<&2, Controls.Icon>}
+
+law global_navigation_unrelated_input_keeps_face:
+  for +role: SurfaceTypes.Role
+  for +input: InteractionTypes.Input
+  for +label: String
+  for +fallback: Controls.Face
+  for unrelated: {Controls.global_navigation_icon(input) == None{} : Maybe<&2, Controls.Icon>}
+  {Controls.global_navigation_role_face(role, input, label, fallback) == fallback : Controls.Face}
+
+law global_navigation_submission_is_unrelated:
+  for editor: User.Editor
+  {Controls.global_navigation_icon(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.Submit{editor}}}}) == None{} : Maybe<&2, Controls.Icon>}
+
+law global_navigation_selected:
+  for +selected: Bool
+  for compact: Bool
+  {Controls.selected_role(SurfaceTypes.GlobalNavigationEntry{selected, compact}) == selected : Bool}
+
+law global_navigation_footer_construction:
+  for +key: UIIdentity.Key
+  for +visual: Design.Style
+  for +destinations: S.Node
+  for +settings: S.Node
+  {Authored.global_navigation_contents(key, visual, [destinations, settings]) ==
+    [destinations, S.Box{UIIdentity.part(key, "@global-navigation-space"), S.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, 0n), Nil{}, Nil{}}, settings] : +List<S.Node>}
+
+law global_navigation_style_at:
+  for +capacity: Nat
+  for +compact: Bool
+  for +visual: Design.Style
+  {Authored.global_navigation_style_at(capacity, compact, visual) ==
+    Factory.with_frame(Factory.with_alignments(Factory.with_direction(Factory.style(visual, Model.ExactSize{Authored.work_length_at(capacity, visual, Authored.global_navigation_nominal_width(compact))}, Model.StretchSize{}, Model.ScrollVertically{}), Model.Vertical{}), Spatial.Leading{}, Spatial.Stretch{}), E.Frame{E.ambient(Authored.work_length_at(capacity, visual, 4n), Authored.work_length_at(capacity, visual, 8n)), E.EmbeddedContent{Authored.work_length_at(capacity, visual, 4n)}}) : S.Style}
+
+law global_navigation_source_construction_at:
+  for +capacity: Nat
+  for +compact: Bool
+  for +key: UIIdentity.Key
+  for +label: String
+  for +visual: Design.Style
+  for +content: +List<S.Node>
+  {Authored.global_navigation_source_at(capacity, compact, key, label, visual, content) ==
+    S.Box{key, S.Navigation{}, Authored.global_navigation_style_at(capacity, compact, visual), [S.AriaAttribute{"label", label}], Authored.global_navigation_contents(key, visual, content)} : S.Node}
+
+law global_navigation_entry_native_fields:
+  for +compact: Bool
+  for +label: String
+  for +key: UIIdentity.Key
+  for +tag: S.ControlTag
+  for +layout: S.Layout
+  for +font: S.FontChoice
+  for +chrome: Design.Chrome
+  for +states: Design.ControlStates
+  for +attributes: +List<S.Attribute>
+  for +name: String
+  for +enabled: Bool
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
+  for +children: +List<S.Node>
+  {Authored.global_navigation_entry_source(compact, label, S.Control{key, tag, S.Style{layout, font, chrome, states}, attributes, name, enabled, first, remaining, children}) ==
+    S.Control{key, tag, S.Style{Authored.global_navigation_entry_layout(compact, layout), font, chrome, states}, List.append(&2, S.Attribute, attributes, [S.TitleAttribute{label}]), name, enabled, first, remaining, children} : S.Node}
+
+law workspace_capability_reserves_navigation_and_main:
+  for details_beside: Bool
+  for +parameters: Design.LayoutParameters
+  {Shell.workspace_capacity_width(View.Capacity{True{}, details_beside}, parameters) == Nat.add(Design.navigation_width(parameters), Design.main_minimum_width(parameters)) : Nat}
+
+law workspace_without_navigation_capability_has_no_reservation:
+  for details_beside: Bool
+  for parameters: Design.LayoutParameters
+  {Shell.workspace_capacity_width(View.Capacity{False{}, details_beside}, parameters) == 0n : Nat}
+
+law workspace_minimum_style_fields:
+  for +required: Nat
+  for +direction: Model.Direction
+  for +main: Spatial.Alignment
+  for +cross: Spatial.Alignment
+  for +frame: E.Frame
+  for +width: Model.AxisSize
+  for +height: Model.AxisSize
+  for minimum_width: Nat
+  for +minimum_height: Nat
+  for +scroll: Model.Scroll
+  for +position: Spatial.Position
+  for +font: S.FontChoice
+  for +chrome: Design.Chrome
+  for +states: Design.ControlStates
+  {Shell.workspace_minimum_style(required, S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{minimum_width, minimum_height}, scroll, position}, font, chrome, states}) ==
+    S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{required, minimum_height}, scroll, position}, font, chrome, states} : S.Style}
+
+law workspace_style_uses_capability_reservation:
+  for +capacity: View.Capacity
+  for +parameters: Design.LayoutParameters
+  for +font: T.Presentation
+  {Shell.workspace_style(capacity, parameters, font) ==
+    S.Style{S.Layout{Model.Vertical{}, Spatial.Leading{}, Spatial.Stretch{}, E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}}, Model.StretchSize{}, Model.StretchSize{}, E.Extent{Shell.workspace_capacity_width(capacity, parameters), 0n}, Model.Confined{}, Spatial.InFlow{}}, S.ExplicitFont{font}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"}, Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}}, Design.Passive{}} : S.Style}
+
+law work_tabs_above_body:
+  for +navigation: +List<S.Node>
+  for +main: +List<S.Node>
+  for +settings: +List<S.Node>
+  for +other: +List<S.Node>
+  for +work_tabs: +List<S.Node>
+  for +global_navigation: +List<S.Node>
+  for +structure: Design.MainStructure
+  for +reading_width: Nat
+  for +placement: View.NavigationPlacement
+  for +capacity: View.Capacity
+  for +parameters: Design.LayoutParameters
+  for +docked: +List<S.Node>
+  for +workspace_layers: +List<S.Node>
+  for +font: T.Presentation
+  {Shell.body(Shell.BaseParts{navigation, main, settings, other, work_tabs, global_navigation}, structure, reading_width, placement, capacity, parameters, docked, workspace_layers, font) ==
+    Shell.wrap(UIIdentity.part(UIIdentity.place("/application"), "shell"), Shell.neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}),
+      List.append(&2, S.Node, global_navigation, [Shell.wrap(UIIdentity.part(UIIdentity.place("/application"), "workspace"), Shell.workspace_style(capacity, parameters, font),
+        Shell.workspace_content(Shell.navigation_beside(capacity), navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font))])) : S.Node}
+
+law workspace_stage_is_layered:
+  for +body: S.Node
+  for +workspace_layers: +List<S.Node>
+  for +font: T.Presentation
+  {Shell.workspace_stage(body, workspace_layers, font) ==
+    S.Box{UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), S.Div{},
+      S.Style{S.Layout{Model.Layered{}, Spatial.Leading{}, Spatial.Stretch{}, E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}}, Model.StretchSize{}, Model.StretchSize{}, E.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}}, S.ExplicitFont{font}, Design.Chrome{Design.ThemeToken{"--color-token-text-primary"}, Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}}, Design.Passive{}}, Nil{}, body <> Shell.back_to_front(workspace_layers)} : S.Node}
+
+law work_tab_current:
+  for +selected: Bool
+  {Controls.selected_role(SurfaceTypes.WorkTab{selected}) == selected : Bool}
+
+law work_creation_glyph:
+  for +purpose: Controls.Purpose
+  for +label: String
+  {Controls.input_face(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.CreateWork{}}}}, purpose, label, Controls.ToolbarArea{}) == Controls.IconFace{Controls.Plus{}} : Controls.Face}
+
+law work_creation_dialog_caption:
+  for +purpose: Controls.Purpose
+  for +label: String
+  {Controls.input_face(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.CreateWork{}}}}, purpose, label, Controls.DialogArea{}) == Controls.IconTextFace{Controls.Plus{}, label} : Controls.Face}
+
+law work_tab_control_style:
+  for +direction: Model.Direction
+  for +main: Spatial.Alignment
+  for +cross: Spatial.Alignment
+  for +frame: E.Frame
+  for +old_width: Model.AxisSize
+  for +old_height: Model.AxisSize
+  for +minimum: E.Extent
+  for +scroll: Model.Scroll
+  for +position: Spatial.Position
+  for +font: S.FontChoice
+  for +chrome: Design.Chrome
+  for +states: Design.ControlStates
+  for +width: Model.AxisSize
+  for +height: Model.AxisSize
+  {Authored.work_tab_control_style(S.Style{S.Layout{direction, main, cross, frame, old_width, old_height, minimum, scroll, position}, font, chrome, states}, width, height) ==
+    S.Style{S.Layout{direction, Spatial.Leading{}, Spatial.Centered{}, frame, width, height, minimum, Model.Confined{}, position}, font, chrome, states} : S.Style}
+
+law work_rename_glyph:
+  for +work: Nat
+  for +purpose: Controls.Purpose
+  for +label: String
+  for +area: Controls.Area
+  {Controls.input_face(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.RenameWork{work}}}}, purpose, label, area) == Controls.IconFace{Controls.Pencil{}} : Controls.Face}
+
+law work_selection_caption:
+  for +work: Maybe<&2, Nat>
+  for +purpose: Controls.Purpose
+  for +label: String
+  for +area: Controls.Area
+  {Controls.input_face(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.SelectWork{work}}}}, purpose, label, area) == Controls.SingleLineFace{label} : Controls.Face}
+
+law work_overview_count_caption:
+  for +count: Nat
+  for +name: String
+  for +fallback: Controls.Face
+  {Controls.work_role_face(True{}, SurfaceTypes.WorkOverviewButton{count}, name, fallback) == Controls.UnbrokenIconTextFace{Controls.Columns{}, Nat.show(count)} : Controls.Face}
+
+law work_tab_popup_current:
+  for +selected: Bool
+  for input: InteractionTypes.Input
+  for availability: View.Availability
+  for name: String
+  for face: Controls.Face
+  for menu: Bool
+  for expanded: Bool
+  for geometry: Controls.Geometry
+  for placement: Controls.Placement
+  for feedback: Controls.Feedback
+  {Authored.work_tab_popup_attributes(selected, Controls.Action{Controls.Button{input, availability, name, face, Controls.Popup{menu, expanded}, geometry, placement, feedback}}) ==
+    [S.AriaAttribute{"current", Fields.boolean(selected)}] : +List<S.Attribute>}
+
+law work_tab_destination_current_not_duplicated:
+  for selected: Bool
+  for input: InteractionTypes.Input
+  for availability: View.Availability
+  for name: String
+  for face: Controls.Face
+  for current: Bool
+  for geometry: Controls.Geometry
+  for placement: Controls.Placement
+  for feedback: Controls.Feedback
+  {Authored.work_tab_popup_attributes(selected, Controls.Action{Controls.Button{input, availability, name, face, Controls.Destination{current}, geometry, placement, feedback}}) == Nil{} : +List<S.Attribute>}
+
+law selected_work_tab_revealed_on_layout:
+  {Authored.work_tab_layout_attributes(True{}) == [S.DataAttribute{"reveal-on-layout", "true"}] : +List<S.Attribute>}
+
+law unselected_work_tab_not_revealed_on_layout:
+  {Authored.work_tab_layout_attributes(False{}) == Nil{} : +List<S.Attribute>}
+
+law work_tab_native_fields:
+  for +selected: Bool
+  for +label: String
+  for +representation: Controls.Representation
+  for +key: UIIdentity.Key
+  for +tag: S.ControlTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +name: String
+  for +enabled: Bool
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
+  for +children: +List<S.Node>
+  for +width: Model.AxisSize
+  for +height: Model.AxisSize
+  {Authored.work_tab_native_source(selected, label, representation, S.Control{key, tag, style, attributes, name, enabled, first, remaining, children}, width, height) ==
+    S.Control{key, tag, Authored.work_tab_control_style(style, width, height), List.append(&2, S.Attribute, attributes, Authored.native_attributes(key, S.TitleAttribute{label} <> List.append(&2, S.Attribute, Authored.work_tab_layout_attributes(selected), Authored.work_tab_popup_attributes(selected, representation)))), name, enabled, first, remaining, children} : S.Node}
+
+def expected_work_tab_slot(+key: UIIdentity.Key, visual: Design.Style, width: Model.AxisSize, height: Nat, child: S.Node) -> S.Node:
+  Authored.box(key, S.Div{}, Factory.content_style(visual, Model.Horizontal{}, width, Model.ExactSize{height}, 0n), Nil{}, [child])
+
+def expected_desktop_work_tabs_sized(+key: UIIdentity.Key, +visual: Design.Style, minimum: Nat, extra: Nat, height: Nat, all_tasks: S.Node, works: S.Node, create: S.Node, overview: S.Node) -> +List<S.Node>:
+  [expected_work_tab_slot(UIIdentity.part(key, "@all-tasks-slot"), visual, Model.LimitedSize{minimum, extra, 0n}, height, all_tasks), works, create, Authored.work_strip_spacer(UIIdentity.part(key, "@work-tab-space"), visual), overview]
+
+def expected_compact_work_switcher_sized(+key: UIIdentity.Key, visual: Design.Style, height: Nat, current: S.Node, overview: S.Node) -> +List<S.Node>:
+  [expected_work_tab_slot(UIIdentity.part(key, "@current-work-slot"), visual, Model.StretchSize{}, height, current), overview]
+
+law work_tabs_keep_global_entry:
+  for +key: UIIdentity.Key
+  for +visual: Design.Style
+  for +minimum: Nat
+  for +extra: Nat
+  for +height: Nat
+  for +all_tasks: S.Node
+  for +works: S.Node
+  for +create: S.Node
+  for +overview: S.Node
+  {Authored.work_tabs_content_sized(key, visual, minimum, extra, height, [all_tasks, works, create, overview]) ==
+    expected_desktop_work_tabs_sized(key, visual, minimum, extra, height, all_tasks, works, create, overview) : +List<S.Node>}
+
+law compact_work_switcher_keeps_current:
+  for +key: UIIdentity.Key
+  for +visual: Design.Style
+  for +minimum: Nat
+  for +extra: Nat
+  for +height: Nat
+  for +current: S.Node
+  for +overview: S.Node
+  {Authored.work_tabs_content_sized(key, visual, minimum, extra, height, [current, overview]) ==
+    expected_compact_work_switcher_sized(key, visual, height, current, overview) : +List<S.Node>}
+
+def work_tabs_scaled_dimensions_statement_at(+capacity: Nat, +key: UIIdentity.Key, +visual: Design.Style, +content: +List<S.Node>) -> Type:
+  {Authored.work_tabs_content_at(capacity, key, visual, content) ==
+    Authored.work_tabs_content_sized(key, visual, Authored.work_length_at(capacity, visual, 96n), Authored.work_length_at(capacity, visual, 56n), Authored.work_length_at(capacity, visual, 40n), content) : +List<S.Node>}
+
+law work_tabs_content_uses_scaled_dimensions_at:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +visual: Design.Style
+  for +content: +List<S.Node>
+  work_tabs_scaled_dimensions_statement_at(capacity, key, visual, content)
+
+law work_tabs_content_uses_scaled_dimensions:
+  for +key: UIIdentity.Key
+  for +visual: Design.Style
+  for +content: +List<S.Node>
+  work_tabs_scaled_dimensions_statement_at(NaturalSize.limit(), key, visual, content)
+
+law compact_work_scope_visible_title:
+  for +title: String
+  for +count: Nat
+  for +name: String
+  for +fallback: Controls.Face
+  {Controls.work_role_face(True{}, SurfaceTypes.CompactWorkScope{title, count}, name, fallback) == Controls.SingleLineFace{title} : Controls.Face}
+
+law compact_navigation_panel_purpose:
+  for +expanded: Bool
+  {Controls.panel_purpose(User.GlobalNavigation{}, expanded) == Controls.OpenPanel{Controls.MenuLines{}, False{}, expanded} : Controls.Purpose}
+
+law compact_global_navigation_launcher_icon:
+  for trigger: String
+  for purpose: Controls.Purpose
+  for label: String
+  for area: Controls.Area
+  {Controls.input_face(InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.GlobalNavigation{}, trigger}}}}, purpose, label, area) == Controls.IconFace{Controls.MenuLines{}} : Controls.Face}
+
+law compact_global_navigation_launcher_complete:
+  for +trigger: String
+  for +expanded: Bool
+  for +availability: View.Availability
+  for +label: String
+  for role: SurfaceTypes.Role
+  {Controls.action_for_purpose(Controls.OpenPanel{Controls.MenuLines{}, False{}, expanded}, Controls.TouchNavigationArea{},
+      InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.GlobalNavigation{}, trigger}}}}, availability, label, role) ==
+    Controls.Action{Controls.Button{InteractionTypes.ApplicationInput{Experience.UserInput{User.Activate{User.OpenPanel{User.GlobalNavigation{}, trigger}}}}, availability, label, Controls.IconFace{Controls.MenuLines{}}, Controls.Popup{False{}, expanded}, Controls.Geometry{Space.fixed_demand(32n, 32n), 16n, 8n, 0n}, Controls.InFlow{}, Controls.Quiet{}}} : Controls.Representation}
+
+law compact_global_navigation_menu_lines_drawing:
+  for +size: Nat
+  {I.drawing(Controls.MenuLines{}, size) == S.Drawing{"0 0 20 20", [S.DrawingPath{"M3 5h14M3 10h14M3 15h14"}], size, size, S.StrokedDrawing{14n}} : S.Drawing}
+
+law navigation_motor_floor_modes:
+  {Controls.navigation_motor_floor(False{}) == 32n : Nat} &
+  {Controls.navigation_motor_floor(True{}) == 44n : Nat}
+
+law compact_navigation_area_from_header:
+  for +key: UIIdentity.Key
+  for +semantic: String
+  for +label: String
+  for +meaning: SurfaceTypes.Meaning
+  for +nested: +List<SurfaceTypes.Node>
+  for +rest: +List<SurfaceTypes.Node>
+  for +inherited: Controls.Area
+  {Controls.node_area(SurfaceTypes.Navigation{}, SurfaceTypes.Region{}, SurfaceTypes.Node{key, semantic, label, SurfaceTypes.CompactHeader{}, meaning, nested} <> rest, inherited) == Controls.NavigationArea{True{}} : Controls.Area}
+
+law compact_header_and_menu_touch_area:
+  for +inherited: Controls.Area
+  {Controls.area_for(SurfaceTypes.CompactHeader{}, inherited) == Controls.TouchNavigationArea{} : Controls.Area} &
+  {Controls.area_for(SurfaceTypes.CompactNavigationMenu{}, inherited) == Controls.TouchNavigationArea{} : Controls.Area}
+
+law navigation_geometry_desktop_preserved:
+  for +geometry: Controls.Geometry
+  {Controls.navigation_geometry(False{}, geometry) == geometry : Controls.Geometry}
+
+law navigation_geometry_compact_complete:
+  for +minimum_width: Nat
+  for +minimum_height: Nat
+  for +preferred_width: Nat
+  for +preferred_height: Nat
+  for +icon: Nat
+  for +radius: Nat
+  for +leading: Nat
+  {Controls.navigation_geometry(True{}, Controls.Geometry{Space.Demand{E.Extent{minimum_width, minimum_height}, E.Extent{preferred_width, preferred_height}}, icon, radius, leading}) ==
+    Controls.Geometry{Space.Demand{E.Extent{Nat.max(44n, minimum_width), Nat.max(44n, minimum_height)}, E.Extent{Nat.max(44n, preferred_width), Nat.max(44n, preferred_height)}}, icon, radius, leading} : Controls.Geometry}
+
+law navigation_target_uses_actual_visual_floor:
+  for +capacity: Nat
+  for +visual: Design.Style
+  {Sidebar.navigation_target_at(capacity, visual) == Nat.max(Design.style_minimum_height(visual), Nat.max(Activity.supporting_minimum(Activity.initial()), Sidebar.navigation_length_at(capacity, 32n, visual))) : Nat}
+
+law desktop_workspace_content_preserved:
+  for +navigation: +List<S.Node>
+  for +main: +List<S.Node>
+  for +settings: +List<S.Node>
+  for +other: +List<S.Node>
+  for +work_tabs: +List<S.Node>
+  for +structure: Design.MainStructure
+  for +reading_width: Nat
+  for +placement: View.NavigationPlacement
+  for +parameters: Design.LayoutParameters
+  for +docked: +List<S.Node>
+  for +workspace_layers: +List<S.Node>
+  for +font: T.Presentation
+  {Shell.workspace_content(True{}, navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font) ==
+    List.append(&2, S.Node, work_tabs, [S.Box{UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), S.Div{}, Shell.neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+      Shell.body_direction(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font) <> Shell.back_to_front(workspace_layers)}]) : +List<S.Node>}
+
+law compact_workspace_content_complete:
+  for +navigation: +List<S.Node>
+  for +main: +List<S.Node>
+  for +settings: +List<S.Node>
+  for +other: +List<S.Node>
+  for +work_tabs: +List<S.Node>
+  for +structure: Design.MainStructure
+  for +reading_width: Nat
+  for +placement: View.NavigationPlacement
+  for +parameters: Design.LayoutParameters
+  for +docked: +List<S.Node>
+  for +workspace_layers: +List<S.Node>
+  for +font: T.Presentation
+  {Shell.workspace_content(False{}, navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font) ==
+    [S.Box{UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), S.Div{}, Shell.neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+      S.Box{UIIdentity.part(UIIdentity.place("/application"), "compact-flow"), S.Div{}, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+        List.append(&2, S.Node, work_tabs, [S.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), S.Div{}, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+          List.append(&2, S.Node, Shell.main_nodes(main, structure, reading_width, False{}, Design.main_minimum_width(parameters)), List.append(&2, S.Node, other, docked))}])} <> Shell.back_to_front(workspace_layers)}] : +List<S.Node>}
+
+law compact_work_scope_native_fields:
+  for +key: UIIdentity.Key
+  for +count: Nat
+  for +label: String
+  for +visual: Design.Style
+  for +native_key: UIIdentity.Key
+  for +tag: S.ControlTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +name: String
+  for +enabled: Bool
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
+  for +children: +List<S.Node>
+  {Authored.compact_work_scope_source(key, count, label, visual, S.Control{native_key, tag, style, attributes, name, enabled, first, remaining, children}) ==
+    S.Control{native_key, tag, Factory.with_alignments(Authored.work_sized_style(style, Model.StretchSize{}, Model.NaturalSize{}), Spatial.Leading{}, Spatial.Centered{}),
+      List.append(&2, S.Attribute, attributes, [S.TitleAttribute{label}, S.AriaAttribute{"current", "true"}]), name, enabled, first, remaining,
+      [S.Box{UIIdentity.part(key, "@compact-work-title"), S.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, children},
+       A.caption(UIIdentity.part(key, "@compact-work-count"), Nat.show(count), visual, T.UnbrokenLine{})]} : S.Node}
+
+law compact_navigation_source_complete:
+  for +capacity: Nat
+  for +visual: Design.Style
+  for +key: UIIdentity.Key
+  for +tag: S.BoxTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +header: S.Node
+  for +rest: +List<S.Node>
+  {Authored.compact_navigation_source_at(capacity, True{}, visual, S.Box{key, tag, style, attributes, header <> rest}) ==
+    S.Box{key, tag, Factory.with_frame(Factory.with_direction(Authored.work_sized_style(style, Model.StretchSize{}, Model.StretchSize{}), Model.Vertical{}), E.Frame{E.ambient(0n, 0n), E.EmbeddedContent{0n}}), attributes,
+      [header, S.Box{UIIdentity.part(key, "@compact-task-tree"), S.Div{}, Authored.compact_task_tree_style_at(capacity, visual), Nil{}, rest}]} : S.Node}
+
+law desktop_navigation_source_preserved:
+  for +capacity: Nat
+  for +visual: Design.Style
+  for +node: S.Node
+  {Authored.compact_navigation_source_at(capacity, False{}, visual, node) == node : S.Node}
+
+law compact_navigation_entry_caption:
+  for +selected: Bool
+  for +icon: Controls.Icon
+  for +label: String
+  for +fallback: Controls.Face
+  {Controls.global_navigation_destination_face(SurfaceTypes.CompactNavigationEntry{selected}, icon, label, fallback) == Controls.IconTextFace{icon, label} : Controls.Face}
+
+law compact_navigation_entry_selected:
+  for +selected: Bool
+  {Controls.selected_role(SurfaceTypes.CompactNavigationEntry{selected}) == selected : Bool}
+
+law compact_work_creation_caption:
+  for +label: String
+  {Controls.work_creation_face(label, Controls.TouchNavigationArea{}) == Controls.IconTextFace{Controls.Plus{}, label} : Controls.Face}
+
+law compact_header_three_targets:
+  for +height: Nat
+  for +menu: S.Node
+  for +work: S.Node
+  for +tasks: S.Node
+  {Authored.compact_header_content_sized(height, [menu, work, tasks]) ==
+    [Authored.compact_header_icon_control(menu, height),
+     Authored.work_tab_control(work, Model.StretchSize{}, Model.ExactSize{height}),
+     Authored.compact_header_icon_control(tasks, height)] : +List<S.Node>}
+
+law compact_header_icon_style_complete:
+  for +target: Nat
+  for +direction: Model.Direction
+  for main: Spatial.Alignment
+  for cross: Spatial.Alignment
+  for +frame: E.Frame
+  for width: Model.AxisSize
+  for height: Model.AxisSize
+  for +minimum: E.Extent
+  for scroll: Model.Scroll
+  for +position: Spatial.Position
+  for +font: S.FontChoice
+  for +chrome: Design.Chrome
+  for +states: Design.ControlStates
+  {Authored.compact_header_icon_style(S.Style{S.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}, target) ==
+    S.Style{S.Layout{direction, Spatial.Centered{}, Spatial.Centered{}, frame, Model.ExactSize{target}, Model.ExactSize{target}, minimum, Model.Confined{}, position}, font, chrome, states} : S.Style}
+
+law compact_header_icon_preserves_the_native_control:
+  for +height: Nat
+  for +key: UIIdentity.Key
+  for +tag: S.ControlTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +name: String
+  for +enabled: Bool
+  for +first: Doc.DOMEvent
+  for +rest: +List<Doc.DOMEvent>
+  for +children: +List<S.Node>
+  {Authored.compact_header_icon_control(S.Control{key, tag, style, attributes, name, enabled, first, rest, children}, height) ==
+    S.Control{key, tag, Authored.compact_header_icon_style(style, height), attributes, name, enabled, first, rest, children} : S.Node}
+
+law compact_header_icon_preserves_the_container:
+  for +height: Nat
+  for +key: UIIdentity.Key
+  for +tag: S.BoxTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +children: +List<S.Node>
+  {Authored.compact_header_icon_control(S.Box{key, tag, style, attributes, children}, height) ==
+    S.Box{key, tag, Authored.compact_header_icon_style(style, height), attributes, children} : S.Node}
+
+law compact_header_actual_source:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +label: String
+  for +meaning: SurfaceTypes.Meaning
+  for +visual: Design.Style
+  for +representation: Controls.Representation
+  for +children: +List<Authored.Child>
+  for +parameters: Design.LayoutParameters
+  {Authored.regular(capacity, key, label, SurfaceTypes.CompactHeader{}, meaning, visual, representation, children, parameters) ==
+    S.Box{key, S.Navigation{}, Authored.compact_header_style_at(capacity, visual), [S.AriaAttribute{"label", label}], Authored.compact_header_content_at(capacity, visual, Authored.ordinary(Authored.all_nodes(children)))} : S.Node}
+
+law compact_work_scope_actual_source:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +label: String
+  for +title: String
+  for +count: Nat
+  for +meaning: SurfaceTypes.Meaning
+  for +visual: Design.Style
+  for +representation: Controls.Representation
+  for +children: +List<Authored.Child>
+  for +parameters: Design.LayoutParameters
+  {Authored.regular(capacity, key, label, SurfaceTypes.CompactWorkScope{title, count}, meaning, visual, representation, children, parameters) ==
+    Authored.compact_work_scope_source(key, count, label, visual, Authored.button_source(key, visual, parameters, representation)) : S.Node}
+
+law compact_navigation_entry_actual_source:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +label: String
+  for +selected: Bool
+  for +meaning: SurfaceTypes.Meaning
+  for +visual: Design.Style
+  for +representation: Controls.Representation
+  for +children: +List<Authored.Child>
+  for +parameters: Design.LayoutParameters
+  {Authored.regular(capacity, key, label, SurfaceTypes.CompactNavigationEntry{selected}, meaning, visual, representation, children, parameters) ==
+    Authored.compact_navigation_entry_source(label, Authored.button_source(key, visual, parameters, representation)) : S.Node}
+
+law compact_navigation_entry_native_fields:
+  for +label: String
+  for +key: UIIdentity.Key
+  for +tag: S.ControlTag
+  for +style: S.Style
+  for +attributes: +List<S.Attribute>
+  for +name: String
+  for +enabled: Bool
+  for +first: Doc.DOMEvent
+  for +remaining: +List<Doc.DOMEvent>
+  for +children: +List<S.Node>
+  {Authored.compact_navigation_entry_source(label, S.Control{key, tag, style, attributes, name, enabled, first, remaining, children}) ==
+    S.Control{key, tag, Authored.work_tab_control_style(style, Model.StretchSize{}, Model.NaturalSize{}), List.append(&2, S.Attribute, attributes, [S.TitleAttribute{label}]), name, enabled, first, remaining, children} : S.Node}
+
+law compact_header_actual_height:
+  for +capacity: Nat
+  for +visual: Design.Style
+  {Authored.compact_header_height_at(capacity, visual) == Nat.max(44n, Authored.work_length_at(capacity, visual, 44n)) : Nat}
+
+
+law navigation_motor_target_action:
+  for +button: Controls.Button
+  {Controls.navigation_motor_target(Controls.Action{button}) == True{} : Bool}
+
+law navigation_motor_target_row:
+  for +owner: UIIdentity.Key
+  for +depth: Nat
+  for +visible: Bool
+  for +feedback_active: Bool
+  {Controls.navigation_motor_target(Controls.NavigationRow{owner, depth, visible, feedback_active}) == True{} : Bool}
+
+
+law navigation_regular_uses_actual_capacity:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +label: String
+  for +meaning: SurfaceTypes.Meaning
+  for +visual: Design.Style
+  for +representation: Controls.Representation
+  for +children: +List<Authored.Child>
+  for +parameters: Design.LayoutParameters
+  {Authored.regular(capacity, key, label, SurfaceTypes.Navigation{}, meaning, visual, representation, children, parameters) ==
+    Authored.compact_navigation_source_at(capacity, Authored.navigation_children_compact(children), visual,
+      Authored.aligned_navigation(Authored.regular_plain(capacity, key, label, SurfaceTypes.Navigation{}, meaning, visual, representation, children, parameters))) : S.Node}
+
+law compact_task_tree_calibrated_spacing_at:
+  for +capacity: Nat
+  for +text: T.Presentation
+  for +chrome: Design.Chrome
+  for +alignment: Spatial.Alignment
+  for +flow: Spatial.Flow
+  for +overflow: Spatial.Overflow
+  for +frame: E.Frame
+  for +minimum: Nat
+  for +maximum: Nat
+  for +states: Design.ControlStates
+  {Authored.compact_task_tree_style_at(capacity, Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}) ==
+    S.Style{S.Layout{Model.Vertical{}, Factory.main_alignment(flow), Factory.cross_alignment(flow, alignment),
+      E.Frame{E.ambient(T.scaled(capacity, 8n, T.presentation_scale(text)), T.scaled(capacity, 8n, T.presentation_scale(text))), E.EmbeddedContent{T.scaled(capacity, 4n, T.presentation_scale(text))}},
+      Model.StretchSize{}, Model.StretchSize{}, E.Extent{0n, minimum}, Model.ScrollVertically{}, Spatial.InFlow{}}, S.ExplicitFont{text}, chrome, states} : S.Style}
+
+law compact_header_content_uses_actual_height:
+  for +capacity: Nat
+  for +visual: Design.Style
+  for +content: +List<S.Node>
+  {Authored.compact_header_content_at(capacity, visual, content) ==
+    Authored.compact_header_content_sized(Authored.compact_header_height_at(capacity, visual), content) : +List<S.Node>}
+
+law navigation_children_compact_from_header:
+  for +key: UIIdentity.Key
+  for +meaning: SurfaceTypes.Meaning
+  for +control: Controls.Representation
+  for +nodes: +List<S.Node>
+  for +rest: +List<Authored.Child>
+  {Authored.navigation_children_compact(Authored.Child{key, SurfaceTypes.CompactHeader{}, meaning, control, nodes} <> rest) == True{} : Bool}
+
+law navigation_children_compact_empty:
+  {Authored.navigation_children_compact(Nil{}) == False{} : Bool}

@@ -587,9 +587,10 @@ def surface_owner(surface: SurfaceTypes.Surface) -> Maybe<&2, String>:
   scope
 
 law assembled_foreground_owner:
+  for +full: Bool
   for +scene: InteractionTypes.Scene
   for +state: InteractionTypes.State
-  {surface_owner(InterfaceView.assemble(scene, state)) == required_foreground_owner(scene) : Maybe<&2, String>}
+  {surface_owner(InterfaceView.assemble(full, scene, state)) == required_foreground_owner(scene) : Maybe<&2, String>}
 
 law scene_foreground_owner:
   for +scene: InteractionTypes.Scene
@@ -784,15 +785,16 @@ type RequestRequirements is Type:
           J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
             J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
             J.Field{"messages", J.Array{J.text_items(messages)}}]} : J.Json},
-    project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> ->
-      {Legacy.request_payload(M.CreateProject{name, workspace, J.Object{guidance}}) ==
-        J.Object{[J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]} : J.Json},
-    update: @id:Nat -> @+name:Maybe<&2, String> -> @+workspace:J.Json -> @guidance:+List<J.Field> ->
-      {Legacy.request_payload(M.UpdateProject{id, name, workspace, J.Object{guidance}}) ==
-        Codec.command_json(M.UpdateProject{id, name, workspace, J.Null{}}) : J.Json},
+    project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> -> @create_worktree:J.Json ->
+      {Legacy.request_payload(M.CreateProject{name, workspace, J.Object{guidance}, create_worktree}) ==
+        J.Object{Codec.optional_field("create_worktree", create_worktree,
+          [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}])} : J.Json},
+    update: @id:Nat -> @+name:Maybe<&2, String> -> @+workspace:J.Json -> @guidance:+List<J.Field> -> @+create_worktree:J.Json ->
+      {Legacy.request_payload(M.UpdateProject{id, name, workspace, J.Object{guidance}, create_worktree}) ==
+        Codec.command_json(M.UpdateProject{id, name, workspace, J.Null{}, create_worktree}) : J.Json},
     agent: @id:Maybe<&2, Nat> -> @revision:Nat -> @name:String -> @profile:String -> @reasoning:String ->
       @instructions:String -> @fields:+List<J.Field> -> @concurrency:Nat ->
-      {Legacy.request_payload(M.FeatureCommand{F2.BoardCommand{B.SaveAgent{id, revision,
+      {Legacy.request_payload(M.FeatureCommand{F2.BoardCommand{B.SaveAgent{id,
           B.AgentProfile{revision, name, profile, reasoning, instructions, J.Object{fields}, concurrency}}}}) ==
           BoardCodec.command("save_board_agent", J.Field{"agent", J.Text{BoardCodec.id_text(id)}} <>
             BoardCodec.agent_fields(B.AgentProfile{revision, name, profile, reasoning, instructions,
@@ -1381,9 +1383,9 @@ def connecting_ticket(access: Services.Access, ticket: Nat) -> Bool:
 def authentication_owner(namespace: String, ticket: Nat, +state: Browser.State) -> Bool:
   String.eq(namespace, refresh_namespace(state)) && connecting_ticket(refresh_access(state), ticket)
 
-def failure_owner(+namespace: String, sequence: Nat, authentication: Maybe<&2, Nat>, +state: Browser.State) -> Bool:
+def failure_owner(+namespace: String, sequence: Nat,+connection: Nat,  authentication: Maybe<&2, Nat>, +state: Browser.State) -> Bool:
   match authentication:
-    case None{}: String.eq(namespace, refresh_namespace(state)) && Nat.is_eq(sequence, Legacy.sequence(Browser.legacy(state)))
+    case None{}: String.eq(namespace, refresh_namespace(state)) && (Nat.is_eq(sequence, Legacy.sequence(Browser.legacy(state))) && Services.live_connection(refresh_access(state), connection))
     case Some{ticket}: authentication_owner(namespace, ticket, state)
 
 def failure_sequence(authentication: Maybe<&2, Nat>, sequence: Nat, state: Browser.State) -> Nat:
@@ -1446,6 +1448,7 @@ def refresh_io(effect: E.Effect, origin: String, +stored: Legacy.State) -> Legac
     case E.ObserveInteractiveMarkdown{document}: Legacy.Decision{stored, [Legacy.ObserveInteractiveMarkdown{document}]}
     case E.ForgetInteractiveMarkdown{key}: Legacy.Decision{stored, [Legacy.ForgetInteractiveMarkdown{key}]}
     case E.PersistModelPreference{profile, reasoning}: Legacy.Decision{stored, [Legacy.PersistModelPreference{profile, reasoning}]}
+    case E.ObserveWorkspaceGit{ticket, primary}: Legacy.Decision{stored, [Legacy.WorkspaceGit{ticket, primary}]}
     case E.ObserveDirectories{ticket, entered}: Legacy.Decision{stored, [Legacy.Directories{ticket, entered}]}
     case _: Legacy.Decision{stored, Nil{}}
 
@@ -1512,7 +1515,7 @@ def refresh_world(newer: Bool, sequence: Nat, program: M.World(), stored: Legacy
 
 def reconnect_needed(changed: Bool, access: Services.Access) -> Bool:
   match access:
-    case Services.ConnectionLost{reason}: True{}
+    case Services.ConnectionLost{connection, reason}: True{}
     case _: changed
 
 def refresh_connect(needed: Bool, value: Legacy.Decision) -> Legacy.Decision:
@@ -1526,15 +1529,15 @@ def snapshot_transfer(+changed: Bool, namespace: String, +sequence: Nat, program
     refresh_world(changed || Nat.is_lt(Legacy.sequence(Browser.legacy(state)), sequence), sequence, program, refresh_reset(changed, Browser.legacy(state))))
   refresh_connect(reconnect_needed(changed, refresh_stored_access(refresh_stored(value))), value)
 
-def failed_service(authentication: Maybe<&2, Nat>, reason: String) -> Product.Input:
+def failed_service(authentication: Maybe<&2, Nat>, +connection: Nat, reason: String) -> Product.Input:
   match authentication:
-    case None{}: Product.Disconnected{reason}
+    case None{}: Product.Disconnected{connection, reason}
     case Some{ticket}: Product.Authenticated{ticket, Fail{reason}}
 
-def failure_transfer(namespace: String, sequence: Nat, reason: String, revoked: Bool, +authentication: Maybe<&2, Nat>, +state: Browser.State) -> Legacy.Decision:
+def failure_transfer(namespace: String, sequence: Nat,+connection: Nat,  reason: String, revoked: Bool, +authentication: Maybe<&2, Nat>, +state: Browser.State) -> Legacy.Decision:
   +observed = product_refresh(Product.InterfaceInput{InteractionTypes.ApplicationInput{
     E.InteractiveEnvironmentObserved{namespace, sequence, False{}, Bool.not(revoked) && refresh_allowed(state)}}}, Browser.legacy(state))
-  refresh_append(product_refresh(failed_service(authentication, reason), refresh_stored(observed)), refresh_effects(observed))
+  refresh_append(product_refresh(failed_service(authentication, connection, reason), refresh_stored(observed)), refresh_effects(observed))
 
 def authenticated_transfer(ticket: Nat, value: Legacy.Decision) -> Legacy.Decision:
   Legacy.Decision{stored, first} = value
@@ -1577,12 +1580,12 @@ def refresh_prepared_delivery(value: Browser.State & +List<Legacy.Effect>, actua
 def RefreshDelivery(value: Legacy.Decision, state: Browser.State, actual: Browser.Decision) -> Type:
   refresh_prepared_delivery(refresh_ready(value, state), actual)
 
-def NetworkFailure(owned: Bool, +namespace: String, +sequence: Nat, +reason: String, +revoked: Bool,
+def NetworkFailure(owned: Bool, +namespace: String, +sequence: Nat, +connection: Nat, +reason: String, +revoked: Bool,
   +authentication: Maybe<&2, Nat>, +state: Browser.State, actual: Browser.Decision) -> Type:
   match owned:
     case False{}: {actual == Browser.Decision{state, Nil{}} : Browser.Decision}
     case True{}:
-      RefreshDelivery(failure_transfer(namespace, failure_sequence(authentication, sequence, state), reason, revoked, authentication, state),
+      RefreshDelivery(failure_transfer(namespace, failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state),
         refresh_invalidated(revoked, state), actual)
 
 def refresh_product_intents(decision: InteractionTypes.Decision) -> +List<M.Effect()> & +List<E.Effect>:
@@ -1607,9 +1610,9 @@ law snapshot_recovery_complete:
   {Browser.snapshot_result(changed, namespace, sequence, program, state) == snapshot_transfer(changed, namespace, sequence, program, state) : Legacy.Decision}
 
 law scoped_network_failure_complete:
-  @+namespace:String -> @+sequence:Nat -> @+reason:String -> @+revoked:Bool -> @+authentication:Maybe<&2, Nat> -> @+state:Browser.State ->
-  NetworkFailure(failure_owner(namespace, sequence, authentication, state), namespace, sequence, reason, revoked, authentication, state,
-    Browser.network_failed(namespace, sequence, reason, revoked, authentication, state))
+  @+namespace:String -> @+sequence:Nat -> @+connection:Nat -> @+reason:String -> @+revoked:Bool -> @+authentication:Maybe<&2, Nat> -> @+state:Browser.State ->
+  NetworkFailure(failure_owner(namespace, sequence, connection, authentication, state), namespace, sequence, connection, reason, revoked, authentication, state,
+    Browser.network_failed(namespace, sequence, connection, reason, revoked, authentication, state))
 
 def authenticated_current(stale: Bool, +changed: Bool, namespace: String, sequence: Nat, +program: M.World(), ticket: Nat, +state: Browser.State, actual: Browser.Decision) -> Type:
   match stale:
@@ -1620,7 +1623,7 @@ def authenticated_current(stale: Bool, +changed: Bool, namespace: String, sequen
 
 def authenticated_valid(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +ticket: Nat, +state: Browser.State, actual: Browser.Decision) -> Type:
   match valid:
-    case False{}: NetworkFailure(authentication_owner(refresh_namespace(state), ticket, state), refresh_namespace(state), Legacy.sequence(Browser.legacy(state)),
+    case False{}: NetworkFailure(authentication_owner(refresh_namespace(state), ticket, state), refresh_namespace(state), Legacy.sequence(Browser.legacy(state)), ticket,
       "Invalid service data namespace", True{}, Some{ticket}, state, actual)
     case True{}:
       +changed = Bool.not(String.eq(refresh_namespace(state), namespace))
@@ -2015,7 +2018,7 @@ law realized_decision_exact:
 # selection/composition. Other editors keep their native state.
 def required_submission_clear(body: U.Body) -> Bool:
   match body:
-    case U.NewTask{U.Text{text}, profile, reasoning, context}: String.eq(text, "")
+    case U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}: String.eq(text, "")
     case U.Message{task, U.Text{text}, delivery}: String.eq(text, "")
     case _: False{}
 

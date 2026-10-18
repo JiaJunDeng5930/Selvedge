@@ -9,6 +9,12 @@ families to actual snapshot admission, patch application and history operations.
 Adding a definition reuses those properties rather than adding another proof.
 The `NativeText` observer carries a versioned runtime capability from its native definition; it does not read configuration or files. Interactive Markdown uses that source. Ordinary model requests freeze the advertised mode from its accepted exact snapshot; helper input projections omit the capability.
 
+The wire parser produces snapshot candidates once. `observed_resolution` owns their
+single semantic admission and consumes the admitted snapshot when producing an
+introduction or amendment. Absent and failed observations admit their keys at
+decoding. Host callers of `definition`, `self_key` and `self_snapshot` use those
+separate checked boundaries for their own observations.
+
 The definition controls which source is observed, which fields may change and
 which fields must agree with source identity. Internal revisions reject patches
 against an obsolete baseline. Models receive the source identity and concrete
@@ -17,9 +23,8 @@ Text offsets count Unicode characters in the same baseline, in increasing,
 non-overlapping order. Only introductions contain complete values.
 
 [ADR 0042](../../docs/adr/0042-context-definition-construction.md) explains why
-the definition language is shared across observation and history. The extension
-fixture in [context-definitions.test.mjs](../../tests-bend/context-definitions.test.mjs)
-adds kinds while freezing the generic implementation, proofs and host consumers.
+the definition language is shared across observation and history. Each registered
+definition uses the same production construction and proof families.
 
 ## Endpoint input selection
 

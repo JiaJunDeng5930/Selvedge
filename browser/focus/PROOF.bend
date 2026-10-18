@@ -63,6 +63,24 @@ def Rule.settings_restore(content, base, overlays, active, fallback):
 def Rule.settings_resolved_restore(content, base, overlays, active, fallback, key, found):
   Rule.realized_restore(content, base, overlays, active, Model.settings_scope(True{}, fallback), key, found)
 
+def Rule.responsive_settings_restore_targets(): ({==}, {==})
+
+def Rule.responsive_settings_restore(content, base, overlays, active, navigation_beside, fallback): {==}
+
+def Rule.responsive_settings_resolved_restore(content, base, overlays, active, navigation_beside, fallback, key, found):
+  Rule.realized_restore(content, base, overlays, active, Model.settings_scope_restore(True{}, navigation_beside, fallback), key, found)
+
+def Rule.responsive_settings_policy(open, navigation_beside, fallback):
+  match open navigation_beside:
+    case False{} _: {==}
+    case True{} True{}: {==}
+    case True{} False{}: {==}
+
+def Rule.desktop_settings_policy_unchanged(open, fallback):
+  match open:
+    case False{}: {==}
+    case True{}: {==}
+
 def Rule.document_restores_previous(previous, surface): {==}
 
 def Rule.document_opens_temporary(identity, initial, restore, occurrence, surface): {==}
@@ -111,7 +129,7 @@ def Rule.current_scope(state, capacity): {==}
 
 def Rule.logical_priority(state, capacity):
   match state capacity:
-    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}}, Services.State{access, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
+    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}, Services.State{access, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
 
 def Rule.current_surface(state, capacity, surface, observed):
   Equal.cong(SurfaceTypes.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), InterfaceView.observe(capacity, state), surface, observed)
@@ -119,16 +137,16 @@ def Rule.current_surface(state, capacity, surface, observed):
 def toggle_absent(+application: E.Application, +panel: U.Panel, +trigger: String,
   absent: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == False{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == E.open_panel(panel, trigger, application) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
-  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}}
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}
   Equal.cong(Bool, E.Decision, (present => E.toggle_panel_selected(present, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), False{}, absent)
 
 def toggle_present(+application: E.Application, +panel: U.Panel, +trigger: String,
   present: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == True{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == Rule.closed_application(application, panel, trigger) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
-  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}}
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
+  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}
   Equal.cong(Bool, E.Decision, (owned => E.toggle_panel_selected(owned, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), True{}, present)
 
@@ -168,7 +186,9 @@ def Rule.dismissal_evidence():
 
 def Rule.all_panel_policies(panel, trigger):
   match panel:
+    case U.GlobalNavigation{}: {==}
     case U.PropertySource{origin}: {==}
+    case U.WorkOverview{}: {==}
     case U.ProjectPicker{}: {==}
     case U.ObjectActions{subject}: {==}
     case U.ArchivedCards{}: {==}
@@ -284,6 +304,7 @@ def attention_policy(effects: +List<E.Effect>) ->
     case Con{E.Attend{target}, rest}: {==}
     case Con{E.RequestCommand{command, completion}, rest}: attention_policy(rest)
     case Con{E.ContentEffect{identity, effect}, rest}: attention_policy(rest)
+    case Con{E.ObserveWorkspaceGit{ticket, primary}, rest}: attention_policy(rest)
     case Con{E.ObserveDirectories{ticket, entered}, rest}: attention_policy(rest)
     case Con{E.PersistModelPreference{profile, reasoning}, rest}: attention_policy(rest)
     case Con{E.InteractiveEffect{effect}, rest}: attention_policy(rest)
@@ -301,6 +322,7 @@ def explicit_effect_policy(effects: +List<E.Effect>, +ticket: Nat) ->
       Equal.cong(+List<Platform.Effect>, +List<Platform.Effect>, (tail => Platform.Clipboard{identity, effect} <> tail),
         Platform.focus_effects(rest, ticket), Rule.required_explicit_effects(rest, ticket), explicit_effect_policy(rest, ticket))
     case Con{E.RequestCommand{command, completion}, rest}: explicit_effect_policy(rest, ticket)
+    case Con{E.ObserveWorkspaceGit{observed_ticket, primary}, rest}: explicit_effect_policy(rest, ticket)
     case Con{E.ObserveDirectories{observed_ticket, entered}, rest}: explicit_effect_policy(rest, ticket)
     case Con{E.PersistModelPreference{profile, reasoning}, rest}: explicit_effect_policy(rest, ticket)
     case Con{E.InteractiveEffect{effect}, rest}: explicit_effect_policy(rest, ticket)
@@ -315,6 +337,7 @@ def content_effect_policy(effects: +List<E.Effect>) ->
       Equal.cong(+List<Platform.Effect>, +List<Platform.Effect>, (tail => Platform.Clipboard{identity, effect} <> tail),
         Platform.content_effects(rest), Rule.required_content_effects(rest), content_effect_policy(rest))
     case Con{E.RequestCommand{command, completion}, rest}: content_effect_policy(rest)
+    case Con{E.ObserveWorkspaceGit{ticket, primary}, rest}: content_effect_policy(rest)
     case Con{E.ObserveDirectories{ticket, entered}, rest}: content_effect_policy(rest)
     case Con{E.Attend{target}, rest}: content_effect_policy(rest)
     case Con{E.PersistModelPreference{profile, reasoning}, rest}: content_effect_policy(rest)
@@ -457,6 +480,7 @@ def focusability_policy(meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.ActivityContent{value_expanded, value_audit}: {==}
     case SurfaceTypes.ProjectGroup{value_project, value_selected, value_expanded}: {==}
     case SurfaceTypes.TaskRow{value_task, value_status, value_selected}: {==}
+    case SurfaceTypes.TaskChildren{value_task}: {==}
     case SurfaceTypes.ProjectChooser{value_selected}: {==}
     case SurfaceTypes.DirectoryRow{value_path, value_primary}: {==}
     case SurfaceTypes.ContextSummary{value_observation}: {==}
@@ -519,6 +543,7 @@ def content_owner_policy(found: Maybe<&2, SurfaceTypes.Node>) ->
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ActivityContent{meaning_expanded, meaning_audit}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ProjectGroup{meaning_project, meaning_selected, meaning_expanded}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.TaskRow{meaning_task, meaning_status, meaning_selected}, children}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.TaskChildren{meaning_task}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ProjectChooser{meaning_selected}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.DirectoryRow{meaning_path, meaning_primary}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ContextSummary{meaning_observation}, children}}: {==}

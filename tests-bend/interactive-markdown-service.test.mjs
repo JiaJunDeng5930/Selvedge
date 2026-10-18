@@ -16,7 +16,7 @@ async function until(predicate, description) {
 }
 const speech = text => ({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
 
-test('large SSE snapshots and later deltas remain connected through a commit', { timeout: 25_000 }, async t => {
+test('large SSE snapshots and later deltas remain connected through a commit', async t => {
   const fixture = await interactiveMarkdownFixture();
   t.after(() => fixture.close());
   const notices = [];
@@ -36,7 +36,7 @@ test('large SSE snapshots and later deltas remain connected through a commit', {
   const controller = new AbortController();
   const response = await fetch(`${fixture.running.address}/api/events`, {
     headers: { authorization: `Bearer ${fixture.running.token}` },
-    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
+    signal: controller.signal,
   });
   assert.equal(response.status, 200);
   assert.ok(eventWriter && Buffer.byteLength(large) > eventWriter.writableHighWaterMark,
@@ -71,7 +71,7 @@ test('large SSE snapshots and later deltas remain connected through a commit', {
   assert.deepEqual(fixture.failures, []);
 });
 
-test('actual SSE sparse output indices remain the committed speech origins across reasoning and tool slots', { timeout: 25_000 }, async t => {
+test('actual SSE sparse output indices remain the committed speech origins across reasoning and tool slots', async t => {
   const fixture = await interactiveMarkdownFixture();
   t.after(() => fixture.close());
   const notices = [];

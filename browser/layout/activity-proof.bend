@@ -64,7 +64,8 @@ def property_minimum(+property: UX.Property, area: Controls.Area) ->
   {Controls.geometry_minimum_height(Controls.geometry_for(Controls.ChooseValue{False{}}, Controls.PropertyFace{property}, area)) == A.supporting_minimum(A.initial()) : Nat}:
   match area:
     case Controls.PageArea{}: {==}
-    case Controls.NavigationArea{}: {==}
+    case Controls.NavigationArea{compact}: {==}
+    case Controls.TouchNavigationArea{}: {==}
     case Controls.ComposerArea{}: {==}
     case Controls.ToolbarArea{}: {==}
     case Controls.CodeArea{}: {==}

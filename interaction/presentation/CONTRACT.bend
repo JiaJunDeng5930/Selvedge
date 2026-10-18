@@ -19,6 +19,10 @@ import ../INPUT.bend as U
 import ../session/MODEL.bend as E
 import ../../features/board/MODEL.bend as B
 import ../../features/task_graph/MODEL.bend as G
+import ../../features/work/MODEL.bend as Work
+import ../../features/titles/STATE.bend as Titles
+import ../../harness/features/work-state.bend as WorkState
+import ../../harness/features/graph-state.bend as GraphState
 import ../MODEL.bend as ModelModel
 import ../TYPES.bend as InteractionTypes
 import ./SURFACE.bend as SurfaceTypes
@@ -43,6 +47,389 @@ import ../conversation/OUTPUT.bend as Live
 import ../../harness/conversation/PROGRAM.bend as Conversation2
 import ../interactive_markdown/DOCUMENTS.bend as InteractiveDocuments
 import ../interactive_markdown/SCENE.bend as InteractiveScene
+
+law global_navigation_entry_retains_actual_command:
+  @+compact:Bool -> @+route:U.Route -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:U.Input -> @+availability:V.Availability -> @+state:InteractionTypes.State ->
+  {Model.global_navigation_declaration(compact, route, parent, V.ControlDeclaration{identity, label, prominence, input, availability}, state) ==
+    Model.replace_role(Model.declared(parent, V.ControlDeclaration{identity, label, prominence, input, availability}, state), SurfaceTypes.GlobalNavigationEntry{Model.navigation_action_selected(route, input), compact}) : SurfaceTypes.Node}
+
+law global_navigation_controls_empty:
+  @compact:Bool -> @route:U.Route -> @state:InteractionTypes.State ->
+  {Model.global_navigation_controls(compact, route, Nil{}, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law global_navigation_controls_preserve_commands_and_order:
+  @+compact:Bool -> @+route:U.Route -> @+first:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+state:InteractionTypes.State ->
+  {Model.global_navigation_controls(compact, route, first <> rest, state) ==
+    Model.global_navigation_declaration(compact, route, Identity.Place{"/navigation"}, first, state) <> Model.global_navigation_controls(compact, route, rest, state) : +List<SurfaceTypes.Node>}
+
+law global_navigation_form_retains_home_destinations_and_single_settings:
+  @+compact:Bool -> @+route:U.Route -> @+destinations:+List<V.ControlDeclaration> -> @+state:InteractionTypes.State ->
+  {Model.global_navigation_form(compact, route, destinations, state) ==
+    SurfaceTypes.Node{Identity.Place{"/global-navigation"}, "global-navigation", "Global navigation", SurfaceTypes.GlobalNavigation{compact}, SurfaceTypes.Region{},
+      [SurfaceTypes.Node{Identity.Part{Identity.Place{"/global-navigation"}, "global-destinations"}, "global-destinations", "", SurfaceTypes.Section{}, SurfaceTypes.Region{},
+        Model.global_navigation_declaration(compact, route, Identity.Place{"/global-navigation"}, View.control("home", "Home", U.Navigate{U.Start{}}), state) <> Model.global_navigation_controls(compact, route, destinations, state)},
+       SurfaceTypes.Node{Identity.Part{Identity.Place{"/global-navigation"}, "global-settings"}, "global-settings", "", SurfaceTypes.Section{}, SurfaceTypes.Region{},
+        [SurfaceTypes.Node{Identity.Part{Identity.Place{""}, "settings/open"}, "settings/open", "Settings", SurfaceTypes.GlobalNavigationEntry{False{}, compact}, SurfaceTypes.Activate{InteractionTypes.ServiceInput{Services.OpenSettings{}}, V.Available{}}, Nil{}}]}]} : SurfaceTypes.Node}
+
+law global_navigation_reads_global_destinations:
+  @+compact:Bool -> @expanded:Bool -> @create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @projects:+List<V.ProjectEntry> -> @tasks:+List<V.TaskTree> -> @toggle:V.ControlDeclaration -> @+state:InteractionTypes.State ->
+  {Model.global_navigation(compact, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
+    Model.global_navigation_form(compact, E.route(E.session(Core.application(state))), destinations, state) : SurfaceTypes.Node}
+
+law global_navigation_is_independent_of_task_visibility:
+  @+compact:Bool -> @left:Bool -> @right:Bool -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+toggle:V.ControlDeclaration -> @+state:InteractionTypes.State ->
+  {Model.global_navigation(compact, V.Navigation{left, create, destinations, projects, tasks, toggle}, state) ==
+    Model.global_navigation(compact, V.Navigation{right, create, destinations, projects, tasks, toggle}, state) : SurfaceTypes.Node}
+
+law task_navigation_contents_are_independent_of_global_destinations:
+  @+expanded:Bool -> @+route:U.Route -> @+create:V.ControlDeclaration -> @left:+List<V.ControlDeclaration> -> @right:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
+  {Model.navigation_contents(expanded, route, create, left, projects, tasks, state) ==
+    Model.navigation_contents(expanded, route, create, right, projects, tasks, state) : +List<SurfaceTypes.Node>}
+
+law task_navigation_toggle_names_its_visibility:
+  {View.task_navigation_toggle_label(True{}) == "Collapse Task sidebar" : String} &
+  {View.task_navigation_toggle_label(False{}) == "Expand Task sidebar" : String}
+
+law global_navigation_does_not_own_modal_scope:
+  @key:Identity.Key -> @semantic:String -> @label:String -> @compact:Bool -> @meaning:SurfaceTypes.Meaning -> @children:+List<SurfaceTypes.Node> -> @+rest:+List<SurfaceTypes.Node> ->
+  {Model.active_scope(SurfaceTypes.Node{key, semantic, label, SurfaceTypes.GlobalNavigation{compact}, meaning, children} <> rest) == Model.active_scope(rest) : Maybe<&2, String>}
+
+law global_navigation_layer_observes_current_route_and_actual_destinations:
+  @+session:E.Session -> @world:M.World() ->
+  {View.layer_content(U.GlobalNavigation{}, session, world) == V.GlobalNavigation{E.route(session), View.global_destinations()} : V.LayerContent}
+
+law global_navigation_layer_uses_existing_modal_dismissal:
+  @beside:Bool -> @trigger:String ->
+  {View.layer_kind(U.GlobalNavigation{}, beside) == V.ModalDialog{} : V.LayerKind} &
+  {View.layer_dismissal(U.GlobalNavigation{}, trigger) == V.OutsideOrEscape{U.ClosePanel{}} : V.Dismissal}
+
+law global_destinations_retain_existing_route_inputs:
+  {View.global_destinations() ==
+    [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})] : +List<V.ControlDeclaration>}
+
+law global_menu_entry_preserves_command_and_current_route_selection:
+  @+route:U.Route -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:U.Input -> @+availability:V.Availability -> @+state:InteractionTypes.State ->
+  {Model.global_menu_declaration(route, parent, V.ControlDeclaration{identity, label, prominence, input, availability}, state) ==
+    Model.replace_role(Model.declared(parent, V.ControlDeclaration{identity, label, prominence, input, availability}, state), SurfaceTypes.CompactNavigationEntry{Model.navigation_action_selected(route, input)}) : SurfaceTypes.Node}
+
+law global_menu_controls_empty:
+  @route:U.Route -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.global_menu_controls(route, Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law global_menu_controls_preserve_destinations_and_order:
+  @+route:U.Route -> @+first:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.global_menu_controls(route, first <> rest, parent, state) ==
+    Model.global_menu_declaration(route, parent, first, state) <> Model.global_menu_controls(route, rest, parent, state) : +List<SurfaceTypes.Node>}
+
+law global_navigation_menu_retains_complete_destinations_settings_and_dismissal:
+  @+route:U.Route -> @+destinations:+List<V.ControlDeclaration> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.global_navigation_menu(route, destinations, parent, state) ==
+    [SurfaceTypes.Node{Identity.Part{parent, "global-menu/entries"}, "global-menu/entries", "Global destinations", SurfaceTypes.CompactNavigationMenu{}, SurfaceTypes.Region{},
+      List.append(&2, SurfaceTypes.Node,
+        Model.global_menu_declaration(route, parent, View.control("global/home", "Home", U.Navigate{U.Start{}}), state) <> Model.global_menu_controls(route, destinations, parent, state),
+        [Model.replace_role(Model.product_action(parent, "global/settings", "Settings", InteractionTypes.ServiceInput{Services.OpenSettings{}}, True{}), SurfaceTypes.CompactNavigationEntry{False{}}),
+         Model.declared(parent, View.control("global/done", "Done", U.ClosePanel{}), state)])}] : +List<SurfaceTypes.Node>}
+
+law global_navigation_layer_binds_the_complete_menu:
+  @+route:U.Route -> @+destinations:+List<V.ControlDeclaration> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.layer_content(V.GlobalNavigation{route, destinations}, parent, state) == Model.global_navigation_menu(route, destinations, parent, state) : +List<SurfaceTypes.Node>}
+
+def decision_state(decision:InteractionTypes.Decision) -> InteractionTypes.State:
+  InteractionTypes.Decision{state, reply, runtime, interaction, service, durable} = decision
+  state
+
+def task_visibility_result(expanded:Bool, state:InteractionTypes.State) -> InteractionTypes.State:
+  decision_state(Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{expanded}}}, state))
+
+type GlobalWorkContext is Data:
+  GlobalWorkContext{program:M.World(), route:U.Route, work:Maybe<&2, Nat>, services:Services.State}
+
+def global_work_context(+state:InteractionTypes.State) -> GlobalWorkContext:
+  +application = Core.application(state)
+  +session = E.session(application)
+  GlobalWorkContext{E.program(application), E.route(session), E.active_work(session), Core.services(state)}
+
+law task_visibility_transition_changes_only_task_navigation_and_attention:
+  @+expanded:Bool -> @+program:M.World() -> @+session:E.Session -> @+services:Services.State ->
+  {Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{expanded}}}, Core.from_application(E.from_program(program, session), services)) ==
+    Core.application_result(E.local(program, E.with_navigation(E.advance_navigation_selection(E.set_navigation(expanded, E.navigation(session))), E.with_attention(E.navigation_focus(expanded), session)),
+      [E.Attend{E.navigation_focus(expanded)}]), services) : InteractionTypes.Decision}
+
+law task_visibility_transition_preserves_global_work_context:
+  @+expanded:Bool -> @+state:InteractionTypes.State ->
+  {global_work_context(task_visibility_result(expanded, state)) == global_work_context(state) : GlobalWorkContext}
+
+law compact_task_navigation_toggle_names_its_destination:
+  {View.compact_task_navigation_toggle_label(True{}) == "Back to conversation" : String} &
+  {View.compact_task_navigation_toggle_label(False{}) == "Open Task list" : String}
+
+law compact_task_navigation_toggle_preserves_original_authority:
+  @+expanded:Bool -> @+identity:String -> @label:String -> @+prominence:V.Prominence -> @+input:U.Input -> @+availability:V.Availability ->
+  {Model.compact_navigation_toggle(expanded, V.ControlDeclaration{identity, label, prominence, input, availability}) ==
+    V.ControlDeclaration{identity, View.compact_task_navigation_toggle_label(expanded), prominence, input, availability} : V.ControlDeclaration}
+
+law work_selection_is_navigation:
+  @work:Maybe<&2, Nat> ->
+  {Model.navigates(Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{work}}}}}) == True{} : Bool}
+
+law after_navigation_closes_only_the_task_tree:
+  @+program:M.World() -> @+session:E.Session -> @+services:Services.State -> @+reply:J.Json -> @+runtime:+List<M.Effect()> -> @+interaction:+List<E.Effect> -> @+service_effects:+List<Services.Effect> -> @+durable:Bool ->
+  {Model.after_navigation(True{}, InteractionTypes.Decision{Core.from_application(E.from_program(program, session), services), reply, runtime, interaction, service_effects, durable}) ==
+    InteractionTypes.Decision{Core.from_application(E.from_program(program, E.with_navigation(E.set_navigation(False{}, E.navigation(session)), session)), services), reply, runtime, interaction, service_effects, durable} : InteractionTypes.Decision}
+
+law desktop_navigation_retains_the_complete_decision:
+  @+decision:InteractionTypes.Decision ->
+  {Model.after_navigation(False{}, decision) == decision : InteractionTypes.Decision}
+
+law compact_work_selection_closes_task_navigation_after_the_actual_decision:
+  @details_beside:Bool -> @+state:InteractionTypes.State -> @+key:String -> @+work:Maybe<&2, Nat> ->
+  {Model.perform_present(V.Capacity{False{}, details_beside}, state, key, Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{work}}}}}) ==
+    Model.navigation_closed(Model.record_source(state, key, Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{work}}}}, state))) : InteractionTypes.Decision}
+
+law desktop_work_selection_retains_the_actual_decision:
+  @details_beside:Bool -> @+state:InteractionTypes.State -> @+key:String -> @+work:Maybe<&2, Nat> ->
+  {Model.perform_present(V.Capacity{True{}, details_beside}, state, key, Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{work}}}}}) ==
+    Model.record_source(state, key, Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{work}}}}, state)) : InteractionTypes.Decision}
+
+law work_tab_retains_scope_and_selection:
+  @+work:Maybe<&2, Nat> -> @+label:String -> @+active:Maybe<&2, Nat> -> @+state:InteractionTypes.State ->
+  {Model.work_tab(work, label, active, state) ==
+    Model.replace_role(Model.declared(Identity.Place{"/work-tabs"}, View.control(Model.work_tab_identity(work), label, U.SelectWork{work}), state), SurfaceTypes.WorkTab{E.same_work(work, active)}) : SurfaceTypes.Node}
+
+law work_tabs_preserve_all_tasks_and_creation:
+  @+state:InteractionTypes.State ->
+  {Model.work_tabs(True{}, state) == SurfaceTypes.Node{Identity.Place{"/work-tabs"}, "work-tabs", "Works", SurfaceTypes.WorkTabs{}, SurfaceTypes.Region{},
+    [Model.work_tab(None{}, "All Tasks", E.active_work(E.session(Core.application(state))), state),
+      Model.region(Identity.Place{"/work-tabs"}, "work-tabs/collection", "", SurfaceTypes.WorkTabGroup{}, Model.work_tab_entries(Work.works(WorkState.registry(E.program(Core.application(state)))), E.active_work(E.session(Core.application(state))), state)),
+      Model.declared(Identity.Place{"/work-tabs"}, View.control("work/new", "New Work", U.CreateWork{}), state),
+      Model.work_overview_trigger((List.length(&2, Finite.Entry(Work.Work), Work.works(WorkState.registry(E.program(Core.application(state))))) + 1n : Nat), state)]} : SurfaceTypes.Node}
+
+law work_tabs_consume_responsive_form:
+  @+full:Bool -> @+state:InteractionTypes.State ->
+  {Model.work_tabs(full, state) == Model.work_tab_form(full, E.active_work(E.session(Core.application(state))), Work.works(WorkState.registry(E.program(Core.application(state)))), E.program(Core.application(state)), state) : SurfaceTypes.Node}
+
+def expected_compact_work_tabs(+active:Maybe<&2, Nat>, +label:String, +count:Nat, state:InteractionTypes.State) -> SurfaceTypes.Node:
+  Model.replace_role(Model.declared(Identity.Place{"/work-tabs"}, View.control(E.work_target(active), label ++ ", Work overview, " ++ Model.work_count_label(count), U.OpenPanel{U.WorkOverview{}, E.work_target(active)}), state), SurfaceTypes.CompactWorkScope{label, count})
+
+law compact_work_scope_is_one_native_overview_command:
+  @+active:Maybe<&2, Nat> -> @+title:String -> @+count:Nat -> @+state:InteractionTypes.State ->
+  {Model.compact_work_scope(active, title, count, state) == expected_compact_work_tabs(active, title, count, state) : SurfaceTypes.Node}
+
+def required_compact_header(view:V.Navigation, +state:InteractionTypes.State) -> SurfaceTypes.Node:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
+  SurfaceTypes.Node{Identity.Place{"/work-tabs"}, "work-switcher", "Workspace navigation", SurfaceTypes.CompactHeader{}, SurfaceTypes.Region{},
+    [Model.declared(Identity.Place{"/global-navigation"}, View.control("global/menu", "Global navigation", U.OpenPanel{U.GlobalNavigation{}, "global/menu"}), state),
+     Model.work_tabs(False{}, state), Model.declared(Identity.Place{"/navigation"}, Model.compact_navigation_toggle(expanded, toggle), state)]}
+
+law compact_header_retains_exactly_three_real_launchers:
+  @+navigation:V.Navigation -> @+state:InteractionTypes.State ->
+  {Model.compact_header(navigation, state) == required_compact_header(navigation, state) : SurfaceTypes.Node}
+
+def required_compact_navigation(view:V.Navigation, header:SurfaceTypes.Node, +state:InteractionTypes.State) -> SurfaceTypes.Node:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
+  +current = E.session(Core.application(state))
+  SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Task tree", SurfaceTypes.Navigation{}, SurfaceTypes.Region{},
+    header <> SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Task tree", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
+      Model.work_settings(E.active_work(current), state)} <>
+      Model.navigation_contents(expanded, E.route(current), create, destinations, projects, tasks, state)}
+
+law compact_task_tree_retains_header_grouping_and_original_task_contents:
+  @+navigation:V.Navigation -> @+header:SurfaceTypes.Node -> @+state:InteractionTypes.State ->
+  {Model.compact_navigation(navigation, header, state) == required_compact_navigation(navigation, header, state) : SurfaceTypes.Node}
+
+law compact_modal_moves_the_header_out_of_base:
+  @navigation:V.Navigation -> @state:InteractionTypes.State ->
+  {Model.compact_base_header(V.ModalNavigation{}, navigation, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law compact_closed_retains_the_header_in_base:
+  @+navigation:V.Navigation -> @+state:InteractionTypes.State ->
+  {Model.compact_base_header(V.CollapsedNavigation{}, navigation, state) == [Model.compact_header(navigation, state)] : +List<SurfaceTypes.Node>}
+
+def required_workspace_navigation_at(full:Bool, placement:V.NavigationPlacement, +navigation:V.Navigation, +state:InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match full placement:
+    case True{} original: Model.global_navigation(False{}, navigation, state) <> Model.work_tabs(True{}, state) <> Model.base_navigation_at(original, navigation, state)
+    case False{} V.ModalNavigation{}: Nil{}
+    case False{} _: [required_compact_header(navigation, state)]
+
+def required_workspace_navigation(full:Bool, arrangement:V.Arrangement, navigation:V.Navigation, state:InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  V.Arrangement{placement} = arrangement
+  required_workspace_navigation_at(full, placement, navigation, state)
+
+def required_workspace_modal_navigation_at(full:Bool, placement:V.NavigationPlacement, +navigation:V.Navigation, +state:InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match full placement:
+    case True{} original: Model.modal_navigation_at(original, navigation, state)
+    case False{} V.ModalNavigation{}: [required_compact_navigation(navigation, required_compact_header(navigation, state), state)]
+    case False{} _: Nil{}
+
+def required_workspace_modal_navigation(full:Bool, arrangement:V.Arrangement, navigation:V.Navigation, state:InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  V.Arrangement{placement} = arrangement
+  required_workspace_modal_navigation_at(full, placement, navigation, state)
+
+law workspace_navigation_uses_complete_responsive_construction:
+  @+full:Bool -> @+arrangement:V.Arrangement -> @+navigation:V.Navigation -> @+state:InteractionTypes.State ->
+  {Model.workspace_navigation(full, arrangement, navigation, state) == required_workspace_navigation(full, arrangement, navigation, state) : +List<SurfaceTypes.Node>}
+
+law workspace_modal_navigation_uses_complete_responsive_construction:
+  @+full:Bool -> @+arrangement:V.Arrangement -> @+navigation:V.Navigation -> @+state:InteractionTypes.State ->
+  {Model.workspace_modal_navigation(full, arrangement, navigation, state) == required_workspace_modal_navigation(full, arrangement, navigation, state) : +List<SurfaceTypes.Node>}
+
+law compact_work_tabs_keep_current_scope_and_overview:
+  @+active:Maybe<&2, Nat> -> @values:+List<Finite.Entry(Work.Work)> -> @+world:M.World() -> @+state:InteractionTypes.State -> @+count:Nat ->
+  {Model.counted_work_tab_form(False{}, active, values, world, state, count) ==
+    expected_compact_work_tabs(active, Model.work_label(active, world), count, state) : SurfaceTypes.Node}
+
+law compact_work_tabs_count_all_tasks_and_works:
+  @+state:InteractionTypes.State ->
+  {Model.work_tabs(False{}, state) == expected_compact_work_tabs(E.active_work(E.session(Core.application(state))),
+    Model.work_label(E.active_work(E.session(Core.application(state))), E.program(Core.application(state))),
+    (List.length(&2, Finite.Entry(Work.Work), Work.works(WorkState.registry(E.program(Core.application(state))))) + 1n : Nat), state) : SurfaceTypes.Node}
+
+law work_tab_form_counts_global_entry:
+  @+full:Bool -> @+active:Maybe<&2, Nat> -> @+values:+List<Finite.Entry(Work.Work)> -> @+world:M.World() -> @+state:InteractionTypes.State ->
+  {Model.work_tab_form(full, active, values, world, state) ==
+    Model.counted_work_tab_form(full, active, values, world, state, (List.length(&2, Finite.Entry(Work.Work), values) + 1n : Nat)) : SurfaceTypes.Node}
+
+law work_overview_trigger_retains_count_and_binding:
+  @+count:Nat -> @+state:InteractionTypes.State ->
+  {Model.work_overview_trigger(count, state) == Model.replace_role(Model.declared(Identity.Place{"/work-tabs"},
+    View.control("work/overview", "Work overview, " ++ Model.work_count_label(count), U.OpenPanel{U.WorkOverview{}, "work/overview"}), state), SurfaceTypes.WorkOverviewButton{count}) : SurfaceTypes.Node}
+
+law work_overview_choice_retains_scope_name_and_selection:
+  @+work:Maybe<&2, Nat> -> @+name:String -> @+description:String -> @+selected:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.work_overview_choice(V.WorkChoice{work, name, description}, selected, parent, state) ==
+    Model.project_picker_choice(View.control("overview/" ++ E.work_target(work), name, U.SelectWork{work}), E.same_work(work, selected), description, parent, state) : SurfaceTypes.Node}
+
+law picker_factory_retains_complete_single_choice:
+  @+key:String -> @+label:String -> @prominence:V.Prominence -> @+input:InteractionTypes.Input -> @+availability:V.Availability -> @selected:Bool -> @description:String -> @+parent:Identity.Key ->
+  {Model.project_picker_control(InteractionTypes.Control{key, label, prominence, input, availability}, selected, description, parent) ==
+    SurfaceTypes.Node{Identity.Part{parent, key}, key, label, SurfaceTypes.Button{}, SurfaceTypes.Choice{SurfaceTypes.SingleChoice{}, None{}, selected, description, input, availability}, Nil{}} : SurfaceTypes.Node}
+
+law work_choice_rows_empty:
+  @selected:Maybe<&2, Nat> -> @parent:Identity.Key -> @state:InteractionTypes.State -> @index:Nat ->
+  {Model.work_choice_rows(Nil{}, selected, parent, state, index) == Nil{} : +List<SurfaceTypes.Node>}
+
+law work_choice_rows_pair_preserves_both_positions:
+  @+first:V.WorkChoice -> @+second:V.WorkChoice -> @+rest:+List<V.WorkChoice> -> @+selected:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+index:Nat ->
+  {Model.work_choice_rows(first <> second <> rest, selected, parent, state, index) ==
+    SurfaceTypes.Node{Identity.Part{parent, "work-row/" ++ Nat.show(index)}, "work-row/" ++ Nat.show(index), "", SurfaceTypes.WorkChoiceRow{}, SurfaceTypes.Region{},
+      [Model.work_overview_choice(first, selected, parent, state), Model.work_overview_choice(second, selected, parent, state)]} <>
+      Model.work_choice_rows(rest, selected, parent, state, (index + 1n : Nat)) : +List<SurfaceTypes.Node>}
+
+law work_choice_rows_odd_preserves_empty_second_position:
+  @+last:V.WorkChoice -> @+selected:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+index:Nat ->
+  {Model.work_choice_rows([last], selected, parent, state, index) ==
+    [SurfaceTypes.Node{Identity.Part{parent, "work-row/" ++ Nat.show(index)}, "work-row/" ++ Nat.show(index), "", SurfaceTypes.WorkChoiceRow{}, SurfaceTypes.Region{},
+      [Model.work_overview_choice(last, selected, parent, state),
+        SurfaceTypes.Node{Identity.Part{parent, "work-gap/" ++ Nat.show(index)}, "work-gap/" ++ Nat.show(index), "", SurfaceTypes.Section{}, SurfaceTypes.Region{}, Nil{}}]}] : +List<SurfaceTypes.Node>}
+
+law work_overview_retains_choice_group_and_terminal_actions:
+  @+selected:Maybe<&2, Nat> -> @+works:+List<V.WorkChoice> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.work_overview(selected, works, parent, state) ==
+    [SurfaceTypes.Node{Identity.Part{parent, "work-choices"}, "work-choices", "Works", SurfaceTypes.Section{}, SurfaceTypes.ChoiceGroup{}, Model.work_choice_rows(works, selected, parent, state, 0n)},
+      SurfaceTypes.Node{Identity.Part{parent, "@actions"}, "@actions", "Actions", SurfaceTypes.DialogActions{}, SurfaceTypes.Region{},
+        [Model.declared(parent, View.control("overview/new", "New Work", U.CreateWork{}), state),
+          SurfaceTypes.Node{Identity.Part{parent, "overview/action-space"}, "overview/action-space", "", SurfaceTypes.Section{}, SurfaceTypes.Region{}, Nil{}},
+          Model.declared(parent, View.control("overview/done", "Done", U.ClosePanel{}), state)]}] : +List<SurfaceTypes.Node>}
+
+law work_overview_scene_retains_all_tasks_first:
+  @+session:E.Session -> @+world:M.World() ->
+  {View.layer_content(U.WorkOverview{}, session, world) == V.WorkSelection{E.active_work(session),
+    View.work_choice(None{}, "All Tasks", world) <> View.work_choices(Work.works(WorkState.registry(world)), world)} : V.LayerContent}
+
+law work_overview_choices_preserve_registry_order:
+  @+work:Nat -> @+value:Work.Work -> @+rest:+List<Finite.Entry(Work.Work)> -> @+world:M.World() ->
+  {View.work_choices((work, value) <> rest, world) == View.work_choice(Some{work}, Work.name(value), world) <> View.work_choices(rest, world) : +List<V.WorkChoice>}
+
+law work_overview_choices_do_not_invent_entries:
+  @world:M.World() -> {View.work_choices(Nil{}, world) == Nil{} : +List<V.WorkChoice>}
+
+law work_overview_choice_observes_actual_member_tasks:
+  @+work:Maybe<&2, Nat> -> @+name:String -> @+world:M.World() ->
+  {View.work_choice(work, name, world) == V.WorkChoice{work, name,
+    View.work_summary(View.work_tasks(Commands.entries(world), work, world), List.length(&2, D.Task, View.work_tasks(Commands.entries(world), work, world)), world)} : V.WorkChoice}
+
+law work_overview_preview_retains_task_count_title_and_status:
+  @+task:D.Task -> @rest:+List<D.Task> -> @+count:Nat -> @+world:M.World() ->
+  {View.work_summary(task <> rest, count, world) == View.work_task_count(count) ++ " · " ++ Titles.title(task, world) ++ " · " ++ View.task_status_label(View.task_status(task)) : String}
+
+law empty_work_overview_preview_is_explicit:
+  @count:Nat -> @world:M.World() -> {View.work_summary(Nil{}, count, world) == "No tasks yet" : String}
+
+law work_tab_entries_preserve_registry_order:
+  @+id:Nat -> @+value:Work.Work -> @+rest:+List<Finite.Entry(Work.Work)> -> @+active:Maybe<&2, Nat> -> @+state:InteractionTypes.State ->
+  {Model.work_tab_entries((id, value) <> rest, active, state) == Model.work_tab(Some{id}, Work.name(value), active, state) <> Model.work_tab_entries(rest, active, state) : +List<SurfaceTypes.Node>}
+
+law work_tab_entries_do_not_invent_entries:
+  @active:Maybe<&2, Nat> -> @state:InteractionTypes.State ->
+  {Model.work_tab_entries(Nil{}, active, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law all_tasks_has_no_work_settings:
+  @state:InteractionTypes.State ->
+  {Model.work_settings(None{}, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law work_settings_renames_actual_owner:
+  @+work:Nat -> @+state:InteractionTypes.State ->
+  {Model.work_settings(Some{work}, state) == [Model.declared(Identity.Place{"/navigation"}, View.control("work/rename/" ++ Nat.show(work), "Rename Work", U.RenameWork{work}), state)] : +List<SurfaceTypes.Node>}
+
+law work_editor_names_its_actual_operation:
+  @work:Nat -> {View.editor_title(U.WorkEditor{work}) == "Rename Work" : String}
+
+law new_work_graph_draft_has_its_own_editor:
+  @+work:Nat -> @declaration:String -> @parsed:Maybe<&2, J.Json> ->
+  {U.owner(U.TaskGraph{None{}, declaration, parsed, Some{work}}) == U.NewWorkGraphEditor{work} : U.Editor}
+
+law independent_graph_draft_retains_global_editor:
+  @declaration:String -> @parsed:Maybe<&2, J.Json> ->
+  {U.owner(U.TaskGraph{None{}, declaration, parsed, None{}}) == U.TaskGraphEditor{None{}} : U.Editor}
+
+law existing_graph_draft_retains_graph_identity:
+  @+graph:Nat -> @declaration:String -> @parsed:Maybe<&2, J.Json> -> @work:Maybe<&2, Nat> ->
+  {U.owner(U.TaskGraph{Some{graph}, declaration, parsed, work}) == U.TaskGraphEditor{Some{graph}} : U.Editor}
+
+law all_tasks_retains_every_task:
+  @+tasks:+List<D.Task> -> @world:M.World() ->
+  {View.work_tasks(tasks, None{}, world) == tasks : +List<D.Task>}
+
+law work_task_filter_uses_recorded_ownership:
+  @+task:D.Task -> @+rest:+List<D.Task> -> @+work:Nat -> @+world:M.World() ->
+  {View.work_tasks(task <> rest, Some{work}, world) ==
+    View.keep_task(E.same_work(WorkState.task_work(task, world), Some{work}), task, View.work_tasks(rest, Some{work}, world)) : +List<D.Task>}
+
+law all_tasks_retains_every_project:
+  @+projects:+List<Finite.Entry(D.Project)> -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState ->
+  {View.navigation_projects(projects, tasks, route, selected, navigation, None{}) == View.project_entries(projects, tasks, route, selected, navigation) : +List<V.ProjectEntry>}
+
+def scoped_project_entry(members: +List<D.Task>, +id:Nat, +project:D.Project, +tasks:+List<D.Task>, +route:U.Route, +selected:Maybe<&2, Nat>, +navigation:E.NavigationState, +remaining:+List<V.ProjectEntry>) -> +List<V.ProjectEntry>:
+  match members:
+    case Nil{}: remaining
+    case Con{first, rest}: View.project_entry(id, project, tasks, route, selected, navigation) <> remaining
+
+law work_project_filter_uses_visible_members:
+  @+id:Nat -> @+project:D.Project -> @+rest:+List<Finite.Entry(D.Project)> -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState -> @+work:Nat ->
+  {View.navigation_projects((id, project) <> rest, tasks, route, selected, navigation, Some{work}) ==
+    scoped_project_entry(View.project_tasks(tasks, Some{id}), id, project, tasks, route, selected, navigation, View.navigation_projects(rest, tasks, route, selected, navigation, Some{work})) : +List<V.ProjectEntry>}
+
+law all_tasks_retains_every_graph:
+  @+graphs:+List<Finite.Entry(G.Graph)> -> @+route:U.Route -> @+world:M.World() ->
+  {View.work_graph_scenes(graphs, route, world, None{}) == View.task_graph_scenes(graphs, route, world) : +List<V.TaskGraphScene>}
+
+def scoped_graph_scene(owned:Bool, id:Nat, graph:G.Graph, route:U.Route, world:M.World(), rest:+List<V.TaskGraphScene>) -> +List<V.TaskGraphScene>:
+  match owned:
+    case False{}: rest
+    case True{}: View.task_graph_scene(id, graph, route, world) <> rest
+
+law work_graph_filter_uses_recorded_ownership:
+  @+id:Nat -> @+graph:G.Graph -> @+rest:+List<Finite.Entry(G.Graph)> -> @+route:U.Route -> @+world:M.World() -> @+work:Nat ->
+  {View.work_graph_scenes((id, graph) <> rest, route, world, Some{work}) ==
+    scoped_graph_scene(E.same_work(WorkState.graph_owner(id, world), Some{work}), id, graph, route, world, View.work_graph_scenes(rest, route, world, Some{work})) : +List<V.TaskGraphScene>}
+
+law start_page_uses_current_work_draft:
+  @+session:E.Session -> @+world:M.World() ->
+  {View.page(U.Start{}, session, world) == V.StartPage{View.composer(E.creation_editor(session), session, world)} : V.Page}
+
+law graph_page_uses_current_work:
+  @+session:E.Session -> @+world:M.World() ->
+  {View.page(U.TaskGraphs{}, session, world) == V.TaskGraphsPage{View.work_graph_scenes(G.graphs(GraphState.registry(world)), U.TaskGraphs{}, world, E.active_work(session)), View.control("task-graph/new", "New task graph", U.EditTaskGraph{None{}})} : V.Page}
 
 # Observe the production payload without duplicating its node tree.
 def meaning(node: SurfaceTypes.Node) -> SurfaceTypes.Meaning:
@@ -354,7 +741,7 @@ def create_navigation_selected(+route: U.Route, +world: M.World(), +session: E.S
 
 def settings_state_law(-board: B.State, -world: M.World()) -> Type:
   {View.board_settings(board, world) ==
-    V.BoardSettings{B.automatic(board), B.draft_profile(board), Board.profiles(world),
+    V.BoardSettings{B.automatic(board), B.draft_profile(board), Forms.task_profiles(world),
       View.board_control("board/automatic", "自动排期",
         B.Settings{Bool.not(B.automatic(board)), B.draft_profile(board)}, world)} : V.LayerContent}
 
@@ -389,10 +776,10 @@ type BoardPresentationRequirements is Type:
       {work_status_child_key(Model.board_toolbar(filter, working, create, settings, filters, archive, parent, state)) ==
         Some{Identity.encode(Identity.Part{Identity.Part{parent, "work-status"}, "view/working"})} : Maybe<&2, String>},
     navigation_header_brand: @+navigation:V.Navigation -> @+state:InteractionTypes.State ->
-      {navigation_header_label(Model.navigation(navigation, state)) == Some{"Selvedge"} : Maybe<&2, String>},
+      {navigation_header_label(Model.navigation(navigation, state)) == Some{"Task tree"} : Maybe<&2, String>},
     navigation_header_toggle: @+navigation:V.Navigation -> @+state:InteractionTypes.State ->
       {navigation_header_children(Model.navigation(navigation, state)) ==
-        Some{[Model.declared(Identity.Place{"/navigation"}, navigation_toggle_control(navigation), state)]} : Maybe<&2, +List<SurfaceTypes.Node>>},
+        Some{List.append(&2, SurfaceTypes.Node, [Model.declared(Identity.Place{"/navigation"}, navigation_toggle_control(navigation), state)], Model.work_settings(E.active_work(E.session(Core.application(state))), state))} : Maybe<&2, +List<SurfaceTypes.Node>>},
     pinned_order: @+board:B.State -> {Board.display_cards(board) == pinned_partition(board) : +List<Finite.Entry(B.Card)>},
     board_column_ids: @+board:B.State -> @+filter:B.Filter -> @+route:U.Route -> @+now:U32 -> @+world:M.World() -> @target:B.Stage ->
       {board_page_column_ids(View.board_page(board, filter, route, now, world), target) ==
@@ -504,6 +891,10 @@ def task_title_key(value: V.TaskScene, parent: Identity.Key) -> Identity.Key:
   V.TaskScene{id, title, status, context, timeline, previews, composer, details, actions} = value
   Identity.Entity{parent, "task", Nat.show(id)}
 
+def task_worktree_feedback(value: V.TaskScene, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  V.TaskScene{+id, title, status, context, timeline, previews, composer, details, actions} = value
+  Model.worktree_feedback(Model.worktree_observation(id, state), Identity.Entity{parent, "task", Nat.show(id)})
+
 def project_title_text(value: V.ProjectScene) -> String:
   V.ProjectScene{id, name, workspace, guidance, tasks, actions} = value
   name
@@ -520,7 +911,7 @@ def layer_semantic(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, String>:
 
 type LayerTitleRequirements is Type:
   LayerTitleRequirements{
-    new_task: {View.editor_title(U.NewTaskEditor{}) == "New task" : String},
+    new_task: @work:Maybe<&2, Nat> -> {View.editor_title(U.NewTaskEditor{work}) == "New task" : String},
     message: @task:Nat -> {View.editor_title(U.MessageEditor{task}) == "Message" : String},
     new_project: {View.editor_title(U.ProjectEditor{None{}}) == "New project" : String},
     edit_project: @id:Nat -> {View.editor_title(U.ProjectEditor{Some{id}}) == "Edit project" : String},
@@ -529,6 +920,7 @@ type LayerTitleRequirements is Type:
     new_agent: {View.editor_title(U.AgentEditor{None{}}) == "New agent" : String},
     edit_agent: @id:Nat -> {View.editor_title(U.AgentEditor{Some{id}}) == "Edit agent" : String},
     new_task_graph: {View.editor_title(U.TaskGraphEditor{None{}}) == "New task graph" : String},
+    new_work_task_graph: @work:Nat -> {View.editor_title(U.NewWorkGraphEditor{work}) == "New task graph" : String},
     edit_task_graph: @id:Nat -> {View.editor_title(U.TaskGraphEditor{Some{id}}) == "Edit task graph" : String},
     fork: @task:Nat -> {View.editor_title(U.ForkEditor{task}) == "Fork task" : String},
     compact: @task:Nat -> {View.editor_title(U.CompactEditor{task}) == "Compact history" : String},
@@ -545,17 +937,123 @@ type LayerTitleRequirements is Type:
     models: @editor:U.Editor -> @query:String -> @fields:+List<V.InputGroup> -> {View.layer_title(V.ModelSelection{editor, query, fields}) == "Choose model" : String},
     delivery: @editor:U.Editor -> @fields:+List<V.InputGroup> -> {View.layer_title(V.DeliverySelection{editor, fields}) == "Delivery options" : String},
     details: @task:Maybe<&2, V.TaskScene> -> {View.layer_title(V.ExecutionDetails{task}) == "Task details" : String},
-    confirmation: @title:String -> @confirm:V.ControlDeclaration -> @cancel:V.ControlDeclaration -> {View.layer_title(V.Confirmation{title, confirm, cancel}) == title : String}
+    confirmation: @title:String -> @confirm:V.ControlDeclaration -> @cancel:V.ControlDeclaration -> {View.layer_title(V.Confirmation{title, confirm, cancel}) == title : String},
+    work_overview: @selected:Maybe<&2, Nat> -> @works:+List<V.WorkChoice> -> {View.layer_title(V.WorkSelection{selected, works}) == "Work overview" : String},
+    global_navigation: @route:U.Route -> @destinations:+List<V.ControlDeclaration> -> {View.layer_title(V.GlobalNavigation{route, destinations}) == "Global navigation" : String}
   }
 
 def surface_base(value: SurfaceTypes.Surface) -> +List<SurfaceTypes.Node>:
   SurfaceTypes.Surface{content, base, overlays, active} = value
   base
 
+def after_global_navigation(values: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{global, rest}: rest
+
+def after_work_tabs(values: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{tabs, rest}: rest
+
+def required_compact_overview_action_role(role:SurfaceTypes.Role, meaning:SurfaceTypes.Meaning) -> SurfaceTypes.Role:
+  match meaning:
+    case SurfaceTypes.Activate{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CreateWork{}}}}, availability}: SurfaceTypes.CompactNavigationEntry{False{}}
+    case SurfaceTypes.Activate{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ClosePanel{}}}}, availability}: SurfaceTypes.CompactNavigationEntry{False{}}
+    case _: role
+
+law compact_overview_action_roles_preserve_other_commands:
+  @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning ->
+  {Model.compact_navigation_action_role(role, meaning) == required_compact_overview_action_role(role, meaning) : SurfaceTypes.Role}
+
+law compact_overview_actions_empty:
+  {Model.compact_overview_actions(Nil{}) == Nil{} : +List<SurfaceTypes.Node>}
+
+law compact_overview_actions_retain_every_node_field_and_tree_position:
+  @+key:Identity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+rest:+List<SurfaceTypes.Node> ->
+  {Model.compact_overview_actions(SurfaceTypes.Node{key, semantic, label, role, meaning, children} <> rest) ==
+    SurfaceTypes.Node{key, semantic, label, required_compact_overview_action_role(role, meaning), meaning, Model.compact_overview_actions(children)} <> Model.compact_overview_actions(rest) : +List<SurfaceTypes.Node>}
+
+law compact_overview_unselected_layer_is_unchanged:
+  @+node:SurfaceTypes.Node ->
+  {Model.compact_overview_when(False{}, node) == node : SurfaceTypes.Node}
+
+law compact_overview_selected_layer_retains_its_own_fields:
+  @+key:Identity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> ->
+  {Model.compact_overview_when(True{}, SurfaceTypes.Node{key, semantic, label, role, meaning, children}) ==
+    SurfaceTypes.Node{key, semantic, label, role, meaning, Model.compact_overview_actions(children)} : SurfaceTypes.Node}
+
+law compact_overview_layers_empty:
+  {Model.compact_overview_layers(Nil{}) == Nil{} : +List<SurfaceTypes.Node>}
+
+law compact_overview_layers_gate_only_the_actual_work_overview_key:
+  @+key:Identity.Key -> @+semantic:String -> @+label:String -> @+role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+rest:+List<SurfaceTypes.Node> ->
+  {Model.compact_overview_layers(SurfaceTypes.Node{key, semantic, label, role, meaning, children} <> rest) ==
+    Model.compact_overview_when(String.eq(Identity.encode(key), Identity.encode(Model.layer_key("work-overview"))), SurfaceTypes.Node{key, semantic, label, role, meaning, children}) <> Model.compact_overview_layers(rest) : +List<SurfaceTypes.Node>}
+
+law desktop_navigation_layers_are_unchanged:
+  @+values:+List<SurfaceTypes.Node> ->
+  {Model.navigation_layers(True{}, values) == values : +List<SurfaceTypes.Node>}
+
+law compact_navigation_layers_use_the_keyed_work_overview_adaptation:
+  @+values:+List<SurfaceTypes.Node> ->
+  {Model.navigation_layers(False{}, values) == Model.compact_overview_layers(values) : +List<SurfaceTypes.Node>}
+
+def workspace_overlays(+full:Bool, scene:InteractionTypes.Scene, +state:InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  InteractionTypes.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code, folder_picker} = scene
+  List.append(&2, SurfaceTypes.Node, Model.preview(attachment), List.append(&2, SurfaceTypes.Node, Model.directory_picker(folder_picker),
+    List.append(&2, SurfaceTypes.Node, Model.settings(preferences), List.append(&2, SurfaceTypes.Node, Model.navigation_layers(full, Model.layers(views, state)), required_workspace_modal_navigation(full, arrangement, nav, state)))))
+
+def content_main(scene:InteractionTypes.Scene) -> V.Page:
+  InteractionTypes.Scene{V.Scene{nav, main, views, arrangement, attention}, preferences, transfers, attachment, code, folder_picker} = scene
+  main
+
+law assembled_workspace_base_retains_global_rail_work_tabs_and_task_navigation:
+  @+full:Bool -> @+scene:InteractionTypes.Scene -> @+state:InteractionTypes.State ->
+  {surface_base(Model.assemble(full, scene, state)) ==
+    List.append(&2, SurfaceTypes.Node, required_workspace_navigation(full, V.Arrangement{content_navigation_placement(scene)}, content_navigation(scene), state),
+      Model.surface_base(Model.finish_reachable(scene, [Model.page(content_main(scene), state)], workspace_overlays(full, scene, state)))) : +List<SurfaceTypes.Node>}
+
+law assembled_workspace_retains_complete_base_overlays_and_active_scope:
+  @+full:Bool -> @+scene:InteractionTypes.Scene -> @+state:InteractionTypes.State ->
+  {Model.assemble(full, scene, state) ==
+    SurfaceTypes.Surface{scene,
+      List.append(&2, SurfaceTypes.Node, required_workspace_navigation(full, V.Arrangement{content_navigation_placement(scene)}, content_navigation(scene), state),
+        Model.surface_base(Model.finish_reachable(scene, [Model.page(content_main(scene), state)], workspace_overlays(full, scene, state)))),
+      Model.surface_overlays(Model.finish_reachable(scene, [Model.page(content_main(scene), state)], workspace_overlays(full, scene, state))),
+      Model.active_scope(workspace_overlays(full, scene, state))} : SurfaceTypes.Surface}
+
+law workspace_navigation_adds_no_second_settings_control:
+  @+scene:InteractionTypes.Scene -> @+navigation:+List<SurfaceTypes.Node> -> @+reachable:SurfaceTypes.Surface -> @+scope:Maybe<&2, String> ->
+  {Model.with_workspace_navigation(scene, navigation, reachable, scope) ==
+    SurfaceTypes.Surface{scene, List.append(&2, SurfaceTypes.Node, navigation, Model.surface_base(reachable)), Model.surface_overlays(reachable), scope} : SurfaceTypes.Surface}
+
 def navigation_head(values: +List<SurfaceTypes.Node>) -> SurfaceTypes.Node:
   match values:
     case Con{node, rest}: node
     case Nil{}: SurfaceTypes.Node{Identity.Place{""}, "", "", SurfaceTypes.Section{}, SurfaceTypes.Region{}, Nil{}}
+
+law desktop_assembled_surface_keeps_work_tabs_after_global_navigation:
+  @+scene:InteractionTypes.Scene -> @+state:InteractionTypes.State ->
+  {navigation_head(after_global_navigation(surface_base(Model.assemble(True{}, scene, state)))) == Model.work_tabs(True{}, state) : SurfaceTypes.Node}
+
+law desktop_assembled_surface_starts_with_global_navigation:
+  @+scene:InteractionTypes.Scene -> @+state:InteractionTypes.State ->
+  {navigation_head(surface_base(Model.assemble(True{}, scene, state))) == Model.global_navigation(False{}, content_navigation(scene), state) : SurfaceTypes.Node}
+
+def compact_header_restore(node:SurfaceTypes.Node) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+  navigation_head(after_work_tabs(after_global_navigation(children)))
+
+def collapsed_restore_node(full:Bool, values:+List<SurfaceTypes.Node>) -> SurfaceTypes.Node:
+  match full:
+    case True{}: navigation_head(after_work_tabs(after_global_navigation(values)))
+    case False{}: compact_header_restore(navigation_head(values))
+
+def required_collapsed_restore(full:Bool, view:V.Navigation, state:InteractionTypes.State) -> SurfaceTypes.Node:
+  match full view:
+    case True{} V.Navigation{expanded, create, destinations, projects, tasks, toggle}: Model.declared(Identity.Place{"/navigation"}, toggle, state)
+    case False{} V.Navigation{expanded, create, destinations, projects, tasks, toggle}: Model.declared(Identity.Place{"/navigation"}, Model.compact_navigation_toggle(expanded, toggle), state)
 
 def content_navigation(value: InteractionTypes.Scene) -> V.Navigation:
   InteractionTypes.Scene{V.Scene{nav, main, layers, arrangement, attention}, settings, transfers, preview, code, directory_picker} = value
@@ -589,10 +1087,10 @@ type PageRegionRequirements is Type:
   PageRegionRequirements{
     page_payload: @+page:V.Page -> @+state:InteractionTypes.State ->
       {Model.page(page, state) == SurfaceTypes.Node{Identity.Place{"/main"}, "main", "Content", SurfaceTypes.Main{}, SurfaceTypes.PageContext{owned_page_context(page)}, Model.page_contents(page, Identity.Place{"/main"}, state)} : SurfaceTypes.Node},
-    collapsed_navigation_single: @+toggle: V.ControlDeclaration -> @expanded: Bool -> @create: V.ControlDeclaration -> @destinations: +List<V.ControlDeclaration> -> @projects: +List<V.ProjectEntry> -> @tasks: +List<V.TaskEntry> -> @+state: InteractionTypes.State -> {Model.base_navigation_at(V.CollapsedNavigation{}, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
+    collapsed_navigation_single: @+toggle: V.ControlDeclaration -> @expanded: Bool -> @create: V.ControlDeclaration -> @destinations: +List<V.ControlDeclaration> -> @projects: +List<V.ProjectEntry> -> @tasks: +List<V.TaskTree> -> @+state: InteractionTypes.State -> {Model.base_navigation_at(V.CollapsedNavigation{}, V.Navigation{expanded, create, destinations, projects, tasks, toggle}, state) ==
     [Model.declared(Identity.Place{"/navigation"}, toggle, state)] : +List<SurfaceTypes.Node>},
-    collapsed_assembly: @+content: InteractionTypes.Scene -> @+state: InteractionTypes.State -> @collapsed: {content_navigation_placement(content) == V.CollapsedNavigation{} : V.NavigationPlacement} -> {navigation_head(surface_base(Model.assemble(content, state))) ==
-    navigation_head(Model.collapsed_navigation_toggle(content_navigation(content), state)) : SurfaceTypes.Node},
+    collapsed_assembly: @+full:Bool -> @+content: InteractionTypes.Scene -> @+state: InteractionTypes.State -> @collapsed: {content_navigation_placement(content) == V.CollapsedNavigation{} : V.NavigationPlacement} -> {collapsed_restore_node(full, surface_base(Model.assemble(full, content, state))) ==
+    required_collapsed_restore(full, content_navigation(content), state) : SurfaceTypes.Node},
 
     layer_titles: LayerTitleRequirements,
     layer_name: @+kind:V.LayerKind -> @+content:V.LayerContent -> @+initial:String -> @+restore:String -> @+close:V.Dismissal -> @+state:InteractionTypes.State ->
@@ -629,7 +1127,8 @@ type PageRegionRequirements is Type:
     task_reading: @+value:V.TaskScene -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> task_reading(value, parent, state),
     task_title: @+value:V.TaskScene -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
-        Some{[Model.region(task_title_key(value, parent), "heading", task_title_text(value), SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
+        Some{Model.region(task_title_key(value, parent), "heading", task_title_text(value), SurfaceTypes.Heading{}, Nil{}) <>
+          task_worktree_feedback(value, parent, state)} : Maybe<&2, +List<SurfaceTypes.Node>>},
     project_title: @+value:V.ProjectScene -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {find_region(Model.page_contents(V.ProjectPage{value}, parent, state), Composition.ProjectTitle{}) ==
         Some{[Model.region(parent, "heading", project_title_text(value), SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>},
@@ -868,21 +1367,21 @@ type CompositionRequirements is Type:
           Model.page_composer(input, parent, parent, Core.from_application(E.from_program(world, session), services), Composition.BodyPosition{})) : +List<SurfaceTypes.Node>},
     context_admission: @+declaration:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.controls(declaration <> rest, parent, state) == Model.declared(parent, declaration, state) <> Model.controls(rest, parent, state) : +List<SurfaceTypes.Node>},
-    composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() ->
-      {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-        [View.model_composer_control(profile, reasoning, world),
-         V.ComposerControl{UX.permissions_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/new-task", View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>},
+    composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
+        [View.scoped_model_control(profile, reasoning, world, work),
+         V.ComposerControl{UX.permissions_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>},
     model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String},
-    creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() ->
-      {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
+    creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
     conversation_phase: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_phase(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Some{V.Conversation{task}} : Maybe<&2, V.ComposerPhase>},
     conversation_has_no_creation_context: @task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_creation_controls(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Nil{} : +List<V.ComposerControl>},
-    creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() ->
-      {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context}, scene, world)) ==
-        [V.ComposerControl{UX.project_property(U.NewTaskEditor{}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
-         V.ComposerControl{UX.workspace_property(U.NewTaskEditor{}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/new-task", View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{}})}] : +List<V.ComposerControl>}
+    creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
+        [V.ComposerControl{UX.project_property(U.NewTaskEditor{work}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
+         V.ComposerControl{UX.workspace_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}
 
   }
 
@@ -905,18 +1404,18 @@ type DirectoryEntryRequirements is Type:
       {U.edit_draft(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, path}, world) == U.edited_body(U.apply_edit(U.EditWorkspace{Context.AddRoot{path}}, body, world), revision, "") : Result<&2, &2, String, U.Draft>},
     unconfirmed: @+draft:U.Draft -> @+world:M.World() -> @denied:{U.can_confirm_directory(draft) == False{} : Bool} ->
       {U.edit_draft(U.ConfirmDirectory{}, draft, world) == Done{draft} : Result<&2, &2, String, U.Draft>},
-    model_entry: @revision:Nat -> @+text:U.Text -> @old_profile:String -> @old_reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+profile:String -> @+reasoning:String -> @world:M.World() ->
-      {U.edit_draft(U.ChooseModel{profile, reasoning}, U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context}, feedback, entry}, world) == Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, context}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
-    project_entry: @revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @world:M.World() ->
-      {U.edit_draft(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.Draft{revision, U.NewTask{text, profile, reasoning, context}, feedback, entry}, world) ==
-        Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin})}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
+    model_entry: @revision:Nat -> @+text:U.Text -> @old_profile:String -> @old_reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+profile:String -> @+reasoning:String -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {U.edit_draft(U.ChooseModel{profile, reasoning}, U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, create_worktree, work}, feedback, entry}, world) == Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, context, create_worktree, work}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
+    project_entry: @revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {U.edit_draft(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.Draft{revision, U.NewTask{text, profile, reasoning, context, create_worktree, work}, feedback, entry}, world) ==
+        Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), U.origin_worktree(origin, world), work}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
     empty_entry: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @+world:M.World() -> @+session:E.Session ->
       {E.edit_existing(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, ""}, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
     unsupported_entry: @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @+entry:String -> @+world:M.World() -> @+session:E.Session -> @unsupported:{U.workspace_capable(body) == False{} : Bool} ->
       {E.edit_existing(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, entry}, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
-    selected_project_entry: @+revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @+world:M.World() -> @+session:E.Session ->
-      {E.begin_existing(Some{U.Draft{revision, U.NewTask{text, profile, reasoning, context}, feedback, entry}}, origin, E.from_program(world, session)) ==
-        E.navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), E.from_program(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin})}, U.Editing{}, entry}))) : E.Decision},
+    selected_project_entry: @+revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @+world:M.World() -> @+session:E.Session -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {E.begin_existing(Some{U.Draft{revision, U.NewTask{text, profile, reasoning, context, create_worktree, work}, feedback, entry}}, origin, E.from_program(world, session)) ==
+        E.navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{work}), E.from_program(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), U.origin_worktree(origin, world), work}, U.Editing{}, entry}))) : E.Decision},
     production_noop: @+draft:U.Draft -> @+world:M.World() -> @+session:E.Session -> @denied:{U.can_confirm_directory(draft) == False{} : Bool} ->
       {E.edit_existing(U.ConfirmDirectory{}, draft, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
     input_binding: @+editor:U.Editor -> @text:String -> @+path:String ->
@@ -1002,7 +1501,7 @@ law directory_location_navigation_regions:
        List.append(&2, SurfaceTypes.Node, [Model.product_action(Identity.Place{"/layers/directory-picker"}, "go", "Go", InteractionTypes.ServiceInput{Services.GoDirectory{}}, True{})], Model.directory_parent(parent)))] : +List<SurfaceTypes.Node>}
 
 def disclosure(state: E.NavigationState) -> +List<Nat>:
-  E.NavigationState{intent, collapsed} = state
+  E.NavigationState{intent, collapsed, work, visits, generation} = state
   collapsed
 
 def intro_chooser(value: V.CreationIntroduction) -> V.ControlDeclaration:
@@ -1016,33 +1515,115 @@ def picker_nodes(+values: +List<V.ProjectChoice>, +selected: Maybe<&2, Nat>, +pa
         Model.project_registered_choices(values, selected, parent, state)},
      Model.declared(parent, View.control("project/create", "New project", U.EditProject{None{}}), state)] : +List<SurfaceTypes.Node>}
 
+def task_tree_has(trees: +List<V.TaskTree>, +task: Nat) -> Bool:
+  match trees:
+    case Nil{}: False{}
+    case Con{V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children}, rest}:
+      (Nat.is_eq(id, task) || task_tree_has(children, task)) || task_tree_has(rest, task)
+
+def task_tree_root_has(tree: V.TaskTree, +task: Nat) -> Bool:
+  V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children} = tree
+  Nat.is_eq(id, task) || task_tree_has(children, task)
+
+def pending_task_has(trees: +List<View.PendingTaskTree>, +task: Nat) -> Bool:
+  match trees:
+    case Nil{}: False{}
+    case Con{View.PendingTaskTree{parent, tree}, rest}:
+      task_tree_root_has(tree, task) || pending_task_has(rest, task)
+
+def partition_task_has(partition: View.TaskTreePartition, +task: Nat) -> Bool:
+  View.TaskTreePartition{children, roots} = partition
+  task_tree_has(children, task) || pending_task_has(roots, task)
+
+def task_list_has(tasks: +List<D.Task>, +id: Nat) -> Bool:
+  match tasks:
+    case Nil{}: False{}
+    case Con{task, rest}: Nat.is_eq(D.task_id(task), id) || task_list_has(rest, id)
+
+type TaskTreeProjectionRequirements is Type:
+  TaskTreeProjectionRequirements{
+    immediate_parent: @+task:D.Task ->
+      {View.task_parent(task) == List.head(&2, Nat, D.task_lineage(task)) : Maybe<&2, Nat>},
+    missing_parent: @id:Nat -> {View.task_parent_matches(None{}, id) == False{} : Bool},
+    selected_parent: @+parent:Nat -> @+id:Nat ->
+      {View.task_parent_matches(Some{parent}, id) == Nat.is_eq(parent, id) : Bool},
+    partition_empty: @parent:Nat ->
+      {View.partition_task_children(Nil{}, parent) == View.TaskTreePartition{Nil{}, Nil{}} : View.TaskTreePartition},
+    child_order: @+parent:Maybe<&2, Nat> -> @+tree:V.TaskTree -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.partition_task_tree(True{}, View.PendingTaskTree{parent, tree}, View.TaskTreePartition{children, roots}) ==
+        View.TaskTreePartition{tree <> children, roots} : View.TaskTreePartition},
+    root_order: @+value:View.PendingTaskTree -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.partition_task_tree(False{}, value, View.TaskTreePartition{children, roots}) ==
+        View.TaskTreePartition{children, value <> roots} : View.TaskTreePartition},
+    partition_step: @+ancestor:Maybe<&2, Nat> -> @+tree:V.TaskTree -> @+rest:+List<View.PendingTaskTree> -> @+parent:Nat ->
+      {View.partition_task_children(View.PendingTaskTree{ancestor, tree} <> rest, parent) ==
+        View.partition_task_tree(View.task_parent_matches(ancestor, parent), View.PendingTaskTree{ancestor, tree},
+          View.partition_task_children(rest, parent)) : View.TaskTreePartition},
+    partition_membership: @+values:+List<View.PendingTaskTree> -> @+parent:Nat -> @+task:Nat ->
+      {partition_task_has(View.partition_task_children(values, parent), task) == pending_task_has(values, task) : Bool},
+    branch_observation: @+task:D.Task -> @+route:U.Route -> @+children:+List<V.TaskTree> -> @+roots:+List<View.PendingTaskTree> ->
+      {View.prepend_task_tree(task, route, View.TaskTreePartition{children, roots}) ==
+        View.PendingTaskTree{List.head(&2, Nat, D.task_lineage(task)), V.TaskTree{View.task_entry(task, route), children}} <> roots : +List<View.PendingTaskTree>},
+    oldest_parent: @+task:D.Task -> @+rest:+List<D.Task> -> @+route:U.Route ->
+      {View.pending_task_forest(task <> rest, route) == View.prepend_task_tree(task, route,
+        View.partition_task_children(View.pending_task_forest(rest, route), D.task_id(task))) : +List<View.PendingTaskTree>},
+    forest_empty: @route:U.Route -> {View.task_forest(Nil{}, route) == Nil{} : +List<V.TaskTree>},
+    forest_membership: @+tasks:+List<D.Task> -> @+route:U.Route -> @+task:Nat ->
+      {task_tree_has(View.task_forest(tasks, route), task) == task_list_has(tasks, task) : Bool}}
+
+law task_tree_projection_evidence:
+  TaskTreeProjectionRequirements
+
+type TaskTreePresentationRequirements is Type:
+  TaskTreePresentationRequirements{
+    empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_tree_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    branch: @+id:Nat -> @+title:String -> @+status:V.TaskStatus -> @+selected:Bool -> @+open:V.ControlDeclaration -> @+children:+List<V.TaskTree> -> @+rest:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_tree_entries(V.TaskTree{V.TaskEntry{id, title, status, selected, open}, children} <> rest, parent, state) ==
+        List.append(&2, SurfaceTypes.Node, Model.task_entries([V.TaskEntry{id, title, status, selected, open}], parent, state),
+          List.append(&2, SurfaceTypes.Node, Model.task_children(Model.task_tree_entries(children, Identity.Entity{parent, "task", Nat.show(id)}, state), Identity.Entity{parent, "task", Nat.show(id)}, id),
+            Model.task_tree_entries(rest, parent, state))) : +List<SurfaceTypes.Node>},
+    leaf: @+parent:Identity.Key -> @+task:Nat ->
+      {Model.task_children(Nil{}, parent, task) == Nil{} : +List<SurfaceTypes.Node>},
+    descendants: @+first:SurfaceTypes.Node -> @+rest:+List<SurfaceTypes.Node> -> @+parent:Identity.Key -> @+task:Nat ->
+      {Model.task_children(first <> rest, parent, task) ==
+        [SurfaceTypes.Node{Identity.Part{parent, "children"}, "task-children", "Subtasks", SurfaceTypes.NavigationCollection{}, SurfaceTypes.TaskChildren{task},
+          first <> rest}] : +List<SurfaceTypes.Node>},
+    collapsed: @+trees:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.disclosed_tasks(False{}, trees, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
+    expanded: @+trees:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.disclosed_tasks(True{}, trees, parent, state) == Model.task_tree_entries(trees, parent, state) : +List<SurfaceTypes.Node>}}
+
+law task_tree_presentation_evidence:
+  TaskTreePresentationRequirements
+
 type ProjectInteractionRequirements is Type:
   ProjectInteractionRequirements{
-    switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() ->
-      {U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, world) ==
-        Done{U.NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}}} : Result<&2, &2, String, U.Body>},
+    switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, create_worktree, work}, world) ==
+        Done{U.NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}, U.origin_worktree(origin, world), work}} : Result<&2, &2, String, U.Body>},
     select_reuses_draft: @+project:Maybe<&2, Nat> -> @+application:E.Application ->
-      {E.activate_selected(U.SelectProject{project}, application) == E.begin_task(project, application) : E.Decision},
-    visibility_preserves_disclosure: @expanded:Bool -> @intent:E.NavigationIntent -> @+collapsed:+List<Nat> ->
-      {disclosure(E.set_navigation(expanded, E.NavigationState{intent, collapsed})) == collapsed : +List<Nat>},
-    visit_preserves_disclosure: @intent:E.NavigationIntent -> @+collapsed:+List<Nat> ->
-      {disclosure(E.navigation_after_visit(E.NavigationState{intent, collapsed})) == collapsed : +List<Nat>},
+      {E.activate_selected(U.SelectProject{project}, application) == E.observe_workspace_git(E.begin_task(project, application)) : E.Decision},
+    visibility_preserves_disclosure: @expanded:Bool -> @intent:E.NavigationIntent -> @+collapsed:+List<Nat> -> @work:Maybe<&2, Nat> -> @visits:+List<E.WorkVisit> -> @generation:Nat ->
+      {disclosure(E.set_navigation(expanded, E.NavigationState{intent, collapsed, work, visits, generation})) == collapsed : +List<Nat>},
+    visit_preserves_disclosure: @intent:E.NavigationIntent -> @+collapsed:+List<Nat> -> @work:Maybe<&2, Nat> -> @visits:+List<E.WorkVisit> -> @generation:Nat ->
+      {disclosure(E.navigation_after_visit(E.NavigationState{intent, collapsed, work, visits, generation})) == collapsed : +List<Nat>},
     toggle_keeps_location: @+session:E.Session -> @+project:Nat -> @+world:M.World() -> {E.toggle_project(project, E.from_program(world, session)) ==
         E.local(world, E.with_navigation(E.toggle_project_navigation(project, E.navigation(session)), session), Nil{}) : E.Decision},
     task_ownership: @+id:Nat -> @drafts:+List<U.Draft> -> @+world:M.World() ->
       {View.route_project(U.Conversation{id}, drafts, world) ==
     View.validate_project(View.task_project(Tasks.find(Commands.entries(world), id)), world) : Maybe<&2, Nat>},
-    draft_ownership: @+drafts:+List<U.Draft> -> @+world:M.World() ->
-      {View.route_project(U.Start{}, drafts, world) ==
-    View.draft_project(E.find_draft(drafts, U.NewTaskEditor{}), world) : Maybe<&2, Nat>},
+    draft_ownership: @+session:E.Session -> @+world:M.World() ->
+      {View.active_project(U.Start{}, session, world) ==
+    View.draft_project(E.find_draft(E.drafts(session), E.creation_editor(session)), world) : Maybe<&2, Nat>},
     registered_choices_complete: @+entries:+List<Finite.Entry(D.Project)> ->
       {List.length(&2, V.ProjectChoice, View.project_choices(entries)) == List.length(&2, Finite.Entry(D.Project), entries) : Nat},
     picker_filter_keeps_selection: @+query:String -> @+selected:Maybe<&2, Nat> -> @+projects:+List<V.ProjectChoice> ->
       {View.search_content(V.ProjectSelection{"", selected, projects}, query) ==
     V.ProjectSelection{query, selected, View.matching_projects(projects, query)} : V.LayerContent},
-    project_actions: @+id:Nat -> @+name:String -> @+workspace:D.Workspace -> @guidance:D.ProjectContext -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState ->
-      {View.project_entry(id, D.Project{name, workspace, guidance}, tasks, route, selected, navigation) ==
-        V.ProjectEntry{id, name, workspace, View.selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), View.task_entries(View.project_tasks(tasks, Some{id}), route),
+    project_actions: @+id:Nat -> @+name:String -> @+workspace:D.Workspace -> @guidance:D.ProjectContext -> @+tasks:+List<D.Task> -> @+route:U.Route -> @+selected:Maybe<&2, Nat> -> @+navigation:E.NavigationState -> @create_worktree:Bool ->
+      {View.project_entry(id, D.Project{name, workspace, guidance, create_worktree}, tasks, route, selected, navigation) ==
+        V.ProjectEntry{id, name, workspace, View.selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), View.task_forest(View.project_tasks(tasks, Some{id}), route),
           View.control("project/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), View.control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}),
           View.control("project/toggle/" ++ Nat.show(id), "Toggle project tasks", U.ToggleProjectGroup{id}),
           View.context_control("project/more/" ++ Nat.show(id), "More", U.ObjectActions{U.ProjectSubject{id}})} : V.ProjectEntry},
@@ -1061,10 +1642,10 @@ type ProjectInteractionRequirements is Type:
            SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{View.task_status_label(status)}, Nil{}}]}] : +List<SurfaceTypes.Node>},
     deletion_retains_other: @+prefix:+List<Nat> -> @+other:Nat -> @+suffix:+List<Nat> -> @+id:Nat -> @distinct:{Nat.is_eq(id, other) == False{} : Bool} ->
       {List.contains(~Nat, ~Nat.is_eq, E.without_collapsed_project(List.append(&2, Nat, prefix, other <> suffix), id), other) == True{} : Bool},
-    toggle_retains_other: @+intent:E.NavigationIntent -> @+prefix:+List<Nat> -> @+other:Nat -> @+suffix:+List<Nat> -> @+id:Nat -> @distinct:{Nat.is_eq(id, other) == False{} : Bool} ->
-      {E.project_collapsed(E.toggle_project_navigation(id, E.NavigationState{intent, List.append(&2, Nat, prefix, other <> suffix)}), other) == True{} : Bool},
-    toggle_preserves_visibility: @+id:Nat -> @+intent:E.NavigationIntent -> @collapsed:+List<Nat> ->
-      {E.navigation_visibility(E.toggle_project_navigation(id, E.NavigationState{intent, collapsed})) == intent : E.NavigationIntent},
+    toggle_retains_other: @+intent:E.NavigationIntent -> @+prefix:+List<Nat> -> @+other:Nat -> @+suffix:+List<Nat> -> @+id:Nat -> @distinct:{Nat.is_eq(id, other) == False{} : Bool} -> @work:Maybe<&2, Nat> -> @visits:+List<E.WorkVisit> -> @generation:Nat ->
+      {E.project_collapsed(E.toggle_project_navigation(id, E.NavigationState{intent, List.append(&2, Nat, prefix, other <> suffix), work, visits, generation}), other) == True{} : Bool},
+    toggle_preserves_visibility: @+id:Nat -> @+intent:E.NavigationIntent -> @collapsed:+List<Nat> -> @work:Maybe<&2, Nat> -> @visits:+List<E.WorkVisit> -> @generation:Nat ->
+      {E.navigation_visibility(E.toggle_project_navigation(id, E.NavigationState{intent, collapsed, work, visits, generation})) == intent : E.NavigationIntent},
     picker_complete_nodes: @+values:+List<V.ProjectChoice> -> @+selected:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> picker_nodes(values, selected, parent, state),
     chooser_activation: @+context:Maybe<&2, Context.Preview> -> @+world:M.World() ->
       {intro_chooser(View.creation_introduction_fields(context, world)) ==
@@ -1074,7 +1655,7 @@ type ProjectInteractionRequirements is Type:
       @observed_layers:{E.layers(session) == E.Layer{U.ProjectPicker{}, trigger, initial, previous, layer_occurrence, False{}, None{}, None{}} <> rest : +List<E.Layer>} ->
        {E.search_choices(query, E.from_program(world, session)) ==
         E.local(world, E.with_layers(E.Layer{U.ProjectPicker{}, trigger, initial, query, layer_occurrence, False{}, None{}, None{}} <> rest, session), Nil{}) : E.Decision},
-    project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskEntry> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
+    project_group_single_title: @+id:Nat -> @name:String -> @workspace:D.Workspace -> @+selected:Bool -> @+expanded:Bool -> @+tasks:+List<V.TaskTree> -> @+open:V.ControlDeclaration -> @+create:V.ControlDeclaration -> @+toggle:V.ControlDeclaration -> @+more:V.ControlDeclaration -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_entries([V.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}], parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "project", Nat.show(id)}, "project-group", "", SurfaceTypes.Section{}, SurfaceTypes.ProjectGroup{id, selected, expanded},
           Model.region(Identity.Entity{parent, "project", Nat.show(id)}, "actions", "", SurfaceTypes.Section{},
@@ -1082,10 +1663,10 @@ type ProjectInteractionRequirements is Type:
              Model.declared(Identity.Entity{parent, "project", Nat.show(id)}, create, state), Model.declared(Identity.Entity{parent, "project", Nat.show(id)}, more, state)]) <>
           Model.disclosed_tasks(expanded, tasks, Identity.Entity{parent, "project", Nat.show(id)}, state)}] : +List<SurfaceTypes.Node>},
     independent_source: @+expanded:Bool -> @+route:U.Route -> @+world:M.World() -> @+session:E.Session ->
-      {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新任务", U.BeginTask{None{}}),
+      {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新建对话", U.BeginTask{None{}}),
         [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
-        View.project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, View.active_project(route, session, world), E.navigation(session)), View.task_entries(View.project_tasks(Commands.entries(world), None{}), route),
-        V.ControlDeclaration{"navigation/toggle", "Toggle sidebar", V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
+        View.named_projects(View.navigation_projects(Projects.entries(Projects.registry(F.State(), world)), View.work_tasks(Commands.entries(world), E.active_work(session), world), route, View.active_project(route, session, world), E.navigation(session), E.active_work(session)), world), View.named_trees(View.task_forest(View.project_tasks(View.work_tasks(Commands.entries(world), E.active_work(session), world), None{}), route), world),
+        V.ControlDeclaration{"navigation/toggle", View.task_navigation_toggle_label(expanded), V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
     navigation_entry_fields: @+key:Identity.Key -> @+semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+selected:Bool ->
       {Model.replace_role(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, SurfaceTypes.NavigationEntry{selected}) ==
         SurfaceTypes.Node{key, semantic, label, SurfaceTypes.NavigationEntry{selected}, meaning, children} : SurfaceTypes.Node},
@@ -1096,22 +1677,22 @@ type ProjectInteractionRequirements is Type:
       {Model.navigation_controls(route, Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
     navigation_controls_complete: @+route:U.Route -> @+first:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.navigation_controls(route, first <> rest, parent, state) == Model.navigation_declaration(route, parent, first, state) <> Model.navigation_controls(route, rest, parent, state) : +List<SurfaceTypes.Node>},
-    navigation_destinations_complete: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+state:InteractionTypes.State ->
-      {Model.navigation_destinations(route, create, destinations, state) ==
-        SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "destinations"}, "navigation-destinations", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
-          Model.navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> Model.navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)} : SurfaceTypes.Node},
+    task_creation_complete: @+route:U.Route -> @+create:V.ControlDeclaration -> @+state:InteractionTypes.State ->
+      {Model.task_navigation_creation(route, create, state) ==
+        SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "task-creation"}, "task-navigation-creation", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
+          [Model.navigation_declaration(route, Identity.Place{"/navigation"}, create, state)]} : SurfaceTypes.Node},
     independent_empty: @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Nil{}, parent, state) == Nil{} : +List<SurfaceTypes.Node>},
-    independent_populated: @+first:V.TaskEntry -> @+rest:+List<V.TaskEntry> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+    independent_populated: @+first:V.TaskTree -> @+rest:+List<V.TaskTree> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {Model.independent_task_entries(Con{first, rest}, parent, state) == [Model.region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
         SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
-        Model.task_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
-    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+        Model.task_tree_entries(Con{first, rest}, parent, state))] : +List<SurfaceTypes.Node>},
+    navigation_closed: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(False{}, route, create, destinations, projects, tasks, state) == Nil{} : +List<SurfaceTypes.Node>},
-    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskEntry> -> @+state:InteractionTypes.State ->
+    navigation_open: @+route:U.Route -> @+create:V.ControlDeclaration -> @+destinations:+List<V.ControlDeclaration> -> @+projects:+List<V.ProjectEntry> -> @+tasks:+List<V.TaskTree> -> @+state:InteractionTypes.State ->
       {Model.navigation_contents(True{}, route, create, destinations, projects, tasks, state) ==
         [SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "contents"}, "navigation-content", "", SurfaceTypes.NavigationCollection{}, SurfaceTypes.Region{},
-          Model.navigation_destinations(route, create, destinations, state) <> List.append(&2, SurfaceTypes.Node,
+          Model.task_navigation_creation(route, create, state) <> List.append(&2, SurfaceTypes.Node,
             Model.project_entries(projects, Identity.Place{"/navigation"}, state), Model.independent_task_entries(tasks, Identity.Place{"/navigation"}, state))}] : +List<SurfaceTypes.Node>},
     committed_is_not_draft: @context:Context.EffectiveContext ->
       {View.draft_preview(Some{Context.CommittedExecution{context}}) == None{} : Maybe<&2, Context.Preview>},
@@ -1122,18 +1703,18 @@ type ProjectInteractionRequirements is Type:
     populated_project_collection: @+first:V.ProjectScene -> @+rest:+List<V.ProjectScene> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_collection_entries(Con{first, rest}, parent, state) ==
     Model.projects(Con{first, rest}, parent, state) : +List<SurfaceTypes.Node>},
-    select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> ->
-      @valid_manual:{E.manual_model(session) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool} ->
-      @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
+    select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> -> @+create_worktree:Bool ->
+      @valid_manual:{E.creation_model_chosen(E.active_work(session), E.manual_model(session)) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool} ->
+      @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, create_worktree, E.active_work(session)}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
        {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
-        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}}, U.Editing{}, directory_entry},
-            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
-          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
+        E.observe_workspace_git(E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{E.active_work(session)}), E.with_layers(Nil{}, E.with_drafts(E.put_draft(U.Draft{(revision + 1n : Nat), U.NewTask{message, profile, reasoning, Context.Configuration{E.context_project(project), workspace, sandbox, approval}, U.origin_worktree(E.context_project(project), world), E.active_work(session)}, U.Editing{}, directory_entry},
+            U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, create_worktree, E.active_work(session)}, feedback, directory_entry} <> rest), E.with_route(U.Start{}, session))))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{E.active_work(session)})}])) : E.Decision},
     missing_draft_focus: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() ->
       @observed_drafts:{E.drafts(session) == Nil{} : +List<U.Draft>} ->
        {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
-        E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
-          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{})}]) : E.Decision},
+        E.observe_workspace_git(E.local(world, E.with_navigation(E.navigation_after_visit(E.navigation(session)), E.with_attention("composer/" ++ U.editor_key(U.NewTaskEditor{E.active_work(session)}), E.with_layers(Nil{}, E.with_route(U.Start{}, session)))),
+          [E.Attend{"composer/" ++ U.editor_key(U.NewTaskEditor{E.active_work(session)})}])) : E.Decision},
     task_status_source: @+task:D.Task -> {View.task_status(task) == V.TaskStatus{D.task_status(task), Conversation2.working(D.task_phase(task), D.task_operations(task))} : V.TaskStatus},
     task_status_label: @+lifecycle:D.Status -> @+working:Bool -> {View.task_status_label(V.TaskStatus{lifecycle, working}) == Conversation2.status_label(lifecycle, working) : String},
     task_status_caption: @+task:D.Task -> {View.task_status_label(View.task_status(task)) == Conversation2.status(task) : String}}
@@ -1311,9 +1892,14 @@ law relocated_content:
   {Model.content(Model.relocate_persistent_trigger(trigger, scene, base, overlays)) == scene : InteractionTypes.Scene}
 
 law assembled_content:
+  for full: Bool
   for +scene: InteractionTypes.Scene
   for +state: InteractionTypes.State
-  {Model.content(Model.assemble(scene, state)) == scene : InteractionTypes.Scene}
+  {Model.content(Model.assemble(full, scene, state)) == scene : InteractionTypes.Scene}
+
+law observed_content:
+  @+capacity:V.Capacity -> @+state:InteractionTypes.State ->
+  {Model.content(Model.observe(capacity, state)) == Core.observe(capacity, state) : InteractionTypes.Scene}
 
 law placement_destination_authority:
   for +key: Identity.Key
@@ -1403,8 +1989,10 @@ law new_task_model_permission:
   for +profile: String
   for reasoning: String
   for context: Context.Configuration
+  for work: Maybe<&2, Nat>
+  for create_worktree: Bool
   for world: M.World()
-  {U.model_permitted(U.NewTask{message, profile, reasoning, context}, world) == U.selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning) : Bool}
+  {U.model_permitted(U.NewTask{message, profile, reasoning, context, create_worktree, work}, world) == U.selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning) : Bool}
 
 law agent_model_permission:
   for agent: Maybe<&2, Nat>
@@ -1449,8 +2037,8 @@ law editor_submit_region:
   for +parent: Identity.Key
   for +state: InteractionTypes.State
   {Model.ordinary_editor(Some{V.EditorScene{identity, revision, groups, structure, assessment, submit, feedback, pending}}, parent, state) ==
-    List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
-      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), Model.action_feedback_nodes(identity, feedback, parent)), [Model.dialog_actions(parent, [Model.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])) : +List<SurfaceTypes.Node>}
+    List.append(&2, SurfaceTypes.Node, Model.title_prompt_controls(identity, pending, parent), List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
+      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), Model.action_feedback_nodes(identity, feedback, parent)), [Model.dialog_actions(parent, [Model.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])]))) : +List<SurfaceTypes.Node>}
 
 law confirmation_actions_region:
   for title: String
@@ -1539,21 +2127,21 @@ type BoundaryRequirements is Type:
     accepted_auth: @+state:Services.State -> @ticket:Nat ->
       @owned:{Services.expected_access(Services.access(state), ticket) == True{} : Bool} ->
       {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
-        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state)), [Services.SessionReady{}]} : Services.Decision},
+        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision},
     failed_auth: @+state:Services.State -> @reason:String ->
       {Services.authentication_calculation(state, Fail{reason}) ==
-        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}} : Services.Decision},
+        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]} : Services.Decision},
     unowned_auth: @+state:Services.State -> @result:Result<&2, &2, String, Unit> ->
       {Services.authentication_admitted(None{}, state) == Services.Decision{state, Nil{}} : Services.Decision},
     readiness_attention: @+state:Services.State -> @+application:E.Application ->
       {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
-        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], [Services.SessionReady{}], False{}} : InteractionTypes.Decision},
+        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision},
     failed_auth_no_attention: @+state:Services.State -> @reason:String -> @application:E.Application ->
       {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
-        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}) : InteractionTypes.Decision},
+        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]) : InteractionTypes.Decision},
     unowned_auth_no_attention: @state:Services.State -> @result:Result<&2, &2, String, Unit> -> @application:E.Application ->
       {Core.service_result(Services.authentication_admitted(None{}, state), application) == Core.application_result_with_services(E.unchanged(application), state, Nil{}) : InteractionTypes.Decision},
-    readiness_starts_watch: {Core.external_effect(Services.SessionReady{}) == True{} : Bool},
+    readiness_is_internal: {Core.external_effect(Services.SessionReady{}) == False{} : Bool},
     stale_auth: @+state:Services.State -> @ticket:Nat -> @+result:Result<&2, &2, String, Unit> ->
       @observed_directory_picker:{Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker} ->
       @stale:{Services.expected_access(Services.access(state), ticket) == False{} : Bool} ->
@@ -1622,20 +2210,19 @@ type BoundaryRequirements is Type:
           Context.AwaitingDirectoryGuidance{}} : Context.Preview},
     project_prepared: @project:Maybe<&2, Nat> -> @+name:String -> @+old_workspace:D.Workspace ->
       @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @now:U32 ->
-      {U.prepared_command(U.Project{project, name, old_workspace},
+      {U.prepared_command(U.Project{project, name, old_workspace, False{}},
         Context.DirectoryObservation{workspace, guidance}, now) ==
-        U.project_command(project, name,
-          D.workspace_json(workspace), D.project_json(guidance)) : M.Command},
+        U.project_command(project, name, D.workspace_json(workspace), D.project_json(guidance), False{}) : M.Command},
     project_create: @+name:String -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext ->
-      {U.project_command(None{}, name, D.workspace_json(workspace), D.project_json(guidance)) ==
-        M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance)} : M.Command},
+      {U.project_command(None{}, name, D.workspace_json(workspace), D.project_json(guidance), False{}) ==
+        M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{False{}}} : M.Command},
     project_update: @project:Nat -> @+name:String -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext ->
-      {U.project_command(Some{project}, name, D.workspace_json(workspace), D.project_json(guidance)) ==
-        M.UpdateProject{project, Some{name}, D.workspace_json(workspace), D.project_json(guidance)} : M.Command},
+      {U.project_command(Some{project}, name, D.workspace_json(workspace), D.project_json(guidance), False{}) ==
+        M.UpdateProject{project, Some{name}, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{False{}}} : M.Command},
     task_prepared: @+text:U.Text -> @profile:String -> @reasoning:String ->
-      @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 ->
-      {U.prepared_command(U.NewTask{text, profile, reasoning, config}, observation, now) ==
-        M.Create{profile, reasoning, U.text(text), Context.observed_settings(config, observation)} : M.Command},
+      @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      {U.prepared_command(U.NewTask{text, profile, reasoning, config, create_worktree, work}, observation, now) ==
+        U.create_task(work, create_worktree, profile, reasoning, U.text(text), Context.observed_settings(config, observation)) : M.Command},
     settings_observations: @+config:Context.Configuration -> @+workspace:D.Workspace ->
       @+guidance:D.ProjectContext ->
       settings_observations_law(config, workspace, guidance),
@@ -1653,6 +2240,21 @@ type BoundaryRequirements is Type:
 
 law boundary_evidence:
   BoundaryRequirements
+
+law creating_worktree_has_visible_feedback:
+  @message:String -> @+parent:Identity.Key ->
+  {Model.worktree_feedback_status("creating", message, parent) ==
+    [Model.worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)] : +List<SurfaceTypes.Node>}
+
+law failed_worktree_has_visible_diagnostic:
+  @+message:String -> @parent:Identity.Key ->
+  {Model.worktree_feedback_status("create_failed", message, parent) ==
+    Model.worktree_diagnostic("Worktree creation failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
+
+law failed_worktree_archive_has_visible_diagnostic:
+  @+message:String -> @parent:Identity.Key ->
+  {Model.worktree_feedback_status("archive_failed", message, parent) ==
+    Model.worktree_diagnostic("Worktree archive failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
 
 law committed_permission_summary_agreement:
   @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
@@ -1928,7 +2530,7 @@ law compound_goal_preserves_actual_activity_title:
 
 law original_identity_remains_supporting_saved_context:
   @+name:String -> @workspace:D.Workspace -> @guidance:D.ProjectContext -> @+parent:Identity.Key ->
-  {Model.activity_original_context(Some{D.Project{name, workspace, guidance}}, parent) ==
+  {Model.activity_original_context(Some{D.Project{name, workspace, guidance, False{}}}, parent) ==
     [Model.activity_row(SurfaceTypes.SupportingRow{}, Model.approval_fact(parent, "object", "Original project", name))] : +List<SurfaceTypes.Node>}
 
 law new_object_has_no_fabricated_original_identity:
@@ -2406,3 +3008,17 @@ law live_part_attachments_complete:
 law retained_attachments_complete:
   @+source:Code.Source -> @+text:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State -> @+visible:Bool ->
   RetainedAttachments(source, text, parent, state, visible, Model.retained_output(source, text, parent, state, visible))
+
+law workspace_worktree_choice_retains_its_creation_scope:
+  @+work:Maybe<&2, Nat> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.workspace_worktree_choice(U.NewTaskEditor{work}, parent, state) ==
+    Model.workspace_worktree_available(E.worktree_available(Core.application(state)), U.NewTaskEditor{work}, parent, state) : +List<SurfaceTypes.Node>}
+
+law available_worktree_choice_edits_the_requested_creation_scope:
+  @work:Maybe<&2, Nat> -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.workspace_worktree_available(True{}, U.NewTaskEditor{work}, parent, state) ==
+    [Model.field_node(Forms.FieldScene{Forms.CreateWorktree{}, "Create worktree", Forms.Choice{}}, U.NewTaskEditor{work}, parent, state, Nil{})] : +List<SurfaceTypes.Node>}
+
+law unavailable_worktree_choice_has_no_control:
+  @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
+  {Model.workspace_worktree_available(False{}, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}

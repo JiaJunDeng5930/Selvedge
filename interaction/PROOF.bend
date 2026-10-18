@@ -23,6 +23,26 @@ import ./services/CONTRACT.bend as ExecutionContextLaws
 import ./submission/PROOF.bend as CoreSubmissionProof
 import ./TYPES.bend as InteractionTypes
 
+def ExecutionContextLaws.settings_open_changes_only_its_open_flag(state):
+  Services.State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+  {==}
+
+def ExecutionContextLaws.settings_close_changes_only_its_open_flag(state):
+  Services.State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+  {==}
+
+def Contract.settings_open_consumes_global_navigation_and_preserves_service_fields(application, services):
+  Equal.cong(Services.Decision, InteractionTypes.Decision,
+    (decision => Core.service_result(decision, E.advance_selection(E.consume_global_navigation(application)))),
+    Services.step(Services.OpenSettings{}, services), Services.Decision{Services.with_settings_open(True{}, services), Nil{}},
+    ExecutionContextLaws.settings_open_changes_only_its_open_flag(services))
+
+def Contract.settings_close_preserves_service_fields_and_advances_selection(application, services):
+  Equal.cong(Services.Decision, InteractionTypes.Decision,
+    (decision => Core.service_result(decision, E.advance_selection(application))),
+    Services.step(Services.CloseSettings{}, services), Services.Decision{Services.with_settings_open(False{}, services), Nil{}},
+    ExecutionContextLaws.settings_close_changes_only_its_open_flag(services))
+
 def place_payload(path: String) ->
   {Identity.place(path) == Identity.Place{path} : Identity.Key}:
   {==}
@@ -136,7 +156,7 @@ def Architecture.surface():
       SurfaceLaws.project_interaction_evidence(),
       SurfaceLaws.directory_entry_evidence()},
     input => program => session => services => runtime_input(input, program, session, services),
-    capacity => +state => SurfaceLaws.assembled_content(Core.observe(capacity, state), state)}
+    SurfaceLaws.observed_content}
 
 def Contract.service_submit_obstruction(connected, blocked):
   match connected blocked:
@@ -166,12 +186,16 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.ToggleArchived{key}: {==}
     case E.ClearDiscarded{task}: {==}
     case E.PreviewObserved{+p0}: {==}
+    case E.UserInput{U.Activate{U.CreateWork{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CreateWork{}), access))
+    case E.UserInput{U.Activate{U.SelectWork{+work}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.SelectWork{work}), access))
+    case E.UserInput{U.Activate{U.RenameWork{+work}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.RenameWork{work}), access))
     case E.UserInput{U.Activate{U.Navigate{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.Navigate{p0}), access))
     case E.UserInput{U.Activate{U.SelectProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.SelectProject{p0}), access))
     case E.UserInput{U.Activate{U.ToggleProjectGroup{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ToggleProjectGroup{p0}), access))
     case E.UserInput{U.Activate{U.BeginTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BeginTask{p0}), access))
     case E.UserInput{U.Activate{U.EditProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditProject{p0}), access))
     case E.UserInput{U.Activate{U.EditTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTaskGraph{p0}), access))
+    case E.UserInput{U.Activate{U.EditTitlePrompts{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTitlePrompts{}), access))
     case E.UserInput{U.Activate{U.NewCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.NewCard{p0}), access))
     case E.UserInput{U.Activate{U.EditCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditCard{p0}), access))
     case E.UserInput{U.Activate{U.EditAgent{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditAgent{p0}), access))
@@ -182,6 +206,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.ControlTask{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ControlTask{p0, p1}), access))
     case E.UserInput{U.Activate{U.CancelOperation{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CancelOperation{p0, p1}), access))
     case E.UserInput{U.Activate{U.ReviewApproval{+p0, +p1, +p2, +p3}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ReviewApproval{p0, p1, p2, p3}), access))
+    case E.UserInput{U.Activate{U.RetryWorktreeArchive{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.RetryWorktreeArchive{p0}), access))
     case E.UserInput{U.Activate{U.DeleteProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteProject{p0}), access))
     case E.UserInput{U.Activate{U.DeleteTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteTaskGraph{p0}), access))
     case E.UserInput{U.Activate{U.BoardCommand{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BoardCommand{p0}), access))
@@ -206,3 +231,4 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.DirectoriesObserved{+p0, +p1}: {==}
     case E.ClockObserved{+p0}: {==}
     case E.ModelPreferenceRestored{+p0, +p1}: {==}
+    case E.WorkspaceGitObserved{+p0, +p1}: {==}

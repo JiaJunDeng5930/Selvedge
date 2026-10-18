@@ -4,6 +4,10 @@ Owns editor state, binding and layout behavior.
 
 Start with [MODEL.bend](MODEL.bend), [CONTRACT.bend](CONTRACT.bend), [PROOF.bend](PROOF.bend).
 
+`native_key` consumes `KeyObservation` before trusted editor events are formed.
+Its production laws retain native composition and IME confirmation observations
+and bind default handling to the same normalized event.
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;

@@ -79,6 +79,20 @@ law settings_resolved_restore:
   for found: {InterfaceView.all_focus_target(SurfaceTypes.Surface{content, base, overlays, Some{active}}, "settings/open") == Some{Identity.encode(key)} : Maybe<&2, String>}
   {Model.restore(Model.realized_scope(SurfaceTypes.Surface{content, base, overlays, Some{active}}, Model.settings_scope(True{}, fallback))) == Identity.encode(key) : String}
 
+law responsive_settings_restore_targets:
+  {Model.settings_restore_target(True{}) == "settings/open" : String} &
+  {Model.settings_restore_target(False{}) == "global/menu" : String}
+
+law responsive_settings_restore:
+  @+content:InteractionTypes.Scene -> @+base:+List<SurfaceTypes.Node> -> @+overlays:+List<SurfaceTypes.Node> -> @+active:String -> @+navigation_beside:Bool -> @fallback:Model.Scope ->
+  {Model.restore(Model.realized_scope(SurfaceTypes.Surface{content, base, overlays, Some{active}}, Model.settings_scope_restore(True{}, navigation_beside, fallback))) ==
+    Model.resolved_target(InterfaceView.all_focus_target(SurfaceTypes.Surface{content, base, overlays, Some{active}}, Model.settings_restore_target(navigation_beside))) : String}
+
+law responsive_settings_resolved_restore:
+  @+content:InteractionTypes.Scene -> @+base:+List<SurfaceTypes.Node> -> @+overlays:+List<SurfaceTypes.Node> -> @+active:String -> @+navigation_beside:Bool -> @fallback:Model.Scope -> @+key:Identity.Key ->
+  @found:{InterfaceView.all_focus_target(SurfaceTypes.Surface{content, base, overlays, Some{active}}, Model.settings_restore_target(navigation_beside)) == Some{Identity.encode(key)} : Maybe<&2, String>} ->
+  {Model.restore(Model.realized_scope(SurfaceTypes.Surface{content, base, overlays, Some{active}}, Model.settings_scope_restore(True{}, navigation_beside, fallback))) == Identity.encode(key) : String}
+
 law document_restores_previous:
   for +previous: Model.Scope
   for surface: SurfaceTypes.Surface
@@ -171,6 +185,20 @@ law settings_policy:
   for +fallback: Model.Scope
   settings_classification(open, fallback, Model.settings_scope(open, fallback))
 
+def responsive_settings_classification(open: Bool, navigation_beside: Bool, fallback: Model.Scope, actual: Model.Scope) -> Type:
+  match open navigation_beside:
+    case False{} _: {actual == fallback : Model.Scope}
+    case True{} True{}: {actual == Model.Temporary{"settings", "settings/connect", "settings/open", None{}} : Model.Scope}
+    case True{} False{}: {actual == Model.Temporary{"settings", "settings/connect", "global/menu", None{}} : Model.Scope}
+
+law responsive_settings_policy:
+  @+open:Bool -> @+navigation_beside:Bool -> @+fallback:Model.Scope ->
+  responsive_settings_classification(open, navigation_beside, fallback, Model.settings_scope_restore(open, navigation_beside, fallback))
+
+law desktop_settings_policy_unchanged:
+  @+open:Bool -> @+fallback:Model.Scope ->
+  {Model.settings_scope_restore(open, True{}, fallback) == Model.settings_scope(open, fallback) : Model.Scope}
+
 law preview_policy:
   for +preview: Services.Preview
   for +fallback: Model.Scope
@@ -212,7 +240,7 @@ def logical_classification(+state: InteractionTypes.State, capacity: View.Capaci
   +settings = Services.settings_open(observed_services_3)
   +preview = Services.preview(observed_services_3)
   +directory_picker = Services.directory_picker(observed_services_3)
-  {actual == Model.preview_scope(preview, Model.directory_scope(directory_picker, Model.settings_scope(settings, Model.layer_scope(layers, details_beside)))) : Model.Scope}
+  {actual == Model.preview_scope(preview, Model.directory_scope(directory_picker, Model.settings_scope_restore(settings, navigation_beside, Model.layer_scope(layers, details_beside)))) : Model.Scope}
 
 law logical_priority:
   for +state: InteractionTypes.State

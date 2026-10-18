@@ -8,6 +8,7 @@ import ../../harness/DOMAIN.bend as Domain
 import ../../harness/features/graph-state.bend as GraphState
 import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../harness/conversation/PROGRAM.bend as Conversation
+import ../../features/titles/STATE.bend as TitleState
 
 # Registered live sources observe topology and tasks from this one World value.
 # Native identities and journal sequences have one stable exact String type.
@@ -55,12 +56,12 @@ def operations( +values: +List<Domain.Operation()>) -> +List<J.Json>:
     case Con{(id, Domain.OperationBody{Domain.Call{call_id, name, arguments}, announced, +stage}), rest}:
       J.Object{[J.Field{"id", observed_nat(id)}, J.Field{"name", J.Text{name}}, J.Field{"stage", J.Text{stage_name(stage)}}, J.Field{"awaitingHuman", J.Boolean{operation_human(stage)}}]} <> operations(rest)
 
-def task_value( +found: Maybe<&2, Domain.Task>) -> J.Json:
+def task_value( +found: Maybe<&2, Domain.Task>, +world: Harness.World()) -> J.Json:
   match found:
     case None{}: J.Null{}
     case Some{+task}:
       J.Object{[J.Field{"id", observed_nat(Domain.task_id(task))},
-        J.Field{"title", J.Text{Conversation.title(task)}},
+        J.Field{"title", J.Text{TitleState.title(task, world)}},
         J.Field{"control", J.Text{Domain.status_name(Domain.task_status(task))}},
         J.Field{"phase", J.Text{phase_name(Domain.task_phase(task))}},
         J.Field{"working", J.Boolean{Conversation.working(Domain.task_phase(task), Domain.task_operations(task))}},
@@ -74,7 +75,7 @@ def nodes( +values: +List<Graph.ResolvedNode>, +graph: Nat, +world: Harness.Worl
     case Nil{}: Nil{}
     case Con{Graph.ResolvedNode{+key, +task}, rest}:
       J.Object{[J.Field{"identity", J.Text{node_identity(graph, key, task)}}, J.Field{"key", J.Text{key}},
-        J.Field{"taskId", observed_nat(task)}, J.Field{"task", task_value(Tasks.find(Commands.entries(world), task))}]} <> nodes(rest, graph, world)
+        J.Field{"taskId", observed_nat(task)}, J.Field{"task", task_value(Tasks.find(Commands.entries(world), task), world)}]} <> nodes(rest, graph, world)
 
 def resolved_identity( +found: Maybe<&2, Nat>, +graph: Nat, +key: String) -> String:
   match found:

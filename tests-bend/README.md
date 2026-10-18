@@ -1,115 +1,113 @@
-# Verification responsibilities
+# Test responsibilities
 
-The formal entry is [PROOF.bend](../PROOF.bend), with production obligations in
-[LAWS.bend](../harness/LAWS.bend), [INVARIANTS.bend](../harness/INVARIANTS.bend),
-[interaction/presentation/PROGRAM.bend](../interaction/presentation/PROGRAM.bend). Follow those entries for the executable
-requirements and their evidence. Universal properties belong to production
-constructions and proofs. Tests exercise actual generated execution, translator
-source-data boundaries and external behavior; they do not re-test Bend acceptance
-or rejection of source code, proofs or certificates.
+For each property, prefer construction in the domain language, then types, then
+proofs, then focused tests, and finally end-to-end tests. Inspect the actual
+production binding before claiming a property is guaranteed. Do not test it again
+at a later layer.
 
-| Boundary or fault model | Evidence owner |
-| --- | --- |
-| Generic clients execute affine operational memberships and observe complete execution and application results without concrete state | `model-abstraction.test.mjs` |
-| JavaScript translators reject unsupported source AST, constants, inductives, proof syntax, changed statements and reflection premises | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
-| Category admission and intersection execute and extract actual admitted values, with Some/None outcomes | `categories.test.mjs` |
-| Input and movable-source controls emit native fields with retained values, bindings and available destinations | `control-categories.test.mjs` |
-| Component extensions with unrelated source and clients frozen; actual native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
-| Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; JavaScript source and configuration boundary checks |
-| Bend-generated JavaScript, Worker and codec transport: Unicode, embedded controls, exact numeric lexemes and malformed completion envelopes | `kernel-boundaries.test.mjs` |
-| Committed instruction/guidance deltas, Unicode edits, source withdrawal versus read failure, fork/compaction/restart and Responses/Web continuation payloads | `context-deltas.test.mjs`, `project-context.test.mjs`; loopback HTTP and SQLite |
-| Explicit skill metadata files, bounded nofollow observations, live context configuration and unloaded skill body isolation | `context-sources.test.mjs`; real temporary files and generated host boundary |
-| New text and arbitrary-field metadata definitions with generic sources, context selection and proofs frozen; compiled observation, committed deltas and provider rendering | `context-definitions.test.mjs`; compiled kernel extension and real temporary files |
-| Pending approval decoder rejects extra authority fields, absent reasons, invalid decisions and oversized reasons | `approval-decoding.test.mjs` |
-| HTTP approval, SQLite grants and actual subprocess authorization, malformed/duplicate decisions, cancellation and reopen | `approvals.test.mjs`, `fixtures/approved-tool.mjs`; the child checks its committed grant before writing outside the workspace |
-| Actual adaptive history through providerInput/responseBody: complete history prefixes, recorded reasoning changes, audit encoding and request effort; nested private continuation projection | `reasoning-boundaries.test.mjs` |
-| Typed Jev HTTP payloads, Unicode/token budgets, provider identity, evaluator cancellation, committed dispatch, bounded evaluator previews after raw history exceeds a kernel frame, and restart | `reasoning.test.mjs` |
-| SQLite journal framing, commit faults, replay and restart | `journal.test.mjs`, `service-recovery.test.mjs` |
-| Atomic graph installation, accepted-output handoffs, rejected deliveries, live replacement, commit rollback and SQLite replay | `task-graph.test.mjs`; actual native decisions, Worker execution and journal commits |
-| Native graph tool capabilities, immediate service replies, restart, canonical workspace observations and refreshed creation guidance | `task-graph-service.test.mjs`; actual service effects and frozen model tool catalogs |
-| Subprocess execution, real tool results, deferred input and cancellation | `process.test.mjs`, `coding.test.mjs`, `async-service.test.mjs` |
-| Filesystem observations, Seatbelt quoting, seccomp ABI encoding and actual OS write isolation | `sandbox.test.mjs` |
-| Idle-task execution configuration, in-flight model/approval rejection, unchanged project/workspace/history, actual next-provider routing, task-local ChatGPT Web root restart after model or policy changes, and preserved continuation after no-op configuration or another task's change | `task-execution.test.mjs`, `approvals.test.mjs`; authenticated loopback HTTP, actual native commands and provider fixtures |
-| Canonical workspace observations, committed execution plans, real subprocess cwd/permissions and journal reopen | `workspaces.test.mjs` |
-| Configured/global/project snapshots, root order, inherited and explicit fork prefixes, file changes and committed dispatch/restart | `project-context.test.mjs` |
-| Context-limit failure without summary/retry; complete history and completed file mutations survive restart | `context-recovery.test.mjs` |
-| Provider/MCP/plugin wire formats, faults, cancellation and commit-before-callback | `providers.test.mjs`, `plugins.test.mjs`, `after-hooks.test.mjs`, `service-recovery.test.mjs` |
-| ChatGPT Web v1 predecessors, durable same-key observation, tool batches, concurrent/deferred inputs, cancellation, reviews/drafts and restart | `chatgpt-web.test.mjs`, `fixtures/chatgpt-web.mjs`; loopback HTTP, SQLite and sandboxed subprocesses |
-| ChatGPT account authorization, public Responses/model discovery, native compact request and complete replacement window, retained original history, cancellation and restart | `auth.test.mjs`, `chatgpt.test.mjs`, `chatgpt-models.test.mjs`, `chatgpt-compaction.test.mjs`, `fixtures/chatgpt.mjs`; signed loopback OAuth/OIDC and HTTP/SSE fixtures, not a live account |
-| Committed context measurements, readable UTF-8 upper-bound fallback, frozen/stopped observation quiescence, complete request budgets, background continuation, hard-threshold waiting, oversized concurrent suffix reconstruction, idle revisions and endpoint switching | `automatic-compaction.test.mjs`, `fixtures/compaction.mjs`; real service, SQLite journal and HTTP token-count/compact fixtures |
-| Production browser boot catalog observation, manual model preference persistence/restoration, unchanged existing task model and actual next-created task provider routing; empty-catalog unavailability; generated task reasoning single-choice controls encoded by the production semantic surface and accepted by authenticated HTTP for all approval policies, with complete unrelated task state preserved | `chatgpt-models.test.mjs`; compiled browser runtime and signed loopback account/provider fixtures |
-| Authentication, HTTP/SSE delivery and committed service dispatch | `auth.test.mjs`, `service.test.mjs` |
-| Board HTTP/SQLite, cancellation, authenticated uploads, file bytes and provider text payloads | `board-service.test.mjs`, `board-files.test.mjs`, `board-text.test.mjs` |
-| Connection authentication, standalone MCP discovery, private installed settings, project-scoped physical execution, retry deduplication and restart | `chatgpt-plugin*.test.mjs`; local fixtures, not live OpenAI Tunnel or ChatGPT |
+A test also needs a convincing likelihood of real failure relative to its setup,
+runtime and maintenance cost. A possible error, an unproved property or an
+external boundary alone is insufficient; default to deletion when the case is
+unconvincing. Merge related checks and setup. Do not preserve scenario matrices
+inside one large test merely to reduce the reported test count.
 
-Use Bun 1.4.2 or later and the pinned Bend compiler installed by
-`bash scripts/bootstrap.sh`; see [the repository workflow](../README.md).
-`bun run check` checks source boundaries, certificates, the production proof root
-and script syntax. `bun run test` builds the kernel/browser JavaScript libraries
-before running this directory with one isolated worker.
-`bun run test:locality` selects source-boundary checks and actual native extension
-round trips.
-`bun run build:native` is the optional native entry build and requires a C compiler.
-Locality native probes also require that toolchain.
+The mandatory [production proof root](../PROOF.bend), source-ownership gate and
+certificate checks run through `bun run check` and ordinary builds. They own
+semantic requirements, component refinement and unrelated-state preservation.
+Tests do not recompile hypothetical application extensions or repeat semantic
+traces through HTTP and SQLite.
 
-Production proof and certificate gates remain mandatory in ordinary checks and
-builds. Translator tests use their existing source-data and reflection-premise
-assertions; actual compilation tests inspect generated execution results. The
-locality fixture emits an effect intention and does not provide a new physical
-host interpreter for that effect.
+The small physical suite targets failure mechanisms that the model cannot rule
+out: SQLite failing after a kernel transition, execution before durable authority,
+subprocess pipe pressure and process-tree cleanup, filesystem links and content
+integrity, byte-split network decoding, credential rotation and secret-file
+handling, transport teardown, and observed browser connection/IME regressions.
+The handwritten source scanners retain small syntax regressions. These checks
+exercise the actual production paths rather than test-only models.
 
-Open categories and admission predicates are specified in their owning model
-entries and [bendlib/categories.bend](../bendlib/categories.bend). Their universal
-properties are supplied by the production constructions and proofs. Runtime
-fixtures check the concrete values and external boundaries listed above.
+Managed worktrees add focused real-Git checks for copying local edits without
+executing repository programs, archive/recovery and interrupted checkout ownership.
+Project task hierarchy, shared-worktree archive permission and Worktree preference
+propagation remain production construction and proof obligations.
 
-These files describe evidence responsibilities, not results for the current
-checkout. Loopback fixtures do not establish commercial model quality or
-availability. Browser geometry, focus and physical interaction need the actual
-Chromium checks described below; the service and parser tests alone do not
-establish those properties.
+Hierarchical context discovery keeps one filesystem check for Git boundaries,
+multiple roots, override selection, skill metadata and incomplete scans. Context
+admission, deltas, inherited history and provider selection remain native
+construction and proof obligations.
 
-Do not add tests whose only criterion is Bend accepting or rejecting source code,
-proofs or certificates. Keep actual compiler execution, JavaScript translator
-boundaries and external integration assertions distinct from production proof
-requirements.
+Remote control keeps focused physical checks for atomic command receipts across
+SQLite reopen, WebSocket session teardown and the real Durable Object runtime.
+Grant permissions, generations and command classification belong to native
+constructions and their production proofs.
 
-## CI scope
+The remote receipt probe also exercises account-authenticated Codex review and a
+subprocess that inspects its durable grant before writing. Independent Web text
+requests retain a focused regression for effects without task history.
 
-`bun run test:ci` builds the production JavaScript libraries and runs regular
-integration tests on Linux. `locality.test.mjs` and `context-definitions.test.mjs`
-are deferred to `bun run test` and the pre-push hook because they include extension
-compiler workloads. Production
-proofs and certificate checks still run in every PR. The workflow's manual `full`
-input runs the complete suite on Linux and macOS once the workflow is present on
-the default branch.
+Title settings retain one physical probe for independent Task/Agent prompt
+payloads, durable authority before HTTP dispatch and saved settings across SQLite
+reopen. Title lifecycle, entry preservation, cancellation and settings conflicts
+remain production proof obligations.
 
+Work probes exercise the HTTP creation path's Project workspace observation and
+the native tool transport's caller identity, command payloads and SQLite reopen
+without another model request. The combined Work/worktree command also exercises
+HTTP default-cwd observation and real Git dirty-file copying across reopen. Work
+membership, graph admission and ordinary Task independence remain production
+construction and proof obligations.
 
-## Interactive Markdown checks
-
-`interactive-markdown-fences.test.mjs` checks the adapter to the existing Markdown
-parser. `interactive-markdown-storage.test.mjs` checks ordinary save, removal,
-eviction and storage failures. `interactive-markdown-service.test.mjs` checks
-large SSE delivery and sparse provider output indices. The default V8 regression
-in `kernel-boundaries.test.mjs` covers the stack overflow previously observed with
-ordinary model output.
-
-The browser script checks the actual provider-to-control path, native IME,
-restoration, task graph subscriptions, asynchronous submission, and data removal
-after namespace or authorization changes. It uses the production service and
-compiled browser, with a controlled provider peer and isolated temporary journals.
-
-It requires Python 3 with `playwright`, an installed Chromium executable, and Bun.
-Build the production libraries before running it:
+Interactive Markdown keeps focused checks for parser completion notifications,
+buffered storage writes and failures, provider output coordinates, legal SSE
+frames crossing HTTP backpressure, and the reproduced V8 stack overflow on
+ordinary streamed output. The language's semantics remain production proof
+obligations. The real Chromium checks exercise streaming controls and IME,
+restoration, live graph display and action delivery through a controlled model
+HTTP peer. The standalone command builds the production libraries once:
 
 ```sh
-bun run build
-BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium \
-  python3 scripts/test-interactive-markdown-browser.py --mode all
+BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium bun run test:interactive-markdown
 ```
 
-The environment must permit loopback servers and Chromium. No model account is
-required. Use `--help` for individual modes. Failure details are saved under
-`.workpad/interactive-browser-results`, or the selected `--artifacts` directory.
-The IME check uses Chromium composition events; it does not cover every operating
-system input method.
+The browser script requires Python Playwright. It uses temporary local services
+and saves failures under `.workpad/interactive-browser-results`; no live model
+account is used.
+
+Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
+`bash scripts/bootstrap.sh`:
+
+```sh
+bun run verify
+```
+
+`bun run verify` checks the complete production proof, native entry, syntax and
+certificates, builds the production libraries once, runs the complete suite and
+checks the tracked-file index. `bun run test` builds once and invokes Bun's
+standard sequential test runner with assertion deadlines disabled. Each invocation
+owns its subprocess group, drains both output pipes and validates the complete
+normal test footer. Explicit cancellation terminates the owned process group.
+
+The compiler cache and guarded-intrinsic probes compile small isolated inputs:
+changed imports, retargeted files, changed toolchain/export identities and damaged
+outputs must execute current code; joint modules must preserve independent entry
+functions and constructor identities. Differential execution checks Unicode,
+control escapes, malformed strings, bounded accumulators and missing browser
+primitives against the original generated functions. These target the actual
+artifact-cache and intrinsic failures addressed by this change; they do not
+recompile hypothetical application extensions or replay model semantics.
+
+The fresh proof book feeds one official backend emission for eligible production
+entries. Standalone modules retain their own reachable generated declarations;
+complete source and tool identities plus output hashes guard reuse. Joint inputs
+conservatively share their invalidation scope. JavaScript compilation uses Bun;
+native-entry checking uses the official release compiler. Neither has a scripted
+time or heap limit. The checker and compiler source remain pinned and unchanged.
+The suite uses temporary homes, loopback servers and subprocesses; no
+real model account or paid request is needed. OS isolation requires Seatbelt on
+macOS or bubblewrap/seccomp on Linux. Chromium or Google Chrome is required for
+the focused DOM regression; `SELVEDGE_BROWSER` may name its executable.
+
+A passing physical probe is local evidence, not a proof about all compiler,
+operating-system or provider behavior. Synthetic keyboard events do not establish
+hardware input or operating-system IME behavior. Loopback OAuth and model fixtures
+do not establish commercial service availability or model quality. GitHub Actions
+CI is disabled; run the checks explicitly. Git hooks apply only when installed.

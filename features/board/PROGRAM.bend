@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/effects.bend as Effects
 import ../../harness/features/MODEL.bend as F
@@ -35,11 +36,11 @@ def archive(+id: Nat, +card: B.Card, +archived: Bool, now: U32, +world: M.World(
   interrupt_found(archived && S.busy(S.task(card, world)), S.task(card, world),
     save(id, B.set_archive(archived, card, now), B.next_card(S.registry(world)), world))
 
-def request_text(+id: Nat, +card: B.Card, profile: D.Profile, +retitle: Bool, next: U32, world: M.World()) -> M.Decision():
+def request_text(+id: Nat, +card: B.Card, profile: D.Profile, +retitle: Bool, next: U32, +world: M.World()) -> M.Decision():
   C.Frame{+core, +board} = world
   C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(core), core), F.with_board(B.put(id, B.with_enrichment(B.Enriching{D.state_next_ticket(core), B.revision(card), retitle}, card), F.board(board), next), board)},
     D.success(card_result(id, B.revision(card))),
-    [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card)), retitle}}]}
+    [Effects.FeatureEffect{F.RequestBoardText{id, D.state_next_ticket(core), profile, B.drafting_prompt(retitle, B.draft(card), S.title_prompts(world)), retitle}}]}
 
 def change_calculation(change: R.Change, +world: M.World()) -> M.Decision():
   match change:
@@ -95,7 +96,7 @@ def complete(outcome: B.Outcome, retitle: Bool, +card: B.Card) -> B.Card:
   match outcome:
     case B.SuggestionFailed{reason}: failed(reason, card)
     case B.Suggested{title, description}:
-      +draft = suggestion_draft(retitle, String.trim(title), description, B.draft(card))
+      +draft = suggestion_draft(retitle, Title.normalize(title), description, B.draft(card))
       suggested(draft, card)
 
 def completed(id: Nat, card: B.Card, outcome: B.Outcome, retitle: Bool, +world: M.World()) -> M.Decision():

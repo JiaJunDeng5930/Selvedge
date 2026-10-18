@@ -59,6 +59,54 @@ def valid_reviewer_profile(+profile: D.Profile) -> Bool:
   D.profile_valid(profile) && Bool.not(Reasoning.automatic(D.profile_reasoning(profile))) &&
     D.profile_permitted(profile, D.profile_default(profile))
 
+# Account discovery binds chatgpt/<16hex>/ to one account and connection.
+def generated_account_profile(+profile: D.Profile) -> Bool:
+  D.Profile{+key, provider, name, reasoning, options} = profile
+  String.eq(provider, "chatgpt") && D.chatgpt_account_profile_key(key)
+
+def default_reviewer_valid(valid: Bool, profile: D.Profile, fallback: D.Profile) -> D.Profile:
+  match valid:
+    case True{}: profile
+    case False{}: fallback
+
+def default_reviewer_found(found: Maybe<&2, D.Profile>, fallback: D.Profile) -> D.Profile:
+  match found:
+    case None{}: fallback
+    case Some{+profile}: default_reviewer_valid(D.is_codex_auto_review(profile) && valid_reviewer_profile(profile), profile, fallback)
+
+def default_reviewer_manual_match(+prefix: String, +profile: D.Profile) -> Bool:
+  +key = D.profile_key(profile)
+  +account = String.drop(key, String.length(prefix))
+  String.starts_with(key, prefix) && Nat.is_eq(String.length(account), 16n) &&
+    D.chatgpt_account_hash_digits(account) && D.is_codex_auto_review(profile) && valid_reviewer_profile(profile)
+
+def default_reviewer_manual_search(+prefix: String, profiles: +List<D.Profile>, fallback: D.Profile) -> D.Profile:
+  match profiles:
+    case Nil{}: fallback
+    case Con{+profile, rest}: default_reviewer_valid(default_reviewer_manual_match(prefix, profile), profile,
+      default_reviewer_manual_search(prefix, rest, fallback))
+
+def default_reviewer_generated(generated: Bool, +profile: D.Profile, profiles: +List<D.Profile>) -> D.Profile:
+  match generated:
+    case False{}: profile
+    case True{}:
+      default_reviewer_found(D.find_profile(profiles,
+        String.take(D.profile_key(profile), 25n) ++ D.codex_auto_review_model()), profile)
+
+def default_reviewer_manual_provider(provider: String, +profile: D.Profile, +profiles: +List<D.Profile>) -> D.Profile:
+  match provider:
+    case "chatgpt":
+      default_reviewer_manual_search(D.profile_key(profile) ++ "/" ++ D.codex_auto_review_model() ++ "/", profiles,
+        default_reviewer_generated(generated_account_profile(profile), profile, profiles))
+    case _: profile
+
+def default_reviewer_manual(+profile: D.Profile, profiles: +List<D.Profile>) -> D.Profile:
+  D.Profile{key, provider, name, reasoning, options} = profile
+  default_reviewer_manual_provider(provider, profile, profiles)
+
+def default_reviewer(profile: D.Profile, profiles: +List<D.Profile>) -> D.Profile:
+  default_reviewer_manual(profile, profiles)
+
 def valid_approval(policy: D.ApprovalPolicy) -> Bool:
   match policy:
     case D.ApprovalForMe{profile}: valid_reviewer_profile(profile)
@@ -71,20 +119,21 @@ def valid_context(context: D.TaskContext) -> Bool:
 def valid_guidance(guidance: D.ProjectContext) -> Bool:
   match guidance:
     case D.NoProject{}: True{}
-    case D.ProjectContext{+workspace, +revision, +instructions}:
+    case D.ProjectContext{+workspace, +path, +revision, +instructions}:
       valid_path(workspace) && Nat.is_le(J.utf8_length(instructions), D.project_limit()) &&
-        ((String.eq(revision, "absent") && String.eq(instructions, "")) || Nat.is_eq(J.utf8_length(revision), 64n))
+        ((String.eq(revision, "absent") && String.eq(instructions, "") && String.eq(path, "")) ||
+          (D.project_source_path(workspace, path) && Nat.is_eq(J.utf8_length(revision), 64n)))
 
 def guidance_member(primary: Maybe<&2, String>, guidance: D.ProjectContext) -> Bool:
   match primary guidance:
     case _ D.NoProject{}: True{}
-    case Some{primary} D.ProjectContext{root, revision, text}: String.eq(primary, root)
+    case Some{primary} D.ProjectContext{root, path, revision, text}: String.eq(primary, root)
     case _ _: False{}
 
 def default_workspace(guidance: D.ProjectContext) -> D.Workspace:
   match guidance:
     case D.NoProject{}: D.Workspace{Nil{}, None{}}
-    case D.ProjectContext{+root, revision, text}: D.Workspace{[root], Some{root}}
+    case D.ProjectContext{+root, path, revision, text}: D.Workspace{[root], Some{root}}
 
 def defaults(guidance: D.ProjectContext) -> D.TaskContext:
   D.TaskContext{default_workspace(guidance), D.Sandbox{D.WorkspaceWrite{}, False{}}, D.AskForApproval{}, None{}}
@@ -111,11 +160,24 @@ def boolean_or(value: J.Json, fallback: Bool) -> Bool:
     case J.Boolean{value}: value
     case _: fallback
 
-def selected_sandbox(mode: String, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
+type SelectedSandboxName is Data:
+  SelectedSandboxNameWorkspaceWrite{}
+  SelectedSandboxNameReadOnly{}
+  SelectedSandboxNameOther{}
+
+def selected_sandbox_discriminant(+value: String) -> SelectedSandboxName:
+  Bool.pick(SelectedSandboxName, String.eq(value, "workspace-write"), SelectedSandboxNameWorkspaceWrite{},
+    Bool.pick(SelectedSandboxName, String.eq(value, "read-only"), SelectedSandboxNameReadOnly{},
+    SelectedSandboxNameOther{}))
+
+def selected_sandbox_classified(mode: SelectedSandboxName, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
   match mode:
-    case "workspace-write": Done{D.Sandbox{D.WorkspaceWrite{}, network}}
-    case "read-only": Done{D.Sandbox{D.ReadOnly{}, network}}
-    case _: Fail{"Sandbox mode must be workspace-write or read-only"}
+    case SelectedSandboxNameWorkspaceWrite{}: Done{D.Sandbox{D.WorkspaceWrite{}, network}}
+    case SelectedSandboxNameReadOnly{}: Done{D.Sandbox{D.ReadOnly{}, network}}
+    case SelectedSandboxNameOther{}: Fail{"Sandbox mode must be workspace-write or read-only"}
+
+def selected_sandbox(mode: String, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
+  selected_sandbox_classified(selected_sandbox_discriminant(mode), network)
 
 def read_sandbox(value: J.Json, fallback: D.Sandbox) -> Result<&2, &2, String, D.Sandbox>:
   match value:
@@ -135,20 +197,35 @@ def reviewer(found: Maybe<&2, D.Profile>) -> Result<&2, &2, String, D.ApprovalPo
     case None{}: Fail{"Approval for me requires a configured reviewer profile"}
     case Some{+profile}: ordinary_reviewer(Reasoning.automatic(D.profile_reasoning(profile)), profile)
 
-def selected_approval(mode: String, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
+type SelectedApprovalName is Data:
+  SelectedApprovalNameFullAccess{}
+  SelectedApprovalNameAskForApproval{}
+  SelectedApprovalNameApprovalForMe{}
+  SelectedApprovalNameOther{}
+
+def selected_approval_discriminant(+value: String) -> SelectedApprovalName:
+  Bool.pick(SelectedApprovalName, String.eq(value, "full-access"), SelectedApprovalNameFullAccess{},
+    Bool.pick(SelectedApprovalName, String.eq(value, "ask-for-approval"), SelectedApprovalNameAskForApproval{},
+    Bool.pick(SelectedApprovalName, String.eq(value, "approval-for-me"), SelectedApprovalNameApprovalForMe{},
+    SelectedApprovalNameOther{})))
+
+def selected_approval_classified(mode: SelectedApprovalName, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match mode:
-    case "full-access": Done{D.FullAccess{}}
-    case "ask-for-approval": Done{D.AskForApproval{}}
-    case "approval-for-me": reviewer(D.find_profile(profiles, key))
-    case _: Fail{"Approval mode must be full-access, ask-for-approval, or approval-for-me"}
+    case SelectedApprovalNameFullAccess{}: Done{D.FullAccess{}}
+    case SelectedApprovalNameAskForApproval{}: Done{D.AskForApproval{}}
+    case SelectedApprovalNameApprovalForMe{}: reviewer(D.find_profile(profiles, key))
+    case SelectedApprovalNameOther{}: Fail{"Approval mode must be full-access, ask-for-approval, or approval-for-me"}
+
+def selected_approval(mode: String, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
+  selected_approval_classified(selected_approval_discriminant(mode), key, profiles)
 
 def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
-  profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
+  +profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match value:
     case J.Null{}: Done{fallback}
     case +value:
-      D.Profile{key, provider, name, reasoning, options} = profile
-      selected_approval(J.text(J.get(value, "mode")), J.text_or(J.get(value, "reviewer_profile"), key), profiles)
+      selected_approval(J.text(J.get(value, "mode")),
+        J.text_or(J.get(value, "reviewer_profile"), D.profile_key(default_reviewer(profile, profiles))), profiles)
 
 def retained_guidance(same: Bool, guidance: D.ProjectContext) -> D.ProjectContext:
   match same:
@@ -159,7 +236,7 @@ def read_guidance(value: J.Json, workspace: D.Workspace, +fallback: D.ProjectCon
   match value:
     case J.Null{}: retained_guidance(guidance_member(primary(workspace), fallback), fallback)
     case +value:
-      D.ProjectContext{J.text(J.get(value, "workspace")), J.text(J.get(value, "revision")), J.text(J.get(value, "instructions"))}
+      D.ProjectContext{J.text(J.get(value, "workspace")), J.text(J.get(value, "path")), J.text(J.get(value, "revision")), J.text(J.get(value, "instructions"))}
 
 type Selection is Data:
   Selection{context: D.TaskContext, guidance: D.ProjectContext}

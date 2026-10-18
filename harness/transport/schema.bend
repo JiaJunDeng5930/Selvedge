@@ -217,26 +217,58 @@ type Definition is Data:
   SchemaDefinition{value: J.Json}
   PropertiesDefinition{value: J.Json, seen: +List<String>}
 
-def definition_jobs(kind: String, +value: J.Json, rest: +List<Definition>) -> Maybe<&2, +List<Definition>>:
-  match kind:
-    case "object": Some{PropertiesDefinition{J.get(value, "properties"), Nil{}} <> rest}
-    case "array": Some{SchemaDefinition{J.get(value, "items")} <> rest}
-    case "string": Some{rest}
-    case "integer": Some{rest}
-    case "boolean": Some{rest}
-    case "null": Some{rest}
-    case _: None{}
+type DefinitionJobsName is Data:
+  DefinitionJobsNameObject{}
+  DefinitionJobsNameArray{}
+  DefinitionJobsNameString{}
+  DefinitionJobsNameOther{}
 
-def definition_shape(kind: String, +value: J.Json) -> Bool:
+def definition_jobs_discriminant(+value: String) -> DefinitionJobsName:
+  Bool.pick(DefinitionJobsName, String.eq(value, "object"), DefinitionJobsNameObject{},
+    Bool.pick(DefinitionJobsName, String.eq(value, "array"), DefinitionJobsNameArray{},
+    Bool.pick(DefinitionJobsName, String.eq(value, "string"), DefinitionJobsNameString{},
+    Bool.pick(DefinitionJobsName, String.eq(value, "integer"), DefinitionJobsNameString{},
+    Bool.pick(DefinitionJobsName, String.eq(value, "boolean"), DefinitionJobsNameString{},
+    Bool.pick(DefinitionJobsName, String.eq(value, "null"), DefinitionJobsNameString{},
+    DefinitionJobsNameOther{}))))))
+
+def definition_jobs_classified(kind: DefinitionJobsName, +value: J.Json, rest: +List<Definition>) -> Maybe<&2, +List<Definition>>:
   match kind:
-    case "object": keys(value, ["type", "description", "title", "properties", "required", "additionalProperties"]) &&
+    case DefinitionJobsNameObject{}: Some{PropertiesDefinition{J.get(value, "properties"), Nil{}} <> rest}
+    case DefinitionJobsNameArray{}: Some{SchemaDefinition{J.get(value, "items")} <> rest}
+    case DefinitionJobsNameString{}: Some{rest}
+    case DefinitionJobsNameOther{}: None{}
+
+def definition_jobs(kind: String, +value: J.Json, rest: +List<Definition>) -> Maybe<&2, +List<Definition>>:
+  definition_jobs_classified(definition_jobs_discriminant(kind), value, rest)
+
+type DefinitionShapeName is Data:
+  DefinitionShapeNameObject{}
+  DefinitionShapeNameArray{}
+  DefinitionShapeNameString{}
+  DefinitionShapeNameInteger{}
+  DefinitionShapeNameOther{}
+
+def definition_shape_discriminant(+value: String) -> DefinitionShapeName:
+  Bool.pick(DefinitionShapeName, String.eq(value, "object"), DefinitionShapeNameObject{},
+    Bool.pick(DefinitionShapeName, String.eq(value, "array"), DefinitionShapeNameArray{},
+    Bool.pick(DefinitionShapeName, String.eq(value, "string"), DefinitionShapeNameString{},
+    Bool.pick(DefinitionShapeName, String.eq(value, "integer"), DefinitionShapeNameInteger{},
+    DefinitionShapeNameOther{}))))
+
+def definition_shape_classified(kind: DefinitionShapeName, +value: J.Json) -> Bool:
+  match kind:
+    case DefinitionShapeNameObject{}: keys(value, ["type", "description", "title", "properties", "required", "additionalProperties"]) &&
       closed(J.get(value, "additionalProperties")) && property_requirements(J.get(value, "properties"), J.get(value, "required"))
-    case "array": keys(value, ["type", "description", "title", "items"]) && J.is_object(J.get(value, "items"))
-    case "string": keys(value, ["type", "description", "title", "enum"]) && string_enum_definition(value)
-    case "integer": keys(value, ["type", "description", "title", "minimum", "maximum"]) &&
+    case DefinitionShapeNameArray{}: keys(value, ["type", "description", "title", "items"]) && J.is_object(J.get(value, "items"))
+    case DefinitionShapeNameString{}: keys(value, ["type", "description", "title", "enum"]) && string_enum_definition(value)
+    case DefinitionShapeNameInteger{}: keys(value, ["type", "description", "title", "minimum", "maximum"]) &&
       bound(J.get(value, "minimum")) && bound(J.get(value, "maximum")) &&
       U32.is_le(number_or(number(J.get(value, "minimum")), 0), number_or(number(J.get(value, "maximum")), 4294967295))
-    case _: keys(value, ["type", "description", "title"])
+    case DefinitionShapeNameOther{}: keys(value, ["type", "description", "title"])
+
+def definition_shape(kind: String, +value: J.Json) -> Bool:
+  definition_shape_classified(definition_shape_discriminant(kind), value)
 
 def definition(fuel: Nat, jobs: Maybe<&2, +List<Definition>>) -> Bool:
   match fuel jobs:

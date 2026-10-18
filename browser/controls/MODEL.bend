@@ -92,6 +92,8 @@ def group(+key: UIIdentity.Key, +visual: Design.Style, +direction: Model.Directi
 
 def role_tag(+role: SurfaceTypes.Role) -> Source.BoxTag:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: Source.Navigation{}
+    case SurfaceTypes.WorkTabs{}: Source.Navigation{}
     case SurfaceTypes.Navigation{}: Source.Navigation{}
     case SurfaceTypes.NavigationHeader{}: Source.Header{}
     case SurfaceTypes.Main{}: Source.Main{}
@@ -105,6 +107,17 @@ def role_tag(+role: SurfaceTypes.Role) -> Source.BoxTag:
 
 def role_name(+value: SurfaceTypes.Role) -> String:
   match value:
+    case SurfaceTypes.GlobalNavigation{compact}: "global-navigation"
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: "global-navigation-entry"
+    case SurfaceTypes.WorkTabs{}: "work-tabs"
+    case SurfaceTypes.CompactHeader{}: "compact-header"
+    case SurfaceTypes.CompactWorkScope{title, count}: "compact-work-scope"
+    case SurfaceTypes.CompactNavigationMenu{}: "compact-navigation-menu"
+    case SurfaceTypes.CompactNavigationEntry{selected}: "compact-navigation-entry"
+    case SurfaceTypes.WorkTab{selected}: "work-tab"
+    case SurfaceTypes.WorkTabGroup{}: "work-tab-group"
+    case SurfaceTypes.WorkChoiceRow{}: "work-choice-row"
+    case SurfaceTypes.WorkOverviewButton{count}: "work-overview-button"
     case SurfaceTypes.NavigationHeader{}: "navigation-header"
     case SurfaceTypes.Heading{}: "heading"
     case SurfaceTypes.Timeline{}: "timeline"
@@ -307,7 +320,7 @@ def project_instructions(empty: Bool, instructions: String) -> String:
 def project_context_facts(+owner: UIIdentity.Key, +label: String, +value: Domain.ProjectContext, +visual: Design.Style) -> +List<Source.Node>:
   match value:
     case Domain.NoProject{}: Nil{}
-    case Domain.ProjectContext{directory, revision, instructions}:
+    case Domain.ProjectContext{directory, path, revision, instructions}:
       present: @body:String -> +List<Source.Node> = (body => [group(owner, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [text(UIIdentity.part(owner, "title"), label, visual, T.Body{}, T.Strong{}), fact(UIIdentity.part(owner, "directory"), "Directory", directory, visual), fact(UIIdentity.part(owner, "revision"), "Revision", revision, visual), fact(UIIdentity.part(owner, "instructions"), "Instructions", body, visual)])])
       present(project_instructions(String.eq(instructions, ""), instructions))
 
@@ -963,6 +976,13 @@ def navigation_task_row(+key: UIIdentity.Key, +owner: UIIdentity.Key, +depth: Na
 def sidebar_collection(+key:UIIdentity.Key, +kind:Sidebar.CollectionKind, +visual:Design.Style, +content:+List<Source.Node>) -> Source.Node:
   Sidebar.constructed_collection_node(Sidebar.construct_collection(Sidebar.CollectionRequest{key, kind, visual, content}))
 
+def navigation_collection(+key:UIIdentity.Key, meaning:SurfaceTypes.Meaning, +label:String, +visual:Design.Style, content:+List<Source.Node>) -> Source.Node:
+  match meaning:
+    case SurfaceTypes.TaskChildren{task}:
+      add_attributes(sidebar_collection(key, Sidebar.Members{}, visual, content),
+        [Source.DataAttribute{"task-parent", Nat.show(task)}, Source.RoleAttribute{"group"}, Source.AriaAttribute{"label", label}])
+    case _: sidebar_collection(key, Sidebar.Collection{}, visual, content)
+
 def navigation_section(+key:UIIdentity.Key, +visual:Design.Style, +children:+List<Child>) -> Source.Node:
   match children:
     case Con{Child{caption_key, caption_role, SurfaceTypes.InformationText{Information.NavigationCaption{}}, caption_control, caption_nodes}, rest}: sidebar_collection(key, Sidebar.Section{}, visual, List.append(&2, Source.Node, ordinary(caption_nodes), ordinary(all_nodes(rest))))
@@ -982,10 +1002,205 @@ def navigation_group_meaning(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key,
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: add_attributes(navigation_group(key, depth, visual, children), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}])
     case _: navigation_group(key, depth, visual, children)
 
+# Work tabs share a bounded row; creation and overview never enter that group.
+def work_length_at(capacity: Nat, visual: Design.Style, nominal: Nat) -> Nat:
+  T.scaled(capacity, nominal, T.presentation_scale(Design.style_text(visual)))
+
+def work_length(visual: Design.Style, nominal: Nat) -> Nat:
+  work_length_at(NaturalSize.limit(), visual, nominal)
+
+def global_navigation_nominal_width(compact: Bool) -> Nat:
+  match compact:
+    case True{}: 48n
+    case False{}: 84n
+
+def global_navigation_style_at(+capacity: Nat, compact: Bool, +visual: Design.Style) -> Source.Style:
+  Factory.with_frame(Factory.with_alignments(Factory.with_direction(Factory.style(visual, Model.ExactSize{work_length_at(capacity, visual, global_navigation_nominal_width(compact))}, Model.StretchSize{}, Model.ScrollVertically{}), Model.Vertical{}), Spatial.Leading{}, Spatial.Stretch{}), Enclosure.Frame{Enclosure.ambient(work_length_at(capacity, visual, 4n), work_length_at(capacity, visual, 8n)), Enclosure.EmbeddedContent{work_length_at(capacity, visual, 4n)}})
+
+def global_navigation_contents(+key: UIIdentity.Key, visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
+  match content:
+    case Con{destinations, Con{settings, Nil{}}}:
+      [destinations, box(UIIdentity.part(key, "@global-navigation-space"), Source.Div{}, Factory.content_style(visual, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, 0n), Nil{}, Nil{}), settings]
+    case other: other
+
+def global_navigation_source_at(+capacity: Nat, compact: Bool, +key: UIIdentity.Key, label: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Navigation{}, global_navigation_style_at(capacity, compact, visual), [Source.AriaAttribute{"label", label}], global_navigation_contents(key, visual, content))
+
+def global_navigation_entry_direction(compact: Bool) -> Model.Direction:
+  match compact:
+    case True{}: Model.Horizontal{}
+    case False{}: Model.Vertical{}
+
+def global_navigation_entry_layout(compact: Bool, layout: Source.Layout) -> Source.Layout:
+  Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
+  Source.Layout{global_navigation_entry_direction(compact), Spatial.Centered{}, Spatial.Centered{}, frame, Model.StretchSize{}, height, minimum, scroll, position}
+
+def global_navigation_entry_source(compact: Bool, label: String, node: Source.Node) -> Source.Node:
+  match node:
+    case Source.Control{key, tag, Source.Style{layout, font, chrome, states}, attrs, name, enabled, first, remaining, children}:
+      Source.Control{key, tag, Source.Style{global_navigation_entry_layout(compact, layout), font, chrome, states}, List.append(&2, Source.Attribute, attrs, [Source.TitleAttribute{label}]), name, enabled, first, remaining, children}
+    case other: other
+
+def work_sized_style(style: Source.Style, width: Model.AxisSize, height: Model.AxisSize) -> Source.Style:
+  Source.Style{Source.Layout{direction, main, cross, frame, old_width, old_height, minimum, scroll, position}, font, chrome, states} = style
+  Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, Model.Confined{}, position}, font, chrome, states}
+
+def work_tab_control_style(style: Source.Style, width: Model.AxisSize, height: Model.AxisSize) -> Source.Style:
+  Factory.with_alignments(work_sized_style(style, width, height), Spatial.Leading{}, Spatial.Centered{})
+
+def work_tab_control(node: Source.Node, +width: Model.AxisSize, +height: Model.AxisSize) -> Source.Node:
+  match node:
+    case Source.Control{key, tag, style, attrs, name, enabled, first, rest, children}: Source.Control{key, tag, work_tab_control_style(style, width, height), attrs, name, enabled, first, rest, children}
+    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, work_tab_control_style(style, width, height), attrs, children}
+    case other: other
+
+def compact_header_height_at(+capacity: Nat, visual: Design.Style) -> Nat:
+  Nat.max(Controls.navigation_motor_floor(True{}), work_length_at(capacity, visual, Controls.navigation_motor_floor(True{})))
+
+def compact_header_style_at(+capacity: Nat, +visual: Design.Style) -> Source.Style:
+  Factory.with_frame(Factory.with_alignments(Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.ExactSize{compact_header_height_at(capacity, visual)}, Model.Confined{}), Model.Horizontal{}), Spatial.Leading{}, Spatial.Stretch{}), Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}})
+
+def compact_header_icon_style(style: Source.Style, +height: Nat) -> Source.Style:
+  Factory.with_alignments(work_sized_style(style, Model.ExactSize{height}, Model.ExactSize{height}), Spatial.Centered{}, Spatial.Centered{})
+
+def compact_header_icon_control(node: Source.Node, +height: Nat) -> Source.Node:
+  match node:
+    case Source.Control{key, tag, style, attrs, name, enabled, first, rest, children}: Source.Control{key, tag, compact_header_icon_style(style, height), attrs, name, enabled, first, rest, children}
+    case Source.Box{key, tag, style, attrs, children}: Source.Box{key, tag, compact_header_icon_style(style, height), attrs, children}
+    case other: other
+
+def compact_header_content_sized(+height: Nat, content: +List<Source.Node>) -> +List<Source.Node>:
+  match content:
+    case Con{menu, Con{work, Con{tasks, Nil{}}}}:
+      [compact_header_icon_control(menu, height),
+       work_tab_control(work, Model.StretchSize{}, Model.ExactSize{height}),
+       compact_header_icon_control(tasks, height)]
+    case other: other
+
+def compact_header_content_at(capacity: Nat, visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
+  compact_header_content_sized(compact_header_height_at(capacity, visual), content)
+
+def compact_navigation_entry_source(label: String, node: Source.Node) -> Source.Node:
+  add_attributes(work_tab_control(node, Model.StretchSize{}, Model.NaturalSize{}), [Source.TitleAttribute{label}])
+
+def compact_header_at(+capacity: Nat, key: UIIdentity.Key, label: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Navigation{}, compact_header_style_at(capacity, visual), [Source.AriaAttribute{"label", label}], compact_header_content_at(capacity, visual, content))
+
+def compact_work_scope_source(+key: UIIdentity.Key, count: Nat, label: String, +visual: Design.Style, node: Source.Node) -> Source.Node:
+  match node:
+    case Source.Control{native_key, tag, style, attrs, name, enabled, first, remaining, children}:
+      Source.Control{native_key, tag, Factory.with_alignments(work_sized_style(style, Model.StretchSize{}, Model.NaturalSize{}), Spatial.Leading{}, Spatial.Centered{}),
+        List.append(&2, Source.Attribute, attrs, [Source.TitleAttribute{label}, Source.AriaAttribute{"current", "true"}]), name, enabled, first, remaining,
+        [box(UIIdentity.part(key, "@compact-work-title"), Source.Span{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, 0n), Nil{}, children),
+         AuthoredControls.caption(UIIdentity.part(key, "@compact-work-count"), Nat.show(count), visual, T.UnbrokenLine{})]}
+    case other: other
+
+def navigation_children_compact(children: +List<Child>) -> Bool:
+  match children:
+    case Con{Child{key, SurfaceTypes.CompactHeader{}, meaning, control, nodes}, rest}: True{}
+    case _: False{}
+
+def compact_task_tree_style_at(+capacity: Nat, +visual: Design.Style) -> Source.Style:
+  Factory.with_frame(Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.ScrollVertically{}), Model.Vertical{}), Enclosure.Frame{Enclosure.ambient(work_length_at(capacity, visual, 8n), work_length_at(capacity, visual, 8n)), Enclosure.EmbeddedContent{work_length_at(capacity, visual, 4n)}})
+
+def compact_navigation_source_at(capacity: Nat, compact: Bool, +visual: Design.Style, node: Source.Node) -> Source.Node:
+  match compact node:
+    case True{} Source.Box{+key, tag, style, attrs, Con{header, rest}}:
+      Source.Box{key, tag, Factory.with_frame(Factory.with_direction(work_sized_style(style, Model.StretchSize{}, Model.StretchSize{}), Model.Vertical{}), Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}), attrs,
+        [header, box(UIIdentity.part(key, "@compact-task-tree"), Source.Div{}, compact_task_tree_style_at(capacity, visual), Nil{}, rest)]}
+    case _ other: other
+
+def work_tab_strip_style(+visual: Design.Style) -> Source.Style:
+  Factory.with_frame(Factory.with_alignments(Factory.with_direction(Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{}), Model.Vertical{}), Spatial.Leading{}, Spatial.Stretch{}), Enclosure.Frame{Enclosure.ambient(work_length(visual, 8n), 0n), Enclosure.EmbeddedContent{0n}})
+
+def work_tab_frame_style(+visual: Design.Style) -> Source.Style:
+  Factory.with_minimum(Factory.content_style(visual, Model.Layered{}, Model.StretchSize{}, Model.ExactSize{work_length(visual, 40n)}, 0n), Enclosure.Extent{work_length(visual, 96n), 0n})
+
+def work_tab_decoration_style(+visual: Design.Style, selected: Bool) -> Source.Style:
+  match selected:
+    case True{}:
+      Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Stretch{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, Model.StretchSize{}, Model.ExactSize{work_length(visual, 8n)}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Leading{}, Spatial.Trailing{}}}, Source.ExplicitFont{Design.style_text(visual)}, Design.Chrome{Design.Transparent{}, Appearance.work_tab_background(True{}), Design.Transparent{}, 0n, 0n, False{}}, Design.Passive{}}
+    case False{}:
+      Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Stretch{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, Model.ExactSize{1n}, Model.ExactSize{work_length(visual, 18n)}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.AlignedLayer{Enclosure.Insets{0n, 0n}, Spatial.Trailing{}, Spatial.Centered{}}}, Source.ExplicitFont{Design.style_text(visual)}, Design.Chrome{Design.Transparent{}, Design.ThemeToken{"--color-token-border-default"}, Design.Transparent{}, 0n, 0n, False{}}, Design.Passive{}}
+
+def work_tab_popup_attributes(selected: Bool, representation: Controls.Representation) -> +List<Source.Attribute>:
+  match representation:
+    case Controls.Action{Controls.Button{input, availability, name, face, Controls.Popup{menu, expanded}, geometry, placement, feedback}}:
+      [Source.AriaAttribute{"current", FieldOptions.boolean(selected)}]
+    case _: Nil{}
+
+def work_tab_layout_attributes(selected: Bool) -> +List<Source.Attribute>:
+  match selected:
+    case True{}: [Source.DataAttribute{"reveal-on-layout", "true"}]
+    case False{}: Nil{}
+
+def work_tab_native_source(+selected: Bool, label: String, representation: Controls.Representation, node: Source.Node, width: Model.AxisSize, height: Model.AxisSize) -> Source.Node:
+  add_attributes(work_tab_control(node, width, height), Source.TitleAttribute{label} <> List.append(&2, Source.Attribute, work_tab_layout_attributes(selected), work_tab_popup_attributes(selected, representation)))
+
+def work_tab_source(+key: UIIdentity.Key, +selected: Bool, label: String, +visual: Design.Style, parameters: Design.LayoutParameters, +representation: Controls.Representation) -> Source.Node:
+  box(UIIdentity.part(key, "@work-tab"), Source.Div{}, work_tab_frame_style(visual), Nil{},
+    [box(UIIdentity.part(key, "@tab-baseline"), Source.Div{}, work_tab_decoration_style(visual, selected), Nil{}, Nil{}),
+     work_tab_native_source(selected, label, representation, button_source(key, visual, parameters, representation), Model.StretchSize{}, Model.ExactSize{work_length(visual, 40n)})])
+
+def work_tab_group_style(+visual: Design.Style, count: Nat) -> Source.Style:
+  Source.Style{Source.Layout{Model.Horizontal{}, Spatial.Leading{}, Spatial.Stretch{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}}, Model.CappedStretchSize{Nat.mul(count, work_length(visual, 232n))}, Model.ExactSize{work_length(visual, 40n)}, Enclosure.Extent{0n, 0n}, Model.ScrollHorizontally{}, Spatial.InFlow{}}, Source.ExplicitFont{Design.style_text(visual)}, Design.Chrome{Design.Transparent{}, Design.Transparent{}, Design.Transparent{}, 0n, 0n, False{}}, Design.Passive{}}
+
+def work_tab_group(+key: UIIdentity.Key, +visual: Design.Style, +content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Div{}, work_tab_group_style(visual, List.length(&2, Source.Node, content)), Nil{}, content)
+
+def work_strip_spacer(+key: UIIdentity.Key, +visual: Design.Style) -> Source.Node:
+  box(key, Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.ExactSize{0n}, 0n), Nil{}, Nil{})
+
+def work_tab_slot(+key: UIIdentity.Key, visual: Design.Style, width: Model.AxisSize, height: Nat, child: Source.Node) -> Source.Node:
+  box(key, Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, width, Model.ExactSize{height}, 0n), Nil{}, [child])
+
+def work_tabs_content_sized(+key: UIIdentity.Key, +visual: Design.Style, minimum: Nat, extra: Nat, +height: Nat, content: +List<Source.Node>) -> +List<Source.Node>:
+  match content:
+    case Con{all_tasks, Con{works, Con{create, Con{overview, Nil{}}}}}:
+      [work_tab_slot(UIIdentity.part(key, "@all-tasks-slot"), visual, Model.LimitedSize{minimum, extra, 0n}, height, all_tasks), works, create, work_strip_spacer(UIIdentity.part(key, "@work-tab-space"), visual), overview]
+    case Con{current, Con{overview, Nil{}}}:
+      [work_tab_slot(UIIdentity.part(key, "@current-work-slot"), visual, Model.StretchSize{}, height, current), overview]
+    case other: other
+
+def work_tabs_content_at(+capacity: Nat, +key: UIIdentity.Key, +visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
+  work_tabs_content_sized(key, visual, work_length_at(capacity, visual, 96n), work_length_at(capacity, visual, 56n), work_length_at(capacity, visual, 40n), content)
+
+def work_tabs_content(key: UIIdentity.Key, visual: Design.Style, content: +List<Source.Node>) -> +List<Source.Node>:
+  work_tabs_content_at(NaturalSize.limit(), key, visual, content)
+
+def work_tabs(+key: UIIdentity.Key, label: String, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Navigation{}, work_tab_strip_style(visual), [Source.AriaAttribute{"label", label}],
+    [box(UIIdentity.part(key, "@work-tab-top"), Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.ExactSize{work_length(visual, 4n)}, 0n), Nil{}, Nil{}),
+     box(UIIdentity.part(key, "@work-tab-row"), Source.Div{}, Factory.with_alignments(Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.ExactSize{work_length(visual, 40n)}, 0n), Spatial.Leading{}, Spatial.Centered{}), Nil{}, work_tabs_content(key, visual, content))])
+
+def work_choice_row(+key: UIIdentity.Key, +visual: Design.Style, content: +List<Source.Node>) -> Source.Node:
+  box(key, Source.Div{}, Factory.content_style(visual, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, work_length(visual, 12n)), Nil{}, content)
+
+def work_choice_text_nodes(nodes: +List<Source.Node>) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Text{key, value, font, wrapping}, rest}: Source.Text{key, value, font, T.SingleLine{}} <> work_choice_text_nodes(rest)
+    case Con{Source.Box{key, tag, style, attrs, children}, rest}: Source.Box{key, tag, style, attrs, work_choice_text_nodes(children)} <> work_choice_text_nodes(rest)
+    case Con{node, rest}: node <> work_choice_text_nodes(rest)
+
+def work_choice_source(work: Bool, node: Source.Node, +visual: Design.Style) -> Source.Node:
+  match work node:
+    case True{} Source.Control{key, tag, style, attrs, name, enabled, first, remaining, children}:
+      Source.Control{key, tag, Factory.with_minimum(work_sized_style(style, Model.StretchSize{}, Model.NaturalSize{}), Enclosure.Extent{0n, work_length(visual, 120n)}), attrs, name, enabled, first, remaining, work_choice_text_nodes(children)}
+    case _ other: other
+
+def work_choice_meaning(meaning: SurfaceTypes.Meaning, node: Source.Node, visual: Design.Style) -> Source.Node:
+  match meaning:
+    case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: work_choice_source(Controls.work_selection_input(input), node, visual)
+    case _: node
+
 def regular_plain(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: global_navigation_source_at(capacity, compact, key, label, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.WorkTabs{}: work_tabs(key, label, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.CompactHeader{}: compact_header_at(capacity, key, label, visual, ordinary(all_nodes(children)))
     case SurfaceTypes.Dialog{}: regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, dialog_content(capacity, key, label, visual, children))
-    case _: grouped_menu(capacity, role, children, meaning_focus(meaning, role, regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children)))))
+    case _: work_choice_meaning(meaning, grouped_menu(capacity, role, children, meaning_focus(meaning, role, regular_content(capacity, key, label, role, meaning, visual, representation, children, parameters, ordinary(all_nodes(children))))), visual)
 
 def regular_navigation(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match representation:
@@ -1002,11 +1217,18 @@ def aligned_navigation(node: Source.Node) -> Source.Node:
 
 def regular(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +representation: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Source.Node:
   match role:
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: global_navigation_entry_source(compact, label, button_source(key, visual, parameters, representation))
+    case SurfaceTypes.CompactNavigationEntry{selected}: compact_navigation_entry_source(label, button_source(key, visual, parameters, representation))
+    case SurfaceTypes.CompactWorkScope{title, count}: compact_work_scope_source(key, count, label, visual, button_source(key, visual, parameters, representation))
+    case SurfaceTypes.WorkTab{selected}: work_tab_source(key, selected, label, visual, parameters, representation)
+    case SurfaceTypes.WorkTabGroup{}: work_tab_group(key, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.WorkChoiceRow{}: work_choice_row(key, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.WorkOverviewButton{count}: add_attributes(button_source(key, visual, parameters, representation), [Source.TitleAttribute{label}])
     case SurfaceTypes.NavigationEntry{selected}:
       +primary = button_source(key, visual, parameters, representation)
       navigation_single_command(UIIdentity.part(key, "@navigation-entry"), key, 0n, visual, Sidebar.capture(primary), Nil{}, primary)
-    case SurfaceTypes.Navigation{}: aligned_navigation(regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters))
-    case SurfaceTypes.NavigationCollection{}: sidebar_collection(key, Sidebar.Collection{}, visual, ordinary(all_nodes(children)))
+    case SurfaceTypes.Navigation{}: compact_navigation_source_at(capacity, navigation_children_compact(children), visual, aligned_navigation(regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters)))
+    case SurfaceTypes.NavigationCollection{}: navigation_collection(key, meaning, label, visual, ordinary(all_nodes(children)))
     case SurfaceTypes.NavigationSection{}: navigation_section(key, visual, children)
     case SurfaceTypes.Section{}: regular_navigation(capacity, key, label, role, meaning, visual, representation, children, parameters)
     case _: regular_plain(capacity, key, label, role, meaning, visual, representation, children, parameters)

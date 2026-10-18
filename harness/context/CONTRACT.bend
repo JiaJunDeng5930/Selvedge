@@ -33,11 +33,6 @@ def ConstructedSnapshot(result: Maybe<&2, C.Snapshot>, +definition: C.Definition
     case None{}: Unit
     case Some{snapshot}: SnapshotConstruction<definition, identity, revision, fields, snapshot>
 
-def ValidSnapshot(result: Maybe<&2, C.Snapshot>) -> Type:
-  match result:
-    case None{}: Unit
-    case Some{snapshot}: {C.valid_snapshot(snapshot) == True{} : Bool}
-
 def FieldNames(result: Maybe<&2, +List<C.FieldValue>>, +fields: +List<C.FieldValue>) -> Type:
   match result:
     case None{}: Unit
@@ -61,7 +56,6 @@ type DefinitionEvidence<-definition: C.Definition> is Type:
     construction: @+identity:+List<C.FieldValue> -> @+revision:String -> @+fields:+List<C.FieldValue> ->
       ConstructedSnapshot(C.construct_snapshot(definition, identity, revision, fields), definition, identity, revision, fields),
     value_roundtrip: @+value:C.Value -> {C.value(C.value_json(value)) == Some{value} : Maybe<&2, C.Value>},
-    decoded_snapshot: @+registry:+List<C.Definition> -> @+item:J.Json -> ValidSnapshot(C.snapshot(registry, item)),
     patch_schema: @+value:C.Value -> @+patch:C.Patch -> PatchedSchema(C.apply_patch(value, patch), value),
     accepted_snapshot: @+previous:Maybe<&2, C.Snapshot> -> @+observed:C.Snapshot -> @+patch:C.Patch ->
       AcceptedObservation(C.observed_change(previous, observed, patch), observed),
@@ -98,5 +92,8 @@ type Evidence is Type:
       {amendment_patch(C.observed_change(Some{C.Snapshot{key, base, value}}, observed, patch), value, C.snapshot_value(observed)) == True{} : Bool},
     accepted_snapshot: @+previous:Maybe<&2, C.Snapshot> -> @+observed:C.Snapshot -> @+patch:C.Patch ->
       AcceptedObservation(C.observed_change(previous, observed, patch), observed),
+    invalid_snapshot_rejected: @+previous:Maybe<&2, C.Snapshot> -> @+observed:C.Snapshot -> @+patch:C.Patch ->
+      @invalid:{C.valid_snapshot(observed) == False{} : Bool} ->
+      {C.observed_resolution(previous, observed, patch) == C.rejected_observation() : C.ObservationResolution},
     definition_family: @+definition:C.Definition -> Categories.Membership<C.Definition, (definition => DefinitionEvidence<definition>)>
   }

@@ -1,6 +1,8 @@
 import Base
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
+import ../../bendlib/stdlib.bend as Std
+import ../../harness/DOMAIN.bend as Domain
 import ./MODEL.bend as Model
 
 # Observations carry parser results, never a host verdict about account policy.
@@ -349,10 +351,22 @@ def token_claims(+claims: J.Json, +source: J.Json) -> J.Json:
     (J.same(claims, J.Null{}) || (nonempty(J.get(claims, "sub")) &&
     (Bool.not(has(source, "subject")) || J.same(J.get(claims, "sub"), J.get(source, "subject"))) &&
     (Bool.not(has(claims, "azp")) || J.same(J.get(claims, "azp"), J.get(source, "clientId"))))), source)
-def token_phase(phase: String, +source: J.Json) -> J.Json:
+type TokenPhaseName is Data:
+  TokenPhaseNameGrant{}
+  TokenPhaseNameOther{}
+
+def token_phase_discriminant(+value: String) -> TokenPhaseName:
+  Bool.pick(TokenPhaseName, String.eq(value, "grant"), TokenPhaseNameGrant{},
+    TokenPhaseNameOther{})
+
+def token_phase_classified(phase: TokenPhaseName, +source: J.Json) -> J.Json:
   match phase:
-    case "grant": Model.success(J.Null{})
-    case _: token_claims(J.get(source, "claims"), source)
+    case TokenPhaseNameGrant{}: Model.success(J.Null{})
+    case TokenPhaseNameOther{}: token_claims(J.get(source, "claims"), source)
+
+def token_phase(phase: String, +source: J.Json) -> J.Json:
+  token_phase_classified(token_phase_discriminant(phase), source)
+
 def token_admit(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("ChatGPT returned an invalid token grant")
@@ -482,15 +496,41 @@ def replace(fields: +List<J.Field>, +name: String, +value: J.Json) -> +List<J.Fi
     case Con{J.Field{+key, item}, rest}: Con{J.Field{key, select(String.eq(key, name), value, item)}, replace(rest, name, value)}
 def registration_subject(+source: J.Json) -> J.Json:
   Model.success(J.Object{replace(fields(J.get(source, "registered")), "subject", J.get(J.get(source, "saved"), "subject"))})
+type CallbackBodyName is Data:
+  CallbackBodyNameAccept{}
+  CallbackBodyNameReject{}
+  CallbackBodyNameOther{}
+
+def callback_body_discriminant(+value: String) -> CallbackBodyName:
+  Bool.pick(CallbackBodyName, String.eq(value, "accept"), CallbackBodyNameAccept{},
+    Bool.pick(CallbackBodyName, String.eq(value, "reject"), CallbackBodyNameReject{},
+    CallbackBodyNameOther{}))
+
+def callback_body_classified(action: CallbackBodyName) -> String:
+  match action:
+    case CallbackBodyNameAccept{}: "ChatGPT authorization received. Return to the terminal."
+    case CallbackBodyNameReject{}: "ChatGPT authorization failed. Return to the terminal."
+    case CallbackBodyNameOther{}: ""
+
 def callback_body(action: String) -> String:
+  callback_body_classified(callback_body_discriminant(action))
+
+type CallbackHeadersName is Data:
+  CallbackHeadersNameAccept{}
+  CallbackHeadersNameOther{}
+
+def callback_headers_discriminant(+value: String) -> CallbackHeadersName:
+  Bool.pick(CallbackHeadersName, String.eq(value, "accept"), CallbackHeadersNameAccept{},
+    CallbackHeadersNameOther{})
+
+def callback_headers_classified(action: CallbackHeadersName) -> J.Json:
   match action:
-    case "accept": "ChatGPT authorization received. Return to the terminal."
-    case "reject": "ChatGPT authorization failed. Return to the terminal."
-    case _: ""
+    case CallbackHeadersNameAccept{}: J.Object{Con{J.Field{"content-type", J.Text{"text/plain"}}, Con{J.Field{"cache-control", J.Text{"no-store"}}, Nil{}}}}
+    case CallbackHeadersNameOther{}: J.Object{Nil{}}
+
 def callback_headers(action: String) -> J.Json:
-  match action:
-    case "accept": J.Object{Con{J.Field{"content-type", J.Text{"text/plain"}}, Con{J.Field{"cache-control", J.Text{"no-store"}}, Nil{}}}}
-    case _: J.Object{Nil{}}
+  callback_headers_classified(callback_headers_discriminant(action))
+
 def callback_action(+action: String, status: Nat, received: Bool, message: String, client_id: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"action", J.Text{action}}, Con{J.Field{"status", J.nat(status)}, Con{J.Field{"received", J.Boolean{received}}, Con{J.Field{"message", J.Text{message}}, Con{J.Field{"clientId", client_id}, Con{J.Field{"body", J.Text{callback_body(action)}}, Con{J.Field{"headers", callback_headers(action)}, Nil{}}}}}}}}})
 def first(items: +List<J.Json>) -> J.Json:
@@ -667,10 +707,25 @@ def selectable_step(include: Bool, model: J.Json, +rest: +List<J.Json>) -> +List
     case True{}: Con{model, rest}
     case False{}: rest
 
+def codex_auto_review_descriptor(+model: J.Json) -> Bool:
+  J.same(J.get(model, "slug"), J.Text{Domain.codex_auto_review_model()}) &&
+    (J.same(J.get(model, "visibility"), J.Text{"list"}) || J.same(J.get(model, "visibility"), J.Text{"hide"}))
+
 def selectable(items: +List<J.Json>) -> +List<J.Json>:
   match items:
     case Nil{}: Nil{}
-    case Con{+head, tail}: selectable_step(J.same(J.get(head, "visibility"), J.Text{"list"}), head, selectable(tail))
+    case Con{+head, tail}: selectable_step(J.same(J.get(head, "visibility"), J.Text{"list"}) && Bool.not(codex_auto_review_descriptor(head)), head, selectable(tail))
+
+def codex_auto_review_models(items: +List<J.Json>) -> +List<J.Json>:
+  match items:
+    case Nil{}: Nil{}
+    case Con{+model, rest}: selectable_step(codex_auto_review_descriptor(model), model, codex_auto_review_models(rest))
+
+def codex_auto_review_info(+model: J.Json) -> J.Json:
+  +low = contains(distinct_efforts(J.items(J.get(model, "supported_reasoning_levels")), Nil{}), "low")
+  select(low,
+    J.Object{Con{J.Field{"default_reasoning_level", J.Text{"low"}}, project(fields(model),
+      ["slug", "display_name", "visibility", "priority", "supported_reasoning_levels", "context_window", "effective_context_window_percent"])}}, model)
 def model_profile(+source: J.Json, +model: J.Json) -> J.Json:
   J.Object{List.append(&2, J.Field, fields(J.get(source, "connection")), Con{J.Field{"model", J.get(model, "slug")}, Con{J.Field{"bound_account_id", J.get(J.get(source, "result"), "account_id")}, Con{J.Field{"model_info", model}, Nil{}}}})}
 def auto_field(include: Bool, key: String, profile: J.Json) -> +List<J.Field>:
@@ -699,8 +754,60 @@ def materialize_models(items: +List<J.Json>, +source: J.Json, +accumulated: J.Js
   match items:
     case Nil{}: accumulated
     case Con{model, rest}: materialize_models(rest, source, materialize_accumulate(accumulated, source, model))
+
+def same_reviewer_connection(+profile: J.Json, +source: J.Json, +configured_path: J.Json) -> Bool:
+  +connection = J.get(profile_connection(J.Object{[J.Field{"profile", profile}]}), "value")
+  +selected = J.get(source, "connection")
+  +auth_path = J.get(source, "auth_path")
+  J.same(J.get(profile, "provider"), J.Text{"chatgpt"}) &&
+    J.same(J.get(connection, "endpoint"), J.get(selected, "endpoint")) &&
+    J.same(J.get(connection, "issuer"), J.get(selected, "issuer")) &&
+    nonempty(auth_path) && nonempty(configured_path) && J.same(auth_path, configured_path) &&
+    (Bool.not(has(profile, "bound_account_id")) ||
+      J.same(J.get(profile, "bound_account_id"), J.get(J.get(source, "result"), "account_id")))
+
+def configured_reviewer_alias(available: Bool, +source: J.Json, model: J.Json, key: String, +accumulated: J.Json) -> J.Json:
+  match available:
+    case False{}: accumulated
+    case True{}: materialize_model(source, model, fields(J.get(accumulated, "value")),
+      key ++ "/" ++ Domain.codex_auto_review_model() ++ "/" ++ String.drop(J.text(J.get(source, "namespace")), 8n))
+
+def configured_reviewer_aliases(items: +List<J.Field>, +source: J.Json, +model: J.Json, +accumulated: J.Json) -> J.Json:
+  match items:
+    case Nil{}: accumulated
+    case Con{J.Field{+key, +profile}, rest}:
+      configured_reviewer_aliases(rest, source, model,
+        configured_reviewer_alias(J.boolean(J.get(accumulated, "ok")) &&
+          same_reviewer_connection(profile, source, J.get(J.get(source, "configured_auth_paths"), key)) &&
+          Bool.not(J.same(J.get(profile, "model"), J.Text{Domain.codex_auto_review_model()})), source, model, key, accumulated))
+
+def materialize_reviewers(items: +List<J.Json>, +source: J.Json, accumulated: J.Json) -> J.Json:
+  match items:
+    case Nil{}: accumulated
+    case Con{+model, rest}: materialize_reviewers(rest, source,
+      configured_reviewer_aliases(fields(J.get(J.get(source, "config"), "profiles")), source, model,
+        materialize_accumulate(accumulated, source, model)))
+
+def configured_namespace_discovered(+key: String, +profile: J.Json, +configured_path: J.Json, items: +List<J.Json>) -> Bool:
+  match items:
+    case Nil{}: False{}
+    case Con{+discovery, rest}:
+      (String.starts_with(key, J.text(J.get(discovery, "namespace")) ++ "/") &&
+        same_reviewer_connection(profile, discovery, configured_path)) ||
+      configured_namespace_discovered(key, profile, configured_path, rest)
+
+def configured_namespace_valid(items: +List<J.Field>, +source: J.Json) -> Bool:
+  match items:
+    case Nil{}: True{}
+    case Con{J.Field{+key, profile}, rest}:
+      (Bool.not(Domain.chatgpt_account_profile_key(key)) ||
+        configured_namespace_discovered(key, profile, J.get(J.get(source, "configured_auth_paths"), key),
+          J.items(J.get(source, "discoveries")))) && configured_namespace_valid(rest, source)
+
 def materialize(+source: J.Json) -> J.Json:
-  materialize_models(selectable(J.items(J.get(J.get(source, "result"), "models"))), source, Model.success(J.Object{Nil{}}))
+  +models = J.items(J.get(J.get(source, "result"), "models"))
+  materialize_reviewers(Std.map(~J.Json, ~J.Json, ~(item => codex_auto_review_info(item)), codex_auto_review_models(models)), source,
+    materialize_models(selectable(models), source, Model.success(J.Object{Nil{}})))
 def catalog_selectable_nonempty(valid: Bool, models: +List<J.Json>) -> J.Json:
   match valid:
     case True{}: Model.success(J.Array{models})
@@ -752,10 +859,15 @@ def overlay_fields(items: +List<J.Field>, +overrides: J.Json) -> +List<J.Field>:
     case Con{J.Field{+key, value}, rest}: Con{J.Field{key, field(overrides, key, value)}, overlay_fields(rest, overrides)}
 def materialized_profiles(+source: J.Json, +config: J.Json) -> J.Json:
   J.Object{List.append(&2, J.Field, overlay_fields(fields(J.get(source, "generated")), J.get(config, "profiles")), unrelated_fields(fields(J.get(config, "profiles")), J.get(source, "generated")))}
+def config_materialized_valid(valid: Bool, +source: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure_code("account_namespace_mismatch", "A configured ChatGPT account profile could not verify its account connection; use the original account connection or a new profile key")
+    case True{}:
+      +config = J.get(source, "config")
+      +profiles = materialized_profiles(source, config)
+      Model.success(J.Object{replace(fields(config), "profiles", profiles)})
 def config_materialized(+source: J.Json) -> J.Json:
-  +config = J.get(source, "config")
-  +profiles = materialized_profiles(source, config)
-  Model.success(J.Object{replace(fields(config), "profiles", profiles)})
+  config_materialized_valid(configured_namespace_valid(fields(J.get(J.get(source, "config"), "profiles")), source), source)
 def catalog_transport_action(unauthorized: Bool, ok: Bool) -> J.Json:
   match unauthorized:
     case True{}: Model.success(J.Text{"refresh"})
@@ -807,8 +919,16 @@ def catalog_result(+source: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"account_id", J.get(J.get(source, "authorization"), "account_id")}, Con{J.Field{"models", select(J.boolean(J.get(source, "cached_result")), J.get(J.get(source, "cached"), "models"), J.get(source, "models"))}, Con{J.Field{"cached", J.get(source, "cached_result")}, Con{J.Field{"stale", J.get(source, "stale")}, Nil{}}}}}})
 def catalog_failure(source: J.Json) -> J.Json:
   Model.failure("ChatGPT model discovery failed with HTTP " ++ number_text(J.get(source, "status")))
-def materialization_diagnostic(source: J.Json) -> J.Json:
-  Model.success(select(J.boolean(J.get(J.get(source, "result"), "stale")), J.Text{"ChatGPT is temporarily unavailable; using this account’s cached model catalog"}, J.Null{}))
+def materialization_notice(stale: Bool, reviewer_available: Bool) -> J.Json:
+  match stale reviewer_available:
+    case False{} True{}: J.Null{}
+    case True{} True{}: J.Text{"ChatGPT is temporarily unavailable; using this account’s cached model catalog"}
+    case False{} False{}: J.Text{"This ChatGPT connection does not advertise codex-auto-review; automatic review defaults to the task model unless a reviewer is selected explicitly"}
+    case True{} False{}: J.Text{"ChatGPT is temporarily unavailable; using this account’s cached model catalog. This connection does not advertise codex-auto-review; automatic review defaults to the task model unless a reviewer is selected explicitly"}
+
+def materialization_diagnostic(+source: J.Json) -> J.Json:
+  Model.success(materialization_notice(J.boolean(J.get(J.get(source, "result"), "stale")),
+    Bool.not(List.is_empty(&2, J.Json, codex_auto_review_models(J.items(J.get(J.get(source, "result"), "models")))))))
 def materialization_failure(+source: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"rethrow", J.get(source, "force")}, Con{J.Field{"message", J.get(source, "message")}, Nil{}}}})
 def token_times_earliest(valid: Bool) -> J.Json:

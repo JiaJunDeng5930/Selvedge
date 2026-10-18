@@ -286,6 +286,33 @@ def config_compaction_runtime(+source: J.Json) -> J.Json:
   +settings: J.Json = J.Object{[J.Field{"config", config}, J.Field{"profiles", J.get(config, "profiles")}]}
   compact_runtime_checked(compact_threshold_requirements(settings) && compact_target_requirements(settings) && compact_runtime_references(J.items(J.get(J.get(config, "compaction"), "targets")), J.get(config, "profiles")), source)
 
+# URL parsing is an external observation. Admission owns the public transport
+# boundary; private host credentials never enter configuration or this source.
+def remote_origin_requirements(+source: J.Json) -> Bool:
+  +endpoint = J.get(source, "endpoint_observation")
+  String.eq(J.text(J.get(endpoint, "protocol")), "https:") &&
+    String.eq(J.text(J.get(endpoint, "port")), "") &&
+    Bool.not(String.is_empty(J.text(J.get(endpoint, "hostname")))) &&
+    String.eq(J.text(J.get(endpoint, "username")), "") && String.eq(J.text(J.get(endpoint, "password")), "") &&
+    String.eq(J.text(J.get(endpoint, "pathname")), "/") && String.eq(J.text(J.get(endpoint, "search")), "") &&
+    String.eq(J.text(J.get(endpoint, "hash")), "")
+def remote_configuration_requirements(+source: J.Json) -> Bool:
+  +remote = J.get(source, "remote")
+  compact_object(remote, ["relay_url"]) && compact_has(remote, "relay_url") &&
+    Bool.not(String.is_empty(J.text(J.get(remote, "relay_url")))) && remote_origin_requirements(source)
+def remote_configuration_projection(+source: J.Json) -> J.Json:
+  Model.success(J.Object{[J.Field{"relay_url", J.get(J.get(source, "endpoint_observation"), "origin")}]})
+def remote_configuration_admitted(member: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (candidate => remote_configuration_requirements(candidate)))>>) -> J.Json:
+  match member:
+    case None{}: Model.failure_code("TypeError", "remote requires only relay_url: an HTTPS origin on TCP 443 without credentials, path, query or fragment")
+    case Some{member}: remote_configuration_projection(Categories.value(J.Json, Categories.holds(J.Json, (candidate => remote_configuration_requirements(candidate))), member))
+def remote_configuration_checked(disabled: Bool, +source: J.Json) -> J.Json:
+  match disabled:
+    case True{}: Model.success(J.Boolean{False{}})
+    case False{}: remote_configuration_admitted(Categories.admit(J.Json, (candidate => remote_configuration_requirements(candidate)), source))
+def config_remote(+source: J.Json) -> J.Json:
+  remote_configuration_checked(J.same(J.get(source, "remote"), J.Boolean{False{}}), source)
+
 def configured_instruction(instructions: D.InitialInstructions) -> String:
   D.InitialInstructions{configured, global} = instructions
   configured
@@ -294,7 +321,7 @@ def configured_default() -> String:
   configured_instruction(D.default_instructions())
 
 def config_base_defaults(+source: J.Json) -> J.Json:
-  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}, J.Field{"compaction", compact_defaults()}]}
+  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}, J.Field{"remote", J.Boolean{False{}}}, J.Field{"compaction", compact_defaults()}]}
 def config_context_definitions() -> J.Json:
   Context.definitions_json(ContextKinds.definitions())
 def config_context_observer(+definition: J.Json) -> J.Json:
@@ -352,11 +379,23 @@ def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
 def config_configuration_head(+source: J.Json) -> J.Json:
   +value = J.get(source, "value")
   config_guard(config_kind(value, "object"), config_failure("configuration must be an object"),
-    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin", "compaction"])), value))
+    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin", "remote", "compaction"])), value))
+def config_context_paths_acc(values: +List<J.Json>, observations: +List<J.Json>, valid: Bool) -> Bool:
+  match values observations:
+    case Nil{} Nil{}: valid
+    case Con{+value, rest} Con{+observed, tail}:
+      config_context_paths_acc(rest, tail, valid && config_kind(value, "string") &&
+        Bool.not(List.is_empty(&2, J.Json, J.items(J.get(value, "units")))) &&
+        J.boolean(J.get(observed, "well_formed")) && Model.nonnegative_le(J.get(observed, "bytes"), "4096"))
+    case _ _: False{}
+
+def config_context_paths(values: +List<J.Json>, observations: +List<J.Json>) -> Bool:
+  config_context_paths_acc(values, observations, True{})
+
 def config_context_transport_value_case(text: Bool, +value: J.Json, +observation: J.Json) -> Bool:
   match text:
     case True{}: config_kind(value, "string") && J.boolean(J.get(observation, "well_formed")) && Model.nonnegative_le(J.get(observation, "bytes"), Nat.show(D.project_limit()))
-    case False{}: config_kind(value, "array") && config_strings(J.items(J.get(value, "items"))) && Nat.is_le(config_list_count(J.items(J.get(value, "items"))), 64n) && J.boolean(J.get(observation, "paths_well_formed"))
+    case False{}: config_kind(value, "array") && Nat.is_le(config_list_count(J.items(J.get(value, "items"))), 64n) && config_context_paths(J.items(J.get(value, "items")), J.items(J.get(observation, "items")))
 def config_context_transport_value(+definition: J.Json, +value: J.Json, +observation: J.Json) -> Bool:
   config_context_transport_value_case(String.eq(J.text(J.get(config_context_observer(definition), "type")), "config_text"), value, observation)
 def config_context_transport(definitions: +List<J.Json>, +values: J.Json, +observations: J.Json) -> Bool:
@@ -364,6 +403,72 @@ def config_context_transport(definitions: +List<J.Json>, +values: J.Json, +obser
     case Nil{}: True{}
     case Con{+definition, rest}:
       (Bool.not(config_context_configured(definition)) || config_context_transport_value(definition, J.get(values, config_context_setting(definition)), J.get(observations, config_context_setting(definition)))) && config_context_transport(rest, values, observations)
+def config_context_definition_valid(definition: Maybe<&2, Context.Definition>) -> Bool:
+  match definition:
+    case Some{definition}: True{}
+    case None{}: False{}
+def config_context_definitions_valid_acc(definitions: +List<J.Json>, valid: Bool) -> Bool:
+  match definitions:
+    case Nil{}: valid
+    case Con{definition, rest}:
+      config_context_definitions_valid_acc(rest, valid && config_context_definition_valid(Context.definition(definition)))
+
+def config_context_definitions_valid(definitions: +List<J.Json>) -> Bool:
+  config_context_definitions_valid_acc(definitions, True{})
+
+def config_context_requirements(+source: J.Json) -> Bool:
+  +definitions = J.items(J.get(source, "definitions"))
+  Model.parsed_array(J.get(source, "definitions")) && config_context_definitions_valid(definitions) && config_context_transport(definitions, J.get(source, "values"), J.get(source, "observations"))
+def config_configuration_context(+source: J.Json) -> J.Json:
+  config_guard(config_context_requirements(source),
+    config_failure("context settings must contain bounded UTF-8 text or at most 64 bounded file paths"), config_literal(J.Null{}))
+
+def config_context_field_schema_acc(fields: +List<J.Json>, found: Bool, +name: String, selected: J.Json) -> J.Json:
+  match fields found:
+    case Nil{} True{}: selected
+    case Nil{} False{}: J.Null{}
+    case Con{field, rest} True{}: selected
+    case Con{+field, rest} False{}:
+      config_context_field_schema_acc(rest, String.eq(J.text(J.get(field, "name")), name), name, field)
+
+def config_context_field_schema(fields: +List<J.Json>, name: String) -> J.Json:
+  config_context_field_schema_acc(fields, False{}, name, J.Null{})
+
+def config_context_scalar_text_acc(text: String, valid: Bool) -> Bool:
+  match text:
+    case SNil{}: valid
+    case SCon{Chr{+code}, rest}:
+      config_context_scalar_text_acc(rest, valid && Bool.not(U32.is_eq(code, 0) || (U32.is_ge(code, 55296) && U32.is_le(code, 57343))))
+
+def config_context_scalar_text(text: String) -> Bool:
+  config_context_scalar_text_acc(text, True{})
+
+def config_context_field_axis(identity: Bool) -> String:
+  match identity:
+    case True{}: "identity"
+    case False{}: "fields"
+def config_context_field_bound(identity: Bool) -> Nat:
+  match identity:
+    case True{}: 4096n
+    case False{}: D.project_limit()
+def config_context_field_schema_from(+source: J.Json) -> J.Json:
+  config_context_field_schema(J.items(J.get(J.get(source, "definition"), config_context_field_axis(J.boolean(J.get(source, "identity"))))), J.text(J.get(source, "field")))
+def config_context_field_required(+source: J.Json) -> Bool:
+  J.boolean(J.get(config_context_field_schema_from(source), "required"))
+def config_context_field_requirements(+source: J.Json) -> Bool:
+  +value = J.get(source, "value")
+  config_context_definition_valid(Context.definition(J.get(source, "definition"))) &&
+    J.is_text(J.get(source, "field")) &&
+    (J.same(J.get(source, "identity"), J.Boolean{True{}}) || J.same(J.get(source, "identity"), J.Boolean{False{}})) &&
+    config_present(config_context_field_schema_from(source)) && J.is_text(value) &&
+    config_context_scalar_text(J.text(value)) && Context.required_text(config_context_field_required(source), J.text(value)) &&
+    Nat.is_le(J.utf8_length(J.text(value)), config_context_field_bound(J.boolean(J.get(source, "identity"))))
+def config_context_field_admitted(member: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (candidate => config_context_field_requirements(candidate)))>>) -> J.Json:
+  match member:
+    case Some{Categories.Membership{source, evidence}}: Model.success(J.get(source, "value"))
+    case None{}: Model.failure_code("TypeError", "Context field must satisfy its definition and UTF-8 byte bound")
+def config_context_field(+source: J.Json) -> J.Json:
+  config_context_field_admitted(Categories.admit(J.Json, (candidate => config_context_field_requirements(candidate)), source))
 def config_configuration_transport(+source: J.Json) -> J.Json:
   +value = J.get(source, "transport")
   config_guard(config_text_equal(J.get(value, "host"), "127.0.0.1") || config_text_equal(J.get(value, "host"), "::1"), config_failure("The local server requires a loopback address"),
@@ -371,7 +476,7 @@ def config_configuration_transport(+source: J.Json) -> J.Json:
     config_guard(config_bound(J.get(value, "max_fork"), "1", "4294967295"), config_failure("max_fork must be in 1..4294967295"),
     config_guard(config_bound(J.get(value, "max_descendants"), "1", "4294967295"), config_failure("max_descendants must be in 1..4294967295"),
     config_guard(config_kind(J.get(value, "profiles"), "object"), config_failure("profiles must be an object"),
-    config_guard(config_context_transport(J.items(config_context_definitions()), value, J.get(source, "context_fields")), config_failure("context settings must contain bounded UTF-8 text or at most 64 bounded file paths"),
+    config_guard(J.same(J.get(J.get(source, "context"), "definitions"), config_context_definitions()) && config_context_requirements(J.get(source, "context")), config_failure("context settings must contain bounded UTF-8 text or at most 64 bounded file paths"),
     config_literal(J.Null{})))))))
 def config_label_prefix(+plugin: Bool) -> String:
   match plugin:
@@ -639,8 +744,20 @@ def config_meaning_context_definitions(accepted: Bool, +operation: String, +sour
   match accepted:
     case True{}: Model.success(config_context_definitions())
     case False{}: config_compaction_route(String.eq(operation, "config.compaction"), operation, source)
+def config_meaning_context_transport(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: Model.success(config_configuration_context(source))
+    case False{}: config_meaning_context_definitions(String.eq(operation, "config.context_definitions"), operation, source)
+def config_meaning_context_field(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: config_context_field(source)
+    case False{}: config_meaning_context_transport(String.eq(operation, "config.context_transport"), operation, source)
+def config_meaning_remote(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: config_remote(source)
+    case False{}: config_meaning_context_field(String.eq(operation, "config.context_field"), operation, source)
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  config_meaning_context_definitions(String.eq(operation, "config.context_definitions"), operation, source)
+  config_meaning_remote(String.eq(operation, "config.remote"), operation, source)
 def factory(+operation: String) -> Model.Adapter((source => meaning(operation, source))):
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})
 def run(+operation: String, source: J.Json) -> J.Json:

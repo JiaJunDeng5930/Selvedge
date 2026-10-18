@@ -551,3 +551,10 @@ def Rule.supporting_row_information_role(role, inherited, inside, start):
 
 def Rule.supporting_content_chrome(emphasis, scale):
   {==}
+
+def Rule.touch_navigation_minimum_preserves_style(text, chrome, alignment, flow, overflow, frame, minimum, maximum, states): {==}
+
+def Rule.desktop_navigation_style_preserved(representation, visual): {==}
+
+def Rule.touch_navigation_owned_target_uses_motor_floor(representation, visual, eligible):
+  Equal.cong(Bool, Design.Style, (enabled => Appearance.touch_navigation_style_when(enabled, visual)), Controls.navigation_motor_target(representation), True{}, eligible)

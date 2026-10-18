@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
@@ -74,7 +75,7 @@ type Command is Data:
   Regenerate{id: Nat, revision: Nat, profile: String, now: U32}
   Pin{id: Nat, revision: Nat, pinned: Bool, now: U32}
   Settings{automatic: Bool, draft_profile: String}
-  SaveAgent{id: Maybe<&2, Nat>, revision: Nat, agent: AgentProfile}
+  SaveAgent{id: Maybe<&2, Nat>, agent: AgentProfile}
   DeleteAgent{id: Nat, revision: Nat}
 
 type Query is Data:
@@ -289,14 +290,33 @@ def stage_label(stage: Stage) -> String:
     case Completed{}: "已完成"
     case Blocked{}: "已阻塞"
 
-def stage(value: String) -> Stage:
+type StageName is Data:
+  StageNameBacklog{}
+  StageNameInProgress{}
+  StageNameInReview{}
+  StageNameDone{}
+  StageNameBlocked{}
+  StageNameOther{}
+
+def stage_discriminant(+value: String) -> StageName:
+  Bool.pick(StageName, String.eq(value, "backlog"), StageNameBacklog{},
+    Bool.pick(StageName, String.eq(value, "in_progress"), StageNameInProgress{},
+    Bool.pick(StageName, String.eq(value, "in_review"), StageNameInReview{},
+    Bool.pick(StageName, String.eq(value, "done"), StageNameDone{},
+    Bool.pick(StageName, String.eq(value, "blocked"), StageNameBlocked{},
+    StageNameOther{})))))
+
+def stage_classified(value: StageName) -> Stage:
   match value:
-    case "backlog": Backlog{}
-    case "in_progress": InProgress{}
-    case "in_review": InReview{}
-    case "done": Completed{}
-    case "blocked": Blocked{}
-    case _: Todo{}
+    case StageNameBacklog{}: Backlog{}
+    case StageNameInProgress{}: InProgress{}
+    case StageNameInReview{}: InReview{}
+    case StageNameDone{}: Completed{}
+    case StageNameBlocked{}: Blocked{}
+    case StageNameOther{}: Todo{}
+
+def stage(value: String) -> Stage:
+  stage_classified(stage_discriminant(value))
 
 def priorities() -> +List<Priority>:
   [NoPriority{}, Low{}, Medium{}, High{}, Urgent{}]
@@ -325,13 +345,30 @@ def priority_rank(priority: Priority) -> Nat:
     case High{}: 3n
     case Urgent{}: 4n
 
-def priority(value: String) -> Priority:
+type PriorityName is Data:
+  PriorityNameLow{}
+  PriorityNameMedium{}
+  PriorityNameHigh{}
+  PriorityNameUrgent{}
+  PriorityNameOther{}
+
+def priority_discriminant(+value: String) -> PriorityName:
+  Bool.pick(PriorityName, String.eq(value, "low"), PriorityNameLow{},
+    Bool.pick(PriorityName, String.eq(value, "medium"), PriorityNameMedium{},
+    Bool.pick(PriorityName, String.eq(value, "high"), PriorityNameHigh{},
+    Bool.pick(PriorityName, String.eq(value, "urgent"), PriorityNameUrgent{},
+    PriorityNameOther{}))))
+
+def priority_classified(value: PriorityName) -> Priority:
   match value:
-    case "low": Low{}
-    case "medium": Medium{}
-    case "high": High{}
-    case "urgent": Urgent{}
-    case _: NoPriority{}
+    case PriorityNameLow{}: Low{}
+    case PriorityNameMedium{}: Medium{}
+    case PriorityNameHigh{}: High{}
+    case PriorityNameUrgent{}: Urgent{}
+    case PriorityNameOther{}: NoPriority{}
+
+def priority(value: String) -> Priority:
+  priority_classified(priority_discriminant(value))
 
 def owner_name(owner: Owner) -> String:
   match owner:
@@ -575,11 +612,6 @@ def prompt(id: Nat, draft: Draft, instructions: String) -> String:
 def identifier(id: Nat) -> String:
   "SV-" ++ Nat.show(1n+id)
 
-def drafting_instruction(retitle: Bool) -> String:
-  match retitle:
-    case True{}: "Return only a JSON object with a concise title (at most 120 characters) and description. Improve the title without claiming the work has been performed; the supplied description will be preserved unchanged."
-    case False{}: "Return only a JSON object with a concise title (at most 120 characters) and a clear actionable description. Preserve the user's requirements, language and constraints. Do not perform the work, invent requirements, or claim completion."
-
-def drafting_prompt(retitle: Bool, draft: Draft) -> String:
+def drafting_prompt(retitle: Bool, draft: Draft, prompts: Title.Prompts) -> String:
   Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
-  drafting_instruction(retitle) ++ "\n\nTitle/request preview:\n" ++ title ++ "\n\nOriginal user request:\n" ++ description
+  Title.board_prompt(retitle, title, description, prompts)

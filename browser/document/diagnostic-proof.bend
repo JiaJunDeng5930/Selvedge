@@ -212,6 +212,7 @@ def interactive(+meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.ActivityContent{expanded, audit}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: {==}
     case SurfaceTypes.TaskRow{task, status, selected}: {==}
+    case SurfaceTypes.TaskChildren{task}: {==}
     case SurfaceTypes.ProjectChooser{selected}: {==}
     case SurfaceTypes.DirectoryRow{path, primary}: {==}
     case SurfaceTypes.ContextSummary{observation}: {==}
@@ -285,6 +286,7 @@ def required_enabled(+meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.ActivityContent{expanded, audit}: interactive(SurfaceTypes.ActivityContent{expanded, audit})
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: interactive(SurfaceTypes.ProjectGroup{project, selected, expanded})
     case SurfaceTypes.TaskRow{task, status, selected}: interactive(SurfaceTypes.TaskRow{task, status, selected})
+    case SurfaceTypes.TaskChildren{task}: interactive(SurfaceTypes.TaskChildren{task})
     case SurfaceTypes.ProjectChooser{selected}: interactive(SurfaceTypes.ProjectChooser{selected})
     case SurfaceTypes.DirectoryRow{path, primary}: interactive(SurfaceTypes.DirectoryRow{path, primary})
     case SurfaceTypes.ContextSummary{observation}: interactive(SurfaceTypes.ContextSummary{observation})
@@ -315,6 +317,17 @@ def persistent(+role: SurfaceTypes.Role) ->
       {==}
     case SurfaceTypes.Toolbar{}:
       {==}
+    case SurfaceTypes.GlobalNavigation{compact}: {==}
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: {==}
+    case SurfaceTypes.CompactHeader{}: {==}
+    case SurfaceTypes.CompactWorkScope{title, count}: {==}
+    case SurfaceTypes.CompactNavigationMenu{}: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}: {==}
+    case SurfaceTypes.WorkTabs{}: {==}
+    case SurfaceTypes.WorkTab{selected}: {==}
+    case SurfaceTypes.WorkTabGroup{}: {==}
+    case SurfaceTypes.WorkOverviewButton{count}: {==}
+    case SurfaceTypes.WorkChoiceRow{}: {==}
     case SurfaceTypes.Navigation{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.NavigationEntry{selected}: {==}
@@ -411,6 +424,17 @@ def dialog_geometry(+role: SurfaceTypes.Role, +key: String, +found: Maybe<&2, Re
       %Equal.sym(+List<Rendered.Violation>, Rendered.bounded_dialog(key, found, viewport), Spec.bounded_dialog(key, found, viewport), bounded_dialog(key, found, viewport)) :
         {_ == Spec.bounded_dialog(key, found, viewport) : +List<Rendered.Violation>}
       {==}
+    case SurfaceTypes.GlobalNavigation{compact}: {==}
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: {==}
+    case SurfaceTypes.CompactHeader{}: {==}
+    case SurfaceTypes.CompactWorkScope{title, count}: {==}
+    case SurfaceTypes.CompactNavigationMenu{}: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}: {==}
+    case SurfaceTypes.WorkTabs{}: {==}
+    case SurfaceTypes.WorkTab{selected}: {==}
+    case SurfaceTypes.WorkTabGroup{}: {==}
+    case SurfaceTypes.WorkOverviewButton{count}: {==}
+    case SurfaceTypes.WorkChoiceRow{}: {==}
     case SurfaceTypes.Navigation{}: {==}
     case SurfaceTypes.NavigationHeader{}: {==}
     case SurfaceTypes.NavigationEntry{selected}: {==}
@@ -493,6 +517,34 @@ def reachable_toolbar(+key: String, +found: Maybe<&2, Rendered.Element>) ->
 def region_geometry(+role: SurfaceTypes.Role, +key: String, +found: Maybe<&2, Rendered.Element>, +viewport: Geometry.Rect) ->
   {Rendered.region_geometry(role, key, found, viewport) == Spec.region_geometry(role, key, found, viewport) : +List<Rendered.Violation>}:
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}:
+      %Equal.sym(+List<Rendered.Violation>, Rendered.bounded_dialog(key, found, viewport), Spec.bounded_dialog(key, found, viewport), bounded_dialog(key, found, viewport)) :
+        {_ == Spec.bounded_dialog(key, found, viewport) : +List<Rendered.Violation>}
+      {==}
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}:
+      {==}
+    case SurfaceTypes.CompactHeader{}:
+      %Equal.sym(+List<Rendered.Violation>, Rendered.bounded_dialog(key, found, viewport), Spec.bounded_dialog(key, found, viewport), bounded_dialog(key, found, viewport)) :
+        {_ == Spec.bounded_dialog(key, found, viewport) : +List<Rendered.Violation>}
+      {==}
+    case SurfaceTypes.CompactWorkScope{title, count}:
+      {==}
+    case SurfaceTypes.CompactNavigationMenu{}:
+      {==}
+    case SurfaceTypes.CompactNavigationEntry{selected}:
+      {==}
+    case SurfaceTypes.WorkTabs{}:
+      %Equal.sym(+List<Rendered.Violation>, Rendered.bounded_dialog(key, found, viewport), Spec.bounded_dialog(key, found, viewport), bounded_dialog(key, found, viewport)) :
+        {_ == Spec.bounded_dialog(key, found, viewport) : +List<Rendered.Violation>}
+      {==}
+    case SurfaceTypes.WorkTab{selected}:
+      {==}
+    case SurfaceTypes.WorkTabGroup{}:
+      {==}
+    case SurfaceTypes.WorkOverviewButton{count}:
+      {==}
+    case SurfaceTypes.WorkChoiceRow{}:
+      {==}
     case SurfaceTypes.Navigation{}:
       %Equal.sym(+List<Rendered.Violation>, Rendered.bounded_dialog(key, found, viewport), Spec.bounded_dialog(key, found, viewport), bounded_dialog(key, found, viewport)) :
         {_ == Spec.bounded_dialog(key, found, viewport) : +List<Rendered.Violation>}
@@ -562,6 +614,17 @@ def code_in_view(+role: SurfaceTypes.Role, +found: Maybe<&2, Rendered.Element>, 
         {visible && _ == visible && Spec.overlaps(paint_bounds, viewport) : Bool}
       {==}
     case SurfaceTypes.CodeBlock{} None{}: {==}
+    case SurfaceTypes.GlobalNavigation{compact} _: {==}
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact} _: {==}
+    case SurfaceTypes.CompactHeader{} _: {==}
+    case SurfaceTypes.CompactWorkScope{title, count} _: {==}
+    case SurfaceTypes.CompactNavigationMenu{} _: {==}
+    case SurfaceTypes.CompactNavigationEntry{selected} _: {==}
+    case SurfaceTypes.WorkTabs{} _: {==}
+    case SurfaceTypes.WorkTab{selected} _: {==}
+    case SurfaceTypes.WorkTabGroup{} _: {==}
+    case SurfaceTypes.WorkOverviewButton{count} _: {==}
+    case SurfaceTypes.WorkChoiceRow{} _: {==}
     case SurfaceTypes.Navigation{} _: {==}
     case SurfaceTypes.NavigationHeader{} _: {==}
     case SurfaceTypes.NavigationEntry{selected} _: {==}
@@ -656,6 +719,7 @@ def read_only(+found: Maybe<&2, SurfaceTypes.Node>) ->
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ActivityContent{meaning_expanded, meaning_audit}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ProjectGroup{meaning_project, meaning_selected, meaning_expanded}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.TaskRow{meaning_task, meaning_status, meaning_selected}, children}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.TaskChildren{meaning_task}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ProjectChooser{meaning_selected}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.DirectoryRow{meaning_path, meaning_primary}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ContextSummary{meaning_observation}, children}}: {==}
@@ -789,6 +853,7 @@ def content_tabs(+meaning: SurfaceTypes.Meaning, +entries: +List<Rendered.Native
     case SurfaceTypes.ActivityContent{meaning_expanded, meaning_audit}: {==}
     case SurfaceTypes.ProjectGroup{meaning_project, meaning_selected, meaning_expanded}: {==}
     case SurfaceTypes.TaskRow{meaning_task, meaning_status, meaning_selected}: {==}
+    case SurfaceTypes.TaskChildren{meaning_task}: {==}
     case SurfaceTypes.ProjectChooser{meaning_selected}: {==}
     case SurfaceTypes.DirectoryRow{meaning_path, meaning_primary}: {==}
     case SurfaceTypes.ContextSummary{meaning_observation}: {==}

@@ -15,19 +15,23 @@ Use Bun 1.4.2 or later and a C compiler on macOS or Linux. Run
 hooks when `pre-commit` is available. Worktree setup creates a local `.build`
 directory without downloading, building, or sharing a kernel executable.
 
-Run `bun run check`, `bun run test`, and `bun run index:check` before submitting work.
+Run `bun run verify` before submitting work. It checks proofs, syntax, all tests
+and the file index while building production assets once. Individual stages remain
+available as `bun run check`, `bun run test`, and `bun run index:check`.
 The commit hook checks proofs, syntax, and the tracked-file index; the push hook
-runs native integration tests. `just check` runs the same checks, and `just hooks`
+runs the focused physical regression suite after the production build.
+`just check` runs the same checks, and `just hooks`
 executes the configured hook stages. GitHub Actions CI is disabled; run these checks locally.
 
-Use proofs for internal semantics, component tests for external boundaries and
-end-to-end tests for their combinations. The ownership map is
-`tests-bend/README.md`. Do not add finite-example tests that only repeat a proven
-state transition; do retain compiler/protocol probes with a concrete fault model
-and actual compiler execution checks. Do not add tests whose only criterion is
-Bend accepting or rejecting source code, proofs or certificates. Unproved behavior
-still needs evidence. A successful Bend proof is not evidence that a host,
-compiler or remote provider follows the model.
+For each proposed or existing test, first move its property to the domain language's
+construction, types or proofs wherever possible. Do not test that property again.
+Then ask whether experience gives a convincing likelihood of actual failure and
+whether the check justifies its maintenance cost; default to deletion if it does
+not. An external boundary or an unproved possibility alone is insufficient.
+Prefer a focused test over an end-to-end scenario and merge related physical
+checks and their setup. See `tests-bend/README.md` for the remaining responsibilities.
+The complete production proof and certificate checks remain mandatory; they do
+not prove that a host, compiler or remote provider obeys the model.
 
 After adding, renaming, or removing files, stage them, run `bun run index`, and
 stage `AGENTS.md`. The index is derived from Git's staged tracked paths. Temporary

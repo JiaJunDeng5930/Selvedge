@@ -141,11 +141,6 @@ class Fixture:
             print(log, file=sys.stderr)
 
 
-def navigate_task(page, label):
-    page.get_by_role('button', name=label, exact=True).click()
-    expect(page.get_by_role('button', name='Task details', exact=True)).to_be_visible()
-
-
 def navigate_task_id(page, task_id):
     deadline = time.monotonic() + 15
     identity = page.wait_for_function('''id => {
@@ -200,7 +195,7 @@ def calculator_boundaries(page, fixture):
     title = 'Interactive calculator browser fixture'
     created = fixture.command(op='create', profile='interactive', message=title)
     request = fixture.request(title)
-    navigate_task(page, title)
+    navigate_task_id(page, created['task_id'])
     prefix = '''## Calculator
 
 ```selvedge-ui
@@ -244,7 +239,7 @@ def calculator_boundaries(page, fixture):
     expect(note).to_have_value('中文输入')
     expect(page.get_by_text('After the interactive block.', exact=True).filter(visible=True)).to_be_visible()
     page.reload(wait_until='domcontentloaded')
-    navigate_task(page, title)
+    navigate_task_id(page, created['task_id'])
     expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('9', timeout=20000)
     expect(page.get_by_role('textbox', name='Note', exact=True).filter(visible=True)).to_have_value('中文输入')
     print(json.dumps({'boundary': 'actual provider streaming → committed controls, native slider/IME and reload restoration', 'passed': True}))
@@ -295,7 +290,7 @@ def graph_boundaries(page, fixture):
     worker = graph['nodes'][0]['task_id']
     worker_request = fixture.request(worker_title)
     monitor_title = 'Live graph monitor browser fixture'
-    fixture.command(op='create', profile='interactive', message=monitor_title)
+    monitor = fixture.command(op='create', profile='interactive', message=monitor_title)['task_id']
     monitor_request = fixture.request(monitor_title)
     code = '''```selvedge-ui
 <ui id="monitor">
@@ -316,7 +311,7 @@ def graph_boundaries(page, fixture):
 '''.replace('GRAPH_ID', str(graph['graph_id']))
     fixture.emit(monitor_request, code)
     fixture.finish(monitor_request)
-    navigate_task(page, monitor_title)
+    navigate_task_id(page, monitor)
     expect(page.get_by_text('Working: true', exact=True).filter(visible=True)).to_be_visible(timeout=20000)
     page.context.set_offline(True)
     fixture.call('/disconnect', {})
@@ -343,7 +338,7 @@ def action_boundaries(page, fixture):
     fixture.emit(request, code)
     fixture.finish(request)
     fixture.idle(task)
-    navigate_task(page, title)
+    navigate_task_id(page, task)
     composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
     composer.click()
     composer.fill('Preserve this user draft')
@@ -398,11 +393,11 @@ def namespace_boundaries(page, fixture, parent):
     no_document_marker(page, 'Private calculator namespace marker')
     page.set_viewport_size({'width': 1440, 'height': 1000})
     title = 'New namespace calculator browser fixture'
-    fixture.command(op='create', profile='interactive', message=title)
+    task = fixture.command(op='create', profile='interactive', message=title)['task_id']
     request = fixture.request(title)
     fixture.emit(request, old_text)
     fixture.finish(request)
-    navigate_task(page, title)
+    navigate_task_id(page, task)
     expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('8', timeout=20000)
     expect(page.get_by_role('textbox', name='Note', exact=True).filter(visible=True)).to_have_value('')
     print(json.dumps({'boundary': 'same-journal restart restoration and different-journal namespace isolation', 'passed': True}))
@@ -413,7 +408,7 @@ def authorization_boundaries(page, fixture):
                             nodes=[{'key': 'private', 'profile': 'demo', 'message': 'Revocation source worker'}], rules=[])
     fixture.idle(graph['nodes'][0]['task_id'])
     title = 'Revocation monitor browser fixture'
-    fixture.command(op='create', profile='interactive', message=title)
+    task = fixture.command(op='create', profile='interactive', message=title)['task_id']
     request = fixture.request(title)
     fixture.emit(request, '''```selvedge-ui
 <ui id="revocation">
@@ -430,7 +425,7 @@ def authorization_boundaries(page, fixture):
 ```
 '''.replace('GRAPH_ID', str(graph['graph_id'])))
     fixture.finish(request)
-    navigate_task(page, title)
+    navigate_task_id(page, task)
     projection = page.get_by_text(re.compile('^Revoked projection: ')).filter(visible=True)
     expect(projection).to_be_visible(timeout=20000)
     marker = projection.inner_text()
@@ -469,7 +464,7 @@ def main():
             page.on('pageerror', lambda error: errors.append({'message': str(error), 'stack': error.stack}))
             try:
                 page.goto(fixture.address + '/', wait_until='domcontentloaded')
-                expect(page.get_by_role('button', name='新任务', exact=True)).to_be_visible(timeout=20000)
+                expect(page.get_by_role('button', name='新建对话', exact=True)).to_be_visible(timeout=20000)
                 if args.mode in ['calculator', 'namespace', 'all']:
                     parent = calculator_boundaries(page, fixture)
                 if args.mode == 'all':

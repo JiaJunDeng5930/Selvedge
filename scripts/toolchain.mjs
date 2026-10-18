@@ -5,24 +5,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 export const expectedVersion = readFileSync(new URL('../bend-version', import.meta.url), 'utf8').trim();
 const local = fileURLToPath(new URL('../.build/bend/bin/bend', import.meta.url));
 
-// These settings affect compiler children only. Full collections reclaim the
-// checker's temporary proof terms; 30% growth balances collection cost and memory.
-// The threshold (MiB) selects these factors instead of JSC's large-RAM heuristic.
+// The pinned verifier recursively compares finite lowered instruction terms.
+// Configure compiler children only; leave the host, tests and heap policy alone.
 export function compilerEnvironment() {
-  return {
-    ...process.env,
-    BUN_JSC_useGenerationalGC: 'false',
-    BUN_JSC_heapGrowthFunctionThresholdInMB: '1048576',
-    BUN_JSC_smallHeapGrowthFactor: '1.3',
-    BUN_JSC_mediumHeapGrowthFactor: '1.3',
-    BUN_JSC_largeHeapGrowthFactor: '1.3',
-    // compilerInvocation reserves a 16 MiB OS stack before starting this VM.
-    BUN_JSC_maxPerThreadStackUsage: '14680064',
-  };
+  return { ...process.env, BUN_JSC_maxPerThreadStackUsage: '14680064' };
 }
 
-// exec retains the compiler PID and process group used by timeout/cancellation.
-// Arguments stay positional, so paths and source arguments are never shell code.
 export function compilerInvocation(executable, args) {
   return {
     command: '/bin/sh',

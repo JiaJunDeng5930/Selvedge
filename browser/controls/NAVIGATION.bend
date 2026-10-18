@@ -46,6 +46,7 @@ def admitted(owner: Maybe<&2, String>, nodes: +List<Surface.Node>) -> Bool:
 def descend(meaning: Surface.Meaning, depth: Nat) -> Nat:
   match meaning:
     case Surface.ProjectGroup{project, selected, expanded}: (depth + 1n : Nat)
+    case Surface.TaskChildren{task}: (depth + 1n : Nat)
     case _: depth
 
 def menu_owned(layers: +List<View.Layer>, +create: String, +more: String) -> Bool:
@@ -61,6 +62,9 @@ def feedback_active(attention: Attention, +owner: String, menu: Bool) -> Bool:
 def revealed(attention: Attention, +owner: String, menu: Bool) -> Bool:
   Attention{hovered, focused, capable} = attention
   Bool.not(capable) || owns(hovered, owner) || owns(focused, owner) || menu
+
+def auxiliary_exposed(attention: Attention, owner: String, menu: Bool, selected: Bool) -> Bool:
+  selected || revealed(attention, owner, menu)
 
 type ContentRole is Data:
   DisclosureSlot{}
@@ -95,3 +99,16 @@ def leading_allocation(geometry: LeadingGeometry) -> Nat:
 def following_gap(geometry: LeadingGeometry) -> Nat:
   LeadingGeometry{visual, target, allocation, before, after, following} = geometry
   following
+
+
+law auxiliary_exposure_uses_selection_and_owner_attention:
+  @+hovered:Maybe<&2, String> -> @+focused:Maybe<&2, String> -> @+capable:Bool -> @+owner:String -> @+menu:Bool -> @+selected:Bool ->
+    {auxiliary_exposed(Attention{hovered, focused, capable}, owner, menu, selected) == (selected || (Bool.not(capable) || owns(hovered, owner) || owns(focused, owner) || menu)) : Bool}
+
+law selected_owner_exposes_auxiliary:
+  @attention:Attention -> @owner:String -> @menu:Bool ->
+    {auxiliary_exposed(attention, owner, menu, True{}) == True{} : Bool}
+
+law unselected_owner_uses_existing_exposure:
+  @+attention:Attention -> @+owner:String -> @+menu:Bool ->
+    {auxiliary_exposed(attention, owner, menu, False{}) == revealed(attention, owner, menu) : Bool}

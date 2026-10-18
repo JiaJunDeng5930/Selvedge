@@ -18,6 +18,17 @@ import ../TYPES.bend as InteractionTypes
 import ../interactive_markdown/TYPES.bend as IM
 
 type Role is Data:
+  GlobalNavigation{compact: Bool}
+  GlobalNavigationEntry{selected: Bool, compact: Bool}
+  CompactHeader{}
+  CompactWorkScope{title: String, count: Nat}
+  CompactNavigationMenu{}
+  CompactNavigationEntry{selected: Bool}
+  WorkTabs{}
+  WorkTab{selected: Bool}
+  WorkTabGroup{}
+  WorkOverviewButton{count: Nat}
+  WorkChoiceRow{}
   Navigation{}
   NavigationHeader{}
   NavigationEntry{selected: Bool}
@@ -98,6 +109,7 @@ type Meaning is Data:
   ActivityContent{expanded: Bool, audit: +List<Conversation.AuditFace>}
   ProjectGroup{project: Nat, selected: Bool, expanded: Bool}
   TaskRow{task: Nat, status: V.TaskStatus, selected: Bool}
+  TaskChildren{task: Nat}
   ProjectChooser{selected: Maybe<&2, Nat>}
   DirectoryRow{path: String, primary: Bool}
   ContextSummary{observation: Context.Observation}

@@ -6,6 +6,12 @@ the retained public history in finite character chunks with a bounded summary.
 Each `Next` requires a fresh committed invocation. A host interpreter performs one
 call only; it cannot advance the cursor or publish a partial final replacement.
 
+`Source` distinguishes native JSON history with retained raw rebuild material
+from portable unread text. The native branch does not render the raw history.
+`to_portable` derives that text when transport capacity, provider capacity or an
+unsupported native capability first requires the portable method; later chunks
+retain only the unread text.
+
 The source text is quoted history data, not an instruction stream. Unicode
 characters are split before target encoding. Every actual request is measured at
 its provider before dispatch; an oversized chunk is reduced without dropping its
