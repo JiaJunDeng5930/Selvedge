@@ -1617,3 +1617,247 @@ source and core input obligations were synchronized. A separate native test
 facade also needed the actual surface proof provider in its import closure;
 production evidence does not automatically carry into an independent compiler
 entry.
+
+## Validation performance before the assurance-suite integration
+
+The measurements below use the pre-integration application snapshot retained as
+commit `2e7704c`. Main subsequently changed production constructions and replaced
+the former test suite in PRs #66–#68. Their counts and timings describe that older
+workload; they are not measurements of the integrated main branch.
+
+## Verification preparation and conversion cost on Bend 2.0.34
+
+A Linux sample with four CPU cores and a 16 GiB memory limit showed that all four
+JavaScript emission caches could report hits while spending about 270 seconds
+loading and validating their complete Bend books. Deciding reuse after
+`book_valid` only saved emission. The cache now discovers the current import
+closure before loading Bend and binds its bytes, namespace root, exports, pinned
+compiler source, driver and Bun binary to the output digest. Unsupported import
+forms fall back to compilation. Source boundaries, imported certificates and the
+complete production proof gate still run on every build.
+
+After integration, the same four production artifacts all reported cache hits
+in 13.23 seconds with separate controller processes, or 3.76 seconds with the
+shared controller used by a build. The native boundary check was running during
+this measurement. These are artifact-reuse timings, not full-validation timings.
+
+The former root test command built once before invoking a runner that built
+again. Full checking followed by that command built three times. `verify` now
+owns one checked production build. The UI and activity probes share one stable,
+checked facade; its preparation has a process-group watchdog outside individual
+assertion deadlines. This avoids treating a cold compiler's runtime as an HTTP
+or RPC behavior deadline. Generated execution still runs with fresh test state.
+Bun retained an old file module despite a changed import query string, so fixture
+imports use a separate path for each compiler fingerprint. The cache regression
+executes changed code in the same process to cover that boundary.
+
+An isolated initialization-proof experiment factored catalog admission, unique
+names and native routes and kept the original world-validity proposition. Its
+instrumented local book check completed in about 79 seconds, but the complete
+production proof root exceeded the unchanged 300-second gate. Two bounded source
+checker experiments also failed to establish the required complete-run benefit.
+Those experiments were retained outside production; the pinned checker, actual
+Bend programs and proof statements remain unchanged. Local proof timing is
+insufficient evidence for a whole-project conversion optimization.
+
+Parallel focused runs exposed additional short-deadline failures. Ordinary
+validation therefore retains one isolated test process at a time. A real hanging
+RPC fixture uses a one-second request budget so process initialization can
+complete before the intended callback fault. Its physical execution-count and
+failure assertions remain intact. Process tests separately exercise watchdog
+termination and descendants holding inherited output pipes after their parent
+exits; the runner terminates the owned group before waiting for pipe EOF.
+
+The original full proof also hit the container's 16 GiB memory limit: its process
+tree reached about 15.9 GiB and the cgroup recorded an OOM kill. With the same
+pinned binary, sources and strict proof oracle, `BUN_JSC_gcMaxHeapSize=12000000000`
+completed in 139.25 seconds with about 11.5 GiB peak process-tree RSS. The default
+child environment now caps the managed heap at 8 GB or 70% of effective physical
+and container memory, whichever is lower; an explicit environment override wins.
+This schedules collection before the OS limit rather than changing proof checking.
+
+The larger generic operational-client fixture completed with an 8 GB managed
+heap in 325.04 seconds and about 13.0 GiB total process-tree RSS. A separate cold
+UI emission under that budget reproduced the existing artifact byte for byte in
+186.06 seconds. The unchanged operational-client execution test passed separately
+in 2.95 seconds using its stable artifact. Native allocations require headroom beyond
+the managed heap; that larger fixture motivated the lower default budget. Cold
+preparation is bounded separately from the actual assertion deadline.
+
+Runtime profiling exposed a separate cost after compilation. In an isolated
+context scenario, 188 kernel transitions spent about 28.54 seconds in the model
+packet calculation, 1.18 seconds showing results and 0.79 seconds posting Worker
+messages. A sampled context-observation packet concentrated work in prefix
+comparison, text equality and UTF-8 length calculations. Optimizing Worker
+snapshot transfer would not address that dominant calculation cost.
+
+The JavaScript compiler adds native fast paths for equality, prefix matching, code-point
+reversal with a retained suffix, accumulated equality, JSON escaping and UTF-8
+length only when the pinned
+Base source, the complete owning Bend source and the emitted function digest
+match known implementations. The original body remains the fallback, including
+for malformed JavaScript strings or missing browser primitives. The UTF-8 path
+retains the original Nat overflow guard. JSON controls retain Bend's six-character
+lowercase escapes; abbreviated JSON escapes would change the wire bytes.
+Optimizer and parser bytes participate
+in artifact identity; changing a defining source disables the corresponding
+intrinsic rather than overriding its new meaning. Acorn is pinned for structural
+matching of emitted functions.
+
+Execution regressions compare the optimized functions with their actual retained
+compiler bodies across Unicode, all control characters and numeric boundaries,
+exercise unavailable browser primitives, and compile changed UTF-8 and escaping
+definitions that must execute their new results. Partial string optimizations
+passed an isolated Unicode case but a later full run exposed a 30-second kernel
+transition timeout during reconstruction. Sampling then located about 84% of a
+measurement packet in escaping and character assembly, with code-point reversal
+also prominent during completion. The complete fast paths passed the original
+nine compaction cases without sampling in about 61 seconds; the large Unicode
+case completed in about 25.3 seconds. All original data, reconstruction and frame
+assertions and deadlines were retained. These isolated results do not replace
+the complete suite. A general Word round-trip rewrite was not adopted.
+
+The earlier baseline complete `bun run verify` passed all 276 tests across 51 files and the
+606-file index in 1128.14 seconds on the same four-core, 16 GiB machine. Production
+artifacts and shared facades were warm; extension probes still compiled their
+actual changed programs. Full checking took 204.27 seconds, including the original
+137.78-second production proof and the native IO boundary. The four artifact hits
+took about 2.22 seconds together. The original large Unicode rebuild passed in
+22.17 seconds. The locality, context-definition and native-control extension
+files consumed 604.43 seconds together, about 54% of the whole command. These
+remaining compiler workloads explain why complete validation is still measured
+in minutes. This run used streamed timing with no periodic process sampling;
+the cgroup recorded no OOM or memory-limit events.
+
+## String dispatch representation and complete verification
+
+String literal patterns in Bend 2.0.34 expand through character and word
+constructors during pattern compilation. Repeating large name dispatches across
+the production proof, native entry and extension fixtures makes that expansion
+part of every independent compilation. The owning modules now classify these
+names with explicit string equality and dispatch on local data constructors.
+The public functions retain their signatures; branch calculations, unknown-name
+results and existing serialized constructors retain their meanings. Branches
+with identical calculations share a classification. The pinned compiler and
+production proof statements are unchanged.
+
+Two source representations passed the complete production proof in isolated
+experiments: classification before dispatch and selecting functions with
+`Bool.pick`. Classification was faster and avoids changing public argument
+quantities. These prototype timings do not establish complete-suite performance;
+the full verification command must still execute the production proof, native
+entry, extension compilation and every integration file.
+
+The control execution probe imports the owning authored-control and semantic
+surface providers directly. The surface provider discharges the actual loaded
+`layer_region_evidence` obligation. All field, binding and destination assertions
+remain in the probe, while ordinary builds still check the complete proof root.
+
+The first shared-prefix revision was a regression: cold full verification took
+1483.04 seconds, despite passing all 277 tests. It checked the complete proof
+entry once through the CLI and again as the compilation prefix. Its largest
+compiler process reached about 14.1 GiB RSS. A successful suite did not establish
+an acceptable complete-run time. Reordering the proof import together with a
+larger heap also failed to improve the measured production gate; that combination
+was not adopted.
+
+The build now applies the pinned CLI's original pure verdict to its freshly
+checked prefix in the same process. It still checks the complete prefix when all
+artifacts are current. Its 300-second proof watchdog, zero-hole requirement and
+unsafe/foreign rejection remain distinct from the compilation watchdog. A
+before/after source snapshot covers both the proof prefix and entry closures.
+No persistent proof-success flag replaces fresh checking.
+
+A controlled runtime comparison used the checksum-verified Bend 2.0.34 source.
+TypeScript erasure, relative module suffixes and CLI startup were adapted for
+Node 26.10.0; checker and emitter algorithms were unchanged. Two simultaneous
+checks completed in 238.20 seconds for the complete production proof and
+196.70 seconds for the original native state-extension client; their individual
+peak RSS values were about 5.2 and 5.1 GiB. The native executable returned the
+original expected result. Both retained their original 300-second budgets.
+However, a production batch on that runtime spent more than 209 seconds in its
+first kernel emission without completing, after a 152.54-second proof. That
+trial was stopped and rejected. Reduced memory did not imply faster emission.
+
+A subsequent independent JavaScript extension also ran for more than 343 seconds
+without completing on Node, compared with the earlier Bun execution below three
+minutes. That path was rejected too. All JavaScript compilation therefore retains
+Bun. Native C backend and native-entry checks use Node with the same pinned source.
+The original complete context-extension case passed on Bun with a 4 GB managed
+heap in 132.21 seconds. Its peak child RSS still reached about 10.0 GiB, so the
+concurrent full-suite Bun budget is 3 GB, with the native Node budget at 5120 MiB.
+These are resource controls, not changes to checker algorithms or proof obligations.
+
+Each controller owns its verified compiler extraction, preventing concurrent
+controllers from replacing shared compiler files. Runtime, transpiler, generated
+adapter, driver, optimizer and parser bytes participate in artifact identities.
+Base belongs to the verified compiler archive; intrinsic guards also check its
+actual extracted bytes. On the four-CPU, 16-GiB resource class, one JavaScript
+compiler file, the audited native extension file and one audited runtime-only
+file can run together. Unknown files enter the JavaScript compiler queue.
+Every file retains its process isolation, original assertions and deadlines.
+
+The first complete test attempt also exposed a Node plugin startup regression:
+the source-checkout verifier called the Bun-only compiler preparer directly.
+The Node checkout path now computes the complete current identity through a
+bounded Bun subprocess; installed packages still validate shipped assets without
+a build toolchain. The original SDK discovery, execution and reconnection case
+passed with this correction, together with all cache, intrinsic and watchdog
+cases (12 tests across four files). Aborted or failing full runs above do not
+constitute complete performance evidence.
+
+The final frozen code passed complete cold and warm `bun run verify` runs:
+277 tests across 51 files, no unsuccessful or incomplete files, and the 607-file
+index. On the same four-CPU, 16-GiB machine, the cold command took 1084.58 seconds
+and the warm command 617.70 seconds. The earlier warm baseline was 1128.14
+seconds, so the matched warm comparison improved by 45.25%. The regressed cold
+revision took 1483.04 seconds; the final cold run improved by 26.87%.
+Cold means all six production/shared test libraries were rebuilt, with dependencies
+and the verified compiler archive already present. Both runs freshly checked the
+complete production proof and actually compiled changed extension sources. The
+484 frozen code/configuration digests matched between the two final commands.
+
+The cold and warm proof checks took 197.06 and 121.16 seconds. Total pre-test
+checking finished at 621.14 and 172.04 seconds. The complete context-extension
+files took 277.12 and 265.32 seconds, and locality took 364.79 and 365.53 seconds;
+these file timings overlap and must not be summed as whole-command time. The
+locality file includes a later JavaScript feature probe as well as its native
+probe. Both complete commands passed without OOM or OOM kills. The cold run
+recorded two memory-limit reclaim events; the warm run added none. Largest
+individual child RSS was 14.07 GiB cold and 10.11 GiB warm, not a process-tree sum.
+
+This establishes a complete warm-run improvement rather than a deferred check.
+It does not establish a fixed latency bound or that cold validation is solved:
+the cold command still took about eighteen minutes. Cold entry checking and
+emission, plus the remaining JavaScript extension queue, retain substantial cost.
+
+### One backend emission for the complete library rebuild
+
+The six production/shared-fixture libraries now use one official `js_lib` call
+when rebuilding together. Eligible entries load under canonical source namespaces
+into one freshly checked book; conservative identifier reachability projects the
+original generated declarations and export expressions into standalone modules.
+The complete original runtime remains in each output. Root-owned data or conflicting
+definitions retain independent compilation to preserve their existing meanings.
+The compiler pin, checker, native backend, test inputs and deadlines did not change.
+
+On the same 4-CPU / 16-GiB machine, a complete `bun run verify` after explicitly
+invalidating all six library manifests finished in 836.53 s, compared with the
+previous all-six-rebuild result of 1084.58 s: 248.05 s (22.87%) less. All 278 tests
+in 51 files and the 608-file index passed. One execution test was added; all
+previous assertions remain. The proof-plus-library phase changed from 561.32 s
+to 324.03 s. The fresh complete prefix took 185.32 s, additional entry checking
+2.42 s, and the single backend emission 116.06 s. Test execution remained similar:
+460.39 s versus 456.12 s. Maximum individual child RSS was 12.32 GiB versus
+14.07 GiB; this is not a process-tree peak. No memory-limit or OOM events were
+added. All 608 tracked-file hashes remained unchanged during the measured run.
+
+Joint manifests bind the independently rediscovered union input closure and the
+module extractor's bytes, in addition to existing compiler and output identities.
+This conservatively broadens invalidation: changing one participating entry can
+invalidate others. The complete-rebuild improvement does not establish an
+improvement for every partial edit. Partial misses can still compile separately.
+Original evidence is retained under `.workpad/verification-perf/` as
+`joint-cold-full-verify-final`, `joint-summary.json` and `joint-artifacts.json`.
+The complete rebuild is now approximately 14 minutes; the test stage remains a
+substantial unresolved part of the user's overall latency goal.

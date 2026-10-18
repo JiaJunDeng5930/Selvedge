@@ -235,16 +235,39 @@ def key(field: Field) -> String:
     case CompactionSummary{}: "compaction-summary"
     case TaskGraphDeclaration{}: "task-graph-declaration"
 
-def choice_field_by_key(value: String) -> Maybe<&2, Field>:
+type ChoiceFieldByKeyName is Data:
+  ChoiceFieldByKeyNameModelProfile{}
+  ChoiceFieldByKeyNameReasoningEffort{}
+  ChoiceFieldByKeyNameSandboxMode{}
+  ChoiceFieldByKeyNameNetworkAccess{}
+  ChoiceFieldByKeyNameApprovalPolicy{}
+  ChoiceFieldByKeyNameApprovalReviewer{}
+  ChoiceFieldByKeyNameWorkspacePrimary{}
+  ChoiceFieldByKeyNameOther{}
+
+def choice_field_by_key_discriminant(+value: String) -> ChoiceFieldByKeyName:
+  Bool.pick(ChoiceFieldByKeyName, String.eq(value, "model-profile"), ChoiceFieldByKeyNameModelProfile{},
+    Bool.pick(ChoiceFieldByKeyName, String.eq(value, "reasoning-effort"), ChoiceFieldByKeyNameReasoningEffort{},
+    Bool.pick(ChoiceFieldByKeyName, String.eq(value, "sandbox-mode"), ChoiceFieldByKeyNameSandboxMode{},
+    Bool.pick(ChoiceFieldByKeyName, String.eq(value, "network-access"), ChoiceFieldByKeyNameNetworkAccess{},
+    Bool.pick(ChoiceFieldByKeyName, String.eq(value, "approval-policy"), ChoiceFieldByKeyNameApprovalPolicy{},
+    Bool.pick(ChoiceFieldByKeyName, String.eq(value, "approval-reviewer"), ChoiceFieldByKeyNameApprovalReviewer{},
+    Bool.pick(ChoiceFieldByKeyName, String.eq(value, "workspace-primary"), ChoiceFieldByKeyNameWorkspacePrimary{},
+    ChoiceFieldByKeyNameOther{})))))))
+
+def choice_field_by_key_classified(value: ChoiceFieldByKeyName) -> Maybe<&2, Field>:
   match value:
-    case "model-profile": Some{ModelProfile{}}
-    case "reasoning-effort": Some{ReasoningEffort{}}
-    case "sandbox-mode": Some{SandboxMode{}}
-    case "network-access": Some{NetworkAccess{}}
-    case "approval-policy": Some{ApprovalPolicy{}}
-    case "approval-reviewer": Some{ApprovalReviewer{}}
-    case "workspace-primary": Some{WorkspacePrimary{}}
-    case _: None{}
+    case ChoiceFieldByKeyNameModelProfile{}: Some{ModelProfile{}}
+    case ChoiceFieldByKeyNameReasoningEffort{}: Some{ReasoningEffort{}}
+    case ChoiceFieldByKeyNameSandboxMode{}: Some{SandboxMode{}}
+    case ChoiceFieldByKeyNameNetworkAccess{}: Some{NetworkAccess{}}
+    case ChoiceFieldByKeyNameApprovalPolicy{}: Some{ApprovalPolicy{}}
+    case ChoiceFieldByKeyNameApprovalReviewer{}: Some{ApprovalReviewer{}}
+    case ChoiceFieldByKeyNameWorkspacePrimary{}: Some{WorkspacePrimary{}}
+    case ChoiceFieldByKeyNameOther{}: None{}
+
+def choice_field_by_key(value: String) -> Maybe<&2, Field>:
+  choice_field_by_key_classified(choice_field_by_key_discriminant(value))
 
 def field_present(fields: +List<FieldScene>, +wanted: Field) -> Bool:
   match fields:

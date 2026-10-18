@@ -293,10 +293,21 @@ def deadline_admission(+source: J.Json, +message: J.Json, authority: {correlatio
     case False{}: Model.failure("Malformed RPC deadline observation")
     case True{}: retire_timeout(source, message, authority, True{})
 
-def retire_reason(+source: J.Json, +message: J.Json, authority: {correlation(pending(source), message) == True{} : Bool}, +reason: String) -> J.Json:
+type RetireReasonName is Data:
+  RetireReasonNameTimeout{}
+  RetireReasonNameOther{}
+
+def retire_reason_discriminant(+value: String) -> RetireReasonName:
+  Bool.pick(RetireReasonName, String.eq(value, "timeout"), RetireReasonNameTimeout{},
+    RetireReasonNameOther{})
+
+def retire_reason_classified(+source: J.Json, +message: J.Json, authority: {correlation(pending(source), message) == True{} : Bool}, +reason: RetireReasonName) -> J.Json:
   match reason:
-    case "timeout": deadline_admission(source, message, authority, issued_identity(J.get(source, "timeoutMs")))
-    case _: retire_timeout(source, message, authority, False{})
+    case RetireReasonNameTimeout{}: deadline_admission(source, message, authority, issued_identity(J.get(source, "timeoutMs")))
+    case RetireReasonNameOther{}: retire_timeout(source, message, authority, False{})
+
+def retire_reason(+source: J.Json, +message: J.Json, authority: {correlation(pending(source), message) == True{} : Bool}, +reason: String) -> J.Json:
+  retire_reason_classified(source, message, authority, retire_reason_discriminant(reason))
 
 def retire_correlated(+source: J.Json, member: Categories.Membership<J.Json, Categories.holds(J.Json, (message => correlation(pending(source), message)))>) -> J.Json:
   Categories.Membership{+message, authority} = member

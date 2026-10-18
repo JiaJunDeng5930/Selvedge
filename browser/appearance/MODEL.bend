@@ -495,18 +495,31 @@ def activity_control_style_when(enabled: Bool, +value: Design.Style, representat
 def activity_control_style(+value: Design.Style, representation: Controls.Representation) -> Design.Style:
   activity_control_style_when(T.is_activity(Design.style_text(value)), value, representation)
 
-def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
+type SemanticStyleName is Data:
+  SemanticStyleNameCreationTitle{}
+  SemanticStyleNameCreationContext{}
+  SemanticStyleNameOther{}
+
+def semantic_style_discriminant(+value: String) -> SemanticStyleName:
+  Bool.pick(SemanticStyleName, String.eq(value, "creation/title"), SemanticStyleNameCreationTitle{},
+    Bool.pick(SemanticStyleName, String.eq(value, "creation/context"), SemanticStyleNameCreationContext{},
+    SemanticStyleNameOther{}))
+
+def semantic_style_classified(semantic: SemanticStyleName, fallback: Design.Style) -> Design.Style:
   match semantic:
-    case "creation/title":
+    case SemanticStyleNameCreationTitle{}:
       fields(Design.style_text(fallback), base_chrome(),
         SpatialModel.Centered{}, SpatialModel.BlockFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 0n,
         0n, 100n, passive())
-    case "creation/context":
+    case SemanticStyleNameCreationContext{}:
       fields(Design.style_text(fallback),
         chrome(Design.TextForeground{Surfaces.SecondaryText{}}, surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), transparent(), 0n, 0n, False{}),
         SpatialModel.Centered{}, SpatialModel.ColumnFlow{}, SpatialModel.ContentFlow{}, 0n, 0n, 8n,
         0n, 100n, passive())
-    case _: fallback
+    case SemanticStyleNameOther{}: fallback
+
+def semantic_style(semantic: String, fallback: Design.Style) -> Design.Style:
+  semantic_style_classified(semantic_style_discriminant(semantic), fallback)
 
 def modeled_container(value: Design.Style, flow: SpatialModel.Flow, gap: Nat) -> Design.Style:
   Design.Style{text, chrome, alignment, old_flow, overflow, Enclosure.Frame{content, arrangement}, minimum, maximum, states} = value

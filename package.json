@@ -8,18 +8,20 @@
   "scripts": {
     "build": "bun scripts/build.mjs",
     "start": "bun run build && bun host/cli.mjs server",
-    "test": "bun run build && bun test --max-concurrency 1 --timeout 30000 ./tests-bend",
+    "test": "bun scripts/test.mjs",
     "check": "bun scripts/check.mjs",
     "check:components": "bun scripts/check-components.mjs",
     "index": "bun scripts/agents-index.mjs update",
     "index:check": "bun scripts/agents-index.mjs check",
     "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
-    "build:native": "bun scripts/build.mjs --native"
+    "build:native": "bun scripts/build.mjs --native",
+    "verify": "bun scripts/validate.mjs"
   },
   "dependencies": {
     "diff": "9.0.0",
     "gpt-tokenizer": "4.0.0",
-    "openid-client": "6.8.8"
+    "openid-client": "6.8.8",
+    "acorn": "8.15.0"
   },
   "packageManager": "bun@1.4.2",
   "workspaces": [
@@ -27,6 +29,10 @@
     "relay"
   ],
   "devDependencies": {
-    "jose": "6.2.12"
-  }
+    "jose": "6.2.12",
+    "node": "26.10.0"
+  },
+  "trustedDependencies": [
+    "node"
+  ]
 }

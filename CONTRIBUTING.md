@@ -15,7 +15,9 @@ Use Bun 1.4.2 or later and a C compiler on macOS or Linux. Run
 hooks when `pre-commit` is available. Worktree setup creates a local `.build`
 directory without downloading, building, or sharing a kernel executable.
 
-Run `bun run check`, `bun run test`, and `bun run index:check` before submitting work.
+Run `bun run verify` before submitting work. It checks proofs, syntax, all tests
+and the file index while building production assets once. Individual stages remain
+available as `bun run check`, `bun run test`, and `bun run index:check`.
 The commit hook checks proofs, syntax, and the tracked-file index; the push hook
 runs the focused physical regression suite after the production build.
 `just check` runs the same checks, and `just hooks`

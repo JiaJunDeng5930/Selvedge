@@ -33,23 +33,49 @@ def message_json(message: D.Message) -> J.Json:
 def history_json(history: D.History) -> +List<J.Json>:
   Codec.messages_json(D.history_messages(history, Nil{}))
 
-def readable_item(kind: String, +item: J.Json) -> +List<J.Json>:
+type ReadableItemName is Data:
+  ReadableItemNameMessage{}
+  ReadableItemNameReasoning{}
+  ReadableItemNameOther{}
+
+def readable_item_discriminant(+value: String) -> ReadableItemName:
+  Bool.pick(ReadableItemName, String.eq(value, "message"), ReadableItemNameMessage{},
+    Bool.pick(ReadableItemName, String.eq(value, "reasoning"), ReadableItemNameReasoning{},
+    ReadableItemNameOther{}))
+
+def readable_item_classified(kind: ReadableItemName, +item: J.Json) -> +List<J.Json>:
   match kind:
-    case "message": [J.Object{[J.Field{"role", J.get(item, "role")},
+    case ReadableItemNameMessage{}: [J.Object{[J.Field{"role", J.get(item, "role")},
       J.Field{"content", J.Text{Content.content_parts(J.items(J.get(item, "content")))}}]}]
-    case "reasoning": [J.Object{[J.Field{"role", J.Text{"assistant"}},
+    case ReadableItemNameReasoning{}: [J.Object{[J.Field{"role", J.Text{"assistant"}},
       J.Field{"content", J.Text{Content.content_parts(J.items(J.get(item, "summary")))}}]}]
-    case _: Nil{}
+    case ReadableItemNameOther{}: Nil{}
+
+def readable_item(kind: String, +item: J.Json) -> +List<J.Json>:
+  readable_item_classified(readable_item_discriminant(kind), item)
 
 def readable_context(+value: J.Json) -> +List<J.Json>:
   +item = Content.provider_value(value)
   readable_item(J.text(J.get(item, "type")), item)
 
-def readable_message_kind(kind: String, +message: J.Json) -> +List<J.Json>:
+type ReadableMessageKindName is Data:
+  ReadableMessageKindNameContextReplacement{}
+  ReadableMessageKindNameModelContext{}
+  ReadableMessageKindNameOther{}
+
+def readable_message_kind_discriminant(+value: String) -> ReadableMessageKindName:
+  Bool.pick(ReadableMessageKindName, String.eq(value, "context_replacement"), ReadableMessageKindNameContextReplacement{},
+    Bool.pick(ReadableMessageKindName, String.eq(value, "model_context"), ReadableMessageKindNameModelContext{},
+    ReadableMessageKindNameOther{}))
+
+def readable_message_kind_classified(kind: ReadableMessageKindName, +message: J.Json) -> +List<J.Json>:
   match kind:
-    case "context_replacement": Nil{}
-    case "model_context": readable_context(J.get(message, "content"))
-    case _: [message]
+    case ReadableMessageKindNameContextReplacement{}: Nil{}
+    case ReadableMessageKindNameModelContext{}: readable_context(J.get(message, "content"))
+    case ReadableMessageKindNameOther{}: [message]
+
+def readable_message_kind(kind: String, +message: J.Json) -> +List<J.Json>:
+  readable_message_kind_classified(readable_message_kind_discriminant(kind), message)
 
 def readable_message(+message: J.Json) -> +List<J.Json>:
   readable_message_kind(J.text(J.get(message, "role")), message)
@@ -64,13 +90,26 @@ def scoped_context(usable: Bool, +value: J.Json) -> +List<J.Json>:
     case True{}: [J.Object{[J.Field{"role", J.Text{"model_context"}}, J.Field{"content", Content.provider_value(value)}]}]
     case False{}: readable_context(value)
 
-def scoped_message_kind(kind: String, +message: J.Json, +scope: String) -> +List<J.Json>:
+type ScopedMessageKindName is Data:
+  ScopedMessageKindNameContextReplacement{}
+  ScopedMessageKindNameModelContext{}
+  ScopedMessageKindNameOther{}
+
+def scoped_message_kind_discriminant(+value: String) -> ScopedMessageKindName:
+  Bool.pick(ScopedMessageKindName, String.eq(value, "context_replacement"), ScopedMessageKindNameContextReplacement{},
+    Bool.pick(ScopedMessageKindName, String.eq(value, "model_context"), ScopedMessageKindNameModelContext{},
+    ScopedMessageKindNameOther{}))
+
+def scoped_message_kind_classified(kind: ScopedMessageKindName, +message: J.Json, +scope: String) -> +List<J.Json>:
   match kind:
-    case "context_replacement": Nil{}
-    case "model_context": scoped_context(
+    case ScopedMessageKindNameContextReplacement{}: Nil{}
+    case ScopedMessageKindNameModelContext{}: scoped_context(
       String.eq(J.text(J.get(J.get(message, "content"), "type")), "provider_receipt") &&
       Bool.not(String.eq(scope, "")) && String.eq(J.text(J.get(J.get(message, "content"), "scope")), scope), J.get(message, "content"))
-    case _: [message]
+    case ScopedMessageKindNameOther{}: [message]
+
+def scoped_message_kind(kind: String, +message: J.Json, +scope: String) -> +List<J.Json>:
+  scoped_message_kind_classified(scoped_message_kind_discriminant(kind), message, scope)
 
 def scoped_message(+message: J.Json, +scope: String) -> +List<J.Json>:
   scoped_message_kind(J.text(J.get(message, "role")), message, scope)
@@ -90,21 +129,43 @@ def replacement_source(selection: Spec.Selection) -> Maybe<&2, Nat>:
     case Spec.Original{}: None{}
     case Spec.Replacement{source, items}: Some{source}
 
-def fixed_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+type FixedKindName is Data:
+  FixedKindNameTaskContext{}
+  FixedKindNameOther{}
+
+def fixed_kind_discriminant(+value: String) -> FixedKindName:
+  Bool.pick(FixedKindName, String.eq(value, "task_context"), FixedKindNameTaskContext{},
+    FixedKindNameOther{})
+
+def fixed_kind_classified(kind: FixedKindName, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
-    case "task_context": message <> rest
-    case _: rest
+    case FixedKindNameTaskContext{}: message <> rest
+    case FixedKindNameOther{}: rest
+
+def fixed_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  fixed_kind_classified(fixed_kind_discriminant(kind), message, rest)
 
 def fixed(messages: +List<J.Json>) -> +List<J.Json>:
   match messages:
     case Nil{}: Nil{}
     case Con{+message, rest}: fixed_kind(J.text(J.get(message, "role")), message, fixed(rest))
 
-def dialogue_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+type DialogueKindName is Data:
+  DialogueKindNameTaskContext{}
+  DialogueKindNameOther{}
+
+def dialogue_kind_discriminant(+value: String) -> DialogueKindName:
+  Bool.pick(DialogueKindName, String.eq(value, "task_context"), DialogueKindNameTaskContext{},
+    Bool.pick(DialogueKindName, String.eq(value, "context_replacement"), DialogueKindNameTaskContext{},
+    DialogueKindNameOther{}))
+
+def dialogue_kind_classified(kind: DialogueKindName, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
-    case "task_context": rest
-    case "context_replacement": rest
-    case _: message <> rest
+    case DialogueKindNameTaskContext{}: rest
+    case DialogueKindNameOther{}: message <> rest
+
+def dialogue_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  dialogue_kind_classified(dialogue_kind_discriminant(kind), message, rest)
 
 def dialogue(messages: +List<J.Json>) -> +List<J.Json>:
   match messages:
@@ -132,10 +193,21 @@ def assemble(selection: Spec.Selection, +messages: +List<J.Json>, +scope: String
 def target_messages(+messages: +List<J.Json>, +scope: String) -> +List<J.Json>:
   assemble(latest(messages, scope, 0n, Spec.Original{}), messages, scope)
 
-def retained_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+type RetainedKindName is Data:
+  RetainedKindNameContextReplacement{}
+  RetainedKindNameOther{}
+
+def retained_kind_discriminant(+value: String) -> RetainedKindName:
+  Bool.pick(RetainedKindName, String.eq(value, "context_replacement"), RetainedKindNameContextReplacement{},
+    RetainedKindNameOther{})
+
+def retained_kind_classified(kind: RetainedKindName, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
-    case "context_replacement": rest
-    case _: message <> rest
+    case RetainedKindNameContextReplacement{}: rest
+    case RetainedKindNameOther{}: message <> rest
+
+def retained_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
+  retained_kind_classified(retained_kind_discriminant(kind), message, rest)
 
 def retained_messages(messages: +List<J.Json>) -> +List<J.Json>:
   match messages:

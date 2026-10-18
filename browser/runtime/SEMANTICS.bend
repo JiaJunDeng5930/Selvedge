@@ -289,11 +289,24 @@ def model_gesture(value: Forms.Observed, text: String, effort: Bool) -> Maybe<&2
     case Forms.ModelValue{profile, reasoning}: model_field(profile, reasoning, text, effort)
     case _: None{}
 
-def delivery_gesture(text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
+type DeliveryGestureName is Data:
+  DeliveryGestureNameSend{}
+  DeliveryGestureNameSteer{}
+  DeliveryGestureNameOther{}
+
+def delivery_gesture_discriminant(+value: String) -> DeliveryGestureName:
+  Bool.pick(DeliveryGestureName, String.eq(value, "send"), DeliveryGestureNameSend{},
+    Bool.pick(DeliveryGestureName, String.eq(value, "steer"), DeliveryGestureNameSteer{},
+    DeliveryGestureNameOther{}))
+
+def delivery_gesture_classified(text: DeliveryGestureName) -> Maybe<&2, SurfaceTypes.Gesture>:
   match text:
-    case "send": Some{SurfaceTypes.Change{Forms.Delivery{U.Send{}}}}
-    case "steer": Some{SurfaceTypes.Change{Forms.Delivery{U.Steer{}}}}
-    case _: None{}
+    case DeliveryGestureNameSend{}: Some{SurfaceTypes.Change{Forms.Delivery{U.Send{}}}}
+    case DeliveryGestureNameSteer{}: Some{SurfaceTypes.Change{Forms.Delivery{U.Steer{}}}}
+    case DeliveryGestureNameOther{}: None{}
+
+def delivery_gesture(text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
+  delivery_gesture_classified(delivery_gesture_discriminant(text))
 
 def assistance_gesture(value: Forms.Observed, text: String) -> Maybe<&2, SurfaceTypes.Gesture>:
   match value:

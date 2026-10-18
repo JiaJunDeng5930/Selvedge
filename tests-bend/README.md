@@ -60,14 +60,30 @@ Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 
 ```sh
-bun run check
-bun run test
-bun run index:check
+bun run verify
 ```
 
-`bun run test` builds the production JavaScript libraries once and invokes Bun's
-standard test runner with sequential tests. Fixtures do not compile more Bend
-programs. The suite uses temporary homes, loopback servers and subprocesses; no
+`bun run verify` checks the complete production proof, native entry, syntax and
+certificates, builds the production libraries once, runs the complete suite and
+checks the tracked-file index. `bun run test` builds once and invokes Bun's
+standard sequential test runner. Each invocation owns its subprocess group and a
+watchdog, drains both output pipes and validates the complete normal test footer.
+
+The compiler cache and guarded-intrinsic probes compile small isolated inputs:
+changed imports, retargeted files, changed toolchain/export identities and damaged
+outputs must execute current code; joint modules must preserve independent entry
+functions and constructor identities. Differential execution checks Unicode,
+control escapes, malformed strings, bounded accumulators and missing browser
+primitives against the original generated functions. These target the actual
+artifact-cache and intrinsic failures addressed by this change; they do not
+recompile hypothetical application extensions or replay model semantics.
+
+The fresh proof book feeds one official backend emission for eligible production
+entries. Standalone modules retain their own reachable generated declarations;
+complete source and tool identities plus output hashes guard reuse. Joint inputs
+conservatively share their invalidation scope. Native-entry checking uses the
+locked Node runtime; the checker and compiler source remain pinned and unchanged.
+ The suite uses temporary homes, loopback servers and subprocesses; no
 real model account or paid request is needed. OS isolation requires Seatbelt on
 macOS or bubblewrap/seccomp on Linux. Chromium or Google Chrome is required for
 the focused DOM regression; `SELVEDGE_BROWSER` may name its executable.

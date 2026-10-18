@@ -148,16 +148,29 @@ def envelope(kind: String, +body: J.Json) -> Bool:
   J.same(J.get(body, "kind"), J.Text{kind}) && Shape.is_natural(J.get(body, "task_id")) &&
     Shape.is_bool(J.get(body, "ok"))
 
-def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, W.Completion>:
+type CompletionName is Data:
+  CompletionNameWorktreeCreated{}
+  CompletionNameWorktreeArchived{}
+  CompletionNameOther{}
+
+def completion_discriminant(+value: String) -> CompletionName:
+  Bool.pick(CompletionName, String.eq(value, "worktree_created"), CompletionNameWorktreeCreated{},
+    Bool.pick(CompletionName, String.eq(value, "worktree_archived"), CompletionNameWorktreeArchived{},
+    CompletionNameOther{}))
+
+def completion_classified(kind: CompletionName, +body: J.Json) -> Result<&2, &2, String, W.Completion>:
   match kind:
-    case "worktree_created": checked(envelope("worktree_created", body) && created_valid(J.boolean(J.get(body, "ok")), body),
+    case CompletionNameWorktreeCreated{}: checked(envelope("worktree_created", body) && created_valid(J.boolean(J.get(body, "ok")), body),
       W.Created{number(J.get(body, "task_id")), J.boolean(J.get(body, "ok")), optional_root(J.get(body, "root")),
         workspace(J.get(body, "workspace")), guidance(J.get(body, "guidance"), workspace(J.get(body, "workspace"))),
         J.text(J.get(body, "message"))})
-    case "worktree_archived": checked(envelope("worktree_archived", body) && archived_valid(J.boolean(J.get(body, "ok")), body),
+    case CompletionNameWorktreeArchived{}: checked(envelope("worktree_archived", body) && archived_valid(J.boolean(J.get(body, "ok")), body),
       W.ArchivedResult{number(J.get(body, "task_id")), J.boolean(J.get(body, "ok")),
         J.text(J.get(body, "root")), J.text(J.get(body, "message"))})
-    case _: Fail{"Unknown worktree completion"}
+    case CompletionNameOther{}: Fail{"Unknown worktree completion"}
+
+def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, W.Completion>:
+  completion_classified(completion_discriminant(kind), body)
 
 def status_name(value: W.Status) -> String:
   match value:

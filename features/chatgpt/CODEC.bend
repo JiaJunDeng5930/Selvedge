@@ -82,10 +82,21 @@ def numbers(values: +List<J.Json>) -> +List<Nat>:
     case Nil{}: Nil{}
     case Con{value, rest}: number(value) <> numbers(rest)
 
-def mode(name: String) -> D.SandboxMode:
+type ModeName is Data:
+  ModeNameReadOnly{}
+  ModeNameOther{}
+
+def mode_discriminant(+value: String) -> ModeName:
+  Bool.pick(ModeName, String.eq(value, "read-only"), ModeNameReadOnly{},
+    ModeNameOther{})
+
+def mode_classified(name: ModeName) -> D.SandboxMode:
   match name:
-    case "read-only": D.ReadOnly{}
-    case _: D.WorkspaceWrite{}
+    case ModeNameReadOnly{}: D.ReadOnly{}
+    case ModeNameOther{}: D.WorkspaceWrite{}
+
+def mode(name: String) -> D.SandboxMode:
+  mode_classified(mode_discriminant(name))
 
 def sandbox(+value: J.Json) -> D.Sandbox:
   D.Sandbox{mode(J.text(J.get(value, "mode"))), J.boolean(J.get(value, "network_access"))}

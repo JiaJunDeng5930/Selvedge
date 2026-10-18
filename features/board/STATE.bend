@@ -280,21 +280,54 @@ def activity_enrichment(state: B.Enrichment, +card: B.Card, +world: M.World()) -
 def activity(+card: B.Card, world: M.World()) -> String:
   activity_enrichment(B.enrichment(card), card, world)
 
-def activity_label(activity: String) -> String:
+type ActivityLabelName is Data:
+  ActivityLabelNameGenerating{}
+  ActivityLabelNameDraftFailed{}
+  ActivityLabelNameQueued{}
+  ActivityLabelNameWorking{}
+  ActivityLabelNameEvaluating{}
+  ActivityLabelNameCompacting{}
+  ActivityLabelNameAwaitingApproval{}
+  ActivityLabelNameCompleted{}
+  ActivityLabelNameFailed{}
+  ActivityLabelNameInterrupted{}
+  ActivityLabelNamePaused{}
+  ActivityLabelNameArchived{}
+  ActivityLabelNameOther{}
+
+def activity_label_discriminant(+value: String) -> ActivityLabelName:
+  Bool.pick(ActivityLabelName, String.eq(value, "generating"), ActivityLabelNameGenerating{},
+    Bool.pick(ActivityLabelName, String.eq(value, "draft_failed"), ActivityLabelNameDraftFailed{},
+    Bool.pick(ActivityLabelName, String.eq(value, "queued"), ActivityLabelNameQueued{},
+    Bool.pick(ActivityLabelName, String.eq(value, "working"), ActivityLabelNameWorking{},
+    Bool.pick(ActivityLabelName, String.eq(value, "evaluating"), ActivityLabelNameEvaluating{},
+    Bool.pick(ActivityLabelName, String.eq(value, "compacting"), ActivityLabelNameCompacting{},
+    Bool.pick(ActivityLabelName, String.eq(value, "awaiting_approval"), ActivityLabelNameAwaitingApproval{},
+    Bool.pick(ActivityLabelName, String.eq(value, "completed"), ActivityLabelNameCompleted{},
+    Bool.pick(ActivityLabelName, String.eq(value, "failed"), ActivityLabelNameFailed{},
+    Bool.pick(ActivityLabelName, String.eq(value, "interrupted"), ActivityLabelNameInterrupted{},
+    Bool.pick(ActivityLabelName, String.eq(value, "paused"), ActivityLabelNamePaused{},
+    Bool.pick(ActivityLabelName, String.eq(value, "archived"), ActivityLabelNameArchived{},
+    ActivityLabelNameOther{}))))))))))))
+
+def activity_label_classified(activity: ActivityLabelName) -> String:
   match activity:
-    case "generating": "生成中"
-    case "draft_failed": "生成失败"
-    case "queued": "排队中"
-    case "working": "工作中"
-    case "evaluating": "评估推理等级"
-    case "compacting": "整理上下文"
-    case "awaiting_approval": "等待授权"
-    case "completed": "已完成"
-    case "failed": "运行失败"
-    case "interrupted": "已中断"
-    case "paused": "已暂停"
-    case "archived": "会话已归档"
-    case _: "未开始"
+    case ActivityLabelNameGenerating{}: "生成中"
+    case ActivityLabelNameDraftFailed{}: "生成失败"
+    case ActivityLabelNameQueued{}: "排队中"
+    case ActivityLabelNameWorking{}: "工作中"
+    case ActivityLabelNameEvaluating{}: "评估推理等级"
+    case ActivityLabelNameCompacting{}: "整理上下文"
+    case ActivityLabelNameAwaitingApproval{}: "等待授权"
+    case ActivityLabelNameCompleted{}: "已完成"
+    case ActivityLabelNameFailed{}: "运行失败"
+    case ActivityLabelNameInterrupted{}: "已中断"
+    case ActivityLabelNamePaused{}: "已暂停"
+    case ActivityLabelNameArchived{}: "会话已归档"
+    case ActivityLabelNameOther{}: "未开始"
+
+def activity_label(activity: String) -> String:
+  activity_label_classified(activity_label_discriminant(activity))
 
 def synchronized_stage(working: Bool, failed: Bool, previous: B.Stage) -> B.Stage:
   match working failed previous:

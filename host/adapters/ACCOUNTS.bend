@@ -351,10 +351,22 @@ def token_claims(+claims: J.Json, +source: J.Json) -> J.Json:
     (J.same(claims, J.Null{}) || (nonempty(J.get(claims, "sub")) &&
     (Bool.not(has(source, "subject")) || J.same(J.get(claims, "sub"), J.get(source, "subject"))) &&
     (Bool.not(has(claims, "azp")) || J.same(J.get(claims, "azp"), J.get(source, "clientId"))))), source)
-def token_phase(phase: String, +source: J.Json) -> J.Json:
+type TokenPhaseName is Data:
+  TokenPhaseNameGrant{}
+  TokenPhaseNameOther{}
+
+def token_phase_discriminant(+value: String) -> TokenPhaseName:
+  Bool.pick(TokenPhaseName, String.eq(value, "grant"), TokenPhaseNameGrant{},
+    TokenPhaseNameOther{})
+
+def token_phase_classified(phase: TokenPhaseName, +source: J.Json) -> J.Json:
   match phase:
-    case "grant": Model.success(J.Null{})
-    case _: token_claims(J.get(source, "claims"), source)
+    case TokenPhaseNameGrant{}: Model.success(J.Null{})
+    case TokenPhaseNameOther{}: token_claims(J.get(source, "claims"), source)
+
+def token_phase(phase: String, +source: J.Json) -> J.Json:
+  token_phase_classified(token_phase_discriminant(phase), source)
+
 def token_admit(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("ChatGPT returned an invalid token grant")
@@ -484,15 +496,41 @@ def replace(fields: +List<J.Field>, +name: String, +value: J.Json) -> +List<J.Fi
     case Con{J.Field{+key, item}, rest}: Con{J.Field{key, select(String.eq(key, name), value, item)}, replace(rest, name, value)}
 def registration_subject(+source: J.Json) -> J.Json:
   Model.success(J.Object{replace(fields(J.get(source, "registered")), "subject", J.get(J.get(source, "saved"), "subject"))})
+type CallbackBodyName is Data:
+  CallbackBodyNameAccept{}
+  CallbackBodyNameReject{}
+  CallbackBodyNameOther{}
+
+def callback_body_discriminant(+value: String) -> CallbackBodyName:
+  Bool.pick(CallbackBodyName, String.eq(value, "accept"), CallbackBodyNameAccept{},
+    Bool.pick(CallbackBodyName, String.eq(value, "reject"), CallbackBodyNameReject{},
+    CallbackBodyNameOther{}))
+
+def callback_body_classified(action: CallbackBodyName) -> String:
+  match action:
+    case CallbackBodyNameAccept{}: "ChatGPT authorization received. Return to the terminal."
+    case CallbackBodyNameReject{}: "ChatGPT authorization failed. Return to the terminal."
+    case CallbackBodyNameOther{}: ""
+
 def callback_body(action: String) -> String:
+  callback_body_classified(callback_body_discriminant(action))
+
+type CallbackHeadersName is Data:
+  CallbackHeadersNameAccept{}
+  CallbackHeadersNameOther{}
+
+def callback_headers_discriminant(+value: String) -> CallbackHeadersName:
+  Bool.pick(CallbackHeadersName, String.eq(value, "accept"), CallbackHeadersNameAccept{},
+    CallbackHeadersNameOther{})
+
+def callback_headers_classified(action: CallbackHeadersName) -> J.Json:
   match action:
-    case "accept": "ChatGPT authorization received. Return to the terminal."
-    case "reject": "ChatGPT authorization failed. Return to the terminal."
-    case _: ""
+    case CallbackHeadersNameAccept{}: J.Object{Con{J.Field{"content-type", J.Text{"text/plain"}}, Con{J.Field{"cache-control", J.Text{"no-store"}}, Nil{}}}}
+    case CallbackHeadersNameOther{}: J.Object{Nil{}}
+
 def callback_headers(action: String) -> J.Json:
-  match action:
-    case "accept": J.Object{Con{J.Field{"content-type", J.Text{"text/plain"}}, Con{J.Field{"cache-control", J.Text{"no-store"}}, Nil{}}}}
-    case _: J.Object{Nil{}}
+  callback_headers_classified(callback_headers_discriminant(action))
+
 def callback_action(+action: String, status: Nat, received: Bool, message: String, client_id: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"action", J.Text{action}}, Con{J.Field{"status", J.nat(status)}, Con{J.Field{"received", J.Boolean{received}}, Con{J.Field{"message", J.Text{message}}, Con{J.Field{"clientId", client_id}, Con{J.Field{"body", J.Text{callback_body(action)}}, Con{J.Field{"headers", callback_headers(action)}, Nil{}}}}}}}}})
 def first(items: +List<J.Json>) -> J.Json:

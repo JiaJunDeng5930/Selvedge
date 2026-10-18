@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { verifyNativeEntry } from './verify-proof.mjs';
 import { build } from './build.mjs';
@@ -30,11 +30,15 @@ async function checkDirectory(directory) {
   }
 }
 
-for (const directory of ['host', 'scripts', 'tests-bend', 'examples', 'plugins', 'remote', 'relay']) await checkDirectory(directory);
-run(process.execPath, ['scripts/check-web-vendor.mjs']);
-run(process.execPath, ['scripts/theory-index.mjs', 'check']);
-// Build checks the complete generated UI proof entry before linking both production libraries.
-await build();
-console.log(verifyNativeEntry({ cwd: root }));
-for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
-console.log('Host syntax, Bend proof obligations, and production JavaScript libraries check.');
+export async function check() {
+  for (const directory of ['host', 'scripts', 'tests-bend', 'examples', 'plugins', 'remote', 'relay']) await checkDirectory(directory);
+  run(process.execPath, ['scripts/check-web-vendor.mjs']);
+  run(process.execPath, ['scripts/theory-index.mjs', 'check']);
+  // Build checks the complete generated UI proof entry before linking both production libraries.
+  await build();
+  console.log(await verifyNativeEntry({ cwd: root }));
+  for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
+  console.log('Host syntax, Bend proof obligations, and production JavaScript libraries check.');
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await check();

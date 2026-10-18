@@ -160,11 +160,24 @@ def boolean_or(value: J.Json, fallback: Bool) -> Bool:
     case J.Boolean{value}: value
     case _: fallback
 
-def selected_sandbox(mode: String, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
+type SelectedSandboxName is Data:
+  SelectedSandboxNameWorkspaceWrite{}
+  SelectedSandboxNameReadOnly{}
+  SelectedSandboxNameOther{}
+
+def selected_sandbox_discriminant(+value: String) -> SelectedSandboxName:
+  Bool.pick(SelectedSandboxName, String.eq(value, "workspace-write"), SelectedSandboxNameWorkspaceWrite{},
+    Bool.pick(SelectedSandboxName, String.eq(value, "read-only"), SelectedSandboxNameReadOnly{},
+    SelectedSandboxNameOther{}))
+
+def selected_sandbox_classified(mode: SelectedSandboxName, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
   match mode:
-    case "workspace-write": Done{D.Sandbox{D.WorkspaceWrite{}, network}}
-    case "read-only": Done{D.Sandbox{D.ReadOnly{}, network}}
-    case _: Fail{"Sandbox mode must be workspace-write or read-only"}
+    case SelectedSandboxNameWorkspaceWrite{}: Done{D.Sandbox{D.WorkspaceWrite{}, network}}
+    case SelectedSandboxNameReadOnly{}: Done{D.Sandbox{D.ReadOnly{}, network}}
+    case SelectedSandboxNameOther{}: Fail{"Sandbox mode must be workspace-write or read-only"}
+
+def selected_sandbox(mode: String, network: Bool) -> Result<&2, &2, String, D.Sandbox>:
+  selected_sandbox_classified(selected_sandbox_discriminant(mode), network)
 
 def read_sandbox(value: J.Json, fallback: D.Sandbox) -> Result<&2, &2, String, D.Sandbox>:
   match value:
@@ -184,12 +197,27 @@ def reviewer(found: Maybe<&2, D.Profile>) -> Result<&2, &2, String, D.ApprovalPo
     case None{}: Fail{"Approval for me requires a configured reviewer profile"}
     case Some{+profile}: ordinary_reviewer(Reasoning.automatic(D.profile_reasoning(profile)), profile)
 
-def selected_approval(mode: String, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
+type SelectedApprovalName is Data:
+  SelectedApprovalNameFullAccess{}
+  SelectedApprovalNameAskForApproval{}
+  SelectedApprovalNameApprovalForMe{}
+  SelectedApprovalNameOther{}
+
+def selected_approval_discriminant(+value: String) -> SelectedApprovalName:
+  Bool.pick(SelectedApprovalName, String.eq(value, "full-access"), SelectedApprovalNameFullAccess{},
+    Bool.pick(SelectedApprovalName, String.eq(value, "ask-for-approval"), SelectedApprovalNameAskForApproval{},
+    Bool.pick(SelectedApprovalName, String.eq(value, "approval-for-me"), SelectedApprovalNameApprovalForMe{},
+    SelectedApprovalNameOther{})))
+
+def selected_approval_classified(mode: SelectedApprovalName, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
   match mode:
-    case "full-access": Done{D.FullAccess{}}
-    case "ask-for-approval": Done{D.AskForApproval{}}
-    case "approval-for-me": reviewer(D.find_profile(profiles, key))
-    case _: Fail{"Approval mode must be full-access, ask-for-approval, or approval-for-me"}
+    case SelectedApprovalNameFullAccess{}: Done{D.FullAccess{}}
+    case SelectedApprovalNameAskForApproval{}: Done{D.AskForApproval{}}
+    case SelectedApprovalNameApprovalForMe{}: reviewer(D.find_profile(profiles, key))
+    case SelectedApprovalNameOther{}: Fail{"Approval mode must be full-access, ask-for-approval, or approval-for-me"}
+
+def selected_approval(mode: String, key: String, profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:
+  selected_approval_classified(selected_approval_discriminant(mode), key, profiles)
 
 def read_approval(value: J.Json, fallback: D.ApprovalPolicy, profile: D.Profile,
   +profiles: +List<D.Profile>) -> Result<&2, &2, String, D.ApprovalPolicy>:

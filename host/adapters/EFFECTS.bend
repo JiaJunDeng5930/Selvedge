@@ -138,20 +138,46 @@ def extract_message(+assistant: Bool, +items: +List<&2, J.Json>) -> Result<&2, &
     case True{} Con{+item, Nil{}}: extract_direct(String.eq(J.text(J.get(item, "type")), "output_text"), J.get(item, "text"))
     case _ _: Fail{"tool"}
 
-def extract_context_type(+kind: String, +value: J.Json) -> Result<&2, &2, String, ResponseText>:
+type ExtractContextTypeName is Data:
+  ExtractContextTypeNameReasoning{}
+  ExtractContextTypeNameMessage{}
+  ExtractContextTypeNameOther{}
+
+def extract_context_type_discriminant(+value: String) -> ExtractContextTypeName:
+  Bool.pick(ExtractContextTypeName, String.eq(value, "reasoning"), ExtractContextTypeNameReasoning{},
+    Bool.pick(ExtractContextTypeName, String.eq(value, "message"), ExtractContextTypeNameMessage{},
+    ExtractContextTypeNameOther{}))
+
+def extract_context_type_classified(+kind: ExtractContextTypeName, +value: J.Json) -> Result<&2, &2, String, ResponseText>:
   match kind:
-    case "reasoning": Done{Skipped{}}
-    case "message": extract_message(String.eq(J.text(J.get(value, "role")), "assistant"), J.items(J.get(value, "content")))
-    case _: Fail{"tool"}
+    case ExtractContextTypeNameReasoning{}: Done{Skipped{}}
+    case ExtractContextTypeNameMessage{}: extract_message(String.eq(J.text(J.get(value, "role")), "assistant"), J.items(J.get(value, "content")))
+    case ExtractContextTypeNameOther{}: Fail{"tool"}
+
+def extract_context_type(+kind: String, +value: J.Json) -> Result<&2, &2, String, ResponseText>:
+  extract_context_type_classified(extract_context_type_discriminant(kind), value)
 
 def extract_context(+value: J.Json) -> Result<&2, &2, String, ResponseText>:
   extract_context_type(J.text(J.get(value, "type")), value)
 
-def extract_kind(+kind: String, +item: J.Json) -> Result<&2, &2, String, ResponseText>:
+type ExtractKindName is Data:
+  ExtractKindNameText{}
+  ExtractKindNameContext{}
+  ExtractKindNameOther{}
+
+def extract_kind_discriminant(+value: String) -> ExtractKindName:
+  Bool.pick(ExtractKindName, String.eq(value, "text"), ExtractKindNameText{},
+    Bool.pick(ExtractKindName, String.eq(value, "context"), ExtractKindNameContext{},
+    ExtractKindNameOther{}))
+
+def extract_kind_classified(+kind: ExtractKindName, +item: J.Json) -> Result<&2, &2, String, ResponseText>:
   match kind:
-    case "text": extract_direct(J.is_text(J.get(item, "text")), J.get(item, "text"))
-    case "context": extract_context(J.get(item, "value"))
-    case _: Fail{"tool"}
+    case ExtractKindNameText{}: extract_direct(J.is_text(J.get(item, "text")), J.get(item, "text"))
+    case ExtractKindNameContext{}: extract_context(J.get(item, "value"))
+    case ExtractKindNameOther{}: Fail{"tool"}
+
+def extract_kind(+kind: String, +item: J.Json) -> Result<&2, &2, String, ResponseText>:
+  extract_kind_classified(extract_kind_discriminant(kind), item)
 
 def extract_text(+item: J.Json) -> Result<&2, &2, String, ResponseText>:
   extract_kind(J.text(J.get(item, "type")), item)
@@ -346,23 +372,58 @@ type CallbackKind is Data:
   CallbackModel{}
   CallbackDefaultTool{}
 
-def classify_callback_kind(+kind: String) -> CallbackKind:
+type ClassifyCallbackKindName is Data:
+  ClassifyCallbackKindNameTaskTitle{}
+  ClassifyCallbackKindNameChatgptExec{}
+  ClassifyCallbackKindNameBoardText{}
+  ClassifyCallbackKindNameApproval{}
+  ClassifyCallbackKindNameHook{}
+  ClassifyCallbackKindNameAfterHook{}
+  ClassifyCallbackKindNameObserveContext{}
+  ClassifyCallbackKindNameContextScope{}
+  ClassifyCallbackKindNameContextCompaction{}
+  ClassifyCallbackKindNameWorktreeCreate{}
+  ClassifyCallbackKindNameWorktreeArchive{}
+  ClassifyCallbackKindNameReasoning{}
+  ClassifyCallbackKindNameModel{}
+  ClassifyCallbackKindNameOther{}
+
+def classify_callback_kind_discriminant(+value: String) -> ClassifyCallbackKindName:
+  Bool.pick(ClassifyCallbackKindName, String.eq(value, "task_title"), ClassifyCallbackKindNameTaskTitle{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "chatgpt_exec"), ClassifyCallbackKindNameChatgptExec{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "board_text"), ClassifyCallbackKindNameBoardText{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "approval"), ClassifyCallbackKindNameApproval{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "hook"), ClassifyCallbackKindNameHook{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "after_hook"), ClassifyCallbackKindNameAfterHook{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "observe_context"), ClassifyCallbackKindNameObserveContext{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "context_scope"), ClassifyCallbackKindNameContextScope{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "context_measure"), ClassifyCallbackKindNameContextScope{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "context_compaction"), ClassifyCallbackKindNameContextCompaction{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "worktree_create"), ClassifyCallbackKindNameWorktreeCreate{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "worktree_archive"), ClassifyCallbackKindNameWorktreeArchive{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "reasoning"), ClassifyCallbackKindNameReasoning{},
+    Bool.pick(ClassifyCallbackKindName, String.eq(value, "model"), ClassifyCallbackKindNameModel{},
+    ClassifyCallbackKindNameOther{}))))))))))))))
+
+def classify_callback_kind_classified(+kind: ClassifyCallbackKindName) -> CallbackKind:
   match kind:
-    case "task_title": CallbackTaskTitle{}
-    case "chatgpt_exec": CallbackChatgptExec{}
-    case "board_text": CallbackBoardText{}
-    case "approval": CallbackApproval{}
-    case "hook": CallbackHook{}
-    case "after_hook": CallbackAfterHook{}
-    case "observe_context": CallbackContext{}
-    case "context_scope": CallbackCompaction{False{}}
-    case "context_measure": CallbackCompaction{False{}}
-    case "context_compaction": CallbackCompaction{True{}}
-    case "worktree_create": CallbackWorktree{True{}}
-    case "worktree_archive": CallbackWorktree{False{}}
-    case "reasoning": CallbackReasoning{}
-    case "model": CallbackModel{}
-    case _: CallbackDefaultTool{}
+    case ClassifyCallbackKindNameTaskTitle{}: CallbackTaskTitle{}
+    case ClassifyCallbackKindNameChatgptExec{}: CallbackChatgptExec{}
+    case ClassifyCallbackKindNameBoardText{}: CallbackBoardText{}
+    case ClassifyCallbackKindNameApproval{}: CallbackApproval{}
+    case ClassifyCallbackKindNameHook{}: CallbackHook{}
+    case ClassifyCallbackKindNameAfterHook{}: CallbackAfterHook{}
+    case ClassifyCallbackKindNameObserveContext{}: CallbackContext{}
+    case ClassifyCallbackKindNameContextScope{}: CallbackCompaction{False{}}
+    case ClassifyCallbackKindNameContextCompaction{}: CallbackCompaction{True{}}
+    case ClassifyCallbackKindNameWorktreeCreate{}: CallbackWorktree{True{}}
+    case ClassifyCallbackKindNameWorktreeArchive{}: CallbackWorktree{False{}}
+    case ClassifyCallbackKindNameReasoning{}: CallbackReasoning{}
+    case ClassifyCallbackKindNameModel{}: CallbackModel{}
+    case ClassifyCallbackKindNameOther{}: CallbackDefaultTool{}
+
+def classify_callback_kind(+kind: String) -> CallbackKind:
+  classify_callback_kind_classified(classify_callback_kind_discriminant(kind))
 
 def compaction_callback_kind(completed: Bool) -> String:
   match completed:
@@ -651,10 +712,21 @@ def environment_names(+project: Bool, +source: J.Json) -> J.Json:
     case True{}: J.Array{Nil{}}
     case False{}: J.Array{clean_environment_names(J.items(J.get(source, "names")))}
 
-def environment_path(+platform: String) -> String:
+type EnvironmentPathName is Data:
+  EnvironmentPathNameDarwin{}
+  EnvironmentPathNameOther{}
+
+def environment_path_discriminant(+value: String) -> EnvironmentPathName:
+  Bool.pick(EnvironmentPathName, String.eq(value, "darwin"), EnvironmentPathNameDarwin{},
+    EnvironmentPathNameOther{})
+
+def environment_path_classified(+platform: EnvironmentPathName) -> String:
   match platform:
-    case "darwin": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
-    case _: "/usr/bin:/bin:/usr/sbin:/sbin"
+    case EnvironmentPathNameDarwin{}: "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"
+    case EnvironmentPathNameOther{}: "/usr/bin:/bin:/usr/sbin:/sbin"
+
+def environment_path(+platform: String) -> String:
+  environment_path_classified(environment_path_discriminant(platform))
 
 # Instruction selection is native; the host only writes the observed little-endian ABI bytes.
 
@@ -678,10 +750,21 @@ def bpf_denied(+syscalls: +List<&2, J.Json>) -> +List<&2, J.Json>:
     case Nil{}: Nil{}
     case Con{number, rest}: Con{bpf_instruction(21n, 0n, 1n, number), Con{bpf_instruction(6n, 0n, 0n, J.Number{"327681"}), bpf_denied(rest)}}
 
-def bpf_x32(+architecture: String) -> +List<&2, J.Json>:
+type BpfX32Name is Data:
+  BpfX32NameX64{}
+  BpfX32NameOther{}
+
+def bpf_x32_discriminant(+value: String) -> BpfX32Name:
+  Bool.pick(BpfX32Name, String.eq(value, "x64"), BpfX32NameX64{},
+    BpfX32NameOther{})
+
+def bpf_x32_classified(+architecture: BpfX32Name) -> +List<&2, J.Json>:
   match architecture:
-    case "x64": [bpf_instruction(53n, 0n, 1n, J.Number{"1073741824"}), bpf_instruction(6n, 0n, 0n, J.Number{"327681"})]
-    case _: Nil{}
+    case BpfX32NameX64{}: [bpf_instruction(53n, 0n, 1n, J.Number{"1073741824"}), bpf_instruction(6n, 0n, 0n, J.Number{"327681"})]
+    case BpfX32NameOther{}: Nil{}
+
+def bpf_x32(+architecture: String) -> +List<&2, J.Json>:
+  bpf_x32_classified(bpf_x32_discriminant(architecture))
 
 def bpf_socket(+network: Bool, +socket: Nat) -> +List<&2, J.Json>:
   match network:
@@ -1000,15 +1083,37 @@ def reference_match(+keys: +List<&2, String>, +value: J.Json, +attachment: J.Jso
 def board_clock(+source: J.Json) -> J.Json:
   range_outcome_value(Model.nonnegative_le(J.get(source, "seconds"), "4294967295"), J.Text{scalar_text(J.get(source, "seconds"))}, "The clock is outside the native board timestamp range")
 
-def runtime_candidates(+platform: String) -> J.Json:
+type RuntimeCandidatesName is Data:
+  RuntimeCandidatesNameDarwin{}
+  RuntimeCandidatesNameOther{}
+
+def runtime_candidates_discriminant(+value: String) -> RuntimeCandidatesName:
+  Bool.pick(RuntimeCandidatesName, String.eq(value, "darwin"), RuntimeCandidatesNameDarwin{},
+    RuntimeCandidatesNameOther{})
+
+def runtime_candidates_classified(+platform: RuntimeCandidatesName) -> J.Json:
   match platform:
-    case "darwin": J.Array{[J.Text{"/System/Library"}, J.Text{"/System/Volumes/Preboot/Cryptexes/OS"}, J.Text{"/usr/bin"}, J.Text{"/usr/lib"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/usr/sbin"}, J.Text{"/opt/homebrew/bin"}, J.Text{"/opt/homebrew/sbin"}, J.Text{"/opt/homebrew/lib"}, J.Text{"/opt/homebrew/opt"}, J.Text{"/opt/homebrew/Cellar"}, J.Text{"/opt/homebrew/share"}, J.Text{"/Library/Developer/CommandLineTools"}, J.Text{"/Library/Apple"}, J.Text{"/private/etc/passwd"}, J.Text{"/private/etc/group"}, J.Text{"/private/etc/localtime"}, J.Text{"/private/etc/hosts"}, J.Text{"/private/etc/resolv.conf"}, J.Text{"/private/etc/ssl/cert.pem"}, J.Text{"/private/etc/ssl/certs"}, J.Text{"/dev/null"}, J.Text{"/dev/zero"}, J.Text{"/dev/random"}, J.Text{"/dev/urandom"}, J.Text{"/dev/fd"}]}
-    case _: J.Array{[J.Text{"/usr/bin"}, J.Text{"/usr/sbin"}, J.Text{"/usr/lib"}, J.Text{"/usr/lib64"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/lib"}, J.Text{"/lib64"}, J.Text{"/etc/ld.so.cache"}, J.Text{"/etc/nsswitch.conf"}, J.Text{"/etc/passwd"}, J.Text{"/etc/group"}, J.Text{"/etc/localtime"}, J.Text{"/etc/hosts"}, J.Text{"/etc/resolv.conf"}, J.Text{"/etc/ssl/certs"}, J.Text{"/etc/os-release"}]}
+    case RuntimeCandidatesNameDarwin{}: J.Array{[J.Text{"/System/Library"}, J.Text{"/System/Volumes/Preboot/Cryptexes/OS"}, J.Text{"/usr/bin"}, J.Text{"/usr/lib"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/usr/sbin"}, J.Text{"/opt/homebrew/bin"}, J.Text{"/opt/homebrew/sbin"}, J.Text{"/opt/homebrew/lib"}, J.Text{"/opt/homebrew/opt"}, J.Text{"/opt/homebrew/Cellar"}, J.Text{"/opt/homebrew/share"}, J.Text{"/Library/Developer/CommandLineTools"}, J.Text{"/Library/Apple"}, J.Text{"/private/etc/passwd"}, J.Text{"/private/etc/group"}, J.Text{"/private/etc/localtime"}, J.Text{"/private/etc/hosts"}, J.Text{"/private/etc/resolv.conf"}, J.Text{"/private/etc/ssl/cert.pem"}, J.Text{"/private/etc/ssl/certs"}, J.Text{"/dev/null"}, J.Text{"/dev/zero"}, J.Text{"/dev/random"}, J.Text{"/dev/urandom"}, J.Text{"/dev/fd"}]}
+    case RuntimeCandidatesNameOther{}: J.Array{[J.Text{"/usr/bin"}, J.Text{"/usr/sbin"}, J.Text{"/usr/lib"}, J.Text{"/usr/lib64"}, J.Text{"/usr/libexec"}, J.Text{"/usr/share"}, J.Text{"/bin"}, J.Text{"/sbin"}, J.Text{"/lib"}, J.Text{"/lib64"}, J.Text{"/etc/ld.so.cache"}, J.Text{"/etc/nsswitch.conf"}, J.Text{"/etc/passwd"}, J.Text{"/etc/group"}, J.Text{"/etc/localtime"}, J.Text{"/etc/hosts"}, J.Text{"/etc/resolv.conf"}, J.Text{"/etc/ssl/certs"}, J.Text{"/etc/os-release"}]}
+
+def runtime_candidates(+platform: String) -> J.Json:
+  runtime_candidates_classified(runtime_candidates_discriminant(platform))
+
+type ExecutableCandidatesName is Data:
+  ExecutableCandidatesNameDarwin{}
+  ExecutableCandidatesNameOther{}
+
+def executable_candidates_discriminant(+value: String) -> ExecutableCandidatesName:
+  Bool.pick(ExecutableCandidatesName, String.eq(value, "darwin"), ExecutableCandidatesNameDarwin{},
+    ExecutableCandidatesNameOther{})
+
+def executable_candidates_classified(+platform: ExecutableCandidatesName) -> J.Json:
+  match platform:
+    case ExecutableCandidatesNameDarwin{}: J.Array{[J.Text{"/usr/bin/sandbox-exec"}]}
+    case ExecutableCandidatesNameOther{}: J.Array{[J.Text{"/usr/bin/bwrap"}, J.Text{"/bin/bwrap"}]}
 
 def executable_candidates(+platform: String) -> J.Json:
-  match platform:
-    case "darwin": J.Array{[J.Text{"/usr/bin/sandbox-exec"}]}
-    case _: J.Array{[J.Text{"/usr/bin/bwrap"}, J.Text{"/bin/bwrap"}]}
+  executable_candidates_classified(executable_candidates_discriminant(platform))
 
 def mac_readable_roots(+project: Bool, +source: J.Json) -> +List<&2, J.Field>:
   match project:

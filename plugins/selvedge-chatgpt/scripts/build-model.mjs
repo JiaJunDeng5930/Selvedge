@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -67,9 +68,24 @@ export async function requirePackagedModel() {
   try { await access(path.join(plugin, 'MODEL.bend')); }
   catch (error) { if (error.code === 'ENOENT') return; throw error; }
   const compiler = path.join(checkout, 'scripts/compile-javascript.mjs');
-  const version = (await readFile(path.join(checkout, 'bend-version'), 'utf8')).trim();
-  if (model.compiler?.driverSha256 !== hash(await readFile(compiler)) || model.compiler?.version !== version
-      || (process.versions.bun && model.compiler?.runtime?.version !== process.versions.bun)
+  let currentCompiler;
+  if (process.versions.bun) {
+    const { javascriptCompilerIdentity } = await import(pathToFileURL(compiler).href);
+    currentCompiler = await javascriptCompilerIdentity();
+  } else {
+    // Checkout verification needs the build toolchain; installed packages above
+    // validate only their shipped assets and never invoke a compiler preparer.
+    const code = `const { javascriptCompilerIdentity } = await import(${JSON.stringify(pathToFileURL(compiler).href)}); console.log(JSON.stringify(await javascriptCompilerIdentity()));`;
+    const result = spawnSync('bun', ['--eval', code], {
+      cwd: checkout, encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024,
+      env: { ...process.env, NODE_OPTIONS: '' },
+    });
+    if (result.error || result.status !== 0 || result.stderr.trim()) {
+      throw new Error(`Cannot verify the checkout compiler identity: ${result.error?.message ?? result.stderr.trim()}`);
+    }
+    currentCompiler = JSON.parse(result.stdout);
+  }
+  if (JSON.stringify(model.compiler) !== JSON.stringify(currentCompiler)
       || model.sourceRoot !== checkout || model.exports?.run !== 'run' || Object.keys(model.exports).length !== 1
       || !Array.isArray(model.sources) || model.sources.length === 0) {
     throw new Error('Packaged plugin compiler identity is stale; run npm run build:model before packaging');

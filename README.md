@@ -258,7 +258,7 @@ bun run start
 ```
 
 The default build checks production proofs and compiles JavaScript libraries
-with the pinned Bend compiler's official `js_lib` backend: `KERNEL.bend` to
+with the pinned Bend 2.0.34 official `js_lib` backend: `KERNEL.bend` to
 `.build/kernel-model.mjs`, executed in a Bun Worker, the browser entry to
 `host/public/generated/browser-model.mjs`, and `HOST.bend` to
 `host/public/generated/host-model.mjs`. Before compilation or cache reuse, the
@@ -268,12 +268,23 @@ the existing ordered imports and private providers with root `PROOF.bend`
 excluded, and explicitly adds `harness/approval/PROOF.bend` to discharge the
 approval contracts still present in the runtime closure. Its public source
 remains `BROWSER.bend`; the strict emitter checks remain unchanged.
-`bun run build:native` optionally builds `MAIN.bend` and requires a C compiler.
+Eligible production JavaScript entries share a freshly checked book and one
+backend emission; each output retains its own declarations, export expressions
+and the original runtime as an independently loadable module. Entry-owned data
+constructors or conflicting definitions retain independent compilation. Artifact
+identities bind the complete participating source closures and toolchain bytes.
+The complete pure proof gate runs before cache reuse as well as rebuilding.
+`bun run verify` runs those checks, the complete focused physical suite and the
+tracked-file index, sharing one production build. Native-entry checking uses the
+locked Node runtime with the same verified compiler source; JavaScript compilation
+uses Bun. `bun run build:native` retains the official release compiler and requires
+a C compiler.
 
 Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
 the corresponding release into this checkout's `.build/bend` and verifies the
 archive against `bend-checksums.txt`. It changes neither the system compiler nor
-another worktree. Bootstrap installs the locked Bun dependencies; `gpt-tokenizer`
+another worktree. Bootstrap installs the locked Bun dependencies, including the explicitly trusted
+Node compiler runtime; `gpt-tokenizer`
 provides the local token-budget estimate used by the optional reasoning evaluator.
 
 The server prints its fixed local URL, normally `http://127.0.0.1:7421/`.

@@ -1097,16 +1097,39 @@ def page_approvals(+values: +List<Conversation.DecisionRequest>, +parent: Identi
 def worktree_observation(task: Nat, state: InteractionTypes.State) -> J.Json:
   Commands.query(M.FeatureQuery{F.WorktreeQuery{Worktree.Read{task}}}, E.program(Core.application(state)))
 
-def worktree_status_label(status: String) -> String:
+type WorktreeStatusLabelName is Data:
+  WorktreeStatusLabelNameCreating{}
+  WorktreeStatusLabelNameCreatingArchived{}
+  WorktreeStatusLabelNameReady{}
+  WorktreeStatusLabelNameCreateFailed{}
+  WorktreeStatusLabelNameArchiving{}
+  WorktreeStatusLabelNameArchived{}
+  WorktreeStatusLabelNameArchiveFailed{}
+  WorktreeStatusLabelNameOther{}
+
+def worktree_status_label_discriminant(+value: String) -> WorktreeStatusLabelName:
+  Bool.pick(WorktreeStatusLabelName, String.eq(value, "creating"), WorktreeStatusLabelNameCreating{},
+    Bool.pick(WorktreeStatusLabelName, String.eq(value, "creating_archived"), WorktreeStatusLabelNameCreatingArchived{},
+    Bool.pick(WorktreeStatusLabelName, String.eq(value, "ready"), WorktreeStatusLabelNameReady{},
+    Bool.pick(WorktreeStatusLabelName, String.eq(value, "create_failed"), WorktreeStatusLabelNameCreateFailed{},
+    Bool.pick(WorktreeStatusLabelName, String.eq(value, "archiving"), WorktreeStatusLabelNameArchiving{},
+    Bool.pick(WorktreeStatusLabelName, String.eq(value, "archived"), WorktreeStatusLabelNameArchived{},
+    Bool.pick(WorktreeStatusLabelName, String.eq(value, "archive_failed"), WorktreeStatusLabelNameArchiveFailed{},
+    WorktreeStatusLabelNameOther{})))))))
+
+def worktree_status_label_classified(status: WorktreeStatusLabelName) -> String:
   match status:
-    case "creating": "Creating worktree…"
-    case "creating_archived": "Creating worktree before archiving…"
-    case "ready": "Worktree ready"
-    case "create_failed": "Worktree creation failed"
-    case "archiving": "Archiving worktree…"
-    case "archived": "Worktree archived"
-    case "archive_failed": "Worktree archive failed"
-    case _: ""
+    case WorktreeStatusLabelNameCreating{}: "Creating worktree…"
+    case WorktreeStatusLabelNameCreatingArchived{}: "Creating worktree before archiving…"
+    case WorktreeStatusLabelNameReady{}: "Worktree ready"
+    case WorktreeStatusLabelNameCreateFailed{}: "Worktree creation failed"
+    case WorktreeStatusLabelNameArchiving{}: "Archiving worktree…"
+    case WorktreeStatusLabelNameArchived{}: "Worktree archived"
+    case WorktreeStatusLabelNameArchiveFailed{}: "Worktree archive failed"
+    case WorktreeStatusLabelNameOther{}: ""
+
+def worktree_status_label(status: String) -> String:
+  worktree_status_label_classified(worktree_status_label_discriminant(status))
 
 def worktree_fact(+identity: String, label: String, value: String, parent: Identity.Key) -> SurfaceTypes.Node:
   SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{value}, Nil{}}
@@ -1116,22 +1139,52 @@ def worktree_diagnostic(message: String, parent: Identity.Key) -> +List<SurfaceT
     case "": Nil{}
     case other: [SurfaceTypes.Node{Identity.Part{parent, "worktree/error"}, "worktree/error", "Worktree", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{other}, Nil{}}]
 
-def worktree_feedback_status(status: String, message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+type WorktreeFeedbackStatusName is Data:
+  WorktreeFeedbackStatusNameCreating{}
+  WorktreeFeedbackStatusNameCreatingArchived{}
+  WorktreeFeedbackStatusNameArchiving{}
+  WorktreeFeedbackStatusNameCreateFailed{}
+  WorktreeFeedbackStatusNameArchiveFailed{}
+  WorktreeFeedbackStatusNameOther{}
+
+def worktree_feedback_status_discriminant(+value: String) -> WorktreeFeedbackStatusName:
+  Bool.pick(WorktreeFeedbackStatusName, String.eq(value, "creating"), WorktreeFeedbackStatusNameCreating{},
+    Bool.pick(WorktreeFeedbackStatusName, String.eq(value, "creating_archived"), WorktreeFeedbackStatusNameCreatingArchived{},
+    Bool.pick(WorktreeFeedbackStatusName, String.eq(value, "archiving"), WorktreeFeedbackStatusNameArchiving{},
+    Bool.pick(WorktreeFeedbackStatusName, String.eq(value, "create_failed"), WorktreeFeedbackStatusNameCreateFailed{},
+    Bool.pick(WorktreeFeedbackStatusName, String.eq(value, "archive_failed"), WorktreeFeedbackStatusNameArchiveFailed{},
+    WorktreeFeedbackStatusNameOther{})))))
+
+def worktree_feedback_status_classified(status: WorktreeFeedbackStatusName, message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match status:
-    case "creating": [worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)]
-    case "creating_archived": [worktree_fact("worktree/status", "Worktree", "Creating worktree before archiving…", parent)]
-    case "archiving": [worktree_fact("worktree/status", "Worktree", "Archiving worktree…", parent)]
-    case "create_failed": worktree_diagnostic("Worktree creation failed: " ++ message, parent)
-    case "archive_failed": worktree_diagnostic("Worktree archive failed: " ++ message, parent)
-    case _: Nil{}
+    case WorktreeFeedbackStatusNameCreating{}: [worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)]
+    case WorktreeFeedbackStatusNameCreatingArchived{}: [worktree_fact("worktree/status", "Worktree", "Creating worktree before archiving…", parent)]
+    case WorktreeFeedbackStatusNameArchiving{}: [worktree_fact("worktree/status", "Worktree", "Archiving worktree…", parent)]
+    case WorktreeFeedbackStatusNameCreateFailed{}: worktree_diagnostic("Worktree creation failed: " ++ message, parent)
+    case WorktreeFeedbackStatusNameArchiveFailed{}: worktree_diagnostic("Worktree archive failed: " ++ message, parent)
+    case WorktreeFeedbackStatusNameOther{}: Nil{}
+
+def worktree_feedback_status(status: String, message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  worktree_feedback_status_classified(worktree_feedback_status_discriminant(status), message, parent)
 
 def worktree_feedback(+observation: J.Json, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   worktree_feedback_status(J.text(J.get(J.get(observation, "result"), "status")), J.text(J.get(J.get(observation, "result"), "message")), parent)
 
-def worktree_archive_retry(status: String, task: Nat, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+type WorktreeArchiveRetryName is Data:
+  WorktreeArchiveRetryNameArchiveFailed{}
+  WorktreeArchiveRetryNameOther{}
+
+def worktree_archive_retry_discriminant(+value: String) -> WorktreeArchiveRetryName:
+  Bool.pick(WorktreeArchiveRetryName, String.eq(value, "archive_failed"), WorktreeArchiveRetryNameArchiveFailed{},
+    WorktreeArchiveRetryNameOther{})
+
+def worktree_archive_retry_classified(status: WorktreeArchiveRetryName, task: Nat, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match status:
-    case "archive_failed": [user_action(parent, "worktree/retry-archive", "Retry archive", U.Activate{U.RetryWorktreeArchive{task}}, True{}, state)]
-    case _: Nil{}
+    case WorktreeArchiveRetryNameArchiveFailed{}: [user_action(parent, "worktree/retry-archive", "Retry archive", U.Activate{U.RetryWorktreeArchive{task}}, True{}, state)]
+    case WorktreeArchiveRetryNameOther{}: Nil{}
+
+def worktree_archive_retry(status: String, task: Nat, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  worktree_archive_retry_classified(worktree_archive_retry_discriminant(status), task, parent, state)
 
 def worktree_detail_admitted(present: Bool, +value: J.Json, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match present:
