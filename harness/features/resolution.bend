@@ -1,4 +1,5 @@
 import Base
+import ../../features/titles/SPEC.bend as Titles
 import ../../features/remote/PROGRAM.bend as Remote
 import ./remote.bend as RemoteState
 import ../../features/worktree/MODEL.bend as Worktree
@@ -205,9 +206,15 @@ def worktree(~start: String -> String -> String -> J.Json -> @+world:M.World() -
     case Worktree.Create{profile, reasoning, message, settings}: worktree_start(start(profile, reasoning, message, settings, world))
     case Worktree.RetryArchive{+id}: worktree_archive_available(WorktreeState.archive_allowed(id, world), worktree_retry(WorktreeState.retry_allowed(id, world), id))
 
+def title_settings(resolution: Titles.SettingsResolution) -> Resolution:
+  match resolution:
+    case Titles.Refuse{code, reason}: Refuse{code, reason}
+    case Titles.Configure{prompts}: Accept{O.ConfigureTitles{prompts}}
+
 def resolve_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   match command:
     case F.WorkCommand{command}: work(~start, command, world)
+    case F.TitleCommand{command}: title_settings(Titles.resolve_settings(command, world))
     case F.RemoteCommand{command}: Accept{O.RemoteChange{Remote.admin(command, RemoteState.registry(world))}}
     case F.WorktreeCommand{command}: worktree(~start, command, world)
     case F.ChatGPTCommand{command}: chatgpt(ChatGPT.resolve(command, ChatGPTState.registry(world), Projects.registry(F.State(), world)))

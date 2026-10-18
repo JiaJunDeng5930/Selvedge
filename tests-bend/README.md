@@ -44,6 +44,11 @@ The remote receipt probe also exercises account-authenticated Codex review and a
 subprocess that inspects its durable grant before writing. Independent Web text
 requests retain a focused regression for effects without task history.
 
+Title settings retain one physical probe for independent Task/Agent prompt
+payloads, durable authority before HTTP dispatch and saved settings across SQLite
+reopen. Title lifecycle, entry preservation, cancellation and settings conflicts
+remain production proof obligations.
+
 Work probes exercise the HTTP creation path's Project workspace observation and
 the native tool transport's caller identity, command payloads and SQLite reopen
 without another model request. The combined Work/worktree command also exercises

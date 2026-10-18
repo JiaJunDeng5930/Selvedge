@@ -1,4 +1,5 @@
 import Base
+import ../features/titles/STATE.bend as Titles
 import ../features/compaction/SPEC.bend as Compaction
 import ../bendlib/categories.bend as Categories
 import ./features/STATE.bend as FeatureState
@@ -617,8 +618,8 @@ def task_work_summary_value(value: J.Json, work: Maybe<&2, Nat>) -> J.Json:
     case J.Object{fields}: J.Object{J.Field{"work_id", J.optional_nat(work)} <> fields}
     case value: value
 
-def task_work_summary(+task: D.Task, world: M.World()) -> J.Json:
-  task_work_summary_value(T.summary(task), WorkState.task_work(task, world))
+def task_work_summary(+task: D.Task, +world: M.World()) -> J.Json:
+  task_work_summary_value(Titles.summary(task, world), WorkState.task_work(task, world))
 
 def task_work_summaries(tasks: +List<D.Task>, +world: M.World()) -> +List<J.Json>:
   match tasks:
@@ -636,10 +637,10 @@ def task_work_page_value(value: J.Json, task: D.Task, world: M.World()) -> J.Jso
     case J.Object{fields}: D.success(J.Object{task_work_page(fields, task, world)})
     case value: D.success(value)
 
-def page_checked(valid: Bool, +task: D.Task, after: Nat, limit: Nat, world: M.World()) -> J.Json:
+def page_checked(valid: Bool, +task: D.Task, after: Nat, limit: Nat, +world: M.World()) -> J.Json:
   match valid:
     case False{}: D.failure("invalid_page", "The page requires 1..100 messages and an offset on the task history")
-    case True{}: task_work_page_value(T.page(task, after, limit), task, world)
+    case True{}: task_work_page_value(Titles.page(task, after, limit, world), task, world)
 
 def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat, world: M.World()) -> J.Json:
   match found:

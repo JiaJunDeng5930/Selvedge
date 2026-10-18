@@ -1,4 +1,5 @@
 import Base
+import ../features/titles/PROGRAM.bend as Titles
 import ../features/compaction/PROGRAM.bend as Compaction
 import ../features/compaction/SPEC.bend as CompactionSpec
 import ../features/compaction/STATE.bend as CompactionState
@@ -386,7 +387,7 @@ def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
-    case True{}: scheduled_prepared(Compaction.prepare(BoardScheduling.prepare(~board_dispatch, decision)))
+    case True{}: scheduled_prepared(Compaction.prepare(Titles.prepare(BoardScheduling.prepare(~board_dispatch, decision))))
 
 def construct_after_apply(+input: M.Input, +decision: M.Decision(), +world: M.World()) -> Commit.Committed<world>:
   Commit.construct_update(~scheduled, input, decision, world)

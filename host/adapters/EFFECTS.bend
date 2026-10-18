@@ -1,4 +1,6 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
+import ../../harness/transport/wire-shape.bend as Shape
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
@@ -239,26 +241,45 @@ def approval_value(+value: J.Json, +limit: J.Json) -> J.Json:
     (String.eq(J.text(J.get(value, "decision")), "allow") || String.eq(J.text(J.get(value, "decision")), "deny")) &&
     J.is_text(reason) && content(J.text(reason)) && well(J.text(reason)) && no_nul(J.text(reason)) && bytes_within(J.text(reason), limit), value, "The approval reviewer returned a malformed decision")
 
-def board_value(+value: J.Json) -> J.Json:
-  +title = J.get(value, "title")
-  +description = J.get(value, "description")
-  type_outcome_value(has(value, "title") && has(value, "description") && J.is_text(title) && J.is_text(description) &&
-    content(J.text(title)) && well(J.text(title)) && well(J.text(description)) && no_nul(J.text(title)) && no_nul(J.text(description)), value, "The drafting endpoint returned invalid title or description fields")
+def approval_pair(+valid: Bool, +value: J.Json, +limit: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure_code("TypeError", "The approval reviewer must return exactly two string fields")
+    case True{}: approval_value(value, limit)
 
-def outcome_pair(+valid: Bool, +value: J.Json, +limit: J.Json, +approval: Bool) -> J.Json:
-  match valid approval:
-    case False{} True{}: Model.failure_code("TypeError", "The approval reviewer must return exactly two string fields")
-    case False{} False{}: Model.failure_code("TypeError", "The drafting endpoint must return exactly title and description strings")
-    case True{} True{}: approval_value(value, limit)
-    case True{} False{}: board_value(value)
-
-def outcome_decoded(+result: Result<&2, &2, String, J.Json>, +limit: J.Json, +approval: Bool) -> J.Json:
+def approval_decoded(+result: Result<&2, &2, String, J.Json>, +limit: J.Json) -> J.Json:
   match result:
-    case Done{+value}: outcome_pair(pair_strings(value), value, limit, approval)
-    case Fail{error}: outcome_pair(False{}, J.Null{}, limit, approval)
+    case Done{+value}: approval_pair(pair_strings(value), value, limit)
+    case Fail{error}: approval_pair(False{}, J.Null{}, limit)
+
+def task_text_normalized(+title: String, description: String) -> J.Json:
+  type_outcome_value(Bool.not(String.is_empty(title)), J.Object{[field("title", J.Text{title}), field("description", J.Text{description})]}, "The task text endpoint returned an empty title")
+
+def task_text_admitted(valid: Bool, +value: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure_code("TypeError", "The task text endpoint returned invalid title or description fields")
+    case True{}: task_text_normalized(Title.normalize(J.text(J.get(value, "title"))), J.text(J.get(value, "description")))
+
+def task_text_fields(+value: J.Json, capture: Bool) -> Bool:
+  match capture:
+    case False{}: Shape.object_keys(value, ["title"]) && J.is_text(J.get(value, "title"))
+    case True{}: Shape.object_keys(value, ["title", "description"]) && J.is_text(J.get(value, "title")) && J.is_text(J.get(value, "description"))
+
+def task_text_value(+value: J.Json, +capture: Bool) -> J.Json:
+  task_text_admitted(task_text_fields(value, capture) && Nat.is_le(J.utf8_length(J.text(J.get(value, "title"))), Title.response_title_bytes()) && well(J.text(J.get(value, "title"))) && no_nul(J.text(J.get(value, "title"))) &&
+    well(J.text(J.get(value, "description"))) && no_nul(J.text(J.get(value, "description"))), value)
+
+def task_text_decoded(result: Result<&2, &2, String, J.Json>, +context: J.Json) -> J.Json:
+  match result:
+    case Fail{message}: Model.failure_code("TypeError", "The task text endpoint must return one JSON object")
+    case Done{value}: task_text_value(value, Bool.not(String.eq(J.text(J.get(context, "kind")), "task_title") || J.boolean(J.get(context, "retitle"))))
+
+def outcome_kind(approval: Bool, +source: J.Json) -> J.Json:
+  match approval:
+    case True{}: approval_decoded(observation(source), J.get(source, "limit"))
+    case False{}: task_text_decoded(observation(source), J.get(source, "context"))
 
 def outcome(+source: J.Json, +approval: Bool) -> J.Json:
-  outcome_decoded(observation(source), J.get(source, "limit"), approval)
+  outcome_kind(approval, source)
 
 def filename_tail(+text: String) -> Bool:
   match text:
@@ -312,6 +333,7 @@ def callback_result_fields(+items: List<&2, J.Field>, +reserved: List<&2, String
       callback_field(names(reserved, name), J.Field{name, value}, callback_result_fields(rest, reserved))
 
 type CallbackKind is Data:
+  CallbackTaskTitle{}
   CallbackChatgptExec{}
   CallbackBoardText{}
   CallbackApproval{}
@@ -326,6 +348,7 @@ type CallbackKind is Data:
 
 def classify_callback_kind(+kind: String) -> CallbackKind:
   match kind:
+    case "task_title": CallbackTaskTitle{}
     case "chatgpt_exec": CallbackChatgptExec{}
     case "board_text": CallbackBoardText{}
     case "approval": CallbackApproval{}
@@ -369,6 +392,7 @@ def worktree_callback(+created: Bool, +effect: J.Json, +result: J.Json) -> J.Jso
 
 def callback_classified(+kind: CallbackKind, +effect: J.Json, +result: J.Json) -> J.Json:
   match kind:
+    case CallbackTaskTitle{}: J.Object{List.append(&2, J.Field, callback_base(effect, "task_title"), [field("ok", J.Boolean{True{}}), field("title", J.get(result, "title"))])}
     case CallbackChatgptExec{}: J.Object{List.append(&2, J.Field, Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Nil{}}}, callback_result_fields(fields(result), ["kind", "operation_id"]))}
     case CallbackBoardText{}: J.Object{List.append(&2, J.Field, Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{True{}}), Nil{}}}}}, callback_result_fields(fields(result), ["kind", "card_id", "ticket", "ok"]))}
     case CallbackApproval{}: J.Object{List.append(&2, J.Field, callback_base(effect, "approval"), Con{field("outcome", result), Nil{}})}
@@ -403,6 +427,7 @@ def failed_model(+effect: J.Json, +message: String) -> J.Json:
 
 def failure_classified(+kind: CallbackKind, +effect: J.Json, +message: String) -> J.Json:
   match kind:
+    case CallbackTaskTitle{}: J.Object{List.append(&2, J.Field, callback_base(effect, "task_title"), [field("ok", J.Boolean{False{}}), field("message", J.Text{take(message, 400n)})])}
     case CallbackChatgptExec{}: J.Object{Con{field("kind", J.Text{"chatgpt_result"}), Con{field("operation_id", J.get(effect, "operation_id")), Con{field("error", J.Boolean{True{}}), Con{field("value", error_value(message)), Nil{}}}}}}
     case CallbackBoardText{}: J.Object{Con{field("kind", J.Text{"board_text"}), Con{field("card_id", J.get(effect, "card_id")), Con{field("ticket", J.get(effect, "ticket")), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}}}}}}
     case CallbackContext{}: J.Object{List.append(&2, J.Field, callback_base(effect, "context_observed"), Con{field("ok", J.Boolean{False{}}), Con{field("message", J.Text{message}), Nil{}}})}
@@ -838,14 +863,14 @@ def darwin_prefix(+source: J.Json) -> J.Json:
 def request_approval(+source: J.Json) -> J.Json:
   type_outcome_value(String.eq(J.text(J.get(J.get(source, "effect"), "kind")), "approval"), J.Null{}, "Expected a committed approval effect")
 
-def request_board_kind(+valid: Bool, +effect: J.Json) -> J.Json:
+def request_task_text_kind(+valid: Bool, +effect: J.Json) -> J.Json:
   match valid:
-    case False{}: Model.failure_code("TypeError", "Expected a committed board drafting effect")
-    case True{}: type_outcome_value(Bool.not(truthy(J.get(J.get(effect, "model"), "adaptive_reasoning"))), J.Null{}, "Board drafting requires an ordinary model profile")
+    case False{}: Model.failure_code("TypeError", "Expected a committed task text effect")
+    case True{}: type_outcome_value(Bool.not(truthy(J.get(J.get(effect, "model"), "adaptive_reasoning"))), J.Null{}, "Task text generation requires an ordinary model profile")
 
-def request_board(+source: J.Json) -> J.Json:
+def request_task_text(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
-  request_board_kind(String.eq(J.text(J.get(effect, "kind")), "board_text") && J.is_text(J.get(effect, "prompt")), effect)
+  request_task_text_kind((String.eq(J.text(J.get(effect, "kind")), "board_text") || String.eq(J.text(J.get(effect, "kind")), "task_title")) && J.is_text(J.get(effect, "prompt")), effect)
 
 def workspace_admit(+value: J.Json) -> J.Json:
   type_outcome_value(J.is_object(value) && array(J.get(value, "roots")) && Nat.is_le(length(J.items(J.get(value, "roots"))), 32n) && allowed(fields(value), ["roots", "primary_root"]), value, "A workspace requires at most 32 roots and an optional primary_root")
@@ -1500,13 +1525,13 @@ def meaning_route_6(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 
 def meaning_route_5(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
-    case True{}: request_board(source)
+    case True{}: request_task_text(source)
     case False{}: meaning_route_6(String.eq(operation, "effect.filename"), operation, source)
 
 def meaning_route_4(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: request_approval(source)
-    case False{}: meaning_route_5(String.eq(operation, "effect.request_board_text"), operation, source)
+    case False{}: meaning_route_5(String.eq(operation, "effect.request_task_text"), operation, source)
 
 def meaning_route_3(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -1516,7 +1541,7 @@ def meaning_route_3(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 def meaning_route_2(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: outcome(source, True{})
-    case False{}: meaning_route_3(String.eq(operation, "effect.board_text_outcome"), operation, source)
+    case False{}: meaning_route_3(String.eq(operation, "effect.task_text_outcome"), operation, source)
 
 def meaning_route_1(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -1526,7 +1551,7 @@ def meaning_route_1(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: response_text(source, True{})
-    case False{}: meaning_route_1(String.eq(operation, "effect.board_text_text"), operation, source)
+    case False{}: meaning_route_1(String.eq(operation, "effect.task_text_text"), operation, source)
 
 def meaning(+operation: String, +source: J.Json) -> J.Json:
   match operation:

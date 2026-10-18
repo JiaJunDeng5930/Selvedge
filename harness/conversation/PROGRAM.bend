@@ -31,22 +31,21 @@ def provider_kind(value: J.Json) -> ContextKind:
 def provider_assistant(value: J.Json) -> Bool:
   String.eq(J.text(J.get(provider_value(value), "role")), "assistant")
 
-# Titles are observations of the user's request, never browser-generated names
-# or mutable task identities. Whitespace-only messages do not name a thread.
+# Request-derived fallback titles are shared by every title observer.
 
-def request_title(text: String, fallback: String) -> String:
+def request_title(text: String, fallback: Unit -> String) -> String:
   match text:
-    case "": fallback
-    case title: String.take(title, 96n)
+    case "": fallback(Unit{})
+    case title: title
 
 def first_request(messages: +List<D.Message>, fallback: String) -> String:
   match messages:
     case Nil{}: fallback
-    case Con{D.UserMessage{text}, rest}: request_title(String.trim(text), first_request(rest, fallback))
+    case Con{D.UserMessage{text}, rest}: request_title(String.trim(text), unused => first_request(rest, fallback))
     case Con{other, rest}: first_request(rest, fallback)
 
 def title(+task: D.Task) -> String:
-  first_request(D.history_messages(D.task_history(task), Nil{}), "Task #" ++ Nat.show(D.task_id(task)))
+  String.take(first_request(D.history_messages(D.task_history(task), Nil{}), "Task #" ++ Nat.show(D.task_id(task))), 96n)
 
 def working(phase: D.Phase, operations: +List<D.Operation()>) -> Bool:
   match phase:

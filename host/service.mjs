@@ -9,7 +9,7 @@ import { runBash } from './process.mjs';
 import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
 import { observeContextSources } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
-import { requestBoardText } from './board-text.mjs';
+import { requestTaskText } from './task-text.mjs';
 import { observeBoardCommand } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
@@ -216,7 +216,7 @@ export class Service extends EventEmitter {
       this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
       return;
     }
-    if (!['worktree_create', 'worktree_archive', 'observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    if (!['worktree_create', 'worktree_archive', 'observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'task_title', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = effect.kind.startsWith('worktree_') ? `${effect.kind}:${effect.task_id}` : effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
       effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
@@ -273,8 +273,8 @@ export class Service extends EventEmitter {
       } else if (effect.kind === 'chatgpt_exec') {
         const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, readOnlyPaths: [this.home] });
         input = boundary('effect.completion', { effect, result });
-      } else if (effect.kind === 'board_text') {
-        input = boundary('effect.completion', { effect, result: await requestBoardText(effect, this.config, this.home, this.limits, { signal }) });
+      } else if (effect.kind === 'board_text' || effect.kind === 'task_title') {
+        input = boundary('effect.completion', { effect, result: await requestTaskText(effect, this.config, this.home, this.limits, { signal }) });
       } else if (effect.kind === 'approval') {
         input = boundary('effect.completion', { effect, result: await requestApproval(effect, this.config, this.home, this.limits, { signal }) });
       } else if (effect.kind === 'reasoning') {

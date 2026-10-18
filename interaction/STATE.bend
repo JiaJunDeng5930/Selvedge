@@ -206,9 +206,18 @@ def application_available(request: ApplicationRequest) -> Bool:
   ApplicationRequest{input, application, services} = request
   Bool.not(submission_blocked(services, input))
 
+def service_decision_state(decision: Services.Decision) -> Services.State:
+  Services.Decision{state, effects} = decision
+  state
+
+def application_services(input: E.Input, services: Services.State) -> Services.State:
+  match input:
+    case E.UserInput{U.Activate{U.EditTitlePrompts{}}}: service_decision_state(Services.step(Services.CloseSettings{}, services))
+    case _: services
+
 def apply_application(member: Categories.Membership<ApplicationRequest, Categories.holds(ApplicationRequest, application_available)>) -> InteractionTypes.Decision:
-  Categories.Membership{ApplicationRequest{input, application, services}, evidence} = member
-  application_result(ExperienceProgram.step(input, application), services)
+  Categories.Membership{ApplicationRequest{+input, application, services}, evidence} = member
+  application_result(ExperienceProgram.step(input, application), application_services(input, services))
 
 def application_admitted(found: Maybe<&1, Categories.Membership<ApplicationRequest, Categories.holds(ApplicationRequest, application_available)>>, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
   match found:

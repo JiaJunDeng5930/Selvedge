@@ -388,6 +388,7 @@ def Rule.workspace_operation_classification(body):
     case U.Card{id, revision, value, assist, profile, keep_open}: {==}
     case U.Compact{task, summary}: {==}
     case U.TaskGraph{graph, declaration, parsed, work}: {==}
+    case U.TitlePrompts{revision, prompts}: {==}
 
 def Rule.assessment_attention_uses_all_obstructions(assessment): {==}
 def Rule.attention_keeps_first_repair(obstruction, rest, repair):
@@ -440,6 +441,7 @@ def Rule.project_relations_order(property, edit, revision, body, feedback, entry
     case U.Fork{task, count, messages, context}: {==}
     case U.Compact{task, summary}: {==}
     case U.TaskGraph{graph, declaration, parsed, work}: {==}
+    case U.TitlePrompts{revision, prompts}: {==}
 
 def editing_relations_from_draft_agreement(+edit: M.ProjectEdit, +draft: U.Draft) ->
   {Activity.relations(Activity.editing_from_draft(edit, draft)) == Activity.project_relations_from_draft(P.project_edit_property(edit), edit, P.project_edit_draft(edit)) : +List<Activity.Relation>}:

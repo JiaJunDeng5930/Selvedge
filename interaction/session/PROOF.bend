@@ -308,6 +308,7 @@ def model_resolution_if_refinement(+valid: Bool, +draft: U.Draft, +profiles: +Li
     case False{} U.Draft{revision, U.Fork{task, count, messages, context}, feedback, directory_entry}: {==}
     case False{} U.Draft{revision, U.Compact{task, summary}, feedback, directory_entry}: {==}
     case False{} U.Draft{revision, U.TaskGraph{graph, declaration, parsed, work}, feedback, directory_entry}: {==}
+    case False{} U.Draft{revision, U.TitlePrompts{settings_revision, prompts}, feedback, directory_entry}: {==}
 
 def model_resolution_found_refinement(+found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: E.Session) ->
   {E.resolve_model_found(found, profiles, session) == Rule.model_resolution_found(found, profiles, session) : E.Session}:
@@ -323,6 +324,7 @@ def model_resolution_found_refinement(+found: Maybe<&2, U.Draft>, +profiles: +Li
     case Some{U.Draft{revision, U.Fork{task, count, messages, context}, feedback, directory_entry}}: {==}
     case Some{U.Draft{revision, U.Compact{task, summary}, feedback, directory_entry}}: {==}
     case Some{U.Draft{revision, U.TaskGraph{graph, declaration, parsed, work}, feedback, directory_entry}}: {==}
+    case Some{U.Draft{revision, U.TitlePrompts{settings_revision, prompts}, feedback, directory_entry}}: {==}
 
 def model_resolution_complete(+session: E.Session, +world: M.World()) ->
   {E.resolve_model_draft(session, world) == Rule.model_resolution(session, world) : E.Session}:
@@ -636,6 +638,8 @@ def Rule.back_from_dependency_retains_inspection_parent(editor, trigger, initial
 def Rule.mismatched_execution_view_does_not_dismiss(task, result): {==}
 def Rule.explicit_dismiss_preserves_nonproject_state(editor, application): {==}
 def Rule.project_dismiss_discards_complete_draft(id, world, session): {==}
+def Rule.title_prompts_dismiss_discards_complete_draft(world, session): {==}
+def Rule.fresh_title_prompts_use_reserved_occurrence(revision, prompts, session): {==}
 def Rule.fresh_project_uses_reserved_occurrence(body, session): {==}
 def Rule.cancelled_project_advances_shared_fresh_occurrence(revision, body, feedback, entry, current): {==}
 

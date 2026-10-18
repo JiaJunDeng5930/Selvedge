@@ -20,6 +20,7 @@ import ../session/MODEL.bend as E
 import ../../features/board/MODEL.bend as B
 import ../../features/task_graph/MODEL.bend as G
 import ../../features/work/MODEL.bend as Work
+import ../../features/titles/STATE.bend as Titles
 import ../../harness/features/work-state.bend as WorkState
 import ../../harness/features/graph-state.bend as GraphState
 import ../MODEL.bend as ModelModel
@@ -342,14 +343,14 @@ law work_overview_choices_do_not_invent_entries:
 law work_overview_choice_observes_actual_member_tasks:
   @+work:Maybe<&2, Nat> -> @+name:String -> @+world:M.World() ->
   {View.work_choice(work, name, world) == V.WorkChoice{work, name,
-    View.work_summary(View.work_tasks(Commands.entries(world), work, world), List.length(&2, D.Task, View.work_tasks(Commands.entries(world), work, world)))} : V.WorkChoice}
+    View.work_summary(View.work_tasks(Commands.entries(world), work, world), List.length(&2, D.Task, View.work_tasks(Commands.entries(world), work, world)), world)} : V.WorkChoice}
 
 law work_overview_preview_retains_task_count_title_and_status:
-  @+task:D.Task -> @rest:+List<D.Task> -> @+count:Nat ->
-  {View.work_summary(task <> rest, count) == View.work_task_count(count) ++ " · " ++ Conversation2.title(task) ++ " · " ++ View.task_status_label(View.task_status(task)) : String}
+  @+task:D.Task -> @rest:+List<D.Task> -> @+count:Nat -> @+world:M.World() ->
+  {View.work_summary(task <> rest, count, world) == View.work_task_count(count) ++ " · " ++ Titles.title(task, world) ++ " · " ++ View.task_status_label(View.task_status(task)) : String}
 
 law empty_work_overview_preview_is_explicit:
-  @count:Nat -> {View.work_summary(Nil{}, count) == "No tasks yet" : String}
+  @count:Nat -> @world:M.World() -> {View.work_summary(Nil{}, count, world) == "No tasks yet" : String}
 
 law work_tab_entries_preserve_registry_order:
   @+id:Nat -> @+value:Work.Work -> @+rest:+List<Finite.Entry(Work.Work)> -> @+active:Maybe<&2, Nat> -> @+state:InteractionTypes.State ->
@@ -1644,7 +1645,7 @@ type ProjectInteractionRequirements is Type:
     independent_source: @+expanded:Bool -> @+route:U.Route -> @+world:M.World() -> @+session:E.Session ->
       {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新建对话", U.BeginTask{None{}}),
         [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
-        View.navigation_projects(Projects.entries(Projects.registry(F.State(), world)), View.work_tasks(Commands.entries(world), E.active_work(session), world), route, View.active_project(route, session, world), E.navigation(session), E.active_work(session)), View.task_forest(View.project_tasks(View.work_tasks(Commands.entries(world), E.active_work(session), world), None{}), route),
+        View.named_projects(View.navigation_projects(Projects.entries(Projects.registry(F.State(), world)), View.work_tasks(Commands.entries(world), E.active_work(session), world), route, View.active_project(route, session, world), E.navigation(session), E.active_work(session)), world), View.named_trees(View.task_forest(View.project_tasks(View.work_tasks(Commands.entries(world), E.active_work(session), world), None{}), route), world),
         V.ControlDeclaration{"navigation/toggle", View.task_navigation_toggle_label(expanded), V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
     navigation_entry_fields: @+key:Identity.Key -> @+semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+selected:Bool ->
       {Model.replace_role(SurfaceTypes.Node{key, semantic, label, role, meaning, children}, SurfaceTypes.NavigationEntry{selected}) ==
@@ -2016,8 +2017,8 @@ law editor_submit_region:
   for +parent: Identity.Key
   for +state: InteractionTypes.State
   {Model.ordinary_editor(Some{V.EditorScene{identity, revision, groups, structure, assessment, submit, feedback, pending}}, parent, state) ==
-    List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
-      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), Model.action_feedback_nodes(identity, feedback, parent)), [Model.dialog_actions(parent, [Model.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])) : +List<SurfaceTypes.Node>}
+    List.append(&2, SurfaceTypes.Node, Model.title_prompt_controls(identity, pending, parent), List.append(&2, SurfaceTypes.Node, Model.sections(structure, identity, parent, 0n, state, groups),
+      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), Model.action_feedback_nodes(identity, feedback, parent)), [Model.dialog_actions(parent, [Model.canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])]))) : +List<SurfaceTypes.Node>}
 
 law confirmation_actions_region:
   for title: String

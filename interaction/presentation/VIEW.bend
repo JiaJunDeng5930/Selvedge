@@ -1,6 +1,7 @@
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import Base
+import ../../features/titles/STATE.bend as TitleState
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
 import ../../harness/MODEL.bend as M
@@ -47,6 +48,7 @@ def editor_title(editor: U.Editor) -> String:
     case U.AgentEditor{Some{id}}: "Edit agent"
     case U.TaskGraphEditor{None{}}: "New task graph"
     case U.TaskGraphEditor{Some{id}}: "Edit task graph"
+    case U.TitlePromptEditor{}: "标题生成设置"
     case U.ForkEditor{task}: "Fork task"
     case U.CompactEditor{task}: "Compact history"
 
@@ -459,6 +461,7 @@ def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List
 
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
+    case U.TitlePrompts{revision, prompts}: Nil{}
     case U.WorkName{work, name}: Nil{}
     case U.NewTask{message, +profile, reasoning, context, create_worktree, work}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.NewTaskEditor{work}, context, profile, world)]
     case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
@@ -575,10 +578,26 @@ def task_entry(+task: D.Task, route: U.Route) -> ViewTypes.TaskEntry:
   ViewTypes.TaskEntry{id, Conversation.title(task), task_status(task), U.route_owns(route, id),
     control("task/" ++ Nat.show(id), Conversation.title(task), U.Navigate{U.Conversation{id}})}
 
-def task_entries(tasks: +List<D.Task>, +route: U.Route) -> +List<ViewTypes.TaskEntry>:
+def named_entry(entry: ViewTypes.TaskEntry, +world: M.World()) -> ViewTypes.TaskEntry:
+  ViewTypes.TaskEntry{+id, fallback, status, selected, ViewTypes.ControlDeclaration{identity, old_label, prominence, input, availability}} = entry
+  +title = TitleState.name(id, fallback, world)
+  ViewTypes.TaskEntry{id, title, status, selected, ViewTypes.ControlDeclaration{identity, title, prominence, input, availability}}
+
+def task_entries(tasks: +List<D.Task>, +route: U.Route, +world: M.World()) -> +List<ViewTypes.TaskEntry>:
   match tasks:
     case Nil{}: Nil{}
-    case Con{task, rest}: task_entry(task, route) <> task_entries(rest, route)
+    case Con{task, rest}: named_entry(task_entry(task, route), world) <> task_entries(rest, route, world)
+
+def named_trees(trees: +List<ViewTypes.TaskTree>, +world: M.World()) -> +List<ViewTypes.TaskTree>:
+  match trees:
+    case Nil{}: Nil{}
+    case Con{ViewTypes.TaskTree{entry, children}, rest}: ViewTypes.TaskTree{named_entry(entry, world), named_trees(children, world)} <> named_trees(rest, world)
+
+def named_projects(projects: +List<ViewTypes.ProjectEntry>, +world: M.World()) -> +List<ViewTypes.ProjectEntry>:
+  match projects:
+    case Nil{}: Nil{}
+    case Con{ViewTypes.ProjectEntry{id, name, workspace, selected, expanded, tasks, open, create, toggle, more}, rest}:
+      ViewTypes.ProjectEntry{id, name, workspace, selected, expanded, named_trees(tasks, world), open, create, toggle, more} <> named_projects(rest, world)
 
 type PendingTaskTree is Data:
   PendingTaskTree{parent: Maybe<&2, Nat>, tree: ViewTypes.TaskTree}
@@ -702,7 +721,7 @@ def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.
   +tasks = work_tasks(Commands.entries(world), scope, world)
   ViewTypes.Navigation{expanded, control("new-task", "新建对话", U.BeginTask{None{}}),
     global_destinations(),
-    navigation_projects(Projects.entries(Projects.registry(F.State(), world)), tasks, route, active_project(route, session, world), nav, scope), task_forest(project_tasks(tasks, None{}), route),
+    named_projects(navigation_projects(Projects.entries(Projects.registry(F.State(), world)), tasks, route, active_project(route, session, world), nav, scope), world), named_trees(task_forest(project_tasks(tasks, None{}), route), world),
     ViewTypes.ControlDeclaration{"navigation/toggle", task_navigation_toggle_label(expanded), ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:
@@ -722,7 +741,7 @@ def task_scene(+task: D.Task, +session: E.Session, +world: M.World()) -> ViewTyp
   readers = E.readers(session)
   previews = E.previews(session)
   +id = D.task_id(task)
-  ViewTypes.TaskScene{id, Conversation.title(task), task_status(task), Context.effective(task), ConversationWorld.timeline(E.reader(readers, id), task, world), Live.for_task(Live.retained(previews, world), id),
+  ViewTypes.TaskScene{id, TitleState.title(task, world), task_status(task), Context.effective(task), ConversationWorld.timeline(E.reader(readers, id), task, world), Live.for_task(Live.retained(previews, world), id),
     composer(U.MessageEditor{id}, session, world), task_details(task), task_actions(id, world)}
 
 def optional_task(found: Maybe<&2, D.Task>, session: E.Session, world: M.World()) -> Maybe<&2, ViewTypes.TaskScene>:
@@ -737,7 +756,7 @@ def task_page(found: Maybe<&2, D.Task>, session: E.Session, world: M.World()) ->
 
 def project_scene(+id: Nat, project: D.Project, route: U.Route, +world: M.World()) -> ViewTypes.ProjectScene:
   D.Project{name, workspace, guidance, create_worktree} = project
-  ViewTypes.ProjectScene{id, name, workspace, guidance, task_entries(project_tasks(Commands.entries(world), Some{id}), route),
+  ViewTypes.ProjectScene{id, name, workspace, guidance, task_entries(project_tasks(Commands.entries(world), Some{id}), route, world),
     [control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}), control("project/edit/" ++ Nat.show(id), "Edit project", U.EditProject{Some{id}}),
       native("project/delete/" ++ Nat.show(id), "Delete project", ViewTypes.Destructive{}, U.DeleteProject{id}, world)]}
 
@@ -751,15 +770,15 @@ def project_scenes(entries: +List<Finite.Entry(D.Project)>, +route: U.Route, +wo
     case Nil{}: Nil{}
     case Con{(id, project), rest}: project_scene(id, project, route, world) <> project_scenes(rest, route, world)
 
-def linked_entry(found: Maybe<&2, D.Task>, route: U.Route) -> Maybe<&2, ViewTypes.TaskEntry>:
+def linked_entry(found: Maybe<&2, D.Task>, route: U.Route, world: M.World()) -> Maybe<&2, ViewTypes.TaskEntry>:
   match found:
     case None{}: None{}
-    case Some{task}: Some{task_entry(task, route)}
+    case Some{task}: Some{named_entry(task_entry(task, route), world)}
 
-def linked_task(task: Maybe<&2, Nat>, route: U.Route, world: M.World()) -> Maybe<&2, ViewTypes.TaskEntry>:
+def linked_task(task: Maybe<&2, Nat>, route: U.Route, +world: M.World()) -> Maybe<&2, ViewTypes.TaskEntry>:
   match task:
     case None{}: None{}
-    case Some{id}: linked_entry(Tasks.find(Commands.entries(world), id), route)
+    case Some{id}: linked_entry(Tasks.find(Commands.entries(world), id), route, world)
 
 def board_control(identity: String, label: String, +command: B.Command, world: M.World()) -> ViewTypes.ControlDeclaration:
   native(identity, label, ViewTypes.Secondary{}, U.BoardCommand{command}, world)
@@ -773,7 +792,7 @@ def move_destinations(stages: +List<B.Stage>, +id: Nat, +revision: Nat, +now: U3
 def link_candidates(tasks: +List<D.Task>, +id: Nat, +revision: Nat, +now: U32, +world: M.World()) -> +List<ViewTypes.ControlDeclaration>:
   match tasks:
     case Nil{}: Nil{}
-    case Con{+task, rest}: board_control("card/link/" ++ Nat.show(id) ++ "/" ++ Nat.show(D.task_id(task)), Conversation.title(task),
+    case Con{+task, rest}: board_control("card/link/" ++ Nat.show(id) ++ "/" ++ Nat.show(D.task_id(task)), TitleState.title(task, world),
       B.Link{id, revision, D.task_id(task), now}, world) <> link_candidates(rest, id, revision, now, world)
 
 def before_destination(eligible: Bool, +target: Nat, +value: B.Card, id: Nat, revision: Nat, now: U32, world: M.World()) -> +List<ViewTypes.MoveDestination>:
@@ -872,16 +891,14 @@ def agent_scenes(agents: +List<Finite.Entry(B.AgentProfile)>, +world: M.World())
     case Nil{}: Nil{}
     case Con{(id, agent), rest}: agent_scene(id, agent, world) <> agent_scenes(rest, world)
 
-def task_graph_entry(found: Maybe<&2, D.Task>, route: U.Route) -> Maybe<&2, ViewTypes.TaskEntry>:
-  match found:
-    case None{}: None{}
-    case Some{task}: Some{task_entry(task, route)}
+def task_graph_entry(found: Maybe<&2, D.Task>, route: U.Route, world: M.World()) -> Maybe<&2, ViewTypes.TaskEntry>:
+  linked_entry(found, route, world)
 
 def task_graph_nodes(nodes: +List<G.ResolvedNode>, +route: U.Route, +world: M.World()) -> +List<ViewTypes.TaskGraphNode>:
   match nodes:
     case Nil{}: Nil{}
     case Con{G.ResolvedNode{key, +task}, rest}:
-      ViewTypes.TaskGraphNode{key, task, task_graph_entry(Tasks.find(Commands.entries(world), task), route)} <> task_graph_nodes(rest, route, world)
+      ViewTypes.TaskGraphNode{key, task, task_graph_entry(Tasks.find(Commands.entries(world), task), route, world)} <> task_graph_nodes(rest, route, world)
 
 def task_graph_scene(+id: Nat, +value: G.Graph, route: U.Route, +world: M.World()) -> ViewTypes.TaskGraphScene:
   ViewTypes.TaskGraphScene{id, value, task_graph_nodes(G.nodes(value), route, world),
@@ -982,14 +999,14 @@ def work_task_count(count: Nat) -> String:
     case 1n: "1 task"
     case other: Nat.show(other) ++ " tasks"
 
-def work_summary(tasks: +List<D.Task>, count: Nat) -> String:
+def work_summary(tasks: +List<D.Task>, count: Nat, +world: M.World()) -> String:
   match tasks:
     case Nil{}: "No tasks yet"
-    case Con{+task, rest}: work_task_count(count) ++ " · " ++ Conversation.title(task) ++ " · " ++ task_status_label(task_status(task))
+    case Con{+task, rest}: work_task_count(count) ++ " · " ++ TitleState.title(task, world) ++ " · " ++ task_status_label(task_status(task))
 
 def work_choice(+work: Maybe<&2, Nat>, name: String, +world: M.World()) -> ViewTypes.WorkChoice:
   +tasks = work_tasks(Commands.entries(world), work, world)
-  ViewTypes.WorkChoice{work, name, work_summary(tasks, List.length(&2, D.Task, tasks))}
+  ViewTypes.WorkChoice{work, name, work_summary(tasks, List.length(&2, D.Task, tasks), world)}
 
 def work_choices(values: +List<Finite.Entry(Work.Work)>, +world: M.World()) -> +List<ViewTypes.WorkChoice>:
   match values:

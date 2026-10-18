@@ -177,6 +177,7 @@ def Contract.submission_obstruction_preserves_admission(access, transfers, input
     case E.UserInput{U.Activate{U.BeginTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BeginTask{p0}), access))
     case E.UserInput{U.Activate{U.EditProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditProject{p0}), access))
     case E.UserInput{U.Activate{U.EditTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTaskGraph{p0}), access))
+    case E.UserInput{U.Activate{U.EditTitlePrompts{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTitlePrompts{}), access))
     case E.UserInput{U.Activate{U.NewCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.NewCard{p0}), access))
     case E.UserInput{U.Activate{U.EditCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditCard{p0}), access))
     case E.UserInput{U.Activate{U.EditAgent{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditAgent{p0}), access))

@@ -1,4 +1,5 @@
 import Base
+import ../../features/titles/SPEC.bend as TitleSpec
 import ../../features/compaction/SPEC.bend as Compaction
 import ../../features/compaction/STATE.bend as CompactionState
 import ../tools/SYNTAX.bend as Native
@@ -438,7 +439,7 @@ def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:
     case False{}: decision
-    case True{}: scheduled_prepared(Compaction.required_prepare(BoardScheduling.required_prepare(decision)))
+    case True{}: scheduled_prepared(Compaction.required_prepare(TitleSpec.prepare(BoardScheduling.required_prepare(decision))))
 
 
 type WorkRequest is Data:

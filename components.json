@@ -1433,7 +1433,8 @@
       "features/board/STATE.bend",
       "features/board/resolution.bend",
       "bendlib/json.bend",
-      "harness/tasks/PROGRAM.bend"
+      "harness/tasks/PROGRAM.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "features/board/PROOF.bend": [
       "bendlib/categories.bend",
@@ -1447,7 +1448,8 @@
       "features/board/SPEC.bend",
       "features/board/STATE.bend",
       "features/board/resolution.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "features/board/resolution.bend": [
       "bendlib/categories.bend",
@@ -1577,7 +1579,8 @@
       "harness/reasoning/SPEC.bend",
       "harness/reasoning/context.bend",
       "harness/reasoning/MODEL.bend",
-      "harness/features/work-state.bend"
+      "harness/features/work-state.bend",
+      "features/titles/STATE.bend"
     ],
     "harness/CONTRACT.bend": [
       "interaction/CONTRACT.bend",
@@ -1639,7 +1642,8 @@
       "harness/reasoning/PROGRAM.bend",
       "harness/reasoning/SPEC.bend",
       "features/compaction/SPEC.bend",
-      "features/compaction/STATE.bend"
+      "features/compaction/STATE.bend",
+      "features/titles/SPEC.bend"
     ],
     "harness/MODEL.bend": [
       "harness/tools/MODEL.bend",
@@ -1672,11 +1676,7 @@
       "harness/protocol/COMMIT.bend",
       "bendlib/categories.bend",
       "harness/execution/notifications.bend",
-      "harness/protocol/commit-proof.bend",
-      "features/remote/MODEL.bend",
-      "features/remote/PROGRAM.bend",
-      "harness/features/remote.bend",
-      "harness/execution/PROGRAM.bend"
+      "harness/protocol/commit-proof.bend"
     ],
     "harness/approval/HOOKS.bend": [
       "bendlib/categories.bend",
@@ -1739,7 +1739,8 @@
       "harness/workspace/WORKSPACE.bend",
       "harness/approval/MODEL.bend",
       "harness/protocol/RESULTS.bend",
-      "harness/reasoning/SPEC.bend"
+      "harness/reasoning/SPEC.bend",
+      "features/titles/SPEC.bend"
     ],
     "harness/features/CODEC.bend": [
       "features/compaction/MODEL.bend",
@@ -1759,7 +1760,10 @@
       "features/remote/CODEC.bend",
       "features/worktree/CODEC.bend",
       "features/worktree/MODEL.bend",
-      "features/work/CODEC.bend"
+      "features/work/CODEC.bend",
+      "features/titles/MODEL.bend",
+      "features/titles/CODEC.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "harness/features/CONTRACT.bend": [
       "features/compaction/CONTRACT.bend",
@@ -1784,7 +1788,8 @@
       "features/remote/MODEL.bend",
       "features/work/CONTRACT.bend",
       "features/work/MODEL.bend",
-      "harness/features/work-state.bend"
+      "harness/features/work-state.bend",
+      "features/titles/CONTRACT.bend"
     ],
     "harness/features/PROOF.bend": [
       "harness/features/MODEL.bend",
@@ -1821,7 +1826,8 @@
       "harness/features/work-state.bend",
       "harness/features/MODEL.bend",
       "bendlib/component.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "features/titles/SPEC.bend"
     ],
     "harness/features/STATE.bend": [
       "features/compaction/MODEL.bend",
@@ -1848,7 +1854,11 @@
       "features/worktree/CODEC.bend",
       "harness/features/worktree-state.bend",
       "features/work/MODEL.bend",
-      "harness/features/work-state.bend"
+      "harness/features/work-state.bend",
+      "features/titles/MODEL.bend",
+      "features/titles/STATE.bend",
+      "features/titles/CODEC.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "harness/features/execution.bend": [
       "features/compaction/PROGRAM.bend",
@@ -1870,7 +1880,8 @@
       "harness/features/worktree-execution.bend",
       "features/work/PROGRAM.bend",
       "harness/features/work-state.bend",
-      "harness/features/MODEL.bend"
+      "harness/features/MODEL.bend",
+      "features/titles/PROGRAM.bend"
     ],
     "harness/features/laws.bend": [
       "features/compaction/PROOF.bend",
@@ -1906,7 +1917,8 @@
       "harness/features/work-state.bend",
       "bendlib/component.bend",
       "harness/features/worktree-execution.bend",
-      "harness/features/worktree-spec.bend"
+      "harness/features/worktree-spec.bend",
+      "features/titles/PROOF.bend"
     ],
     "harness/features/protocol.bend": [
       "bendlib/categories.bend",
@@ -1942,7 +1954,8 @@
       "features/worktree/MODEL.bend",
       "harness/features/worktree-state.bend",
       "harness/features/work-state.bend",
-      "features/work/MODEL.bend"
+      "features/work/MODEL.bend",
+      "features/titles/SPEC.bend"
     ],
     "harness/protocol/COMMIT.bend": [
       "bendlib/categories.bend",
@@ -2220,7 +2233,9 @@
       "interaction/services/CONTEXT.bend",
       "features/worktree/MODEL.bend",
       "harness/workspace/PROJECTS.bend",
-      "features/work/MODEL.bend"
+      "features/work/MODEL.bend",
+      "features/titles/MODEL.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "interaction/MODEL.bend": [
       "harness/MODEL.bend",
@@ -2388,7 +2403,8 @@
       "harness/conversation/PROGRAM.bend",
       "features/work/MODEL.bend",
       "harness/features/work-state.bend",
-      "harness/features/graph-state.bend"
+      "harness/features/graph-state.bend",
+      "features/titles/STATE.bend"
     ],
     "interaction/presentation/MODEL.bend": [
       "interaction/experience/MODEL.bend",
@@ -2510,7 +2526,8 @@
       "interaction/session/MODEL.bend",
       "interaction/conversation/MODEL.bend",
       "interaction/presentation/MODEL.bend",
-      "harness/features/work-state.bend"
+      "harness/features/work-state.bend",
+      "features/titles/STATE.bend"
     ],
     "interaction/presentation/interaction-proof.bend": [
       "interaction/experience/MODEL.bend",
@@ -2655,7 +2672,8 @@
       "interaction/services/CONTEXT.bend",
       "harness/features/MODEL.bend",
       "features/worktree/MODEL.bend",
-      "features/work/MODEL.bend"
+      "features/work/MODEL.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "interaction/session/MODEL.bend": [
       "interaction/experience/PROGRAM.bend",
@@ -2682,7 +2700,9 @@
       "interaction/INPUT.bend",
       "interaction/submission/FIELDS.bend",
       "features/work/MODEL.bend",
-      "harness/features/work-state.bend"
+      "harness/features/work-state.bend",
+      "features/titles/MODEL.bend",
+      "features/titles/STATE.bend"
     ],
     "interaction/session/PROGRAM.bend": [
       "interaction/session/MODEL.bend",
@@ -2743,7 +2763,8 @@
       "interaction/INPUT.bend",
       "interaction/services/CONTEXT.bend",
       "features/board/STATE.bend",
-      "harness/workspace/WORKSPACE.bend"
+      "harness/workspace/WORKSPACE.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "interaction/submission/MODEL.bend": [
       "bendlib/json.bend"
@@ -2839,7 +2860,8 @@
       "host/adapters/ACCOUNTS.bend",
       "harness/context/MODEL.bend",
       "host/adapters/COMPACTION.bend",
-      "harness/context/PROGRAM.bend"
+      "harness/context/PROGRAM.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "host/adapters/BROWSER.bend": [
       "bendlib/json.bend",
@@ -2850,7 +2872,9 @@
       "bendlib/json.bend",
       "bendlib/categories.bend",
       "bendlib/stdlib.bend",
-      "host/adapters/MODEL.bend"
+      "host/adapters/MODEL.bend",
+      "harness/conversation/TITLE.bend",
+      "harness/transport/wire-shape.bend"
     ],
     "host/adapters/MODEL.bend": [
       "bendlib/categories.bend",
@@ -2940,7 +2964,8 @@
       "harness/approval/MODEL.bend",
       "harness/reasoning/PROGRAM.bend",
       "features/board/scheduling.bend",
-      "features/board/scheduling-spec.bend"
+      "features/board/scheduling-spec.bend",
+      "features/titles/PROGRAM.bend"
     ],
     "harness/execution/PROOF.bend": [
       "features/compaction/PROOF.bend",
@@ -2969,7 +2994,10 @@
       "harness/protocol/PROOF.bend",
       "harness/CONTRACT.bend",
       "harness/execution/OPERATIONS.bend",
-      "bendlib/json.bend"
+      "bendlib/json.bend",
+      "features/titles/PROGRAM.bend",
+      "features/titles/SPEC.bend",
+      "features/titles/PROOF.bend"
     ],
     "host/adapters/accounts-proof.bend": [
       "bendlib/categories.bend",
@@ -3073,7 +3101,8 @@
       "harness/DOMAIN.bend",
       "harness/transport/schema.bend",
       "harness/workspace/WORKSPACE.bend",
-      "features/work/MODEL.bend"
+      "features/work/MODEL.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "interaction/experience/PROOF.bend": [
       "bendlib/stdlib.bend",
@@ -3140,7 +3169,8 @@
       "harness/DOMAIN.bend",
       "bendlib/json.bend",
       "bendlib/association-map.bend",
-      "bendlib/categories.bend"
+      "bendlib/categories.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "browser/layout/ADAPTATION.bend": [
       "browser/layout/CONTENT.bend",
@@ -3255,7 +3285,9 @@
       "features/worktree/MODEL.bend",
       "features/worktree/CODEC.bend",
       "features/work/MODEL.bend",
-      "features/work/CODEC.bend"
+      "features/work/CODEC.bend",
+      "features/titles/MODEL.bend",
+      "features/titles/CODEC.bend"
     ],
     "harness/features/graph-execution.bend": [
       "harness/DOMAIN.bend",
@@ -3292,7 +3324,9 @@
       "features/task_graph/MODEL.bend",
       "features/remote/MODEL.bend",
       "features/worktree/MODEL.bend",
-      "features/work/MODEL.bend"
+      "features/work/MODEL.bend",
+      "features/titles/MODEL.bend",
+      "harness/conversation/TITLE.bend"
     ],
     "features/task_graph/PROOF.bend": [
       "features/task_graph/CONTRACT.bend",
@@ -3625,6 +3659,86 @@
       "harness/features/MODEL.bend",
       "harness/features/work-state.bend",
       "harness/features/SPEC.bend"
+    ],
+    "features/titles/CODEC.bend": [
+      "features/titles/MODEL.bend",
+      "harness/conversation/TITLE.bend",
+      "harness/transport/schema.bend",
+      "harness/transport/wire-shape.bend",
+      "bendlib/json.bend"
+    ],
+    "features/titles/PROOF.bend": [
+      "features/titles/MODEL.bend",
+      "features/titles/STATE.bend",
+      "features/titles/SPEC.bend",
+      "features/titles/PROGRAM.bend",
+      "features/titles/CONTRACT.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/features/MODEL.bend",
+      "bendlib/component.bend",
+      "bendlib/association-map.bend",
+      "harness/conversation/TITLE.bend"
+    ],
+    "features/titles/PROGRAM.bend": [
+      "features/titles/MODEL.bend",
+      "features/titles/STATE.bend",
+      "features/titles/SPEC.bend",
+      "features/titles/CODEC.bend",
+      "harness/conversation/TITLE.bend",
+      "harness/features/MODEL.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "bendlib/component.bend",
+      "bendlib/effects.bend",
+      "bendlib/json.bend"
+    ],
+    "features/titles/MODEL.bend": [
+      "bendlib/association-map.bend",
+      "harness/DOMAIN.bend",
+      "harness/reasoning/MODEL.bend",
+      "harness/conversation/TITLE.bend",
+      "harness/workspace/WORKSPACE.bend"
+    ],
+    "features/titles/SPEC.bend": [
+      "features/titles/MODEL.bend",
+      "features/titles/STATE.bend",
+      "features/titles/CODEC.bend",
+      "harness/features/MODEL.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/conversation/TITLE.bend",
+      "bendlib/component.bend",
+      "bendlib/effects.bend",
+      "bendlib/json.bend"
+    ],
+    "features/titles/CONTRACT.bend": [
+      "features/titles/MODEL.bend",
+      "features/titles/SPEC.bend",
+      "features/titles/PROGRAM.bend",
+      "features/titles/STATE.bend",
+      "harness/MODEL.bend",
+      "harness/features/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/conversation/TITLE.bend",
+      "bendlib/component.bend",
+      "bendlib/association-map.bend"
+    ],
+    "features/titles/STATE.bend": [
+      "features/titles/MODEL.bend",
+      "harness/features/MODEL.bend",
+      "harness/MODEL.bend",
+      "harness/DOMAIN.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/conversation/PROGRAM.bend",
+      "harness/conversation/TITLE.bend",
+      "harness/workspace/WORKSPACE.bend",
+      "bendlib/component.bend",
+      "bendlib/association-map.bend",
+      "bendlib/json.bend"
+    ],
+    "harness/conversation/TITLE.bend": [
+      "bendlib/json.bend"
     ]
   },
   "feature_alphabet": "harness/features/MODEL.bend",

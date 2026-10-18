@@ -33,6 +33,10 @@ Assisted creation uses a separately selected ordinary profile to organize the
 request into a title and description. This request has no tools. Its profile is
 separate from the execution assignee; quality and availability depend on that
 endpoint. The offline demo and adaptive task profiles are not drafting profiles.
+**Settings → 标题生成** edits **Task 看板标题提示词** independently of the
+**Agent 会话标题提示词** used by ordinary conversations. Both retain the shared
+schema and normalization. Linked conversations generate their own names;
+renaming a card preserves its conversation's title.
 
 Use the paperclip, paste files into the editor, or drop files onto the form.
 Uploads use authenticated storage. Cards support at most four attachments, with

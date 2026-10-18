@@ -1,4 +1,6 @@
 import Base
+import ../../features/titles/MODEL.bend as Titles
+import ../../features/titles/CODEC.bend as TitleCodec
 import ../../features/remote/MODEL.bend as Remote
 import ../../features/remote/CODEC.bend as RemoteCodec
 import ../../features/worktree/MODEL.bend as Worktree
@@ -25,8 +27,11 @@ def Rest() -> Data:
 def initial_rest() -> Rest():
   Unit{}
 
+def TitleModules() -> Data:
+  C.Frame<Titles.State, Rest()>
+
 def WorkModules() -> Data:
-  C.Frame<Work.State, Rest()>
+  C.Frame<Work.State, TitleModules()>
 
 def RemoteModules() -> Data:
   C.Frame<Remote.State, WorkModules()>
@@ -47,7 +52,7 @@ def State() -> Data:
   C.Frame<Board.State, Modules()>
 
 def initial() -> State():
-  C.Frame{Board.initial(), C.Frame{ChatGPT.initial(), C.Frame{TaskGraph.initial(), C.Frame{Compaction.initial(), C.Frame{Worktree.initial(), C.Frame{Remote.initial(), C.Frame{Work.initial(), initial_rest()}}}}}}}
+  C.Frame{Board.initial(), C.Frame{ChatGPT.initial(), C.Frame{TaskGraph.initial(), C.Frame{Compaction.initial(), C.Frame{Worktree.initial(), C.Frame{Remote.initial(), C.Frame{Work.initial(), C.Frame{Titles.initial(), initial_rest()}}}}}}}}
 
 def board(state: State()) -> Board.State:
   C.local(Board.State, Modules(), state)
@@ -86,21 +91,34 @@ def with_remote(value: Remote.State, state: State()) -> State():
   C.map_rest(Board.State, Modules(), part_0 => C.map_rest(ChatGPT.State, GraphModules(), part_1 => C.map_rest(TaskGraph.State, CompactionModules(), part_2 => C.map_rest(Compaction.State, WorktreeModules(), part_3 => C.map_rest(Worktree.State, RemoteModules(), part_4 => C.constructed_replacement(Remote.State, WorkModules(), C.construct_replace(Remote.State, WorkModules(), value, part_4)), part_3), part_2), part_1), part_0), state)
 
 def work(state: State()) -> Work.State:
-  C.local(Work.State, Rest(), C.rest(Remote.State, WorkModules(), C.rest(Worktree.State, RemoteModules(), C.rest(Compaction.State, WorktreeModules(), C.rest(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))))))
+  C.local(Work.State, TitleModules(), C.rest(Remote.State, WorkModules(), C.rest(Worktree.State, RemoteModules(), C.rest(Compaction.State, WorktreeModules(), C.rest(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))))))
 
 def with_work(value: Work.State, state: State()) -> State():
-  C.map_rest(Board.State, Modules(), part_0 => C.map_rest(ChatGPT.State, GraphModules(), part_1 => C.map_rest(TaskGraph.State, CompactionModules(), part_2 => C.map_rest(Compaction.State, WorktreeModules(), part_3 => C.map_rest(Worktree.State, RemoteModules(), part_4 => C.map_rest(Remote.State, WorkModules(), part_5 => C.constructed_replacement(Work.State, Rest(), C.construct_replace(Work.State, Rest(), value, part_5)), part_4), part_3), part_2), part_1), part_0), state)
+  C.map_rest(Board.State, Modules(), part_0 => C.map_rest(ChatGPT.State, GraphModules(), part_1 => C.map_rest(TaskGraph.State, CompactionModules(), part_2 => C.map_rest(Compaction.State, WorktreeModules(), part_3 => C.map_rest(Worktree.State, RemoteModules(), part_4 => C.map_rest(Remote.State, WorkModules(), part_5 => C.constructed_replacement(Work.State, TitleModules(), C.construct_replace(Work.State, TitleModules(), value, part_5)), part_4), part_3), part_2), part_1), part_0), state)
 
 def modules(state: State()) -> Modules():
   C.rest(Board.State, Modules(), state)
 
+def title_modules(state: State()) -> TitleModules():
+  C.rest(Work.State, TitleModules(), C.rest(Remote.State, WorkModules(), C.rest(Worktree.State, RemoteModules(), C.rest(Compaction.State, WorktreeModules(), C.rest(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))))))
+
+def map_title_modules(update: TitleModules() -> TitleModules(), state: State()) -> State():
+  C.map_rest(Board.State, Modules(), part_0 => C.map_rest(ChatGPT.State, GraphModules(), part_1 => C.map_rest(TaskGraph.State, CompactionModules(), part_2 => C.map_rest(Compaction.State, WorktreeModules(), part_3 => C.map_rest(Worktree.State, RemoteModules(), part_4 => C.map_rest(Remote.State, WorkModules(), part_5 => C.map_rest(Work.State, TitleModules(), part_6 => update(part_6), part_5), part_4), part_3), part_2), part_1), part_0), state)
+
+def titles(state: State()) -> Titles.State:
+  C.local(Titles.State, Rest(), title_modules(state))
+
+def with_titles(value: Titles.State, state: State()) -> State():
+  map_title_modules(previous => C.constructed_replacement(Titles.State, Rest(), C.construct_replace(Titles.State, Rest(), value, previous)), state)
+
 def rest(state: State()) -> Rest():
-  C.rest(Work.State, Rest(), C.rest(Remote.State, WorkModules(), C.rest(Worktree.State, RemoteModules(), C.rest(Compaction.State, WorktreeModules(), C.rest(TaskGraph.State, CompactionModules(), C.rest(ChatGPT.State, GraphModules(), C.rest(Board.State, Modules(), state)))))))
+  C.rest(Titles.State, Rest(), title_modules(state))
 
 def with_rest(value: Rest(), state: State()) -> State():
-  C.map_rest(Board.State, Modules(), part_0 => C.map_rest(ChatGPT.State, GraphModules(), part_1 => C.map_rest(TaskGraph.State, CompactionModules(), part_2 => C.map_rest(Compaction.State, WorktreeModules(), part_3 => C.map_rest(Worktree.State, RemoteModules(), part_4 => C.map_rest(Remote.State, WorkModules(), part_5 => C.map_rest(Work.State, Rest(), part_6 => value, part_5), part_4), part_3), part_2), part_1), part_0), state)
+  map_title_modules(previous => C.map_rest(Titles.State, Rest(), ignored => value, previous), state)
 
 type Effect is Data:
+  TitleEffect{effect: Titles.Effect}
   WorktreeEffect{effect: Worktree.Effect}
   CompactionEffect{effect: Compaction.Effect}
   ChatGPTEffect{effect: ChatGPT.Effect}
@@ -108,6 +126,7 @@ type Effect is Data:
 
 type Command is Data:
   WorkCommand{command: Work.Command}
+  TitleCommand{command: Titles.Command}
   RemoteCommand{command: Remote.Admin}
   WorktreeCommand{command: Worktree.Command}
   ChatGPTCommand{command: ChatGPT.Command}
@@ -116,6 +135,7 @@ type Command is Data:
 
 type Query is Data:
   WorkQuery{query: Work.Query}
+  TitleQuery{query: Titles.Query}
   RemoteStatus{}
   WorktreeQuery{query: Worktree.Query}
   ChatGPTQuery{query: ChatGPT.Query}
@@ -124,6 +144,7 @@ type Query is Data:
 
 type CommandKind is Data:
   WorkKind{kind: WorkCodec.EntryKind}
+  TitleKind{kind: TitleCodec.EntryKind}
   RemoteKind{kind: RemoteCodec.AdminKind}
   WorktreeKind{kind: WorktreeCodec.EntryKind}
   ChatGPTKind{kind: ChatGPTCodec.EntryKind}
@@ -131,6 +152,7 @@ type CommandKind is Data:
   TaskGraphKind{kind: TaskGraphCodec.EntryKind}
 
 type Completion is Data:
+  TitleCompleted{completion: Titles.Completion}
   WorktreeCompleted{completion: Worktree.Completion}
   CompactionCompleted{completion: Compaction.Completion}
   ChatGPTCompleted{operation: Nat, value: J.Json, error: Bool}
@@ -200,14 +222,21 @@ def remote_specs(specs: +List<RemoteCodec.Spec>) -> +List<CommandSpec>:
     case Con{RemoteCodec.Spec{name, description, kind, schema}, rest}:
       CommandSpec{name, description, RemoteKind{kind}, schema} <> remote_specs(rest)
 
+def title_specs(specs: +List<TitleCodec.Spec>) -> +List<CommandSpec>:
+  match specs:
+    case Nil{}: Nil{}
+    case Con{TitleCodec.Spec{name, description, kind, schema}, rest}:
+      CommandSpec{name, description, TitleKind{kind}, schema} <> title_specs(rest)
+
 def specs(+settings_schema: J.Json) -> +List<CommandSpec>:
-  List.append(&2, CommandSpec, work_specs(WorkCodec.specifications(settings_schema)), List.append(&2, CommandSpec, worktree_specs(WorktreeCodec.specs(settings_schema)), List.append(&2, CommandSpec, board_specs(BoardCodec.specs(settings_schema)),
-    List.append(&2, CommandSpec, chatgpt_specs(ChatGPTCodec.specs()), List.append(&2, CommandSpec, task_graph_specs(TaskGraphCodec.specifications(settings_schema)), remote_specs(RemoteCodec.specs()))))))
+  List.append(&2, CommandSpec, title_specs(TitleCodec.specs()), List.append(&2, CommandSpec, work_specs(WorkCodec.specifications(settings_schema)), List.append(&2, CommandSpec, worktree_specs(WorktreeCodec.specs(settings_schema)), List.append(&2, CommandSpec, board_specs(BoardCodec.specs(settings_schema)),
+    List.append(&2, CommandSpec, chatgpt_specs(ChatGPTCodec.specs()), List.append(&2, CommandSpec, task_graph_specs(TaskGraphCodec.specifications(settings_schema)), remote_specs(RemoteCodec.specs())))))))
 
 # Global input consumers use these classifications without inspecting feature
 # cases. Local administration never advances runnable task work.
 def schedules(command: Command) -> Bool:
   match command:
+    case TitleCommand{command}: False{}
     case RemoteCommand{command}: False{}
     case _: True{}
 

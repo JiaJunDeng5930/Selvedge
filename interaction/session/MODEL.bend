@@ -1,5 +1,7 @@
 import ../experience/PROGRAM.bend as UX
 import Base
+import ../../features/titles/MODEL.bend as Titles
+import ../../features/titles/STATE.bend as TitleState
 import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../harness/COMMANDS.bend as Commands
 import ../../bendlib/categories.bend as Categories
@@ -920,17 +922,18 @@ def toggle_panel(+panel: U.Panel, trigger: String, application: Application) -> 
   toggle_panel_selected(panel_present(layers, panel_target(panel)), panel, trigger,
     Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}})
 
-def fresh_project_draft(+body: U.Body, +session: Session) -> Session:
+def fresh_editor_draft(+body: U.Body, +session: Session) -> Session:
   with_draft(session, U.Draft{next_layer(session), body, U.Editing{}, ""})
 
-def ensure_project(+found: Maybe<&2, U.Draft>, +body: U.Body, +session: Session) -> Session:
+def ensure_fresh_editor(+found: Maybe<&2, U.Draft>, +body: U.Body, +session: Session) -> Session:
   match found:
-    case None{}: fresh_project_draft(body, session)
+    case None{}: fresh_editor_draft(body, session)
     case _: ensure(found, body, session)
 
 def ensure_editor_draft(+found: Maybe<&2, U.Draft>, +body: U.Body, +session: Session) -> Session:
   match body:
-    case U.Project{id, name, workspace, create_worktree}: ensure_project(found, body, session)
+    case U.Project{id, name, workspace, create_worktree}: ensure_fresh_editor(found, body, session)
+    case U.TitlePrompts{revision, prompts}: ensure_fresh_editor(found, body, session)
     case _: ensure(found, body, session)
 
 def open_editor_found(found: Maybe<&2, U.Draft>, +body: U.Body, program: M.World(), session: Session) -> Decision:
@@ -1026,6 +1029,10 @@ def board_agent(board: B.State, +id: Nat, application: Application) -> Decision:
 def new_agent(profile: Sigma<&2, &2, String, (_ => String)>, application: Application) -> Decision:
   (profile, reasoning) = profile
   open_editor(U.Agent{None{}, 0n, "", profile, reasoning, "", Context.defaults(Context.EnvironmentDefaults{}), 1n}, application)
+
+def title_prompt_editor(+application: Application) -> Decision:
+  +settings = TitleState.registry(program(application))
+  open_editor(U.TitlePrompts{Titles.revision(settings), Titles.prompts(settings)}, application)
 
 def agent_editor(+application: Application, id: Maybe<&2, Nat>) -> Decision:
   Application{program, session} = application
@@ -1771,7 +1778,7 @@ def confirm(layers: +List<Layer>, application: Application) -> Decision:
 
 # Cancelling an editor drops its complete draft and pending observations. The
 # monotone occurrence also seeds a fresh revision, so late accepted results cannot
-# settle a reopened project draft with the same editor identity.
+# settle a reopened draft with the same editor identity.
 
 def reserve_draft_occurrence(+found: Maybe<&2, U.Draft>, +current: Nat) -> Nat:
   match found:
@@ -1784,7 +1791,7 @@ def without_editor_pending(+pending: +List<Pending>, +editor: U.Editor) -> +List
     case Con{Pending{ticket, U.Draft{revision, +body, feedback, entry}, now}, rest}:
       keep_pending(U.same_editor(U.owner(body), editor), Pending{ticket, U.Draft{revision, body, feedback, entry}, now}, without_editor_pending(rest, editor))
 
-def discard_project_session(+editor: U.Editor, +session: Session) -> Session:
+def discard_editor_session(+editor: U.Editor, +session: Session) -> Session:
   +fresh = reserve_draft_occurrence(find_draft(drafts(session), editor), next_layer(session))
   with_next_layer(fresh, with_pending(without_editor_pending(pending(session), editor), with_drafts(without_draft(drafts(session), editor), session)))
 
@@ -1792,7 +1799,10 @@ def dismiss_layer_draft(+panel: U.Panel, +application: Application) -> Applicati
   match panel:
     case U.EditObject{U.ProjectEditor{id}}:
       Application{program, session} = application
-      Application{program, discard_project_session(U.ProjectEditor{id}, session)}
+      Application{program, discard_editor_session(U.ProjectEditor{id}, session)}
+    case U.EditObject{U.TitlePromptEditor{}}:
+      Application{program, session} = application
+      Application{program, discard_editor_session(U.TitlePromptEditor{}, session)}
     case _: application
 
 def dismiss_layers(+layers: +List<Layer>, +application: Application) -> Decision:
@@ -1850,6 +1860,7 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.EditCard{card}: card_editor(card, application)
     case U.EditAgent{agent}: agent_editor(application, agent)
     case U.EditTaskGraph{graph}: task_graph_editor(graph, application)
+    case U.EditTitlePrompts{}: title_prompt_editor(application)
     case U.ForkTask{+task}: open_editor(U.Fork{task, 1n, Nil{}, Context.defaults(Context.ParentTask{task})}, application)
     case U.CompactTask{task}: open_editor(U.Compact{task, None{}}, application)
     case U.Submit{editor}: submit(editor, application)

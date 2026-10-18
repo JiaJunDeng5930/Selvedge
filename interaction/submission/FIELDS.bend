@@ -7,6 +7,7 @@ import ../../harness/MODEL.bend as M
 import ../../harness/DOMAIN.bend as D
 import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../features/board/MODEL.bend as B
+import ../../harness/conversation/TITLE.bend as Title
 import ../INPUT.bend as U
 import ../services/CONTEXT.bend as Context
 import ../../features/board/STATE.bend as Board
@@ -48,6 +49,8 @@ type Field is Data:
   ForkMessages{}
   CompactionSummary{}
   TaskGraphDeclaration{}
+  TaskTitlePrompt{}
+  AgentTitlePrompt{}
 
 type Entry is Data:
   DisplayOnly{}
@@ -154,10 +157,14 @@ def structure(body: U.Body) -> +List<Section>:
       [Section{"Compaction", [FieldScene{CompactionSummary{}, "Summary override", Multiline{}}]}]
     case U.TaskGraph{graph, declaration, parsed, work}:
       [Section{"Task graph", [FieldScene{TaskGraphDeclaration{}, "Declaration", StructuredText{}}]}]
+    case U.TitlePrompts{revision, prompts}:
+      [Section{"标题生成", [FieldScene{TaskTitlePrompt{}, "Task 看板标题提示词", Multiline{}}, FieldScene{AgentTitlePrompt{}, "Agent 会话标题提示词", Multiline{}}]}]
 
 def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
     case WorkName{} Text{text}: Some{U.NameWork{text}}
+    case TaskTitlePrompt{} Text{text}: Some{U.WriteTaskTitlePrompt{text}}
+    case AgentTitlePrompt{} Text{text}: Some{U.WriteAgentTitlePrompt{text}}
     case ContinueCapture{} Toggle{enabled}: Some{U.KeepCaptureOpen{enabled}}
     case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text}}}
     case CreateWorktree{} Toggle{enabled}: Some{U.ChooseWorktree{enabled}}
@@ -221,6 +228,8 @@ def key(field: Field) -> String:
     case AgentName{}: "agent-name"
     case AgentInstructions{}: "agent-instructions"
     case AgentConcurrency{}: "agent-concurrency"
+    case TaskTitlePrompt{}: "task-title-prompt"
+    case AgentTitlePrompt{}: "agent-title-prompt"
     case ForkCount{}: "fork-count"
     case ForkMessages{}: "fork-messages"
     case CompactionSummary{}: "compaction-summary"
@@ -375,8 +384,15 @@ def task_field(found: Maybe<&2, D.Task>, field: Field, message: U.Text, delivery
     case None{}: message_value(field, message, delivery)
     case Some{+task}: task_context_field(field, message, delivery, task, D.task_context(task), world)
 
+def title_prompt_value(field: Field, prompts: Title.Prompts) -> Observed:
+  match field:
+    case TaskTitlePrompt{}: TextValue{Title.task_instructions(prompts)}
+    case AgentTitlePrompt{}: TextValue{Title.agent_instructions(prompts)}
+    case _: NotApplicable{}
+
 def observed(body: U.Body, field: Field, +world: M.World()) -> Observed:
   match body:
+    case U.TitlePrompts{revision, prompts}: title_prompt_value(field, prompts)
     case U.WorkName{work, name}:
       match field:
         case WorkName{}: TextValue{name}

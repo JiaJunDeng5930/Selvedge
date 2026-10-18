@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { requestModel } from '../host/providers.mjs';
 import { requestApproval } from '../host/approvals.mjs';
-import { requestBoardText } from '../host/board-text.mjs';
+import { requestTaskText } from '../host/task-text.mjs';
 import { sseEvents } from '../host/network.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { Service } from '../host/service.mjs';
@@ -23,7 +23,7 @@ const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 
 const call = (id, name, args) => ({ type: 'function_call', id: `item_${id}`, call_id: id, name, arguments: args });
 
 async function webServer(t, respond) {
-  const requests = [], controls = [], failures = [], resources = new Map();
+  const requests = [], titleRequests = [], controls = [], failures = [], resources = new Map();
   const server = http.createServer((request, response) => {
     void (async () => {
       const chunks = [];
@@ -35,8 +35,10 @@ async function webServer(t, respond) {
         response.writeHead(500); response.end(); return;
       }
       const key = request.headers['idempotency-key'];
-      requests.push({ body, raw, key });
-      const id = `resp_${requests.length}`;
+      const naming = body.text?.format?.name === 'task_title';
+      const observed = naming ? titleRequests : requests;
+      observed.push({ body, raw, key });
+      const id = naming ? `title_${titleRequests.length}` : `resp_${requests.length}`;
       const makeResource = (output, status = output?.[0]?.type === 'function_call' ? 'requires_action' : 'completed') => ({
         id, object: 'web.response', protocol: 'chatgpt-web.v1', created_at: 1790000000,
         previous_response_id: body.previous_response_id ?? null, status,
@@ -44,7 +46,8 @@ async function webServer(t, respond) {
         output, usage: status === 'completed' ? { input_tokens: 10, output_tokens: 2, total_tokens: 12, estimated: true } : null,
       });
       const event = (name, value) => response.write(`event: ${name}\r\ndata: ${JSON.stringify(value)}\r\n\r\n`);
-      const custom = await respond(body, requests.length - 1, { request, response, id, makeResource, event, resources });
+      const custom = naming ? { output: answer('{"title":"Name the task"}') }
+        : await respond(body, requests.length - 1, { request, response, id, makeResource, event, resources });
       if (custom === undefined) return;
       const resource = makeResource(custom.output);
       resources.set(id, resource);
@@ -56,7 +59,7 @@ async function webServer(t, respond) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
-  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/responses`, requests, controls, failures };
+  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/responses`, requests, titleRequests, controls, failures };
 }
 
 async function fixture(t, respond) {
@@ -96,7 +99,7 @@ test('independent approval and board effects without history reach the Web text 
   assert.equal(Object.hasOwn(board, 'history'), false);
   assert.deepEqual(await requestApproval(approval, f.config, f.directory, limits),
     { decision: 'deny', reason: 'Inspect only.' });
-  assert.deepEqual(await requestBoardText(board, f.config, f.directory, limits),
+  assert.deepEqual(await requestTaskText(board, f.config, f.directory, limits),
     { title: 'Fixture', description: 'A generated description.' });
   assert.equal(f.requests.length, 2);
   assert.deepEqual(f.failures, []);

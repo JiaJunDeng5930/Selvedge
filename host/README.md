@@ -41,8 +41,9 @@ without owning task state or policy.
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
 
-Board text generation is a committed `RequestBoardText` effect interpreted by
-`board-text.mjs`; native ticket/revision matching owns settlement. The
+Task titles and board drafts are committed effects interpreted by
+`task-text.mjs`; their native owners correlate task tickets and card revisions.
+The shared title policy owns prompts, structured schemas and normalization. The
 authenticated `board-files.mjs` boundary stores content-addressed, bounded files
 and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,

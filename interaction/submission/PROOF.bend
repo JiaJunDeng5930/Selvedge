@@ -91,6 +91,8 @@ def property_choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value:
     case Forms.ForkMessages{} _: choices_agreement(entry, Forms.ForkMessages{}, value, groups)
     case Forms.CompactionSummary{} _: choices_agreement(entry, Forms.CompactionSummary{}, value, groups)
     case Forms.TaskGraphDeclaration{} _: choices_agreement(entry, Forms.TaskGraphDeclaration{}, value, groups)
+    case Forms.TaskTitlePrompt{} _: choices_agreement(entry, Forms.TaskTitlePrompt{}, value, groups)
+    case Forms.AgentTitlePrompt{} _: choices_agreement(entry, Forms.AgentTitlePrompt{}, value, groups)
 
 def field_payload(+field: Forms.Field, label: String, +entry: Forms.Entry, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State, +groups: +List<View.InputGroup>) ->
   {Interface.field_node(Forms.FieldScene{field, label, entry}, editor, parent, state, groups) ==

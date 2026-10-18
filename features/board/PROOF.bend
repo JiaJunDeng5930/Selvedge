@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../bendlib/categories.bend as Categories
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
@@ -84,13 +85,13 @@ def A.text_meaning(outcome, retitle, card):
       {==}
     case B.Suggested{+title, +description}:
       +selected = Spec.selected_description(retitle, description, card)
-      +draft = Actual.suggestion_draft(retitle, String.trim(title), description, B.draft(card))
-      +required = Spec.requested_draft(String.trim(title), selected, card)
+      +draft = Actual.suggestion_draft(retitle, Title.normalize(title), description, B.draft(card))
+      +required = Spec.requested_draft(Title.normalize(title), selected, card)
       Equal.trans(B.Card, Actual.complete(B.Suggested{title, description}, retitle, card),
         Actual.suggested(required, card), Spec.complete(B.Suggested{title, description}, retitle, card),
         Equal.cong(B.Draft, B.Card, (value => Actual.suggested(value, card)),
-          draft, required, draft_meaning(retitle, String.trim(title), description, card)),
-        accepted_meaning(B.valid_draft(required), String.trim(title), selected, card, {==}))
+          draft, required, draft_meaning(retitle, Title.normalize(title), description, card)),
+        accepted_meaning(B.valid_draft(required), Title.normalize(title), selected, card, {==}))
 
 def A.completion_meaning(id, card, outcome, retitle, world):
   C.Frame{core, +board} = world

@@ -2,6 +2,8 @@ import Base
 import ../harness/COMMANDS.bend as Commands
 import ../harness/MODEL.bend as M
 import ../features/board/MODEL.bend as B
+import ../features/titles/MODEL.bend as Titles
+import ../harness/conversation/TITLE.bend as Title
 import ../features/task_graph/MODEL.bend as Graph
 import ../features/task_graph/CODEC.bend as GraphCodec
 import ../features/work/MODEL.bend as Work
@@ -25,6 +27,7 @@ type Editor is Data:
   ForkEditor{task: Nat}
   CompactEditor{task: Nat}
   TaskGraphEditor{graph: Maybe<&2, Nat>}
+  TitlePromptEditor{}
 
 type Text is Data:
   Text{value: String}
@@ -53,6 +56,7 @@ type Body is Data:
   Fork{task: Nat, count: Nat, messages: +List<String>, context: Context.Configuration}
   Compact{task: Nat, summary: Maybe<&2, String>}
   TaskGraph{graph: Maybe<&2, Nat>, declaration: String, parsed: Maybe<&2, J.Json>, work: Maybe<&2, Nat>}
+  TitlePrompts{revision: Nat, prompts: Title.Prompts}
 
 type Feedback is Data:
   Editing{}
@@ -84,6 +88,9 @@ type Edit is Data:
   SetFork{count: Nat, messages: +List<String>}
   WriteSummary{summary: Maybe<&2, String>}
   WriteTaskGraph{declaration: String, parsed: Maybe<&2, J.Json>}
+  WriteTaskTitlePrompt{prompt: String}
+  WriteAgentTitlePrompt{prompt: String}
+  ResetTitlePrompts{}
 
 type Route is Data:
   Start{}
@@ -137,6 +144,7 @@ type Action is Data:
   EditCard{card: Nat}
   EditAgent{agent: Maybe<&2, Nat>}
   EditTaskGraph{graph: Maybe<&2, Nat>}
+  EditTitlePrompts{}
   DeleteTaskGraph{graph: Nat}
   ForkTask{task: Nat}
   CompactTask{task: Nat}
@@ -205,6 +213,7 @@ def editor_key(editor: Editor) -> String:
     case ForkEditor{id}: "fork/" ++ Nat.show(id)
     case CompactEditor{id}: "compact/" ++ Nat.show(id)
     case TaskGraphEditor{id}: "task-graph/" ++ optional_key(id)
+    case TitlePromptEditor{}: "title-prompts"
 
 def same_editor(left: Editor, right: Editor) -> Bool:
   String.eq(editor_key(left), editor_key(right))
@@ -237,6 +246,7 @@ def owner(body: Body) -> Editor:
     case Fork{task, count, messages, context}: ForkEditor{task}
     case Compact{task, summary}: CompactEditor{task}
     case TaskGraph{graph, declaration, parsed, work}: task_graph_owner(graph, work)
+    case TitlePrompts{revision, prompts}: TitlePromptEditor{}
 
 def chosen(~A: Data, value: Maybe<&2, A>, fallback: A) -> A:
   match value:
@@ -320,6 +330,9 @@ def apply_edit(change: Edit, body: Body, world: M.World()) -> Result<&2, &2, Str
     case SetFork{count, messages} Fork{task, old_count, old_messages, context}: Done{Fork{task, count, messages, context}}
     case WriteSummary{summary} Compact{task, old}: Done{Compact{task, summary}}
     case WriteTaskGraph{declaration, parsed} TaskGraph{graph, old, previous, work}: Done{TaskGraph{graph, declaration, parsed, work}}
+    case WriteTaskTitlePrompt{value} TitlePrompts{revision, +prompts}: Done{TitlePrompts{revision, Title.Prompts{value, Title.agent_instructions(prompts)}}}
+    case WriteAgentTitlePrompt{value} TitlePrompts{revision, +prompts}: Done{TitlePrompts{revision, Title.Prompts{Title.task_instructions(prompts), value}}}
+    case ResetTitlePrompts{} TitlePrompts{revision, prompts}: Done{TitlePrompts{revision, Title.default_prompts()}}
     case _ _: Fail{"This input does not belong to this editor"}
 
 def editor_trigger(editor: Editor) -> String:
@@ -335,6 +348,7 @@ def editor_trigger(editor: Editor) -> String:
     case CompactEditor{id}: "compact/" ++ Nat.show(id)
     case TaskGraphEditor{None{}}: "task-graph/new"
     case TaskGraphEditor{Some{id}}: "task-graph/edit/" ++ Nat.show(id)
+    case TitlePromptEditor{}: "settings/open"
     case other: "composer/" ++ editor_key(other)
 
 def card_command(id: Maybe<&2, Nat>, revision: Nat, value: B.Draft, assist: Bool, profile: String, now: U32) -> B.Command:
@@ -392,6 +406,7 @@ def command(body: Body, now: U32) -> M.Command:
     case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.settings(context)}
     case Compact{task, summary}: M.Compact{task, summary}
     case TaskGraph{graph, declaration, parsed, work}: graph_command(graph, parsed, work)
+    case TitlePrompts{revision, prompts}: M.FeatureCommand{F.TitleCommand{Titles.Configure{revision, prompts}}}
 
 def workspace_operation(body: Body) -> Bool:
   match body:

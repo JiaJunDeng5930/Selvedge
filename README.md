@@ -8,6 +8,12 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+Model tasks generate a short title in the background from the first
+nonempty user request. The request-derived title remains visible until generation
+finishes. **Settings → 标题生成** edits the Task board and Agent conversation
+prompts separately. Linked cards and conversations retain independent names.
+See [task titles](features/titles/README.md) for the shared policy.
+
 [Works](features/work/README.md) group a continuing undertaking's Tasks and Task
 graphs independently of Projects. Desktop global navigation occupies its own
 narrow rail. The workspace to its right has Work tabs above a Task tree and the
