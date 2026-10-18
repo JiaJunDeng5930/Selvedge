@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../bendlib/json.bend as J
 import ../../bendlib/stdlib.bend as Std
 import ../../bendlib/categories.bend as Categories
@@ -73,7 +74,7 @@ def equal(value: J.Json, expected: String) -> Bool:
   String.eq(J.text(value), expected)
 
 def independent(+kind: J.Json) -> Bool:
-  equal(kind, "approval") || equal(kind, "board_text") || equal(kind, "context_compaction")
+  equal(kind, "approval") || equal(kind, "board_text") || equal(kind, "task_title") || equal(kind, "context_compaction")
 
 def contains(values: +List<J.Json>, +item: J.Json) -> Bool:
   match values:
@@ -342,9 +343,13 @@ def account(profile: J.Json) -> Bool:
 def endpoint(+profile: J.Json) -> J.Json:
   default(J.get(profile, "endpoint"), J.get(backend(profile), "endpoint"))
 
+def independent_task_text(+effect: J.Json) -> J.Json:
+  put(put(put(put(effect, "instructions", J.Text{""}), "tools", J.Array{Nil{}}), "callable", J.Array{Nil{}}), "history", J.Array{Con{J.Object{Con{J.Field{"role", J.Text{"user"}}, Con{J.Field{"content", J.get(effect, "prompt")}, Nil{}}}}, Nil{}}})
+
 def independent_effect_kind(kind: String, +effect: J.Json) -> J.Json:
   match kind:
-    case "board_text": put(put(put(put(effect, "instructions", J.Text{""}), "tools", J.Array{Nil{}}), "callable", J.Array{Nil{}}), "history", J.Array{Con{J.Object{Con{J.Field{"role", J.Text{"user"}}, Con{J.Field{"content", J.get(effect, "prompt")}, Nil{}}}}, Nil{}}})
+    case "task_title": independent_task_text(effect)
+    case "board_text": independent_task_text(effect)
     case "approval": put(put(put(effect, "tools", J.Array{Nil{}}), "callable", J.Array{Nil{}}), "history", J.Array{Con{J.Object{Con{J.Field{"role", J.Text{"user"}}, Con{J.Field{"content", J.Text{json_text(J.Object{Con{J.Field{"task_id", J.get(effect, "task_id")}, Con{J.Field{"request_id", J.get(effect, "ticket")}, Con{J.Field{"command", J.get(effect, "call")}, Con{J.Field{"task_settings", J.get(effect, "settings")}, Con{J.Field{"recent_user_requests_newest_first", J.get(effect, "user_requests")}, Con{J.Field{"context_boundary", J.Text{"Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted."}}, Nil{}}}}}}}})}}, Nil{}}}}, Nil{}}})
     case _: effect
 
@@ -831,11 +836,22 @@ def request_output_limit(present: Bool, +body: J.Json, +effect: J.Json) -> J.Jso
 def codex_auto_review(+effect: J.Json) -> Bool:
   equal(J.get(effect, "kind"), "approval") && equal(J.get(J.get(effect, "model"), "provider"), "chatgpt") &&
     equal(J.get(J.get(effect, "model"), "name"), Domain.codex_auto_review_model())
+def task_text_format(+effect: J.Json) -> J.Json:
+  J.Object{[J.Field{"type", J.Text{"json_schema"}}, J.Field{"name", J.get(effect, "kind")}, J.Field{"strict", J.Boolean{True{}}},
+    J.Field{"schema", Title.output_schema(equal(J.get(effect, "kind"), "board_text") && Bool.not(J.boolean(J.get(effect, "retitle"))))}]}
+
+def structured_text_selected(selected: Bool, +body: J.Json, +effect: J.Json) -> J.Json:
+  match selected:
+    case False{}: body
+    case True{}: put(body, "text", J.Object{[J.Field{"format", task_text_format(effect)}]})
+
+def structured_text(+body: J.Json, +effect: J.Json) -> J.Json:
+  structured_text_selected(equal(J.get(effect, "kind"), "task_title") || equal(J.get(effect, "kind"), "board_text"), body, effect)
 
 def request_final(+body: J.Json, +effect: J.Json) -> J.Json:
   +reasoned = choose(independent(J.get(effect, "kind")) && Bool.not(codex_auto_review(effect)), drop(body, "reasoning"), body)
   +instructed = choose(String.is_empty(J.text(J.get(reasoned, "instructions"))) && Bool.not(account(J.get(effect, "model"))), drop(reasoned, "instructions"), reasoned)
-  choose(independent(J.get(effect, "kind")), put(put(instructed, "tool_choice", J.Text{"none"}), "tools", J.Array{Nil{}}), instructed)
+  structured_text(choose(independent(J.get(effect, "kind")), put(put(instructed, "tool_choice", J.Text{"none"}), "tools", J.Array{Nil{}}), instructed), effect)
 
 def request_account_checked(ok: Bool, +result: J.Json, +effect: J.Json) -> J.Json:
   match ok:

@@ -1,4 +1,5 @@
 import Base
+import ../../features/titles/PROGRAM.bend as Titles
 import ./remote.bend as RemoteState
 import ./worktree-execution.bend as WorktreeExec
 import ../../features/compaction/PROGRAM.bend as Compaction
@@ -28,6 +29,7 @@ def operation_calculation(~spawn: D.Profile -> String -> String -> Workspace.Sel
     case O.StartWorkWorktree{work, profile, reasoning, message, selection}:
       WorkState.born(work, D.state_next_task(C.local(D.State, F.State(), world)), world,
         WorktreeExec.start(~spawn, profile, reasoning, message, selection, world))
+    case O.ConfigureTitles{prompts}: Titles.configure(prompts, world)
     case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeExec.start(~spawn, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeExec.retry_archive(id, world)
@@ -40,6 +42,7 @@ def operation_calculation(~spawn: D.Profile -> String -> String -> Workspace.Sel
 
 def resolved_event_calculation(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.TitleResult{completion}: Titles.complete(completion, world)
     case O.WorktreeResult{completion}: WorktreeExec.complete(completion, world)
     case O.CompactionResult{completion}: Compaction.complete(completion, world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)

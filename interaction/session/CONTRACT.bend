@@ -20,6 +20,7 @@ import ../conversation/OUTPUT.bend as Live
 import ../services/CONTEXT.bend as Context
 import ../../features/work/MODEL.bend as Work
 import ../../features/worktree/MODEL.bend as Worktree
+import ../../harness/conversation/TITLE.bend as Title
 import ../../harness/features/MODEL.bend as F
 
 def post(decision: E.Decision) -> E.Application:
@@ -649,11 +650,21 @@ law explicit_dismiss_preserves_nonproject_state:
 law project_dismiss_discards_complete_draft:
   @+id:Maybe<&2, Nat> -> @+world:M.World() -> @+session:E.Session ->
   {E.dismiss_layer_draft(U.EditObject{U.ProjectEditor{id}}, E.from_program(world, session)) ==
-    E.from_program(world, E.discard_project_session(U.ProjectEditor{id}, session)) : E.Application}
+    E.from_program(world, E.discard_editor_session(U.ProjectEditor{id}, session)) : E.Application}
+
+law title_prompts_dismiss_discards_complete_draft:
+  @+world:M.World() -> @+session:E.Session ->
+  {E.dismiss_layer_draft(U.EditObject{U.TitlePromptEditor{}}, E.from_program(world, session)) ==
+    E.from_program(world, E.discard_editor_session(U.TitlePromptEditor{}, session)) : E.Application}
+
+law fresh_title_prompts_use_reserved_occurrence:
+  @+revision:Nat -> @+prompts:Title.Prompts -> @+session:E.Session ->
+  {E.ensure_editor_draft(None{}, U.TitlePrompts{revision, prompts}, session) ==
+    E.fresh_editor_draft(U.TitlePrompts{revision, prompts}, session) : E.Session}
 
 law fresh_project_uses_reserved_occurrence:
   @+body:U.Body -> @+session:E.Session ->
-  {E.fresh_project_draft(body, session) == E.with_draft(session, U.Draft{E.next_layer(session), body, U.Editing{}, ""}) : E.Session}
+  {E.fresh_editor_draft(body, session) == E.with_draft(session, U.Draft{E.next_layer(session), body, U.Editing{}, ""}) : E.Session}
 
 law cancelled_project_advances_shared_fresh_occurrence:
   @+revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @entry:String -> @+current:Nat ->

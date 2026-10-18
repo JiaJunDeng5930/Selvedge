@@ -1,4 +1,6 @@
 import Base
+import ../../features/titles/MODEL.bend as Titles
+import ../../harness/conversation/TITLE.bend as Title
 import ../../features/remote/MODEL.bend as Remote
 import ../../features/worktree/MODEL.bend as Worktree
 import ../../features/compaction/MODEL.bend as Compaction
@@ -20,6 +22,7 @@ type Operation is Data:
   WorkChange{change: Work.Change}
   StartWorkTask{work: Nat, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
   StartWorkWorktree{work: Nat, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  ConfigureTitles{prompts: Title.Prompts}
   RemoteChange{change: Remote.Change}
   StartWorktree{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
   RetryWorktreeArchive{task_id: Nat}
@@ -30,6 +33,7 @@ type Operation is Data:
   DeleteGraph{id: Nat}
 
 type ResolvedEvent is Data:
+  TitleResult{completion: Titles.Completion}
   WorktreeResult{completion: Worktree.Completion}
   CompactionResult{completion: Compaction.Completion}
   ChatGPTResult{change: ChatGPT.Change}

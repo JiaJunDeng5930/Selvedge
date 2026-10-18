@@ -507,6 +507,8 @@ def compound_directory_source(+field: Forms.Field, +value: Forms.Observed, +key:
     case Forms.ForkMessages{}: {==}
     case Forms.CompactionSummary{}: {==}
     case Forms.TaskGraphDeclaration{}: {==}
+    case Forms.TaskTitlePrompt{}: {==}
+    case Forms.AgentTitlePrompt{}: {==}
 
 def directory_source(+capacity: Nat, +editor: User.Editor, +field: Forms.Field, value: Forms.Observed, choices: +List<Forms.ChoiceValue>, +key: UIIdentity.Key, label: String, role: SurfaceTypes.Role, visual: Design.Style, representation: Controls.Representation, children: +List<Authored.Child>, parameters: Design.LayoutParameters, content: +List<Source.Node>) -> RuleSourceRules.directory_source(capacity, editor, field, value, choices, key, label, role, visual, representation, children, parameters, content):
   {==}

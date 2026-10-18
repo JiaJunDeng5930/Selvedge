@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
@@ -575,11 +576,6 @@ def prompt(id: Nat, draft: Draft, instructions: String) -> String:
 def identifier(id: Nat) -> String:
   "SV-" ++ Nat.show(1n+id)
 
-def drafting_instruction(retitle: Bool) -> String:
-  match retitle:
-    case True{}: "Return only a JSON object with a concise title (at most 120 characters) and description. Improve the title without claiming the work has been performed; the supplied description will be preserved unchanged."
-    case False{}: "Return only a JSON object with a concise title (at most 120 characters) and a clear actionable description. Preserve the user's requirements, language and constraints. Do not perform the work, invent requirements, or claim completion."
-
-def drafting_prompt(retitle: Bool, draft: Draft) -> String:
+def drafting_prompt(retitle: Bool, draft: Draft, prompts: Title.Prompts) -> String:
   Draft{title, description, stage, priority, owner, project, labels, attachments} = draft
-  drafting_instruction(retitle) ++ "\n\nTitle/request preview:\n" ++ title ++ "\n\nOriginal user request:\n" ++ description
+  Title.board_prompt(retitle, title, description, prompts)

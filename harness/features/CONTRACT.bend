@@ -1,4 +1,5 @@
 import Base
+import ../../features/titles/CONTRACT.bend as Titles
 import ../../features/remote/CONTRACT.bend as Remote
 import ../../features/compaction/CONTRACT.bend as Compaction
 import ../../features/board/CONTRACT.bend as Board
@@ -166,4 +167,4 @@ type WorkStorage is Type:
 # Feature-specific guarantees are assembled without extending every consumer
 # of the root harness interface.
 type Features is Type:
-  Features{remote: Remote.Boundary, board: Board.BoardBoundary, chatgpt: ChatGPT.Boundary, task_graph: TaskGraph.RegistryBoundary, task_graph_storage: TaskGraphStorage, compaction: Compaction.Boundary, worktree_storage: WorktreeStorage, worktree_registry: Worktree.Boundary, worktree_initialization: WorktreeInitialization, worktree_sharing: WorktreeSharing, work: Work.Boundary, work_storage: WorkStorage}
+  Features{titles: Titles.Boundary, remote: Remote.Boundary, board: Board.BoardBoundary, chatgpt: ChatGPT.Boundary, task_graph: TaskGraph.RegistryBoundary, task_graph_storage: TaskGraphStorage, compaction: Compaction.Boundary, worktree_storage: WorktreeStorage, worktree_registry: Worktree.Boundary, worktree_initialization: WorktreeInitialization, worktree_sharing: WorktreeSharing, work: Work.Boundary, work_storage: WorkStorage}

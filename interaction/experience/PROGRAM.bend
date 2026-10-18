@@ -1,4 +1,5 @@
 import Base
+import ../../harness/conversation/TITLE.bend as Title
 import ../../features/board/STATE.bend as BoardState
 import ../../harness/MODEL.bend as World
 import ../../harness/COMMANDS.bend as Commands
@@ -1085,6 +1086,10 @@ def fork_requirements(found: Maybe<&2, D.Task>, +count: Nat, +messages: +List<St
 
 def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstruction>:
   match body:
+    case U.TitlePrompts{revision, +prompts}:
+      List.append(&2, M.Obstruction,
+        failed_requirement(Title.valid_instructions(Title.task_instructions(prompts)), obstruction(U.TitlePromptEditor{}, Forms.TaskTitlePrompt{}, "invalid_task_title_prompt", "请输入非空提示词，最多 4096 UTF-8 字节")),
+        failed_requirement(Title.valid_instructions(Title.agent_instructions(prompts)), obstruction(U.TitlePromptEditor{}, Forms.AgentTitlePrompt{}, "invalid_agent_title_prompt", "请输入非空提示词，最多 4096 UTF-8 字节")))
     case U.WorkName{work, name}:
       failed_requirement(Work.valid_name(name), obstruction(U.WorkEditor{work}, Forms.WorkName{}, "invalid_work_name", "Enter a Work name of at most 4096 UTF-8 bytes"))
     case U.NewTask{message, profile, reasoning, context, create_worktree, +work}:

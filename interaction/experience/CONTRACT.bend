@@ -389,6 +389,7 @@ def workspace_operation_meaning(body: U.Body) -> Bool:
     case U.Card{id, revision, value, assist, profile, keep_open}: False{}
     case U.Compact{task, summary}: False{}
     case U.TaskGraph{graph, declaration, parsed, work}: False{}
+    case U.TitlePrompts{revision, prompts}: False{}
 
 law workspace_operation_classification:
   @+body:U.Body -> {U.workspace_operation(body) == workspace_operation_meaning(body) : Bool}

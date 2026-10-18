@@ -12,7 +12,7 @@ const clientId = 'fixture-issued-client', subject = 'fixture-account';
 
 export async function chatgptFixture(t, respond) {
   const directory = await home(t);
-  const failures = [], requests = [], oauthRequests = [];
+  const failures = [], requests = [], titleRequests = [], oauthRequests = [];
   const { privateKey, publicKey } = await generateKeyPair('RS256');
   const jwk = { ...await exportJWK(publicKey), kid: 'fixture-key', use: 'sig', alg: 'RS256' };
   const options = {};
@@ -74,13 +74,21 @@ export async function chatgptFixture(t, respond) {
         return jsonResponse(response, await tokens(nonce));
       }
       assert.equal(request.headers.authorization, `Bearer opaque-access-${marker}`);
-      requests.push(entry);
       if (respond) {
         const chunks = [];
         for await (const chunk of request) chunks.push(chunk);
         const raw = Buffer.concat(chunks).toString('utf8');
-        return respond({ ...entry, method: request.method, body: raw ? JSON.parse(raw) : undefined }, response);
+        const body = raw ? JSON.parse(raw) : undefined;
+        if (body?.text?.format?.name === 'task_title') {
+          titleRequests.push({ ...entry, body });
+          response.writeHead(200, { 'content-type': 'text/event-stream' });
+          response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"Name the task"}' }] }] } })}\n\n`);
+          return;
+        }
+        requests.push(entry);
+        return respond({ ...entry, method: request.method, body }, response);
       }
+      requests.push(entry);
       request.resume();
       jsonResponse(response, { error: 'fixture rejection' }, 401);
     })().catch(error => { failures.push(error); response.destroy(error); });
@@ -89,7 +97,7 @@ export async function chatgptFixture(t, respond) {
   t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
   address = `http://127.0.0.1:${server.address().port}`;
   const profile = { ...defaultChatGPTAccount, endpoint: `${address}/v1/responses`, issuer: address, timeout_ms: 5000 };
-  return { directory, profile, requests, oauthRequests, failures, options, address,
+  return { directory, profile, requests, titleRequests, oauthRequests, failures, options, address,
     authorize: async ({ url }) => fetch(url),
     async seedExpiredCredential() {
       const { token_type, expires_in, ...credential } = await tokens();

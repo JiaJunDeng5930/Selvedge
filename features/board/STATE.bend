@@ -1,15 +1,19 @@
 import Base
+import ../titles/MODEL.bend as Titles
+import ../../harness/conversation/TITLE.bend as Title
 import ../../harness/features/MODEL.bend as F
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
 import ./MODEL.bend as B
 import ../../harness/MODEL.bend as M
 import ../../harness/workspace/PROJECTS.bend as Projects
-import ../../harness/reasoning/MODEL.bend as Reasoning
 import ../../bendlib/association-map.bend as Finite
 import ./CODEC.bend as Codec
 import ../../bendlib/json.bend as J
 import ../../harness/tasks/PROGRAM.bend as T
+
+def title_prompts(world: M.World()) -> Title.Prompts:
+  Titles.prompts(F.titles(C.rest(D.State, F.State(), world)))
 
 # Board/task relations are shared domain predicates. Neither the browser nor
 # the effect interpreter maintains these associations or decides their locks.
@@ -192,8 +196,7 @@ def queued_cards(+state: B.State) -> +List<Finite.Entry(B.Card)>:
     by_priority(List.filter(~Finite.Entry(B.Card), (entry => pin_group(False{}, entry)), B.cards(state))))
 
 def drafting_profile(profile: D.Profile) -> Bool:
-  D.Profile{key, provider, name, policy, options} = profile
-  Bool.not(String.eq(provider, "echo")) && Bool.not(Reasoning.automatic(policy))
+  Titles.ordinary(profile)
 
 def ordinary(found: Maybe<&2, D.Profile>) -> Bool:
   match found:

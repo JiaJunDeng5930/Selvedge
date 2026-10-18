@@ -1464,6 +1464,8 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
     case Forms.ForkMessages{}: ordinary_choice(value)
     case Forms.CompactionSummary{}: ordinary_choice(value)
     case Forms.TaskGraphDeclaration{}: ordinary_choice(value)
+    case Forms.TaskTitlePrompt{}: ordinary_choice(value)
+    case Forms.AgentTitlePrompt{}: ordinary_choice(value)
 
 def workspace_picker(found: Maybe<&2, Domain.Workspace>, +editor: User.Editor, +parent: UIIdentity.Key, +state: InteractionTypes.State) ->
   {InterfaceView.workspace_collection_menu(found, editor, None{}, parent, state) == Rule.expected_workspace_picker(found, editor, parent, state) : +List<SurfaceTypes.Node>}:

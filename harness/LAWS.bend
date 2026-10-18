@@ -1,4 +1,5 @@
 import Base
+import ../features/titles/SPEC.bend as TitleSpec
 import ./tools/SYNTAX.bend as Native
 import ../bendlib/effects.bend as Effects
 import ./features/MODEL.bend as F
@@ -281,7 +282,7 @@ law scheduling_disabled:
 law scheduling_enabled:
   for +decision: M.Decision()
   {P.scheduled(True{}, decision) ==
-    Execution.scheduled_prepared(CompactionSpec.required_prepare(BoardScheduling.required_prepare(decision))) : M.Decision()}
+    Execution.scheduled_prepared(CompactionSpec.required_prepare(TitleSpec.prepare(BoardScheduling.required_prepare(decision)))) : M.Decision()}
 
 law scheduling_idle:
   for fuel: Nat

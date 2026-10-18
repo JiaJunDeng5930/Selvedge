@@ -1,4 +1,5 @@
 import Base
+import ../../features/titles/SPEC.bend as Titles
 import ./remote.bend as RemoteState
 import ./worktree-spec.bend as WorktreeSpec
 import ../../features/compaction/SPEC.bend as Compaction
@@ -38,6 +39,7 @@ def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+wo
     case O.StartWorkWorktree{work, profile, reasoning, message, selection}:
       work_created(work, D.state_next_task(C.local(D.State, F.State(), world)), world,
         WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world))
+    case O.ConfigureTitles{prompts}: Titles.configure(prompts, world)
     case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeSpec.retry_archive(id, world)
@@ -50,6 +52,7 @@ def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+wo
 
 def event(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.TitleResult{completion}: Titles.complete(completion, world)
     case O.WorktreeResult{completion}: WorktreeSpec.complete(completion, world)
     case O.CompactionResult{completion}: Compaction.meaning(Compaction.resolve(completion, world), world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)

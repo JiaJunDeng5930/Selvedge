@@ -165,9 +165,9 @@ def Rule.work_overview_choices_do_not_invent_entries(world): {==}
 
 def Rule.work_overview_choice_observes_actual_member_tasks(work, name, world): {==}
 
-def Rule.work_overview_preview_retains_task_count_title_and_status(task, rest, count): {==}
+def Rule.work_overview_preview_retains_task_count_title_and_status(task, rest, count, world): {==}
 
-def Rule.empty_work_overview_preview_is_explicit(count): {==}
+def Rule.empty_work_overview_preview_is_explicit(count, world): {==}
 
 def Rule.work_tab_entries_preserve_registry_order(id, value, rest, active, state): {==}
 
@@ -261,6 +261,7 @@ def compact_overview_action_role(+role: SurfaceTypes.Role, +action: U.Action, +a
     case U.EditCard{p0}: {==}
     case U.EditAgent{p0}: {==}
     case U.EditTaskGraph{p0}: {==}
+    case U.EditTitlePrompts{}: {==}
     case U.DeleteTaskGraph{p0}: {==}
     case U.ForkTask{p0}: {==}
     case U.CompactTask{p0}: {==}
@@ -574,6 +575,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditCard{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditAgent{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditTaskGraph{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditTitlePrompts{}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.DeleteTaskGraph{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ForkTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}

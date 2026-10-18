@@ -753,11 +753,18 @@ def canonical_explanation(+action: Experience.ActionUnit, assessment: Experience
 def action_footer(controls: +List<V.ComposerControl>, +action: Experience.ActionUnit, +assessment: Experience.Assessment, submit: V.ControlDeclaration, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
   region(parent, "actions", "Actions", SurfaceTypes.ComposerActions{}, [region(parent, "supporting-controls", "Supporting controls", SurfaceTypes.Toolbar{}, supporting_controls(controls, action, parent, state)), canonical_commit(action, assessment, submit, parent, state)])
 
+def title_prompt_controls(editor: U.Editor, pending: Bool, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.TitlePromptEditor{}:
+      [approval_fact(parent, "title-prompts/help", "说明", "Task 用于看板任务，Agent 用于执行会话，分别生成标题。修改只影响后续生成；标题最多 36 个字符。"),
+       product_action(parent, "title-prompts/reset", "恢复 Codex 默认提示词", InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{U.TitlePromptEditor{}, U.ResetTitlePrompts{}}}}, Bool.not(pending))]
+    case _: Nil{}
+
 def ordinary_editor(view: Maybe<&2, V.EditorScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
     case None{}: Nil{}
     case Some{V.EditorScene{+identity, +revision, groups, structure, +assessment, +submit, feedback, +pending}}:
-      List.append(&2, SurfaceTypes.Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), action_feedback_nodes(identity, feedback, parent)), [dialog_actions(parent, [canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])]))
+      List.append(&2, SurfaceTypes.Node, title_prompt_controls(identity, pending, parent), List.append(&2, SurfaceTypes.Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), action_feedback_nodes(identity, feedback, parent)), [dialog_actions(parent, [canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])))
 
 def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
@@ -2640,6 +2647,8 @@ def settings_visible(open: Bool, close: InteractionTypes.Input, connect: Interac
          product_action(Identity.Place{"/layers/settings"}, "light", "Light appearance", InteractionTypes.ServiceInput{Services.ChooseAppearance{Services.LightAppearance{}}}, True{}),
          product_action(Identity.Place{"/layers/settings"}, "dark", "Dark appearance", InteractionTypes.ServiceInput{Services.ChooseAppearance{Services.DarkAppearance{}}}, True{}),
          product_action(Identity.Place{"/layers/settings"}, "system", "System appearance", InteractionTypes.ServiceInput{Services.ChooseAppearance{Services.SystemAppearance{}}}, True{})]),
+       region(Identity.Place{"/layers/settings"}, "title-prompts", "标题生成", SurfaceTypes.Section{}, [
+         product_action(Identity.Place{"/layers/settings"}, "title-prompts/edit", "编辑 Task 与 Agent 标题提示词", InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditTitlePrompts{}}}}, True{})]),
        dialog_actions(Identity.Place{"/layers/settings"}, [product_action(Identity.Place{"/layers/settings"}, "connect", "Connect", connect, True{})])]}]
 
 def settings(view: InteractionTypes.Settings) -> +List<SurfaceTypes.Node>:

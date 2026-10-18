@@ -664,7 +664,7 @@ def root_instructions(present: Bool, request: J.Json) -> +List<J.Field>:
 def root_history(result: Result<&2, &2, String, +List<J.Json>>, +source: J.Json) -> J.Json:
   match result:
     case Fail{error}: Model.failure(error)
-    case Done{items}: continuation_result(object(field("model", get(get(get(source, "effect"), "model"), "name")) <> field("input", J.Array{items}) <> field("stream", J.Boolean{True{}}) <> field("tools", get(source, "tools")) <> root_instructions(truthy(get(get(source, "request"), "instructions")), get(source, "request"))), Nil{}, source)
+    case Done{items}: continuation_result(Backend.structured_text(object(field("model", get(get(get(source, "effect"), "model"), "name")) <> field("input", J.Array{items}) <> field("stream", J.Boolean{True{}}) <> field("tools", get(source, "tools")) <> root_instructions(truthy(get(get(source, "request"), "instructions")), get(source, "request"))), get(source, "effect")), Nil{}, source)
 def continuation_completed(result: Result<&2, &2, String, +List<J.Json>>, +source: J.Json) -> J.Json:
   match result:
     case Fail{error}: Model.failure(error)

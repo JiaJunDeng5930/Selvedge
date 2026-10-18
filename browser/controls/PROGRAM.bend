@@ -554,6 +554,7 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
     case UserInput.EditAgent{Some{agent}}: EditItem{}
     case UserInput.EditTaskGraph{None{}}: CreateItem{}
     case UserInput.EditTaskGraph{Some{graph}}: EditItem{}
+    case UserInput.EditTitlePrompts{}: EditItem{}
     case UserInput.DeleteTaskGraph{graph}: DeleteItem{}
     case UserInput.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, UIIdentity.encode(key))}
     case UserInput.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, UIIdentity.encode(key))}

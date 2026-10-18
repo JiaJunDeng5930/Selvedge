@@ -8,6 +8,11 @@ Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend), [CONTRACT.ben
 selection belongs to [context](../context/README.md), so observing the conversation
 does not replace its original records with a compressed input.
 
+[TITLE.bend](TITLE.bend) owns the shared task-title prompt, structured output
+schema, input budget and output normalization. The independent
+[titles feature](../../features/titles/README.md) owns background requests and
+saved names; these names do not change conversation history.
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;
