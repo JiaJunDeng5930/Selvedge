@@ -1,6 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { prepareCompilerSource, compilerWorkerCommand } from './compiler-source.mjs';
-import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -15,12 +13,6 @@ export function compiler() {
     throw new Error(`Bend ${expectedVersion} is required. Run bash scripts/install-bend.sh to install the pinned workspace compiler.`);
   }
   return binary;
-}
-
-export async function compilerCommand() {
-  compiler();
-  const provider = await prepareCompilerSource();
-  return compilerWorkerCommand(provider, path.join(provider.directory, `main.${provider.extension}`));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

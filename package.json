@@ -29,10 +29,6 @@
     "relay"
   ],
   "devDependencies": {
-    "jose": "6.2.12",
-    "node": "26.10.0"
-  },
-  "trustedDependencies": [
-    "node"
-  ]
+    "jose": "6.2.12"
+  }
 }

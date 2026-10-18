@@ -4,8 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile, rename, rm, realpath } from 'node:
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { prepareCompilerSource, compilerWorkerCommand, sourceVersion, sourceHash } from './compiler-source.mjs';
-import { compilerEnvironment } from './compiler-memory.mjs';
+import { prepareCompilerSource, sourceVersion, sourceHash } from './compiler-source.mjs';
 import { optimizeJavaScript } from './optimize-javascript.mjs';
 import { javascriptModules } from './javascript-modules.mjs';
 
@@ -57,7 +56,7 @@ async function currentSources(entry) {
 
 export function javascriptCompilerIdentity() {
   return compilerIdentity ??= (async () => ({
-    ...(await prepareCompilerSource('bun')).identity,
+    ...(await prepareCompilerSource()).identity,
     driverSha256: hash(await readFile(driver)),
     modulesSha256: hash(await readFile(modules)),
     optimizerSha256: hash(await readFile(optimizer)), parserSha256: hash(await readFile(parser)),
@@ -108,7 +107,7 @@ function prefixPath(sourceRoot, relative) {
   return path.resolve(sourceRoot, relative);
 }
 
-// Separate compiler processes isolate upstream mutable compilation state and its stack budget.
+// Separate compiler processes isolate upstream mutable compilation state.
 export function compileJavaScript(request) {
   // Compiler jobs share the verified extraction and can exceed the machine's RAM.
   const result = compilationQueue.then(() => compileIsolated(request));
@@ -143,7 +142,7 @@ async function normalizedRequest({ entry, exports: publicExports, output, source
 
 async function compileBatch(prefix, requests, verify) {
   if (typeof prefix !== 'string' || !Array.isArray(requests) || !requests.length) throw new Error('A compilation batch requires a prefix and entries');
-  const provider = await prepareCompilerSource('bun');
+  const provider = await prepareCompilerSource();
   const configurations = await Promise.all(requests.map(normalizedRequest));
   const sourceRoot = configurations[0].sourceRoot;
   const canonicalPrefix = await realpath(path.resolve(root, prefix));
@@ -164,7 +163,7 @@ async function compileBatch(prefix, requests, verify) {
     const requestFile = path.join(temporary, 'request.json');
     const response = path.join(temporary, 'response.json');
     await writeFile(requestFile, JSON.stringify({ prefix: canonicalPrefix, sourceRoot, requests: pending, response, verify, provider, compilerIdentity: await javascriptCompilerIdentity() }));
-    await runBatchProcess(requestFile, provider, verify);
+    await runBatchProcess(requestFile, verify);
     const emitted = JSON.parse(await readFile(response, 'utf8'));
     if (!Array.isArray(emitted) || emitted.length !== pending.length) throw new Error('Incomplete JavaScript batch response');
     if (JSON.stringify(await currentSources([canonicalPrefix, ...configurations.map(request => request.entry)])) !== JSON.stringify(inputs)) {
@@ -177,47 +176,33 @@ async function compileBatch(prefix, requests, verify) {
   }
 }
 
-async function runBatchProcess(requestFile, provider, verify) {
+async function runBatchProcess(requestFile, verify) {
   await new Promise((resolve, reject) => {
-    const [command, ...args] = compilerWorkerCommand(provider, driver);
-    const child = spawn(command, [...args, '--emit-batch', requestFile], {
-      cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: compilerEnvironment({ NODE_OPTIONS: '' }),
+    const child = spawn(process.execPath, [driver, '--emit-batch', requestFile], {
+      cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, BEND_NO_TELEMETRY: '1' },
     });
-    let diagnostic = '', size = 0, failure;
+    let diagnostic = '', failure;
     const stop = error => { failure ??= error; child.kill('SIGKILL'); };
-    let timer;
-    const arm = (milliseconds, phase) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => stop(new Error(`${phase} exceeded ${milliseconds / 1000} seconds`)), milliseconds);
-    };
-    arm(verify ? 300_000 : 900_000, verify ? 'Pure proof gate' : 'JavaScript batch compilation');
     let proofReport = '';
     let prefixChecked = !verify;
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', text => {
-      size += Buffer.byteLength(text);
-      if (size > 16 * 1024 * 1024) stop(new Error('JavaScript batch diagnostics exceeded their bound'));
-      else {
-        process.stdout.write(text);
-        if (!prefixChecked) {
-          proofReport += text;
-          if (proofReport.includes('Compilation prefix checked (')) {
-            if (proofReport.slice(0, proofReport.indexOf('Compilation prefix checked (')) !== 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.\n') {
-              stop(new Error('Pure proof gate emitted an unexpected verdict'));
-            } else { prefixChecked = true; arm(900_000, 'JavaScript batch compilation'); }
-          }
+      process.stdout.write(text);
+      if (!prefixChecked) {
+        proofReport += text;
+        if (proofReport.includes('Compilation prefix checked (')) {
+          if (proofReport.slice(0, proofReport.indexOf('Compilation prefix checked (')) !== 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.\n') {
+            stop(new Error('Pure proof gate emitted an unexpected verdict'));
+          } else { prefixChecked = true; }
         }
       }
     });
     child.stderr.on('data', text => {
-      size += Buffer.byteLength(text);
-      if (size > 16 * 1024 * 1024) stop(new Error('JavaScript batch diagnostics exceeded their bound'));
-      else diagnostic += text;
+      diagnostic += text;
     });
     child.on('error', error => { failure ??= error; });
     child.on('close', (status, signal) => {
-      clearTimeout(timer);
       if (failure) reject(failure);
       else if (status !== 0 || !prefixChecked || diagnostic.trim()) reject(new Error(`JavaScript batch compilation failed (status: ${status}, signal: ${signal}): ${diagnostic.trim()}`));
       else resolve();
@@ -226,7 +211,7 @@ async function runBatchProcess(requestFile, provider, verify) {
 }
 
 async function compileIsolated(options) {
-  const provider = await prepareCompilerSource('bun');
+  const provider = await prepareCompilerSource();
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'selvedge-javascript-'));
   try {
     const request = path.join(temporary, 'request.json');
@@ -235,10 +220,9 @@ async function compileIsolated(options) {
     const cached = await cachedCompilation(configuration);
     if (cached) return cached;
     await writeFile(request, JSON.stringify(configuration));
-    const [command, ...args] = compilerWorkerCommand(provider, driver);
-    const result = spawnSync(command, [...args, '--emit', request], {
-      cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
-      env: compilerEnvironment({ NODE_OPTIONS: '', BUN_JSC_forceRAMSize: process.env.BUN_JSC_forceRAMSize ?? '4294967296' }),
+    const result = spawnSync(process.execPath, [driver, '--emit', request], {
+      cwd: root, encoding: 'utf8', maxBuffer: Infinity,
+      env: { ...process.env, BEND_NO_TELEMETRY: '1' },
     });
     if (result.error || result.status !== 0) {
       const diagnostic = result.error?.message || result.stderr.trim() || result.stdout.trim() || 'No compiler diagnostic was emitted';

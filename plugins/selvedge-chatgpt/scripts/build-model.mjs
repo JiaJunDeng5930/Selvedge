@@ -77,7 +77,7 @@ export async function requirePackagedModel() {
     // validate only their shipped assets and never invoke a compiler preparer.
     const code = `const { javascriptCompilerIdentity } = await import(${JSON.stringify(pathToFileURL(compiler).href)}); console.log(JSON.stringify(await javascriptCompilerIdentity()));`;
     const result = spawnSync('bun', ['--eval', code], {
-      cwd: checkout, encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024,
+      cwd: checkout, encoding: 'utf8', maxBuffer: Infinity,
       env: { ...process.env, NODE_OPTIONS: '' },
     });
     if (result.error || result.status !== 0 || result.stderr.trim()) {

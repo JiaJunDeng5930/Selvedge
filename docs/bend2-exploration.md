@@ -1664,25 +1664,26 @@ Parallel focused runs exposed additional short-deadline failures. Ordinary
 validation therefore retains one isolated test process at a time. A real hanging
 RPC fixture uses a one-second request budget so process initialization can
 complete before the intended callback fault. Its physical execution-count and
-failure assertions remain intact. Process tests separately exercise watchdog
-termination and descendants holding inherited output pipes after their parent
-exits; the runner terminates the owned group before waiting for pipe EOF.
+failure assertions remain intact. Process tests exercise explicit cancellation
+and descendants holding inherited output pipes after their parent exits; the runner terminates the owned group
+before waiting for pipe EOF.
 
 The original full proof also hit the container's 16 GiB memory limit: its process
 tree reached about 15.9 GiB and the cgroup recorded an OOM kill. With the same
 pinned binary, sources and strict proof oracle, `BUN_JSC_gcMaxHeapSize=12000000000`
-completed in 139.25 seconds with about 11.5 GiB peak process-tree RSS. The default
-child environment now caps the managed heap at 8 GB or 70% of effective physical
-and container memory, whichever is lower; an explicit environment override wins.
-This schedules collection before the OS limit rather than changing proof checking.
+completed in 139.25 seconds with about 11.5 GiB peak process-tree RSS. This earlier
+experiment led to a managed-heap cap of 8 GB or 70% of effective physical and
+container memory. That cap has since been removed at the user’s
+request, along with the scripted proof, compilation and test-run deadlines.
+Current validation uses the runtimes’ default resource management.
 
 The larger generic operational-client fixture completed with an 8 GB managed
 heap in 325.04 seconds and about 13.0 GiB total process-tree RSS. A separate cold
 UI emission under that budget reproduced the existing artifact byte for byte in
 186.06 seconds. The unchanged operational-client execution test passed separately
 in 2.95 seconds using its stable artifact. Native allocations require headroom beyond
-the managed heap; that larger fixture motivated the lower default budget. Cold
-preparation is bounded separately from the actual assertion deadline.
+the managed heap; that larger fixture motivated the earlier budget. These are
+historical measurements under explicit limits, not current default settings.
 
 Runtime profiling exposed a separate cost after compilation. In an isolated
 context scenario, 188 kernel transitions spent about 28.54 seconds in the model

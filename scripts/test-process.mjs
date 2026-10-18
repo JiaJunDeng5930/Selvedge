@@ -1,6 +1,3 @@
-import { compilerEnvironment } from './compiler-memory.mjs';
-import { setPriority } from 'node:os';
-
 async function collectTestOutput(stream, target) {
   const decoder = new TextDecoder();
   let output = '';
@@ -24,17 +21,14 @@ export function terminateTestProcessGroup(proc) {
   }
 }
 
-// Test files and shared compilation both own an isolated process group and watchdog.
-export async function runTestProcess(label, command, { cwd, active = new Set(), timeout = 900_000, priority = 0, env = {} }) {
+// Each invocation owns its process group, including descendants holding its pipes.
+export async function runTestProcess(label, command, { cwd, active = new Set(), env = {} }) {
   console.log(`Running ${label}`);
   const started = performance.now();
   let proc;
-  let timer;
-  let timedOut = false;
   try {
-    proc = Bun.spawn(command, { cwd, env: compilerEnvironment(env), stdout: 'pipe', stderr: 'pipe', detached: true });
+    proc = Bun.spawn(command, { cwd, env: { ...process.env, BEND_NO_TELEMETRY: '1', ...env }, stdout: 'pipe', stderr: 'pipe', detached: true });
     active.add(proc);
-    if (priority && process.platform !== 'win32') setPriority(proc.pid, priority);
     // Drain both pipes immediately; descendants can keep them open after the parent exits.
     const stdout = collectTestOutput(proc.stdout, process.stdout);
     const stderr = collectTestOutput(proc.stderr, process.stderr);
@@ -42,14 +36,9 @@ export async function runTestProcess(label, command, { cwd, active = new Set(), 
       terminateTestProcessGroup(proc);
       return code;
     });
-    timer = setTimeout(() => {
-      timedOut = true;
-      terminateTestProcessGroup(proc);
-    }, timeout);
     const [exitCode, out, err] = await Promise.all([exited, stdout, stderr]);
-    return { exitCode, out, err, signal: proc.signalCode, timedOut, pid: proc.pid };
+    return { exitCode, out, err, signal: proc.signalCode, pid: proc.pid };
   } finally {
-    clearTimeout(timer);
     if (proc) {
       terminateTestProcessGroup(proc);
       active.delete(proc);

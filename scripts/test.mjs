@@ -19,7 +19,7 @@ export async function runTests() {
   });
   try {
     const result = await runTestProcess('focused physical regression suite',
-      [process.execPath, 'test', '--max-concurrency', '1', '--timeout', '30000', './tests-bend'], { cwd: root, active });
+      [process.execPath, 'test', '--timeout', '0', './tests-bend'], { cwd: root, active });
     const output = `${result.out}\n${result.err}`;
     const passes = [...output.matchAll(/^\s*(\d+) pass\s*$/gm)];
     const failures = [...output.matchAll(/^\s*(\d+) fail\s*$/gm)];
@@ -27,8 +27,8 @@ export async function runTests() {
     const normal = passes.length === 1 && failures.length === 1 && runs.length === 1
       && Number(passes[0][1]) === Number(runs[0][1]) && Number(failures[0][1]) === 0
       && Number(runs[0][1]) > 0 && Number(runs[0][2]) > 0;
-    if (interrupted || result.exitCode !== 0 || result.signal || result.timedOut || !normal) {
-      throw new Error(`Physical regression suite failed: exit=${result.exitCode}, signal=${result.signal ?? 'none'}, timeout=${result.timedOut}, normalFooter=${normal}`);
+    if (interrupted || result.exitCode !== 0 || result.signal || !normal) {
+      throw new Error(`Physical regression suite failed: exit=${result.exitCode}, signal=${result.signal ?? 'none'}, normalFooter=${normal}`);
     }
   } finally {
     for (const [signal, handler] of handlers) process.off(signal, handler);

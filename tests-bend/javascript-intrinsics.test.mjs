@@ -37,7 +37,7 @@ const outcome = (operation, ...arguments_) => {
   catch (error) { return { error: typeof error === 'string' ? error : `${error.name}: ${error.message}` }; }
 };
 
-test('native string intrinsics agree with original emitted execution on Unicode, invalid strings and bounded accumulators', { timeout: 180_000 }, async t => {
+test('native string intrinsics agree with original emitted execution on Unicode, invalid strings and bounded accumulators', async t => {
   const actual = await compiledFixture('javascript-intrinsics', client,
     { prefix: 'prefix', equal: 'equal', baseEqual: 'base_equal', size: 'size', escaped: 'escaped', reversed: 'reversed' });
   const output = path.join(root, '.build/test-javascript-intrinsics/fixture.mjs');
@@ -119,7 +119,7 @@ test('native string intrinsics agree with original emitted execution on Unicode,
   } finally { Array.from = from; }
 });
 
-test('changed definitions execute their new UTF-8 and escaping meanings instead of retaining intrinsics', { timeout: 180_000 }, async t => {
+test('changed definitions execute their new UTF-8 and escaping meanings instead of retaining intrinsics', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-changed-intrinsics-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await cp(path.join(root, 'bendlib'), path.join(directory, 'bendlib'), { recursive: true });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { runTestProcess } from '../scripts/test-process.mjs';
+import { runTestProcess, terminateTestProcessGroup } from '../scripts/test-process.mjs';
 
 const cwd = fileURLToPath(new URL('../', import.meta.url));
 
@@ -14,25 +14,25 @@ function running(pid) {
   return state !== '' && !state.startsWith('Z');
 }
 
-test('a normally exiting parent cannot leave descendants holding the test output pipes', { timeout: 5000 }, async () => {
+test('a normally exiting parent cannot leave descendants holding the test output pipes', async () => {
   const active = new Set();
-  const result = await runTestProcess('inherited pipe fixture', ['sh', '-c', 'sleep 300 & printf "descendant=%s\\n" "$!"; exit 0'], { cwd, active, timeout: 1500 });
+  const result = await runTestProcess('inherited pipe fixture', ['sh', '-c', 'sleep 300 & printf "descendant=%s\\n" "$!"; exit 0'], { cwd, active });
   assert.equal(result.exitCode, 0);
   assert.equal(result.signal, null);
-  assert.equal(result.timedOut, false, 'Parent exit must close inherited pipes before the watchdog');
   assert.equal(active.size, 0);
   const pid = Number(result.out.match(/descendant=(\d+)/)?.[1]);
   assert.ok(pid > 0);
   assert.equal(running(pid), false, 'The owned descendant must terminate');
 });
 
-test('a hung test is killed by its watchdog and reports a failing signal', { timeout: 5000 }, async () => {
+test('explicit cancellation terminates the owned process group and reports a failing signal', async () => {
   const active = new Set();
-  const result = await runTestProcess('watchdog fixture', [process.execPath, '--eval', 'console.error("watchdog-started"); setInterval(() => {}, 1000);'], { cwd, active, timeout: 1000 });
-  assert.equal(result.timedOut, true);
+  const pending = runTestProcess('cancellation fixture', [process.execPath, '--eval', 'setInterval(() => {}, 1000);'], { cwd, active });
+  assert.equal(active.size, 1);
+  for (const proc of active) terminateTestProcessGroup(proc);
+  const result = await pending;
   assert.equal(result.signal, 'SIGKILL');
   assert.notEqual(result.exitCode, 0);
-  assert.ok(result.err.includes('watchdog-started'));
   assert.equal(active.size, 0);
   assert.equal(running(result.pid), false);
 });

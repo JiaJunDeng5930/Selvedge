@@ -232,7 +232,7 @@ export function translateRelations(entities) {
 }
 
 function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', maxBuffer: Infinity });
   if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`);
   return result.stdout.trim();
 }

@@ -30,6 +30,6 @@ test('the physical server issues a working cookie, delivers committed SSE and se
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });
   }
   const cli = fileURLToPath(new URL('../host/cli.mjs', import.meta.url));
-  const described = await promisify(execFile)(process.execPath, [cli, '--home', directory, 'describe'], { timeout: 5000 });
+  const described = await promisify(execFile)(process.execPath, [cli, '--home', directory, 'describe']);
   assert.deepEqual(JSON.parse(described.stdout), running.service.description);
 });

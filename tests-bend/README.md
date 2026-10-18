@@ -66,8 +66,9 @@ bun run verify
 `bun run verify` checks the complete production proof, native entry, syntax and
 certificates, builds the production libraries once, runs the complete suite and
 checks the tracked-file index. `bun run test` builds once and invokes Bun's
-standard sequential test runner. Each invocation owns its subprocess group and a
-watchdog, drains both output pipes and validates the complete normal test footer.
+standard sequential test runner with assertion deadlines disabled. Each invocation
+owns its subprocess group, drains both output pipes and validates the complete
+normal test footer. Explicit cancellation terminates the owned process group.
 
 The compiler cache and guarded-intrinsic probes compile small isolated inputs:
 changed imports, retargeted files, changed toolchain/export identities and damaged
@@ -81,9 +82,10 @@ recompile hypothetical application extensions or replay model semantics.
 The fresh proof book feeds one official backend emission for eligible production
 entries. Standalone modules retain their own reachable generated declarations;
 complete source and tool identities plus output hashes guard reuse. Joint inputs
-conservatively share their invalidation scope. Native-entry checking uses the
-locked Node runtime; the checker and compiler source remain pinned and unchanged.
- The suite uses temporary homes, loopback servers and subprocesses; no
+conservatively share their invalidation scope. JavaScript compilation uses Bun;
+native-entry checking uses the official release compiler. Neither has a scripted
+time or heap limit. The checker and compiler source remain pinned and unchanged.
+The suite uses temporary homes, loopback servers and subprocesses; no
 real model account or paid request is needed. OS isolation requires Seatbelt on
 macOS or bubblewrap/seccomp on Linux. Chromium or Google Chrome is required for
 the focused DOM regression; `SELVEDGE_BROWSER` may name its executable.

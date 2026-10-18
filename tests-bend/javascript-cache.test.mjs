@@ -16,7 +16,7 @@ function executeLibrary(filename, exported = 'run', argument) {
 }
 
 // Cache evidence is generated execution, including mutations that must change it.
-test('JavaScript compilation reuses exact inputs and executes changed dependency closures', { timeout: 180_000 }, async t => {
+test('JavaScript compilation reuses exact inputs and executes changed dependency closures', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-javascript-cache-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const entry = path.join(directory, 'entry.bend');
@@ -103,7 +103,7 @@ test('JavaScript compilation reuses exact inputs and executes changed dependency
   await execute(23, false, { ...request, entry: path.join(copy, 'entry.bend'), output: path.join(copy, 'compiled.mjs'), sourceRoot: copy });
 });
 
-test('compiled fixtures execute changed code in the same test process', { timeout: 30_000 }, async () => {
+test('compiled fixtures execute changed code in the same test process', async () => {
   const source = value => `import Base\n\ndef run() -> Nat:\n  ${value}n\n`;
   const first = await compiledFixture('cache-execution', source(3), { run: 'run' });
   const changed = await compiledFixture('cache-execution', source(7), { run: 'run' });
@@ -113,7 +113,7 @@ test('compiled fixtures execute changed code in the same test process', { timeou
   assert.equal(restored.run(), 3n);
 });
 
-test('shared checked prefixes retain independent entry execution and invalidate every affected artifact', { timeout: 180_000 }, async t => {
+test('shared checked prefixes retain independent entry execution and invalidate every affected artifact', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-javascript-prefix-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const prefix = path.join(directory, 'prefix.bend');
@@ -155,7 +155,7 @@ test('shared checked prefixes retain independent entry execution and invalidate 
   assert.deepEqual(values(), ['7', '18']);
 });
 
-test('joint modules execute separate recursive and higher-order entry functions, and preserve public constructors', { timeout: 180_000 }, async t => {
+test('joint modules execute separate recursive and higher-order entry functions, and preserve public constructors', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-javascript-joint-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const prefix = path.join(directory, 'prefix.bend');

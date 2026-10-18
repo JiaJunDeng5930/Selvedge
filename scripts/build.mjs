@@ -11,7 +11,6 @@ import { checkComponents, bendSources, entrySources } from './check-components.m
 import { compileJavaScriptBatch } from './compile-javascript.mjs';
 import { prepareUiVerification } from './ui-verification.mjs';
 import { buildModel } from '../plugins/selvedge-chatgpt/scripts/build-model.mjs';
-import { compilerEnvironment } from './compiler-memory.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -103,7 +102,7 @@ export async function build({ native = false, force = false } = {}) {
     let outputSha256;
     try { outputSha256 = createHash('sha256').update(await readFile(output)).digest('hex'); } catch {}
     if (previous?.fingerprint !== identity.fingerprint || !outputSha256 || previous.outputSha256 !== outputSha256 || force) {
-      const result = spawnSync(bend, compileArguments, { cwd: root, stdio: 'inherit', env: compilerEnvironment() });
+      const result = spawnSync(bend, compileArguments, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
       if (result.error) throw result.error;
       if (result.status !== 0) throw new Error(`Native Bend compilation failed (${result.status})`);
       await writeFile(path.join(directory, 'native.json'), JSON.stringify({ ...identity,

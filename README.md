@@ -275,16 +275,15 @@ constructors or conflicting definitions retain independent compilation. Artifact
 identities bind the complete participating source closures and toolchain bytes.
 The complete pure proof gate runs before cache reuse as well as rebuilding.
 `bun run verify` runs those checks, the complete focused physical suite and the
-tracked-file index, sharing one production build. Native-entry checking uses the
-locked Node runtime with the same verified compiler source; JavaScript compilation
-uses Bun. `bun run build:native` retains the official release compiler and requires
-a C compiler.
+tracked-file index, sharing one production build. JavaScript compilation uses Bun
+with the verified compiler source. Native-entry checking and `bun run build:native`
+use the official release compiler; native compilation requires a C compiler.
+Checks and compilation have no scripted time or heap limits.
 
 Bootstrap uses the Bend version in `bend-version`. When necessary, it downloads
 the corresponding release into this checkout's `.build/bend` and verifies the
 archive against `bend-checksums.txt`. It changes neither the system compiler nor
-another worktree. Bootstrap installs the locked Bun dependencies, including the explicitly trusted
-Node compiler runtime; `gpt-tokenizer`
+another worktree. Bootstrap installs the locked Bun dependencies; `gpt-tokenizer`
 provides the local token-budget estimate used by the optional reasoning evaluator.
 
 The server prints its fixed local URL, normally `http://127.0.0.1:7421/`.
