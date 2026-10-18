@@ -8,6 +8,16 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+[Works](features/work/README.md) group a continuing undertaking's Tasks and Task
+graphs independently of Projects. Desktop global navigation occupies its own
+narrow rail. The workspace to its right has Work tabs above a Task tree and the
+current conversation or page. Collapsing the Task tree leaves global navigation
+and Work tabs available. Narrow layouts use full-width content, a single toolbar
+for the global menu, current Work and Task tree, and a full-width Task list in
+place of the conversation. The **All Tasks** tab includes every Task and can create
+independent Tasks. Each Work uses the existing Task creation form with per-Task
+Project and execution settings.
+
 [Task graphs](features/task_graph/README.md) construct editable output-to-input
 connections over ordinary tasks. Their declarations drive both execution and
 display; task settings and scheduling remain owned by the harness.

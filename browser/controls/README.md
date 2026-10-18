@@ -98,6 +98,9 @@ Compact and authors an indivisible horizontal unit. Principal and dependent
 captions use the same font and line box; secondary foreground expresses
 dependency while keeping one measured baseline. The whole supporting-controls
 region selects one presentation form from actual preferred and available width.
+`CONTROLS.compact_summary_captions` lets compact captions compress visually to one
+line; the complete value, subject metadata, accessible name and help remain. Full
+property summaries retain their unbroken recognition units.
 Every member consumes that form, including unavailable members; there is no
 per-entry fallback. Compact removes dependent details and retains each principal
 identity. Permission identity follows actual effective access; inactive sandbox
@@ -169,3 +172,49 @@ and existing gap to its minimum demand. The containing panel therefore cannot
 choose its width only from a shorter description and split the navigation across
 rows. This policy retains each original control's command, availability and
 target; it applies equally to settings, dependencies and source inspection.
+
+`SHELL` keeps the desktop global navigation rail beside the workspace. Its
+destination and settings groups remain outside Task navigation placement; only
+the Task tree follows the existing leading, collapsed and modal choices. Desktop modal
+Task navigation belongs to a zero-gap Layered stage below Work navigation. It
+begins after the rail and below the tabs. The original body and its in-flow Details
+panels remain the stage's first child; Task drawers follow in front-to-back
+overlay order. Root dialogs remain in the application's outer layer. These three
+spaces have separate overlay buckets, so processing another overlay retains the
+existing workspace layers. The desktop rail retains labelled vertical destinations and the native commands.
+`workspace_capacity_width` reserves the calibrated navigation width plus the main
+minimum whenever a candidate declares navigation-beside capability, independently
+of whether the Task tree is open. The actual rail remains a separate sibling, so
+physical allocation includes its width when accepting or rejecting that candidate.
+
+`SIDEBAR` derives Task row height from the actual text line box and existing motor
+floor, and indentation from the shared Hierarchy grammar. Consecutive rows have
+no additional member gap; group spacing follows the grammar's heading gap.
+Native labels remain complete while their visible captions use one line. Existing
+help reasons take precedence over the full-name title added to ordinary rows.
+`NAVIGATION.auxiliary_exposed` combines domain selection with the existing owner
+attention, menu ownership and hover capability. `PROGRAM.navigation_fields`
+passes the actual Project selection into this rule. Exposure retains each slot's
+allocation, while owner feedback remains independent of domain selection.
+
+`SHELL` keeps Work navigation above the Task sidebar and main body. `MODEL`
+authors bounded shrinking desktop tabs, a fixed creation action and a separate
+compact overview control. The selected tab retains its native button and gains a
+Canvas-colored backing at its bottom corners to join the content surface. Native
+Work title buttons align their captions at the leading edge. Mobile presentation
+uses one `CompactHeader`: global menu, a single current-Work overview button with
+its complete count, and the existing Task-tree launcher. The header moves into
+the modal Navigation scope when the Task drawer opens, preserving native keys.
+The compact workspace stage includes the header and main content; its drawer
+fills that stage and scrolls its tree beneath the header. It authors no rail or
+empty topbar. `NavigationArea{compact}` and `TouchNavigationArea` apply the same
+44-pixel motor floor to final native geometry and visual minima; `SIDEBAR`
+consumes that minimum for its row and command-slot targets. Desktop retains
+the 32-pixel grammar. Compact global-menu entries and overview footer controls
+use full-width native controls with their original inputs and names. Selected native title buttons declare
+generic reveal-on-layout metadata for physical reallocation. The overview count
+reserves its complete measured caption width. Creation uses a plus
+glyph in the toolbar and a labelled plus control in the overview dialog. Work choices
+use the same captured commands in paired, stretchable option cards; clipped text
+retains complete accessible names and native title help. The existing packing,
+scrolling, dialog and focus capabilities supply their physical behavior.

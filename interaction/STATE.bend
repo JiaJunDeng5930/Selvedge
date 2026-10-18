@@ -156,7 +156,7 @@ def service_attention(decision: E.Decision, effects: +List<Services.Effect>) -> 
 def refresh_directory_services(effects: +List<Services.Effect>, decision: E.Decision) -> E.Decision:
   match effects:
     case Nil{}: decision
-    case Con{Services.DirectoryChosen{U.NewTaskEditor{}, path}, rest}: E.observe_workspace_git(decision)
+    case Con{Services.DirectoryChosen{U.NewTaskEditor{work}, path}, rest}: E.observe_workspace_git(decision)
     case Con{other, rest}: refresh_directory_services(rest, decision)
 
 def service_result(decision: Services.Decision, application: E.Application) -> InteractionTypes.Decision:
@@ -264,6 +264,8 @@ def service_input(input: Services.Input, +application: E.Application, +services:
       directory_request_admitted(Categories.admit(ServiceRequest, directory_request_available, ServiceRequest{Services.OpenDirectoryPicker{editor, path, trigger}, application, services}), application, services)
     case Services.AddFile{+editor, file}:
       file_request_admitted(Categories.admit(ServiceRequest, file_request_available, ServiceRequest{Services.AddFile{editor, file}, application, services}), application, services)
+    case Services.OpenSettings{}: service_result(Services.step(Services.OpenSettings{}, services), E.advance_selection(E.consume_global_navigation(application)))
+    case Services.CloseSettings{}: service_result(Services.step(Services.CloseSettings{}, services), E.advance_selection(application))
     case other: service_result(Services.step(other, services), application)
 
 def edit_body(body: U.Body, editor: U.Editor, field: Forms.Field, value: Forms.Value, +application: E.Application) -> E.Decision:

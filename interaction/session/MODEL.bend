@@ -12,6 +12,8 @@ import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/workspace/WORKSPACE.bend as W
 import ../../features/board/MODEL.bend as B
 import ../../features/task_graph/MODEL.bend as Graph
+import ../../features/work/MODEL.bend as Work
+import ../../harness/features/work-state.bend as WorkState
 import ../../harness/features/MODEL.bend as F
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/component.bend as C
@@ -43,8 +45,11 @@ type NavigationIntent is Data:
   OpenNavigation{}
   ClosedNavigation{}
 
+type WorkVisit is Data:
+  WorkVisit{work: Maybe<&2, Nat>, route: U.Route}
+
 type NavigationState is Data:
-  NavigationState{intent: NavigationIntent, collapsed_projects: +List<Nat>}
+  NavigationState{intent: NavigationIntent, collapsed_projects: +List<Nat>, active_work: Maybe<&2, Nat>, visits: +List<WorkVisit>, selection_generation: Nat}
 
 # Execution and human participation form one system. Observations are projections
 # of this value, not an independently supplied tree of enabled widgets.
@@ -63,6 +68,7 @@ type Application is Data:
   Application{program: M.World(), session: Session}
 
 type Completion is Data:
+  WorkCreationCompletion{generation: Nat, layer_generation: Nat}
   DirectCompletion{}
   DraftCompletion{draft: U.Draft}
   WorktreePreferenceCompletion{draft: U.Draft, command: M.Command}
@@ -142,6 +148,27 @@ def navigation(state: Session) -> NavigationState:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   navigation
 
+def navigation_work(state: NavigationState) -> Maybe<&2, Nat>:
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  work
+
+def active_work(state: Session) -> Maybe<&2, Nat>:
+  navigation_work(navigation(state))
+
+def navigation_generation(state: NavigationState) -> Nat:
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  generation
+
+def selection_generation(state: Session) -> Nat:
+  navigation_generation(navigation(state))
+
+def advance_navigation_selection(state: NavigationState) -> NavigationState:
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  NavigationState{intent, collapsed, work, visits, (generation + 1n : Nat)}
+
+def creation_editor(state: Session) -> U.Editor:
+  U.NewTaskEditor{active_work(state)}
+
 def filter(state: Session) -> B.Filter:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   filter
@@ -204,6 +231,10 @@ def with_attention(value: String, state: Session) -> Session:
 def with_navigation(value: NavigationState, state: Session) -> Session:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   Session{route, drafts, readers, layers, attention, value, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
+
+def advance_selection(application: Application) -> Application:
+  Application{program, +session} = application
+  Application{program, with_navigation(advance_navigation_selection(navigation(session)), session)}
 
 def with_next_ticket(value: Nat, state: Session) -> Session:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
@@ -354,13 +385,15 @@ def close_selected_choice(change: U.Edit, editor: U.Editor, result: Decision) ->
     case U.ConfigureContext{Context.SetSandbox{sandbox}}: close_choice(editor, result)
     case _: result
 
-def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin) -> U.Body:
+def scoped_new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin, work: Maybe<&2, Nat>) -> U.Body:
   (profile, reasoning) = profile
-  U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin), False{}}
+  U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin), False{}, work}
+
+def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin) -> U.Body:
+  scoped_new_task(profile, origin, None{})
 
 def initial(+program: M.World()) -> Application:
-  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}],
-    Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n, None{}, False{}, UnknownWorkspaceGit{}}}
+  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}], Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}, None{}, Nil{}, 0n}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n, None{}, False{}, UnknownWorkspaceGit{}}}
 
 def select_draft(hit: Bool, value: U.Draft, rest: Maybe<&2, U.Draft>) -> Maybe<&2, U.Draft>:
   match hit:
@@ -415,11 +448,11 @@ def preview_primary(preview: Context.Preview) -> Maybe<&2, String>:
 
 def new_task_primary(found: Maybe<&2, U.Draft>, world: M.World()) -> Maybe<&2, String>:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled}, feedback, entry}}: preview_primary(Context.preview(context, world))
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled, work}, feedback, entry}}: preview_primary(Context.preview(context, world))
     case _: None{}
 
 def current_primary(+application: Application) -> Maybe<&2, String>:
-  new_task_primary(find_draft(drafts(session(application)), U.NewTaskEditor{}), program(application))
+  new_task_primary(find_draft(drafts(session(application)), creation_editor(session(application))), program(application))
 
 def workspace_git_matches(git: WorkspaceGit, primary: Maybe<&2, String>) -> Bool:
   match git primary:
@@ -448,6 +481,15 @@ def observe_workspace_git(decision: Decision) -> Decision:
   Decision{+application, reply, runtime, effects, durable} = decision
   observe_workspace_git_primary(current_primary(application), Decision{application, reply, runtime, effects, durable})
 
+def observe_scope_workspace_checked(accepted: Bool, decision: Decision) -> Decision:
+  match accepted:
+    case False{}: decision
+    case True{}: observe_workspace_git(decision)
+
+def observe_scope_workspace(decision: Decision) -> Decision:
+  Decision{application, +reply, runtime, effects, durable} = decision
+  observe_scope_workspace_checked(J.boolean(J.get(reply, "ok")), Decision{application, reply, runtime, effects, durable})
+
 def git_observation_current(current: Nat, ticket: Nat, primary: String, actual: Maybe<&2, String>) -> Bool:
   match actual:
     case None{}: False{}
@@ -455,8 +497,8 @@ def git_observation_current(current: Nat, ticket: Nat, primary: String, actual: 
 
 def disable_unavailable_worktree(available: Bool, found: Maybe<&2, U.Draft>, session: Session) -> Session:
   match available found:
-    case False{} Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled}, feedback, entry}}:
-      with_draft(session, U.Draft{revision, U.NewTask{message, profile, reasoning, context, False{}}, feedback, entry})
+    case False{} Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled, work}, feedback, entry}}:
+      with_draft(session, U.Draft{revision, U.NewTask{message, profile, reasoning, context, False{}, work}, feedback, entry})
     case _ _: session
 
 def settle_workspace_git(current: Bool, +primary: String, +available: Bool, application: Application) -> Decision:
@@ -464,7 +506,7 @@ def settle_workspace_git(current: Bool, +primary: String, +available: Bool, appl
     case False{}: unchanged(application)
     case True{}:
       Application{world, +session} = application
-      local(world, with_workspace_git(ObservedWorkspaceGit{primary, available}, disable_unavailable_worktree(available, find_draft(drafts(session), U.NewTaskEditor{}), session)), Nil{})
+      local(world, with_workspace_git(ObservedWorkspaceGit{primary, available}, disable_unavailable_worktree(available, find_draft(drafts(session), creation_editor(session)), session)), Nil{})
 
 def workspace_git_result(git: WorkspaceGit, ticket: Nat, available: Bool, +application: Application) -> Decision:
   match git:
@@ -490,12 +532,12 @@ def observe_workspace_edit_enabled(enabled: Bool, decision: Decision) -> Decisio
 
 def observe_workspace_edit(editor: U.Editor, change: U.Edit, decision: Decision) -> Decision:
   match editor:
-    case U.NewTaskEditor{}: observe_workspace_edit_enabled(refresh_workspace_edit(change), decision)
+    case U.NewTaskEditor{work}: observe_workspace_edit_enabled(refresh_workspace_edit(change), decision)
     case _: decision
 
 def observe_workspace_panel(panel: U.Panel, decision: Decision) -> Decision:
   match panel:
-    case U.WorkspaceConfiguration{U.NewTaskEditor{}}: observe_workspace_git(decision)
+    case U.WorkspaceConfiguration{U.NewTaskEditor{work}}: observe_workspace_git(decision)
     case _: decision
 
 def confirm_found(admitted: Bool, draft: U.Draft, +program: M.World(), session: Session) -> Decision:
@@ -643,11 +685,11 @@ def navigation_intent_after_visit(intent: NavigationIntent) -> NavigationIntent:
     case other: other
 
 def navigation_after_visit(state: NavigationState) -> NavigationState:
-  NavigationState{intent, collapsed} = state
-  NavigationState{navigation_intent_after_visit(intent), collapsed}
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  advance_navigation_selection(NavigationState{navigation_intent_after_visit(intent), collapsed, work, visits, generation})
 
 def navigation_visibility(state: NavigationState) -> NavigationIntent:
-  NavigationState{intent, collapsed} = state
+  NavigationState{intent, collapsed, work, visits, generation} = state
   intent
 
 def navigation_intent(expanded: Bool) -> NavigationIntent:
@@ -656,11 +698,11 @@ def navigation_intent(expanded: Bool) -> NavigationIntent:
     case False{}: ClosedNavigation{}
 
 def set_navigation(expanded: Bool, state: NavigationState) -> NavigationState:
-  NavigationState{intent, collapsed} = state
-  NavigationState{navigation_intent(expanded), collapsed}
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  NavigationState{navigation_intent(expanded), collapsed, work, visits, generation}
 
 def project_collapsed(state: NavigationState, +id: Nat) -> Bool:
-  NavigationState{intent, collapsed} = state
+  NavigationState{intent, collapsed, work, visits, generation} = state
   List.contains(~Nat, ~Nat.is_eq, collapsed, id)
 
 def project_disclosure_value(entry: Finite.Entry(Nat)) -> Nat:
@@ -676,8 +718,8 @@ def toggle_collapsed(present: Bool, +id: Nat, collapsed: +List<Nat>) -> +List<Na
     case False{}: id <> collapsed
 
 def toggle_project_navigation(+id: Nat, +state: NavigationState) -> NavigationState:
-  NavigationState{intent, collapsed} = state
-  NavigationState{intent, toggle_collapsed(project_collapsed(state, id), id, collapsed)}
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  NavigationState{intent, toggle_collapsed(project_collapsed(state, id), id, collapsed), work, visits, generation}
 
 def toggle_project(id: Nat, application: Application) -> Decision:
   Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}} = application
@@ -730,17 +772,90 @@ def ensure(found: Maybe<&2, U.Draft>, fallback: U.Body, session: Session) -> Ses
     case Some{draft}: session
     case None{}: with_draft(session, U.Draft{0n, fallback, U.Editing{}, ""})
 
+def same_work(left: Maybe<&2, Nat>, right: Maybe<&2, Nat>) -> Bool:
+  match left right:
+    case None{} None{}: True{}
+    case Some{left} Some{right}: Nat.is_eq(left, right)
+    case _ _: False{}
+
+def keep_work_visit(same: Bool, value: WorkVisit, rest: +List<WorkVisit>) -> +List<WorkVisit>:
+  match same:
+    case True{}: rest
+    case False{}: value <> rest
+
+def without_work_visit(values: +List<WorkVisit>, +work: Maybe<&2, Nat>) -> +List<WorkVisit>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{WorkVisit{+current, route}, rest}: keep_work_visit(same_work(current, work), WorkVisit{current, route}, without_work_visit(rest, work))
+
+def select_work_navigation(+work: Maybe<&2, Nat>, route: U.Route, state: NavigationState) -> NavigationState:
+  NavigationState{intent, collapsed, +previous, visits, generation} = state
+  NavigationState{intent, collapsed, work, WorkVisit{previous, route} <> without_work_visit(visits, previous), generation}
+
+def matching_work_visit(same: Bool, route: U.Route, fallback: U.Route) -> U.Route:
+  match same:
+    case True{}: route
+    case False{}: fallback
+
+def work_visit(values: +List<WorkVisit>, +work: Maybe<&2, Nat>) -> U.Route:
+  match values:
+    case Nil{}: U.Start{}
+    case Con{WorkVisit{current, route}, rest}: matching_work_visit(same_work(current, work), route, work_visit(rest, work))
+
+def navigation_visit(state: NavigationState, work: Maybe<&2, Nat>) -> U.Route:
+  NavigationState{intent, collapsed, previous, visits, generation} = state
+  work_visit(visits, work)
+
+def global_navigation(state: NavigationState, route: U.Route) -> NavigationState:
+  NavigationState{intent, collapsed, work, visits, generation} = state
+  match work:
+    case None{}: NavigationState{intent, collapsed, None{}, visits, generation}
+    case Some{work}: select_work_navigation(None{}, route, NavigationState{intent, collapsed, Some{work}, visits, generation})
+
+def global_application(application: Application) -> Application:
+  Application{program, +session} = application
+  Application{program, with_navigation(global_navigation(navigation(session), route(session)), session)}
+
+def owned_conversation_scope(same: Bool, owner: Maybe<&2, Nat>, +session: Session) -> Session:
+  match same:
+    case True{}: session
+    case False{}: with_navigation(select_work_navigation(owner, route(session), navigation(session)), session)
+
+def scope_conversation(current: Maybe<&2, Nat>, +owner: Maybe<&2, Nat>, session: Session) -> Session:
+  match current:
+    case None{}: session
+    case Some{work}: owned_conversation_scope(same_work(Some{work}, owner), owner, session)
+
+def ensure_creation_draft(found: Maybe<&2, U.Draft>, body: U.Body, +session: Session) -> Session:
+  match found:
+    case Some{draft}: session
+    case None{}: with_draft(session, U.Draft{0n, body, U.Editing{}, ""})
+
+def conversation_creation_draft(+world: M.World(), +session: Session) -> Session:
+  +work = active_work(session)
+  ensure_creation_draft(find_draft(drafts(session), U.NewTaskEditor{work}),
+    scoped_new_task(first_profile(Board.profiles(world)), Context.EnvironmentDefaults{}, work), session)
+
+def conversation_scope(task: Nat, +world: M.World(), +session: Session) -> Session:
+  conversation_creation_draft(world, scope_conversation(active_work(session), WorkState.task_owner(task, world), session))
+
 def visit(route: U.Route, application: Application) -> Decision:
   match route:
+    case U.TaskBoard{}: navigate(U.TaskBoard{}, global_application(application))
+    case U.ProjectCollection{}: navigate(U.ProjectCollection{}, global_application(application))
+    case U.ProjectHome{project}: navigate(U.ProjectHome{project}, global_application(application))
+    case U.AgentCollection{}: navigate(U.AgentCollection{}, global_application(application))
     case U.Conversation{+task}:
-      Application{program, +session} = application
+      Application{+program, +session} = application
       Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
       navigate(U.Conversation{task}, Application{program, ensure(find_draft(drafts, U.MessageEditor{task}),
-        U.Message{task, U.initial_text(""), U.Send{}}, session)})
+        U.Message{task, U.initial_text(""), U.Send{}}, conversation_scope(task, program, session))})
     case other: navigate(other, application)
 
 def panel_target(panel: U.Panel) -> String:
   match panel:
+    case U.GlobalNavigation{}: "global-navigation"
+    case U.WorkOverview{}: "work-overview"
     case U.ProjectPicker{}: "project-picker"
     case U.ObjectActions{subject}: "actions/" ++ U.subject_key(subject)
     case U.ArchivedCards{}: "archived-cards"
@@ -756,6 +871,18 @@ def panel_target(panel: U.Panel) -> String:
     case U.PropertySource{origin}: "property-source/" ++ panel_target(origin)
     case U.DeliveryPicker{task}: "delivery-picker/" ++ Nat.show(task)
     case U.Confirm{command, title, destination}: "confirm/cancel"
+
+# Settings belongs to the service owner. Consuming its navigation origin keeps
+# the underlying Task view and restores a live launcher instead of a dead menu.
+def consume_global_navigation_layers(layers: +List<Layer>, program: M.World(), +session: Session) -> Application:
+  match layers:
+    case Con{Layer{U.GlobalNavigation{}, trigger, initial, query, occurrence, source, field, buffer}, rest}:
+      Application{program, with_next_layer((next_layer(session) + 1n : Nat), with_attention(trigger, with_layers(rest, session)))}
+    case _: Application{program, session}
+
+def consume_global_navigation(application: Application) -> Application:
+  Application{program, +session} = application
+  consume_global_navigation_layers(layers(session), program, session)
 
 def keep_layer(same: Bool, layer: Layer, rest: +List<Layer>) -> +List<Layer>:
   match same:
@@ -906,10 +1033,10 @@ def agent_editor(+application: Application, id: Maybe<&2, Nat>) -> Decision:
     case None{}: new_agent(first_profile(Board.profiles(program)), application)
     case Some{id}: board_agent(Board.registry(program), id, application)
 
-def task_graph_editor_text(text: Result<&2, &2, String, String>, graph: Maybe<&2, Nat>, declaration: J.Json, application: Application) -> Decision:
+def task_graph_editor_text(text: Result<&2, &2, String, String>, graph: Maybe<&2, Nat>, declaration: J.Json, +application: Application) -> Decision:
   match text:
     case Fail{reason}: refuse(application, reason)
-    case Done{text}: open_editor(U.TaskGraph{graph, text, Some{declaration}}, application)
+    case Done{text}: open_editor(U.TaskGraph{graph, text, Some{declaration}, active_work(session(application))}, application)
 
 def task_graph_editor_declaration(graph: Maybe<&2, Nat>, +declaration: J.Json, application: Application) -> Decision:
   task_graph_editor_text(J.show(declaration), graph, declaration, application)
@@ -938,17 +1065,17 @@ def task_graph_editor(graph: Maybe<&2, Nat>, +application: Application) -> Decis
 def begin_changed(body: Result<&2, &2, String, U.Body>, revision: Nat, directory_entry: String, application: Application) -> Decision:
   match body:
     case Fail{reason}: refuse(application, reason)
-    case Done{body}:
+    case Done{+body}:
       Application{program, session} = application
-      navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), Application{program, with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}, directory_entry})})
+      navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.owner(body)), Application{program, with_draft(session, U.Draft{(revision + 1n : Nat), body, U.Editing{}, directory_entry})})
 
 def begin_context_change(origin: Context.Origin, body: U.Body, revision: Nat, directory_entry: String, +application: Application) -> Decision:
   Application{program, session} = application
   begin_changed(U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, body, program), revision, directory_entry, application)
 
-def begin_existing(found: Maybe<&2, U.Draft>, origin: Context.Origin, application: Application) -> Decision:
+def begin_existing(found: Maybe<&2, U.Draft>, origin: Context.Origin, +application: Application) -> Decision:
   match found:
-    case None{}: navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{}), application)
+    case None{}: navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(creation_editor(session(application))), application)
     case Some{U.Draft{revision, body, feedback, directory_entry}}:
       begin_context_change(origin, body, revision, directory_entry, application)
 
@@ -975,35 +1102,148 @@ def preferred_selection(+value: Maybe<&2, ModelPreference>, +profiles: +List<D.P
     case None{}: first_profile(profiles)
     case Some{+selection}: preferred_if(valid_preference(selection, profiles), selection, profiles)
 
-def resolved_model_selection(+selection: Sigma<&2, &2, String, (_ => String)>, +revision: Nat, +message: U.Text, +context: Context.Configuration, +feedback: U.Feedback, +directory_entry: String, create_worktree: Bool, +session: Session) -> Session:
+def scoped_model_selection(+selection: Sigma<&2, &2, String, (_ => String)>, +revision: Nat, +message: U.Text, +context: Context.Configuration, +feedback: U.Feedback, +directory_entry: String, create_worktree: Bool, +session: Session, work: Maybe<&2, Nat>) -> Session:
   (selected, effort) = selection
-  with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, create_worktree}, feedback, directory_entry})
+  with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, create_worktree, work}, feedback, directory_entry})
 
 def resolve_model_valid(+valid: Bool, +draft: U.Draft, +profiles: +List<D.Profile>, +session: Session) -> Session:
   match valid draft:
-    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree}, feedback, directory_entry}:
-      resolved_model_selection(preferred_selection(preference(session), profiles), revision, message, context, feedback, directory_entry, create_worktree, session)
+    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}:
+      scoped_model_selection(preferred_selection(preference(session), profiles), revision, message, context, feedback, directory_entry, create_worktree, session, work)
     case _ _: session
 
 def manual_model(session: Session) -> Bool:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   draft_model_manual
 
+def creation_model_chosen(work: Maybe<&2, Nat>, manual: Bool) -> Bool:
+  match work:
+    case None{}: manual
+    case Some{id}: True{}
+
 def resolve_model_found(+found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: Session) -> Session:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context, create_worktree}, feedback, directory_entry}}:
-      resolve_model_valid(manual_model(session) && permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree}, feedback, directory_entry}, profiles, session)
+    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context, create_worktree, +work}, feedback, directory_entry}}:
+      resolve_model_valid(creation_model_chosen(work, manual_model(session)) && permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}, profiles, session)
     case _: session
 
 def resolve_model_draft(+session: Session, +program: M.World()) -> Session:
-  resolve_model_found(find_draft(drafts(session), U.NewTaskEditor{}), Board.profiles(program), session)
+  resolve_model_found(find_draft(drafts(session), creation_editor(session)), Board.profiles(program), session)
 
 def begin_resolved(+origin: Context.Origin, +program: M.World(), +session: Session) -> Decision:
-  begin_existing(find_draft(drafts(session), U.NewTaskEditor{}), origin, Application{program, session})
+  begin_existing(find_draft(drafts(session), creation_editor(session)), origin, Application{program, session})
 
 def begin_task(project: Maybe<&2, Nat>, application: Application) -> Decision:
   Application{+program, +session} = application
   begin_resolved(context_project(project), program, resolve_model_draft(session, program))
+
+def work_available(work: Maybe<&2, Nat>, world: M.World()) -> Bool:
+  match work:
+    case None{}: True{}
+    case Some{id}: WorkState.exists(id, world)
+
+def select_work_checked(available: Bool, +work: Maybe<&2, Nat>, +application: Application) -> Decision:
+  match available:
+    case False{}: refuse(application, "The Work no longer exists")
+    case True{}:
+      Application{+program, +session} = application
+      +destination = navigation_visit(navigation(session), work)
+      +next_session = with_navigation(select_work_navigation(work, route(session), navigation(session)), session)
+      +ready = ensure(find_draft(drafts(next_session), U.NewTaskEditor{work}),
+        scoped_new_task(preferred_selection(preference(session), Board.profiles(program)), Context.EnvironmentDefaults{}, work), next_session)
+      visit(destination, Application{program, ready})
+
+def dismiss_work_overview_layers(entries: +List<Layer>, application: Application) -> Application:
+  match entries:
+    case Con{Layer{U.WorkOverview{}, trigger, initial, query, occurrence, source, field, buffer}, rest}:
+      Application{program, session} = application
+      Application{program, with_attention(trigger, with_layers(rest, session))}
+    case _: application
+
+def dismiss_work_overview(+application: Application) -> Application:
+  dismiss_work_overview_layers(layers(session(application)), application)
+
+def work_overview_open(entries: +List<Layer>) -> Bool:
+  match entries:
+    case Con{Layer{U.WorkOverview{}, trigger, initial, query, occurrence, source, field, buffer}, rest}: True{}
+    case _: False{}
+
+def work_target(work: Maybe<&2, Nat>) -> String:
+  match work:
+    case None{}: "work/all"
+    case Some{id}: "work/" ++ Nat.show(id)
+
+def work_selection_target(route: U.Route, work: Maybe<&2, Nat>) -> String:
+  match route:
+    case U.Start{}: "message-text"
+    case U.Conversation{task}: "message-text"
+    case _: work_target(work)
+
+def focus_work_selection(ready: Bool, +work: Maybe<&2, Nat>, decision: Decision) -> Decision:
+  match ready:
+    case False{}: decision
+    case True{}:
+      Decision{Application{program, +session}, result, runtime, interaction, durable} = decision
+      +target = work_selection_target(route(session), work)
+      Decision{Application{program, with_attention(target, session)}, result, runtime,
+        [Attend{work_target(work)}, Attend{target}], durable}
+
+def finish_work_selection(overview: Bool, work: Maybe<&2, Nat>, decision: Decision) -> Decision:
+  Decision{application, +result, runtime, interaction, durable} = decision
+  focus_work_selection(overview && J.boolean(J.get(result, "ok")), work, Decision{application, result, runtime, interaction, durable})
+
+def select_work_changed(same: Bool, +work: Maybe<&2, Nat>, +application: Application) -> Decision:
+  match same:
+    case True{}: unchanged(advance_selection(dismiss_work_overview(application)))
+    case False{}: select_work_checked(work_available(work, program(application)), work, application)
+
+def select_work(+work: Maybe<&2, Nat>, +application: Application) -> Decision:
+  finish_work_selection(work_overview_open(layers(session(application))), work,
+    select_work_changed(same_work(work, active_work(session(application))), work, application))
+
+def rename_work(found: Maybe<&2, Work.Work>, work: Nat, application: Application) -> Decision:
+  match found:
+    case None{}: refuse(application, "The Work no longer exists")
+    case Some{value}: open_editor(U.WorkName{work, Work.name(value)}, application)
+
+def expose_created_work_checked(accepted: Bool, work: Nat, decision: Decision) -> Decision:
+  match accepted:
+    case False{}: decision
+    case True{}:
+      Decision{Application{program, session}, result, runtime, interaction, durable} = decision
+      Decision{Application{program, with_attention("message-text", session)}, result, runtime,
+        [Attend{"work/" ++ Nat.show(work)}, Attend{"message-text"}], durable}
+
+def expose_created_work(work: Nat, decision: Decision) -> Decision:
+  Decision{application, +result, runtime, interaction, durable} = decision
+  expose_created_work_checked(J.boolean(J.get(result, "ok")), work, Decision{application, result, runtime, interaction, durable})
+
+def created_work_id(id: Maybe<&2, Nat>, application: Application) -> Decision:
+  match id:
+    case None{}: unchanged(application)
+    case Some{+id}: expose_created_work(id, select_work(Some{id}, application))
+
+def created_work_checked(accepted: Bool, result: J.Json, application: Application) -> Decision:
+  match accepted:
+    case False{}: unchanged(application)
+    case True{}: observe_scope_workspace(created_work_id(J.natural(J.get(J.get(result, "result"), "work_id")), application))
+
+def created_work(+result: J.Json, application: Application) -> Decision:
+  created_work_checked(J.boolean(J.get(result, "ok")), result, application)
+
+def complete_work_creation(current: Bool, +result: J.Json, application: Application) -> Decision:
+  match current:
+    case False{}: reply(application, result)
+    case True{}: with_native(created_work(result, application), result, Nil{}, False{})
+
+def request_new_work(+application: Application) -> Decision:
+  request_command(M.FeatureCommand{F.WorkCommand{Work.Create{""}}}, WorkCreationCompletion{selection_generation(session(application)), next_layer(session(application))}, application)
+
+def work_creation_current(generation: Nat, layer_generation: Nat, +session: Session) -> Bool:
+  Nat.is_eq(generation, selection_generation(session)) && Nat.is_eq(layer_generation, next_layer(session))
+
+def create_work(application: Application) -> Decision:
+  request_new_work(advance_selection(application))
 
 def busy(pending: +List<Pending>, +editor: U.Editor) -> Bool:
   match pending:
@@ -1078,7 +1318,7 @@ def finish_layer(same: Bool, application: Application) -> Decision:
 
 def finish_at_location(editor: U.Editor, route: U.Route, layers: +List<Layer>, result: J.Json, application: Application) -> Decision:
   match editor route layers:
-    case U.NewTaskEditor{} U.Start{} _:
+    case U.NewTaskEditor{work} U.Start{} _:
       follow_created(J.natural(J.get(J.get(result, "result"), "task_id")), application)
     case editor _ Con{Layer{U.EditObject{current}, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
       finish_layer(U.same_editor(editor, current), application)
@@ -1115,16 +1355,24 @@ def with_manual_model(value: Bool, session: Session) -> Session:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, previous, workspace_git} = session
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, value, workspace_git}
 
-def finish_fresh_task(+route: U.Route, +layers: +List<Layer>, +result: J.Json, +application: Application) -> Decision:
-  Application{program, session} = application
-  finish_at_location(U.NewTaskEditor{}, route, layers, result, Application{program, with_manual_model(False{}, session)})
+def completed_creation_model(work: Maybe<&2, Nat>, session: Session) -> Session:
+  match work:
+    case None{}: with_manual_model(False{}, session)
+    case Some{id}: session
 
-def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Json, application: Application) -> Decision:
+def finish_scoped_task(owned: Bool, +work: Maybe<&2, Nat>, route: U.Route, layers: +List<Layer>, result: J.Json, application: Application) -> Decision:
+  match owned:
+    case False{}: unchanged(application)
+    case True{}:
+      Application{program, session} = application
+      finish_at_location(U.NewTaskEditor{work}, route, layers, result, Application{program, completed_creation_model(work, session)})
+
+def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Json, +application: Application) -> Decision:
   match body:
-    case U.NewTask{message, profile, reasoning, context, create_worktree}: finish_fresh_task(route, layers, result, application)
+    case U.NewTask{message, profile, reasoning, context, create_worktree, +work}: finish_scoped_task(same_work(work, active_work(session(application))), work, route, layers, result, application)
     case U.Card{None{}, revision, value, assist, profile, True{}}:
       continue_capture(application)
-    case U.TaskGraph{graph, declaration, parsed}: finish_task_graph(U.TaskGraphEditor{graph}, layers, application)
+    case U.TaskGraph{graph, declaration, parsed, work}: finish_task_graph(U.task_graph_owner(graph, work), layers, application)
     case other: finish_at_location(U.owner(other), route, layers, result, application)
 
 def submission_accepted(completion: SubmissionCompletion) -> Bool:
@@ -1184,7 +1432,7 @@ def worktree_project_preference(found: Maybe<&2, D.Project>, id: Nat, +enabled: 
 
 def worktree_preference_command(body: U.Body, world: M.World()) -> Maybe<&2, M.Command>:
   match body:
-    case U.NewTask{message, profile, reasoning, Context.Configuration{Context.ProjectDefaults{+id}, workspace, sandbox, approval}, enabled}:
+    case U.NewTask{message, profile, reasoning, Context.Configuration{Context.ProjectDefaults{+id}, workspace, sandbox, approval}, enabled, work}:
       worktree_project_preference(Projects.find(Projects.registry(F.State(), world), id), id, enabled)
     case _: None{}
 
@@ -1195,7 +1443,7 @@ def worktree_preference_available(available: Bool, body: U.Body, world: M.World(
 
 def worktree_submission_allowed(body: U.Body, +application: Application) -> Bool:
   match body:
-    case U.NewTask{message, profile, reasoning, context, True{}}:
+    case U.NewTask{message, profile, reasoning, context, True{}, work}:
       worktree_available(application) && workspace_git_matches(workspace_git(session(application)), preview_primary(Context.preview(context, program(application))))
     case _: True{}
 
@@ -1385,7 +1633,7 @@ def observed(ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObserv
 
 def confirmation_outcome(ok: Bool, destination: U.Route, application: Application) -> Decision:
   match ok:
-    case True{}: navigate(destination, application)
+    case True{}: visit(destination, application)
     case False{}: unchanged(application)
 
 def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: String, occurrence: Nat) -> Bool:
@@ -1488,6 +1736,9 @@ def finish_worktree_preference(ok: Bool, draft: U.Draft, command: M.Command, res
 def complete_command_member(member: Categories.Membership<M.World(), program_world()>, +result: J.Json, completion: Completion, application: Application) -> Decision:
   Categories.Membership{+program, evidence} = member
   match completion:
+    case WorkCreationCompletion{generation, layer_generation}:
+      Application{previous, +session} = application
+      complete_work_creation(work_creation_current(generation, layer_generation, session), result, Application{program, retain_previews(session, program)})
     case ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: finish_execution_view(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, occurrence, program, result, application)
     case ExecutionCompletion{task, profile, reasoning, remember}: finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, application)
     case DirectCompletion{}:
@@ -1566,6 +1817,14 @@ def source_origin_owned(layers: +List<Layer>, origin: U.Panel) -> Bool:
       String.eq(panel_target(panel), panel_target(origin)) && source_origin_inspected(panel, expanded, field)
     case _: False{}
 
+def attend_work_overview(decision: Decision) -> Decision:
+  Decision{Application{program, +session}, result, runtime, interaction, durable} = decision
+  +target = "overview/" ++ work_target(active_work(session))
+  Decision{Application{program, with_attention(target, session)}, result, runtime, [Attend{target}], durable}
+
+def open_work_overview(trigger: String, application: Application) -> Decision:
+  attend_work_overview(open_panel(U.WorkOverview{}, trigger, application))
+
 def open_source_checked(owned: Bool, origin: U.Panel, trigger: String, application: Application) -> Decision:
   match owned:
     case False{}: refuse(application, "The setting source does not belong to the current inspection")
@@ -1573,11 +1832,15 @@ def open_source_checked(owned: Bool, origin: U.Panel, trigger: String, applicati
 
 def open_requested_panel(panel: U.Panel, trigger: String, +application: Application) -> Decision:
   match panel:
+    case U.WorkOverview{}: open_work_overview(trigger, application)
     case U.PropertySource{+origin}: open_source_checked(source_origin_owned(layers(session(application)), origin), origin, trigger, application)
     case other: open_panel(other, trigger, application)
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
   match action:
+    case U.SelectWork{work}: observe_scope_workspace(select_work(work, application))
+    case U.CreateWork{}: create_work(application)
+    case U.RenameWork{+work}: rename_work(Work.find(WorkState.registry(program(application)), work), work, application)
     case U.SelectProject{project}: observe_workspace_git(begin_task(project, application))
     case U.ToggleProjectGroup{project}: toggle_project(project, application)
     case U.Navigate{route}: visit(route, application)
@@ -1765,20 +2028,28 @@ def remember_manual(+change: U.Edit, +result: Decision) -> Decision:
       mark_manual_choice(J.boolean(J.get(reply, "ok")) && permitted_preference(D.find_profile(Board.profiles(program(application)), profile), reasoning), remember_choice(U.ChooseModel{profile, reasoning}, Decision{application, reply, runtime, interaction, durable}))
     case _: result
 
+def remember_creation_choice(work: Maybe<&2, Nat>, change: U.Edit, result: Decision) -> Decision:
+  match work:
+    case None{}: remember_manual(change, result)
+    case Some{id}: remember_choice(change, result)
+
 def permitted_creation_edit(change: U.Edit, world: M.World()) -> Bool:
   match change:
     case U.ChooseModel{profile, reasoning}: permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning)
     case _: True{}
 
-def manual_creation_edit(valid: Bool, +change: U.Edit, application: Application) -> Decision:
+def scoped_creation_edit(valid: Bool, +change: U.Edit, application: Application, +work: Maybe<&2, Nat>) -> Decision:
   match valid:
-    case True{}: remember_manual(change, close_selected_choice(change, U.NewTaskEditor{}, edit(U.NewTaskEditor{}, change, application)))
+    case True{}: remember_creation_choice(work, change, close_selected_choice(change, U.NewTaskEditor{work}, edit(U.NewTaskEditor{work}, change, application)))
     case False{}: reply(application, D.failure("interaction_refused", "Choose an available model and permitted reasoning effort."))
+
+def manual_creation_edit(valid: Bool, +change: U.Edit, application: Application) -> Decision:
+  scoped_creation_edit(valid, change, application, None{})
 
 def manual_edit(+editor: U.Editor, +change: U.Edit, +application: Application) -> Decision:
   match editor:
     case U.MessageEditor{task}: edit(editor, change, application)
-    case U.NewTaskEditor{}: manual_creation_edit(permitted_creation_edit(change, program(application)), change, application)
+    case U.NewTaskEditor{work}: scoped_creation_edit(permitted_creation_edit(change, program(application)), change, application, work)
     case _: close_selected_choice(change, editor, edit(editor, change, application))
 
 # The layer occurrence correlates completion with the view that requested it.
@@ -1866,7 +2137,7 @@ def user(input: U.Input, application: Application) -> Decision:
     case U.SetNavigation{+expanded}:
       Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
       +target = navigation_focus(expanded)
-      local(program, Session{route, drafts, readers, layers, target, set_navigation(expanded, previous), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{target}])
+      local(program, Session{route, drafts, readers, layers, target, advance_navigation_selection(set_navigation(expanded, previous)), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{target}])
     case U.SearchChoices{query}: search_choices(query, application)
     case U.FilterBoard{filter}:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application

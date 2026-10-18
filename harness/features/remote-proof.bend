@@ -8,6 +8,7 @@ import ../../features/chatgpt/MODEL.bend as ChatGPT
 import ../../features/task_graph/MODEL.bend as Graph
 import ../../features/compaction/MODEL.bend as Compaction
 import ../../features/worktree/MODEL.bend as Worktree
+import ../../features/work/MODEL.bend as Work
 import ../../bendlib/component.bend as C
 import ../../bendlib/json.bend as J
 import ../MODEL.bend as M
@@ -23,9 +24,9 @@ def written(+value: R.State, state: F.State()) ->
 def frame(value: R.State, +state: F.State()) ->
   {(F.board(F.with_remote(value, state)), (F.chatgpt(F.with_remote(value, state)),
     (F.task_graph(F.with_remote(value, state)), (F.compaction(F.with_remote(value, state)),
-      (F.worktree(F.with_remote(value, state)), F.rest(F.with_remote(value, state))))))) ==
-   (F.board(state), (F.chatgpt(state), (F.task_graph(state), (F.compaction(state), (F.worktree(state), F.rest(state)))))) :
-    Board.State & (ChatGPT.State & (Graph.State & (Compaction.State & (Worktree.State & F.Rest()))))}:
+      (F.worktree(F.with_remote(value, state)), (F.work(F.with_remote(value, state)), F.rest(F.with_remote(value, state)))))))) ==
+   (F.board(state), (F.chatgpt(state), (F.task_graph(state), (F.compaction(state), (F.worktree(state), (F.work(state), F.rest(state))))))) :
+    Board.State & (ChatGPT.State & (Graph.State & (Compaction.State & (Worktree.State & (Work.State & F.Rest())))))}:
   match state:
     case C.Frame{board, C.Frame{chatgpt, C.Frame{graph, C.Frame{compaction, C.Frame{worktree, C.Frame{previous, rest}}}}}}: {==}
 

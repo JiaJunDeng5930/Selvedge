@@ -33,6 +33,7 @@ import ../document/SOURCE.bend as Source
 import ../reading/MODEL.bend as Reading
 import ../layout/enclosure.bend as Enclosure
 import ../layout/physical-space.bend as Model
+import ../layout/natural-size.bend as NaturalSize
 import ./CONTROLS.bend as A
 import ../../interaction/submission/field-options.bend as Fields
 import ../layout/GEOMETRY.bend as SpatialModel
@@ -133,8 +134,8 @@ def make_support_retains_binding(visible: Bool, +key: UIIdentity.Key, +support: 
         supporting_fields_at_retains_binding(supporting_form, property, area, Controls.represent_action(key, input, availability, label, role, context)),
         represented_action_retains_binding(key, input, availability, label, role, context))
 
-def navigation_header_binding(matches: Bool, owner: UIIdentity.Key, project: Nat, depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>) ->
-  {Rule.binding(Controls.navigation_header(matches, owner, project, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
+def navigation_header_binding(matches: Bool, owner: UIIdentity.Key, project: Nat, selected: Bool, depth: Nat, attention: Navigation.Attention, layers: +List<View.Layer>) ->
+  {Rule.binding(Controls.navigation_header(matches, owner, project, selected, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
   match matches:
     case False{}: {==}
     case True{}: {==}
@@ -142,7 +143,7 @@ def navigation_header_binding(matches: Bool, owner: UIIdentity.Key, project: Nat
 def navigation_region_meaning_binding(+key: UIIdentity.Key, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +children: +List<SurfaceTypes.Node>, +depth: Nat, +attention: Navigation.Attention, +layers: +List<View.Layer>) ->
   {Rule.binding(Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, meaning, children}}, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
   match meaning:
-    case SurfaceTypes.ProjectGroup{project, selected, expanded}: navigation_header_binding(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers)
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: navigation_header_binding(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, selected, depth, attention, layers)
     case SurfaceTypes.SettingEntry{subject, value, input, availability}: {==}
     case SurfaceTypes.DecisionGroup{decision}: {==}
     case SurfaceTypes.WorkspaceCollection{collection}: {==}
@@ -358,9 +359,9 @@ def message_uses_arrow(+key: UIIdentity.Key, task: Nat, +availability: View.Avai
     case View.NeedsDirectoryObservation{}: {==}
     case View.Unavailable{reason}: {==}
 
-def creation_uses_arrow(+key: UIIdentity.Key, +availability: View.Availability,
+def creation_uses_arrow(+key: UIIdentity.Key, +work: Maybe<&2, Nat>, +availability: View.Availability,
   +label: String, role: SurfaceTypes.Role, selection: Controls.Selection, code: Maybe<&2, Code.Scene>,
-  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> Rule.creation_uses_arrow_law(key, availability, label, role, selection, code, appearance, access, open, layers):
+  appearance: Services.Appearance, access: Services.Access, open: Bool, layers: +List<View.Layer>) -> Rule.creation_uses_arrow_law(key, work, availability, label, role, selection, code, appearance, access, open, layers):
   match availability:
     case View.Available{}: {==}
     case View.NeedsDirectoryObservation{}: {==}
@@ -439,8 +440,8 @@ def Rule.evidence():
     +scale => surface => dark => present_retains_bindings(surface, dark, scale),
     key => task => availability => label => role => selection => code => appearance => access => open => layers =>
       message_uses_arrow(key, task, availability, label, role, selection, code, appearance, access, open, layers),
-    key => availability => label => role => selection => code => appearance => access => open => layers =>
-      creation_uses_arrow(key, availability, label, role, selection, code, appearance, access, open, layers),
+    key => work => availability => label => role => selection => code => appearance => access => open => layers =>
+      creation_uses_arrow(key, work, availability, label, role, selection, code, appearance, access, open, layers),
     purpose => label => menu_preserves_labels(purpose, label),
     state => copy_keeps_space(state),
     label => checked => {==},
@@ -560,7 +561,8 @@ def selection_roles(+kind: SurfaceTypes.ChoiceKind, +area: Controls.Area, +selec
     case SurfaceTypes.SingleChoice{} Controls.ChoiceGroupArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.MenuArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.PageArea{}: {==}
-    case SurfaceTypes.SingleChoice{} Controls.NavigationArea{}: {==}
+    case SurfaceTypes.SingleChoice{} Controls.NavigationArea{compact}: {==}
+    case SurfaceTypes.SingleChoice{} Controls.TouchNavigationArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.ComposerArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.ToolbarArea{}: {==}
     case SurfaceTypes.SingleChoice{} Controls.CodeArea{}: {==}
@@ -574,7 +576,8 @@ def selection_roles(+kind: SurfaceTypes.ChoiceKind, +area: Controls.Area, +selec
     case SurfaceTypes.MultipleChoice{} Controls.ChoiceGroupArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.MenuArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.PageArea{}: {==}
-    case SurfaceTypes.MultipleChoice{} Controls.NavigationArea{}: {==}
+    case SurfaceTypes.MultipleChoice{} Controls.NavigationArea{compact}: {==}
+    case SurfaceTypes.MultipleChoice{} Controls.TouchNavigationArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.ComposerArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.ToolbarArea{}: {==}
     case SurfaceTypes.MultipleChoice{} Controls.CodeArea{}: {==}
@@ -960,7 +963,7 @@ def Rule.persistent_trigger_evidence():
         InterfaceView.layer_content(content, InterfaceView.layer_key(initial), state)), +scene => +base => +overlays => +key => +semantic => +label => +role => +expanded => +source => +trigger => +availability => +children => +target => distinct =>
       rejected_source_stays(scene, base, overlays, key, semantic, label, role,
         SurfaceTypes.PanelToggle{expanded, InteractionTypes.ApplicationInput{E.UserInput{User.Activate{User.TogglePanel{User.TaskDetails{source}, trigger}}}}, availability}, children, target, distinct)
-    , +scene => +base => +overlays => +key => +semantic => +label => +role => +expanded => +service => +availability => +children => +target => {==}, +scene => +nav => +reachable => +settings => +scope => {==}, rejected_source_stays, accepted_same_node}
+    , +scene => +base => +overlays => +key => +semantic => +label => +role => +expanded => +service => +availability => +children => +target => {==}, +scene => +nav => +reachable => +scope => {==}, rejected_source_stays, accepted_same_node}
 
 def Rule.feedback_evidence():
   Rule.FeedbackRequirements{
@@ -1117,7 +1120,7 @@ def creation_reading_width(+parameters: Design.LayoutParameters) -> Rule.creatio
 def creation_assembly(+content: InteractionTypes.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: T.Presentation,
   created: {Shell.scene_structure(content) == Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}} : Design.MainStructure}) -> Rule.creation_assembly(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font):
   Equal.cong(Design.MainStructure, Shell.ShellAuthorship,
-    (structure => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, Shell.structure_reading_width(structure, parameters), base_nodes, base, Shell.scene_navigation_placement(content), parameters, font, theme)), Shell.scene_structure(content), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, created)
+    (structure => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, Shell.scene_navigation_placement(content), parameters, layers, base, overlays, anchors), structure, Shell.structure_reading_width(structure, parameters), base_nodes, base, Shell.scene_navigation_placement(content), capacity, parameters, font, theme)), Shell.scene_structure(content), Design.MainStructure{Composition.ReadingMeasure{}, Composition.NoHeading{}, Composition.CenteredCreation{}}, created)
 
 def creation_child_layout(+layout: Source.Layout, maximum: Nat) -> Rule.creation_child_layout(layout, maximum):
   Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position} = layout
@@ -1164,13 +1167,24 @@ def settings_identified(+node: Source.Node,
 
 def settings_group_found(+node: Source.Node, +navigation: +List<Source.Node>, +main: +List<Source.Node>, +settings: +List<Source.Node>, +other: +List<Source.Node>,
   identified: {Source.key_of(node) == UIIdentity.part(UIIdentity.place(""), "settings/open") : UIIdentity.Key}) ->
-  {Shell.split_base_settings(UIIdentity.same(Source.key_of(node), UIIdentity.part(UIIdentity.place(""), "settings/open")), node, Shell.BaseParts{navigation, main, settings, other}) == Shell.BaseParts{navigation, main, node <> settings, other} : Shell.BaseParts}:
-  Equal.cong(Bool, Shell.BaseParts, (found => Shell.split_base_settings(found, node, Shell.BaseParts{navigation, main, settings, other})),
+  {Shell.split_base_settings(UIIdentity.same(Source.key_of(node), UIIdentity.part(UIIdentity.place(""), "settings/open")), node, Shell.BaseParts{navigation, main, settings, other, Nil{}, Nil{}}) == Shell.BaseParts{navigation, main, node <> settings, other, Nil{}, Nil{}} : Shell.BaseParts}:
+  Equal.cong(Bool, Shell.BaseParts, (found => Shell.split_base_settings(found, node, Shell.BaseParts{navigation, main, settings, other, Nil{}, Nil{}})),
     UIIdentity.same(Source.key_of(node), UIIdentity.part(UIIdentity.place(""), "settings/open")), True{}, settings_identified(node, identified))
 
 def settings_classification(+node: Source.Node, +role: SurfaceTypes.Role, +navigation: +List<Source.Node>, +main: +List<Source.Node>, +settings: +List<Source.Node>, +other: +List<Source.Node>,
   identified: {Source.key_of(node) == UIIdentity.part(UIIdentity.place(""), "settings/open") : UIIdentity.Key}, belongs: {Rule.settings_role(role) == True{} : Bool}) -> Rule.settings_classification(node, role, navigation, main, settings, other):
   match role:
+    case SurfaceTypes.GlobalNavigation{compact}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.GlobalNavigation{compact}, navigation, main, settings, other), belongs)
+    case SurfaceTypes.GlobalNavigationEntry{selected, compact}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.WorkTabs{}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.WorkTabs{}, navigation, main, settings, other), belongs)
+    case SurfaceTypes.CompactHeader{}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.CompactHeader{}, navigation, main, settings, other), belongs)
+    case SurfaceTypes.CompactWorkScope{title, count}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.CompactNavigationMenu{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.CompactNavigationEntry{selected}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.WorkTabGroup{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.WorkChoiceRow{}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.WorkOverviewButton{count}: settings_group_found(node, navigation, main, settings, other, identified)
+    case SurfaceTypes.WorkTab{selected}: settings_group_found(node, navigation, main, settings, other, identified)
     case SurfaceTypes.Main{}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.Main{}, navigation, main, settings, other), belongs)
     case SurfaceTypes.Navigation{}: Logic.impossible(Rule.settings_classification(node, SurfaceTypes.Navigation{}, navigation, main, settings, other), belongs)
     case SurfaceTypes.NavigationEntry{selected}: settings_group_found(node, navigation, main, settings, other, identified)
@@ -1249,13 +1263,13 @@ def beside_box_floor(node: Source.Node, +required: Nat) -> Rule.beside_box_floor
 
 def Rule.base_shared_classification(node, role, parts): {==}
 
-def Rule.base_group_navigation(node, navigation, main, settings, other): {==}
+def Rule.base_group_navigation(node, navigation, main, settings, other, work_tabs, global_navigation): {==}
 
-def Rule.base_group_main(node, navigation, main, settings, other): {==}
+def Rule.base_group_main(node, navigation, main, settings, other, work_tabs, global_navigation): {==}
 
-def Rule.base_group_footer(node, navigation, main, settings, other): {==}
+def Rule.base_group_footer(node, navigation, main, settings, other, work_tabs, global_navigation): {==}
 
-def Rule.base_group_other(node, navigation, main, settings, other): {==}
+def Rule.base_group_other(node, navigation, main, settings, other, work_tabs, global_navigation): {==}
 
 def navigation_projection(content: InteractionTypes.Scene) -> Rule.navigation_projection(content):
   InteractionTypes.Scene{View.Scene{navigation, main, layers, View.Arrangement{placement}, attention}, settings, transfers, preview, code, directory_picker} = content
@@ -1264,7 +1278,7 @@ def navigation_projection(content: InteractionTypes.Scene) -> Rule.navigation_pr
 def assembly_placement(+content: InteractionTypes.Scene, +theme: Design.Theme, +base: +List<Design.Node>, +overlays: +List<Design.Node>, scope: Maybe<&2, String>, +base_nodes: +List<Source.Node>, +overlay_nodes: +List<Source.Node>, +capacity: View.Capacity, +parameters: Design.LayoutParameters, +layers: +List<View.Layer>, +anchors: +List<Shell.Anchor>, +font: T.Presentation, placement: View.NavigationPlacement,
   projected: {Shell.scene_navigation_placement(content) == placement : View.NavigationPlacement}) -> Rule.assembly_placement(content, theme, base, overlays, scope, base_nodes, overlay_nodes, capacity, parameters, layers, anchors, font, placement):
   Equal.cong(View.NavigationPlacement, Shell.ShellAuthorship,
-    (selected => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, selected, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, selected, parameters, font, theme)), Shell.scene_navigation_placement(content), placement, projected)
+    (selected => Shell.assembled_parts(Shell.split_overlays(overlay_nodes, capacity, selected, parameters, layers, base, overlays, anchors), Shell.scene_structure(content), Shell.structure_reading_width(Shell.scene_structure(content), parameters), base_nodes, base, selected, capacity, parameters, font, theme)), Shell.scene_navigation_placement(content), placement, projected)
 
 def chronological_main_frame(frame: Enclosure.Frame) -> Rule.chronological_main_frame(frame): {==}
 
@@ -1337,9 +1351,15 @@ def task_action_flow(+visual: Design.Style, position: Composition.Position) -> R
 def Rule.authored_shell_evidence():
   Rule.AuthoredShellRequirements{conversation_title_font, conversation_title_style, conversation_title_text, conversation_title_box, conversation_title_children, conversation_title_other, other_heading_children, chronological_main_frame, chronological_main_cross(), chronological_main_leading, chronological_reading_width, conversation_header_frame, conversation_main, conversation_header, task_action_flow, +meaning => +typography => {==}, +meaning => +typography => {==}, navigation_projection, assembly_placement, beside_box_floor, beside_main_style, compact_main_style, main_population, capacity => +scale => height => +advance => primary_advance => support_advance => {==}, +advance => +scale => {==}, main_placement_input, measure_width, recipe_structure, available_children, page_frame, front_layer_last, events, interaction, children, wrapper, no_wrapper_events, reading_policy, reading_layout, reading_stretch_width, creation_population, creation_group, creation_group_spacing, creation_reading_width, creation_assembly, creation_child_layout, creation_main, other_main, navigation_box, settings_classification, footer}
 
-def Rule.modal_navigation_geometry(node, capacity, parameters, layers, base, overlays, anchors, docked, floating):
-  View.Capacity{navigation_beside, details_beside} = capacity
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
+def Rule.desktop_modal_navigation_width(details_beside, parameters): {==}
+
+def Rule.compact_modal_navigation_width(details_beside, parameters): {==}
+
+def Rule.desktop_modal_navigation_scroll(details_beside): {==}
+
+def Rule.compact_modal_navigation_scroll(details_beside): {==}
+
+def Rule.modal_navigation_geometry(node, capacity, parameters, layers, base, overlays, anchors, docked, floating, workspace_layers):
   {==}
 
 def Rule.modal_navigation_population(key, tag, style, attributes, children, rest, capacity, parameters, layers, base, overlays, anchors, identified):
@@ -1348,18 +1368,16 @@ def Rule.modal_navigation_population(key, tag, style, attributes, children, rest
       Shell.split_overlays(rest, capacity, View.ModalNavigation{}, parameters, layers, base, overlays, anchors))),
     Shell.base_role(key, overlays), SurfaceTypes.Navigation{}, identified)
 
-def Rule.modal_navigation_box_preserved(key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, capacity, parameters, layers, base, overlays, anchors, docked, floating):
-  View.Capacity{navigation_beside, details_beside} = capacity
-  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
+def Rule.modal_navigation_box_preserved(key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, capacity, parameters, layers, base, overlays, anchors, docked, floating, workspace_layers):
   {==}
 
 def Rule.dialog_reading_span(navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance): {==}
 
-def Rule.dialog_floating_geometry(coordinate_capacity, node, parameters, layers, base, overlays, anchors, docked, floating):
+def Rule.dialog_floating_geometry(coordinate_capacity, node, parameters, layers, base, overlays, anchors, docked, floating, workspace_layers):
   Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   {==}
 
-def Rule.dialog_floating_box_preserved(coordinate_capacity, key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, parameters, layers, base, overlays, anchors, docked, floating):
+def Rule.dialog_floating_box_preserved(coordinate_capacity, key, tag, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states, attributes, children, parameters, layers, base, overlays, anchors, docked, floating, workspace_layers):
   Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
   {==}
 
@@ -1415,6 +1433,7 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
   {Rule.selection_widget(Controls.widget_for(Forms.Choice{}, field, value)) == True{} : Bool}:
   match field:
     case Forms.MessageText{}: ordinary_choice(value)
+    case Forms.WorkName{}: ordinary_choice(value)
     case Forms.ProjectName{}: ordinary_choice(value)
     case Forms.CreateWorktree{}: ordinary_choice(value)
     case Forms.WorkspaceDirectories{}: ordinary_choice(value)
@@ -1512,6 +1531,12 @@ def Rule.property_current_values(property, key, parent): {==}
 
 def Rule.compact_property_current_values(property, key, parent): {==}
 
+def Rule.compact_summary_preserves_complete_caption(key, value, font, wrapping, rest): {==}
+
+def Rule.compact_summary_preserves_box_fields(key, tag, style, attributes, children, rest): {==}
+
+def Rule.compact_summary_preserves_native_fields(key, tag, style, attributes, name, enabled, first, remaining, children, rest): {==}
+
 def Rule.property_caption_wraps(property): {==}
 
 def Rule.native_field_policy_correspondence(widget, maximum_lines): {==}
@@ -1550,7 +1575,7 @@ def Rule.navigation_evidence():
     navigation_context_interest,
     navigation_context_depth,
     {==},
-    +owner => +project => +depth => +attention => +layers => +fallback => {==},
+    +owner => +project => +selected => +depth => +attention => +layers => +fallback => {==},
     +capacity => +key => +role => +width => +visual => +children => {==},
     +capacity => +key => +role => +width => +visual => +children => {==},
     content => arrangement => {==},
@@ -1567,6 +1592,15 @@ def Rule.navigation_caption_secondary(): {==}
 
 
 def Rule.navigation_feedback_active(hovered, focused, capable, owner, menu): {==}
+
+def Navigation.auxiliary_exposure_uses_selection_and_owner_attention():
+  +hovered => +focused => +capable => +owner => +menu => +selected => {==}
+
+def Navigation.selected_owner_exposes_auxiliary():
+  attention => owner => menu => {==}
+
+def Navigation.unselected_owner_uses_existing_exposure():
+  +attention => +owner => +menu => {==}
 
 def Rule.navigation_fields_project_feedback(key, owner, semantic, label, role, project, selected, expanded, children, depth, attention, layers, fallback): {==}
 
@@ -1689,3 +1723,164 @@ def Rule.navigation_preserves_actual_return_control(key, tag, style, attributes,
 
 def Rule.navigation_group_combines_whole_control_and_title_demand(key, tag, style, attributes, children, rest):
   {==}
+
+
+def Rule.base_group_work_tabs(node, navigation, main, settings, other, work_tabs, global_navigation): {==}
+
+def Rule.base_group_global_navigation(node, navigation, main, settings, other, work_tabs, global_navigation): {==}
+
+def Rule.global_navigation_compact_width(): {==}
+
+def Rule.global_navigation_full_width(): {==}
+
+def Rule.global_navigation_compact_face(icon, label, fallback): {==}
+
+def Rule.global_navigation_full_face(icon, label, fallback): {==}
+
+def Rule.global_navigation_home_icon(): {==}
+
+def Rule.global_navigation_graph_icon(): {==}
+
+def Rule.global_navigation_unrelated_input_keeps_face(role, input, label, fallback, unrelated):
+  Equal.cong(Maybe<&2, Controls.Icon>, Controls.Face, icon => Controls.global_navigation_icon_face(icon, role, label, fallback), Controls.global_navigation_icon(input), None{}, unrelated)
+
+def Rule.global_navigation_submission_is_unrelated(editor): {==}
+
+def Rule.global_navigation_selected(selected, compact): {==}
+
+def Rule.global_navigation_footer_construction(key, visual, destinations, settings): {==}
+
+def Rule.global_navigation_style_at(capacity, compact, visual): {==}
+
+def Rule.global_navigation_source_construction_at(capacity, compact, key, label, visual, content): {==}
+
+def Rule.global_navigation_entry_native_fields(compact, label, key, tag, layout, font, chrome, states, attributes, name, enabled, first, remaining, children): {==}
+
+def Rule.workspace_capability_reserves_navigation_and_main(details_beside, parameters): {==}
+
+def Rule.workspace_without_navigation_capability_has_no_reservation(details_beside, parameters): {==}
+
+def Rule.workspace_minimum_style_fields(required, direction, main, cross, frame, width, height, minimum_width, minimum_height, scroll, position, font, chrome, states): {==}
+
+def Rule.workspace_style_uses_capability_reservation(capacity, parameters, font): {==}
+
+def Rule.work_tabs_above_body(navigation, main, settings, other, work_tabs, global_navigation, structure, reading_width, placement, capacity, parameters, docked, workspace_layers, font): {==}
+
+def Rule.workspace_stage_is_layered(body, workspace_layers, font): {==}
+
+def Rule.work_tab_current(selected): {==}
+
+def Rule.work_creation_glyph(purpose, label): {==}
+
+def Rule.work_creation_dialog_caption(purpose, label): {==}
+
+def Rule.work_tab_control_style(direction, main, cross, frame, old_width, old_height, minimum, scroll, position, font, chrome, states, width, height): {==}
+
+def Rule.work_rename_glyph(work, purpose, label, area): {==}
+
+def Rule.work_selection_caption(work, purpose, label, area): {==}
+
+def Rule.work_overview_count_caption(count, name, fallback): {==}
+
+def Rule.work_tab_popup_current(selected, input, availability, name, face, menu, expanded, geometry, placement, feedback): {==}
+
+def Rule.work_tab_destination_current_not_duplicated(selected, input, availability, name, face, current, geometry, placement, feedback): {==}
+
+def Rule.selected_work_tab_revealed_on_layout(): {==}
+
+def Rule.unselected_work_tab_not_revealed_on_layout(): {==}
+
+def Rule.work_tab_native_fields(selected, label, representation, key, tag, style, attributes, name, enabled, first, remaining, children, width, height): {==}
+
+def desktop_work_tabs_sized(+key: UIIdentity.Key, +visual: Design.Style, +minimum: Nat, +extra: Nat, +height: Nat, +all_tasks: Source.Node, +works: Source.Node, +create: Source.Node, +overview: Source.Node) ->
+  {Authored.work_tabs_content_sized(key, visual, minimum, extra, height, [all_tasks, works, create, overview]) ==
+    Rule.expected_desktop_work_tabs_sized(key, visual, minimum, extra, height, all_tasks, works, create, overview) : +List<Source.Node>}:
+  {==}
+
+def compact_work_switcher_sized(+key: UIIdentity.Key, +visual: Design.Style, minimum: Nat, extra: Nat, +height: Nat, +current: Source.Node, +overview: Source.Node) ->
+  {Authored.work_tabs_content_sized(key, visual, minimum, extra, height, [current, overview]) ==
+    Rule.expected_compact_work_switcher_sized(key, visual, height, current, overview) : +List<Source.Node>}:
+  {==}
+
+def Rule.work_tabs_keep_global_entry(key, visual, minimum, extra, height, all_tasks, works, create, overview):
+  desktop_work_tabs_sized(key, visual, minimum, extra, height, all_tasks, works, create, overview)
+
+def Rule.compact_work_switcher_keeps_current(key, visual, minimum, extra, height, current, overview):
+  compact_work_switcher_sized(key, visual, minimum, extra, height, current, overview)
+
+def Rule.work_tabs_content_uses_scaled_dimensions_at(capacity, key, visual, content): {==}
+
+def Rule.work_tabs_content_uses_scaled_dimensions(key, visual, content):
+  Rule.work_tabs_content_uses_scaled_dimensions_at(NaturalSize.limit(), key, visual, content)
+
+def Rule.compact_work_scope_visible_title(title, count, name, fallback): {==}
+
+def Rule.compact_navigation_panel_purpose(expanded): {==}
+
+def Rule.compact_global_navigation_launcher_icon(trigger, purpose, label, area): {==}
+
+def Rule.compact_global_navigation_launcher_complete(trigger, expanded, availability, label, role): {==}
+
+def Rule.compact_global_navigation_menu_lines_drawing(size): {==}
+
+def Rule.navigation_motor_floor_modes(): ({==}, {==})
+
+def Rule.compact_navigation_area_from_header(key, semantic, label, meaning, nested, rest, inherited): {==}
+
+def Rule.compact_header_and_menu_touch_area(inherited): ({==}, {==})
+
+def Rule.navigation_geometry_desktop_preserved(geometry): {==}
+
+def Rule.navigation_geometry_compact_complete(minimum_width, minimum_height, preferred_width, preferred_height, icon, radius, leading): {==}
+
+def Rule.navigation_target_uses_actual_visual_floor(capacity, visual): {==}
+
+def Rule.desktop_workspace_content_preserved(navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font): {==}
+
+def Rule.compact_workspace_content_complete(navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font): {==}
+
+def Rule.compact_work_scope_native_fields(key, count, label, visual, native_key, tag, style, attributes, name, enabled, first, remaining, children): {==}
+
+def Rule.compact_navigation_source_complete(capacity, visual, key, tag, style, attributes, header, rest): {==}
+
+def Rule.desktop_navigation_source_preserved(capacity, visual, node): {==}
+
+def Rule.compact_navigation_entry_caption(selected, icon, label, fallback): {==}
+
+def Rule.compact_navigation_entry_selected(selected): {==}
+
+def Rule.compact_work_creation_caption(label): {==}
+
+def Rule.compact_header_three_targets(height, menu, work, tasks): {==}
+
+def Rule.compact_header_icon_style_complete(target, direction, main, cross, frame, width, height, minimum, scroll, position, font, chrome, states): {==}
+
+def Rule.compact_header_icon_preserves_the_native_control(height, key, tag, style, attributes, name, enabled, first, rest, children): {==}
+
+def Rule.compact_header_icon_preserves_the_container(height, key, tag, style, attributes, children): {==}
+
+def Rule.compact_header_actual_source(capacity, key, label, meaning, visual, representation, children, parameters): {==}
+
+def Rule.compact_work_scope_actual_source(capacity, key, label, title, count, meaning, visual, representation, children, parameters): {==}
+
+def Rule.compact_navigation_entry_actual_source(capacity, key, label, selected, meaning, visual, representation, children, parameters): {==}
+
+def Rule.compact_navigation_entry_native_fields(label, key, tag, style, attributes, name, enabled, first, remaining, children): {==}
+
+def Rule.compact_header_actual_height(capacity, visual): {==}
+
+
+def Rule.navigation_motor_target_action(button): {==}
+
+def Rule.navigation_motor_target_row(owner, depth, visible, feedback_active): {==}
+
+
+def Rule.navigation_regular_uses_actual_capacity(capacity, key, label, meaning, visual, representation, children, parameters): {==}
+
+def Rule.compact_task_tree_calibrated_spacing_at(capacity, text, chrome, alignment, flow, overflow, frame, minimum, maximum, states): {==}
+
+def Rule.compact_header_content_uses_actual_height(capacity, visual, content): {==}
+
+def Rule.navigation_children_compact_from_header(key, meaning, control, nodes, rest): {==}
+
+def Rule.navigation_children_compact_empty(): {==}

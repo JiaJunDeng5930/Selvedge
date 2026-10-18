@@ -7,6 +7,7 @@ import ./features/resolution.bend as FeatureResolution
 import ./features/operations.bend as FeatureOps
 import ./features/SPEC.bend as FeatureSpec
 import ./features/MODEL.bend as F
+import ./features/work-state.bend as WorkState
 import ../bendlib/effects.bend as Effects
 import ../bendlib/component.bend as C
 import ./DOMAIN.bend as D
@@ -611,22 +612,46 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
 def summarize(task: D.Task, world: M.World()) -> M.Decision():
   RequiredReasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world)
 
-def page_checked(valid: Bool, task: D.Task, after: Nat, limit: Nat) -> J.Json:
+def task_work_summary_value(value: J.Json, work: Maybe<&2, Nat>) -> J.Json:
+  match value:
+    case J.Object{fields}: J.Object{J.Field{"work_id", J.optional_nat(work)} <> fields}
+    case value: value
+
+def task_work_summary(+task: D.Task, world: M.World()) -> J.Json:
+  task_work_summary_value(T.summary(task), WorkState.task_work(task, world))
+
+def task_work_summaries(tasks: +List<D.Task>, +world: M.World()) -> +List<J.Json>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{task, rest}: task_work_summary(task, world) <> task_work_summaries(rest, world)
+
+def task_work_page(fields: +List<J.Field>, +task: D.Task, +world: M.World()) -> +List<J.Field>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{"task", value}, rest}: J.Field{"task", task_work_summary_value(value, WorkState.task_work(task, world))} <> rest
+    case Con{field, rest}: field <> task_work_page(rest, task, world)
+
+def task_work_page_value(value: J.Json, task: D.Task, world: M.World()) -> J.Json:
+  match value:
+    case J.Object{fields}: D.success(J.Object{task_work_page(fields, task, world)})
+    case value: D.success(value)
+
+def page_checked(valid: Bool, +task: D.Task, after: Nat, limit: Nat, world: M.World()) -> J.Json:
   match valid:
     case False{}: D.failure("invalid_page", "The page requires 1..100 messages and an offset on the task history")
-    case True{}: D.success(T.page(task, after, limit))
+    case True{}: task_work_page_value(T.page(task, after, limit), task, world)
 
-def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat) -> J.Json:
+def page(found: Maybe<&2, D.Task>, +after: Nat, +limit: Nat, world: M.World()) -> J.Json:
   match found:
     case None{}: D.failure("task_not_found", "The target task does not exist")
     case Some{+task}:
-      page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, D.history_length(D.task_history(task))), task, after, limit)
+      page_checked(Nat.is_le(1n, limit) && Nat.is_le(limit, 100n) && Nat.is_le(after, D.history_length(D.task_history(task))), task, after, limit, world)
 
-def listing_environment(world: M.World(), environment_value: D.Environment) -> J.Json:
+def listing_environment(+world: M.World(), environment_value: D.Environment) -> J.Json:
   match world environment_value:
     case C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
-      D.success(J.Object{[J.Field{"tasks", J.Array{T.summaries(tasks)}},
+      D.success(J.Object{[J.Field{"tasks", J.Array{task_work_summaries(tasks, world)}},
         J.Field{"profiles", J.Array{D.profiles_json(profiles)}}, J.Field{"tools", J.Array{D.tools_json(catalog)}},
         J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"compaction", FeatureCodec.compaction_json(board)},
         J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]})
@@ -636,7 +661,7 @@ def listing(+world: M.World()) -> J.Json:
 
 def query(query: M.Query, +world: M.World()) -> J.Json:
   match query:
-    case M.Read{id, after, limit}: page(T.find(entries(world), id), after, limit)
+    case M.Read{id, after, limit}: page(T.find(entries(world), id), after, limit, world)
     case M.ListTasks{}: listing(world)
     case M.Describe{}: D.success(M.description())
     case M.ListProjects{}: D.success(J.Array{Projects.summaries(Projects.entries(Projects.registry(F.State(), world)), entries(world))})

@@ -250,8 +250,17 @@ def property_summary_text(full: Bool, +property: UXTypes.Property, +key: UIIdent
 def property_text(property: UXTypes.Property, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
   property_summary_text(True{}, property, key, parent)
 
+def compact_summary_captions(nodes: +List<Source.Node>) -> +List<Source.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{Source.Text{key, value, font, wrapping}, rest}:
+      Source.Text{key, value, font, T.SingleLine{}} <> compact_summary_captions(rest)
+    case Con{Source.Box{key, tag, style, attrs, children}, rest}:
+      Source.Box{key, tag, style, attrs, compact_summary_captions(children)} <> compact_summary_captions(rest)
+    case Con{node, rest}: node <> compact_summary_captions(rest)
+
 def compact_property_text(property: UXTypes.Property, key: UIIdentity.Key, parent: Design.Style) -> +List<Source.Node>:
-  property_summary_text(False{}, property, key, parent)
+  compact_summary_captions(property_summary_text(False{}, property, key, parent))
 
 def compact_property_members(+property: UXTypes.Property, +key: UIIdentity.Key, +parent: Design.Style, +geometry: Controls.Geometry) -> +List<Source.Node>:
   List.append(&2, Source.Node, leading_icon(Controls.property_icon(property), key, parent, face_icon_size(geometry)),

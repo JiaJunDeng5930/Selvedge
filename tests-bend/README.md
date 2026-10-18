@@ -44,6 +44,13 @@ The remote receipt probe also exercises account-authenticated Codex review and a
 subprocess that inspects its durable grant before writing. Independent Web text
 requests retain a focused regression for effects without task history.
 
+Work probes exercise the HTTP creation path's Project workspace observation and
+the native tool transport's caller identity, command payloads and SQLite reopen
+without another model request. The combined Work/worktree command also exercises
+HTTP default-cwd observation and real Git dirty-file copying across reopen. Work
+membership, graph admission and ordinary Task independence remain production
+construction and proof obligations.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

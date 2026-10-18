@@ -21,6 +21,16 @@ import ./conversation/CONTRACT.bend as ConversationPresentationLaws
 import ./services/CONTRACT.bend as ExecutionContextLaws
 import ./TYPES.bend as InteractionTypes
 
+law settings_open_consumes_global_navigation_and_preserves_service_fields:
+  @+application:E.Application -> @+services:Services.State ->
+  {Core.step(InteractionTypes.ServiceInput{Services.OpenSettings{}}, Core.from_application(application, services)) ==
+    InteractionTypes.Decision{Core.from_application(E.advance_selection(E.consume_global_navigation(application)), Services.with_settings_open(True{}, services)), D.success(J.Null{}), Nil{}, Nil{}, Nil{}, False{}} : InteractionTypes.Decision}
+
+law settings_close_preserves_service_fields_and_advances_selection:
+  @+application:E.Application -> @+services:Services.State ->
+  {Core.step(InteractionTypes.ServiceInput{Services.CloseSettings{}}, Core.from_application(application, services)) ==
+    InteractionTypes.Decision{Core.from_application(E.advance_selection(application), Services.with_settings_open(False{}, services)), D.success(J.Null{}), Nil{}, Nil{}, Nil{}, False{}} : InteractionTypes.Decision}
+
 # Evidence about the public product entry, not a parallel presentation engine.
 # Platform realization requirements belong to webui and do not enter this type.
 type Interaction is Type:
@@ -39,10 +49,10 @@ type Drafts is Type:
     draft_identity: @+task:Nat -> @+text:U.Text -> @previous:U.Delivery -> @+selected:U.Delivery -> @world:M.World() ->
       {U.apply_edit(U.ChooseDelivery{selected}, U.Message{task, text, previous}, world) == Done{U.Message{task, text, selected}} : Result<&2, &2, String, U.Body>},
     graph_parse_failure: @+graph:Maybe<&2, Nat> -> @+source:String -> @previous_source:String -> @previous:Maybe<&2, J.Json> -> @world:M.World() ->
-      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, previous_source, previous}, world) ==
-       Done{U.TaskGraph{graph, source, None{}}} : Result<&2, &2, String, U.Body>},
+      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, previous_source, previous, None{}}, world) ==
+       Done{U.TaskGraph{graph, source, None{}, None{}}} : Result<&2, &2, String, U.Body>},
     graph_parse_required: @graph:Maybe<&2, Nat> -> @source:String ->
-      {U.graph_declaration_valid(U.TaskGraph{graph, source, None{}}) == False{} : Bool},
+      {U.graph_declaration_valid(U.TaskGraph{graph, source, None{}, None{}}) == False{} : Bool},
     failed_draft: @directory_entry:String -> @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @submitted:Nat -> @reply:J.Json ->
       {U.contents(E.settled_current(U.Draft{revision, body, feedback, directory_entry}, True{}, False{}, submitted, reply)) == body : U.Body},
     continued_capture: @+revision:Nat -> @title:String -> @description:String -> @+stage:B.Stage -> @+priority:B.Priority ->

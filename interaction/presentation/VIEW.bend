@@ -9,7 +9,9 @@ import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/workspace/WORKSPACE.bend as Workspace
 import ../../features/board/MODEL.bend as B
 import ../../features/task_graph/MODEL.bend as G
+import ../../features/work/MODEL.bend as Work
 import ../../harness/features/graph-state.bend as GraphState
+import ../../harness/features/work-state.bend as WorkState
 import ../../harness/features/MODEL.bend as F
 import ../../harness/DOMAIN.bend as D
 import ../../bendlib/association-map.bend as Finite
@@ -33,7 +35,9 @@ def task_status_label(value: ViewTypes.TaskStatus) -> String:
 
 def editor_title(editor: U.Editor) -> String:
   match editor:
-    case U.NewTaskEditor{}: "New task"
+    case U.NewWorkGraphEditor{work}: "New task graph"
+    case U.WorkEditor{work}: "Rename Work"
+    case U.NewTaskEditor{work}: "New task"
     case U.MessageEditor{task}: "Message"
     case U.ProjectEditor{None{}}: "New project"
     case U.ProjectEditor{Some{id}}: "Edit project"
@@ -48,6 +52,8 @@ def editor_title(editor: U.Editor) -> String:
 
 def layer_title(content: ViewTypes.LayerContent) -> String:
   match content:
+    case ViewTypes.GlobalNavigation{route, destinations}: "Global navigation"
+    case ViewTypes.WorkSelection{selected, works}: "Work overview"
     case ViewTypes.PropertySource{origin}: "Configuration source"
     case ViewTypes.ProjectSelection{query, selected, projects}: "Select project"
     case ViewTypes.ObjectActions{actions}: "Actions"
@@ -323,17 +329,18 @@ def selection_available(allowed: Bool) -> ViewTypes.Availability:
     case True{}: ViewTypes.Available{}
     case False{}: ViewTypes.Unavailable{"No configured model offers the selected reasoning effort"}
 
-def model_composer_control(+profile: String, +reasoning: String, +world: M.World()) -> ViewTypes.ComposerControl:
-  ViewTypes.ComposerControl{UX.model_property(U.NewTaskEditor{}, profile, reasoning, world), ViewTypes.ControlDeclaration{"composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile) ++ " · " ++ reasoning, ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.NewTaskEditor{}}, "composer/model"}}, selection_available(E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning))}}
+def scoped_model_control(+profile: String, +reasoning: String, +world: M.World(), +work: Maybe<&2, Nat>) -> ViewTypes.ComposerControl:
+  ViewTypes.ComposerControl{UX.model_property(U.NewTaskEditor{work}, profile, reasoning, world), ViewTypes.ControlDeclaration{"composer/model", profile_label(D.find_profile(Board.profiles(world), profile), profile) ++ " · " ++ reasoning, ViewTypes.Secondary{}, U.Activate{U.OpenPanel{U.ModelPicker{U.NewTaskEditor{work}}, "composer/model"}}, selection_available(E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning))}}
+
 def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()) -> Maybe<&2, ViewTypes.ComposerScene>:
   match body:
-    case U.NewTask{message, +profile, reasoning, context, create_worktree}:
+    case U.NewTask{message, +profile, reasoning, context, create_worktree, +work}:
       ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
       +observation: Context.Observation = Context.DraftExecution{Context.preview(context, world)}
       Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Creation{},
-        creation_context_controls(U.NewTaskEditor{}, observation, world),
-        model_composer_control(profile, reasoning, world) <>
-          draft_context_footer(U.NewTaskEditor{}, observation, Board.profiles(world)), Some{observation}, assessment, submit, feedback, pending}}
+        creation_context_controls(U.NewTaskEditor{work}, observation, world),
+        scoped_model_control(profile, reasoning, world, work) <>
+          draft_context_footer(U.NewTaskEditor{work}, observation, Board.profiles(world)), Some{observation}, assessment, submit, feedback, pending}}
     case U.Message{+task, message, +delivery}:
       ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
       +observation: Maybe<&2, Context.Observation> = committed_observation(committed_context(Tasks.find(Commands.entries(world), task)))
@@ -452,9 +459,10 @@ def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List
 
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
-    case U.NewTask{message, +profile, reasoning, context, create_worktree}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.NewTaskEditor{}, context, profile, world)]
+    case U.WorkName{work, name}: Nil{}
+    case U.NewTask{message, +profile, reasoning, context, create_worktree, work}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.NewTaskEditor{work}, context, profile, world)]
     case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
-    case U.TaskGraph{graph, declaration, parsed}: [ViewTypes.TaskGraphInput{declaration}]
+    case U.TaskGraph{graph, declaration, parsed, work}: [ViewTypes.TaskGraphInput{declaration}]
     case U.Project{id, name, +workspace, create_worktree}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
@@ -466,7 +474,7 @@ def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>
 
 def submit_label(body: U.Body) -> String:
   match body:
-    case U.NewTask{message, profile, reasoning, context, create_worktree}: "Start task"
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: "Start task"
     case U.Message{task, message, delivery}: U.delivery_caption(delivery)
     case U.Fork{task, count, messages, context}: "Fork task"
     case U.Compact{task, summary}: "Compact history"
@@ -537,7 +545,7 @@ def task_project(found: Maybe<&2, D.Task>) -> Maybe<&2, Nat>:
 
 def draft_project(found: Maybe<&2, U.Draft>, +world: M.World()) -> Maybe<&2, Nat>:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, configuration, create_worktree}, feedback, directory_entry}}:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, configuration, create_worktree, work}, feedback, directory_entry}}:
       project_choice_id(creation_selected_project(Some{Context.preview(configuration, world)}, world))
     case _: None{}
 
@@ -545,12 +553,13 @@ def route_project(route: U.Route, drafts: +List<U.Draft>, +world: M.World()) -> 
   match route:
     case U.ProjectHome{id}: validate_project(Some{id}, world)
     case U.Conversation{id}: validate_project(task_project(Tasks.find(Commands.entries(world), id)), world)
-    case U.Start{}: draft_project(E.find_draft(drafts, U.NewTaskEditor{}), world)
+    case U.Start{}: draft_project(E.find_draft(drafts, U.NewTaskEditor{None{}}), world)
     case _: None{}
 
-def active_project(route: U.Route, session: E.Session, world: M.World()) -> Maybe<&2, Nat>:
-  drafts = E.drafts(session)
-  route_project(route, drafts, world)
+def active_project(route: U.Route, +session: E.Session, world: M.World()) -> Maybe<&2, Nat>:
+  match route:
+    case U.Start{}: draft_project(E.find_draft(E.drafts(session), E.creation_editor(session)), world)
+    case other: route_project(other, E.drafts(session), world)
 
 def same_project(left: Maybe<&2, Nat>, right: Maybe<&2, Nat>) -> Bool:
   match left right:
@@ -642,12 +651,59 @@ def project_entries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Tas
     case Nil{}: Nil{}
     case Con{(id, project), rest}: project_entry(id, project, tasks, route, selected, navigation) <> project_entries(rest, tasks, route, selected, navigation)
 
+def scoped_work_tasks(tasks: +List<D.Task>, +work: Nat, +world: M.World()) -> +List<D.Task>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{+task, rest}:
+      keep_task(E.same_work(WorkState.task_work(task, world), Some{work}), task, scoped_work_tasks(rest, work, world))
+
+def work_tasks(tasks: +List<D.Task>, work: Maybe<&2, Nat>, world: M.World()) -> +List<D.Task>:
+  match work:
+    case None{}: tasks
+    case Some{id}: scoped_work_tasks(tasks, id, world)
+
+def project_has_tasks(tasks: +List<D.Task>) -> Bool:
+  match tasks:
+    case Nil{}: False{}
+    case Con{first, rest}: True{}
+
+def keep_project_entry(keep: Bool, value: ViewTypes.ProjectEntry, rest: +List<ViewTypes.ProjectEntry>) -> +List<ViewTypes.ProjectEntry>:
+  match keep:
+    case False{}: rest
+    case True{}: value <> rest
+
+def scoped_project_entries(entries: +List<Finite.Entry(D.Project)>, +tasks: +List<D.Task>, +route: U.Route, +selected: Maybe<&2, Nat>, +navigation: E.NavigationState) -> +List<ViewTypes.ProjectEntry>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{(+id, project), rest}:
+      keep_project_entry(project_has_tasks(project_tasks(tasks, Some{id})), project_entry(id, project, tasks, route, selected, navigation), scoped_project_entries(rest, tasks, route, selected, navigation))
+
+def navigation_projects(entries: +List<Finite.Entry(D.Project)>, tasks: +List<D.Task>, route: U.Route, selected: Maybe<&2, Nat>, navigation: E.NavigationState, work: Maybe<&2, Nat>) -> +List<ViewTypes.ProjectEntry>:
+  match work:
+    case None{}: project_entries(entries, tasks, route, selected, navigation)
+    case Some{owner}: scoped_project_entries(entries, tasks, route, selected, navigation)
+
+def task_navigation_toggle_label(expanded: Bool) -> String:
+  match expanded:
+    case True{}: "Collapse Task sidebar"
+    case False{}: "Expand Task sidebar"
+
+def compact_task_navigation_toggle_label(expanded: Bool) -> String:
+  match expanded:
+    case True{}: "Back to conversation"
+    case False{}: "Open Task list"
+
+def global_destinations() -> +List<ViewTypes.ControlDeclaration>:
+  [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}}), control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})]
+
 def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.Session) -> ViewTypes.Navigation:
   +nav = E.navigation(session)
-  ViewTypes.Navigation{expanded, control("new-task", "新任务", U.BeginTask{None{}}),
-    [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}}), control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
-    project_entries(Projects.entries(Projects.registry(F.State(), world)), Commands.entries(world), route, active_project(route, session, world), nav), task_forest(project_tasks(Commands.entries(world), None{}), route),
-    ViewTypes.ControlDeclaration{"navigation/toggle", "Toggle sidebar", ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
+  +scope = E.active_work(session)
+  +tasks = work_tasks(Commands.entries(world), scope, world)
+  ViewTypes.Navigation{expanded, control("new-task", "新建对话", U.BeginTask{None{}}),
+    global_destinations(),
+    navigation_projects(Projects.entries(Projects.registry(F.State(), world)), tasks, route, active_project(route, session, world), nav, scope), task_forest(project_tasks(tasks, None{}), route),
+    ViewTypes.ControlDeclaration{"navigation/toggle", task_navigation_toggle_label(expanded), ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:
   D.Task{id, lineage, D.Contract{+model, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified} = task
@@ -837,9 +893,25 @@ def task_graph_scenes(graphs: +List<Finite.Entry(G.Graph)>, +route: U.Route, +wo
     case Nil{}: Nil{}
     case Con{(id, graph), rest}: task_graph_scene(id, graph, route, world) <> task_graph_scenes(rest, route, world)
 
+def keep_graph_scene(keep: Bool, value: ViewTypes.TaskGraphScene, rest: +List<ViewTypes.TaskGraphScene>) -> +List<ViewTypes.TaskGraphScene>:
+  match keep:
+    case False{}: rest
+    case True{}: value <> rest
+
+def scoped_graph_scenes(graphs: +List<Finite.Entry(G.Graph)>, +route: U.Route, +world: M.World(), +work: Nat) -> +List<ViewTypes.TaskGraphScene>:
+  match graphs:
+    case Nil{}: Nil{}
+    case Con{(+id, graph), rest}:
+      keep_graph_scene(E.same_work(WorkState.graph_owner(id, world), Some{work}), task_graph_scene(id, graph, route, world), scoped_graph_scenes(rest, route, world, work))
+
+def work_graph_scenes(graphs: +List<Finite.Entry(G.Graph)>, route: U.Route, world: M.World(), work: Maybe<&2, Nat>) -> +List<ViewTypes.TaskGraphScene>:
+  match work:
+    case None{}: task_graph_scenes(graphs, route, world)
+    case Some{owner}: scoped_graph_scenes(graphs, route, world, owner)
+
 def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.Page:
   match route:
-    case U.Start{}: ViewTypes.StartPage{composer(U.NewTaskEditor{}, session, world)}
+    case U.Start{}: ViewTypes.StartPage{composer(E.creation_editor(session), session, world)}
     case U.Conversation{id}: task_page(Tasks.find(Commands.entries(world), id), session, world)
     case U.ProjectHome{+id}: project_page(Projects.find(Projects.registry(F.State(), world), id), id, route, world)
     case U.ProjectCollection{}: ViewTypes.ProjectsPage{project_scenes(Projects.entries(Projects.registry(F.State(), world)), route, world), control("project/new", "New project", U.EditProject{None{}})}
@@ -848,7 +920,7 @@ def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.P
       now = E.now(session)
       board_page(Board.registry(world), filter, route, now, world)
     case U.AgentCollection{}: ViewTypes.AgentsPage{agent_scenes(agents(Board.registry(world)), world), control("agent/new", "New agent", U.EditAgent{None{}})}
-    case U.TaskGraphs{}: ViewTypes.TaskGraphsPage{task_graph_scenes(G.graphs(GraphState.registry(world)), route, world), control("task-graph/new", "New task graph", U.EditTaskGraph{None{}})}
+    case U.TaskGraphs{}: ViewTypes.TaskGraphsPage{work_graph_scenes(G.graphs(GraphState.registry(world)), route, world, E.active_work(session)), control("task-graph/new", "New task graph", U.EditTaskGraph{None{}})}
 
 def task_menu(actions: ViewTypes.TaskActions) -> +List<ViewTypes.ControlDeclaration>:
   ViewTypes.TaskActions{details, overflow} = actions
@@ -905,8 +977,29 @@ def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U
     case None{}: None{}
     case Some{card}: Some{card_scene(id, card, route, now, world)}
 
+def work_task_count(count: Nat) -> String:
+  match count:
+    case 1n: "1 task"
+    case other: Nat.show(other) ++ " tasks"
+
+def work_summary(tasks: +List<D.Task>, count: Nat) -> String:
+  match tasks:
+    case Nil{}: "No tasks yet"
+    case Con{+task, rest}: work_task_count(count) ++ " · " ++ Conversation.title(task) ++ " · " ++ task_status_label(task_status(task))
+
+def work_choice(+work: Maybe<&2, Nat>, name: String, +world: M.World()) -> ViewTypes.WorkChoice:
+  +tasks = work_tasks(Commands.entries(world), work, world)
+  ViewTypes.WorkChoice{work, name, work_summary(tasks, List.length(&2, D.Task, tasks))}
+
+def work_choices(values: +List<Finite.Entry(Work.Work)>, +world: M.World()) -> +List<ViewTypes.WorkChoice>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{(id, value), rest}: work_choice(Some{id}, Work.name(value), world) <> work_choices(rest, world)
+
 def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> ViewTypes.LayerContent:
   match panel:
+    case U.GlobalNavigation{}: ViewTypes.GlobalNavigation{E.route(session), global_destinations()}
+    case U.WorkOverview{}: ViewTypes.WorkSelection{E.active_work(session), work_choice(None{}, "All Tasks", world) <> work_choices(Work.works(WorkState.registry(world)), world)}
     case U.PropertySource{origin}: ViewTypes.PropertySource{layer_content(origin, session, world)}
     case U.ProjectPicker{}:
       +route = E.route(session)
@@ -922,7 +1015,7 @@ def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> Vie
       +previews = E.previews(session)
       code = E.code_blocks(session)
       +next_layer = E.next_layer(session)
-      ViewTypes.ProjectSelection{"", draft_project(E.find_draft(drafts, U.NewTaskEditor{}), world), project_choices(Projects.entries(Projects.registry(F.State(), world)))}
+      ViewTypes.ProjectSelection{"", draft_project(E.find_draft(drafts, E.creation_editor(session)), world), project_choices(Projects.entries(Projects.registry(F.State(), world)))}
     case U.ObjectActions{subject}: ViewTypes.ObjectActions{subject_actions(subject, session, world)}
     case U.ArchivedCards{}:
       +route = E.route(session)

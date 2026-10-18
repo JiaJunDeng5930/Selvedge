@@ -13,6 +13,8 @@ import ../../features/board/MODEL.bend as B
 import ../../features/task_graph/MODEL.bend as G
 import ../../features/worktree/MODEL.bend as Worktree
 import ../../features/task_graph/CODEC.bend as GraphCodec
+import ../../features/work/MODEL.bend as Work
+import ../../harness/features/work-state.bend as WorkState
 import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/features/MODEL.bend as F
 import ../../harness/reasoning/MODEL.bend as Reasoning
@@ -224,9 +226,47 @@ def navigation_controls(+route: U.Route, +values: +List<V.ControlDeclaration>, +
     case Nil{}: Nil{}
     case Con{value, rest}: navigation_declaration(route, parent, value, state) <> navigation_controls(route, rest, parent, state)
 
-def navigation_destinations(+route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, +state: InteractionTypes.State) -> SurfaceTypes.Node:
-  SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "destinations"}, "navigation-destinations", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
-    navigation_declaration(route, Identity.Place{"/navigation"}, create, state) <> navigation_controls(route, destinations, Identity.Place{"/navigation"}, state)}
+def task_navigation_creation(+route: U.Route, create: V.ControlDeclaration, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "task-creation"}, "task-navigation-creation", "", SurfaceTypes.NavigationSection{}, SurfaceTypes.Region{},
+    [navigation_declaration(route, Identity.Place{"/navigation"}, create, state)]}
+
+def global_navigation_declaration(+compact: Bool, +route: U.Route, parent: Identity.Key, +declaration: V.ControlDeclaration, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
+  replace_role(declared(parent, declaration, state), SurfaceTypes.GlobalNavigationEntry{navigation_action_selected(route, input), compact})
+
+def global_navigation_controls(+compact: Bool, +route: U.Route, values: +List<V.ControlDeclaration>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{first, rest}: global_navigation_declaration(compact, route, Identity.Place{"/navigation"}, first, state) <> global_navigation_controls(compact, route, rest, state)
+
+# NOTE: Global destinations have no Task visibility dependency and keep their original inputs.
+def global_navigation_form(+compact: Bool, +route: U.Route, destinations: +List<V.ControlDeclaration>, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Place{"/global-navigation"}, "global-navigation", "Global navigation", SurfaceTypes.GlobalNavigation{compact}, SurfaceTypes.Region{},
+    [region(Identity.Place{"/global-navigation"}, "global-destinations", "", SurfaceTypes.Section{},
+      global_navigation_declaration(compact, route, Identity.Place{"/global-navigation"}, View.control("home", "Home", U.Navigate{U.Start{}}), state) <>
+        global_navigation_controls(compact, route, destinations, state)),
+     region(Identity.Place{"/global-navigation"}, "global-settings", "", SurfaceTypes.Section{},
+       [replace_role(product_action(Identity.Place{""}, "settings/open", "Settings", InteractionTypes.ServiceInput{Services.OpenSettings{}}, True{}), SurfaceTypes.GlobalNavigationEntry{False{}, compact})])]}
+
+def global_navigation(+compact: Bool, view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
+  global_navigation_form(compact, E.route(E.session(Core.application(state))), destinations, state)
+
+def global_menu_declaration(+route: U.Route, +parent: Identity.Key, +declaration: V.ControlDeclaration, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.ControlDeclaration{identity, label, prominence, +input, availability} = declaration
+  replace_role(declared(parent, declaration, state), SurfaceTypes.CompactNavigationEntry{navigation_action_selected(route, input)})
+
+def global_menu_controls(+route: U.Route, values: +List<V.ControlDeclaration>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{first, rest}: global_menu_declaration(route, parent, first, state) <> global_menu_controls(route, rest, parent, state)
+
+def global_navigation_menu(+route: U.Route, destinations: +List<V.ControlDeclaration>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  [region(parent, "global-menu/entries", "Global destinations", SurfaceTypes.CompactNavigationMenu{},
+    List.append(&2, SurfaceTypes.Node,
+      global_menu_declaration(route, parent, View.control("global/home", "Home", U.Navigate{U.Start{}}), state) <> global_menu_controls(route, destinations, parent, state),
+      [replace_role(product_action(parent, "global/settings", "Settings", InteractionTypes.ServiceInput{Services.OpenSettings{}}, True{}), SurfaceTypes.CompactNavigationEntry{False{}}),
+       declared(parent, View.control("global/done", "Done", U.ClosePanel{}), state)]))]
 
 def independent_task_entries(tasks: +List<V.TaskTree>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match tasks:
@@ -241,8 +281,13 @@ def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclar
     case False{}: Nil{}
     case True{}:
       [SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "contents"}, "navigation-content", "", SurfaceTypes.NavigationCollection{}, SurfaceTypes.Region{},
-        navigation_destinations(route, create, destinations, state) <> List.append(&2, SurfaceTypes.Node,
+        task_navigation_creation(route, create, state) <> List.append(&2, SurfaceTypes.Node,
           project_entries(projects, Identity.Place{"/navigation"}, state), independent_task_entries(tasks, Identity.Place{"/navigation"}, state))}]
+
+def work_settings(work: Maybe<&2, Nat>, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match work:
+    case None{}: Nil{}
+    case Some{+id}: [declared(Identity.Place{"/navigation"}, View.control("work/rename/" ++ Nat.show(id), "Rename Work", U.RenameWork{id}), state)]
 
 def navigation(view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTypes.Node:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
@@ -250,10 +295,20 @@ def navigation(view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTyp
   +observed_session = E.session(observed_application)
   +route = E.route(observed_session)
   navigation = E.navigation(observed_session)
-  +header: SurfaceTypes.Node = SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Selvedge", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
-    [declared(Identity.Place{"/navigation"}, toggle, state)]}
-  SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Navigation", SurfaceTypes.Navigation{}, SurfaceTypes.Region{}, header <>
+  +header: SurfaceTypes.Node = SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Task tree", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
+    List.append(&2, SurfaceTypes.Node, [declared(Identity.Place{"/navigation"}, toggle, state)], work_settings(E.active_work(observed_session), state))}
+  SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Task tree", SurfaceTypes.Navigation{}, SurfaceTypes.Region{}, header <>
     navigation_contents(expanded, route, create, destinations, projects, tasks, state)}
+
+# The compact header moves with the modal tree so its three real launchers stay
+# in the active scope. Its native identities occur exactly once in either form.
+def compact_navigation(view: V.Navigation, header: SurfaceTypes.Node, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
+  +current = E.session(Core.application(state))
+  SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Task tree", SurfaceTypes.Navigation{}, SurfaceTypes.Region{},
+    header <> SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Task tree", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
+      work_settings(E.active_work(current), state)} <>
+      navigation_contents(expanded, E.route(current), create, destinations, projects, tasks, state)}
 
 def observed_field(found: Maybe<&2, U.Draft>, field: OperationParameters.Field, world: M.World()) -> OperationParameters.Observed:
   match found:
@@ -528,7 +583,7 @@ def field_node(+field: OperationParameters.FieldScene, +editor: U.Editor, +paren
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
-    case U.NewTask{message, profile, effort, config, create_worktree}: Some{config}
+    case U.NewTask{message, profile, effort, config, create_worktree, work}: Some{config}
     case U.Agent{id, revision, name, profile, effort, instructions, config, concurrency}: Some{config}
     case U.Fork{task, count, messages, config}: Some{config}
     case _: None{}
@@ -1553,7 +1608,7 @@ def network_choices(sandbox: D.Sandbox, +editor: U.Editor, +parent: Identity.Key
 
 def property_scope(editor: U.Editor) -> String:
   match editor:
-    case U.NewTaskEditor{}: "Applies to this new task"
+    case U.NewTaskEditor{work}: "Applies to this new task"
     case U.MessageEditor{task}: "Applies to this task"
     case U.ForkEditor{task}: "Applies to the new fork"
     case U.ProjectEditor{project}: "Defaults for future tasks using this project. Existing task directories and explicit overrides stay unchanged."
@@ -1714,7 +1769,7 @@ def activity_original_context(found: Maybe<&2, D.Project>, parent: Identity.Key)
 
 def worktree_field_label(editor: U.Editor) -> String:
   match editor:
-    case U.NewTaskEditor{}: "Create worktree"
+    case U.NewTaskEditor{work}: "Create worktree"
     case _: "Create worktree for new tasks"
 
 def worktree_field(+editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
@@ -1985,14 +2040,14 @@ def model_source(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identi
       property_source_nodes(UX.model_property(editor, profile, reasoning, E.program(Core.application(state))), parent, state)
     case Con{other, rest}: model_source(rest, editor, parent, state)
 
-def workspace_worktree_available(available: Bool, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def workspace_worktree_available(available: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match available:
-    case True{}: [worktree_field(U.NewTaskEditor{}, parent, state)]
+    case True{}: [worktree_field(editor, parent, state)]
     case False{}: Nil{}
 
 def workspace_worktree_choice(editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match editor:
-    case U.NewTaskEditor{}: workspace_worktree_available(E.worktree_available(Core.application(state)), parent, state)
+    case U.NewTaskEditor{work}: workspace_worktree_available(E.worktree_available(Core.application(state)), U.NewTaskEditor{work}, parent, state)
     case _: Nil{}
 
 def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -2481,8 +2536,31 @@ def property_source_observation(found: Maybe<&2, Experience.Property>, +parent: 
 def property_source_content(origin: V.LayerContent, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   List.append(&2, SurfaceTypes.Node, activity_navigation_header("Configuration source", U.Activate{U.ClosePanel{}}, parent, state), property_source_observation(layer_property(origin, state), parent))
 
+def work_overview_choice(value: V.WorkChoice, +selected: Maybe<&2, Nat>, parent: Identity.Key, state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.WorkChoice{+work, name, description} = value
+  project_picker_choice(View.control("overview/" ++ E.work_target(work), name, U.SelectWork{work}), E.same_work(work, selected), description, parent, state)
+
+def work_choice_rows(values: +List<V.WorkChoice>, +selected: Maybe<&2, Nat>, +parent: Identity.Key, +state: InteractionTypes.State, +index: Nat) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{first, Nil{}}:
+      [region(parent, "work-row/" ++ Nat.show(index), "", SurfaceTypes.WorkChoiceRow{},
+        [work_overview_choice(first, selected, parent, state), region(parent, "work-gap/" ++ Nat.show(index), "", SurfaceTypes.Section{}, Nil{})])]
+    case Con{first, Con{second, rest}}:
+      region(parent, "work-row/" ++ Nat.show(index), "", SurfaceTypes.WorkChoiceRow{},
+        [work_overview_choice(first, selected, parent, state), work_overview_choice(second, selected, parent, state)]) <>
+        work_choice_rows(rest, selected, parent, state, (index + 1n : Nat))
+
+def work_overview(selected: Maybe<&2, Nat>, works: +List<V.WorkChoice>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  [SurfaceTypes.Node{Identity.Part{parent, "work-choices"}, "work-choices", "Works", SurfaceTypes.Section{}, SurfaceTypes.ChoiceGroup{}, work_choice_rows(works, selected, parent, state, 0n)},
+    dialog_actions(parent, [declared(parent, View.control("overview/new", "New Work", U.CreateWork{}), state),
+      region(parent, "overview/action-space", "", SurfaceTypes.Section{}, Nil{}),
+      declared(parent, View.control("overview/done", "Done", U.ClosePanel{}), state)])]
+
 def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
+    case V.GlobalNavigation{route, destinations}: global_navigation_menu(route, destinations, parent, state)
+    case V.WorkSelection{selected, works}: work_overview(selected, works, parent, state)
     case V.PropertySource{origin}: property_source_content(origin, parent, state)
     case V.ProjectSelection{query, selected, projects}:
       SurfaceTypes.Node{Identity.Part{parent, "search"}, "search", "Search projects", SurfaceTypes.Field{}, SurfaceTypes.SearchChoices{query}, Nil{}} <>
@@ -2893,6 +2971,7 @@ def record_source(before: InteractionTypes.State, key: String, decision: Interac
 
 def navigates(input: Maybe<&2, InteractionTypes.Input>) -> Bool:
   match input:
+    case Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{work}}}}}: True{}
     case Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{route}}}}}: True{}
     case Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BeginTask{project}}}}}: True{}
     case Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectProject{project}}}}}: True{}
@@ -3003,21 +3082,126 @@ def surface_overlays(surface: SurfaceTypes.Surface) -> +List<SurfaceTypes.Node>:
   SurfaceTypes.Surface{content, base, overlays, scope} = surface
   overlays
 
-def with_navigation(content: InteractionTypes.Scene, nav: +List<SurfaceTypes.Node>, +reachable: SurfaceTypes.Surface,
-  settings: SurfaceTypes.Node, scope: Maybe<&2, String>) -> SurfaceTypes.Surface:
-  SurfaceTypes.Surface{content, List.append(&2, SurfaceTypes.Node, nav,
-    List.append(&2, SurfaceTypes.Node, surface_base(reachable), [settings])), surface_overlays(reachable), scope}
+def with_workspace_navigation(content: InteractionTypes.Scene, nav: +List<SurfaceTypes.Node>, +reachable: SurfaceTypes.Surface, scope: Maybe<&2, String>) -> SurfaceTypes.Surface:
+  SurfaceTypes.Surface{content, List.append(&2, SurfaceTypes.Node, nav, surface_base(reachable)), surface_overlays(reachable), scope}
 
-def assemble(+content: InteractionTypes.Scene, +state: InteractionTypes.State) -> SurfaceTypes.Surface:
+def work_tab_identity(work: Maybe<&2, Nat>) -> String:
+  E.work_target(work)
+
+def work_tab(+work: Maybe<&2, Nat>, label: String, +active: Maybe<&2, Nat>, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  +identity = work_tab_identity(work)
+  replace_role(declared(Identity.Place{"/work-tabs"}, View.control(identity, label, U.SelectWork{work}), state), SurfaceTypes.WorkTab{E.same_work(work, active)})
+
+def work_tab_entries(values: +List<Finite.Entry(Work.Work)>, +active: Maybe<&2, Nat>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{(id, value), rest}: work_tab(Some{id}, Work.name(value), active, state) <> work_tab_entries(rest, active, state)
+
+def found_work_label(found: Maybe<&2, Work.Work>, id: Nat) -> String:
+  match found:
+    case None{}: "Work #" ++ Nat.show(id)
+    case Some{value}: Work.name(value)
+
+def work_label(work: Maybe<&2, Nat>, world: M.World()) -> String:
+  match work:
+    case None{}: "All Tasks"
+    case Some{+id}: found_work_label(Work.find(WorkState.registry(world), id), id)
+
+def work_count_label(count: Nat) -> String:
+  match count:
+    case 1n: "1 tab"
+    case other: Nat.show(other) ++ " tabs"
+
+def work_overview_trigger(+count: Nat, state: InteractionTypes.State) -> SurfaceTypes.Node:
+  replace_role(declared(Identity.Place{"/work-tabs"}, View.control("work/overview", "Work overview, " ++ work_count_label(count), U.OpenPanel{U.WorkOverview{}, "work/overview"}), state), SurfaceTypes.WorkOverviewButton{count})
+
+def compact_work_scope(+active: Maybe<&2, Nat>, +title: String, +count: Nat, state: InteractionTypes.State) -> SurfaceTypes.Node:
+  replace_role(declared(Identity.Place{"/work-tabs"}, View.control(work_tab_identity(active), title ++ ", Work overview, " ++ work_count_label(count), U.OpenPanel{U.WorkOverview{}, work_tab_identity(active)}), state), SurfaceTypes.CompactWorkScope{title, count})
+
+def counted_work_tab_form(full: Bool, +active: Maybe<&2, Nat>, values: +List<Finite.Entry(Work.Work)>, world: M.World(), +state: InteractionTypes.State, count: Nat) -> SurfaceTypes.Node:
+  match full:
+    case True{}:
+      SurfaceTypes.Node{Identity.Place{"/work-tabs"}, "work-tabs", "Works", SurfaceTypes.WorkTabs{}, SurfaceTypes.Region{},
+        [work_tab(None{}, "All Tasks", active, state),
+          region(Identity.Place{"/work-tabs"}, "work-tabs/collection", "", SurfaceTypes.WorkTabGroup{}, work_tab_entries(values, active, state)),
+          declared(Identity.Place{"/work-tabs"}, View.control("work/new", "New Work", U.CreateWork{}), state), work_overview_trigger(count, state)]}
+    case False{}:
+      compact_work_scope(active, work_label(active, world), count, state)
+
+def work_tab_form(full: Bool, active: Maybe<&2, Nat>, +values: +List<Finite.Entry(Work.Work)>, world: M.World(), state: InteractionTypes.State) -> SurfaceTypes.Node:
+  counted_work_tab_form(full, active, values, world, state, (List.length(&2, Finite.Entry(Work.Work), values) + 1n : Nat))
+
+def work_tabs(full: Bool, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  +application = Core.application(state)
+  +active = E.active_work(E.session(application))
+  work_tab_form(full, active, Work.works(WorkState.registry(E.program(application))), E.program(application), state)
+
+def compact_navigation_toggle(expanded: Bool, declaration: V.ControlDeclaration) -> V.ControlDeclaration:
+  V.ControlDeclaration{identity, label, prominence, input, availability} = declaration
+  V.ControlDeclaration{identity, View.compact_task_navigation_toggle_label(expanded), prominence, input, availability}
+
+def compact_header(view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
+  SurfaceTypes.Node{Identity.Place{"/work-tabs"}, "work-switcher", "Workspace navigation", SurfaceTypes.CompactHeader{}, SurfaceTypes.Region{},
+    [declared(Identity.Place{"/global-navigation"}, View.control("global/menu", "Global navigation", U.OpenPanel{U.GlobalNavigation{}, "global/menu"}), state),
+     work_tabs(False{}, state), declared(Identity.Place{"/navigation"}, compact_navigation_toggle(expanded, toggle), state)]}
+
+def compact_base_header(placement: V.NavigationPlacement, nav: V.Navigation, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match placement:
+    case V.ModalNavigation{}: Nil{}
+    case _: [compact_header(nav, state)]
+
+def workspace_navigation(full: Bool, arrangement: V.Arrangement, +nav: V.Navigation, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match full arrangement:
+    case True{} original: global_navigation(False{}, nav, state) <> work_tabs(True{}, state) <> base_navigation(original, nav, state)
+    case False{} V.Arrangement{placement}: compact_base_header(placement, nav, state)
+
+def workspace_modal_navigation(full: Bool, arrangement: V.Arrangement, +nav: V.Navigation, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match full arrangement:
+    case True{} original: modal_navigation(original, nav, state)
+    case False{} V.Arrangement{V.ModalNavigation{}}: [compact_navigation(nav, compact_header(nav, state), state)]
+    case False{} _: Nil{}
+
+def compact_navigation_action_role(role: SurfaceTypes.Role, meaning: SurfaceTypes.Meaning) -> SurfaceTypes.Role:
+  match meaning:
+    case SurfaceTypes.Activate{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CreateWork{}}}}, availability}: SurfaceTypes.CompactNavigationEntry{False{}}
+    case SurfaceTypes.Activate{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ClosePanel{}}}}, availability}: SurfaceTypes.CompactNavigationEntry{False{}}
+    case _: role
+
+def compact_overview_actions(values: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{SurfaceTypes.Node{key, semantic, label, role, +meaning, children}, rest}:
+      SurfaceTypes.Node{key, semantic, label, compact_navigation_action_role(role, meaning), meaning, compact_overview_actions(children)} <> compact_overview_actions(rest)
+
+def compact_overview_when(selected: Bool, node: SurfaceTypes.Node) -> SurfaceTypes.Node:
+  match selected node:
+    case True{} SurfaceTypes.Node{key, semantic, label, role, meaning, children}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, compact_overview_actions(children)}
+    case False{} original: original
+
+def compact_overview_layers(values: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      compact_overview_when(String.eq(node_key(node), Identity.encode(layer_key("work-overview"))), node) <> compact_overview_layers(rest)
+
+def navigation_layers(full: Bool, values: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match full:
+    case True{}: values
+    case False{}: compact_overview_layers(values)
+
+def assemble(+full: Bool, +content: InteractionTypes.Scene, +state: InteractionTypes.State) -> SurfaceTypes.Surface:
   InteractionTypes.Scene{V.Scene{+nav, +main, +views, +arrangement, attention}, +preferences, transfers, +attachment, code, +folder_picker} = content
-  +overlays = List.append(&2, SurfaceTypes.Node, preview(attachment), List.append(&2, SurfaceTypes.Node, directory_picker(folder_picker), List.append(&2, SurfaceTypes.Node, settings(preferences), List.append(&2, SurfaceTypes.Node, layers(views, state), modal_navigation(arrangement, nav, state)))))
+  +overlays = List.append(&2, SurfaceTypes.Node, preview(attachment), List.append(&2, SurfaceTypes.Node, directory_picker(folder_picker), List.append(&2, SurfaceTypes.Node, settings(preferences), List.append(&2, SurfaceTypes.Node, navigation_layers(full, layers(views, state)), workspace_modal_navigation(full, arrangement, nav, state)))))
   # NOTE: Saved trigger identities can alias navigation; only main owns relocation.
   +reachable = finish_reachable(content, [page(main, state)], overlays)
-  with_navigation(content, base_navigation(arrangement, nav, state), reachable,
-    product_action(Identity.Place{""}, "settings/open", "Settings", InteractionTypes.ServiceInput{Services.OpenSettings{}}, True{}), active_scope(overlays))
+  with_workspace_navigation(content,
+    workspace_navigation(full, arrangement, nav, state), reachable, active_scope(overlays))
 
 def observe(capacity: V.Capacity, +state: InteractionTypes.State) -> SurfaceTypes.Surface:
-  assemble(Core.observe(capacity, state), state)
+  V.Capacity{+navigation_beside, +details_beside} = capacity
+  assemble(navigation_beside, Core.observe(V.Capacity{navigation_beside, details_beside}, state), state)
 
 def interact(+capacity: V.Capacity, +key: String, gesture: SurfaceTypes.Gesture, +state: InteractionTypes.State) -> InteractionTypes.Decision:
   perform(capacity, state, key, resolve(observe(capacity, state), key, gesture))

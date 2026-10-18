@@ -6,6 +6,7 @@ import ../../harness/features/MODEL.bend as F
 import ../../harness/workspace/PROJECTS.bend as Projects
 import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../features/board/MODEL.bend as Board
+import ../../features/work/MODEL.bend as Work
 import ./MODEL.bend as M
 import ../INPUT.bend as U
 import ../submission/FIELDS.bend as Forms
@@ -16,7 +17,8 @@ import ../../harness/workspace/WORKSPACE.bend as Workspace
 
 def root_object(editor: U.Editor) -> M.Object:
   match editor:
-    case U.NewTaskEditor{}: M.TaskDraft{}
+    case U.NewTaskEditor{None{}}: M.TaskDraft{}
+    case U.NewTaskEditor{Some{work}}: M.EditorObject{U.NewTaskEditor{Some{work}}}
     case U.MessageEditor{task}: M.Task{task}
     case U.ProjectEditor{project}: M.Project{project}
     case U.TaskGraphEditor{graph}: M.TaskGraph{graph}
@@ -101,7 +103,7 @@ def group_owner(+editor: U.Editor, fields: +List<Forms.Field>) -> M.Object:
 
 def editable_workspace(editor: U.Editor) -> Bool:
   match editor:
-    case U.NewTaskEditor{}: True{}
+    case U.NewTaskEditor{work}: True{}
     case U.ProjectEditor{project}: True{}
     case U.AgentEditor{agent}: True{}
     case U.ForkEditor{task}: True{}
@@ -244,14 +246,14 @@ def workspace_scope(allowed: Bool, intent: Maybe<&2, U.Edit>) -> Maybe<&2, U.Edi
 
 def editable_model(editor: U.Editor) -> Bool:
   match editor:
-    case U.NewTaskEditor{}: True{}
+    case U.NewTaskEditor{work}: True{}
     case U.AgentEditor{agent}: True{}
     case U.MessageEditor{task}: True{}
     case _: False{}
 
 def editable_configuration(editor: U.Editor) -> Bool:
   match editor:
-    case U.NewTaskEditor{}: True{}
+    case U.NewTaskEditor{work}: True{}
     case U.AgentEditor{agent}: True{}
     case U.ForkEditor{task}: True{}
     case U.MessageEditor{task}: True{}
@@ -436,6 +438,7 @@ def action_pending(value: M.ActionUnit) -> Bool:
 def content_field(editor: U.Editor) -> Forms.Field:
   match editor:
     case U.TaskGraphEditor{graph}: Forms.TaskGraphDeclaration{}
+    case U.NewWorkGraphEditor{work}: Forms.TaskGraphDeclaration{}
     case _: Forms.MessageText{}
 
 def content_subject(+value: M.ActionUnit) -> M.Subject:
@@ -446,7 +449,7 @@ def commit(value: M.ActionUnit) -> U.Input:
 
 def editor_context(editor: U.Editor) -> M.ActionContext:
   match editor:
-    case U.NewTaskEditor{}: M.Creation{}
+    case U.NewTaskEditor{work}: M.Creation{}
     case U.MessageEditor{task}: M.Continuation{task}
     case _: M.ObjectEditing{}
 
@@ -1007,7 +1010,7 @@ def permission_source_description(observation: Context.Observation) -> String:
 
 def model_source_description(editor: U.Editor) -> String:
   match editor:
-    case U.NewTaskEditor{}: "Configured model list for this new task"
+    case U.NewTaskEditor{work}: "Configured model list for this new task"
     case U.MessageEditor{task}: "Configured model list for this task"
     case U.AgentEditor{agent}: "Configured model list for this agent profile"
     case U.ForkEditor{task}: "Configured model list for the new fork"
@@ -1056,7 +1059,7 @@ def origin_failure(preview: Context.Preview, editor: U.Editor) -> +List<M.Obstru
 
 def context_requirements(+body: U.Body, +world: World.World()) -> +List<M.Obstruction>:
   match body:
-    case U.NewTask{message, profile, reasoning, context, create_worktree}: origin_failure(Context.preview(context, world), U.NewTaskEditor{})
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: origin_failure(Context.preview(context, world), U.NewTaskEditor{work})
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: origin_failure(Context.preview(context, world), U.AgentEditor{id})
     case U.Fork{task, count, messages, context}: origin_failure(Context.preview(context, world), U.ForkEditor{task})
     case _: Nil{}
@@ -1082,10 +1085,12 @@ def fork_requirements(found: Maybe<&2, D.Task>, +count: Nat, +messages: +List<St
 
 def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstruction>:
   match body:
-    case U.NewTask{message, profile, reasoning, context, create_worktree}:
+    case U.WorkName{work, name}:
+      failed_requirement(Work.valid_name(name), obstruction(U.WorkEditor{work}, Forms.WorkName{}, "invalid_work_name", "Enter a Work name of at most 4096 UTF-8 bytes"))
+    case U.NewTask{message, profile, reasoning, context, create_worktree, +work}:
       List.append(&2, M.Obstruction, failed_requirement(D.nonempty(U.text(message)),
-        obstruction(U.NewTaskEditor{}, Forms.MessageText{}, "empty_message", "Write a task to start")),
-        model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{}))
+        obstruction(U.NewTaskEditor{work}, Forms.MessageText{}, "empty_message", "Write a task to start")),
+        model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{work}))
     case U.Message{task, message, delivery}:
       failed_requirement(D.nonempty(U.text(message)), obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send"))
     case U.Project{id, name, workspace, create_worktree}:
@@ -1099,9 +1104,9 @@ def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstructio
       model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.AgentEditor{id}))))))
     case U.Fork{+task, count, messages, context}:
       fork_requirements(Tasks.find(Commands.entries(world), task), count, messages, task, world)
-    case U.TaskGraph{+graph, +declaration, +parsed}:
-      failed_requirement(U.graph_declaration_valid(U.TaskGraph{graph, declaration, parsed}),
-        obstruction(U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}, "invalid_task_graph_declaration", "Enter a valid task graph declaration"))
+    case U.TaskGraph{+graph, +declaration, +parsed, +work}:
+      failed_requirement(U.graph_declaration_valid(U.TaskGraph{graph, declaration, parsed, work}),
+        obstruction(U.task_graph_owner(graph, work), Forms.TaskGraphDeclaration{}, "invalid_task_graph_declaration", "Enter a valid task graph declaration"))
     case _: Nil{}
 
 def agent_reference_requirement(found: Maybe<&2, Board.AgentProfile>, editor: U.Editor) -> +List<M.Obstruction>:

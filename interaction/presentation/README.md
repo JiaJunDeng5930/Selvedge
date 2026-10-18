@@ -2,6 +2,22 @@
 
 Produces semantic page content and binds presentation composition and capabilities to the application.
 
+The Work switcher uses the existing simultaneous-navigation capacity to choose a
+desktop tab strip or `compact_header`: global menu, one current-Work/count target
+and the Task-tree toggle. This choice is independent of sidebar visibility. Both
+Work forms retain the same identity. Work overview uses ordinary modal layers
+and actual Task summaries; selecting a card uses the same Work navigation.
+
+`workspace_navigation` keeps the desktop rail and tabs. Narrow capacity instead
+uses `GlobalNavigation` on the existing panel stack; its six destinations keep
+their authoritative inputs. `compact_navigation` moves the unique header into
+the expanded Task tree's modal scope, so its launchers remain usable. Closing
+returns that same header to the base. Global menu and overview layers can cover
+the tree and dismiss back to its real trigger. `task_navigation_creation` and
+`navigation_contents` retain new conversation, Project groups and Task entries
+without repeating global destinations. The presentation contract binds these
+actual constructions and their native command identities.
+
 Start with [MODEL.bend](MODEL.bend) for scene vocabulary and [SURFACE.bend](SURFACE.bend)
 for nodes, gestures and surface vocabulary. [VIEW.bend](VIEW.bend) generates scenes;
 [PROGRAM.bend](PROGRAM.bend) realizes surfaces and their interaction. These public
@@ -52,9 +68,9 @@ lists continue to use `TaskEntry`. Follow `VIEW.task_forest` for construction an
 `PROGRAM.task_tree_entries` for the nested semantic surface.
 `navigation_declaration` retains each resolved declaration's identity, meaning and
 availability while assigning `NavigationEntry` its route-derived selection.
-`navigation_contents` assembles these destinations in a `NavigationSection` and
-places navigation groups in a `NavigationCollection`; the header toggle remains
-outside that collection. The independent-task section uses `NavigationCaption`
+`navigation_contents` places Task creation, Project groups and independent Task
+trees in a `NavigationCollection`; global destinations remain in their own
+navigation and the header stays outside that collection. The independent-task section uses `NavigationCaption`
 and preserves the original task parents, so its title does not introduce project
 membership. `ProjectInteractionRequirements` binds these complete production
 constructions, including empty independent-task collections and collapsed navigation.

@@ -69,6 +69,16 @@ def settings_scope(open: Bool, fallback: Scope) -> Scope:
     case True{}: Temporary{"settings", "settings/connect", "settings/open", None{}}
     case False{}: fallback
 
+def settings_restore_target(navigation_beside: Bool) -> String:
+  match navigation_beside:
+    case True{}: "settings/open"
+    case False{}: "global/menu"
+
+def settings_scope_restore(open: Bool, navigation_beside: Bool, fallback: Scope) -> Scope:
+  match open:
+    case True{}: Temporary{"settings", "settings/connect", settings_restore_target(navigation_beside), None{}}
+    case False{}: fallback
+
 def preview_scope(preview: Services.Preview, fallback: Scope) -> Scope:
   match preview:
     case Services.NoPreview{}: fallback
@@ -92,7 +102,7 @@ def logical_scope(+state: InteractionTypes.State, capacity: View.Capacity) -> Sc
   +settings = Services.settings_open(observed_services_3)
   +preview = Services.preview(observed_services_3)
   +directory_picker = Services.directory_picker(observed_services_3)
-  preview_scope(preview, directory_scope(directory_picker, settings_scope(settings, layer_scope(layers, details_beside))))
+  preview_scope(preview, directory_scope(directory_picker, settings_scope_restore(settings, navigation_beside, layer_scope(layers, details_beside))))
 
 def scope_occurrence_of(scope: Scope) -> Maybe<&2, Nat>:
   match scope:

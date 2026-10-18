@@ -15,6 +15,7 @@ import ./harness/context/PROOF.bend as TrackedContextProof
 import ./harness/tasks/PROOF.bend as TasksProof
 import ./features/board/PROOF.bend as BoardProof
 import ./features/task_graph/PROOF.bend as TaskGraphProof
+import ./features/work/PROOF.bend as WorkProof
 import ./harness/features/laws.bend as FeatureLaws
 import ./harness/protocol/PROOF.bend as ProtocolProof
 import ./harness/execution/PROOF.bend as ExecutionProof

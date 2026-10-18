@@ -181,7 +181,7 @@ type SharedRequirements is Type:
     assessment_ready: @+assessment:M.Assessment -> {P.assessment_ready(assessment) == P.state_ready(P.assessment_state(assessment)) : Bool},
     directory_ready: {P.state_ready(M.NeedsDirectoryObservation{}) == True{} : Bool},
     blocked_not_ready: {P.state_ready(M.Blocked{}) == False{} : Bool},
-    new_task_content: @message:U.Text -> @+profile:String -> @+reasoning:String -> @context:Context.Configuration -> @+world:World.World() -> {P.body_requirements(U.NewTask{message, profile, reasoning, context, False{}}, world) == List.append(&2, M.Obstruction, P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.NewTaskEditor{}, Forms.MessageText{}, "empty_message", "Write a task to start")), P.model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{})) : +List<M.Obstruction>},
+    new_task_content: @message:U.Text -> @+profile:String -> @+reasoning:String -> @context:Context.Configuration -> @+world:World.World() -> {P.body_requirements(U.NewTask{message, profile, reasoning, context, False{}, None{}}, world) == List.append(&2, M.Obstruction, P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.NewTaskEditor{None{}}, Forms.MessageText{}, "empty_message", "Write a task to start")), P.model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{None{}})) : +List<M.Obstruction>},
     message_content: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @world:World.World() -> {P.body_requirements(U.Message{task, message, delivery}, world) == P.failed_requirement(D.nonempty(U.text(message)), P.obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send")) : +List<M.Obstruction>},
     project_name: @+id:Maybe<&2, Nat> -> @name:String -> @workspace:D.Workspace -> @world:World.World() -> {P.body_requirements(U.Project{id, name, workspace, False{}}, world) == P.failed_requirement(Projects.name_valid(name), P.obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes")) : +List<M.Obstruction>},
     agent_guard: @revision:Nat -> @+name:String -> @+profile:String -> @+reasoning:String -> @+instructions:String -> @settings:J.Json -> @+concurrency:Nat -> {Board.valid_agent(Board.AgentProfile{revision, name, profile, reasoning, instructions, settings, concurrency}) == Board.agent_name_valid(name) && Board.agent_profile_valid(profile) && Board.agent_reasoning_valid(reasoning) && Board.agent_instructions_valid(instructions) && Board.agent_concurrency_valid(concurrency) : Bool},
@@ -266,7 +266,7 @@ type Requirements is Type:
       {P.same_group_owner(field <> rest, editor, object) == String.eq(P.object_key(P.owner(M.Subject{editor, field})), P.object_key(object)) && P.same_group_owner(rest, editor, object) : Bool},
     common_group_owner: @+object:M.Object -> @editor:U.Editor -> {P.resolved_group_owner(True{}, object, editor) == object : M.Object},
     mixed_group_owner: @object:M.Object -> @+editor:U.Editor -> {P.resolved_group_owner(False{}, object, editor) == P.root_object(editor) : M.Object},
-    creation_root: {P.root_object(U.NewTaskEditor{}) == M.TaskDraft{} : M.Object},
+    creation_root: {P.root_object(U.NewTaskEditor{None{}}) == M.TaskDraft{} : M.Object},
     task_root: @+task:Nat -> {P.root_object(U.MessageEditor{task}) == M.Task{task} : M.Object},
     project_root: @+project:Maybe<&2, Nat> -> {P.root_object(U.ProjectEditor{project}) == M.Project{project} : M.Object},
     task_message_owner: @+task:Nat -> {P.owner(M.Subject{U.MessageEditor{task}, Forms.MessageText{}}) == M.MessageDraft{task} : M.Object},
@@ -335,11 +335,11 @@ type Requirements is Type:
     graph_declaration_owner: @+graph:Maybe<&2, Nat> -> {P.owner(M.Subject{U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}}) == M.TaskGraph{graph} : M.Object},
     graph_action_content: @graph:Maybe<&2, Nat> -> {P.content_field(U.TaskGraphEditor{graph}) == Forms.TaskGraphDeclaration{} : Forms.Field},
     graph_invalid_json_requirement: @+graph:Maybe<&2, Nat> -> @source:String -> @world:World.World() ->
-      {P.body_requirements(U.TaskGraph{graph, source, None{}}, world) ==
+      {P.body_requirements(U.TaskGraph{graph, source, None{}, None{}}, world) ==
         [P.obstruction(U.TaskGraphEditor{graph}, Forms.TaskGraphDeclaration{}, "invalid_task_graph_declaration", "Enter a valid task graph declaration")] : +List<M.Obstruction>},
     graph_failed_parse_replaces_previous: @+graph:Maybe<&2, Nat> -> @old:String -> @previous:Maybe<&2, J.Json> -> @+source:String -> @world:World.World() ->
-      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, old, previous}, world) ==
-        Done{U.TaskGraph{graph, source, None{}}} : Result<&2, &2, String, U.Body>}
+      {U.apply_edit(U.WriteTaskGraph{source, None{}}, U.TaskGraph{graph, old, previous, None{}}, world) ==
+        Done{U.TaskGraph{graph, source, None{}, None{}}} : Result<&2, &2, String, U.Body>}
   }
 
 def subject_field(subject: M.Subject) -> Forms.Field:
@@ -380,14 +380,15 @@ law empty_message_obstruction_is_passive:
 
 def workspace_operation_meaning(body: U.Body) -> Bool:
   match body:
-    case U.NewTask{message, profile, reasoning, context, create_worktree}: True{}
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: True{}
+    case U.WorkName{work, name}: False{}
     case U.Project{id, name, workspace, create_worktree}: True{}
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: True{}
     case U.Fork{task, count, messages, context}: True{}
     case U.Message{task, message, delivery}: False{}
     case U.Card{id, revision, value, assist, profile, keep_open}: False{}
     case U.Compact{task, summary}: False{}
-    case U.TaskGraph{graph, declaration, parsed}: False{}
+    case U.TaskGraph{graph, declaration, parsed, work}: False{}
 
 law workspace_operation_classification:
   @+body:U.Body -> {U.workspace_operation(body) == workspace_operation_meaning(body) : Bool}

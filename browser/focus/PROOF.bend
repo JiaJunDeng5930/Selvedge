@@ -35,6 +35,24 @@ def Rule.settings_restore(content, base, overlays, active, fallback):
 def Rule.settings_resolved_restore(content, base, overlays, active, fallback, key, found):
   Rule.realized_restore(content, base, overlays, active, Model.settings_scope(True{}, fallback), key, found)
 
+def Rule.responsive_settings_restore_targets(): ({==}, {==})
+
+def Rule.responsive_settings_restore(content, base, overlays, active, navigation_beside, fallback): {==}
+
+def Rule.responsive_settings_resolved_restore(content, base, overlays, active, navigation_beside, fallback, key, found):
+  Rule.realized_restore(content, base, overlays, active, Model.settings_scope_restore(True{}, navigation_beside, fallback), key, found)
+
+def Rule.responsive_settings_policy(open, navigation_beside, fallback):
+  match open navigation_beside:
+    case False{} _: {==}
+    case True{} True{}: {==}
+    case True{} False{}: {==}
+
+def Rule.desktop_settings_policy_unchanged(open, fallback):
+  match open:
+    case False{}: {==}
+    case True{}: {==}
+
 def Rule.document_restores_previous(previous, surface): {==}
 
 def Rule.document_opens_temporary(identity, initial, restore, occurrence, surface): {==}
@@ -140,7 +158,9 @@ def Rule.dismissal_evidence():
 
 def Rule.all_panel_policies(panel, trigger):
   match panel:
+    case U.GlobalNavigation{}: {==}
     case U.PropertySource{origin}: {==}
+    case U.WorkOverview{}: {==}
     case U.ProjectPicker{}: {==}
     case U.ObjectActions{subject}: {==}
     case U.ArchivedCards{}: {==}

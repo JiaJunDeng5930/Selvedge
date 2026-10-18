@@ -44,8 +44,10 @@ def symbol(icon: Controls.Icon) -> Symbol:
     case Controls.PlayTriangle{}: Symbol{"m7 4 9 6-9 6Z", Source.StrokedDrawing{14n}}
     case Controls.CloseCross{}: Symbol{"m5 5 10 10M15 5 5 15", Source.StrokedDrawing{14n}}
     case Controls.MoreDots{}: Symbol{"M4 10h.01M10 10h.01M16 10h.01", Source.StrokedDrawing{14n}}
+    case Controls.MenuLines{}: Symbol{"M3 5h14M3 10h14M3 15h14", Source.StrokedDrawing{14n}}
     case Controls.Sidebar{}: Symbol{"M3 4h14v12H3ZM7 4v12", Source.StrokedDrawing{14n}}
     case Controls.SidebarClose{}: Symbol{"M3 4h14v12H3ZM7 4v12 M13 7l-3 3 3 3", Source.StrokedDrawing{14n}}
+    case Controls.Home{}: Symbol{"M2 9 10 2l8 7M4 8v10h12V8M8 18v-6h4v6", Source.StrokedDrawing{14n}}
     case Controls.Folder{}: Symbol{"M2.5 6V4.5h5l2 2h8V16h-15Z", Source.StrokedDrawing{14n}}
     case Controls.Conversation{}: Symbol{"M3 3.5h14v10H8l-5 3Z", Source.StrokedDrawing{14n}}
     case Controls.Columns{}: Symbol{"M3 3h14v14H3ZM7.7 3v14M12.3 3v14", Source.StrokedDrawing{14n}}

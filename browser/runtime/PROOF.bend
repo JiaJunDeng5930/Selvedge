@@ -1211,9 +1211,16 @@ def confirmation_failed_world(owned: Bool, reason: String, destination: U.Route,
     case False{}: {==}
     case True{}: {==}
 
+def rejected_work_creation_world(current: Bool, reason: String, +program: M.World(), +session: E.Session) ->
+  {Rule.decision_world(SessionRule.work_creation_spec(current, D.failure("command_not_submitted", reason), E.from_program(program, E.retain_previews(session, program)))) == program : M.World()}:
+  match current:
+    case False{}: {==}
+    case True{}: {==}
+
 def rejected_valid_world(completion: E.Completion, reason: String, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(SessionRule.valid_completion_spec(completion, program, D.failure("command_not_submitted", reason), session)) == program : M.World()}:
   match completion:
+    case E.WorkCreationCompletion{generation, layer_generation}: rejected_work_creation_world(E.work_creation_current(generation, layer_generation, session), reason, program, session)
     case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
     case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: {==}
     case E.DirectCompletion{}: {==}

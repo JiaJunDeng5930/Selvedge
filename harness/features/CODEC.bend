@@ -16,9 +16,11 @@ import ../../features/board/CODEC.bend as Board
 import ../../features/chatgpt/MODEL.bend as ChatGPT
 import ../../features/chatgpt/CODEC.bend as ChatGPTCodec
 import ../../features/task_graph/CODEC.bend as TaskGraphCodec
+import ../../features/work/CODEC.bend as WorkCodec
 
 def command_json(command: F.Command) -> J.Json:
   match command:
+    case F.WorkCommand{command}: WorkCodec.command_json(command)
     case F.RemoteCommand{command}: RemoteCodec.command_json(command)
     case F.WorktreeCommand{command}: Worktree.command_json(command)
     case F.ChatGPTCommand{command}: ChatGPTCodec.command_json(command)
@@ -27,6 +29,7 @@ def command_json(command: F.Command) -> J.Json:
 
 def query_json(query: F.Query) -> J.Json:
   match query:
+    case F.WorkQuery{query}: WorkCodec.query_json(query)
     case F.RemoteStatus{}: RemoteCodec.command_json(Remote.Status{})
     case F.WorktreeQuery{query}: Worktree.query_json(query)
     case F.ChatGPTQuery{query}: ChatGPTCodec.query_json(query)
@@ -48,6 +51,11 @@ def chatgpt_command(kind: ChatGPTCodec.EntryKind, body: J.Json) -> M.Command:
     case ChatGPTCodec.Write{kind}: M.FeatureCommand{F.ChatGPTCommand{ChatGPTCodec.construct(kind, body)}}
     case ChatGPTCodec.Read{kind}: M.Observe{M.FeatureQuery{F.ChatGPTQuery{ChatGPTCodec.query(kind, body)}}}
 
+def work_command(kind: WorkCodec.EntryKind, body: J.Json) -> M.Command:
+  match kind:
+    case WorkCodec.Write{kind}: M.FeatureCommand{F.WorkCommand{WorkCodec.construct(kind, body)}}
+    case WorkCodec.Read{kind}: M.Observe{M.FeatureQuery{F.WorkQuery{WorkCodec.query(kind, body)}}}
+
 def remote_command(kind: RemoteCodec.AdminKind, body: J.Json) -> M.Command:
   match kind:
     case RemoteCodec.StatusKind{}: M.Observe{M.FeatureQuery{F.RemoteStatus{}}}
@@ -61,6 +69,7 @@ def worktree_command(kind: Worktree.EntryKind, body: J.Json) -> M.Command:
 
 def construct(kind: F.CommandKind, body: J.Json) -> M.Command:
   match kind:
+    case F.WorkKind{kind}: work_command(kind, body)
     case F.RemoteKind{kind}: remote_command(kind, body)
     case F.WorktreeKind{kind}: worktree_command(kind, body)
     case F.ChatGPTKind{kind}: chatgpt_command(kind, body)
@@ -69,6 +78,7 @@ def construct(kind: F.CommandKind, body: J.Json) -> M.Command:
 
 def valid(kind: F.CommandKind, body: J.Json) -> Bool:
   match kind:
+    case F.WorkKind{kind}: WorkCodec.entry_valid(kind, body)
     case F.RemoteKind{kind}: RemoteCodec.additional_constraints(kind, body)
     case F.WorktreeKind{kind}: Worktree.additional_constraints(kind, body)
     case F.ChatGPTKind{kind}: ChatGPTCodec.additional_constraints(kind, body)

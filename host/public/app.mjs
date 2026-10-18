@@ -8,6 +8,7 @@ import { appearanceObservation, persistAppearance } from './appearance.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { parseJson, tokenizeJsonValue } from './json-tokens.mjs';
+import { createLayoutRevealer } from './layout-reveal.mjs';
 
 const bool = enabled => Boolean(enabled);
 const linked = items => items.reduceRight((tail, head) => bendValue('Con', { head, tail }), bendValue('Nil'));
@@ -31,6 +32,7 @@ function showJson(input) {
   }
 }
 const root = document.getElementById('surface');
+const revealLayoutTargets = createLayoutRevealer(root);
 let textMeasurementScope = root;
 let textMeasurer = createTextMeasurer(textMeasurementScope);
 let state = Bend.initial(Bend.empty(), 0n);
@@ -41,8 +43,10 @@ let renderQueued = false;
 let renderedGeneration = null;
 let displayedFrameRequest = null;
 let requestedFrameGeneration = null;
-let pendingFocus = null;
+let pendingFocus = [];
+let drainingFocus = false;
 let applyingFocus = false;
+let focusAttemptRevision = 0;
 let physicalRevision = 0;
 let physicalActive = false;
 let physicalQueued = null;
@@ -168,23 +172,25 @@ function render() {
     effects.push(...list(decision.effects));
   }
   const publication = Bend.publication(renderedGeneration ?? 0n, state);
-  if (pendingFocus && pendingFocus.ticket !== Bend.focus_ticket(state)) pendingFocus = null;
+  pendingFocus = pendingFocus.filter(physical => physical.ticket === Bend.focus_ticket(state));
   switch (bendTag(publication)) {
     case 'KeepPublished': break;
     case 'Publish': {
       const ticket = Bend.focus_ticket(state);
       const before = observedFocus();
       renderer.render(publication.document, publication.generation);
+      revealLayoutTargets();
       const after = observedFocus();
+      const focusRevision = focusAttemptRevision;
       const feedback = Bend.publication_focus_feedback(publication, ticket, before, after);
       if (bendTag(feedback) === 'Some') queueMicrotask(() => {
-        if (!disposed) platform(feedback.value);
+        if (!disposed && focusRevision === focusAttemptRevision) platform(feedback.value);
       });
       renderedGeneration = publication.generation > 0n ? publication.generation : null;
       // Publication establishes the baseline; only later native content reflow requests a new measurement.
       displayedGeometry = geometrySignature();
       if (renderedGeneration !== null) requestDisplayedFrame(renderedGeneration);
-      if (pendingFocus) applyFocus(pendingFocus);
+      retryPendingFocus();
       break;
     }
     default: throw new TypeError(`Unknown publication ${publication.$}`);
@@ -272,21 +278,36 @@ function sameFocus(target, observed) {
   return target.identity === observed.value.identity && (bendTag(target) !== 'Content' || target.owner === observed.value.owner);
 }
 function applyFocus(physical) {
-  if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus = null; return; }
-  const target = physical.target;
-  const node = bendTag(target) === 'Product' ? renderer.target(target.identity)
-    : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
-  pendingFocus = physical;
-  if (!node) return;
-  // Programmatic focus is correlated by its receipt; user focus changes revoke its ticket.
-  applyingFocus = true;
-  try { node.focus({ preventScroll: false }); } finally { applyingFocus = false; }
-  const observed = observedFocus();
-  if (sameFocus(target, observed)) pendingFocus = null;
-  platform(bendValue('browser/runtime/PLATFORM.FocusApplied', { ticket: physical.ticket, target, observed }));
+  if (physical.ticket !== Bend.focus_ticket(state)) return;
+  pendingFocus.push(physical);
+  retryPendingFocus();
 }
 function retryPendingFocus() {
-  if (!disposed && pendingFocus && document.visibilityState === 'visible') applyFocus(pendingFocus);
+  if (disposed || drainingFocus || document.visibilityState !== 'visible') return;
+  drainingFocus = true;
+  try {
+    while (pendingFocus.length) {
+      const physical = pendingFocus[0];
+      if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus.shift(); continue; }
+      const target = physical.target;
+      const node = bendTag(target) === 'Product' ? renderer.target(target.identity)
+        : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
+      if (!node) break;
+      // Keep effect order while publication prepares a missing target. A later
+      // focus must not replace an earlier request that also exposes its target.
+      focusAttemptRevision++;
+      applyingFocus = true;
+      try {
+        node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        node.focus({ preventScroll: false });
+      } finally { applyingFocus = false; }
+      const observed = observedFocus();
+      const confirmed = sameFocus(target, observed);
+      if (confirmed) pendingFocus.shift();
+      platform(bendValue('browser/runtime/PLATFORM.FocusApplied', { ticket: physical.ticket, target, observed }));
+      if (!confirmed) break;
+    }
+  } finally { drainingFocus = false; }
 }
 
 function commit(decision) {
@@ -701,6 +722,8 @@ const motion = matchMedia('(prefers-reduced-motion: reduce)');
 motion.addEventListener('change', () => platform(bendValue('browser/runtime/PLATFORM.MotionPreference', { reduced: bool(motion.matches) })));
 root.addEventListener('focusin', () => {
   if (applyingFocus) return;
+  focusAttemptRevision++;
+  pendingFocus = [];
   nativeLinks();
   const anchor = nativeAnchor(document.activeElement);
   if (!anchor) { platform(bendValue('browser/runtime/PLATFORM.FocusObserved', { identity: owner(document.activeElement) })); return; }
@@ -713,6 +736,7 @@ root.addEventListener('focusin', () => {
 });
 window.addEventListener('pagehide', () => {
   disposed = true;
+  pendingFocus = [];
   if (displayedFrameRequest !== null) cancelAnimationFrame(displayedFrameRequest);
   displayedFrameRequest = null;
   requestedFrameGeneration = null;

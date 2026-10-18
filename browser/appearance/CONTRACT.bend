@@ -520,3 +520,27 @@ law supporting_content_chrome:
   @emphasis:T.Emphasis -> @scale:T.Scale ->
   {Appearance.content_chrome(T.Presentation{T.ActivitySupport{}, emphasis, scale}) ==
     Appearance.chrome(Design.TextForeground{Surfaces.SecondaryText{}}, Appearance.surface(Surfaces.EmbeddedAction{}, Surfaces.Rest{}), Appearance.transparent(), 0n, 0n, False{}) : Design.Chrome}
+
+law touch_navigation_minimum_preserves_style:
+  for +text: T.Presentation
+  for +chrome: Design.Chrome
+  for +alignment: SpatialModel.Alignment
+  for +flow: SpatialModel.Flow
+  for +overflow: SpatialModel.Overflow
+  for +frame: Enclosure.Frame
+  for +minimum: Nat
+  for +maximum: Nat
+  for +states: Design.ControlStates
+  {Appearance.touch_navigation_minimum(Design.Style{text, chrome, alignment, flow, overflow, frame, minimum, maximum, states}) ==
+    Design.Style{text, chrome, alignment, flow, overflow, frame, Nat.max(44n, minimum), maximum, states} : Design.Style}
+
+law desktop_navigation_style_preserved:
+  for +representation: Controls.Representation
+  for +visual: Design.Style
+  {Appearance.touch_navigation_style(False{}, representation, visual) == visual : Design.Style}
+
+law touch_navigation_owned_target_uses_motor_floor:
+  for +representation: Controls.Representation
+  for +visual: Design.Style
+  for eligible: {Controls.navigation_motor_target(representation) == True{} : Bool}
+  {Appearance.touch_navigation_style(True{}, representation, visual) == Appearance.touch_navigation_minimum(visual) : Design.Style}

@@ -13,17 +13,18 @@ import ./operations.bend as O
 import ./graph-state.bend as State
 import ./graph-spec.bend as Spec
 import ./graph-execution.bend as Actual
+import ./work-state.bend as WorkState
 
-def admitted(+accepted: Bool, +key: String, +id: Nat, +previous: +List<G.ResolvedNode>, +before: +List<M.Effect()>, +world: M.World(), +reply: J.Json, +effects: +List<M.Effect()>) ->
-  {Actual.admitted(accepted, key, id, previous, before, world, reply, effects) == Spec.admitted(accepted, key, id, previous, before, world, reply, effects) : Spec.Births}:
+def admitted(+accepted: Bool, +work: Maybe<&2, Nat>, +key: String, +id: Nat, +previous: +List<G.ResolvedNode>, +before: +List<M.Effect()>, +world: M.World(), +reply: J.Json, +effects: +List<M.Effect()>) ->
+  {Actual.admitted(accepted, work, key, id, previous, before, world, reply, effects) == Spec.admitted(accepted, work, key, id, previous, before, world, reply, effects) : Spec.Births}:
   match accepted:
     case False{}: {==}
     case True{}: {==}
 
-def created(+key: String, +id: Nat, +previous: +List<G.ResolvedNode>, +before: +List<M.Effect()>, +decision: M.Decision()) ->
-  {Actual.created(key, id, previous, before, decision) == Spec.created(key, id, previous, before, decision) : Spec.Births}:
+def created(+work: Maybe<&2, Nat>, +key: String, +id: Nat, +previous: +List<G.ResolvedNode>, +before: +List<M.Effect()>, +decision: M.Decision()) ->
+  {Actual.created(work, key, id, previous, before, decision) == Spec.created(work, key, id, previous, before, decision) : Spec.Births}:
   C.Decision{+world, +reply, +effects} = decision
-  admitted(J.boolean(J.get(reply, "ok")), key, id, previous, before, world, reply, effects)
+  admitted(J.boolean(J.get(reply, "ok")), work, key, id, previous, before, world, reply, effects)
 
 # Full decisions are the interaction premise, including effects and failures.
 def birth(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
@@ -34,17 +35,17 @@ def birth(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection ->
   {Actual.birth(~actual_spawn, progress, node) == Spec.birth(~spec_spawn, progress, node) : Spec.Births}:
   match progress node:
     case Spec.BirthFailed{reply} _: {==}
-    case Spec.Born{world, previous, effects} O.GraphExisting{key, task}: {==}
-    case Spec.Born{+world, +previous, +effects} O.GraphSpawn{+key, +profile, +reasoning, +message, +selection}:
+    case Spec.Born{world, work, previous, effects} O.GraphExisting{key, task}: {==}
+    case Spec.Born{+world, +work, +previous, +effects} O.GraphSpawn{+key, +profile, +reasoning, +message, +selection}:
       Equal.trans(Spec.Births,
-        Actual.created(key, Actual.next_task(world), previous, effects, actual_spawn(profile, reasoning, message, selection, world)),
-        Actual.created(key, Actual.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)),
-        Spec.created(key, Spec.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)),
+        Actual.created(work, key, Actual.next_task(world), previous, effects, actual_spawn(profile, reasoning, message, selection, world)),
+        Actual.created(work, key, Actual.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)),
+        Spec.created(work, key, Spec.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)),
         Equal.cong(M.Decision(), Spec.Births,
-          value => Actual.created(key, Actual.next_task(world), previous, effects, value),
+          value => Actual.created(work, key, Actual.next_task(world), previous, effects, value),
           actual_spawn(profile, reasoning, message, selection, world), spec_spawn(profile, reasoning, message, selection, world),
           creation(profile, reasoning, message, selection, world)),
-        created(key, Actual.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)))
+        created(work, key, Actual.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)))
 
 def births_from(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
@@ -68,31 +69,36 @@ def installed(+id: Nat, +declaration: G.Declaration, +result: Spec.Births, +orig
   {Actual.installed(id, declaration, result, original) == Spec.installed(id, declaration, result, original) : M.Decision()}:
   match declaration result:
     case _ Spec.BirthFailed{reply}: {==}
-    case G.Declaration{+name, +declared, +rules} Spec.Born{+world, +nodes, +effects}:
+    case G.Declaration{+name, +declared, +rules} Spec.Born{+world, +work, +nodes, +effects}:
       Equal.cong(G.State, M.Decision(),
-        registry => C.Decision{State.store(registry, world), D.success(Codec.graph_json(id, G.Graph{name, nodes, rules, Nil{}})), effects},
+        registry => C.Decision{State.associate_graph(work, id, State.store(registry, world)), D.success(Codec.graph_json(id, G.Graph{name, nodes, rules, Nil{}})), effects},
         Graph.install(id, G.Declaration{name, declared, rules}, nodes, State.registry(world)),
         GraphSpec.install(id, G.Declaration{name, declared, rules}, nodes, State.registry(world)),
         Registry.install_meaning(id, G.Declaration{name, declared, rules}, nodes, State.registry(world)))
+
+def failed_installation(+id: Nat, +declaration: G.Declaration, +reply: J.Json, +original: M.World()) ->
+  {Actual.installed(id, declaration, Spec.BirthFailed{reply}, original) == C.Decision{original, reply, Nil{}} : M.Decision()}:
+  match declaration:
+    case G.Declaration{name, nodes, rules}: {==}
 
 def install(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
-  +id: Nat, +declaration: G.Declaration, +nodes: +List<O.GraphNode>, +world: M.World()) ->
-  {Actual.install(~actual_spawn, id, declaration, nodes, world) == Spec.install(~spec_spawn, id, declaration, nodes, world) : M.Decision()}:
+  +id: Nat, +work: Maybe<&2, Nat>, +declaration: G.Declaration, +nodes: +List<O.GraphNode>, +world: M.World()) ->
+  {Actual.install(~actual_spawn, id, work, declaration, nodes, world) == Spec.install(~spec_spawn, id, work, declaration, nodes, world) : M.Decision()}:
   Equal.trans(M.Decision(),
-    Actual.installed(id, declaration, Actual.births(~actual_spawn, nodes, world), world),
-    Actual.installed(id, declaration, Spec.births(~spec_spawn, nodes, world), world),
-    Spec.installed(id, declaration, Spec.births(~spec_spawn, nodes, world), world),
+    Actual.installed(id, declaration, Actual.births(~actual_spawn, nodes, work, world), world),
+    Actual.installed(id, declaration, Spec.births(~spec_spawn, nodes, work, world), world),
+    Spec.installed(id, declaration, Spec.births(~spec_spawn, nodes, work, world), world),
     Equal.cong(Spec.Births, M.Decision(), result => Actual.installed(id, declaration, result, world),
-      Actual.births(~actual_spawn, nodes, world), Spec.births(~spec_spawn, nodes, world),
-      births_from(~actual_spawn, ~spec_spawn, ~creation, nodes, Spec.Born{world, Nil{}, Nil{}})),
-    installed(id, declaration, Spec.births(~spec_spawn, nodes, world), world))
+      Actual.births(~actual_spawn, nodes, work, world), Spec.births(~spec_spawn, nodes, work, world),
+      births_from(~actual_spawn, ~spec_spawn, ~creation, nodes, Spec.Born{world, work, Nil{}, Nil{}})),
+    installed(id, declaration, Spec.births(~spec_spawn, nodes, work, world), world))
 
 def remove(+id: Nat, +world: M.World()) ->
   {Actual.remove(id, world) == Spec.remove(id, world) : M.Decision()}:
-  Equal.cong(G.State, M.Decision(), registry => C.Decision{State.store(registry, world), D.success(J.Object{[J.Field{"graph_id", J.nat(id)}]}), Nil{}},
+  Equal.cong(G.State, M.Decision(), registry => C.Decision{WorkState.dissociate_graph(id, State.store(registry, world)), D.success(J.Object{[J.Field{"graph_id", J.nat(id)}]}), Nil{}},
     Graph.remove(id, State.registry(world)), GraphSpec.remove(id, State.registry(world)), Registry.remove_meaning(id, State.registry(world)))
 
 def recorded(+source: Nat, +graph: Nat, +rule: String, +target: Nat, +before: +List<M.Effect()>, +decision: M.Decision()) ->

@@ -446,7 +446,8 @@ export class Service extends EventEmitter {
         return result.reply.ok ? result.reply.result.workspace : undefined;
       },
     });
-    if (command.op === 'create_worktree_task') {
+    if (command.op === 'create_worktree_task' ||
+      (command.op === 'create_work_task' && command.create_worktree === true)) {
       if (!observed.settings?.workspace) {
         observed = await observeWorkspaceCommand({ ...observed,
           settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);

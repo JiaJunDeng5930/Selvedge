@@ -70,7 +70,7 @@ export async function snapshotGlobalInstructions(home, limits, options) {
  */
 export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
   if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
-  const settingCommand = ['create', 'create_worktree_task', 'fork', 'save_board_agent'].includes(command.op);
+  const settingCommand = ['create', 'create_work_task', 'create_worktree_task', 'fork', 'save_board_agent'].includes(command.op);
   const projectCommand = ['create_project', 'update_project'].includes(command.op);
   if (graphCommand(command) && Array.isArray(command.nodes)) {
     const nodes = await Promise.all(command.nodes.map(async node => {
@@ -96,7 +96,7 @@ function newGraphNode(node) {
 }
 
 export function hasRootTaskCreation(command) {
-  return ['create', 'create_worktree_task'].includes(command?.op) || (command !== null && typeof command === 'object' &&
+  return ['create', 'create_work_task', 'create_worktree_task'].includes(command?.op) || (command !== null && typeof command === 'object' &&
     graphCommand(command) && Array.isArray(command.nodes) && command.nodes.some(newGraphNode));
 }
 

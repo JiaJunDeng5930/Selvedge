@@ -2,6 +2,8 @@ import Base
 import ../../features/remote/CONTRACT.bend as Remote
 import ../../features/remote/PROOF.bend as RemoteProof
 import ./worktree-proof.bend as WorktreeProof
+import ./worktree-execution.bend as WorktreeExec
+import ./worktree-spec.bend as WorktreeSpec
 import ./worktree-sharing-proof.bend as WorktreeSharingProof
 import ../../features/worktree/PROOF.bend as WorktreeRegistryProof
 import ../../features/compaction/PROOF.bend as CompactionProof
@@ -27,6 +29,10 @@ import ../../features/chatgpt/PROOF.bend as ChatGPTProof
 import ../../features/task_graph/PROOF.bend as TaskGraphProof
 import ./graph-proof.bend as GraphProof
 import ./PROOF.bend as StorageProof
+import ../../features/work/PROOF.bend as WorkProof
+import ./work-proof.bend as WorkAssemblyProof
+import ./work-state.bend as WorkState
+import ../../bendlib/component.bend as C
 
 # Task creation is an actual interaction boundary. Its complete-decision proof
 # is an explicit premise; no callback silently substitutes for that premise.
@@ -38,6 +44,28 @@ def meaning(
   operation: O.Operation, +world: M.World()) ->
   {Actual.realize_calculation(~actual_spawn, operation, world) == Spec.meaning(~spec_spawn, operation, world) : M.Decision()}:
   match operation:
+    case O.WorkChange{change}: WorkAssemblyProof.assembled(change, world)
+    case O.StartWorkTask{+work, +profile, +reasoning, +message, +selection}:
+      +task = D.state_next_task(C.local(D.State, F.State(), world))
+      Equal.trans(M.Decision(),
+        WorkState.born(work, task, world, actual_spawn(profile, reasoning, message, selection, world)),
+        WorkState.born(work, task, world, spec_spawn(profile, reasoning, message, selection, world)),
+        Spec.work_created(work, task, world, spec_spawn(profile, reasoning, message, selection, world)),
+        Equal.cong(M.Decision(), M.Decision(), value => WorkState.born(work, task, world, value),
+          actual_spawn(profile, reasoning, message, selection, world), spec_spawn(profile, reasoning, message, selection, world),
+          creation(profile, reasoning, message, selection, world)),
+        WorkAssemblyProof.created(work, task, world, spec_spawn(profile, reasoning, message, selection, world)))
+    case O.StartWorkWorktree{+work, +profile, +reasoning, +message, +selection}:
+      +task = D.state_next_task(C.local(D.State, F.State(), world))
+      Equal.trans(M.Decision(),
+        WorkState.born(work, task, world, WorktreeExec.start(~actual_spawn, profile, reasoning, message, selection, world)),
+        WorkState.born(work, task, world, WorktreeSpec.start(~spec_spawn, profile, reasoning, message, selection, world)),
+        Spec.work_created(work, task, world, WorktreeSpec.start(~spec_spawn, profile, reasoning, message, selection, world)),
+        Equal.cong(M.Decision(), M.Decision(), value => WorkState.born(work, task, world, value),
+          WorktreeExec.start(~actual_spawn, profile, reasoning, message, selection, world),
+          WorktreeSpec.start(~spec_spawn, profile, reasoning, message, selection, world),
+          WorktreeProof.start(~actual_spawn, ~spec_spawn, ~creation, profile, reasoning, message, selection, world)),
+        WorkAssemblyProof.created(work, task, world, WorktreeSpec.start(~spec_spawn, profile, reasoning, message, selection, world)))
     case O.RemoteChange{change}: {==}
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeProof.start(~actual_spawn, ~spec_spawn, ~creation, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeProof.retry_archive(id, world)
@@ -52,7 +80,7 @@ def meaning(
           actual_spawn(profile, reasoning, message, selection, world), spec_spawn(profile, reasoning, message, selection, world),
           creation(profile, reasoning, message, selection, world)),
         Boundary.birth_meaning(id, State.task_id(world), card, now, spec_spawn(profile, reasoning, message, selection, world)))
-    case O.InstallGraph{id, declaration, nodes}: GraphProof.install(~actual_spawn, ~spec_spawn, ~creation, id, declaration, nodes, world)
+    case O.InstallGraph{id, work, declaration, nodes}: GraphProof.install(~actual_spawn, ~spec_spawn, ~creation, id, work, declaration, nodes, world)
     case O.DeleteGraph{id}: GraphProof.remove(id, world)
 
 def event(event: O.ResolvedEvent, world: M.World()) ->
@@ -64,7 +92,7 @@ def event(event: O.ResolvedEvent, world: M.World()) ->
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, source => root => message => primary => {==}, source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary()}
+  Architecture.Features{Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, source => root => message => primary => {==}, source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary(), WorkProof.boundary(), StorageProof.work_storage()}
 
 def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
   ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),

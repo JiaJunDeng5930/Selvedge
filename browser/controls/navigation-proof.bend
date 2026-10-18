@@ -65,3 +65,29 @@ def Sidebar.construct_collection():
 
 def Sidebar.collection_constructor_correspondence():
   +request => {==}
+
+
+def Sidebar.navigation_row_minimum_combines_target_and_actual_line_box():
+  +capacity => +visual => {==}
+
+def Sidebar.navigation_caption_keeps_complete_single_line_text():
+  key => value => font => wrapping => rest => {==}
+
+def Sidebar.collection_separates_groups_with_hierarchy_heading_gap():
+  {==}
+
+def Sidebar.project_header_and_members_are_contiguous():
+  {==}
+
+def Sidebar.task_rows_are_contiguous():
+  {==}
+
+
+def Sidebar.indentation_uses_hierarchy_membership_step():
+  +capacity => +depth => +visual => {==}
+
+def Sidebar.navigation_title_keeps_existing_reason():
+  name => {==}
+
+def Sidebar.navigation_title_supplies_complete_name_without_reason():
+  +name => {==}

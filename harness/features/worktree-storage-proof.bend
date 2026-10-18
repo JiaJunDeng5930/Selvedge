@@ -8,6 +8,7 @@ import ../../features/chatgpt/MODEL.bend as ChatGPT
 import ../../features/task_graph/MODEL.bend as TaskGraph
 import ../../features/compaction/MODEL.bend as Compaction
 import ../../features/remote/MODEL.bend as Remote
+import ../../features/work/MODEL.bend as Work
 import ../../bendlib/component.bend as C
 import ../MODEL.bend as M
 import ../DOMAIN.bend as D
@@ -47,10 +48,15 @@ def remote_frame(value: W.State, +state: F.State()) ->
   match state:
     case C.Frame{board, C.Frame{chatgpt, C.Frame{graph, C.Frame{compaction, C.Frame{previous, rest}}}}}: {==}
 
+def work_frame(value: W.State, +state: F.State()) ->
+  {F.work(F.with_worktree(value, state)) == F.work(state) : Work.State}:
+  match state:
+    case C.Frame{board, C.Frame{chatgpt, C.Frame{graph, C.Frame{compaction, C.Frame{previous, rest}}}}}: {==}
+
 def core_frame(value: W.State, +world: M.World()) ->
   {C.local(D.State, F.State(), State.store(value, world)) == C.local(D.State, F.State(), world) : D.State}:
   match world:
     case C.Frame{core, features}: {==}
 
 def worktree_storage() -> Contract.WorktreeStorage:
-  Contract.WorktreeStorage{written, board_frame, chatgpt_frame, task_graph_frame, compaction_frame, remote_frame, rest_frame, core_frame}
+  Contract.WorktreeStorage{written, board_frame, chatgpt_frame, task_graph_frame, compaction_frame, remote_frame, work_frame, rest_frame, core_frame}
