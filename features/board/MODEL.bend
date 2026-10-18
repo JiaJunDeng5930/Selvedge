@@ -290,14 +290,33 @@ def stage_label(stage: Stage) -> String:
     case Completed{}: "已完成"
     case Blocked{}: "已阻塞"
 
-def stage(value: String) -> Stage:
+type StageName is Data:
+  StageNameBacklog{}
+  StageNameInProgress{}
+  StageNameInReview{}
+  StageNameDone{}
+  StageNameBlocked{}
+  StageNameOther{}
+
+def stage_discriminant(+value: String) -> StageName:
+  Bool.pick(StageName, String.eq(value, "backlog"), StageNameBacklog{},
+    Bool.pick(StageName, String.eq(value, "in_progress"), StageNameInProgress{},
+    Bool.pick(StageName, String.eq(value, "in_review"), StageNameInReview{},
+    Bool.pick(StageName, String.eq(value, "done"), StageNameDone{},
+    Bool.pick(StageName, String.eq(value, "blocked"), StageNameBlocked{},
+    StageNameOther{})))))
+
+def stage_classified(value: StageName) -> Stage:
   match value:
-    case "backlog": Backlog{}
-    case "in_progress": InProgress{}
-    case "in_review": InReview{}
-    case "done": Completed{}
-    case "blocked": Blocked{}
-    case _: Todo{}
+    case StageNameBacklog{}: Backlog{}
+    case StageNameInProgress{}: InProgress{}
+    case StageNameInReview{}: InReview{}
+    case StageNameDone{}: Completed{}
+    case StageNameBlocked{}: Blocked{}
+    case StageNameOther{}: Todo{}
+
+def stage(value: String) -> Stage:
+  stage_classified(stage_discriminant(value))
 
 def priorities() -> +List<Priority>:
   [NoPriority{}, Low{}, Medium{}, High{}, Urgent{}]
@@ -326,13 +345,30 @@ def priority_rank(priority: Priority) -> Nat:
     case High{}: 3n
     case Urgent{}: 4n
 
-def priority(value: String) -> Priority:
+type PriorityName is Data:
+  PriorityNameLow{}
+  PriorityNameMedium{}
+  PriorityNameHigh{}
+  PriorityNameUrgent{}
+  PriorityNameOther{}
+
+def priority_discriminant(+value: String) -> PriorityName:
+  Bool.pick(PriorityName, String.eq(value, "low"), PriorityNameLow{},
+    Bool.pick(PriorityName, String.eq(value, "medium"), PriorityNameMedium{},
+    Bool.pick(PriorityName, String.eq(value, "high"), PriorityNameHigh{},
+    Bool.pick(PriorityName, String.eq(value, "urgent"), PriorityNameUrgent{},
+    PriorityNameOther{}))))
+
+def priority_classified(value: PriorityName) -> Priority:
   match value:
-    case "low": Low{}
-    case "medium": Medium{}
-    case "high": High{}
-    case "urgent": Urgent{}
-    case _: NoPriority{}
+    case PriorityNameLow{}: Low{}
+    case PriorityNameMedium{}: Medium{}
+    case PriorityNameHigh{}: High{}
+    case PriorityNameUrgent{}: Urgent{}
+    case PriorityNameOther{}: NoPriority{}
+
+def priority(value: String) -> Priority:
+  priority_classified(priority_discriminant(value))
 
 def owner_name(owner: Owner) -> String:
   match owner:

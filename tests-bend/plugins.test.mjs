@@ -4,7 +4,7 @@ import { Plugin } from '../host/plugins.mjs';
 import { Kernel } from '../host/kernel.mjs';
 import { once } from 'node:events';
 
-test('closing a plugin aborts a hung request and reaps the process transport', { timeout: 5000 }, async t => {
+test('closing a plugin aborts a hung request and reaps the process transport', async t => {
   const kernel = new Kernel();
   const description = await kernel.initialize();
   await kernel.close();

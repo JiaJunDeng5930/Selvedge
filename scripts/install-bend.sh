@@ -11,7 +11,7 @@ checksum="$(awk -v name="${archive}" '$2 == name {print $1}' "${repo_root}/bend-
 mkdir -p "${repo_root}/.build"
 scratch="$(mktemp -d "${repo_root}/.build/install.XXXXXX")"
 trap 'rm -rf "${scratch}"' EXIT
-curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 15 --max-time 300 \
+curl --proto '=https' --tlsv1.2 -fsSL \
   "https://github.com/bendlang/bend/releases/download/v${version}/${archive}" -o "${scratch}/${archive}"
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "${scratch}/${archive}")"

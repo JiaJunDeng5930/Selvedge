@@ -35,12 +35,27 @@ def age(+ordered: Bool, +now: U32, +then: U32) -> U32:
 def elapsed(+now: U32, +then: U32) -> U32:
   age(U32.is_le(then, now), now, then)
 
-def day_limit(+days: String) -> U32:
+type DayLimitName is Data:
+  DayLimitName1{}
+  DayLimitName7{}
+  DayLimitName30{}
+  DayLimitNameOther{}
+
+def day_limit_discriminant(+value: String) -> DayLimitName:
+  Bool.pick(DayLimitName, String.eq(value, "1"), DayLimitName1{},
+    Bool.pick(DayLimitName, String.eq(value, "7"), DayLimitName7{},
+    Bool.pick(DayLimitName, String.eq(value, "30"), DayLimitName30{},
+    DayLimitNameOther{})))
+
+def day_limit_classified(+days: DayLimitName) -> U32:
   match days:
-    case "1": 86400
-    case "7": 604800
-    case "30": 2592000
-    case _: 0
+    case DayLimitName1{}: 86400
+    case DayLimitName7{}: 604800
+    case DayLimitName30{}: 2592000
+    case DayLimitNameOther{}: 0
+
+def day_limit(+days: String) -> U32:
+  day_limit_classified(day_limit_discriminant(days))
 
 def any_date(+values: +List<String>, +elapsed: U32) -> Bool:
   match values:
@@ -52,12 +67,27 @@ def date(+values: +List<String>, +elapsed: U32) -> Bool:
     case Nil{}: True{}
     case entries: any_date(entries, elapsed)
 
-def tab(+view: String, +assigned: Bool, +working: Bool) -> Bool:
+type TabName is Data:
+  TabNameAssigned{}
+  TabNameUnassigned{}
+  TabNameWorking{}
+  TabNameOther{}
+
+def tab_discriminant(+value: String) -> TabName:
+  Bool.pick(TabName, String.eq(value, "assigned"), TabNameAssigned{},
+    Bool.pick(TabName, String.eq(value, "unassigned"), TabNameUnassigned{},
+    Bool.pick(TabName, String.eq(value, "working"), TabNameWorking{},
+    TabNameOther{})))
+
+def tab_classified(+view: TabName, +assigned: Bool, +working: Bool) -> Bool:
   match view:
-    case "assigned": assigned
-    case "unassigned": Bool.not(assigned)
-    case "working": working
-    case _: True{}
+    case TabNameAssigned{}: assigned
+    case TabNameUnassigned{}: Bool.not(assigned)
+    case TabNameWorking{}: working
+    case TabNameOther{}: True{}
+
+def tab(+view: String, +assigned: Bool, +working: Bool) -> Bool:
+  tab_classified(tab_discriminant(view), assigned, working)
 
 def text(+query: String, +id: Nat, +card: B.Card) -> Bool:
   String.contains(String.to_lower(B.identifier(id) ++ " " ++ B.title(B.draft(card)) ++ " " ++ B.description(B.draft(card))),

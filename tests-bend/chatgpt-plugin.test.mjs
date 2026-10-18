@@ -12,7 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { saveConnection } from '../plugins/selvedge-chatgpt/bin/setup.mjs';
 
-test('the official MCP SDK launches the installed stdio manifest and calls its HTTP-backed tool', { timeout: 40_000 }, async t => {
+test('the official MCP SDK launches the installed stdio manifest and calls its HTTP-backed tool', async t => {
   const base = await home(t);
   const state = path.join(base, 'state');
   const initial = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });

@@ -134,16 +134,39 @@ def default_value(+value: J.Json, +fallback: J.Json) -> J.Json:
     case J.Null{}: fallback
     case other: other
 
-def route(+tool: String) -> String:
+type RouteName is Data:
+  RouteNameListProjects{}
+  RouteNameGetProject{}
+  RouteNameExec{}
+  RouteNameGetOperation{}
+  RouteNameListOperations{}
+  RouteNameCancelOperation{}
+  RouteNameForgetOperation{}
+  RouteNameOther{}
+
+def route_discriminant(+value: String) -> RouteName:
+  Bool.pick(RouteName, String.eq(value, "list_projects"), RouteNameListProjects{},
+    Bool.pick(RouteName, String.eq(value, "get_project"), RouteNameGetProject{},
+    Bool.pick(RouteName, String.eq(value, "exec"), RouteNameExec{},
+    Bool.pick(RouteName, String.eq(value, "get_operation"), RouteNameGetOperation{},
+    Bool.pick(RouteName, String.eq(value, "list_operations"), RouteNameListOperations{},
+    Bool.pick(RouteName, String.eq(value, "cancel_operation"), RouteNameCancelOperation{},
+    Bool.pick(RouteName, String.eq(value, "forget_operation"), RouteNameForgetOperation{},
+    RouteNameOther{})))))))
+
+def route_classified(+tool: RouteName) -> String:
   match tool:
-    case "list_projects": "chatgpt_projects"
-    case "get_project": "chatgpt_project"
-    case "exec": "chatgpt_exec"
-    case "get_operation": "chatgpt_operation"
-    case "list_operations": "chatgpt_operations"
-    case "cancel_operation": "chatgpt_cancel"
-    case "forget_operation": "chatgpt_forget"
-    case _: ""
+    case RouteNameListProjects{}: "chatgpt_projects"
+    case RouteNameGetProject{}: "chatgpt_project"
+    case RouteNameExec{}: "chatgpt_exec"
+    case RouteNameGetOperation{}: "chatgpt_operation"
+    case RouteNameListOperations{}: "chatgpt_operations"
+    case RouteNameCancelOperation{}: "chatgpt_cancel"
+    case RouteNameForgetOperation{}: "chatgpt_forget"
+    case RouteNameOther{}: ""
+
+def route(+tool: String) -> String:
+  route_classified(route_discriminant(tool))
 
 def field_names(+fields: +List<J.Field>) -> +List<String>:
   match fields:
@@ -325,16 +348,31 @@ def call_request(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
   call_request_guard_1(matching(J.get(J.get(J.get(effect, "tool"), "source"), "plugin"), J.get(source, "reference")), effect)
 
-def hook_valid_guard_1(+guard: String, +outcome: J.Json, +after: Bool) -> Bool:
+type HookValidGuard1Name is Data:
+  HookValidGuard1NameAllow{}
+  HookValidGuard1NameRewrite{}
+  HookValidGuard1NameDeny{}
+  HookValidGuard1NameOther{}
+
+def hook_valid_guard_1_discriminant(+value: String) -> HookValidGuard1Name:
+  Bool.pick(HookValidGuard1Name, String.eq(value, "allow"), HookValidGuard1NameAllow{},
+    Bool.pick(HookValidGuard1Name, String.eq(value, "rewrite"), HookValidGuard1NameRewrite{},
+    Bool.pick(HookValidGuard1Name, String.eq(value, "deny"), HookValidGuard1NameDeny{},
+    HookValidGuard1NameOther{})))
+
+def hook_valid_guard_1_classified(+guard: HookValidGuard1Name, +outcome: J.Json, +after: Bool) -> Bool:
   match guard:
-    case "allow": keys(outcome, ["decision"]) && Nat.is_eq(field_count(outcome), 1n)
-    case "rewrite":
+    case HookValidGuard1NameAllow{}: keys(outcome, ["decision"]) && Nat.is_eq(field_count(outcome), 1n)
+    case HookValidGuard1NameRewrite{}:
       match after:
         case True{}: keys(outcome, ["decision", "value"]) && has(outcome, "value") && Nat.is_eq(field_count(outcome), 2n)
         case False{}: keys(outcome, ["decision", "arguments"]) && J.is_object(J.get(outcome, "arguments")) && Nat.is_eq(field_count(outcome), 2n)
-    case "deny": keys(outcome, ["decision", "reason"]) && Nat.is_eq(field_count(outcome), 2n) &&
+    case HookValidGuard1NameDeny{}: keys(outcome, ["decision", "reason"]) && Nat.is_eq(field_count(outcome), 2n) &&
       text(J.get(outcome, "reason")) && Nat.is_le(J.utf8_length(J.text(J.get(outcome, "reason"))), 4096n)
-    case _: False{}
+    case HookValidGuard1NameOther{}: False{}
+
+def hook_valid_guard_1(+guard: String, +outcome: J.Json, +after: Bool) -> Bool:
+  hook_valid_guard_1_classified(hook_valid_guard_1_discriminant(guard), outcome, after)
 
 def hook_valid(+outcome: J.Json, +after: Bool) -> Bool:
   hook_valid_guard_1(J.text(J.get(outcome, "decision")), outcome, after)
@@ -993,14 +1031,29 @@ def settings_file_match_2(+scrutinee: Bool) -> J.Json:
     case True{}: Model.success(J.Null{})
     case False{}: Model.failure("The connection file must be a private, owned regular file of at most 4096 bytes")
 
-def settings_file_match_3(+scrutinee: String, +source: J.Json) -> J.Json:
+type SettingsFileMatch3Name is Data:
+  SettingsFileMatch3NamePath{}
+  SettingsFileMatch3NameMetadata{}
+  SettingsFileMatch3NameKeys{}
+  SettingsFileMatch3NameOther{}
+
+def settings_file_match_3_discriminant(+value: String) -> SettingsFileMatch3Name:
+  Bool.pick(SettingsFileMatch3Name, String.eq(value, "path"), SettingsFileMatch3NamePath{},
+    Bool.pick(SettingsFileMatch3Name, String.eq(value, "metadata"), SettingsFileMatch3NameMetadata{},
+    Bool.pick(SettingsFileMatch3Name, String.eq(value, "keys"), SettingsFileMatch3NameKeys{},
+    SettingsFileMatch3NameOther{})))
+
+def settings_file_match_3_classified(+scrutinee: SettingsFileMatch3Name, +source: J.Json) -> J.Json:
   match scrutinee:
-    case "path": Model.success(J.Null{})
-    case "metadata":
+    case SettingsFileMatch3NamePath{}: Model.success(J.Null{})
+    case SettingsFileMatch3NameMetadata{}:
       settings_file_match_2(J.boolean(J.get(source, "nofollow")) && J.boolean(J.get(source, "regular")) && Model.nonnegative_le(J.get(source, "bytes"), "4096") && Model.nonnegative_le(J.get(source, "mode"), "4294967295") && Nat.is_eq(Nat.mod(J.natural_or(J.natural(J.get(source, "mode")), 1n), 64n), 0n) && J.same(J.get(source, "owner_uid"), J.get(source, "current_uid")))
-    case "keys":
+    case SettingsFileMatch3NameKeys{}:
       settings_file_match_1(J.boolean(J.get(source, "object")) && settings_keys(J.items(J.get(source, "keys"))))
-    case _: Model.failure("Invalid connection file")
+    case SettingsFileMatch3NameOther{}: Model.failure("Invalid connection file")
+
+def settings_file_match_3(+scrutinee: String, +source: J.Json) -> J.Json:
+  settings_file_match_3_classified(settings_file_match_3_discriminant(scrutinee), source)
 
 def settings_file_match_4(+scrutinee: Bool, +source: J.Json) -> J.Json:
   match scrutinee:

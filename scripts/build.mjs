@@ -7,21 +7,26 @@ import { compiler, expectedVersion } from './toolchain.mjs';
 import { checkBundle } from './import-stdlib.mjs';
 import { checkRelations } from './import-relations.mjs';
 import { checkMaps } from './import-maps.mjs';
-import { verifyProof } from './verify-proof.mjs';
 import { checkComponents, bendSources, entrySources } from './check-components.mjs';
-import { compileJavaScript } from './compile-javascript.mjs';
+import { compileJavaScriptBatch } from './compile-javascript.mjs';
 import { prepareUiVerification } from './ui-verification.mjs';
 import { buildModel } from '../plugins/selvedge-chatgpt/scripts/build-model.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-async function compileEntry(entry, output, force, { publicSource = entry, namespacePrefix = '' } = {}) {
+async function timed(label, action) {
+  const started = performance.now();
+  const result = await action();
+  console.log(`${label} (${((performance.now() - started) / 1000).toFixed(2)}s).`);
+  return result;
+}
+
+async function entryRequest(entry, output, { publicSource = entry, namespacePrefix = '' } = {}) {
   // Root entry definitions are public wrappers; import aliases are not compiler names.
   const source = await readFile(path.join(root, publicSource), 'utf8');
   const names = [...source.matchAll(/^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm)].map(match => match[1]);
   if (!names.length) throw new Error(`No public Bend wrappers in ${publicSource}`);
-  if (force) await rm(path.join(root, `${output}.json`), { force: true });
-  return compileJavaScript({ entry, exports: Object.fromEntries(names.map(name => [name, `${namespacePrefix}${name}`])), output });
+  return { entry, exports: Object.fromEntries(names.map(name => [name, `${namespacePrefix}${name}`])), output, sourceRoot: root };
 }
 
 async function nativeIdentity(bend, compileArguments) {
@@ -55,20 +60,22 @@ export async function build({ native = false, force = false } = {}) {
   await checkRelations();
   await checkMaps();
   const verification = prepareUiVerification(root);
-  console.log(verifyProof({ cwd: root, entry: verification.entry }));
-
-  const kernel = await compileEntry('KERNEL.bend', '.build/kernel-model.mjs', force);
-  console.log(`Bend JavaScript kernel ${kernel.cached ? 'is current' : 'built'} (${kernel.fingerprint.slice(0, 12)}).`);
-  const browser = await compileEntry(verification.runtimeEntry, 'host/public/generated/browser-model.mjs', force, {
-    publicSource: 'BROWSER.bend', namespacePrefix: verification.browserPrefix,
-  });
-  console.log(`Bend JavaScript browser ${browser.cached ? 'is current' : 'built'} (${browser.fingerprint.slice(0, 12)}).`);
 
   const hostOutput = 'host/public/generated/host-model.mjs';
-  if (force) await rm(path.join(root, `${hostOutput}.json`), { force: true });
-  const host = await compileJavaScript({ entry: 'HOST.bend', exports: { run: 'run' }, output: hostOutput });
+  const requests = [
+    await entryRequest('KERNEL.bend', '.build/kernel-model.mjs'),
+    await entryRequest(verification.runtimeEntry, 'host/public/generated/browser-model.mjs', {
+      publicSource: 'BROWSER.bend', namespacePrefix: verification.browserPrefix,
+    }),
+    { entry: 'HOST.bend', exports: { run: 'run' }, output: hostOutput, sourceRoot: root },
+    { entry: 'plugins/selvedge-chatgpt/MODEL.bend', exports: { run: 'run' }, output: 'plugins/selvedge-chatgpt/generated/model.mjs', sourceRoot: root },
+  ];
+  if (force) for (const request of requests) await rm(path.resolve(root, `${request.output}.json`), { force: true });
+  const [kernel, browser, host] = await timed('Production JavaScript compilation', () => compileJavaScriptBatch({ prefix: verification.entry, requests, verify: true }));
+  console.log(`Bend JavaScript kernel ${kernel.cached ? 'is current' : 'built'} (${kernel.fingerprint.slice(0, 12)}).`);
+  console.log(`Bend JavaScript browser ${browser.cached ? 'is current' : 'built'} (${browser.fingerprint.slice(0, 12)}).`);
   console.log(`Bend JavaScript host ${host.cached ? 'is current' : 'built'} (${host.fingerprint.slice(0, 12)}).`);
-  await buildModel();
+  await timed('Plugin JavaScript compilation', () => buildModel());
 
   const inputs = await bendSources(root);
   const backend = 'bend-javascript';

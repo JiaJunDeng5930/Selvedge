@@ -122,17 +122,36 @@ def checked(+valid: Bool, +completion: A.Completion) -> Result<&2, &2, String, A
     case False{}: Fail{"Malformed compaction observation"}
     case True{}: Done{completion}
 
-def completion(+kind: String, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
+type CompletionName is Data:
+  CompletionNameCompactionConfigure{}
+  CompletionNameCompactionClock{}
+  CompletionNameCompactionActivity{}
+  CompletionNameCompactionMeasured{}
+  CompletionNameCompactionCompleted{}
+  CompletionNameOther{}
+
+def completion_discriminant(+value: String) -> CompletionName:
+  Bool.pick(CompletionName, String.eq(value, "compaction_configure"), CompletionNameCompactionConfigure{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_clock"), CompletionNameCompactionClock{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_activity"), CompletionNameCompactionActivity{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_measured"), CompletionNameCompactionMeasured{},
+    Bool.pick(CompletionName, String.eq(value, "compaction_completed"), CompletionNameCompactionCompleted{},
+    CompletionNameOther{})))))
+
+def completion_classified(+kind: CompletionName, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
   match kind:
-    case "compaction_configure": checked(J.is_object(J.get(body, "policy")) && A.valid_policy(A.policy_json(J.get(body, "policy"))) && Shape.is_natural(J.get(body, "now")),
+    case CompletionNameCompactionConfigure{}: checked(J.is_object(J.get(body, "policy")) && A.valid_policy(A.policy_json(J.get(body, "policy"))) && Shape.is_natural(J.get(body, "now")),
       A.Configure{A.policy_json(J.get(body, "policy")), A.number(J.get(body, "now"))})
-    case "compaction_clock": checked(Shape.is_natural(J.get(body, "now")), A.Clock{A.number(J.get(body, "now"))})
-    case "compaction_activity": checked(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "source_length")) &&
+    case CompletionNameCompactionClock{}: checked(Shape.is_natural(J.get(body, "now")), A.Clock{A.number(J.get(body, "now"))})
+    case CompletionNameCompactionActivity{}: checked(Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "source_length")) &&
       Shape.is_natural(J.get(body, "now")) && J.is_text(J.get(body, "scope")),
       A.Activity{A.number(J.get(body, "task_id")), A.number(J.get(body, "source_length")), A.number(J.get(body, "now")), J.text(J.get(body, "scope"))})
-    case "compaction_measured": measured_envelope(envelope(body), body)
-    case "compaction_completed": checked(envelope(body), A.Completed{A.number(J.get(body, "task_id")), A.number(J.get(body, "ticket")), J.get(body, "result"), J.boolean(J.get(body, "error"))})
-    case _: Fail{"Unknown compaction input"}
+    case CompletionNameCompactionMeasured{}: measured_envelope(envelope(body), body)
+    case CompletionNameCompactionCompleted{}: checked(envelope(body), A.Completed{A.number(J.get(body, "task_id")), A.number(J.get(body, "ticket")), J.get(body, "result"), J.boolean(J.get(body, "error"))})
+    case CompletionNameOther{}: Fail{"Unknown compaction input"}
+
+def completion(+kind: String, +body: J.Json) -> Result<&2, &2, String, A.Completion>:
+  completion_classified(completion_discriminant(kind), body)
 
 def job_name(job: A.Job) -> String:
   match job:

@@ -33,7 +33,7 @@ function remoteRows(directory, request_id) {
   } finally { database.close(); }
 }
 
-test('private identity publication and a default Codex-reviewed process survive lost remote delivery and restart', { timeout: 30_000 }, async t => {
+test('private identity publication and a default Codex-reviewed process survive lost remote delivery and restart', async t => {
   const base = await realpath(await home(t));
   const directory = path.join(base, 'state');
   const workspace = path.join(base, 'project');

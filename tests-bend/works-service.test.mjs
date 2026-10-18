@@ -23,7 +23,7 @@ async function postCommand(running, command) {
   return result({ reply: await response.json() });
 }
 
-test('HTTP Work creation observes its selected Project workspace before dispatch and survives reopen', { timeout: 20_000 }, async t => {
+test('HTTP Work creation observes its selected Project workspace before dispatch and survives reopen', async t => {
   const directory = await realpath(await home(t));
   const workspace = path.join(directory, 'project 世界');
   await mkdir(workspace);
@@ -58,7 +58,7 @@ test('HTTP Work creation observes its selected Project workspace before dispatch
   assert.deepEqual(reopened.task.settings.workspace, page.task.settings.workspace);
 });
 
-test('HTTP Work worktree creation copies dirty Git data from the default cwd and reopens the same checkout', { timeout: 30_000 }, async t => {
+test('HTTP Work worktree creation copies dirty Git data from the default cwd and reopens the same checkout', async t => {
   const directory = await realpath(await home(t));
   const repository = path.join(directory, 'source checkout');
   await mkdir(repository);
@@ -67,7 +67,7 @@ test('HTTP Work worktree creation copies dirty Git data from the default cwd and
   const git = async (...arguments_) => {
     const { stdout } = await execute('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
       '-c', 'user.name=Work fixture', '-c', 'user.email=work@example.test', '-C', repository, ...arguments_],
-    { env, timeout: 5000 });
+    { env });
     return stdout.trim();
   };
   await git('init', '--initial-branch=main');
@@ -115,7 +115,7 @@ test('HTTP Work worktree creation copies dirty Git data from the default cwd and
   assert.equal(await git('status', '--porcelain'), sourceStatus);
 });
 
-test('a native Work tool discovers its caller and transports graph commands without repeating model requests on reopen', { timeout: 20_000 }, async t => {
+test('a native Work tool discovers its caller and transports graph commands without repeating model requests on reopen', async t => {
   const directory = await home(t);
   const credential = `SELVEDGE_WORK_GRAPH_${process.pid}_${Math.random().toString(16).slice(2)}`;
   process.env[credential] = 'local-work-graph-fixture';

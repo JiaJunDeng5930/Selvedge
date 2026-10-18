@@ -27,55 +27,76 @@ def selected_settings(value: J.Json) -> Bool:
 
 # Every remotely reachable public operation has an explicit permission. Local
 # pairing, grants and tunnel administration have no remote permission mapping.
-def named_permission(name: String, +body: J.Json) -> Maybe<&2, R.Rights>:
+type NamedPermissionName is Data:
+  NamedPermissionNameRead{}
+  NamedPermissionNameCreate{}
+  NamedPermissionNameCreateWorktreeTask{}
+  NamedPermissionNameRetryWorktreeArchive{}
+  NamedPermissionNameReviewApproval{}
+  NamedPermissionNameConfigureTaskExecution{}
+  NamedPermissionNameOther{}
+
+def named_permission_discriminant(+value: String) -> NamedPermissionName:
+  Bool.pick(NamedPermissionName, String.eq(value, "read"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "list"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "describe"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "list_projects"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "list_worktrees"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "read_worktree"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "read_project"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "list_cards"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "read_card"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "list_board_agents"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "list_task_graphs"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "read_task_graph"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "create"), NamedPermissionNameCreate{},
+    Bool.pick(NamedPermissionName, String.eq(value, "create_worktree_task"), NamedPermissionNameCreateWorktreeTask{},
+    Bool.pick(NamedPermissionName, String.eq(value, "retry_worktree_archive"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "fork"), NamedPermissionNameCreate{},
+    Bool.pick(NamedPermissionName, String.eq(value, "send"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "steer"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "cancel_operation"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "freeze"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "unfreeze"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "stop"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "interrupt"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "archive"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "compact"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "review_approval"), NamedPermissionNameReviewApproval{},
+    Bool.pick(NamedPermissionName, String.eq(value, "configure_task_execution"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "create_project"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "update_project"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "delete_project"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "create_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "update_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "move_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "archive_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "restore_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "delete_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "run_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "link_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "regenerate_card_title"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "pin_card"), NamedPermissionNameRetryWorktreeArchive{},
+    Bool.pick(NamedPermissionName, String.eq(value, "board_settings"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "save_board_agent"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "delete_board_agent"), NamedPermissionNameConfigureTaskExecution{},
+    Bool.pick(NamedPermissionName, String.eq(value, "create_task_graph"), NamedPermissionNameCreateWorktreeTask{},
+    Bool.pick(NamedPermissionName, String.eq(value, "update_task_graph"), NamedPermissionNameCreateWorktreeTask{},
+    Bool.pick(NamedPermissionName, String.eq(value, "delete_task_graph"), NamedPermissionNameCreateWorktreeTask{},
+    NamedPermissionNameOther{}))))))))))))))))))))))))))))))))))))))))))))))
+
+def named_permission_classified(name: NamedPermissionName, +body: J.Json) -> Maybe<&2, R.Rights>:
   match name:
-    case "read": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "list": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "describe": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "list_projects": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "list_worktrees": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "read_worktree": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "read_project": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "list_cards": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "read_card": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "list_board_agents": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "list_task_graphs": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "read_task_graph": Some{R.Rights{True{}, False{}, False{}, False{}}}
-    case "create": Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")), False{}}}
-    case "create_worktree_task": Some{R.Rights{False{}, True{}, True{}, False{}}}
-    case "retry_worktree_archive": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "fork": Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")), False{}}}
-    case "send": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "steer": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "cancel_operation": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "freeze": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "unfreeze": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "stop": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "interrupt": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "archive": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "compact": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "review_approval": Some{R.Rights{False{}, False{}, False{}, True{}}}
-    case "configure_task_execution": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "create_project": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "update_project": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "delete_project": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "create_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "update_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "move_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "archive_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "restore_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "delete_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "run_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "link_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "regenerate_card_title": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "pin_card": Some{R.Rights{False{}, True{}, False{}, False{}}}
-    case "board_settings": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "save_board_agent": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "delete_board_agent": Some{R.Rights{False{}, False{}, True{}, False{}}}
-    case "create_task_graph": Some{R.Rights{False{}, True{}, True{}, False{}}}
-    case "update_task_graph": Some{R.Rights{False{}, True{}, True{}, False{}}}
-    case "delete_task_graph": Some{R.Rights{False{}, True{}, True{}, False{}}}
-    case _: None{}
+    case NamedPermissionNameRead{}: Some{R.Rights{True{}, False{}, False{}, False{}}}
+    case NamedPermissionNameCreate{}: Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")), False{}}}
+    case NamedPermissionNameCreateWorktreeTask{}: Some{R.Rights{False{}, True{}, True{}, False{}}}
+    case NamedPermissionNameRetryWorktreeArchive{}: Some{R.Rights{False{}, True{}, False{}, False{}}}
+    case NamedPermissionNameReviewApproval{}: Some{R.Rights{False{}, False{}, False{}, True{}}}
+    case NamedPermissionNameConfigureTaskExecution{}: Some{R.Rights{False{}, False{}, True{}, False{}}}
+    case NamedPermissionNameOther{}: None{}
+
+def named_permission(name: String, +body: J.Json) -> Maybe<&2, R.Rights>:
+  named_permission_classified(named_permission_discriminant(name), body)
 
 def permission(+body: J.Json) -> Maybe<&2, R.Rights>:
   named_permission(J.text(J.get(body, "op")), body)

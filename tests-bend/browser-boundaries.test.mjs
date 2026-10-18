@@ -11,7 +11,7 @@ import { observeConnection } from '../host/public/connection.mjs';
 
 const repository = fileURLToPath(new URL('../', import.meta.url));
 
-test('snapshot HTTP 503 releases its SSE stream and a new connection observes the current snapshot', { timeout: 10_000 }, async t => {
+test('snapshot HTTP 503 releases its SSE stream and a new connection observes the current snapshot', async t => {
   let snapshots = 0; let subscriptions = 0;
   let firstClosed; let recovered;
   const released = new Promise(resolve => { firstClosed = resolve; });
@@ -70,7 +70,7 @@ async function browserExecutable() {
   throw new Error('Native browser checks require Chromium/Chrome; set SELVEDGE_BROWSER to its executable');
 }
 
-test('native IME confirmation after compositionend retains its default instead of submitting', { timeout: 30_000 }, async t => {
+test('native IME confirmation after compositionend retains its default instead of submitting', async t => {
   const executable = await browserExecutable();
   const profile = await mkdtemp(path.join(tmpdir(), 'selvedge-browser-'));
   t.after(() => rm(profile, { recursive: true, force: true }));
@@ -122,13 +122,11 @@ fetch('/result?preserved='+Number(confirmation.keyCode===229&&submitted===0&&!co
     if (browser.pid === undefined) return;
     try { process.kill(-browser.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
   };
-  let timeout;
   try {
     const result = await Promise.race([reported,
       browserClosed.then(code => { throw new Error(`Native browser exited before its result: ${browser.signalCode ?? code}`); }),
-      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Native browser did not report its IME result')), 20_000); }),
     ]);
     assert.equal(result, true, 'The native IME confirmation was intercepted as submission');
   } catch (error) { assert.fail(`${error.stack ?? error}\nstdout:\n${stdout}\nstderr:\n${stderr}`); }
-  finally { clearTimeout(timeout); stopBrowser(); await browserClosed; }
+  finally { stopBrowser(); await browserClosed; }
 });

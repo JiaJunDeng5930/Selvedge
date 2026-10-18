@@ -47,10 +47,21 @@ def take_names(count: Nat, names: +List<String>) -> +List<String>:
     case 1n+p Con{name, rest}: name <> take_names(p, rest)
     case _ _: Nil{}
 
-def call_names_step(kind: String, +message: J.Json, names: +List<String>) -> +List<String>:
+type CallNamesStepName is Data:
+  CallNamesStepNameFunctionCall{}
+  CallNamesStepNameOther{}
+
+def call_names_step_discriminant(+value: String) -> CallNamesStepName:
+  Bool.pick(CallNamesStepName, String.eq(value, "function_call"), CallNamesStepNameFunctionCall{},
+    CallNamesStepNameOther{})
+
+def call_names_step_classified(kind: CallNamesStepName, +message: J.Json, names: +List<String>) -> +List<String>:
   match kind:
-    case "function_call": J.text(J.get(message, "call_id")) <> take_names(5n, names)
-    case _: names
+    case CallNamesStepNameFunctionCall{}: J.text(J.get(message, "call_id")) <> take_names(5n, names)
+    case CallNamesStepNameOther{}: names
+
+def call_names_step(kind: String, +message: J.Json, names: +List<String>) -> +List<String>:
+  call_names_step_classified(call_names_step_discriminant(kind), message, names)
 
 def call_names(messages: +List<J.Json>, names: +List<String>) -> +List<String>:
   match messages:
@@ -70,15 +81,36 @@ def selected_output(matches: Bool, message: J.Json, users: Nat, notes: Nat, +out
     case True{}: keep(Nat.is_lt(outputs, 12n), "function_output", message, users, notes, 1n+outputs, items)
     case False{}: Selection{users, notes, outputs, items}
 
-def selected_fields(kind: String, +message: J.Json, +names: +List<String>, first_user: Bool, +users: Nat, +notes: Nat, +outputs: Nat, items: +List<J.Json>) -> Selection:
+type SelectedFieldsName is Data:
+  SelectedFieldsNameUser{}
+  SelectedFieldsNameAssistant{}
+  SelectedFieldsNameReasoningSummary{}
+  SelectedFieldsNameError{}
+  SelectedFieldsNameFunctionCall{}
+  SelectedFieldsNameFunctionOutput{}
+  SelectedFieldsNameOther{}
+
+def selected_fields_discriminant(+value: String) -> SelectedFieldsName:
+  Bool.pick(SelectedFieldsName, String.eq(value, "user"), SelectedFieldsNameUser{},
+    Bool.pick(SelectedFieldsName, String.eq(value, "assistant"), SelectedFieldsNameAssistant{},
+    Bool.pick(SelectedFieldsName, String.eq(value, "reasoning_summary"), SelectedFieldsNameReasoningSummary{},
+    Bool.pick(SelectedFieldsName, String.eq(value, "error"), SelectedFieldsNameError{},
+    Bool.pick(SelectedFieldsName, String.eq(value, "function_call"), SelectedFieldsNameFunctionCall{},
+    Bool.pick(SelectedFieldsName, String.eq(value, "function_output"), SelectedFieldsNameFunctionOutput{},
+    SelectedFieldsNameOther{}))))))
+
+def selected_fields_classified(kind: SelectedFieldsName, +message: J.Json, +names: +List<String>, first_user: Bool, +users: Nat, +notes: Nat, +outputs: Nat, items: +List<J.Json>) -> Selection:
   match kind:
-    case "user": keep(first_user || Nat.is_lt(users, 7n), "user", message, 1n+users, notes, outputs, items)
-    case "assistant": keep(Nat.is_lt(notes, 8n), "assistant", message, users, 1n+notes, outputs, items)
-    case "reasoning_summary": keep(Nat.is_lt(notes, 8n), "reasoning_summary", message, users, 1n+notes, outputs, items)
-    case "error": keep(Nat.is_lt(notes, 8n), "error", message, users, 1n+notes, outputs, items)
-    case "function_call": keep(R.member(names, J.text(J.get(message, "call_id"))), "function_call", message, users, notes, outputs, items)
-    case "function_output": selected_output(R.member(names, J.text(J.get(message, "call_id"))), message, users, notes, outputs, items)
-    case _: Selection{users, notes, outputs, items}
+    case SelectedFieldsNameUser{}: keep(first_user || Nat.is_lt(users, 7n), "user", message, 1n+users, notes, outputs, items)
+    case SelectedFieldsNameAssistant{}: keep(Nat.is_lt(notes, 8n), "assistant", message, users, 1n+notes, outputs, items)
+    case SelectedFieldsNameReasoningSummary{}: keep(Nat.is_lt(notes, 8n), "reasoning_summary", message, users, 1n+notes, outputs, items)
+    case SelectedFieldsNameError{}: keep(Nat.is_lt(notes, 8n), "error", message, users, 1n+notes, outputs, items)
+    case SelectedFieldsNameFunctionCall{}: keep(R.member(names, J.text(J.get(message, "call_id"))), "function_call", message, users, notes, outputs, items)
+    case SelectedFieldsNameFunctionOutput{}: selected_output(R.member(names, J.text(J.get(message, "call_id"))), message, users, notes, outputs, items)
+    case SelectedFieldsNameOther{}: Selection{users, notes, outputs, items}
+
+def selected_fields(kind: String, +message: J.Json, +names: +List<String>, first_user: Bool, +users: Nat, +notes: Nat, +outputs: Nat, items: +List<J.Json>) -> Selection:
+  selected_fields_classified(selected_fields_discriminant(kind), message, names, first_user, users, notes, outputs, items)
 
 def selected(kind: String, message: J.Json, names: +List<String>, first_user: Bool, selection: Selection) -> Selection:
   match selection:
@@ -115,10 +147,21 @@ def essential_user(message: J.Json, seen_user: Bool, remaining: Selection) -> Se
     case Selection{+users, notes, outputs, items}:
       keep(Bool.not(seen_user) || Nat.is_lt(users, 1n), "user", message, 1n+users, notes, outputs, items)
 
-def essential_kind(kind: String, message: J.Json, seen_user: Bool, remaining: Selection) -> Selection:
+type EssentialKindName is Data:
+  EssentialKindNameUser{}
+  EssentialKindNameOther{}
+
+def essential_kind_discriminant(+value: String) -> EssentialKindName:
+  Bool.pick(EssentialKindName, String.eq(value, "user"), EssentialKindNameUser{},
+    EssentialKindNameOther{})
+
+def essential_kind_classified(kind: EssentialKindName, message: J.Json, seen_user: Bool, remaining: Selection) -> Selection:
   match kind:
-    case "user": essential_user(message, seen_user, remaining)
-    case _: remaining
+    case EssentialKindNameUser{}: essential_user(message, seen_user, remaining)
+    case EssentialKindNameOther{}: remaining
+
+def essential_kind(kind: String, message: J.Json, seen_user: Bool, remaining: Selection) -> Selection:
+  essential_kind_classified(essential_kind_discriminant(kind), message, seen_user, remaining)
 
 def essential(messages: +List<J.Json>, +seen_user: Bool) -> Selection:
   match messages:

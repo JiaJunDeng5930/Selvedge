@@ -162,7 +162,7 @@ test('named SSE framing preserves byte-split Unicode and CRLF', async () => {
   assert.deepEqual(named, [{ event: 'response.output_text.snapshot', data: '{"text":\n"😀"}' }, { event: 'message', data: '[DONE]' }]);
 });
 
-test('a real background tool completion during HTTP is sent exactly once in the next web continuation', { timeout: 15_000 }, async t => {
+test('a real background tool completion during HTTP is sent exactly once in the next web continuation', async t => {
   let service;
   const f = await fixture(t, async (body, index) => {
     if (index === 0) return { output: [

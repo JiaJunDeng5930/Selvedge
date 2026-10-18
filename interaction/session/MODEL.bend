@@ -1001,11 +1001,24 @@ def context_sandbox(value: J.Json) -> Maybe<&2, D.Sandbox>:
     case J.Null{}: None{}
     case other: sandbox_result(W.read_sandbox(other, D.Sandbox{D.WorkspaceWrite{}, False{}}))
 
-def approval_mode(mode: String, value: J.Json) -> Maybe<&2, Context.ApprovalChoice>:
+type ApprovalModeName is Data:
+  ApprovalModeNameFullAccess{}
+  ApprovalModeNameApprovalForMe{}
+  ApprovalModeNameOther{}
+
+def approval_mode_discriminant(+value: String) -> ApprovalModeName:
+  Bool.pick(ApprovalModeName, String.eq(value, "full-access"), ApprovalModeNameFullAccess{},
+    Bool.pick(ApprovalModeName, String.eq(value, "approval-for-me"), ApprovalModeNameApprovalForMe{},
+    ApprovalModeNameOther{}))
+
+def approval_mode_classified(mode: ApprovalModeName, value: J.Json) -> Maybe<&2, Context.ApprovalChoice>:
   match mode:
-    case "full-access": Some{Context.Unrestricted{}}
-    case "approval-for-me": Some{Context.AutomaticReview{J.text(J.get(value, "reviewer_profile"))}}
-    case _: Some{Context.Ask{}}
+    case ApprovalModeNameFullAccess{}: Some{Context.Unrestricted{}}
+    case ApprovalModeNameApprovalForMe{}: Some{Context.AutomaticReview{J.text(J.get(value, "reviewer_profile"))}}
+    case ApprovalModeNameOther{}: Some{Context.Ask{}}
+
+def approval_mode(mode: String, value: J.Json) -> Maybe<&2, Context.ApprovalChoice>:
+  approval_mode_classified(approval_mode_discriminant(mode), value)
 
 def context_approval(+value: J.Json) -> Maybe<&2, Context.ApprovalChoice>:
   match value:

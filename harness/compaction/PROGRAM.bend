@@ -166,11 +166,24 @@ def native_unavailable(+state: M.State, result: J.Json) -> M.Step:
     case M.State{M.NativeSource{history, raw}, cursor, carry, width, window, reserve}: M.Next{to_portable(state)}
     case M.State{M.PortableSource{readable}, cursor, carry, width, window, reserve}: receive_source(state, result)
 
-def receive_action(action: String, state: M.State, result: J.Json) -> M.Step:
+type ReceiveActionName is Data:
+  ReceiveActionNameResize{}
+  ReceiveActionNameNativeUnavailable{}
+  ReceiveActionNameOther{}
+
+def receive_action_discriminant(+value: String) -> ReceiveActionName:
+  Bool.pick(ReceiveActionName, String.eq(value, "resize"), ReceiveActionNameResize{},
+    Bool.pick(ReceiveActionName, String.eq(value, "native_unavailable"), ReceiveActionNameNativeUnavailable{},
+    ReceiveActionNameOther{}))
+
+def receive_action_classified(action: ReceiveActionName, state: M.State, result: J.Json) -> M.Step:
   match action:
-    case "resize": resize(state)
-    case "native_unavailable": native_unavailable(state, result)
-    case _: receive_source(state, result)
+    case ReceiveActionNameResize{}: resize(state)
+    case ReceiveActionNameNativeUnavailable{}: native_unavailable(state, result)
+    case ReceiveActionNameOther{}: receive_source(state, result)
+
+def receive_action(action: String, state: M.State, result: J.Json) -> M.Step:
+  receive_action_classified(receive_action_discriminant(action), state, result)
 
 def receive(+state: M.State, +result: J.Json) -> M.Step:
   receive_action(J.text(J.get(result, "action")), state, result)

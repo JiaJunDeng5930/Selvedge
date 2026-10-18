@@ -16,39 +16,89 @@ def nonempty(items: +List<J.Json>) -> Bool:
     case Nil{}: False{}
     case Con{item, rest}: True{}
 
-def format_valid(format: String, scope: String) -> Bool:
+type FormatValidName is Data:
+  FormatValidNamePortable{}
+  FormatValidNameNative{}
+  FormatValidNameOther{}
+
+def format_valid_discriminant(+value: String) -> FormatValidName:
+  Bool.pick(FormatValidName, String.eq(value, "portable"), FormatValidNamePortable{},
+    Bool.pick(FormatValidName, String.eq(value, "native"), FormatValidNameNative{},
+    FormatValidNameOther{}))
+
+def format_valid_classified(format: FormatValidName, scope: String) -> Bool:
   match format:
-    case "portable": True{}
-    case "native": Bool.not(String.eq(scope, ""))
-    case _: False{}
+    case FormatValidNamePortable{}: True{}
+    case FormatValidNameNative{}: Bool.not(String.eq(scope, ""))
+    case FormatValidNameOther{}: False{}
+
+def format_valid(format: String, scope: String) -> Bool:
+  format_valid_classified(format_valid_discriminant(format), scope)
+
+type PortableItemKindName is Data:
+  PortableItemKindNameUser{}
+  PortableItemKindNameOther{}
+
+def portable_item_kind_discriminant(+value: String) -> PortableItemKindName:
+  Bool.pick(PortableItemKindName, String.eq(value, "user"), PortableItemKindNameUser{},
+    Bool.pick(PortableItemKindName, String.eq(value, "assistant"), PortableItemKindNameUser{},
+    PortableItemKindNameOther{}))
+
+def portable_item_kind_classified(kind: PortableItemKindName, value: J.Json) -> Bool:
+  match kind:
+    case PortableItemKindNameUser{}: J.is_text(J.get(value, "content"))
+    case PortableItemKindNameOther{}: False{}
 
 def portable_item_kind(kind: String, value: J.Json) -> Bool:
-  match kind:
-    case "user": J.is_text(J.get(value, "content"))
-    case "assistant": J.is_text(J.get(value, "content"))
-    case _: False{}
+  portable_item_kind_classified(portable_item_kind_discriminant(kind), value)
 
 def portable_items(items: +List<J.Json>) -> Bool:
   match items:
     case Nil{}: True{}
     case Con{+item, rest}: portable_item_kind(J.text(J.get(item, "role")), item) && portable_items(rest)
 
-def representation_valid(format: String, items: +List<J.Json>) -> Bool:
+type RepresentationValidName is Data:
+  RepresentationValidNamePortable{}
+  RepresentationValidNameNative{}
+  RepresentationValidNameOther{}
+
+def representation_valid_discriminant(+value: String) -> RepresentationValidName:
+  Bool.pick(RepresentationValidName, String.eq(value, "portable"), RepresentationValidNamePortable{},
+    Bool.pick(RepresentationValidName, String.eq(value, "native"), RepresentationValidNameNative{},
+    RepresentationValidNameOther{}))
+
+def representation_valid_classified(format: RepresentationValidName, items: +List<J.Json>) -> Bool:
   match format:
-    case "portable": portable_items(items)
-    case "native": True{}
-    case _: False{}
+    case RepresentationValidNamePortable{}: portable_items(items)
+    case RepresentationValidNameNative{}: True{}
+    case RepresentationValidNameOther{}: False{}
+
+def representation_valid(format: String, items: +List<J.Json>) -> Bool:
+  representation_valid_classified(representation_valid_discriminant(format), items)
 
 def artifact_valid(+value: J.Json) -> Bool:
   J.is_object(value) && format_valid(J.text(J.get(value, "format")), J.text(J.get(value, "scope"))) &&
     is_array(J.get(value, "items")) && nonempty(J.items(J.get(value, "items"))) &&
     representation_valid(J.text(J.get(value, "format")), J.items(J.get(value, "items")))
 
-def consumes(format: String, +producer_scope: String, target_scope: String) -> Bool:
+type ConsumesName is Data:
+  ConsumesNamePortable{}
+  ConsumesNameNative{}
+  ConsumesNameOther{}
+
+def consumes_discriminant(+value: String) -> ConsumesName:
+  Bool.pick(ConsumesName, String.eq(value, "portable"), ConsumesNamePortable{},
+    Bool.pick(ConsumesName, String.eq(value, "native"), ConsumesNameNative{},
+    ConsumesNameOther{}))
+
+def consumes_classified(format: ConsumesName, +producer_scope: String, target_scope: String) -> Bool:
   match format:
-    case "portable": True{}
-    case "native": Bool.not(String.eq(producer_scope, "")) && String.eq(producer_scope, target_scope)
-    case _: False{}
+    case ConsumesNamePortable{}: True{}
+    case ConsumesNameNative{}: Bool.not(String.eq(producer_scope, "")) && String.eq(producer_scope, target_scope)
+    case ConsumesNameOther{}: False{}
+
+def consumes(format: String, +producer_scope: String, target_scope: String) -> Bool:
+  consumes_classified(consumes_discriminant(format), producer_scope, target_scope)
 
 def compatible(+value: J.Json, scope: String) -> Bool:
   artifact_valid(value) && consumes(J.text(J.get(value, "format")), J.text(J.get(value, "scope")), scope)
@@ -78,11 +128,22 @@ def selected(usable: Bool, +value: J.Json, previous: Selection) -> Selection:
     case True{}: Replacement{source_length(value), J.items(J.get(value, "items"))}
     case False{}: previous
 
-def event_kind(kind: String, +message: J.Json, +position: Nat, +scope: String, previous: Selection) -> Selection:
+type EventKindName is Data:
+  EventKindNameContextReplacement{}
+  EventKindNameOther{}
+
+def event_kind_discriminant(+value: String) -> EventKindName:
+  Bool.pick(EventKindName, String.eq(value, "context_replacement"), EventKindNameContextReplacement{},
+    EventKindNameOther{})
+
+def event_kind_classified(kind: EventKindName, +message: J.Json, +position: Nat, +scope: String, previous: Selection) -> Selection:
   match kind:
-    case "context_replacement": selected(compatible(J.get(message, "content"), scope) &&
+    case EventKindNameContextReplacement{}: selected(compatible(J.get(message, "content"), scope) &&
       source_valid(J.get(message, "content"), position), J.get(message, "content"), previous)
-    case _: previous
+    case EventKindNameOther{}: previous
+
+def event_kind(kind: String, +message: J.Json, +position: Nat, +scope: String, previous: Selection) -> Selection:
+  event_kind_classified(event_kind_discriminant(kind), message, position, scope, previous)
 
 def required_event(+message: J.Json, +position: Nat, +scope: String, previous: Selection) -> Selection:
   event_kind(J.text(J.get(message, "role")), message, position, scope, previous)
