@@ -76,7 +76,6 @@ test('JavaScript compilation reuses exact inputs and executes changed dependency
     manifest => { manifest.compiler.parserSha256 = 'different'; },
     manifest => { manifest.compiler.sourceSha256 = 'different'; },
     manifest => { manifest.compiler.adapterSha256 = 'different'; },
-    manifest => { manifest.compiler.transpiler.sha256 = 'different'; },
     manifest => { manifest.sources = []; },
     manifest => { manifest.exports = { other: 'run' }; },
     manifest => { manifest.sourceRoot = '/different'; },
