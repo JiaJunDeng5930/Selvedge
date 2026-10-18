@@ -8,7 +8,8 @@ type NaturalDefault is Data:
 type Natural is Data:
   Constant{value: Nat}
   Caller{}
-  NumberArgument{key: String, description: String, minimum: U32, maximum: U32, required: Bool, fallback: NaturalDefault}
+  RequiredNumber{key: String, description: String, minimum: U32, maximum: U32}
+  OptionalNumber{key: String, description: String, minimum: U32, maximum: U32, fallback: NaturalDefault}
 
 type Text is Data:
   TextConstant{value: String}
@@ -54,8 +55,68 @@ def number(term: Natural, +args: J.Json, caller: Nat) -> Nat:
   match term:
     case Constant{value}: value
     case Caller{}: caller
-    case NumberArgument{key, description, minimum, maximum, required, fallback}:
+    case RequiredNumber{key, description, minimum, maximum}: J.natural_or(J.natural(J.get(args, key)), 0n)
+    case OptionalNumber{key, description, minimum, maximum, fallback}:
       J.natural_or(J.natural(J.get(args, key)), default_number(fallback, caller))
+
+def bounded_number(value: Maybe<&2, U32>, minimum: U32, maximum: U32) -> Bool:
+  match value:
+    case None{}: False{}
+    case Some{+value}: U32.is_le(minimum, value) && U32.is_le(value, maximum)
+
+def within_bounds(value: Nat, minimum: U32, maximum: U32) -> Bool:
+  bounded_number(U32.read(Nat.show(value)), minimum, maximum)
+
+def natural_defaults_valid(term: Natural) -> Bool:
+  match term:
+    case OptionalNumber{key, description, minimum, maximum, ConstantDefault{value}}:
+      within_bounds(value, minimum, maximum)
+    case _: True{}
+
+def query_defaults_valid(query: Query) -> Bool:
+  match query:
+    case Read{task, after, limit}: natural_defaults_valid(task) && natural_defaults_valid(after) && natural_defaults_valid(limit)
+    case Project{project}: natural_defaults_valid(project)
+    case _: True{}
+
+def defaults_valid(body: Body) -> Bool:
+  match body:
+    case Observe{query}: query_defaults_valid(query)
+    case Send{task, message}: natural_defaults_valid(task)
+    case Steer{task, message}: natural_defaults_valid(task)
+    case Archive{task}: natural_defaults_valid(task)
+    case Cancel{task, operation}: natural_defaults_valid(task) && natural_defaults_valid(operation)
+    case Fork{count, messages, settings}: natural_defaults_valid(count)
+    case _: True{}
+
+# A caller default depends on the invoking task, so its bounds are admitted
+# with that invocation. Constant defaults were admitted when the tool was made.
+def caller_default_valid(value: J.Json, caller: Nat, minimum: U32, maximum: U32) -> Bool:
+  match value:
+    case J.Null{}: within_bounds(caller, minimum, maximum)
+    case _: True{}
+
+def natural_caller_valid(term: Natural, +args: J.Json, caller: Nat) -> Bool:
+  match term:
+    case OptionalNumber{key, description, minimum, maximum, CallerDefault{}}:
+      caller_default_valid(J.get(args, key), caller, minimum, maximum)
+    case _: True{}
+
+def query_caller_valid(query: Query, +args: J.Json, +caller: Nat) -> Bool:
+  match query:
+    case Read{task, after, limit}: natural_caller_valid(task, args, caller) && natural_caller_valid(after, args, caller) && natural_caller_valid(limit, args, caller)
+    case Project{project}: natural_caller_valid(project, args, caller)
+    case _: True{}
+
+def caller_arguments_valid(body: Body, +args: J.Json, +caller: Nat) -> Bool:
+  match body:
+    case Observe{query}: query_caller_valid(query, args, caller)
+    case Send{task, message}: natural_caller_valid(task, args, caller)
+    case Steer{task, message}: natural_caller_valid(task, args, caller)
+    case Archive{task}: natural_caller_valid(task, args, caller)
+    case Cancel{task, operation}: natural_caller_valid(task, args, caller) && natural_caller_valid(operation, args, caller)
+    case Fork{count, messages, settings}: natural_caller_valid(count, args, caller)
+    case _: True{}
 
 def text_or(value: J.Json, fallback: String) -> String:
   match value:
@@ -90,7 +151,8 @@ def number_json(value: Natural) -> J.Json:
   match value:
     case Constant{value}: J.Object{[J.Field{"kind", J.Text{"Constant"}}, J.Field{"value", J.Number{Nat.show(value)}}]}
     case Caller{}: J.Object{[J.Field{"kind", J.Text{"Caller"}}]}
-    case NumberArgument{key, description, minimum, maximum, required, fallback}: J.Object{[J.Field{"kind", J.Text{"NumberArgument"}}, J.Field{"key", J.Text{key}}, J.Field{"description", J.Text{description}}, J.Field{"minimum", J.Number{U32.show(minimum)}}, J.Field{"maximum", J.Number{U32.show(maximum)}}, J.Field{"required", J.Boolean{required}}, J.Field{"fallback", default_json(fallback)}]}
+    case RequiredNumber{key, description, minimum, maximum}: J.Object{[J.Field{"kind", J.Text{"RequiredNumber"}}, J.Field{"key", J.Text{key}}, J.Field{"description", J.Text{description}}, J.Field{"minimum", J.Number{U32.show(minimum)}}, J.Field{"maximum", J.Number{U32.show(maximum)}}]}
+    case OptionalNumber{key, description, minimum, maximum, fallback}: J.Object{[J.Field{"kind", J.Text{"OptionalNumber"}}, J.Field{"key", J.Text{key}}, J.Field{"description", J.Text{description}}, J.Field{"minimum", J.Number{U32.show(minimum)}}, J.Field{"maximum", J.Number{U32.show(maximum)}}, J.Field{"fallback", default_json(fallback)}]}
 
 def text_json(value: Text) -> J.Json:
   match value:

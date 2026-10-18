@@ -22,6 +22,28 @@ law composing_enter:
   {Model.step(Model.Editor{owner, selection, True{}}, Model.Enter{shift, alt, modified}, enabled, pending) ==
     Model.Decision{Model.Editor{owner, selection, True{}}, False{}} : Model.Decision}
 
+law native_composition_retains_default:
+  @keyboard:String -> @key_code:U32 -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
+  {Model.native_key(Model.KeyObservation{keyboard, True{}, key_code, shift, alt, modified}) ==
+    Model.NativeKey{None{}, False{}} : Model.NativeKey}
+
+law native_ime_retains_default:
+  @keyboard:String -> @composing:Bool -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
+  {Model.native_key(Model.KeyObservation{keyboard, composing, 229, shift, alt, modified}) ==
+    Model.NativeKey{None{}, False{}} : Model.NativeKey}
+
+law native_enter_preserves_modifiers:
+  @+key_code:U32 -> @+shift:Bool -> @+alt:Bool -> @modified:Bool ->
+  @ordinary:{U32.is_eq(key_code, 229) == False{} : Bool} ->
+  {Model.native_key(Model.KeyObservation{"Enter", False{}, key_code, shift, alt, modified}) ==
+    Model.NativeKey{Some{Model.Enter{shift, alt, modified}}, Bool.not(shift) && Bool.not(alt)} : Model.NativeKey}
+
+law native_other_key_retains_default:
+  @+keyboard:String -> @composing:Bool -> @key_code:U32 -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
+  @other:{String.eq(keyboard, "Enter") == False{} : Bool} ->
+  {Model.native_key(Model.KeyObservation{keyboard, composing, key_code, shift, alt, modified}) ==
+    Model.NativeKey{None{}, False{}} : Model.NativeKey}
+
 type BindingRequirements is Type:
   BindingRequirements{
     message_owner: @+key:Identity.Key -> @+editor:U.Editor -> @+entry:Forms.Entry ->

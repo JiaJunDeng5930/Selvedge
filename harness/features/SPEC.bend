@@ -1,4 +1,6 @@
 import Base
+import ./remote.bend as RemoteState
+import ./worktree-spec.bend as WorktreeSpec
 import ../../features/compaction/SPEC.bend as Compaction
 import ../DOMAIN.bend as D
 import ../MODEL.bend as M
@@ -33,6 +35,12 @@ def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+wo
     case O.WorkChange{change}: WorkState.embed(Work.meaning(change, WorkState.registry(world)), world)
     case O.StartWorkTask{work, profile, reasoning, message, selection}:
       work_created(work, D.state_next_task(C.local(D.State, F.State(), world)), world, spawn(profile, reasoning, message, selection, world))
+    case O.StartWorkWorktree{work, profile, reasoning, message, selection}:
+      work_created(work, D.state_next_task(C.local(D.State, F.State(), world)), world,
+        WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world))
+    case O.RemoteChange{change}: RemoteState.embed(change, world)
+    case O.StartWorktree{profile, reasoning, message, selection}: WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world)
+    case O.RetryWorktreeArchive{id}: WorktreeSpec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change(change, world)
     case O.StartCard{id, card, now, profile, reasoning, message, selection}:
@@ -42,6 +50,7 @@ def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+wo
 
 def event(event: O.ResolvedEvent, +world: M.World()) -> M.Decision():
   match event:
+    case O.WorktreeResult{completion}: WorktreeSpec.complete(completion, world)
     case O.CompactionResult{completion}: Compaction.meaning(Compaction.resolve(completion, world), world)
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)

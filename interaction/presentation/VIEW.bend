@@ -103,7 +103,7 @@ def profile_label(profile: Maybe<&2, D.Profile>, fallback: String) -> String:
 def execution_project_source(found: Maybe<&2, D.Project>, project: Nat) -> String:
   match found:
     case None{}: "Project " ++ Nat.show(project) ++ " defaults"
-    case Some{D.Project{name, workspace, guidance}}: "Project defaults: " ++ name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: "Project defaults: " ++ name
 
 def execution_origin_source(origin: Context.Origin, +world: M.World()) -> String:
   match origin:
@@ -226,7 +226,7 @@ def committed_observation(found: Maybe<&2, Context.EffectiveContext>) -> Maybe<&
 def creation_project(found: Maybe<&2, D.Project>, id: Nat) -> Maybe<&2, ViewTypes.ProjectChoice>:
   match found:
     case None{}: None{}
-    case Some{D.Project{name, workspace, guidance}}: Some{ViewTypes.ProjectChoice{id, name, workspace}}
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: Some{ViewTypes.ProjectChoice{id, name, workspace}}
 
 def creation_selected_project(context: Maybe<&2, Context.Preview>, world: M.World()) -> Maybe<&2, ViewTypes.ProjectChoice>:
   match context:
@@ -290,7 +290,9 @@ def operation_availability(operation: Commands.Operation) -> ViewTypes.Availabil
     case _: ViewTypes.Available{}
 
 def current_execution_availability(+task: Nat, +current: D.ExecutionConfiguration, +world: M.World()) -> ViewTypes.Availability:
-  D.ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  D.ExecutionConfiguration{+model, sandbox, approval} = current
+  profile = D.profile_key(D.model_profile(model))
+  reasoning = D.model_selection(model)
   operation_availability(Commands.resolve(M.ConfigureTaskExecution{task, profile, reasoning, sandbox, approval}, world))
 
 def task_execution_availability(+found: Maybe<&2, D.Task>, +world: M.World()) -> ViewTypes.Availability:
@@ -332,7 +334,7 @@ def scoped_model_control(+profile: String, +reasoning: String, +world: M.World()
 
 def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()) -> Maybe<&2, ViewTypes.ComposerScene>:
   match body:
-    case U.NewTask{message, +profile, reasoning, context, +work}:
+    case U.NewTask{message, +profile, reasoning, context, create_worktree, +work}:
       ViewTypes.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
       +observation: Context.Observation = Context.DraftExecution{Context.preview(context, world)}
       Some{ViewTypes.ComposerScene{identity, revision, message, ViewTypes.Creation{},
@@ -350,7 +352,7 @@ def composer_scene(body: U.Body, scene: ViewTypes.EditorScene, +world: M.World()
 def project_choices(entries: +List<Finite.Entry(D.Project)>) -> +List<ViewTypes.ProjectChoice>:
   match entries:
     case Nil{}: Nil{}
-    case Con{(id, D.Project{name, workspace, guidance}), rest}: ViewTypes.ProjectChoice{id, name, workspace} <> project_choices(rest)
+    case Con{(id, D.Project{name, workspace, guidance, create_worktree}), rest}: ViewTypes.ProjectChoice{id, name, workspace} <> project_choices(rest)
 
 def projects(world: M.World()) -> +List<ViewTypes.ProjectChoice>:
   project_choices(Projects.entries(Projects.registry(F.State(), world)))
@@ -393,12 +395,12 @@ def configuration_workspace(config: Context.Configuration) -> Maybe<&2, D.Worksp
   Context.Configuration{origin, workspace, sandbox, approval} = config
   workspace
 
-def execution_group(+identity: U.Editor, +config: Context.Configuration, +world: M.World()) -> ViewTypes.InputGroup:
+def execution_group(+identity: U.Editor, +config: Context.Configuration, profile: String, +world: M.World()) -> ViewTypes.InputGroup:
   +observed = Context.preview(config, world)
   ViewTypes.ExecutionInput{config, observed,
     workspace_controls(preview_workspace(observed), identity,
       workspace_inheritance(configuration_workspace(config), identity)),
-    projects(world), Forms.reviewers(world)}
+    projects(world), Forms.reviewers_for(profile, world)}
 
 def delivery_controls(+task: Nat, selected: U.Delivery) -> ViewTypes.InputGroup:
   ViewTypes.DeliveryInput{selected,
@@ -442,13 +444,13 @@ def profile_owners(profiles: +List<D.Profile>, rest: +List<B.Owner>) -> +List<B.
 
 def capture_inputs(id: Maybe<&2, Nat>, assist: Bool, profile: String, world: M.World()) -> +List<ViewTypes.InputGroup>:
   match id:
-    case None{}: [ViewTypes.CardAssistanceInput{assist, profile, Board.profiles(world)}]
+    case None{}: [ViewTypes.CardAssistanceInput{assist, profile, Forms.task_profiles(world)}]
     case Some{id}: Nil{}
 
 def task_execution_context(+task: D.Task, +context: D.TaskContext, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   D.TaskContext{workspace, sandbox, approval, project} = context
-  [ViewTypes.ModelInput{D.task_profile(task), D.task_reasoning(task), Board.profiles(world)},
-   execution_group(U.MessageEditor{D.task_id(task)}, Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, world)]
+  [ViewTypes.ModelInput{D.task_profile(task), D.task_reasoning(task), Forms.task_profiles(world)},
+   execution_group(U.MessageEditor{D.task_id(task)}, Context.Configuration{Context.ParentTask{D.task_id(task)}, Some{workspace}, Some{sandbox}, Some{Context.approval_choice(approval)}}, D.task_profile(task), world)]
 
 def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match found:
@@ -458,21 +460,21 @@ def task_execution_groups(+found: Maybe<&2, D.Task>, +world: M.World()) -> +List
 def input_groups(body: U.Body, +world: M.World()) -> +List<ViewTypes.InputGroup>:
   match body:
     case U.WorkName{work, name}: Nil{}
-    case U.NewTask{message, profile, reasoning, context, work}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.NewTaskEditor{work}, context, world)]
+    case U.NewTask{message, +profile, reasoning, context, create_worktree, work}: [ViewTypes.MessageInput{message}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.NewTaskEditor{work}, context, profile, world)]
     case U.Message{+task, message, delivery}: ViewTypes.MessageInput{message} <> List.append(&2, ViewTypes.InputGroup, task_execution_groups(Tasks.find(Commands.entries(world), task), world), [delivery_controls(task, delivery)])
     case U.TaskGraph{graph, declaration, parsed, work}: [ViewTypes.TaskGraphInput{declaration}]
-    case U.Project{id, name, +workspace}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
+    case U.Project{id, name, +workspace, create_worktree}: [ViewTypes.ProjectNameInput{name}, ViewTypes.ProjectWorkspaceInput{workspace, workspace_controls(workspace, U.ProjectEditor{id}, None{})}]
     case U.Card{id, revision, value, assist, profile, keep_open}:
       ViewTypes.CardContentInput{value, projects(world), B.stages(),
-        B.priorities(), card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Board.profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
-    case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}:
-      [ViewTypes.AgentIdentityInput{name, instructions, concurrency}, ViewTypes.ModelInput{profile, reasoning, Board.profiles(world)}, execution_group(U.AgentEditor{id}, context, world)]
-    case U.Fork{task, count, messages, context}: [ViewTypes.ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, world)]
+        B.priorities(), card_owner_choices(B.Unassigned{} <> B.Self{} <> profile_owners(Forms.task_profiles(world), agent_owners(agents(Board.registry(world)))), world)} <> capture_inputs(id, assist, profile, world)
+    case U.Agent{id, revision, name, +profile, reasoning, instructions, context, concurrency}:
+      [ViewTypes.AgentIdentityInput{name, instructions, concurrency}, ViewTypes.ModelInput{profile, reasoning, Forms.task_profiles(world)}, execution_group(U.AgentEditor{id}, context, profile, world)]
+    case U.Fork{+task, count, messages, context}: [ViewTypes.ForkInput{count, messages}, execution_group(U.ForkEditor{task}, context, Forms.parent_profile(task, world), world)]
     case U.Compact{task, summary}: [ViewTypes.SummaryInput{summary}]
 
 def submit_label(body: U.Body) -> String:
   match body:
-    case U.NewTask{message, profile, reasoning, context, work}: "Start task"
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: "Start task"
     case U.Message{task, message, delivery}: U.delivery_caption(delivery)
     case U.Fork{task, count, messages, context}: "Fork task"
     case U.Compact{task, summary}: "Compact history"
@@ -543,7 +545,7 @@ def task_project(found: Maybe<&2, D.Task>) -> Maybe<&2, Nat>:
 
 def draft_project(found: Maybe<&2, U.Draft>, +world: M.World()) -> Maybe<&2, Nat>:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, configuration, work}, feedback, directory_entry}}:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, configuration, create_worktree, work}, feedback, directory_entry}}:
       project_choice_id(creation_selected_project(Some{Context.preview(configuration, world)}, world))
     case _: None{}
 
@@ -578,6 +580,55 @@ def task_entries(tasks: +List<D.Task>, +route: U.Route) -> +List<ViewTypes.TaskE
     case Nil{}: Nil{}
     case Con{task, rest}: task_entry(task, route) <> task_entries(rest, route)
 
+type PendingTaskTree is Data:
+  PendingTaskTree{parent: Maybe<&2, Nat>, tree: ViewTypes.TaskTree}
+
+type TaskTreePartition is Data:
+  TaskTreePartition{children: +List<ViewTypes.TaskTree>, roots: +List<PendingTaskTree>}
+
+def task_parent(task: D.Task) -> Maybe<&2, Nat>:
+  List.head(&2, Nat, D.task_lineage(task))
+
+def task_parent_matches(parent: Maybe<&2, Nat>, id: Nat) -> Bool:
+  match parent:
+    case None{}: False{}
+    case Some{parent}: Nat.is_eq(parent, id)
+
+def pending_task_tree_value(value: PendingTaskTree) -> ViewTypes.TaskTree:
+  PendingTaskTree{parent, tree} = value
+  tree
+
+def task_tree_values(values: +List<PendingTaskTree>) -> +List<ViewTypes.TaskTree>:
+  List.foldr(~&2, ~PendingTaskTree, ~(+List<ViewTypes.TaskTree>), ~(value => rest => pending_task_tree_value(value) <> rest), values, Nil{})
+
+def partition_task_tree(attach: Bool, value: PendingTaskTree, partition: TaskTreePartition) -> TaskTreePartition:
+  match attach value partition:
+    case True{} PendingTaskTree{parent, tree} TaskTreePartition{children, roots}:
+      TaskTreePartition{tree <> children, roots}
+    case False{} value TaskTreePartition{children, roots}:
+      TaskTreePartition{children, value <> roots}
+
+def partition_task_children(values: +List<PendingTaskTree>, +parent: Nat) -> TaskTreePartition:
+  match values:
+    case Nil{}: TaskTreePartition{Nil{}, Nil{}}
+    case Con{PendingTaskTree{+ancestor, tree}, rest}:
+      partition_task_tree(task_parent_matches(ancestor, parent), PendingTaskTree{ancestor, tree}, partition_task_children(rest, parent))
+
+def prepend_task_tree(+task: D.Task, route: U.Route, partition: TaskTreePartition) -> +List<PendingTaskTree>:
+  TaskTreePartition{children, roots} = partition
+  PendingTaskTree{task_parent(task), ViewTypes.TaskTree{task_entry(task, route), children}} <> roots
+
+# NOTE: harness/INVARIANTS.tasks orders parents before children, so folding the
+# project-scoped list from the right attaches complete child trees in sibling order.
+def pending_task_forest(tasks: +List<D.Task>, +route: U.Route) -> +List<PendingTaskTree>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{+task, rest}:
+      prepend_task_tree(task, route, partition_task_children(pending_task_forest(rest, route), D.task_id(task)))
+
+def task_forest(tasks: +List<D.Task>, route: U.Route) -> +List<ViewTypes.TaskTree>:
+  task_tree_values(pending_task_forest(tasks, route))
+
 def keep_task(keep: Bool, task: D.Task, rest: +List<D.Task>) -> +List<D.Task>:
   match keep:
     case True{}: task <> rest
@@ -589,8 +640,8 @@ def project_tasks(tasks: +List<D.Task>, +project: Maybe<&2, Nat>) -> +List<D.Tas
     case Con{+task, rest}: keep_task(same_project(Workspace.project_id(D.task_context(task)), project), task, project_tasks(rest, project))
 
 def project_entry(+id: Nat, project: D.Project, tasks: +List<D.Task>, +route: U.Route, selected: Maybe<&2, Nat>, navigation: E.NavigationState) -> ViewTypes.ProjectEntry:
-  D.Project{+name, workspace, guidance} = project
-  ViewTypes.ProjectEntry{id, name, workspace, selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), task_entries(project_tasks(tasks, Some{id}), route),
+  D.Project{+name, workspace, guidance, create_worktree} = project
+  ViewTypes.ProjectEntry{id, name, workspace, selected_project(selected, id), Bool.not(E.project_collapsed(navigation, id)), task_forest(project_tasks(tasks, Some{id}), route),
     control("project/" ++ Nat.show(id), name, U.SelectProject{Some{id}}), control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}),
     control("project/toggle/" ++ Nat.show(id), "Toggle project tasks", U.ToggleProjectGroup{id}),
     context_control("project/more/" ++ Nat.show(id), "More", U.ObjectActions{U.ProjectSubject{id}})}
@@ -651,7 +702,7 @@ def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.
   +tasks = work_tasks(Commands.entries(world), scope, world)
   ViewTypes.Navigation{expanded, control("new-task", "新建对话", U.BeginTask{None{}}),
     global_destinations(),
-    navigation_projects(Projects.entries(Projects.registry(F.State(), world)), tasks, route, active_project(route, session, world), nav, scope), task_entries(project_tasks(tasks, None{}), route),
+    navigation_projects(Projects.entries(Projects.registry(F.State(), world)), tasks, route, active_project(route, session, world), nav, scope), task_forest(project_tasks(tasks, None{}), route),
     ViewTypes.ControlDeclaration{"navigation/toggle", task_navigation_toggle_label(expanded), ViewTypes.Secondary{}, U.SetNavigation{Bool.not(expanded)}, ViewTypes.Available{}}}
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:
@@ -685,7 +736,7 @@ def task_page(found: Maybe<&2, D.Task>, session: E.Session, world: M.World()) ->
     case Some{task}: ViewTypes.TaskPage{task_scene(task, session, world)}
 
 def project_scene(+id: Nat, project: D.Project, route: U.Route, +world: M.World()) -> ViewTypes.ProjectScene:
-  D.Project{name, workspace, guidance} = project
+  D.Project{name, workspace, guidance, create_worktree} = project
   ViewTypes.ProjectScene{id, name, workspace, guidance, task_entries(project_tasks(Commands.entries(world), Some{id}), route),
     [control("project/new-task/" ++ Nat.show(id), "New task", U.BeginTask{Some{id}}), control("project/edit/" ++ Nat.show(id), "Edit project", U.EditProject{Some{id}}),
       native("project/delete/" ++ Nat.show(id), "Delete project", ViewTypes.Destructive{}, U.DeleteProject{id}, world)]}
@@ -769,7 +820,7 @@ def columns(stages: +List<B.Stage>, +cards: +List<Finite.Entry(B.Card)>, +route:
 def face_project_name(found: Maybe<&2, D.Project>, id: Nat) -> String:
   match found:
     case None{}: "项目 #" ++ Nat.show(id) ++ " 不可用"
-    case Some{D.Project{name, workspace, guidance}}: name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: name
 
 def face_project(found: Maybe<&2, Nat>, +world: M.World()) -> String:
   match found:
@@ -918,7 +969,7 @@ def subject_actions(subject: U.Subject, session: E.Session, world: M.World()) ->
 def board_settings(+board: B.State, +world: M.World()) -> ViewTypes.LayerContent:
   +automatic = B.automatic(board)
   +draft_profile = B.draft_profile(board)
-  ViewTypes.BoardSettings{automatic, draft_profile, Board.profiles(world),
+  ViewTypes.BoardSettings{automatic, draft_profile, Forms.task_profiles(world),
     board_control("board/automatic", "自动排期", B.Settings{Bool.not(automatic), draft_profile}, world)}
 
 def found_card_details(found: Maybe<&2, B.Card>, id: Nat, route: U.Route, now: U32, world: M.World()) -> Maybe<&2, ViewTypes.CardScene>:

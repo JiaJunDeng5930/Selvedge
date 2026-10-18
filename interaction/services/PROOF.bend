@@ -3,6 +3,7 @@ import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../submission/FIELDS.bend as Forms
 import Base
+import ./connection-proof.bend as ConnectionProof
 import ../IDENTITY.bend as Identity
 import ./CONTRACT.bend as Rule
 import ../../bendlib/stdlib.bend as Std
@@ -21,7 +22,7 @@ import ../TYPES.bend as InteractionTypes
 import ../presentation/SURFACE.bend as SurfaceTypes
 
 def draft_composer_context(+message: U.Text, profile: String, reasoning: String, +config: Context.Configuration, scene: V.EditorScene, +world: M.World()) ->
-  {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config, None{}}, scene, world)) ==
+  {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config, False{}, None{}}, scene, world)) ==
     Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}

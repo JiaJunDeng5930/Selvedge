@@ -54,10 +54,15 @@ type NavigationState is Data:
 # Execution and human participation form one system. Observations are projections
 # of this value, not an independently supplied tree of enabled widgets.
 
+type WorkspaceGit is Data:
+  UnknownWorkspaceGit{}
+  LoadingWorkspaceGit{ticket: Nat, primary: String}
+  ObservedWorkspaceGit{primary: String, available: Bool}
+
 type Session is Data:
   Session{route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(Reader)>,
     layers: +List<Layer>, attention: String, navigation: NavigationState, filter: B.Filter,
-    now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, ModelPreference>, draft_model_manual: Bool}
+    now: U32, next_ticket: Nat, pending: +List<Pending>, previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, ModelPreference>, draft_model_manual: Bool, workspace_git: WorkspaceGit}
 
 type Application is Data:
   Application{program: M.World(), session: Session}
@@ -66,6 +71,7 @@ type Completion is Data:
   WorkCreationCompletion{generation: Nat, layer_generation: Nat}
   DirectCompletion{}
   DraftCompletion{draft: U.Draft}
+  WorktreePreferenceCompletion{draft: U.Draft, command: M.Command}
   ExecutionCompletion{task: Nat, profile: String, reasoning: String, remember: Bool}
   ExecutionViewCompletion{task: Nat, profile: String, reasoning: String, remember: Bool, occurrence: Nat}
   ConfirmationCompletion{command: M.Command, trigger: String, destination: U.Route, occurrence: Nat}
@@ -76,6 +82,7 @@ type Effect is Data:
   ObserveDirectories{ticket: Nat, entered: D.Workspace}
   Attend{target: String}
   PersistModelPreference{profile: String, reasoning: String}
+  ObserveWorkspaceGit{ticket: Nat, primary: String}
 
 type Decision is Data:
   Decision{application: Application, reply: J.Json, runtime_effects: +List<M.Effect()>,
@@ -91,6 +98,7 @@ type Input is Data:
   DirectoriesObserved{ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>}
   ClockObserved{now: U32}
   ModelPreferenceRestored{profile: String, reasoning: String}
+  WorkspaceGitObserved{ticket: Nat, available: Bool}
 
 type ChoiceCompletion is Data:
   ChoiceCompletion{editor: U.Editor, result: Decision}
@@ -107,6 +115,7 @@ type SubmissionCompletion is Data:
 type ConfirmationReceipt is Data:
   ConfirmationReceipt{command: M.Command, trigger: String, occurrence: Nat, result: J.Json, destination: U.Route, application: Application}
 
+
 def program(state: Application) -> M.World():
   Application{program, session} = state
   program
@@ -116,27 +125,27 @@ def session(state: Application) -> Session:
   session
 
 def route(state: Session) -> U.Route:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   route
 
 def drafts(state: Session) -> +List<U.Draft>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   drafts
 
 def readers(state: Session) -> +List<Finite.Entry(Reader)>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   readers
 
 def layers(state: Session) -> +List<Layer>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   layers
 
 def attention(state: Session) -> String:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   attention
 
 def navigation(state: Session) -> NavigationState:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   navigation
 
 def navigation_work(state: NavigationState) -> Maybe<&2, Nat>:
@@ -161,31 +170,31 @@ def creation_editor(state: Session) -> U.Editor:
   U.NewTaskEditor{active_work(state)}
 
 def filter(state: Session) -> B.Filter:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   filter
 
 def now(state: Session) -> U32:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   now
 
 def next_ticket(state: Session) -> Nat:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   next_ticket
 
 def pending(state: Session) -> +List<Pending>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   pending
 
 def previews(state: Session) -> +List<Live.Output>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   previews
 
 def code_blocks(state: Session) -> +List<Content.Block>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   code_blocks
 
 def next_layer(state: Session) -> Nat:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
   next_layer
 
 def with_program(value: M.World(), state: Application) -> Application:
@@ -197,47 +206,47 @@ def with_session(value: Session, state: Application) -> Application:
   Application{program, value}
 
 def with_now(value: U32, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, value, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, value, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def from_program(program: M.World(), session: Session) -> Application:
   Application{program, session}
 
 def with_route(value: U.Route, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{value, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{value, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def with_drafts(value: +List<U.Draft>, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, value, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, value, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def with_layers(value: +List<Layer>, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, value, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, value, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def with_attention(value: String, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, layers, value, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, value, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def with_navigation(value: NavigationState, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, layers, attention, value, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, value, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def advance_selection(application: Application) -> Application:
   Application{program, +session} = application
   Application{program, with_navigation(advance_navigation_selection(navigation(session)), session)}
 
 def with_next_ticket(value: Nat, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, value, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, value, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def with_pending(value: +List<Pending>, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, value, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, value, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def with_next_layer(value: Nat, state: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = state
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, value, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = state
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, value, model_preference, draft_model_manual, workspace_git}
 
 def first_valid_profile(+valid: Bool, +profile: D.Profile, +fallback: Sigma<&2, &2, String, (_ => String)>) -> Sigma<&2, &2, String, (_ => String)>:
   match valid profile:
@@ -247,7 +256,7 @@ def first_valid_profile(+valid: Bool, +profile: D.Profile, +fallback: Sigma<&2, 
 def first_profile(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
     case Nil{}: ("", "")
-    case Con{+profile, rest}: first_valid_profile(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, first_profile(rest))
+    case Con{+profile, rest}: first_valid_profile(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, first_profile(rest))
 
 def chooser_owns(layers: +List<Layer>, editor: U.Editor) -> Bool:
   match layers:
@@ -269,12 +278,12 @@ def close_layers(layers: +List<Layer>, program: M.World(), session: Session) -> 
   match layers:
     case Nil{}: unchanged(Application{program, session})
     case Con{Layer{panel, +trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
-      Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
-      local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, [Attend{trigger}])
+      Session{route, drafts, readers, old, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+      local(program, Session{route, drafts, readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{trigger}])
 
 def close_panel(application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   close_layers(layers, program, session)
 
 def with_native(local: Decision, result: J.Json, effects: +List<M.Effect()>, durable: Bool) -> Decision:
@@ -283,7 +292,7 @@ def with_native(local: Decision, result: J.Json, effects: +List<M.Effect()>, dur
 
 def choice_owned(completion: ChoiceCompletion) -> Bool:
   ChoiceCompletion{editor, result} = completion
-  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}, reply, runtime, interaction, durable} = result
+  Decision{Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}, reply, runtime, interaction, durable} = result
   J.boolean(J.get(reply, "ok")) && chooser_owns(layers, editor)
 
 def owned_choice() -> ChoiceCompletion -> Type:
@@ -378,14 +387,13 @@ def close_selected_choice(change: U.Edit, editor: U.Editor, result: Decision) ->
 
 def scoped_new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin, work: Maybe<&2, Nat>) -> U.Body:
   (profile, reasoning) = profile
-  U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin), work}
+  U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin), False{}, work}
 
 def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin) -> U.Body:
   scoped_new_task(profile, origin, None{})
 
 def initial(+program: M.World()) -> Application:
-  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}],
-    Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}, None{}, Nil{}, 0n}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n, None{}, False{}}}
+  Application{program, Session{U.Start{}, [U.Draft{0n, new_task(first_profile(Board.profiles(program)), Context.EnvironmentDefaults{}), U.Editing{}, ""}], Nil{}, Nil{}, "composer/new-task", NavigationState{AutomaticNavigation{}, Nil{}, None{}, Nil{}, 0n}, B.empty_filter(), 0, 0n, Nil{}, Nil{}, Nil{}, 0n, None{}, False{}, UnknownWorkspaceGit{}}}
 
 def select_draft(hit: Bool, value: U.Draft, rest: Maybe<&2, U.Draft>) -> Maybe<&2, U.Draft>:
   match hit:
@@ -414,8 +422,8 @@ def put_draft(+draft: U.Draft, drafts: +List<U.Draft>) -> +List<U.Draft>:
   draft <> without_draft(drafts, U.owner(body))
 
 def with_draft(session: Session, draft: U.Draft) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
-  Session{route, put_draft(draft, drafts), readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, put_draft(draft, drafts), readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def refuse(application: Application, reason: String) -> Decision:
   reply(application, D.failure("interaction_refused", reason))
@@ -424,6 +432,113 @@ def edit_result(result: Result<&2, &2, String, U.Draft>, program: M.World(), ses
   match result:
     case Fail{reason}: refuse(Application{program, session}, reason)
     case Done{draft}: local(program, with_draft(session, draft), Nil{})
+
+def workspace_git(session: Session) -> WorkspaceGit:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  workspace_git
+
+def with_workspace_git(value: WorkspaceGit, session: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, previous} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, value}
+
+def preview_primary(preview: Context.Preview) -> Maybe<&2, String>:
+  match preview:
+    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: W.primary(Context.selected_workspace(workspace))
+    case _: None{}
+
+def new_task_primary(found: Maybe<&2, U.Draft>, world: M.World()) -> Maybe<&2, String>:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled, work}, feedback, entry}}: preview_primary(Context.preview(context, world))
+    case _: None{}
+
+def current_primary(+application: Application) -> Maybe<&2, String>:
+  new_task_primary(find_draft(drafts(session(application)), creation_editor(session(application))), program(application))
+
+def workspace_git_matches(git: WorkspaceGit, primary: Maybe<&2, String>) -> Bool:
+  match git primary:
+    case ObservedWorkspaceGit{root, available} Some{path}: available && String.eq(root, path)
+    case _ _: False{}
+
+def worktree_available(+application: Application) -> Bool:
+  workspace_git_matches(workspace_git(session(application)), current_primary(application))
+
+def observe_workspace_git_start(+path: String, decision: Decision) -> Decision:
+  Decision{Application{world, session}, reply, runtime, effects, durable} = decision
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, +next, pending, previews, code_blocks, next_layer, preference, manual, previous} = session
+  Decision{Application{world, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat), pending, previews, code_blocks, next_layer, preference, manual, LoadingWorkspaceGit{next, path}}}, reply, runtime,
+    List.append(&2, Effect, effects, [ObserveWorkspaceGit{next, path}]), durable}
+
+def observe_workspace_git_clear(decision: Decision) -> Decision:
+  Decision{Application{world, session}, reply, runtime, effects, durable} = decision
+  Decision{Application{world, with_workspace_git(UnknownWorkspaceGit{}, session)}, reply, runtime, effects, durable}
+
+def observe_workspace_git_primary(selected: Maybe<&2, String>, decision: Decision) -> Decision:
+  match selected:
+    case None{}: observe_workspace_git_clear(decision)
+    case Some{path}: observe_workspace_git_start(path, decision)
+
+def observe_workspace_git(decision: Decision) -> Decision:
+  Decision{+application, reply, runtime, effects, durable} = decision
+  observe_workspace_git_primary(current_primary(application), Decision{application, reply, runtime, effects, durable})
+
+def observe_scope_workspace_checked(accepted: Bool, decision: Decision) -> Decision:
+  match accepted:
+    case False{}: decision
+    case True{}: observe_workspace_git(decision)
+
+def observe_scope_workspace(decision: Decision) -> Decision:
+  Decision{application, +reply, runtime, effects, durable} = decision
+  observe_scope_workspace_checked(J.boolean(J.get(reply, "ok")), Decision{application, reply, runtime, effects, durable})
+
+def git_observation_current(current: Nat, ticket: Nat, primary: String, actual: Maybe<&2, String>) -> Bool:
+  match actual:
+    case None{}: False{}
+    case Some{path}: Nat.is_eq(current, ticket) && String.eq(primary, path)
+
+def disable_unavailable_worktree(available: Bool, found: Maybe<&2, U.Draft>, session: Session) -> Session:
+  match available found:
+    case False{} Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled, work}, feedback, entry}}:
+      with_draft(session, U.Draft{revision, U.NewTask{message, profile, reasoning, context, False{}, work}, feedback, entry})
+    case _ _: session
+
+def settle_workspace_git(current: Bool, +primary: String, +available: Bool, application: Application) -> Decision:
+  match current:
+    case False{}: unchanged(application)
+    case True{}:
+      Application{world, +session} = application
+      local(world, with_workspace_git(ObservedWorkspaceGit{primary, available}, disable_unavailable_worktree(available, find_draft(drafts(session), creation_editor(session)), session)), Nil{})
+
+def workspace_git_result(git: WorkspaceGit, ticket: Nat, available: Bool, +application: Application) -> Decision:
+  match git:
+    case LoadingWorkspaceGit{current, +primary}: settle_workspace_git(git_observation_current(current, ticket, primary, current_primary(application)), primary, available, application)
+    case _: unchanged(application)
+
+def workspace_git_observed(ticket: Nat, available: Bool, +application: Application) -> Decision:
+  workspace_git_result(workspace_git(session(application)), ticket, available, application)
+
+def refresh_workspace_edit(change: U.Edit) -> Bool:
+  match change:
+    case U.EditWorkspace{change}: True{}
+    case U.ConfirmDirectory{}: True{}
+    case U.ConfigureContext{Context.ChooseOrigin{origin}}: True{}
+    case U.ConfigureContext{Context.SetWorkspace{workspace}}: True{}
+    case U.ConfigureContext{Context.UseDefaultWorkspace{}}: True{}
+    case _: False{}
+
+def observe_workspace_edit_enabled(enabled: Bool, decision: Decision) -> Decision:
+  match enabled:
+    case True{}: observe_workspace_git(decision)
+    case False{}: decision
+
+def observe_workspace_edit(editor: U.Editor, change: U.Edit, decision: Decision) -> Decision:
+  match editor:
+    case U.NewTaskEditor{work}: observe_workspace_edit_enabled(refresh_workspace_edit(change), decision)
+    case _: decision
+
+def observe_workspace_panel(panel: U.Panel, decision: Decision) -> Decision:
+  match panel:
+    case U.WorkspaceConfiguration{U.NewTaskEditor{work}}: observe_workspace_git(decision)
+    case _: decision
 
 def confirm_found(admitted: Bool, draft: U.Draft, +program: M.World(), session: Session) -> Decision:
   match admitted:
@@ -510,7 +625,9 @@ def configure_policy(+policy: Sigma<&2, &2, D.Sandbox, (_ => D.ApprovalPolicy)>,
   configure_selected(remember, sandbox, approval, task, profile, reasoning, current_profile, current_reasoning, application)
 
 def configure_current(+current: D.ExecutionConfiguration, +task: Nat, +profile: String, +reasoning: String, +change: Maybe<&2, Context.Change>, +remember: Bool, +application: Application) -> Decision:
-  D.ExecutionConfiguration{current_profile, current_reasoning, model, sandbox, approval} = current
+  D.ExecutionConfiguration{+model, sandbox, approval} = current
+  current_profile = D.profile_key(D.model_profile(model))
+  current_reasoning = D.model_selection(model)
   +world = program(application)
   configure_policy(changed_policy(change, sandbox, approval, Board.profiles(world)), task, profile, reasoning, current_profile, current_reasoning, remember, application)
 
@@ -552,13 +669,13 @@ def reader_position(reader: Reader) -> U.ReadingIntent:
 
 def reading_decision(position: U.ReadingIntent, old: Reader, +task: Nat, program: M.World(), session: Session) -> Decision:
   Reader{generation, old_position, disclosures} = old
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   local(program, Session{route, drafts, (task, Reader{generation, position, disclosures}) <> Finite.remove(~Reader, readers, task),
-    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
 
 def read(+task: Nat, intent: U.ReadingIntent, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   +old = reader(readers, task)
   reading_decision(intent, old, task, program, session)
 
@@ -605,8 +722,8 @@ def toggle_project_navigation(+id: Nat, +state: NavigationState) -> NavigationSt
   NavigationState{intent, toggle_collapsed(project_collapsed(state, id), id, collapsed), work, visits, generation}
 
 def toggle_project(id: Nat, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}} = application
-  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}, Nil{})
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  local(program, Session{route, drafts, readers, layers, attention, toggle_project_navigation(id, navigation), filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
 
 def new_visit(reader: Reader) -> Reader:
   Reader{generation, position, disclosures} = reader
@@ -618,9 +735,9 @@ def visit_readers(route: U.Route, +readers: +List<Finite.Entry(Reader)>) -> +Lis
     case _: readers
 
 def navigate_with_attention(+route: U.Route, +target: String, application: Application) -> Decision:
-  Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{old, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   +current_readers = visit_readers(route, readers)
-  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual},
+  local(program, Session{route, drafts, current_readers, Nil{}, target, navigation_after_visit(navigation), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git},
     [Attend{target}])
 
 def navigate(route: U.Route, application: Application) -> Decision:
@@ -631,7 +748,7 @@ def reader_generation(reader: Reader) -> Nat:
   generation
 
 def reading_owned(request: ReadingRequest) -> Bool:
-  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}} = request
+  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}} = request
   U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task)))
 
 def owned_reading() -> ReadingRequest -> Type:
@@ -730,7 +847,7 @@ def visit(route: U.Route, application: Application) -> Decision:
     case U.AgentCollection{}: navigate(U.AgentCollection{}, global_application(application))
     case U.Conversation{+task}:
       Application{+program, +session} = application
-      Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+      Session{old, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
       navigate(U.Conversation{task}, Application{program, ensure(find_draft(drafts, U.MessageEditor{task}),
         U.Message{task, U.initial_text(""), U.Send{}}, conversation_scope(task, program, session))})
     case other: navigate(other, application)
@@ -779,10 +896,10 @@ def without_panel(layers: +List<Layer>, +identity: String) -> +List<Layer>:
       keep_layer(String.eq(panel_target(panel), identity), Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, without_panel(rest, identity))
 
 def open_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, +next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, +next_layer, model_preference, draft_model_manual, workspace_git}} = application
   +target = panel_target(panel)
   local(program, Session{route, drafts, readers, Layer{panel, trigger, target, "", next_layer, False{}, None{}, None{}} <> without_panel(layers, panel_target(panel)),
-    target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat), model_preference, draft_model_manual}, [Attend{target}])
+    target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat), model_preference, draft_model_manual, workspace_git}, [Attend{target}])
 
 def panel_present(layers: +List<Layer>, +target: String) -> Bool:
   match layers:
@@ -794,14 +911,14 @@ def toggle_panel_selected(present: Bool, +panel: U.Panel, +trigger: String, appl
   match present:
     case False{}: open_panel(panel, trigger, application)
     case True{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
       local(program, Session{route, drafts, readers, without_panel(layers, panel_target(panel)), trigger,
-        navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, [Attend{trigger}])
+        navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{trigger}])
 
 def toggle_panel(+panel: U.Panel, trigger: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   toggle_panel_selected(panel_present(layers, panel_target(panel)), panel, trigger,
-    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}})
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}})
 
 def fresh_project_draft(+body: U.Body, +session: Session) -> Session:
   with_draft(session, U.Draft{next_layer(session), body, U.Editing{}, ""})
@@ -813,7 +930,7 @@ def ensure_project(+found: Maybe<&2, U.Draft>, +body: U.Body, +session: Session)
 
 def ensure_editor_draft(+found: Maybe<&2, U.Draft>, +body: U.Body, +session: Session) -> Session:
   match body:
-    case U.Project{id, name, workspace}: ensure_project(found, body, session)
+    case U.Project{id, name, workspace, create_worktree}: ensure_project(found, body, session)
     case _: ensure(found, body, session)
 
 def open_editor_found(found: Maybe<&2, U.Draft>, +body: U.Body, program: M.World(), session: Session) -> Decision:
@@ -821,17 +938,17 @@ def open_editor_found(found: Maybe<&2, U.Draft>, +body: U.Body, program: M.World
 
 def open_editor(+body: U.Body, application: Application) -> Decision:
   Application{program, +session} = application
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   open_editor_found(find_draft(drafts, U.owner(body)), body, program, session)
 
 def edit_project(found: Maybe<&2, D.Project>, id: Maybe<&2, Nat>, application: Application) -> Decision:
   match found:
     case None{}: refuse(application, "The project no longer exists")
-    case Some{D.Project{name, workspace, guidance}}: open_editor(U.Project{id, name, workspace}, application)
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: open_editor(U.Project{id, name, workspace, create_worktree}, application)
 
 def project_editor(id: Maybe<&2, Nat>, +application: Application) -> Decision:
   match id:
-    case None{}: open_editor(U.Project{None{}, "", D.Workspace{Nil{}, None{}}}, application)
+    case None{}: open_editor(U.Project{None{}, "", D.Workspace{Nil{}, None{}}, False{}}, application)
     case Some{+id}:
       Application{program, session} = application
       edit_project(Projects.find(Projects.registry(F.State(), program), id), Some{id}, application)
@@ -968,7 +1085,7 @@ def permitted_preference(found: Maybe<&2, D.Profile>, reasoning: String) -> Bool
     case Some{profile}: D.profile_permitted(profile, reasoning)
 
 def preference(session: Session) -> Maybe<&2, ModelPreference>:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   model_preference
 
 def valid_preference(value: ModelPreference, profiles: +List<D.Profile>) -> Bool:
@@ -985,18 +1102,18 @@ def preferred_selection(+value: Maybe<&2, ModelPreference>, +profiles: +List<D.P
     case None{}: first_profile(profiles)
     case Some{+selection}: preferred_if(valid_preference(selection, profiles), selection, profiles)
 
-def scoped_model_selection(+selection: Sigma<&2, &2, String, (_ => String)>, +revision: Nat, +message: U.Text, +context: Context.Configuration, +feedback: U.Feedback, +directory_entry: String, +session: Session, work: Maybe<&2, Nat>) -> Session:
+def scoped_model_selection(+selection: Sigma<&2, &2, String, (_ => String)>, +revision: Nat, +message: U.Text, +context: Context.Configuration, +feedback: U.Feedback, +directory_entry: String, create_worktree: Bool, +session: Session, work: Maybe<&2, Nat>) -> Session:
   (selected, effort) = selection
-  with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, work}, feedback, directory_entry})
+  with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, create_worktree, work}, feedback, directory_entry})
 
 def resolve_model_valid(+valid: Bool, +draft: U.Draft, +profiles: +List<D.Profile>, +session: Session) -> Session:
   match valid draft:
-    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context, work}, feedback, directory_entry}:
-      scoped_model_selection(preferred_selection(preference(session), profiles), revision, message, context, feedback, directory_entry, session, work)
+    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}:
+      scoped_model_selection(preferred_selection(preference(session), profiles), revision, message, context, feedback, directory_entry, create_worktree, session, work)
     case _ _: session
 
 def manual_model(session: Session) -> Bool:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   draft_model_manual
 
 def creation_model_chosen(work: Maybe<&2, Nat>, manual: Bool) -> Bool:
@@ -1006,8 +1123,8 @@ def creation_model_chosen(work: Maybe<&2, Nat>, manual: Bool) -> Bool:
 
 def resolve_model_found(+found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: Session) -> Session:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context, +work}, feedback, directory_entry}}:
-      resolve_model_valid(creation_model_chosen(work, manual_model(session)) && permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context, work}, feedback, directory_entry}, profiles, session)
+    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context, create_worktree, +work}, feedback, directory_entry}}:
+      resolve_model_valid(creation_model_chosen(work, manual_model(session)) && permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}, profiles, session)
     case _: session
 
 def resolve_model_draft(+session: Session, +program: M.World()) -> Session:
@@ -1109,7 +1226,7 @@ def created_work_id(id: Maybe<&2, Nat>, application: Application) -> Decision:
 def created_work_checked(accepted: Bool, result: J.Json, application: Application) -> Decision:
   match accepted:
     case False{}: unchanged(application)
-    case True{}: created_work_id(J.natural(J.get(J.get(result, "result"), "work_id")), application)
+    case True{}: observe_scope_workspace(created_work_id(J.natural(J.get(J.get(result, "result"), "work_id")), application))
 
 def created_work(+result: J.Json, application: Application) -> Decision:
   created_work_checked(J.boolean(J.get(result, "ok")), result, application)
@@ -1176,7 +1293,7 @@ def settle_found(found: Maybe<&2, U.Draft>, revision: Nat, result: J.Json, +sess
 
 def settle(submitted: U.Draft, +result: J.Json, +session: Session) -> Session:
   U.Draft{revision, body, feedback, directory_entry} = submitted
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   settle_found(find_draft(drafts, U.owner(body)), revision, result, session)
 
 def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
@@ -1186,7 +1303,7 @@ def same_revision(found: Maybe<&2, U.Draft>, expected: Nat) -> Bool:
 
 def owns_submission(draft: U.Draft, session: Session) -> Bool:
   U.Draft{revision, body, feedback, directory_entry} = draft
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   same_revision(find_draft(drafts, U.owner(body)), revision)
 
 def follow_created(id: Maybe<&2, Nat>, application: Application) -> Decision:
@@ -1220,7 +1337,7 @@ def capture_attention(open: Bool, application: Application) -> Decision:
     case False{}: unchanged(application)
 
 def continue_capture(+application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   capture_attention(capture_open(layers), application)
 
 def finish_task_graph_layer(same: Bool, application: Application) -> Decision:
@@ -1235,8 +1352,8 @@ def finish_task_graph(editor: U.Editor, layers: +List<Layer>, application: Appli
     case _: unchanged(application)
 
 def with_manual_model(value: Bool, session: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, previous} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, value}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, previous, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, value, workspace_git}
 
 def completed_creation_model(work: Maybe<&2, Nat>, session: Session) -> Session:
   match work:
@@ -1252,7 +1369,7 @@ def finish_scoped_task(owned: Bool, +work: Maybe<&2, Nat>, route: U.Route, layer
 
 def finish_body(body: U.Body, route: U.Route, layers: +List<Layer>, result: J.Json, +application: Application) -> Decision:
   match body:
-    case U.NewTask{message, profile, reasoning, context, +work}: finish_scoped_task(same_work(work, active_work(session(application))), work, route, layers, result, application)
+    case U.NewTask{message, profile, reasoning, context, create_worktree, +work}: finish_scoped_task(same_work(work, active_work(session(application))), work, route, layers, result, application)
     case U.Card{None{}, revision, value, assist, profile, True{}}:
       continue_capture(application)
     case U.TaskGraph{graph, declaration, parsed, work}: finish_task_graph(U.task_graph_owner(graph, work), layers, application)
@@ -1267,7 +1384,7 @@ def accepted_submission() -> SubmissionCompletion -> Type:
 
 def finish_submission_value(draft: U.Draft, result: J.Json, +application: Application) -> Decision:
   U.Draft{revision, body, feedback, directory_entry} = draft
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   finish_body(body, route, layers, result, application)
 
 def finish_submission(member: Categories.Membership<SubmissionCompletion, accepted_submission()>) -> Decision:
@@ -1291,8 +1408,8 @@ def native_session(submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J
         Application{program, settle(draft, result, session)}), result, effects, durable)
 
 def retain_previews(session: Session, world: M.World()) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks, next_layer, model_preference, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.retained(previews, world), code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}
 
 def native_result(decision: M.Decision(), session: Session, submitted: Maybe<&2, U.Draft>, durable: Bool) -> Decision:
   C.Decision{+program, +result, effects} = decision
@@ -1303,23 +1420,78 @@ def submission_completion(submitted: Maybe<&2, U.Draft>) -> Completion:
     case None{}: DirectCompletion{}
     case Some{draft}: DraftCompletion{draft}
 
-def execute(command: M.Command, application: Application, submitted: Maybe<&2, U.Draft>) -> Decision:
-  request_command(command, submission_completion(submitted), application)
+def worktree_preference_changed(same: Bool, id: Nat, enabled: Bool) -> Maybe<&2, M.Command>:
+  match same:
+    case True{}: None{}
+    case False{}: Some{M.UpdateProject{id, None{}, J.Null{}, J.Null{}, J.Boolean{enabled}}}
+
+def worktree_project_preference(found: Maybe<&2, D.Project>, id: Nat, +enabled: Bool) -> Maybe<&2, M.Command>:
+  match found:
+    case Some{D.Project{name, roots, guidance, previous}}: worktree_preference_changed(UX.same_worktree_choice(enabled, previous), id, enabled)
+    case None{}: None{}
+
+def worktree_preference_command(body: U.Body, world: M.World()) -> Maybe<&2, M.Command>:
+  match body:
+    case U.NewTask{message, profile, reasoning, Context.Configuration{Context.ProjectDefaults{+id}, workspace, sandbox, approval}, enabled, work}:
+      worktree_project_preference(Projects.find(Projects.registry(F.State(), world), id), id, enabled)
+    case _: None{}
+
+def worktree_preference_available(available: Bool, body: U.Body, world: M.World()) -> Maybe<&2, M.Command>:
+  match available:
+    case True{}: worktree_preference_command(body, world)
+    case False{}: None{}
+
+def worktree_submission_allowed(body: U.Body, +application: Application) -> Bool:
+  match body:
+    case U.NewTask{message, profile, reasoning, context, True{}, work}:
+      worktree_available(application) && workspace_git_matches(workspace_git(session(application)), preview_primary(Context.preview(context, program(application))))
+    case _: True{}
+
+def unverified_worktree_submission(application: Application) -> Decision:
+  refuse(application, "Wait for Git verification of the primary workspace before creating a worktree.")
+
+def request_submitted(allowed: Bool, command: M.Command, draft: U.Draft, application: Application) -> Decision:
+  match allowed:
+    case False{}: unverified_worktree_submission(application)
+    case True{}: request_command(command, DraftCompletion{draft}, application)
+
+def execute_preference(preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: Application) -> Decision:
+  match preference:
+    case None{}: request_command(command, DraftCompletion{draft}, application)
+    case Some{update}: request_command(update, WorktreePreferenceCompletion{draft, command}, application)
+
+def execute_submitted(allowed: Bool, preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: Application) -> Decision:
+  match allowed:
+    case False{}: unverified_worktree_submission(application)
+    case True{}: execute_preference(preference, command, draft, application)
+
+def execute(command: M.Command, +application: Application, submitted: Maybe<&2, U.Draft>) -> Decision:
+  match submitted:
+    case None{}: request_command(command, DirectCompletion{}, application)
+    case Some{+draft}: execute_submitted(worktree_submission_allowed(U.contents(draft), application), worktree_preference_available(worktree_available(application), U.contents(draft), program(application)), command, draft, application)
 
 def execute_direct(command: Maybe<&2, M.Command>, application: Application) -> Decision:
   match command:
     case None{}: refuse(application, "This action requires an editor or a navigation transition")
     case Some{command}: execute(command, application, None{})
 
-def prepare(application: Application, workspace: Maybe<&2, D.Workspace>, +draft: U.Draft) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+def prepare_directories(application: Application, workspace: Maybe<&2, D.Workspace>, +draft: U.Draft) -> Decision:
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, +now, +next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   match workspace:
     case None{}:
       U.Draft{revision, body, feedback, directory_entry} = draft
-      execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}, Some{draft})
+      execute(U.command(body, now), Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}, Some{draft})
     case Some{workspace}:
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, (next + 1n : Nat),
-        Pending{next, draft, now} <> pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, [ObserveDirectories{next, workspace}])
+        Pending{next, draft, now} <> pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [ObserveDirectories{next, workspace}])
+
+def prepare_checked(allowed: Bool, application: Application, workspace: Maybe<&2, D.Workspace>, draft: U.Draft) -> Decision:
+  match allowed:
+    case False{}: unverified_worktree_submission(application)
+    case True{}: prepare_directories(application, workspace, draft)
+
+def prepare(+application: Application, workspace: Maybe<&2, D.Workspace>, +draft: U.Draft) -> Decision:
+  prepare_checked(worktree_submission_allowed(U.contents(draft), application), application, workspace, draft)
 
 def submission_ready(+pending: +List<Pending>, +program: M.World(), draft: U.Draft) -> Bool:
   U.Draft{revision, +body, feedback, directory_entry} = draft
@@ -1347,11 +1519,11 @@ def submit_found(found: Maybe<&2, U.Draft>, +application: Application) -> Decisi
   match found:
     case None{}: refuse(application, "The editor is not open")
     case Some{+draft}:
-      Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+      Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
       submit_admitted(pending, program, draft, Categories.admit(U.Draft, (draft => submission_ready(pending, program, draft)), draft), application)
 
 def submit(editor: U.Editor, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   submit_found(find_draft(drafts, editor), application)
 
 def select_pending(hit: Bool, pending: Pending, rest: Maybe<&2, Pending>) -> Maybe<&2, Pending>:
@@ -1375,8 +1547,8 @@ def without_pending(pending: +List<Pending>, +ticket: Nat) -> +List<Pending>:
     case Con{Pending{+id, draft, now}, rest}: keep_pending(Nat.is_eq(id, ticket), Pending{id, draft, now}, without_pending(rest, ticket))
 
 def finish_preparation(ticket: Nat, application: Application) -> Application:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, without_pending(pending, ticket), previews, code_blocks, next_layer, model_preference, draft_model_manual}}
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, without_pending(pending, ticket), previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}
 
 def workspace_settlement(current: Bool, draft: U.Draft, revision: Nat, reason: String, session: Session) -> Session:
   match current:
@@ -1456,7 +1628,7 @@ def observed_pending(found: Maybe<&2, Pending>, result: Result<&2, &2, String, C
     case Some{pending}: observation_result(result, pending, application)
 
 def observed(ticket: Nat, result: Result<&2, &2, String, Context.DirectoryObservation>, +application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   observed_pending(find_pending(pending, ticket), result, application)
 
 def confirmation_outcome(ok: Bool, destination: U.Route, application: Application) -> Decision:
@@ -1471,7 +1643,7 @@ def confirmation_owned(layers: +List<Layer>, +command: M.Command, +trigger: Stri
     case _: False{}
 
 def receipt_owned(receipt: ConfirmationReceipt) -> Bool:
-  ConfirmationReceipt{command, trigger, occurrence, result, destination, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}} = receipt
+  ConfirmationReceipt{command, trigger, occurrence, result, destination, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}} = receipt
   confirmation_owned(layers, command, trigger, occurrence)
 
 def owned_confirmation() -> ConfirmationReceipt -> Type:
@@ -1509,8 +1681,8 @@ def observe_program(program: M.World(), application: Application) -> Decision:
   observe_program_admitted(Categories.admit(M.World(), (world => I.world(world)), program), application)
 
 def with_preference(value: Maybe<&2, ModelPreference>, session: Session) -> Session:
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, previous, draft_model_manual} = session
-  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, value, draft_model_manual}
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, previous, draft_model_manual, workspace_git} = session
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, value, draft_model_manual, workspace_git}
 
 def remember_valid(+valid: Bool, +profile: String, +reasoning: String, +result: Decision) -> Decision:
   match valid result:
@@ -1551,6 +1723,16 @@ def finish_execution_view(+ok: Bool, +task: Nat, +profile: String, +reasoning: S
   +completed = finish_execution_view_checked(ok && execution_view_owned(layers(session), task, occurrence), task, decision)
   remember_valid(ok && remember, profile, reasoning, completed)
 
+def finish_worktree_preference(ok: Bool, draft: U.Draft, command: M.Command, result: J.Json, application: Application) -> Decision:
+  match ok:
+    case True{}:
+      +draft_value = draft
+      +application_value = application
+      request_submitted(worktree_submission_allowed(U.contents(draft_value), application_value), command, draft_value, application_value)
+    case False{}:
+      Application{world, session} = application
+      native_session(Some{draft}, world, result, Nil{}, session, False{})
+
 def complete_command_member(member: Categories.Membership<M.World(), program_world()>, +result: J.Json, completion: Completion, application: Application) -> Decision:
   Categories.Membership{+program, evidence} = member
   match completion:
@@ -1562,12 +1744,15 @@ def complete_command_member(member: Categories.Membership<M.World(), program_wor
     case DirectCompletion{}:
       Application{previous, session} = application
       native_session(None{}, program, result, Nil{}, retain_previews(session, program), False{})
+    case WorktreePreferenceCompletion{draft, command}:
+      Application{previous, session} = application
+      finish_worktree_preference(J.boolean(J.get(result, "ok")), draft, command, result, Application{program, retain_previews(session, program)})
     case DraftCompletion{draft}:
       Application{previous, session} = application
       native_session(Some{draft}, program, result, Nil{}, retain_previews(session, program), False{})
     case ConfirmationCompletion{command, trigger, destination, occurrence}:
       Application{previous, session} = application
-      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+      Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
       complete_confirmation_current(command, trigger, occurrence, result, destination,
         Application{program, retain_previews(session, program)})
 
@@ -1653,13 +1838,13 @@ def open_requested_panel(panel: U.Panel, trigger: String, +application: Applicat
 
 def activate_selected(action: U.Action, +application: Application) -> Decision:
   match action:
-    case U.SelectWork{work}: select_work(work, application)
+    case U.SelectWork{work}: observe_scope_workspace(select_work(work, application))
     case U.CreateWork{}: create_work(application)
     case U.RenameWork{+work}: rename_work(Work.find(WorkState.registry(program(application)), work), work, application)
-    case U.SelectProject{project}: begin_task(project, application)
+    case U.SelectProject{project}: observe_workspace_git(begin_task(project, application))
     case U.ToggleProjectGroup{project}: toggle_project(project, application)
     case U.Navigate{route}: visit(route, application)
-    case U.BeginTask{+project}: begin_task(project, application)
+    case U.BeginTask{+project}: observe_workspace_git(begin_task(project, application))
     case U.EditProject{+project}: project_editor(project, application)
     case U.NewCard{stage}: new_card(stage, application)
     case U.EditCard{card}: card_editor(card, application)
@@ -1672,16 +1857,17 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.ControlTask{task, control}: execute_direct(U.direct_command(U.ControlTask{task, control}), application)
     case U.CancelOperation{task, operation}: execute_direct(U.direct_command(U.CancelOperation{task, operation}), application)
     case U.ReviewApproval{task, operation, allow, reason}: execute_direct(U.direct_command(U.ReviewApproval{task, operation, allow, reason}), application)
+    case U.RetryWorktreeArchive{task}: execute_direct(U.direct_command(U.RetryWorktreeArchive{task}), application)
     case U.DeleteProject{+project}: open_panel(U.Confirm{M.DeleteProject{project}, "Delete project", U.ProjectCollection{}}, "project/delete/" ++ Nat.show(project), application)
     case U.DeleteTaskGraph{+graph}: open_panel(U.Confirm{M.FeatureCommand{F.TaskGraphCommand{Graph.Delete{graph}}}, "Delete task graph", U.TaskGraphs{}}, "task-graph/delete/" ++ Nat.show(graph), application)
     case U.BoardCommand{B.Delete{+id, revision}}:
       open_panel(U.Confirm{M.FeatureCommand{F.BoardCommand{B.Delete{id, revision}}}, "Delete card", U.TaskBoard{}}, "card/delete/" ++ Nat.show(id), application)
     case U.BoardCommand{command}: execute_direct(U.direct_command(U.BoardCommand{command}), application)
-    case U.OpenPanel{panel, trigger}: open_requested_panel(panel, trigger, application)
-    case U.TogglePanel{panel, trigger}: toggle_panel(panel, trigger, application)
+    case U.OpenPanel{+panel, trigger}: observe_workspace_panel(panel, open_requested_panel(panel, trigger, application))
+    case U.TogglePanel{+panel, trigger}: observe_workspace_panel(panel, toggle_panel(panel, trigger, application))
     case U.ClosePanel{}: dismiss_panel(application)
     case U.ConfirmAction{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
       confirm(layers, application)
 
 def keep_disclosure(same: Bool, value: Disclosure, rest: +List<Disclosure>) -> +List<Disclosure>:
@@ -1700,9 +1886,9 @@ def disclosed_reader(old: Reader, +group: Nat, occurrence: Nat, expanded: Bool) 
   Reader{generation, position, Disclosure{group, occurrence, expanded} <> without_disclosure(disclosures, group)}
 
 def disclose(+task: Nat, group: Nat, occurrence: Nat, expanded: Bool, application: Application) -> Decision:
-  Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   local(program, Session{route, drafts, (task, disclosed_reader(reader(readers, task), group, occurrence, expanded)) <> Finite.remove(~Reader, readers, task),
-    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+    layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
 
 def navigation_focus(expanded: Bool) -> String:
   match expanded:
@@ -1802,11 +1988,11 @@ def enter_decision(editor: U.Editor, field_key: String, application: Application
   enter_known_decision(Forms.choice_field_by_key(field_key), editor, application)
 
 def search_choices(query: String, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   match layers:
-    case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+    case Nil{}: local(program, Session{route, drafts, readers, Nil{}, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
     case Con{Layer{panel, trigger, initial, previous, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}:
-      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+      local(program, Session{route, drafts, readers, Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
 
 def action_leaves_menu(action: U.Action) -> Bool:
   match action:
@@ -1824,8 +2010,8 @@ def dismiss_action_menu(leaves: Bool, application: Application) -> Application:
   match leaves:
     case False{}: application
     case True{}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+      Application{program, Session{route, drafts, readers, remove_action_menu(layers), attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}
 
 def activate(+action: U.Action, application: Application) -> Decision:
   activate_selected(action, dismiss_action_menu(action_leaves_menu(action), application))
@@ -1945,21 +2131,21 @@ def user(input: U.Input, application: Application) -> Decision:
     case U.LeaveDecision{editor}: leave_decision(editor, application)
     case U.TogglePropertySource{editor}: toggle_property_source(editor, application)
     case U.Activate{action}: activate(action, application)
-    case U.EditDraft{+editor, +change}: manual_edit(editor, change, application)
+    case U.EditDraft{+editor, +change}: observe_workspace_edit(editor, change, manual_edit(editor, change, application))
     case U.ReadTimeline{task, generation, intent}: read_current(task, generation, intent, application)
     case U.SetDisclosure{task, group, occurrence, expanded}: disclose(task, group, occurrence, expanded, application)
     case U.SetNavigation{+expanded}:
-      Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+      Application{program, Session{route, drafts, readers, layers, attention, previous, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
       +target = navigation_focus(expanded)
-      local(program, Session{route, drafts, readers, layers, target, advance_navigation_selection(set_navigation(expanded, previous)), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, [Attend{target}])
+      local(program, Session{route, drafts, readers, layers, target, advance_navigation_selection(set_navigation(expanded, previous)), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, [Attend{target}])
     case U.SearchChoices{query}: search_choices(query, application)
     case U.FilterBoard{filter}:
-      Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+      Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+      local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
 
 def observe_preview(observation: Live.Observation, application: Application) -> Decision:
-  Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks, next_layer, model_preference, draft_model_manual}, Nil{})
+  Application{+program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, Live.observe(observation, previews, program), code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}, Nil{})
 
 def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity) -> +List<Effect>:
   match effects:
@@ -1968,13 +2154,13 @@ def content_effects(effects: +List<Content.Effect>, +identity: Content.Identity)
 
 def content_result(result: Content.Decision, +identity: Content.Identity, application: Application) -> Decision:
   Content.Decision{block, effects} = result
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block), next_layer, model_preference, draft_model_manual}, content_effects(effects, identity))
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, Content.save_block(code_blocks, identity, block), next_layer, model_preference, draft_model_manual, workspace_git}, content_effects(effects, identity))
 
 def content_input(+identity: Content.Identity, input: Content.Input, application: Application) -> Decision:
-  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, +code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   content_result(Content.step(Content.find_block(code_blocks, identity), input), identity,
-    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}})
+    Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}})
 
 def restore_preference(+profile: String, +reasoning: String, +application: Application) -> Decision:
   Application{+program, +session} = application

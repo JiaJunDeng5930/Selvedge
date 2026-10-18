@@ -1,72 +1,121 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { Service } from '../host/service.mjs';
 import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer, taskIdle } from './support.mjs';
-import { taskId } from './fixtures/task-graph.mjs';
 
 const result = decision => {
   assert.equal(decision.reply.ok, true, JSON.stringify(decision.reply));
   return decision.reply.result;
 };
 
-test('HTTP-created Works retain independent per-Task Projects and fork membership after a service restart', { timeout: 20_000 }, async t => {
+async function postCommand(running, command) {
+  const response = await fetch(`${running.address}/api/commands`, { method: 'POST',
+    headers: { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(command) });
+  assert.equal(response.status, 200);
+  return result({ reply: await response.json() });
+}
+
+test('HTTP Work creation observes its selected Project workspace before dispatch and survives reopen', { timeout: 20_000 }, async t => {
   const directory = await realpath(await home(t));
-  const roots = [path.join(directory, 'frontend'), path.join(directory, 'backend')];
-  await Promise.all(roots.map(root => mkdir(root)));
-  await Promise.all(roots.map((root, index) => writeFile(path.join(root, 'AGENTS.md'), `Work project guidance ${index}`)));
+  const workspace = path.join(directory, 'project 世界');
+  await mkdir(workspace);
+  const guidance = path.join(workspace, 'AGENTS.override.md');
+  await writeFile(guidance, 'Original Project guidance.');
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
   let running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
   t.after(() => running.close());
-  const post = async command => {
-    const response = await fetch(`${running.address}/api/commands`, { method: 'POST',
-      headers: { authorization: `Bearer ${running.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(command) });
-    assert.equal(response.status, 200);
-    return result({ reply: await response.json() });
-  };
-  const projects = [];
-  for (const [index, root] of roots.entries()) {
-    projects.push((await post({ op: 'create_project', name: `Project ${index}`, workspace: { roots: [root] } })).project_id);
-  }
-  const work_id = (await post({ op: 'create_work', name: 'One goal, two Projects' })).work_id;
-  const other = (await post({ op: 'create_work', name: 'Separate goal' })).work_id;
-  const tasks = [];
-  for (const [index, project_id] of projects.entries()) {
-    const created = await post({ op: 'create_work_task', work_id, profile: 'demo',
-      message: `Work Task ${index}`, settings: { project_id } });
-    tasks.push(created.task_id);
-    const page = await taskIdle(running.service, created.task_id);
-    assert.equal(page.task.work_id, work_id);
-    assert.equal(page.task.settings.project_id, project_id);
-    assert.deepEqual(page.task.settings.workspace, { roots: [roots[index]], primary_root: roots[index] });
-    assert.ok(page.messages.some(message => message.role === 'assistant' && message.content === `[Offline demo] Work Task ${index}`));
-    assert.ok(page.messages.some(message => message.type === 'context_change'
-      && message.change.type === 'introduce' && message.change.snapshot.value.fields.content === `Work project guidance ${index}`));
-  }
-  const separate = (await post({ op: 'create_work_task', work_id: other, profile: 'demo', message: 'Other Work' })).task_id;
-  await taskIdle(running.service, separate);
-  const independent = (await post({ op: 'create', profile: 'demo', message: 'Standalone', settings: { project_id: projects[0] } })).task_id;
-  assert.equal((await taskIdle(running.service, independent)).task.work_id, null);
-  const children = (await post({ op: 'fork', task_id: tasks[0], child_count: 1, messages: ['Branch within the same Work'] })).children;
-  for (const task_id of [...tasks, ...children]) await taskIdle(running.service, task_id);
-  const saved = await post({ op: 'read_work', work_id });
-  assert.deepEqual(saved.task_ids, [...tasks, ...children]);
-  assert.deepEqual((await post({ op: 'read_work', work_id: other })).task_ids, [separate]);
-  assert.equal((await post({ op: 'list' })).tasks.length, tasks.length + children.length + 2);
+  const post = command => postCommand(running, command);
+  const { project_id } = await post({ op: 'create_project', name: 'Selected Project', workspace: { roots: [workspace] } });
+  await writeFile(guidance, 'Observe this Work Task workspace.');
+  const { work_id } = await post({ op: 'create_work', name: '登录功能\n"世界" 😀' });
+  const { task_id } = await post({ op: 'create_work_task', work_id, profile: 'demo',
+    message: 'Discuss the Work 世界', settings: { project_id } });
+  const page = await taskIdle(running.service, task_id);
+  assert.equal(page.task.work_id, work_id);
+  assert.equal(page.task.settings.project_id, project_id);
+  assert.deepEqual(page.task.settings.workspace, { roots: [workspace], primary_root: workspace });
+  assert.ok(page.messages.some(message => message.role === 'assistant' && message.content === '[Offline demo] Discuss the Work 世界'));
+  assert.ok(page.messages.some(message => message.type === 'context_change' && message.change.type === 'introduce'
+    && message.change.snapshot.value.fields.path === guidance
+    && message.change.snapshot.value.fields.content === 'Observe this Work Task workspace.'),
+  'The dispatched Work Task receives the file changed after its Project was registered');
+  assert.equal((await post({ op: 'read_work', work_id })).name, '登录功能\n"世界" 😀');
   await post({ op: 'rename_work', work_id, name: 'Renamed goal 世界' });
-  const before = await post({ op: 'list_works' });
-  const pages = await Promise.all([...tasks, separate, independent, ...children].map(task_id => taskIdle(running.service, task_id)));
+  const saved = await post({ op: 'read_work', work_id });
   await running.close();
-  running = await startServer({ home: path.join(directory, 'state'), cwd: roots[1], config });
-  assert.deepEqual(await post({ op: 'list_works' }), before);
-  for (const page of pages) assert.deepEqual(await taskIdle(running.service, page.task.id), page);
+  running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
+  assert.deepEqual(await post({ op: 'read_work', work_id }), saved);
+  const reopened = await post({ op: 'read', task_id });
+  assert.equal(reopened.task.work_id, work_id);
+  assert.deepEqual(reopened.task.settings.workspace, page.task.settings.workspace);
 });
 
-test('a Work conversation can create and edit its graph through native model tools, independently of graph nodes', { timeout: 20_000 }, async t => {
+test('HTTP Work worktree creation copies dirty Git data from the default cwd and reopens the same checkout', { timeout: 30_000 }, async t => {
+  const directory = await realpath(await home(t));
+  const repository = path.join(directory, 'source checkout');
+  await mkdir(repository);
+  const execute = promisify(execFile);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
+  const git = async (...arguments_) => {
+    const { stdout } = await execute('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+      '-c', 'user.name=Work fixture', '-c', 'user.email=work@example.test', '-C', repository, ...arguments_],
+    { env, timeout: 5000 });
+    return stdout.trim();
+  };
+  await git('init', '--initial-branch=main');
+  const filename = path.join(repository, 'tracked.txt');
+  await writeFile(filename, 'Committed source data.');
+  await git('add', 'tracked.txt');
+  await git('commit', '-m', 'Initial Work checkout');
+  const dirty = 'Uncommitted Work data 世界';
+  await writeFile(filename, dirty);
+  const sourceStatus = await git('status', '--porcelain');
+  const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
+  const options = { home: path.join(directory, 'state'), cwd: repository, config };
+  let running = await startServer(options);
+  t.after(() => running.close());
+  const post = command => postCommand(running, command);
+  const { work_id } = await post({ op: 'create_work', name: 'Managed checkout Work' });
+  const { task_id } = await post({ op: 'create_work_task', work_id, create_worktree: true,
+    profile: 'demo', message: 'Work in the copied checkout.' });
+  let checkout;
+  const deadline = Date.now() + 10_000;
+  do {
+    checkout = await post({ op: 'read_worktree', task_id });
+    assert.notEqual(checkout.status, 'create_failed', JSON.stringify(checkout));
+    if (checkout.status === 'ready') break;
+    await delay(20);
+  } while (Date.now() < deadline);
+  assert.equal(checkout.status, 'ready', JSON.stringify(checkout));
+  assert.equal(checkout.source_root, repository, 'The combined HTTP command observes the default cwd');
+  assert.notEqual(checkout.root, repository);
+  assert.equal(await readFile(path.join(checkout.root, 'tracked.txt'), 'utf8'), dirty);
+  await taskIdle(running.service, task_id);
+  const page = await post({ op: 'read', task_id });
+  assert.equal(page.task.work_id, work_id);
+  assert.deepEqual(page.task.settings.workspace, { roots: [checkout.root], primary_root: checkout.root });
+  const registry = await post({ op: 'list_works' });
+  await running.close();
+  running = await startServer(options);
+  assert.deepEqual(await post({ op: 'list_works' }), registry);
+  assert.deepEqual(await post({ op: 'read_worktree', task_id }), checkout);
+  const reopened = await post({ op: 'read', task_id });
+  assert.equal(reopened.task.work_id, work_id);
+  assert.deepEqual(reopened.task.settings.workspace, page.task.settings.workspace);
+  assert.equal(await readFile(path.join(checkout.root, 'tracked.txt'), 'utf8'), dirty);
+  assert.equal(await readFile(filename, 'utf8'), dirty);
+  assert.equal(await git('status', '--porcelain'), sourceStatus);
+});
+
+test('a native Work tool discovers its caller and transports graph commands without repeating model requests on reopen', { timeout: 20_000 }, async t => {
   const directory = await home(t);
   const credential = `SELVEDGE_WORK_GRAPH_${process.pid}_${Math.random().toString(16).slice(2)}`;
   process.env[credential] = 'local-work-graph-fixture';
@@ -99,7 +148,7 @@ test('a Work conversation can create and edit its graph through native model too
         assert.notEqual(current.work_id, 0, 'A caller observation must not infer the first Work');
         discoveredWork = current.work_id;
         return call('additional-work-task', 'create_work_task', { work_id: discoveredWork,
-          profile: 'demo', message: 'Additional Work Task' });
+          profile: 'demo', message: 'Additional Work Task', create_worktree: false });
       }
       case 2:
         additional = toolResult(body, 'additional-work-task').task_id;
@@ -135,24 +184,14 @@ test('a Work conversation can create and edit its graph through native model too
   await taskIdle(service, controller);
   assert.deepEqual(provider.failures, []);
   assert.equal(provider.requests.length, 6);
-  assert.equal(graph.nodes.some(node => node.task_id === controller), false);
-  assert.equal(graph.nodes.some(node => node.task_id === additional), false);
-  const members = [controller, additional, taskId(graph, 'implementation'), taskId(graph, 'review')];
-  for (const task_id of members) {
-    assert.equal((await taskIdle(service, task_id)).task.work_id, work_id);
-  }
+  assert.ok(Number.isSafeInteger(additional), 'The native command result transports the created Task ID');
+  const members = [controller, additional, ...graph.nodes.map(node => node.task_id)];
+  await Promise.all(members.map(task_id => taskIdle(service, task_id)));
   const saved = result(await service.command({ op: 'read_work', work_id }));
-  assert.deepEqual(saved.task_ids, members);
-  assert.deepEqual(saved.graph_ids, [graph.graph_id]);
-  assert.deepEqual(result(await service.command({ op: 'read_work', work_id: decoy })).task_ids, [decoyTask]);
+  assert.deepEqual(saved.graph_ids, [graph.graph_id], 'The optional native graph work_id survives argument transport');
   await service.close();
   service = await Service.open({ home: state, cwd: directory, config });
   assert.deepEqual(result(await service.command({ op: 'read_work', work_id })), saved);
   assert.deepEqual(result(await service.command({ op: 'read_task_graph', graph_id: graph.graph_id })), graph);
   assert.equal(provider.requests.length, 6, 'Replaying the Work must not repeat model calls');
-  result(await service.command({ op: 'delete_task_graph', graph_id: graph.graph_id }));
-  const after = result(await service.command({ op: 'read_work', work_id }));
-  assert.deepEqual(after.task_ids, members);
-  assert.deepEqual(after.graph_ids, []);
-  for (const task_id of members) assert.equal((await taskIdle(service, task_id)).task.work_id, work_id);
 });

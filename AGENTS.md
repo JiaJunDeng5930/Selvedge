@@ -17,17 +17,17 @@ This file is for coding agents working in this repository.
 - Requirements belong in executable definitions and propositions. Do not maintain duplicate lifecycle tables or state-machine diagrams in documentation.
 - PROOF must discharge the production laws. Never replace a proof with an axiom, a hole, or unchecked recursion, or weaken a requirement solely to pass a check.
 - The host interprets committed effects. Keep task policy in Bend and verify host ordering through integration tests.
-- Internal semantics belong to proofs; compiler and external component boundaries belong to focused tests; cross-boundary behavior belongs to end-to-end tests. Remove finite semantic replay tests only after checking their actual proof coverage. Do not add tests whose only criterion is Bend accepting or rejecting source code, proofs or certificates. Keep the production proof gate and actual compiler execution, external component and end-to-end checks. The evidence map is tests-bend/README.md.
+- For each property, prefer construction in the domain language, then types, then proofs, then focused tests, and finally end-to-end tests. Check those earlier mechanisms before retaining a test; do not test a property already guaranteed there. A possible bug or an external boundary alone does not justify a test: require a convincing, concrete likelihood of real failure relative to its maintenance cost; default to deleting it otherwise. Merge related physical checks and their setup. Keep the complete production proof gate. The remaining test responsibilities are in tests-bend/README.md.
 - Express decision reasons that are program requirements as Bend entities, executable specifications or public rules bound to actual production computations. Do not maintain another account in documentation of requirements already expressed there. ADRs are optional; record exploration-specific findings in `docs/bend2-exploration.md`.
 - Keep the core import closure declared in `components.json` independent of the assembled harness/MODEL.bend and concrete features. Add feature cases in their owning `features/<concept>` modules or `harness/features` assembly; global consumers process stable outer categories. Boundary configuration changes require the same review as contract changes.
-- Bind component refinement, intended writes and unrelated-state preservation to actual production functions. Scope preservation to the owning component's operations. Run `bun run test:locality` after changing component interfaces or assembly; freeze unrelated implementation and proof files in extension fixtures rather than copying and repairing them.
-- Keep shared surface types independent of feature views. Feature cursor encoding, validation and decoding belong to the same assembly boundary as navigation. Exercise real native round trips in extension fixtures, with clients frozen. Contract-preserving replacement equality belongs to production proofs, not checker-only fixtures.
+- Bind component refinement, intended writes and unrelated-state preservation to actual production functions. Scope preservation to the owning component's operations. Check changed component interfaces and assembly through the production proof and source-ownership gates; do not maintain hypothetical extensions that repeatedly compile copies of the application.
+- Keep shared surface types independent of feature views. Feature cursor encoding, validation and decoding belong to the same assembly boundary as navigation. Contract-preserving replacement equality belongs to production proofs, not checker-only fixtures.
 
 ## Git Hooks
 
-- `pre-commit` runs `bun scripts/check.mjs` to check actual component boundaries, the pinned compiler, reproducible imported certificates, Bend proof obligations, the native entry point and host/script syntax. `scripts/build.mjs` checks the same source boundaries before using a cached binary.
+- `pre-commit` runs `bun scripts/check.mjs` to check actual component boundaries, the pinned compiler, reproducible imported certificates, Bend proof obligations, generated JavaScript libraries, the native entry point and host/script syntax. `scripts/build.mjs` checks the same source boundaries before using cached build artifacts.
 - `pre-commit` runs `bun scripts/agents-index.mjs check` to check the tracked-file index.
-- `pre-push` runs `bun run test` for native kernel and host integration tests.
+- `pre-push` runs `bun run test` for the focused physical regression suite after the production build.
 - `just hooks` runs both configured stages.
 
 ## Persistent Data Formats
@@ -76,7 +76,7 @@ This file is for coding agents working in this repository.
 [Project Index]|root:.
 |source:git-tracked-files-only
 |excluded:{git-ignored,git-untracked}
-|.:{.codex/,.editorconfig,.gitattributes,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,scripts/,tests-bend/,theory/}
+|.:{.codex/,.editorconfig,.gitattributes,.gitignore,.pre-commit-config.yaml,AGENTS.md,BROWSER.bend,CONCEPTS.bend,CONTRIBUTING.md,HOST.bend,Justfile,KERNEL.bend,MAIN.bend,MODEL.bend,PROOF.bend,README.md,bend-checksums.txt,bend-version,bendlib/,browser/,bun.lock,components.json,docs/,examples/,features/,harness/,host/,interaction/,package.json,plugins/,relay/,remote/,scripts/,tests-bend/,theory/}
 |.codex:{environments/}
 |.codex/environments:{environment.toml}
 |bendlib:{README.md,algebra-proof.bend,association-map.bend,categories.bend,component.bend,effects.bend,equality-proof.bend,equality.bend,json-proof.bend,json.bend,logic-proof.bend,relations.bend,stdlib.bend,string-equality.bend,theory.bend}
@@ -89,23 +89,25 @@ This file is for coding agents working in this repository.
 |browser/layout:{ACTIVITY.bend,ADAPTATION.bend,CONTENT.bend,CONTRACT.bend,GEOMETRY.bend,HIERARCHY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,RENDERER.bend,SOURCE.bend,SPACE.bend,activity-contract.bend,activity-proof.bend,adaptation-proof.bend,allocation-contract.bend,allocation-proof.bend,enclosure.bend,geometry-contract.bend,geometry-proof.bend,measurement-contract.bend,natural-size.bend,physical-content-measurement.bend,physical-native.bend,physical-plan.bend,physical-probe.bend,physical-space.bend,render-contract.bend,render-proof.bend,sizing-proof.bend}
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/runtime:{CONTRACT.bend,MODEL.bend,PLATFORM.bend,PROOF.bend,README.md,SEMANTICS.bend,frontend-utility.bend,native-fields.bend,platform-proof.bend,request.bend,utility-proof.bend}
-|docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,task-board.md}
+|docs:{adaptive-reasoning.md,adr/,bend2-exploration.md,chatgpt-web.md,plugins.md,proofs.md,remote-control.md,task-board.md}
 |docs/adr:{0024-project-scoped-chatgpt-plugin.md,0025-native-compiler-performance.md,0026-ci-validation-scope.md,0027-official-chatgpt-sign-in.md,0028-model-representation-boundaries.md,0029-shallow-concept-directories.md,0030-concept-local-proof-providers.md,0031-public-vocabulary-and-proof-boundaries.md,0032-operational-model-abstraction.md,0033-button-category-inclusion.md,0034-open-category-construction.md,0035-context-bound-construction.md,0036-host-semantic-constructions.md,0037-production-instance-construction.md,0038-capability-based-native-tool-construction.md,0039-local-browser-sessions-and-stable-journals.md,0040-append-only-model-history.md,0040-executable-ui-relationships.md,0041-context-compaction.md,0041-context-deltas.md,0041-operational-user-experience-relations.md,0042-context-definition-construction.md,0042-observable-properties-and-action-causes.md,0043-information-needs-and-progressive-disclosure.md,0044-adaptive-presentation-and-navigation-relationships.md,0045-whole-sidebar-construction.md,0046-observation-backed-activity-construction.md,0047-shared-activity-construction-and-measured-scale.md,0048-role-preserving-summary-and-visual-alignment.md,0049-activity-scoped-information-and-settings.md,0050-constructed-task-graphs.md,0051-tracked-context-and-input-selection.md}
 |examples:{plugins/}
 |examples/plugins:{audit.mjs}
-|features:{README.md,board/,chatgpt/,compaction/,task_graph/,work/}
+|features:{README.md,board/,chatgpt/,compaction/,remote/,task_graph/,work/,worktree/}
 |features/board:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,filter.bend,resolution.bend,scheduling-spec.bend,scheduling.bend}
 |features/chatgpt:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,view.bend}
 |features/compaction:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend}
+|features/remote:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend}
 |features/task_graph:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,construction-proof.bend,registry-proof.bend}
 |features/work:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend}
+|features/worktree:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |harness:{COMMANDS.bend,CONTRACT.bend,DOMAIN.bend,INVARIANTS.bend,LAWS.bend,LOCALITY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,approval/,compaction/,context/,conversation/,execution/,features/,history/,protocol/,reasoning/,tasks/,tools/,transport/,workspace/}
 |harness/approval:{CONTRACT.bend,HOOKS.bend,MODEL.bend,PROOF.bend,README.md}
 |harness/compaction:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/context:{CONTRACT.bend,KINDS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,constructor-proof.bend,instruction.bend,patch-proof.bend,project-guidance.bend,selection-proof.bend,selection.bend,skill-information.bend}
 |harness/conversation:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/execution:{OPERATIONS.bend,PROGRAM.bend,PROOF.bend,README.md,notifications.bend}
-|harness/features:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,execution.bend,graph-execution.bend,graph-proof.bend,graph-spec.bend,graph-state.bend,laws.bend,operations.bend,protocol.bend,resolution.bend,work-proof.bend,work-state.bend}
+|harness/features:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,execution.bend,graph-execution.bend,graph-proof.bend,graph-spec.bend,graph-state.bend,laws.bend,operations.bend,protocol.bend,remote-proof.bend,remote.bend,resolution.bend,work-proof.bend,work-state.bend,worktree-execution.bend,worktree-proof.bend,worktree-sharing-proof.bend,worktree-spec.bend,worktree-state.bend,worktree-storage-proof.bend}
 |harness/history:{MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/protocol:{COMMIT.bend,PROGRAM.bend,PROOF.bend,README.md,RESULTS.bend,commit-proof.bend}
 |harness/reasoning:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,context.bend,view-proof.bend,view.bend}
@@ -113,15 +115,15 @@ This file is for coding agents working in this repository.
 |harness/tools:{MODEL.bend,README.md,SYNTAX.bend}
 |harness/transport:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,command-codec.bend,command-contract.bend,model-json.bend,presentation.bend,schema.bend,wire-shape.bend,wire.bend}
 |harness/workspace:{CONTRACT.bend,PROJECTS.bend,PROOF.bend,README.md,WORKSPACE.bend}
-|host:{README.md,adapters/,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,compaction.mjs,config.mjs,context-patches.mjs,context-sources.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c}
+|host:{README.md,adapters/,approvals.mjs,board-files.mjs,board-text.mjs,chatgpt-account.mjs,chatgpt-contract.mjs,chatgpt-models.mjs,chatgpt-plugin.mjs,chatgpt-web-store.mjs,chatgpt-web.mjs,cli.mjs,codec.mjs,compaction.mjs,config.mjs,context-discovery.mjs,context-patches.mjs,context-sources.mjs,directories.mjs,files.mjs,jev.mjs,journal.mjs,kernel-worker.mjs,kernel.mjs,mcp.mjs,model-request.mjs,network.mjs,opaque-credentials.mjs,plugins.mjs,process.mjs,project.mjs,providers.mjs,public/,reasoning-config.mjs,remote-connector.mjs,remote-control.mjs,sandbox.mjs,server.mjs,service.mjs,stdio-rpc.mjs,transport.c,worktrees.mjs}
 |host/adapters:{ACCOUNTS.bend,BACKENDS.bend,BROWSER.bend,COMPACTION.bend,CONFIGURATION.bend,EFFECTS.bend,EVALUATOR.bend,HTTP.bend,MODEL.bend,PLUGINS.bend,PROGRAM.bend,PROOF.bend,README.md,RPC.bend,WEB.bend,accounts-proof.bend,backends-proof.bend,browser-proof.bend,compaction-proof.bend,configuration-proof.bend,effects-proof.bend,evaluator-proof.bend,http-proof.bend,plugins-proof.bend,rpc-proof.bend,web-proof.bend}
-|host/public:{README.md,app.mjs,bend-value.mjs,bootstrap.mjs,events.mjs,index.html,json-tokens.mjs,layout-reveal.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
+|host/public:{README.md,app.mjs,appearance.mjs,bend-value.mjs,bootstrap.mjs,connection.mjs,events.mjs,index.html,json-tokens.mjs,keyboard.mjs,layout-reveal.mjs,markdown-worker.mjs,markdown.mjs,model-boundary.mjs,physical-markdown.css,physical-measurement.mjs,renderer.mjs,style.css,text-measurement.mjs,vendor/}
 |host/public/vendor:{README.md,desktop-source.json,desktop-tokens.css,highlight.LICENSE,highlight.mjs,katex.LICENSE,katex.mjs,manifest.json,streaming-markdown.LICENSE,streaming-markdown.mjs}
 |interaction:{CONTRACT.bend,IDENTITY.bend,INPUT.bend,MODEL.bend,PROOF.bend,README.md,STATE.bend,TYPES.bend,conversation/,experience/,identity-laws.bend,presentation/,services/,session/,submission/}
 |interaction/conversation:{CODE.bend,CONTRACT.bend,MODEL.bend,OUTPUT.bend,PROOF.bend,README.md}
 |interaction/experience:{ACTIVITY.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |interaction/presentation:{COMPOSITION.bend,CONTRACT.bend,INFORMATION.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SURFACE.bend,VIEW.bend,interaction-proof.bend,scene-proof.bend,surface-proof.bend}
-|interaction/services:{CONTEXT.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
+|interaction/services:{CONTEXT.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,connection-contract.bend,connection-proof.bend}
 |interaction/session:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |interaction/submission:{CONTRACT.bend,FIELDS.bend,MODEL.bend,PROOF.bend,README.md,field-options.bend}
 |plugins:{selvedge-chatgpt/}
@@ -131,9 +133,13 @@ This file is for coding agents working in this repository.
 |plugins/selvedge-chatgpt/skills:{local-projects/}
 |plugins/selvedge-chatgpt/skills/local-projects:{SKILL.md}
 |plugins/selvedge-chatgpt/src:{client.mjs,server.mjs}
-|scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,test.mjs,theory-index.mjs,toolchain.mjs,ui-verification.mjs,verify-proof.mjs}
-|tests-bend:{README.md,after-hooks.test.mjs,approval-decoding.test.mjs,approvals.test.mjs,association-map.test.mjs,async-service.test.mjs,auth.test.mjs,automatic-compaction.test.mjs,board-files.test.mjs,board-service.test.mjs,board-text.test.mjs,categories.test.mjs,chatgpt-compaction.test.mjs,chatgpt-models.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin-sandbox.test.mjs,chatgpt-plugin-support.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,chatgpt.test.mjs,coding.test.mjs,context-definitions.test.mjs,context-deltas.test.mjs,context-recovery.test.mjs,context-sources.test.mjs,control-categories.test.mjs,fixtures/,journal.test.mjs,kernel-boundaries.test.mjs,locality-support.mjs,locality.test.mjs,model-abstraction.test.mjs,plugin-support.mjs,plugins.test.mjs,process-identity.mjs,process.test.mjs,project-context.test.mjs,providers.test.mjs,reasoning-boundaries.test.mjs,reasoning.test.mjs,relations.test.mjs,sandbox.test.mjs,service-recovery.test.mjs,service.test.mjs,stdlib.test.mjs,support.mjs,task-execution.test.mjs,task-graph-service.test.mjs,task-graph.test.mjs,ui-verification.test.mjs,works-service.test.mjs,works.test.mjs,workspaces.test.mjs}
-|tests-bend/fixtures:{approved-tool.mjs,catalog.mjs,chatgpt-web.mjs,chatgpt.mjs,committed-tool.mjs,compaction.mjs,context-definitions.mjs,context.mjs,locality-extension.mjs,mcp.mjs,plugin.mjs,task-graph.mjs}
+|relay:{.gitignore,README.md,package.json,src/,test/,wrangler.jsonc}
+|relay/src:{worker.mjs}
+|relay/test:{runtime.mjs}
+|remote:{README.md,protocol.mjs}
+|scripts:{ExportMaps.v,ExportRelations.v,ExportStdlib.v,QuoteCertificate.v,agents-index.mjs,benchmark.mjs,bootstrap.sh,build.mjs,check-components.mjs,check-web-vendor.mjs,check.mjs,compile-javascript.mjs,import-desktop.mjs,import-maps.mjs,import-relations.mjs,import-stdlib.mjs,install-bend.sh,setup-worktree.sh,theory-index.mjs,toolchain.mjs,ui-verification.mjs,verify-proof.mjs}
+|tests-bend:{README.md,approvals.test.mjs,auth.test.mjs,board-files.test.mjs,browser-boundaries.test.mjs,chatgpt-plugin-package.test.mjs,chatgpt-plugin.test.mjs,chatgpt-web.test.mjs,context-discovery.test.mjs,fixtures/,journal.test.mjs,kernel-boundaries.test.mjs,locality.test.mjs,plugins.test.mjs,process.test.mjs,providers.test.mjs,relay.test.mjs,remote-connector.test.mjs,remote-control.test.mjs,sandbox.test.mjs,service.test.mjs,support.mjs,ui-verification.test.mjs,works-service.test.mjs,worktrees.test.mjs}
+|tests-bend/fixtures:{approved-tool.mjs,chatgpt.mjs}
 |theory:{EXTLIB-LICENSE,LICENSE,README.md,relation-certificates.json,rocq-maps.json,stdlib-certificates.json}
 ```
 <!-- END AGENTS_MD_PROJECT_INDEX -->

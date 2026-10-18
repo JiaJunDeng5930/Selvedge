@@ -1,6 +1,7 @@
 import Base
 import ../../bendlib/json.bend as J
 import ./PLUGINS.bend as P
+import ../../bendlib/categories.bend as Categories
 
 def P.complete_correspondence():
   operation => source => {==}
@@ -110,21 +111,20 @@ def P.settings_file_correspondence():
   source => {==}
 
 
-def P.reply_admission_equation():
-  tool => reply => {==}
-
-def P.response_admission_equation():
+def P.missing_failure_rejected():
   source => {==}
 
-def P.malformed_response_rejected():
-  tool => reply => {==}
+def P.scalar_failure_rejected():
+  source => error => {==}
 
-def P.admitted_response_projection():
-  tool => reply => {==}
+def P.admitted_reply_projection():
+  tool => reply => evidence => {==}
+
+def P.malformed_reply_rejected():
+  tool => {==}
 
 def P.receipt_reply_error_preserved():
   error => value => {==}
 
-
-def P.reply_shape_admission_equation():
-  source => {==}
+def P.admitted_reply_payload():
+  tool => reply => evidence => Categories.project_intersection_second(J.Json, P.ReplySyntax(), P.ReplyPayload(tool), reply, evidence)

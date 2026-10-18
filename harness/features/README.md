@@ -14,8 +14,10 @@ use ordinary task creation through this assembly and the core harness.
 [Work](../../features/work/README.md) owns organizational membership independently
 of Projects and execution settings. [work-state.bend](work-state.bend) reads a
 Task's immutable root association through its fork lineage and assembles Work
-queries. Work task creation resolves through the ordinary start operation, then
-records membership in the same decision before scheduling. The independent
+queries. Work task creation resolves through the ordinary start operation or,
+when `create_worktree` is true, the managed-worktree start operation. Both record
+membership in the same decision before scheduling; a rejected creation retains
+the original world without effects. The independent
 meaning in [SPEC.bend](SPEC.bend) and the production calculation in
 [execution.bend](execution.bend) are connected by
 [work-proof.bend](work-proof.bend) and [laws.bend](laws.bend).
@@ -32,8 +34,29 @@ the complete decisions to ordinary task creation and message delivery.
 [graph-state.bend](graph-state.bend) owns the graph-to-task reference checks and
 the graph registry's position in the assembled world.
 
+Managed task worktrees are assembled in [worktree-execution.bend](worktree-execution.bend)
+against the independent complete decisions in [worktree-spec.bend](worktree-spec.bend).
+[worktree-state.bend](worktree-state.bend) owns task references, completion correlation,
+Git effect authority and the single pending workspace initialization coordinate.
+[worktree-proof.bend](worktree-proof.bend) and
+[worktree-storage-proof.bend](worktree-storage-proof.bend) bind those requirements and
+unrelated-state guarantees to production. The component's wire vocabulary and registry
+are described by [the worktree feature](../../features/worktree/README.md).
+
 The imports in these entries compose the subordinate concepts and their required
 evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;
 independent evidence used across concepts remains separate where needed to keep
 the imports acyclic. The root [PROOF.bend](../../PROOF.bend) assembles the production evidence.
+
+Remote grants and receipts enter through [remote.bend](remote.bend), backed by
+[the independent remote component](../../features/remote/README.md). Native
+transport classifies a remote request as an observation or mutation; the commit
+boundary composes ordinary command execution with receipt retention.
+[remote-proof.bend](remote-proof.bend) binds storage preservation and complete
+replay and receipt decisions to those production functions.
+
+The assembled state coordinates are Board, ChatGPT, Task graph, Compaction,
+Worktree, Remote and Work, followed by the identity remainder. Every storage
+boundary preserves the unrelated coordinates, including Work ownership during
+Remote administration and worktree completion.

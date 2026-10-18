@@ -2,8 +2,31 @@ import Base
 import ./MODEL.bend as W
 import ./PROGRAM.bend as Actual
 import ./SPEC.bend as Spec
+import ./CODEC.bend as Codec
+import ../../bendlib/json.bend as J
 import ../../bendlib/component.bend as C
 import ../../bendlib/association-map.bend as Finite
+
+type TaskCreation is Type:
+  TaskCreation{
+    constructed: @+body:J.Json ->
+      {Codec.construct(Codec.CreateTaskKind{}, body) ==
+        W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
+          J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")),
+          Codec.settings(J.get(body, "settings")), J.boolean(J.get(body, "create_worktree"))} : W.Command},
+    encoded: @+work:Nat -> @+profile:String -> @+reasoning:String -> @+message:String -> @+settings:J.Json -> @+create_worktree:Bool ->
+      {Codec.command_json(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}) ==
+        J.Object{[J.Field{"op", J.Text{"create_work_task"}}, J.Field{"work_id", J.nat(work)}, J.Field{"profile", J.Text{profile}},
+          J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}, J.Field{"settings", settings},
+          J.Field{"create_worktree", J.Boolean{create_worktree}}]} : J.Json},
+    omitted_worktree: @+body:J.Json -> @absent:{J.get(body, "create_worktree") == J.Null{} : J.Json} ->
+      {Codec.construct(Codec.CreateTaskKind{}, body) ==
+        W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
+          J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")),
+          Codec.settings(J.get(body, "settings")), False{}} : W.Command},
+    delegated: @work:Nat -> @profile:String -> @reasoning:String -> @message:String -> @settings:J.Json -> @create_worktree:Bool -> @state:W.State ->
+      {W.resolve(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}, state) ==
+        W.Refuse{"task_creation_boundary", "Create Work Tasks through the harness feature operation."} : W.Resolution}}
 
 type Boundary is Type:
   Boundary{
@@ -32,4 +55,5 @@ type Boundary is Type:
       @unrecorded:{W.root_owner(state, child) == None{} : Maybe<&2, Nat>} ->
       {W.task_owner(state, child, parent <> lineage) == W.task_owner(state, parent, lineage) : Maybe<&2, Nat>},
     graph_removed: @+id:Nat -> @+state:W.State ->
-      {W.graph_owner(W.dissociate_graph(id, state), id) == None{} : Maybe<&2, Nat>}}
+      {W.graph_owner(W.dissociate_graph(id, state), id) == None{} : Maybe<&2, Nat>},
+    task_creation: TaskCreation}

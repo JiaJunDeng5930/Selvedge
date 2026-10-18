@@ -47,6 +47,8 @@ def program(state: Browser.State) -> M.World(): Browser.program(state)
 
 def connect(state: Browser.State) -> Browser.Decision: Browser.connect(state)
 
+def workspace_git_completed(ticket: Nat, available: Bool, state: Browser.State) -> Browser.Decision: Browser.workspace_git_completed(ticket, available, state)
+
 def directories_completed(ticket: Nat, ok: Bool, body: J.Json, state: Browser.State) -> Browser.Decision: Browser.directories_completed(ticket, ok, body, state)
 
 def code_key(source: Code.Source, ordinal: Nat) -> String: Browser.code_key(source, ordinal)
@@ -54,6 +56,8 @@ def code_key(source: Code.Source, ordinal: Nat) -> String: Browser.code_key(sour
 def code_sources(generation: Nat, observations: +List<CodeObservation.Observation>, state: Browser.State) -> Browser.Decision: Browser.code_sources(generation, observations, state)
 
 def editor_event(key: String, event: Editor.EditorEvent, state: Browser.State) -> Browser.Decision: Browser.editor_event(key, event, state)
+
+def native_editor_key(observation: Editor.KeyObservation) -> Editor.NativeKey: Editor.native_key(observation)
 
 def reading(task: Nat, generation: Nat, event: Reading.ReadingEvent, state: Browser.State) -> Browser.Decision: Browser.reading(task, generation, event, state)
 

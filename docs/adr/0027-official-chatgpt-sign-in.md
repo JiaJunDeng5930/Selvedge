@@ -2,7 +2,7 @@
 
 ## Context
 
-Selvedge's former Codex-derived account transport, recorded in [ADR 0017](0017-chatgpt-account-contract.md),
+Selvedge's former Codex-derived account transport, recorded in the former ADR 0017,
 is replaced by the public [Sign in with ChatGPT contract](https://developers.openai.com/siwc/token-sharing-open-source).
 Private Codex clients and routes cannot establish conformance to that contract.
 

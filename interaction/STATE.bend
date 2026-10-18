@@ -123,6 +123,7 @@ def service_effects(effects: +List<Services.Effect>, +application: E.Application
       service_effects(rest, attached(edit_attachment(editor, Some{file}, file_id(file), application)))
     case Con{Services.DirectoryChosen{editor, path}, rest}: service_effects(rest, directory_chosen(editor, path, application))
     case Con{Services.SessionReady{}, rest}: service_effects(rest, application)
+    case Con{Services.SessionEnded{}, rest}: service_effects(rest, attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case Con{other, rest}: service_effects(rest, application)
 
 def external_effect(effect: Services.Effect) -> Bool:
@@ -130,6 +131,7 @@ def external_effect(effect: Services.Effect) -> Bool:
     case Services.AttachToDraft{editor, file}: False{}
     case Services.DirectoryChosen{editor, path}: False{}
     case Services.SessionReady{}: False{}
+    case Services.SessionEnded{}: False{}
     case _: True{}
 
 def application_result_with_services(decision: E.Decision, services: Services.State, effects: +List<Services.Effect>) -> InteractionTypes.Decision:
@@ -151,9 +153,15 @@ def service_attention(decision: E.Decision, effects: +List<Services.Effect>) -> 
   E.Decision{+application, reply, runtime, interaction, durable} = decision
   E.Decision{application, reply, runtime, service_interactions(effects, application), durable}
 
+def refresh_directory_services(effects: +List<Services.Effect>, decision: E.Decision) -> E.Decision:
+  match effects:
+    case Nil{}: decision
+    case Con{Services.DirectoryChosen{U.NewTaskEditor{work}, path}, rest}: E.observe_workspace_git(decision)
+    case Con{other, rest}: refresh_directory_services(rest, decision)
+
 def service_result(decision: Services.Decision, application: E.Application) -> InteractionTypes.Decision:
   Services.Decision{services, +effects} = decision
-  application_result_with_services(service_attention(E.unchanged(service_effects(effects, application)), effects), services,
+  application_result_with_services(refresh_directory_services(effects, service_attention(E.unchanged(service_effects(effects, application)), effects)), services,
     List.filter(~Services.Effect, external_effect, effects))
 
 def command_offline(command: Maybe<&2, M.Command>, access: Services.Access) -> Bool:
@@ -256,8 +264,6 @@ def service_input(input: Services.Input, +application: E.Application, +services:
       directory_request_admitted(Categories.admit(ServiceRequest, directory_request_available, ServiceRequest{Services.OpenDirectoryPicker{editor, path, trigger}, application, services}), application, services)
     case Services.AddFile{+editor, file}:
       file_request_admitted(Categories.admit(ServiceRequest, file_request_available, ServiceRequest{Services.AddFile{editor, file}, application, services}), application, services)
-    case Services.Connect{}: service_result(Services.step(Services.Connect{}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
-    case Services.Disconnected{reason}: service_result(Services.step(Services.Disconnected{reason}, services), attached(E.observe_preview(Live.ConnectionEnded{}, application)))
     case Services.OpenSettings{}: service_result(Services.step(Services.OpenSettings{}, services), E.advance_selection(E.consume_global_navigation(application)))
     case Services.CloseSettings{}: service_result(Services.step(Services.CloseSettings{}, services), E.advance_selection(application))
     case other: service_result(Services.step(other, services), application)

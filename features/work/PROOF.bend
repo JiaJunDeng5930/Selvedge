@@ -7,6 +7,7 @@ import ./CODEC.bend as Codec
 import ../../bendlib/component.bend as C
 import ../../bendlib/association-map.bend as Finite
 import ../../harness/DOMAIN.bend as D
+import ../../bendlib/json.bend as J
 
 def store_step(hit: Bool, +key: Nat, +previous: W.Work, +rest: +List<Finite.Entry(W.Work)>, +id: Nat, +work: W.Work,
   induction: {P.put_entries(rest, id, work) == Spec.store(rest, id, work) : +List<Finite.Entry(W.Work)>}) ->
@@ -192,6 +193,37 @@ def lineage_inheritance(+child: Nat, +parent: Nat, +lineage: +List<Nat>, +state:
 def initial_valid() -> {W.valid(W.initial()) == True{} : Bool}:
   {==}
 
+def task_creation_constructed(+body: J.Json) ->
+  {Codec.construct(Codec.CreateTaskKind{}, body) ==
+    W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
+      J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")),
+      Codec.settings(J.get(body, "settings")), J.boolean(J.get(body, "create_worktree"))} : W.Command}:
+  {==}
+
+def task_creation_encoded(+work: Nat, +profile: String, +reasoning: String, +message: String, +settings: J.Json, +create_worktree: Bool) ->
+  {Codec.command_json(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}) ==
+    J.Object{[J.Field{"op", J.Text{"create_work_task"}}, J.Field{"work_id", J.nat(work)}, J.Field{"profile", J.Text{profile}},
+      J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}, J.Field{"settings", settings},
+      J.Field{"create_worktree", J.Boolean{create_worktree}}]} : J.Json}:
+  {==}
+
+def task_creation_omitted_worktree(+body: J.Json, absent: {J.get(body, "create_worktree") == J.Null{} : J.Json}) ->
+  {Codec.construct(Codec.CreateTaskKind{}, body) ==
+    W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
+      J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")),
+      Codec.settings(J.get(body, "settings")), False{}} : W.Command}:
+  Equal.cong(J.Json, W.Command, (value => W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
+    J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), Codec.settings(J.get(body, "settings")), J.boolean(value)}),
+    J.get(body, "create_worktree"), J.Null{}, absent)
+
+def task_creation_delegated(work: Nat, profile: String, reasoning: String, message: String, settings: J.Json, create_worktree: Bool, state: W.State) ->
+  {W.resolve(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}, state) ==
+    W.Refuse{"task_creation_boundary", "Create Work Tasks through the harness feature operation."} : W.Resolution}:
+  {==}
+
+def task_creation() -> Contract.TaskCreation:
+  Contract.TaskCreation{task_creation_constructed, task_creation_encoded, task_creation_omitted_worktree, task_creation_delegated}
+
 def boundary() -> Contract.Boundary:
   Contract.Boundary{refinement, added, retitled, roots_preserved, graphs_preserved,
-    task_associated, graph_associated, root_no_transfer, lineage_inheritance, graph_removed}
+    task_associated, graph_associated, root_no_transfer, lineage_inheritance, graph_removed, task_creation()}

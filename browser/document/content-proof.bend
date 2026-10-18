@@ -831,7 +831,7 @@ def instructions_same(empty: Bool, +value: String) -> {Authored.project_instruct
     case True{}: {==}
     case False{}: {==}
 
-def frozen_project(+owner: UIIdentity.Key, +label: String, +directory: String, +revision: String, +instructions: String, +visual: Design.Style) -> Rule.project_law(owner, label, directory, revision, instructions, visual):
+def frozen_project(+owner: UIIdentity.Key, +label: String, +directory: String, +path: String, +revision: String, +instructions: String, +visual: Design.Style) -> Rule.project_law(owner, label, directory, path, revision, instructions, visual):
   Equal.cong(String, +List<Source.Node>,
     supplied_text => [Authored.group(owner, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(UIIdentity.part(owner, "title"), label, visual, T.Body{}, T.Strong{}), Authored.fact(UIIdentity.part(owner, "directory"), "Directory", directory, visual), Authored.fact(UIIdentity.part(owner, "revision"), "Revision", revision, visual), Authored.fact(UIIdentity.part(owner, "instructions"), "Instructions", supplied_text, visual)])],
     Authored.project_instructions(String.eq(instructions, ""), instructions),

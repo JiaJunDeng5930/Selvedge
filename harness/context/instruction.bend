@@ -10,7 +10,7 @@ def configured() -> C.Definition:
 
 def global() -> C.Definition:
   C.text_context("global_agents",
-    "Apply these instructions throughout this task, including work outside the selected workspace.", C.GlobalScope{}, C.HomeFile{"AGENTS.md"},
+    "Apply these instructions throughout this task, including work outside the selected workspace.", C.GlobalScope{}, C.HomeGuidance{C.guidance_policy()},
     [C.IdentityField{"path", C.SourcePath{}, True{}}])
 
 def configured_snapshot(content: String) -> Maybe<&2, C.Snapshot>:

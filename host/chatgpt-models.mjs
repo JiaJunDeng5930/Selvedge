@@ -105,12 +105,15 @@ export function loginAccount(config, key) {
 
 /** Materialize discovery as ordinary native profiles, preserving frozen task identity. */
 export async function withAccountModels(config, home, { signal, force = false, onDiagnostic = () => {} } = {}) {
+  const configuredAuthPaths = Object.fromEntries(Object.entries(config.profiles).map(([key, profile]) =>
+    [key, path.resolve(home, profile.auth_file ?? defaultChatGPTAccount.auth_file)]));
   const observedCandidates = boundary('account.candidates', { config, home, force }).map(candidate => ({ ...candidate,
     path: path.resolve(home, candidate.profile.auth_file),
     identity: boundary('account.candidate_identity', { config, home, force, candidate, resolved: path.resolve(home, candidate.profile.auth_file), connection: connectionIdentity(candidate.profile) }) }));
   const candidates = boundary('account.candidate_paths', { config, home, force, candidates: observedCandidates });
   const generated = {};
   const accounts = [];
+  const discoveries = [];
   for (const candidate of candidates) {
     const filename = path.resolve(home, candidate.auth_file);
     let read, readFailure;
@@ -126,7 +129,9 @@ export async function withAccountModels(config, home, { signal, force = false, o
     try {
       const result = await discoverAccount(profile, home, { signal, force });
       const namespace = boundary('account.account_namespace', { config, home, force, profile, result, hash: hash(boundary('account.candidate_identity', { resolved: result.account_id, connection: connectionIdentity(profile) })) });
-      const profiles = boundary('account.materialize', { config, home, force, profile, result, namespace, connection: accountConnection(profile) });
+      discoveries.push({ namespace, connection: accountConnection(profile), auth_path: filename, result: { account_id: result.account_id } });
+      const profiles = boundary('account.materialize', { config, home, force, profile, result, namespace,
+        connection: accountConnection(profile), auth_path: filename, configured_auth_paths: configuredAuthPaths });
       for (const [key, value] of Object.entries(profiles)) generated[key] = freezeProfile(value);
       accounts.push(boundary('account.account_summary', { config, home, force, profile, result }));
       const diagnostic = boundary('account.materialization_diagnostic', { config, home, force, profile, result });
@@ -139,5 +144,5 @@ export async function withAccountModels(config, home, { signal, force = false, o
     }
   }
   // Advertised models precede the offline demo, so login changes the default picker.
-  return { config: boundary('account.config_materialized', { config, home, force, generated }), accounts };
+  return { config: boundary('account.config_materialized', { config, home, force, generated, discoveries, configured_auth_paths: configuredAuthPaths }), accounts };
 }

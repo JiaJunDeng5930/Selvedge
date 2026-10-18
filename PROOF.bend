@@ -1,4 +1,6 @@
 import Base
+import ./features/remote/PROOF.bend as RemoteControlProof
+import ./harness/features/remote-proof.bend as RemoteStorageProof
 import ./host/adapters/PROOF.bend as HostAdaptersProof
 import ./harness/LAWS.bend as Laws
 import ./interaction/presentation/CONTRACT.bend as InterfaceProgramRules

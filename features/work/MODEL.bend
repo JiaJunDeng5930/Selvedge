@@ -11,7 +11,7 @@ type State is Data:
 type Command is Data:
   Create{name: String}
   Rename{id: Nat, name: String}
-  CreateTask{work: Nat, profile: String, reasoning: String, message: String, settings: J.Json}
+  CreateTask{work: Nat, profile: String, reasoning: String, message: String, settings: J.Json, create_worktree: Bool}
 
 type Query is Data:
   ListWorks{}
@@ -150,7 +150,7 @@ def resolve(command: Command, +state: State) -> Resolution:
   match command:
     case Create{name}: create_available(Nat.is_lt(next(state), 4294967295n), next(state), default_name(next(state), name))
     case Rename{+id, name}: rename_found(find(state, id), id, name)
-    case CreateTask{work, profile, reasoning, message, settings}:
+    case CreateTask{work, profile, reasoning, message, settings, create_worktree}:
       Refuse{"task_creation_boundary", "Create Work Tasks through the harness feature operation."}
 
 def work_json(id: Nat, work: Work) -> J.Json:

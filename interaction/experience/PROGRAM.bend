@@ -661,7 +661,7 @@ def project_value(selected: Maybe<&2, Nat>, found: Maybe<&2, D.Project>) -> Stri
   match selected found:
     case None{} _: "No project"
     case Some{id} None{}: "Missing project " ++ Nat.show(id)
-    case Some{id} Some{D.Project{name, workspace, guidance}}: name
+    case Some{id} Some{D.Project{name, workspace, guidance, create_worktree}}: name
 
 def segment_fallback(nonempty: Bool, segment: String, fallback: String) -> String:
   match nonempty:
@@ -998,7 +998,7 @@ def workspace_paths(workspace: Maybe<&2, D.Workspace>) -> String:
 def source_name(source: Maybe<&2, D.Project>) -> String:
   match source:
     case None{}: ""
-    case Some{D.Project{name, workspace, guidance}}: " · " ++ name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: " · " ++ name
 
 def permission_source_description(observation: Context.Observation) -> String:
   match observation:
@@ -1059,7 +1059,7 @@ def origin_failure(preview: Context.Preview, editor: U.Editor) -> +List<M.Obstru
 
 def context_requirements(+body: U.Body, +world: World.World()) -> +List<M.Obstruction>:
   match body:
-    case U.NewTask{message, profile, reasoning, context, work}: origin_failure(Context.preview(context, world), U.NewTaskEditor{work})
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: origin_failure(Context.preview(context, world), U.NewTaskEditor{work})
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: origin_failure(Context.preview(context, world), U.AgentEditor{id})
     case U.Fork{task, count, messages, context}: origin_failure(Context.preview(context, world), U.ForkEditor{task})
     case _: Nil{}
@@ -1087,13 +1087,13 @@ def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstructio
   match body:
     case U.WorkName{work, name}:
       failed_requirement(Work.valid_name(name), obstruction(U.WorkEditor{work}, Forms.WorkName{}, "invalid_work_name", "Enter a Work name of at most 4096 UTF-8 bytes"))
-    case U.NewTask{message, profile, reasoning, context, +work}:
+    case U.NewTask{message, profile, reasoning, context, create_worktree, +work}:
       List.append(&2, M.Obstruction, failed_requirement(D.nonempty(U.text(message)),
         obstruction(U.NewTaskEditor{work}, Forms.MessageText{}, "empty_message", "Write a task to start")),
         model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{work}))
     case U.Message{task, message, delivery}:
       failed_requirement(D.nonempty(U.text(message)), obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send"))
-    case U.Project{id, name, workspace}:
+    case U.Project{id, name, workspace, create_worktree}:
       failed_requirement(Projects.name_valid(name), obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes"))
     case U.Agent{+id, revision, +name, +profile, +reasoning, instructions, context, concurrency}:
       List.append(&2, M.Obstruction, failed_requirement(Board.agent_name_valid(name), obstruction(U.AgentEditor{id}, Forms.AgentName{}, "invalid_agent_name", "Enter a valid agent name")),
@@ -1121,7 +1121,7 @@ def existing_agent_requirement(selected: Maybe<&2, Nat>, +world: World.World()) 
 
 def record_requirements(body: U.Body, world: World.World()) -> +List<M.Obstruction>:
   match body:
-    case U.Project{+id, name, workspace}: failed_requirement(Projects.reference_valid(id, Projects.registry(F.State(), world)),
+    case U.Project{+id, name, workspace, create_worktree}: failed_requirement(Projects.reference_valid(id, Projects.registry(F.State(), world)),
       M.Obstruction{root_object(U.ProjectEditor{id}), None{}, "project_not_found", "The project does not exist"})
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: existing_agent_requirement(id, world)
     case _: Nil{}
@@ -1171,29 +1171,35 @@ def same_workspace(left: D.Workspace, right: D.Workspace) -> Bool:
 
 def project_original(body: U.Body, world: World.World()) -> Maybe<&2, D.Project>:
   match body:
-    case U.Project{id, name, workspace}: selected_project(id, world)
+    case U.Project{id, name, workspace, create_worktree}: selected_project(id, world)
     case _: None{}
 
-def project_changed(original: Maybe<&2, D.Project>, +name: String, workspace: D.Workspace) -> Bool:
+def same_worktree_choice(first: Bool, second: Bool) -> Bool:
+  match first second:
+    case True{} True{}: True{}
+    case False{} False{}: True{}
+    case _ _: False{}
+
+def project_changed(original: Maybe<&2, D.Project>, +name: String, workspace: D.Workspace, create_worktree: Bool) -> Bool:
   match original:
     case None{}: True{}
-    case Some{D.Project{other, previous, guidance}}: Bool.not(String.eq(name, other) && same_workspace(workspace, previous))
+    case Some{D.Project{other, previous, guidance, saved_worktree}}: Bool.not(String.eq(name, other) && same_workspace(workspace, previous) && same_worktree_choice(create_worktree, saved_worktree))
 
-def project_draft_changed(original: Maybe<&2, D.Project>, name: String, workspace: D.Workspace, +entry: String) -> Bool:
-  Bool.not(String.eq(entry, "")) || project_changed(original, name, workspace)
+def project_draft_changed(original: Maybe<&2, D.Project>, name: String, workspace: D.Workspace, create_worktree: Bool, +entry: String) -> Bool:
+  Bool.not(String.eq(entry, "")) || project_changed(original, name, workspace, create_worktree)
 
 def draft_changed(+draft: U.Draft, world: World.World()) -> Bool:
   U.Draft{revision, +body, feedback, entry} = draft
   match body:
-    case U.Project{id, name, workspace}: project_draft_changed(project_original(body, world), name, workspace, entry)
+    case U.Project{id, name, workspace, create_worktree}: project_draft_changed(project_original(body, world), name, workspace, create_worktree, entry)
     case _: True{}
 
 def project_edit_requirements(+body: U.Body, +entry: String, +world: World.World()) -> +List<M.Obstruction>:
   match body:
-    case U.Project{+id, name, workspace}:
+    case U.Project{+id, name, workspace, create_worktree}:
       List.append(&2, M.Obstruction,
         failed_requirement(String.eq(entry, ""), obstruction(U.ProjectEditor{id}, Forms.WorkspaceDirectories{}, "unadded_directory", "Add or clear the directory before saving")),
-        failed_requirement(project_draft_changed(project_original(body, world), name, workspace, entry),
+        failed_requirement(project_draft_changed(project_original(body, world), name, workspace, create_worktree, entry),
           M.Obstruction{root_object(U.ProjectEditor{id}), None{}, "unchanged_project", "No project changes to save"}))
     case _: Nil{}
 
@@ -1388,7 +1394,7 @@ def project_edit_assessment(edit: M.ProjectEdit) -> M.Assessment:
 
 def project_edit_property_from_body(body: U.Body, edit: M.ProjectEdit) -> M.Property:
   match body:
-    case U.Project{+id, name, workspace}: M.ProjectObservation{U.ProjectEditor{id}, id, project_edit_original(edit)}
+    case U.Project{+id, name, workspace, create_worktree}: M.ProjectObservation{U.ProjectEditor{id}, id, project_edit_original(edit)}
     case _: M.ProjectObservation{U.owner(body), None{}, None{}}
 
 def project_edit_property_from_draft(draft: U.Draft, edit: M.ProjectEdit) -> M.Property:

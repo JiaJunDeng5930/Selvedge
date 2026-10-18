@@ -1083,9 +1083,65 @@ def Rule.recovery_evidence():
     +state => {==},
     +input => +state => {==}}
 
-def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json, guidance: +List<J.Field>) ->
-  {Browser.request_payload(M.UpdateProject{id, selected_name, selected_workspace, J.Object{guidance}}) ==
-    Codec.command_json(M.UpdateProject{id, selected_name, selected_workspace, J.Null{}}) : J.Json}:
+def project_request_at(+fields: +List<J.Field>, +operation: String,
+  observed: {J.text(J.get(J.Object{fields}, "op")) == operation : String}) ->
+  {Request.client(J.Object{fields}) == Request.object_request(operation, fields) : J.Json}:
+  Equal.cong(String, J.Json, selected => Request.object_request(selected, fields),
+    J.text(J.get(J.Object{fields}, "op")), operation, observed)
+
+def worktree_field_operation(+value: J.Json, +guidance: +List<J.Field>, +fields: +List<J.Field>, +operation: String,
+  observed: {J.text(J.get(J.Object{fields}, "op")) == operation : String}) ->
+  {J.text(J.get(J.Object{Codec.optional_field("create_worktree", value, J.Field{"guidance", J.Object{guidance}} <> fields)}, "op")) == operation : String}:
+  match value:
+    case J.Null{}: observed
+    case J.Boolean{enabled}: observed
+    case J.Number{lexeme}: observed
+    case J.Text{text}: observed
+    case J.Array{items}: observed
+    case J.Object{entries}: observed
+
+def worktree_guidance_fields(+value: J.Json, guidance: +List<J.Field>, +fields: +List<J.Field>,
+  retained: {Request.without_guidance(fields) == fields : +List<J.Field>}) ->
+  {Request.without_guidance(Codec.optional_field("create_worktree", value, J.Field{"guidance", J.Object{guidance}} <> fields)) ==
+    Codec.optional_field("create_worktree", value, fields) : +List<J.Field>}:
+  match value:
+    case J.Null{}: retained
+    case J.Boolean{enabled}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Boolean{enabled}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Number{lexeme}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Number{lexeme}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Text{text}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Text{text}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Array{items}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Array{items}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+    case J.Object{entries}:
+      Equal.cong(+List<J.Field>, +List<J.Field>, kept => J.Field{"create_worktree", J.Object{entries}} <> kept,
+        Request.without_guidance(fields), fields, retained)
+
+def project_payload(name: String, workspace: J.Json, guidance: +List<J.Field>, create_worktree: J.Json) ->
+  {Browser.request_payload(M.CreateProject{name, workspace, J.Object{guidance}, create_worktree}) ==
+    J.Object{Codec.optional_field("create_worktree", create_worktree,
+      [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}])} : J.Json}:
+  +guidance_value: +List<J.Field> = guidance
+  +worktree_value: J.Json = create_worktree
+  +fields: +List<J.Field> = [J.Field{"op", J.Text{"create_project"}}, J.Field{"name", J.Text{name}}, J.Field{"workspace", workspace}]
+  +request = Codec.optional_field("create_worktree", worktree_value, J.Field{"guidance", J.Object{guidance_value}} <> fields)
+  Equal.trans(J.Json, Request.client(J.Object{request}), Request.object_request("create_project", request),
+    J.Object{Codec.optional_field("create_worktree", worktree_value, fields)},
+    project_request_at(request, "create_project", worktree_field_operation(worktree_value, guidance_value, fields, "create_project", {==})),
+    Equal.cong(+List<J.Field>, J.Json, kept => J.Object{kept}, Request.without_guidance(request),
+      Codec.optional_field("create_worktree", worktree_value, fields), worktree_guidance_fields(worktree_value, guidance_value, fields, {==})))
+
+def update_payload_fields(id: Nat, selected_name: Maybe<&2, String>, selected_workspace: J.Json) -> +List<J.Field>:
+  Codec.optional_field("workspace", selected_workspace, Codec.optional_field("name", D.optional_string(selected_name),
+    [J.Field{"op", J.Text{"update_project"}}, J.Field{"project_id", J.nat(id)}]))
+
+def update_payload_operation(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json) ->
+  {J.text(J.get(J.Object{update_payload_fields(id, selected_name, selected_workspace)}, "op")) == "update_project" : String}:
   match selected_name:
     case None{}:
       match selected_workspace:
@@ -1103,6 +1159,42 @@ def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspa
         case J.Text{text}: {==}
         case J.Array{items}: {==}
         case J.Object{fields}: {==}
+
+def update_payload_retained(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json) ->
+  {Request.without_guidance(update_payload_fields(id, selected_name, selected_workspace)) ==
+    update_payload_fields(id, selected_name, selected_workspace) : +List<J.Field>}:
+  match selected_name:
+    case None{}:
+      match selected_workspace:
+        case J.Null{}: {==}
+        case J.Boolean{value}: {==}
+        case J.Number{lexeme}: {==}
+        case J.Text{text}: {==}
+        case J.Array{items}: {==}
+        case J.Object{fields}: {==}
+    case Some{selected}:
+      match selected_workspace:
+        case J.Null{}: {==}
+        case J.Boolean{value}: {==}
+        case J.Number{lexeme}: {==}
+        case J.Text{text}: {==}
+        case J.Array{items}: {==}
+        case J.Object{fields}: {==}
+
+def update_payload(id: Nat, +selected_name: Maybe<&2, String>, +selected_workspace: J.Json, guidance: +List<J.Field>, +create_worktree: J.Json) ->
+  {Browser.request_payload(M.UpdateProject{id, selected_name, selected_workspace, J.Object{guidance}, create_worktree}) ==
+    Codec.command_json(M.UpdateProject{id, selected_name, selected_workspace, J.Null{}, create_worktree}) : J.Json}:
+  +id_value: Nat = id
+  +guidance_value: +List<J.Field> = guidance
+  +fields = update_payload_fields(id_value, selected_name, selected_workspace)
+  +request = Codec.optional_field("create_worktree", create_worktree, J.Field{"guidance", J.Object{guidance_value}} <> fields)
+  Equal.trans(J.Json, Request.client(J.Object{request}), Request.object_request("update_project", request),
+    J.Object{Codec.optional_field("create_worktree", create_worktree, fields)},
+    project_request_at(request, "update_project", worktree_field_operation(create_worktree, guidance_value, fields, "update_project",
+      update_payload_operation(id_value, selected_name, selected_workspace))),
+    Equal.cong(+List<J.Field>, J.Json, kept => J.Object{kept}, Request.without_guidance(request),
+      Codec.optional_field("create_worktree", create_worktree, fields), worktree_guidance_fields(create_worktree, guidance_value, fields,
+        update_payload_retained(id_value, selected_name, selected_workspace))))
 
 def unrelated_pending(+entry: Browser.Pending, +rest: +List<Browser.Pending>, +ticket: Nat,
   distinct: {Nat.is_eq(Browser.ticket_of(entry), ticket) == False{} : Bool}) ->
@@ -1132,11 +1224,12 @@ def rejected_valid_world(completion: E.Completion, reason: String, +program: M.W
     case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
     case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: {==}
     case E.DirectCompletion{}: {==}
+    case E.WorktreePreferenceCompletion{draft, command}: {==}
     case E.DraftCompletion{draft}: {==}
     case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer, model_preference, draft_model_manual} = session
+      E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, +previews, code, next_layer, model_preference, draft_model_manual, workspace_git} = session
       confirmation_failed_world(SessionRule.confirmation_spec(layers, command, trigger, occurrence), reason, destination, program,
-        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}, program))
+        E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}, program))
 
 def rejected_checked_world(+valid: Bool, +completion: E.Completion, +reason: String, +program: M.World(), +session: E.Session) ->
   {Rule.decision_world(SessionRule.completion_checked_spec(valid, completion, program, D.failure("command_not_submitted", reason), session, program)) == program : M.World()}:
@@ -1208,7 +1301,7 @@ def Rule.request_evidence():
     owned_field_absent,
     profile => reasoning => message => fields => {==},
     id => count => messages => fields => {==},
-    name => workspace => guidance => {==},
+    project_payload,
     update_payload,
     id => revision => name => profile => reasoning => instructions => fields => concurrency => {==},
     +name => +value => +rest => unrelated =>

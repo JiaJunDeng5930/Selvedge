@@ -6,7 +6,7 @@ import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
-import { snapshotProject, snapshotGlobalInstructions, configuredInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
+import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation } from './project.mjs';
 import { observeContextSources } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestBoardText } from './board-text.mjs';
@@ -18,6 +18,8 @@ import { profileCatalog, compactionSettings } from './config.mjs';
 import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
+import { RemoteControl } from './remote-control.mjs';
+import { observeWorkspaceGit, createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class CommandNotSubmitted extends Error {
@@ -42,7 +44,7 @@ export class Service extends EventEmitter {
   #closePromise;
   #streams = [];
 
-  static async open({ home, config, cwd = process.cwd(), journalOptions } = {}) {
+  static async open({ home, config, cwd = process.cwd(), journalOptions, remoteOptions } = {}) {
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
@@ -51,7 +53,7 @@ export class Service extends EventEmitter {
       service.description = service.journal.description;
       service.limits = service.description.limits;
       service.project = await snapshotProject(service.cwd, service.limits);
-      service.instructions = { configured: configuredInstructions(config, service.limits),
+      service.instructions = { configured: config.instructions,
         global: await snapshotGlobalInstructions(home, service.limits) };
       const discovered = await withAccountModels(config, home, {
         onDiagnostic: message => service.notify({ type: 'diagnostic', message }),
@@ -60,6 +62,7 @@ export class Service extends EventEmitter {
       service.accounts = discovered.accounts;
       service.journal.on('commit', decision => {
         service.notify({ type: 'commit', sequence: decision.sequence });
+        service.remote?.reconcile();
         let ordinal = 0;
         for (const effect of decision.effects) {
           service.#dispatch(effect, decision.sequence, ordinal);
@@ -99,8 +102,10 @@ export class Service extends EventEmitter {
       await service.#configure();
       const recovery = await service.journal.execute({ kind: 'recover' });
       if (!recovery.reply.ok) throw new Error(`Recovery rejected: ${recovery.reply.error.message}`);
+      await service.#reconcileWorktrees();
       const grants = await service.command({ op: 'configure_chatgpt_connections', connections: connectionGrants(config.chatgpt_plugin) });
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
+      service.remote = await RemoteControl.open(service, remoteOptions);
       return service;
     } catch (error) {
       await service.close();
@@ -123,13 +128,17 @@ export class Service extends EventEmitter {
     this.journal?.kernel.abort(error);
   }
 
-  async #configure() {
+  #configuration({ project = this.project, instructions = this.instructions } = {}) {
     // Configuration order, not process initialization speed, defines the chain.
     const extensions = Object.keys(this.config.plugins ?? {}).flatMap(name => this.#pluginCatalog.has(name) ? [this.#pluginCatalog.get(name)] : []);
-    const decision = await this.journal.execute({ kind: 'configure', profiles: profileCatalog(this.config),
+    return { kind: 'configure', profiles: profileCatalog(this.config),
       tools: [...this.#catalog.values(), ...extensions.map(extension => extension.tools)].flat(),
       plugins: extensions.map(extension => extension.descriptor), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
-      project: this.project, instructions: this.instructions });
+      project, instructions };
+  }
+
+  async #configure() {
+    const decision = await this.journal.execute(this.#configuration());
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
     const compaction = await this.journal.execute({ kind: 'compaction_configure', policy: compactionSettings(this.config), now: Date.now() });
     if (!compaction.reply.ok) throw new Error(`Compaction configuration rejected: ${compaction.reply.error.message}`);
@@ -165,7 +174,7 @@ export class Service extends EventEmitter {
     }
     if (effect.kind === 'cancel') {
       this.#cancelProvider(effect.task_id);
-      for (const active of this.#running.values()) if (active.task === effect.task_id) {
+      for (const active of this.#running.values()) if (active.task === effect.task_id && !active.effect.kind.startsWith('worktree_')) {
         if (['approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
         active.controller.abort(new Error('Task work cancelled'));
       }
@@ -207,8 +216,8 @@ export class Service extends EventEmitter {
       this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
       return;
     }
-    if (!['observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
-    const key = effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
+    if (!['worktree_create', 'worktree_archive', 'observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
+    const key = effect.kind.startsWith('worktree_') ? `${effect.kind}:${effect.task_id}` : effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
       effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
     if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
@@ -225,6 +234,30 @@ export class Service extends EventEmitter {
   }
 
   async #perform(effect, signal) {
+    if (effect.kind.startsWith('worktree_')) {
+      if (effect.kind === 'worktree_archive') {
+        // NOTE: An archived borrower can still be finishing subprocess cancellation.
+        const running = [...this.#running.values()].filter(active => !active.effect.kind.startsWith('worktree_'));
+        const resources = await Promise.all(running.map(active => this.#worktree(active.task)));
+        await Promise.allSettled(running.filter((active, index) => active.task === effect.task_id || resources[index]?.root === effect.root)
+          .map(active => active.promise));
+      }
+      const completion = await (effect.kind === 'worktree_create' ? createManagedWorktree : archiveManagedWorktree)(effect,
+        { home: this.home, limits: this.limits, signal });
+      if (!this.#closing && !this.#failure) {
+        const failed = boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
+          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
+        let result;
+        try { result = await this.journal.execute(completion); }
+        catch (error) {
+          if (!(error instanceof RangeError || error instanceof TypeError)) throw error;
+          result = await this.journal.execute(failed);
+        }
+        if (!result.reply.ok && result.reply.error?.code === 'output_limit') result = await this.journal.execute(failed);
+        if (!result.reply.ok) throw new Error(`Managed worktree settlement rejected: ${result.reply.error.message}`);
+      }
+      return;
+    }
     let input;
     let observation;
     const cancelPreview = () => this.notify({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
@@ -254,8 +287,7 @@ export class Service extends EventEmitter {
         const result = effect.kind === 'context_measure' || effect.kind === 'context_scope'
           ? await observeModelRequest(effect, this.config, this.home, this.limits, { signal })
           : await requestCompaction(effect, this.config, this.home, this.limits, { signal });
-        input = { kind: effect.kind === 'context_measure' || effect.kind === 'context_scope' ? 'compaction_measured' : 'compaction_completed',
-          task_id: effect.task_id, ticket: effect.ticket, result, error: false };
+        input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'model') {
         const items = await requestModel(effect, this.config, this.home, this.limits, {
           signal, onObservation: value => { observation = value; }, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
@@ -278,6 +310,7 @@ export class Service extends EventEmitter {
         if (effect.tool.source?.kind === 'native' && effect.tool.source.program?.kind === 'Process') {
           if (!effect.execution) throw new Error('A Bash effect requires a committed task execution plan');
           result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
+            managedWorktreeRoot: await this.#managedWorktreeRoot(effect.task_id),
             readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
         } else if (effect.tool.source?.kind === 'native') {
           throw new Error('The kernel requested an invalid external native capability');
@@ -320,12 +353,30 @@ export class Service extends EventEmitter {
   }
 
   #failureInput(effect, message, context_limit = false) {
-    if (effect.kind === 'context_scope' || effect.kind === 'context_measure' || effect.kind === 'context_compaction') {
-      return { kind: effect.kind === 'context_measure' || effect.kind === 'context_scope' ? 'compaction_measured' : 'compaction_completed',
-        task_id: effect.task_id, ticket: effect.ticket,
-        result: { message: String(message || 'External execution failed').toWellFormed() }, error: true };
-    }
     return boundary('effect.failure', { effect, message: String(message || 'External execution failed').toWellFormed(), context_limit });
+  }
+
+  async #worktree(taskId) {
+    if (!Number.isSafeInteger(taskId) || taskId < 0) return undefined;
+    const result = await this.journal.execute({ kind: 'command', command: { op: 'read_worktree', task_id: taskId } });
+    if (!result.reply.ok) return undefined;
+    return result.reply.result;
+  }
+
+  async #managedWorktreeRoot(taskId) {
+    const entry = await this.#worktree(taskId);
+    return entry?.status === 'ready' ? entry.root : undefined;
+  }
+
+  async #reconcileWorktrees() {
+    const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
+    if (!result.reply.ok) throw new Error(`Managed worktree recovery query rejected: ${result.reply.error.message}`);
+    for (const entry of result.reply.result.worktrees) {
+      if (!['creating', 'creating_archived', 'archiving'].includes(entry.status)) continue;
+      const completion = await reconcileManagedWorktree(entry, { home: this.home, limits: this.limits });
+      const settled = await this.journal.execute(completion);
+      if (!settled.reply.ok) throw new Error(`Managed worktree recovery rejected: ${settled.reply.error.message}`);
+    }
   }
 
   async command(command) {
@@ -341,19 +392,80 @@ export class Service extends EventEmitter {
     return this.#submitCommand(command);
   }
 
+  /** Remote intent, authorization and receipt share the ordinary native commit. */
+  remoteCommand(controller_id, grant_epoch, request) {
+    const intent = structuredClone(request?.command);
+    const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
+    const submit = () => this.#remoteSubmit(envelope);
+    if (hasRootTaskCreation(intent)) {
+      const next = this.#catalogTail.then(submit);
+      this.#catalogTail = next.catch(() => {});
+      return next;
+    }
+    return submit();
+  }
+
+  async #remoteSubmit(envelope) {
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const probe = await this.journal.execute({ kind: 'remote_probe', ...envelope });
+    if (!probe.reply.ok) return { sequence: probe.sequence, reply: probe.reply };
+    if (probe.reply.result?.replayed) return { sequence: probe.sequence, reply: probe.reply.result.reply };
+    let command;
+    let configuration;
+    let rootFacts;
+    try {
+      command = await observeBoardCommand(envelope.intent, this.home);
+      command = await this.#observeCommandWorkspace(command);
+      if (hasRootTaskCreation(envelope.intent)) {
+        rootFacts = { project: await snapshotProject(this.cwd, this.limits), instructions: {
+          configured: this.config.instructions,
+          global: await snapshotGlobalInstructions(this.home, this.limits),
+        } };
+        configuration = this.#configuration(rootFacts);
+      }
+    } catch (cause) { throw new CommandNotSubmitted(cause); }
+    if (this.#failure) throw this.#failure;
+    if (this.#closing) throw new Error('Service is stopping');
+    const result = await this.journal.execute({ kind: 'remote_command', ...envelope, command,
+      configuration: configuration ?? null });
+    if (rootFacts && result.reply.ok) Object.assign(this, rootFacts);
+    return { sequence: result.sequence, reply: result.reply };
+  }
+
+  remoteCheck(controller_id, grant_epoch) {
+    if (this.#failure) return Promise.reject(this.#failure);
+    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    return this.journal.execute({ kind: 'remote_check', controller_id, grant_epoch });
+  }
+
+  async #observeCommandWorkspace(command) {
+    let observed = await observeWorkspaceCommand(command, this.limits, {
+      projectWorkspace: async project_id => {
+        const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
+        return result.reply.ok ? result.reply.result.workspace : undefined;
+      },
+    });
+    if (command.op === 'create_worktree_task' ||
+      (command.op === 'create_work_task' && command.create_worktree === true)) {
+      if (!observed.settings?.workspace) {
+        observed = await observeWorkspaceCommand({ ...observed,
+          settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
+      }
+      const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
+      if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
+    }
+    return observed;
+  }
+
   async #createRoot(command) {
     try {
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
-      const instructions = { configured: configuredInstructions(this.config, this.limits),
+      const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
-      const observed = await observeWorkspaceCommand(command, this.limits, {
-        projectWorkspace: async project_id => {
-          const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
-          return result.reply.ok ? result.reply.result.workspace : undefined;
-        },
-      });
+      const observed = await this.#observeCommandWorkspace(command);
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }
@@ -411,6 +523,10 @@ export class Service extends EventEmitter {
     if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
       return { kind: 'streams', streams: this.browserStreams() };
     }
+    if (observation.kind === 'workspace-git' && Object.keys(observation).length === 2 && typeof observation.primary === 'string') {
+      const primary = observation.primary === '' ? this.cwd : observation.primary;
+      return { kind: 'workspace-git', available: await observeWorkspaceGit(primary) };
+    }
     if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2) {
       try {
         let location = observation.path;
@@ -439,6 +555,7 @@ export class Service extends EventEmitter {
 
   async #close() {
     this.#closing = true;
+    await this.remote?.close();
     if (this.#continuation) clearImmediate(this.#continuation);
     if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));

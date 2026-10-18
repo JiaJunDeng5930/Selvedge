@@ -1,4 +1,5 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
 import ../context/MODEL.bend as Context
 import ../context/KINDS.bend as ContextKinds
 import ../tools/MODEL.bend as Tools
@@ -72,9 +73,9 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), J.optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}
     case M.CreateProjectCommand{}:
-      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.CreateProject{J.text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance"), J.get(body, "create_worktree")}
     case M.UpdateProjectCommand{}:
-      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance")}
+      M.UpdateProject{Protocol.number(body, "project_id", 0n), J.optional_text(J.get(body, "name")), J.get(body, "workspace"), J.get(body, "guidance"), J.get(body, "create_worktree")}
     case M.DeleteProjectCommand{}: M.DeleteProject{Protocol.number(body, "project_id", 0n)}
     case M.ListProjectsCommand{}: M.Observe{M.ListProjects{}}
     case M.ReadProjectCommand{}: M.Observe{M.ReadProject{Protocol.number(body, "project_id", 0n)}}
@@ -155,16 +156,10 @@ def valid_failure_kind(kind: J.Json) -> Bool:
     case J.Text{"context_limit"}: True{}
     case _: False{}
 
-def context_observations_valid(observations: Maybe<&2, +List<D.ContextObservation()>>) -> Bool:
-  match observations:
-    case Some{items}: True{}
-    case None{}: False{}
-
 def context_payload(ok: Bool, +body: J.Json) -> Bool:
   match ok:
     case True{}:
-      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "observations"]) &&
-        context_observations_valid(Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
+      Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "observations"])
     case False{}:
       Shape.object_keys(body, ["kind", "task_id", "ticket", "ok", "message"]) && J.is_text(J.get(body, "message")) &&
         Nat.is_le(J.utf8_length(J.text(J.get(body, "message"))), 4096n)
@@ -173,27 +168,24 @@ def context_completion_payload(+body: J.Json) -> Bool:
   Shape.is_natural(J.get(body, "task_id")) && Shape.is_natural(J.get(body, "ticket")) && Shape.is_bool(J.get(body, "ok")) &&
     context_payload(J.boolean(J.get(body, "ok")), body)
 
-def parsed_context_outcome(parsed: Maybe<&2, +List<D.ContextObservation()>>) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
+def parsed_context_input(id: Nat, ticket: Nat, parsed: Maybe<&2, +List<D.ContextObservation()>>) -> Result<&2, &2, String, M.Input>:
   match parsed:
-    case Some{items}: Done{items}
+    case Some{items}: Done{M.ContextObserved{id, ticket, Done{items}}}
     case None{}: Fail{"Malformed context observation"}
 
-def context_outcome(ok: Bool, +body: J.Json) -> Result<&2, &2, String, +List<D.ContextObservation()>>:
+def context_input(ok: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match ok:
-    case False{}: Fail{J.text(J.get(body, "message"))}
-    case True{}: parsed_context_outcome(Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
+    case False{}: Done{M.ContextObserved{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n), Fail{J.text(J.get(body, "message"))}}}
+    case True{}: parsed_context_input(Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n),
+      Context.observations(ContextKinds.definitions(), J.get(body, "observations")))
 
-def context_accepted(member: Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>) -> Result<&2, &2, String, M.Input>:
-  Categories.Membership{+body, evidence} = member
-  Done{M.ContextObserved{Protocol.number(body, "task_id", 0n), Protocol.number(body, "ticket", 0n), context_outcome(J.boolean(J.get(body, "ok")), body)}}
-
-def context_admission(admission: Maybe<&1, Categories.Membership<J.Json, Categories.holds(J.Json, (value => context_completion_payload(value)))>>) -> Result<&2, &2, String, M.Input>:
-  match admission:
-    case Some{member}: context_accepted(member)
-    case None{}: Fail{"Malformed context completion"}
+def context_envelope(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed context completion"}
+    case True{}: context_input(J.boolean(J.get(body, "ok")), body)
 
 def decode_context(+body: J.Json) -> Result<&2, &2, String, M.Input>:
-  context_admission(Categories.admit(J.Json, (value => context_completion_payload(value)), body))
+  context_envelope(context_completion_payload(body), body)
 
 def model_outcome(ok: Bool, +body: J.Json) -> D.Outcome:
   match ok:
@@ -415,14 +407,14 @@ def valid_plugins(value: J.Json) -> Bool:
 def project(+value: J.Json) -> D.ProjectContext:
   match value:
     case J.Null{}: D.NoProject{}
-    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
+    case other: D.ProjectContext{J.text(J.get(other, "workspace")), J.text(J.get(other, "path")), J.text(J.get(other, "revision")), J.text(J.get(other, "instructions"))}
 
 def valid_project(+value: J.Json) -> Bool:
   match value:
     case J.Null{}: True{}
     case J.Object{fields}:
       +body : J.Json = J.Object{fields}
-      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
+      J.is_text(J.get(body, "workspace")) && J.is_text(J.get(body, "path")) && J.is_text(J.get(body, "revision")) && J.is_text(J.get(body, "instructions")) &&
         I.project_context(project(body))
     case _: False{}
 
@@ -569,9 +561,71 @@ def feature_completion(decoded: Result<&2, &2, String, Features.Completion>) -> 
     case Fail{reason}: Fail{reason}
     case Done{completion}: Done{M.FeatureCompleted{completion}}
 
+def remote_request(+body: J.Json) -> Remote.Request:
+  Remote.Request{J.text(J.get(body, "controller_id")), Protocol.number(body, "grant_epoch", 0n),
+    J.text(J.get(body, "request_id")), J.get(body, "intent")}
+
+def remote_request_shape(+body: J.Json) -> Bool:
+  J.is_text(J.get(body, "controller_id")) && Shape.is_natural(J.get(body, "grant_epoch")) &&
+    J.is_text(J.get(body, "request_id")) && J.is_object(J.get(body, "intent")) && Remote.request_valid(remote_request(body))
+
+def remote_probe_command(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.UserCommand{command}}: Done{M.RemoteProbe{request, command}}
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote command intent"}
+
+def remote_probe_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote probe"}
+    case True{}: remote_probe_command(decode_command(J.get(body, "intent")), remote_request(body))
+
+def root_environment_command(command: M.Command) -> Bool:
+  match command:
+    case M.Create{profile, reasoning, message, settings}: True{}
+    case M.Fork{task, count, messages, settings}: True{}
+    case M.FeatureCommand{command}: Features.root_environment(command)
+    case _: False{}
+
+def remote_configured(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request, command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.Configure{environment}}: Done{M.RemoteCommand{request, command, Some{environment}}}
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote environment observation"}
+
+def remote_configuration_valid(valid: Bool, configuration: J.Json, request: Remote.Request, command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Remote environment observations are limited to task creation"}
+    case True{}: remote_configured(decode_config(configuration), request, command)
+
+def remote_configuration(+configuration: J.Json, request: Remote.Request, +command: M.Command) -> Result<&2, &2, String, M.Input>:
+  match configuration:
+    case J.Null{}: Done{M.RemoteCommand{request, command, None{}}}
+    case other: remote_configuration_valid(String.eq(J.text(J.get(other, "kind")), "configure") && root_environment_command(command), other, request, command)
+
+def remote_decoded_command(decoded: Result<&2, &2, String, M.Input>, request: Remote.Request, configuration: J.Json) -> Result<&2, &2, String, M.Input>:
+  match decoded:
+    case Done{M.UserCommand{command}}: remote_configuration(configuration, request, command)
+    case Fail{reason}: Fail{reason}
+    case _: Fail{"Malformed remote prepared command"}
+
+def remote_command_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote command envelope"}
+    case True{}: remote_decoded_command(decode_command(J.get(body, "command")), remote_request(body), J.get(body, "configuration"))
+
+def remote_check_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.Input>:
+  match valid:
+    case False{}: Fail{"Malformed remote observation authorization"}
+    case True{}: Done{M.RemoteCheck{J.text(J.get(body, "controller_id")), Protocol.number(body, "grant_epoch", 0n)}}
+
 def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
   match kind:
     case "command": decode_command(J.get(body, "command"))
+    case "remote_probe": remote_probe_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch", "request_id", "intent"]) && remote_request_shape(body), body)
+    case "remote_command": remote_command_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch", "request_id", "intent", "command", "configuration"]) && remote_request_shape(body), body)
+    case "remote_check": remote_check_valid(Shape.object_keys(body, ["kind", "controller_id", "grant_epoch"]) &&
+      J.is_text(J.get(body, "controller_id")) && Shape.is_natural(J.get(body, "grant_epoch")), body)
     case "context_observed": decode_context(body)
     case "model": decode_model(body)
     case "reasoning": decode_reasoning(body)

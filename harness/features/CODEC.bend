@@ -1,4 +1,8 @@
 import Base
+import ../../features/remote/MODEL.bend as Remote
+import ../../features/remote/CODEC.bend as RemoteCodec
+import ../../features/worktree/CODEC.bend as Worktree
+import ../../features/worktree/MODEL.bend as WorktreeModel
 import ../../features/compaction/MODEL.bend as CompactionResult
 import ../../features/compaction/CODEC.bend as Compaction
 import ./MODEL.bend as F
@@ -17,6 +21,8 @@ import ../../features/work/CODEC.bend as WorkCodec
 def command_json(command: F.Command) -> J.Json:
   match command:
     case F.WorkCommand{command}: WorkCodec.command_json(command)
+    case F.RemoteCommand{command}: RemoteCodec.command_json(command)
+    case F.WorktreeCommand{command}: Worktree.command_json(command)
     case F.ChatGPTCommand{command}: ChatGPTCodec.command_json(command)
     case F.BoardCommand{command}: Board.command_json(command)
     case F.TaskGraphCommand{command}: TaskGraphCodec.command_json(command)
@@ -24,6 +30,8 @@ def command_json(command: F.Command) -> J.Json:
 def query_json(query: F.Query) -> J.Json:
   match query:
     case F.WorkQuery{query}: WorkCodec.query_json(query)
+    case F.RemoteStatus{}: RemoteCodec.command_json(Remote.Status{})
+    case F.WorktreeQuery{query}: Worktree.query_json(query)
     case F.ChatGPTQuery{query}: ChatGPTCodec.query_json(query)
     case F.BoardQuery{query}: Board.query_json(query)
     case F.TaskGraphQuery{query}: TaskGraphCodec.query_json(query)
@@ -48,9 +56,22 @@ def work_command(kind: WorkCodec.EntryKind, body: J.Json) -> M.Command:
     case WorkCodec.Write{kind}: M.FeatureCommand{F.WorkCommand{WorkCodec.construct(kind, body)}}
     case WorkCodec.Read{kind}: M.Observe{M.FeatureQuery{F.WorkQuery{WorkCodec.query(kind, body)}}}
 
+def remote_command(kind: RemoteCodec.AdminKind, body: J.Json) -> M.Command:
+  match kind:
+    case RemoteCodec.StatusKind{}: M.Observe{M.FeatureQuery{F.RemoteStatus{}}}
+    case other: M.FeatureCommand{F.RemoteCommand{RemoteCodec.construct(other, body)}}
+
+def worktree_command(kind: Worktree.EntryKind, body: J.Json) -> M.Command:
+  match kind:
+    case Worktree.ListKind{}: M.Observe{M.FeatureQuery{F.WorktreeQuery{Worktree.query(kind, body)}}}
+    case Worktree.ReadKind{}: M.Observe{M.FeatureQuery{F.WorktreeQuery{Worktree.query(kind, body)}}}
+    case other: M.FeatureCommand{F.WorktreeCommand{Worktree.construct(other, body)}}
+
 def construct(kind: F.CommandKind, body: J.Json) -> M.Command:
   match kind:
     case F.WorkKind{kind}: work_command(kind, body)
+    case F.RemoteKind{kind}: remote_command(kind, body)
+    case F.WorktreeKind{kind}: worktree_command(kind, body)
     case F.ChatGPTKind{kind}: chatgpt_command(kind, body)
     case F.BoardKind{kind}: board_command(kind, body)
     case F.TaskGraphKind{kind}: task_graph_command(kind, body)
@@ -58,12 +79,15 @@ def construct(kind: F.CommandKind, body: J.Json) -> M.Command:
 def valid(kind: F.CommandKind, body: J.Json) -> Bool:
   match kind:
     case F.WorkKind{kind}: WorkCodec.entry_valid(kind, body)
-    case F.ChatGPTKind{kind}: ChatGPTCodec.valid(kind, body)
+    case F.RemoteKind{kind}: RemoteCodec.additional_constraints(kind, body)
+    case F.WorktreeKind{kind}: Worktree.additional_constraints(kind, body)
+    case F.ChatGPTKind{kind}: ChatGPTCodec.additional_constraints(kind, body)
     case F.BoardKind{kind}: Board.valid(kind, body)
     case F.TaskGraphKind{kind}: TaskGraphCodec.entry_valid(kind, body)
 
 def effect_json(model_json: D.Model -> J.Json, effect: F.Effect) -> J.Json:
   match effect:
+    case F.WorktreeEffect{effect}: Worktree.effect_json(effect)
     case F.CompactionEffect{effect}: Compaction.effect_json(model_json, effect)
     case F.ChatGPTEffect{effect}: ChatGPT.effect_json(effect)
     case F.RequestBoardText{card_id, ticket, profile, prompt, retitle}:
@@ -98,8 +122,15 @@ def compaction_completion(value: Result<&2, &2, String, CompactionResult.Complet
     case Fail{message}: Fail{message}
     case Done{completion}: Done{F.CompactionCompleted{completion}}
 
+def worktree_completion(value: Result<&2, &2, String, WorktreeModel.Completion>) -> Result<&2, &2, String, F.Completion>:
+  match value:
+    case Fail{message}: Fail{message}
+    case Done{completion}: Done{F.WorktreeCompleted{completion}}
+
 def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, F.Completion>:
   match kind:
+    case "worktree_created": worktree_completion(Worktree.completion(kind, body))
+    case "worktree_archived": worktree_completion(Worktree.completion(kind, body))
     case "chatgpt_result": chatgpt_completed(Shape.object_keys(body, ["kind", "operation_id", "value", "error"]) &&
       Schema.valid(ChatGPTCodec.id_schema(), J.get(body, "operation_id")) && Shape.is_bool(J.get(body, "error")) && J.is_object(J.get(body, "value")), body)
     case "board_text":

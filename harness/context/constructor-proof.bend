@@ -38,57 +38,6 @@ def value_roundtrip(+value: C.Value) ->
         (result => C.parsed_value(J.Text{kind}, result)),
         C.field_values(C.fields_json(fields)), Some{fields}, fields_roundtrip(fields))
 
-def construction_valid(+result: Maybe<&2, C.Snapshot>, +definition: C.Definition, +identity: +List<C.FieldValue>,
-  +revision: String, +fields: +List<C.FieldValue>, evidence: Spec.ConstructedSnapshot(result, definition, identity, revision, fields)) ->
-  Spec.ValidSnapshot(result):
-  match result:
-    case None{}: Unit{}
-    case Some{snapshot}:
-      Spec.SnapshotConstruction{origin, valid} = evidence
-      valid
-
-def decoded_parts(+same: Bool, +definition: C.Definition, +identity: +List<C.FieldValue>, +revision: String, +fields: +List<C.FieldValue>) ->
-  Spec.ValidSnapshot(C.snapshot_from_parts(same, definition, identity, revision, fields)):
-  match same:
-    case False{}: Unit{}
-    case True{}: construction_valid(C.construct_snapshot(definition, identity, revision, fields), definition, identity, revision, fields, construction(definition, identity, revision, fields))
-
-def decoded_present(+key: C.Key, +revision: String, +value: C.Value) ->
-  Spec.ValidSnapshot(C.parsed_snapshot(Some{key}, J.Text{revision}, Some{value})):
-  match key value:
-    case C.ContextKey{+definition, identity} C.Record{kind, fields}:
-      decoded_parts(String.eq(kind, C.definition_kind(definition)), definition, identity, revision, fields)
-
-def decoded_value(+definition: C.Definition, +identity: +List<C.FieldValue>, +revision: String, +value: Maybe<&2, C.Value>) ->
-  Spec.ValidSnapshot(C.parsed_snapshot(Some{C.ContextKey{definition, identity}}, J.Text{revision}, value)):
-  match value:
-    case None{}: Unit{}
-    case Some{value}: decoded_present(C.ContextKey{definition, identity}, revision, value)
-
-def decoded_revision(+definition: C.Definition, +identity: +List<C.FieldValue>, +revision: J.Json, +value: Maybe<&2, C.Value>) ->
-  Spec.ValidSnapshot(C.parsed_snapshot(Some{C.ContextKey{definition, identity}}, revision, value)):
-  match revision:
-    case J.Text{text}: decoded_value(definition, identity, text, value)
-    case J.Null{}: Unit{}
-    case J.Boolean{value}: Unit{}
-    case J.Number{lexeme}: Unit{}
-    case J.Array{items}: Unit{}
-    case J.Object{fields}: Unit{}
-
-def decoded_key(+key: C.Key, +revision: J.Json, +value: Maybe<&2, C.Value>) ->
-  Spec.ValidSnapshot(C.parsed_snapshot(Some{key}, revision, value)):
-  match key:
-    case C.ContextKey{definition, identity}: decoded_revision(definition, identity, revision, value)
-
-def decoded_candidates(+key: Maybe<&2, C.Key>, +revision: J.Json, +value: Maybe<&2, C.Value>) ->
-  Spec.ValidSnapshot(C.parsed_snapshot(key, revision, value)):
-  match key:
-    case None{}: Unit{}
-    case Some{key}: decoded_key(key, revision, value)
-
-def decoded_snapshot(+registry: +List<C.Definition>, +item: J.Json) -> Spec.ValidSnapshot(C.snapshot(registry, item)):
-  decoded_candidates(C.key(registry, J.get(item, "key")), J.get(item, "revision"), C.value(J.get(item, "value")))
-
 def edited_head_names(+name: String, text: String, +result: Maybe<&2, String>, +rest: +List<C.FieldValue>) ->
   Spec.FieldNames(C.prepend_field_result(name, result, rest), C.FieldValue{name, text} <> rest):
   match result:
@@ -159,7 +108,7 @@ def patch_schema(+value: C.Value, +patch: C.Patch) -> Spec.PatchedSchema(C.apply
 def definition_evidence(+definition: C.Definition) -> Spec.DefinitionEvidence<definition>:
   Spec.DefinitionEvidence{
     identity => revision => fields => construction(definition, identity, revision, fields),
-    value_roundtrip, decoded_snapshot, patch_schema,
+    value_roundtrip, patch_schema,
     Patch.accepted_snapshot,
     identity => base => value => observed => patch => Patch.observed_amendment_patch(C.ContextKey{definition, identity}, base, value, observed, patch),
     bindings => identity => base => previous_revision => previous => revision => patch => value => found => base_matches => patched =>

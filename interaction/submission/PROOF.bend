@@ -64,6 +64,7 @@ def property_choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value:
     case Forms.WorkName{} _: choices_agreement(entry, Forms.WorkName{}, value, groups)
     case Forms.ProjectName{} _: choices_agreement(entry, Forms.ProjectName{}, value, groups)
     case Forms.WorkspaceDirectories{} _: choices_agreement(entry, Forms.WorkspaceDirectories{}, value, groups)
+    case Forms.CreateWorktree{} _: choices_agreement(entry, Forms.CreateWorktree{}, value, groups)
     case Forms.ContextOrigin{} _: choices_agreement(entry, Forms.ContextOrigin{}, value, groups)
     case Forms.SandboxMode{} _: choices_agreement(entry, Forms.SandboxMode{}, value, groups)
     case Forms.NetworkAccess{} _: choices_agreement(entry, Forms.NetworkAccess{}, value, groups)
@@ -122,18 +123,18 @@ def with_native_preserves_drafts(+decision: E.Decision, +result: J.Json, +effect
 def close_layers_preserves_drafts(+layers: +List<E.Layer>, program: M.World(), route: U.Route,
   +drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>, +session_layers: +List<E.Layer>,
   attention: String, navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat,
-  +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>, next_layer: Nat, +model_preference: Maybe<&2, E.ModelPreference>, draft_model_manual: Bool) ->
+  +pending: +List<E.Pending>, +previews: +List<Live.Output>, +code_blocks: +List<Content.Block>, next_layer: Nat, +model_preference: Maybe<&2, E.ModelPreference>, draft_model_manual: Bool, workspace_git: E.WorkspaceGit) ->
   {Rule.decision_drafts(E.close_layers(layers, program,
-    E.Session{route, drafts, readers, session_layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual})) == drafts : +List<U.Draft>}:
+    E.Session{route, drafts, readers, session_layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git})) == drafts : +List<U.Draft>}:
   match layers:
     case Nil{}: {==}
     case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
 
 def close_panel_preserves_drafts(+application: E.Application) ->
   {Rule.decision_drafts(E.close_panel(application)) == Rule.application_drafts(application) : +List<U.Draft>}:
-  E.Application{program, E.Session{route, +drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, +drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   close_layers_preserves_drafts(layers, program, route, drafts, readers, layers, attention, navigation, filter,
-    now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual)
+    now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git)
 
 def finish_layer_preserves_drafts(same: Bool, +application: E.Application) ->
   {Rule.decision_drafts(E.finish_layer(same, application)) == Rule.application_drafts(application) : +List<U.Draft>}:
@@ -170,7 +171,7 @@ def message_finish_submission_preserves_drafts(+directory_entry: String, +task: 
   +delivery: U.Delivery, feedback: U.Feedback, +result: J.Json, +application: E.Application) ->
   {Rule.decision_drafts(Rule.finish_submission_spec(True{}, U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry},
       result, application)) == Rule.application_drafts(application) : +List<U.Draft>}:
-  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   message_finish_location_preserves_drafts(task, route, layers, result, application)
 
 def native_session_owned(+owned: Bool, submitted: Maybe<&2, U.Draft>, program: M.World(), +result: J.Json,
@@ -235,7 +236,7 @@ def stale_settlement(+submitted: U.Draft, +result: J.Json, +session: E.Session,
   absent: {E.owns_submission(submitted, session) == False{} : Bool}) ->
   {E.settle(submitted, result, session) == session : E.Session}:
   U.Draft{revision, body, feedback, directory_entry} = submitted
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   stale_found(E.find_draft(drafts, U.owner(body)), revision, result, session, absent)
 
 def conjunction_right_false(left: Bool, right: Bool, absent: {right == False{} : Bool}) ->
@@ -309,7 +310,7 @@ def accepted_message_settlement_snapshot(+directory_entry: String, +revision: Na
   {Rule.session_drafts(E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session)) ==
     E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
       Rule.session_drafts(session)) : +List<U.Draft>}:
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   found_owned = Equal.cong(Maybe<&2, U.Draft>, Bool,
     (found => E.same_revision(found, revision)),
     E.find_draft(drafts, U.MessageEditor{task}),
@@ -437,17 +438,19 @@ def unowned_directory(+ticket: Nat, +result: Result<&2, &2, String, Context.Dire
   absent: {E.find_pending(Rule.pending_entries(application), ticket) == None{} : Maybe<&2, E.Pending>}) ->
   {ExperienceProgram.step(E.DirectoriesObserved{ticket, result}, application) ==
     E.Decision{application, D.failure("interaction_refused", "The directory observation has no pending request"), Nil{}, Nil{}, False{}} : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, +pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
   Equal.cong(Maybe<&2, E.Pending>, E.Decision,
     (found => E.observed_pending(found, result, application)),
     E.find_pending(Rule.pending_entries(application), ticket), None{}, absent)
 
-def encapsulated_preparation_snapshot(+session: E.Session, +program: M.World(), +workspace: D.Workspace, +draft: U.Draft) ->
+def encapsulated_preparation_snapshot(+session: E.Session, +program: M.World(), +workspace: D.Workspace, +draft: U.Draft,
+  verified: {E.worktree_submission_allowed(U.contents(draft), E.from_program(program, session)) == True{} : Bool}) ->
   {E.prepare(E.from_program(program, session), Some{workspace}, draft) ==
         E.Decision{E.from_program(program, E.with_pending(E.Pending{E.next_ticket(session), draft, E.now(session)} <> E.pending(session), E.with_next_ticket((E.next_ticket(session) + 1n : Nat), session))),
           D.success(J.Null{}), Nil{}, [E.ObserveDirectories{E.next_ticket(session), workspace}], False{}} : E.Decision}:
-  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
-  {==}
+  E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual, workspace_git} = session
+  Equal.cong(Bool, E.Decision, (allowed => E.prepare_checked(allowed, E.from_program(program, session), Some{workspace}, draft)),
+    E.worktree_submission_allowed(U.contents(draft), E.from_program(program, session)), True{}, verified)
 
 def Rule.submission_evidence():
   Rule.SubmissionRequirements{
@@ -468,7 +471,7 @@ def reopened_older_ownership(directory_entry: String, old_entry: String, +previo
   before: {Nat.cmp((previous + 1n : Nat), older) == GT{} : Cmp}) ->
   {E.owns_submission(U.Draft{older, old_body, feedback, old_entry},
     E.ensure(Some{U.Draft{previous, body, U.Accepted{submitted, reply}, directory_entry}}, fallback, session)) == False{} : Bool}:
-  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git} = session
   Equal.trans(Bool,
     E.same_revision(E.select_draft(U.same_editor(U.owner(fallback), U.owner(old_body)),
       U.Draft{(previous + 1n : Nat), fallback, U.Editing{}, ""},

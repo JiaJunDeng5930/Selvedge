@@ -31,8 +31,8 @@ function failure(code, record, status) {
 
 function credential(profile) {
   const token = process.env[profile.api_key_env];
-  const bindingInput = boundary('web.credential', { profile, token });
-  return { token, binding: digest(bindingInput) };
+  if (!token) throw new Error(`Set ${profile.api_key_env} to use this provider`);
+  return { token, binding: digest([profile.endpoint, token]) };
 }
 
 function toolsFor(effect) { return boundary('web.tools', { effect }); }
@@ -114,11 +114,13 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
   try {
     lifetime.throwIfAborted();
     const previous = store.latest(owner);
-    const position = boundary('web.position', { effect });
-    const continuation = boundary('web.continuation', { effect, profile, limits, previous: previous ?? null,
+    // NOTE: Independent approval and board effects acquire their history in
+    // backend.prepare. Cursor selection and prefix hashes use that same input.
+    const position = boundary('web.position', { effect: request });
+    const continuation = boundary('web.continuation', { effect: request, profile, limits, previous: previous ?? null,
       request, tools, owner, store_identity: store.identity, contract, binding,
       receipt_position: position.position,
-      history_digest: digest(effect.history.slice(0, Number(position.input_count))) });
+      history_digest: digest(request.history.slice(0, Number(position.input_count))) });
     let { body, deferred } = continuation;
     const output = [];
     let terminal;
@@ -143,8 +145,8 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
       break;
     }
     if (options.receipt) output.push({ type: 'context', value: boundary('web.receipt', {
-      effect, profile, resource: terminal, record: active, deferred, input_count: effect.history.length,
-      input_hash: digest(effect.history), output_count: output.length, contract, binding, store_identity: store.identity,
+      effect: request, profile, resource: terminal, record: active, deferred,
+      input_hash: digest(request.history), output_count: output.length, contract, binding, store_identity: store.identity,
       tools, body_observation: nativeJson(active.body), response_observation: nativeJson(active.response),
     }) });
     return output;

@@ -116,7 +116,7 @@ def task_visibility_transition_refinement(+expanded: Bool, +program: M.World(), 
   {Core.step(InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{expanded}}}, Core.from_application(E.from_program(program, session), services)) ==
     Core.application_result(E.local(program, E.with_navigation(E.advance_navigation_selection(E.set_navigation(expanded, E.navigation(session))), E.with_attention(E.navigation_focus(expanded), session)),
       [E.Attend{E.navigation_focus(expanded)}]), services) : InteractionTypes.Decision}:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, workspace_git} = session
   {==}
 
 def Rule.task_visibility_transition_changes_only_task_navigation_and_attention(expanded, program, session, services):
@@ -124,7 +124,7 @@ def Rule.task_visibility_transition_changes_only_task_navigation_and_attention(e
 
 def task_visibility_context_preservation(+expanded: Bool, +state: InteractionTypes.State) ->
   {Rule.global_work_context(Rule.task_visibility_result(expanded, state)) == Rule.global_work_context(state) : Rule.GlobalWorkContext}:
-  InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual}}, services} = state
+  InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, workspace_git}}, services} = state
   E.NavigationState{intent, collapsed, work, visits, generation} = navigation
   {==}
 
@@ -266,6 +266,7 @@ def compact_overview_action_role(+role: SurfaceTypes.Role, +action: U.Action, +a
     case U.CompactTask{p0}: {==}
     case U.Submit{p0}: {==}
     case U.RetryWorkspace{p0}: {==}
+    case U.RetryWorktreeArchive{p0}: {==}
     case U.ControlTask{p0, p1}: {==}
     case U.CancelOperation{p0, p1}: {==}
     case U.ReviewApproval{p0, p1, p2, p3}: {==}
@@ -304,6 +305,7 @@ def compact_overview_session_input_role(+role: SurfaceTypes.Role, +input: E.Inpu
     case E.DirectoriesObserved{p0, p1}: {==}
     case E.ClockObserved{p0}: {==}
     case E.ModelPreferenceRestored{p0, p1}: {==}
+    case E.WorkspaceGitObserved{p0, p1}: {==}
 
 def compact_overview_input_role(+role: SurfaceTypes.Role, +input: InteractionTypes.Input, +availability: V.Availability) ->
   {Model.compact_navigation_action_role(role, SurfaceTypes.Activate{input, availability}) == Rule.required_compact_overview_action_role(role, SurfaceTypes.Activate{input, availability}) : SurfaceTypes.Role}:
@@ -338,6 +340,7 @@ def Rule.compact_overview_action_roles_preserve_other_commands(role, meaning):
     case SurfaceTypes.ActivityContent{p0, p1}: {==}
     case SurfaceTypes.ProjectGroup{p0, p1, p2}: {==}
     case SurfaceTypes.TaskRow{p0, p1, p2}: {==}
+    case SurfaceTypes.TaskChildren{p0}: {==}
     case SurfaceTypes.ProjectChooser{p0}: {==}
     case SurfaceTypes.DirectoryRow{p0, p1}: {==}
     case SurfaceTypes.ContextSummary{p0}: {==}
@@ -477,7 +480,7 @@ def Rule.selected_model_permission(profile, reasoning):
 def Rule.rejected_profile_choice():
   {==}
 
-def Rule.new_task_model_permission(message, profile, reasoning, context, work, world):
+def Rule.new_task_model_permission(message, profile, reasoning, context, work, create_worktree, world):
   {==}
 
 def Rule.agent_model_permission(agent, revision, name, profile, reasoning, instructions, context, concurrency, world):
@@ -498,7 +501,7 @@ def Rule.confirmation_actions_region(title, confirm, cancel, parent, state):
 
 def Rule.card_ordered_movement(view, parent, state):
   V.CardScene{id, value, open, actions, linked, destinations, candidates} = view
-  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = state
+  InteractionTypes.State{E.Application{world, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}}, services} = state
   {==}
 
 def Rule.card_surface_placement(key, semantic, label, face, children, target): {==}
@@ -576,6 +579,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorkspace{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorktreeArchive{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ControlTask{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CancelOperation{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ReviewApproval{p0, p1, p2, p3}}}}: {==}
@@ -602,6 +606,7 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.DirectoriesObserved{p0, p1}}: {==}
     case InteractionTypes.ApplicationInput{E.ClockObserved{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.ModelPreferenceRestored{p0, p1}}: {==}
+    case InteractionTypes.ApplicationInput{E.WorkspaceGitObserved{p0, p1}}: {==}
     case InteractionTypes.ServiceInput{p0}: {==}
     case InteractionTypes.EditField{p0, p1, p2}: {==}
     case InteractionTypes.RemoveAttachment{p0, p1}: {==}

@@ -9,6 +9,12 @@ SQLite before publishing replies, world snapshots or starting effects. A failed
 commit terminates the kernel; committed inputs replay through the same Bend
 transition at the next start.
 
+`remote-control.mjs` manages local installation credentials and owner-approved
+device pairing. `remote-connector.mjs` connects outbound to the Cloudflare relay;
+its command path keeps the original intent separate from workspace observations
+and commits the native command with its retained receipt. Closing a transport
+leaves the Service and its tasks running. See [remote setup](../docs/remote-control.md).
+
 Pure host semantics belong to [adapters](adapters/README.md), whose domain
 modules construct results from the complete JSON source and consume the resulting
 category membership. [MODEL.bend](adapters/MODEL.bend) supplies the shared
@@ -42,10 +48,9 @@ and rejects forged metadata or symbolic-link storage. Paste, drop and picker
 gestures share this route. The host observes timestamps and file facts; admission,
 order, automatic dispatch and execution association remain native.
 
-The suite also exercises browser OAuth login and serialized credential refresh against a
-loopback issuer, interruption and restart of an actual HTTP stream, MCP catalog
-notifications during shutdown, and suppression of effects withdrawn within a
-commit. Credential parsing errors must not quote file contents into task history.
+The focused suite includes loopback OAuth and serialized credential refresh,
+HTTP stream teardown and physical commit-before-execution checks.
+Credential parsing errors must not quote file contents into task history.
 Use `bun run test` to run these checks; they require no real credentials or model calls.
 
 [chatgpt-account.mjs](chatgpt-account.mjs) performs ChatGPT discovery, login,
@@ -116,6 +121,12 @@ decide an approval. See `sandbox.test.mjs` for the OS trust boundary.
 provider request. It creates no task. [EFFECTS.bend](adapters/EFFECTS.bend) admits the observed
 approval response and constructs its completion; malformed output and provider
 failures return failed-review inputs to Bend.
+Account discovery retains the advertised `codex-auto-review` model for approval
+selection, including when its catalog visibility is hidden. It uses the same
+connection and account binding as that account's task models, with low reasoning
+when advertised. This selects the official reviewer model while retaining
+Selvedge's review prompt and decision format; it does not run a Codex reviewer
+agent or change execution permissions.
 Human reviews use the authenticated command/UI boundary. The native operation
 identity, reviewer and complete command bind the decision; a grant never mutates
 the task's saved workspace or sandbox. The actual model's judgment is an external
@@ -127,6 +138,20 @@ admission, inheritance and project defaults. Every service Bash effect requires
 its committed plan; `service.cwd` is not a process permission or task directory.
 Keep the service home separate from writable projects: it is read-only inside a
 restricted Bash process, even when a workspace includes its ancestor.
+
+`worktrees.mjs` interprets committed Git worktree effects and observes their
+filesystem receipts on restart. The owning [feature](../features/worktree/README.md)
+and harness assembly govern task initialization and resource association.
+Creation rejects a service home inside the source Git repository before copying
+files, preventing private service state from entering a checkout.
+Sandbox launches admit a writable exception only for the task's committed managed
+checkout; service state and other checkouts retain their protection. Git
+administration outside the selected workspace receives no additional write
+permission. Native host operations derive managed paths, admit receipts and
+construct completion coordinates; the interpreter supplies bounded UTF-8 file
+observations. A directory is reserved before Git starts, so partial failures
+retain their actual owned path until cleanup succeeds. Recovery observes the
+receipt and Git registration without repeating checkout or archive operations.
 
 [stdio-rpc.mjs](stdio-rpc.mjs) is the shared bounded process transport for MCP and
 plugins. [RPC.bend](adapters/RPC.bend) owns response classification and correlation
@@ -159,7 +184,10 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-Format 3 is independent of build provenance. Persisted formats are not migrated;
+Replay returns every complete decision for validation; it transfers the final
+world snapshot once after all rows pass, rather than cloning each intermediate
+world into the main thread. Ordinary requests still return their world snapshot.
+The journal format is independent of build provenance. Persisted formats are not migrated;
 unknown formats and incompatible decisions fail without altering the journal. Existing execution plans retain
 their meaning after a restart in another launch directory. No workspace migration
 or global directory binding is involved. Different operations and service homes
@@ -214,8 +242,11 @@ replacement window. Context selection appends only messages committed after the
 captured prefix. Native account compaction uses `/responses/compact`; portable
 rebuilding processes readable original records through bounded summary calls.
 The feature in Bend owns thresholds, idle observations, call correlation and
-adoption. The host meters the actual request, performs each committed call, and
-reports its result. Background jobs run independently of normal inference; a
+adoption. The host meters the encoded request and dispatches those same bytes
+through the same provider session. Portable calls share the ordinary model SSE
+transport, including header retry, credential refresh and cancellation, without
+resolving another consumer or rebuilding the request. The host reports each
+committed call's result. Background jobs run independently of normal inference; a
 blocking threshold waits for compaction and remeasures the replacement with the
 current suffix before dispatch. Supplied portable summaries enter the same
 replacement path without a model call.
@@ -230,9 +261,10 @@ copied into the durable conversation.
 Set `instructions` in the service home's `config.json` to customize the initial
 assistant instruction. Omitting the key uses the kernel default; an empty string
 is accepted. Values must be valid UTF-8 without NUL bytes and fit the instruction
-byte limit. Place global guidance in `<service home>/AGENTS.md`; the service reads
-it as a bounded regular UTF-8 file, rejects symbolic links, and records its content
-hash. A missing file supplies no global guidance.
+byte limit. Place global guidance in `<service home>/AGENTS.md` or its
+`AGENTS.override.md`. `project.mjs` selects the initial source using the kernel's
+guidance policy, reads a bounded regular UTF-8 file, and records its actual path
+and content hash. A missing source supplies no global guidance.
 
 Root tasks record initial configured, global and project guidance in their
 history. Before model dispatch or manually requested compaction, a committed
@@ -246,12 +278,23 @@ contract.
 
 The `instructions` and `skills` fields in `config.json` are observed again for
 these updates; other running service configuration is not reloaded. `skills` is
-an array of `SKILL.md` file paths, resolved relative to the service home. Skill
-frontmatter supplies `name` and `description`; only that metadata and the path
-enter history. The remaining body is not injected. Skill files use the same
-bounded, regular UTF-8 file observation as guidance files.
+an array of `SKILL.md` file paths, resolved relative to the service home.
+`context-discovery.mjs` also interprets native discovery descriptors for user and
+workspace skills, Git ancestors and nested module guidance across all roots.
+The kernel supplies filenames, search locations, exclusions and budgets through
+`harness/context/MODEL.bend`; the host observes filesystem facts. It records each
+selected source's path and applicability, and omits explicitly configured skills
+from discovered catalogs. Shared directory listings are reused within an
+observation, while later requests scan again.
+
+Skill frontmatter supplies `name` and `description`; only projected metadata
+enters history. The remaining body is not injected or tracked. Skill files use
+the same bounded, regular UTF-8 file observation as guidance files. Directory
+links are not traversed. Each discovered collection is accepted only after its
+scan and file observations complete within their budgets; failure preserves that
+collection's previous bindings while independent sources continue refreshing.
 
 A fork inherits its parent's baseline and patches. An explicit workspace
 selection records the selected guidance after the inherited history; later
-observations follow the selected primary root. Provider input also carries
+observations follow all selected roots. Provider input also carries
 recorded settings, reasoning changes, receipts and audit records.

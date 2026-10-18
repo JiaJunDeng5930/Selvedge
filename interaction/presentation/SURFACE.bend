@@ -108,6 +108,7 @@ type Meaning is Data:
   ActivityContent{expanded: Bool, audit: +List<Conversation.AuditFace>}
   ProjectGroup{project: Nat, selected: Bool, expanded: Bool}
   TaskRow{task: Nat, status: V.TaskStatus, selected: Bool}
+  TaskChildren{task: Nat}
   ProjectChooser{selected: Maybe<&2, Nat>}
   DirectoryRow{path: String, primary: Bool}
   ContextSummary{observation: Context.Observation}

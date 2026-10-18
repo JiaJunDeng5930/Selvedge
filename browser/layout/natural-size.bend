@@ -17,8 +17,19 @@ def add_if_capacity(accepted: Bool, left: Nat, right: Nat) -> Maybe<&2, Nat>:
     case True{}: Some{Nat.add(left, right)}
     case False{}: None{}
 
+def value_if_capacity(accepted: Bool, value: Nat) -> Maybe<&2, Nat>:
+  match accepted:
+    case True{}: Some{value}
+    case False{}: None{}
+
+def checked_value(+capacity: Nat, +value: Nat) -> Maybe<&2, Nat>:
+  value_if_capacity(Nat.is_le(value, capacity), value)
+
+def addition_fits(+capacity: Nat, +left: Nat, +right: Nat) -> Bool:
+  Nat.is_le(right, capacity) && Nat.is_le(left, Nat.sub(capacity, right))
+
 def checked_add(+capacity: Nat, +left: Nat, +right: Nat) -> Maybe<&2, Nat>:
-  add_if_capacity(Nat.is_le(left, Nat.sub(capacity, right)), left, right)
+  add_if_capacity(addition_fits(capacity, left, right), left, right)
 
 def multiply_if_capacity(accepted: Bool, left: Nat, right: Nat) -> Maybe<&2, Nat>:
   match accepted:
@@ -70,7 +81,7 @@ def remainder_pair(numerator: Maybe<&2, Nat>, denominator: Maybe<&2, Nat>) -> Ma
 
 def evaluate(+capacity: Nat, calculation: Calculation) -> Maybe<&2, Nat>:
   match calculation:
-    case Value{value}: Some{value}
+    case Value{value}: checked_value(capacity, value)
     case Sum{left, right}: sum_pair(capacity, evaluate(capacity, left), evaluate(capacity, right))
     case Product{left, right}: product_pair(capacity, evaluate(capacity, left), evaluate(capacity, right))
     case Maximum{left, right}: maximum_pair(evaluate(capacity, left), evaluate(capacity, right))

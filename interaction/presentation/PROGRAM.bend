@@ -11,6 +11,7 @@ import ../../harness/COMMANDS.bend as Commands
 import ../../harness/tasks/PROGRAM.bend as T
 import ../../features/board/MODEL.bend as B
 import ../../features/task_graph/MODEL.bend as G
+import ../../features/worktree/MODEL.bend as Worktree
 import ../../features/task_graph/CODEC.bend as GraphCodec
 import ../../features/work/MODEL.bend as Work
 import ../../harness/features/work-state.bend as WorkState
@@ -159,10 +160,26 @@ def task_entries(entries: +List<V.TaskEntry>, +parent: Identity.Key, +state: Int
         [selected_node(selected, declared(Identity.Entity{parent, "task", Nat.show(id)}, open, state)),
          SurfaceTypes.Node{Identity.Part{Identity.Entity{parent, "task", Nat.show(id)}, "status"}, "task-status", "Task status", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{View.task_status_label(status)}, Nil{}}]} <> task_entries(rest, parent, state)
 
-def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskEntry>, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def task_children(nodes: +List<SurfaceTypes.Node>, +parent: Identity.Key, task: Nat) -> +List<SurfaceTypes.Node>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{first, rest}:
+      [SurfaceTypes.Node{Identity.Part{parent, "children"}, "task-children", "Subtasks", SurfaceTypes.NavigationCollection{}, SurfaceTypes.TaskChildren{task},
+        Con{first, rest}}]
+
+def task_tree_entries(trees: +List<V.TaskTree>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match trees:
+    case Nil{}: Nil{}
+    case Con{V.TaskTree{+entry, children}, rest}:
+      V.TaskEntry{+id, title, status, selected, open} = entry
+      List.append(&2, SurfaceTypes.Node, task_entries([entry], parent, state),
+        List.append(&2, SurfaceTypes.Node, task_children(task_tree_entries(children, Identity.Entity{parent, "task", Nat.show(id)}, state), Identity.Entity{parent, "task", Nat.show(id)}, id),
+          task_tree_entries(rest, parent, state)))
+
+def disclosed_tasks(expanded: Bool, tasks: +List<V.TaskTree>, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match expanded:
     case False{}: Nil{}
-    case True{}: task_entries(tasks, parent, state)
+    case True{}: task_tree_entries(tasks, parent, state)
 
 def project_entries(entries: +List<V.ProjectEntry>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match entries:
@@ -251,15 +268,15 @@ def global_navigation_menu(+route: U.Route, destinations: +List<V.ControlDeclara
       [replace_role(product_action(parent, "global/settings", "Settings", InteractionTypes.ServiceInput{Services.OpenSettings{}}, True{}), SurfaceTypes.CompactNavigationEntry{False{}}),
        declared(parent, View.control("global/done", "Done", U.ClosePanel{}), state)]))]
 
-def independent_task_entries(tasks: +List<V.TaskEntry>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def independent_task_entries(tasks: +List<V.TaskTree>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match tasks:
     case Nil{}: Nil{}
     case Con{first, rest}:
       [region(parent, "independent-tasks", "", SurfaceTypes.NavigationSection{},
         SurfaceTypes.Node{Identity.Part{Identity.Part{parent, "independent-tasks"}, "title"}, "independent-tasks/title", "Tasks without a project", SurfaceTypes.Heading{}, SurfaceTypes.InformationText{Information.NavigationCaption{}}, Nil{}} <>
-        task_entries(Con{first, rest}, parent, state))]
+        task_tree_entries(Con{first, rest}, parent, state))]
 
-def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskEntry>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+def navigation_contents(expanded: Bool, +route: U.Route, create: V.ControlDeclaration, destinations: +List<V.ControlDeclaration>, projects: +List<V.ProjectEntry>, tasks: +List<V.TaskTree>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match expanded:
     case False{}: Nil{}
     case True{}:
@@ -312,24 +329,24 @@ def attachment_nodes(files: +List<B.Attachment>, +editor: U.Editor, +parent: Ide
       SurfaceTypes.Node{Identity.Entity{parent, "attachment", id}, id, name, SurfaceTypes.Section{}, SurfaceTypes.Region{}, [product_action(Identity.Entity{parent, "attachment", id}, "preview", "Preview " ++ name, InteractionTypes.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, Identity.encode(Identity.Part{Identity.Entity{parent, "attachment", id}, "preview"})}}, True{}),
          product_action(Identity.Entity{parent, "attachment", id}, "remove", "Remove " ++ name, InteractionTypes.RemoveAttachment{editor, id}, True{})]} <> attachment_nodes(rest, editor, parent)
 
-def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: Identity.Key, connected: Bool) -> +List<SurfaceTypes.Node>:
   match value:
     case Services.Uploading{editor, file}:
       [product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Cancel upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
     case Services.UploadFailed{editor, file, reason}:
-      [product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", InteractionTypes.ServiceInput{Services.RetryUpload{ticket}}, True{}),
+      [product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", InteractionTypes.ServiceInput{Services.RetryUpload{ticket}}, connected),
        product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Remove failed upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
 
-def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: Identity.Key, connected: Bool) -> +List<SurfaceTypes.Node>:
   match owned:
     case False{}: Nil{}
-    case True{}: transfer_controls(ticket, value, parent)
+    case True{}: transfer_controls(ticket, value, parent, connected)
 
-def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Editor, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def transfer_nodes(values: +List<Finite.Entry(Services.Transfer)>, +editor: U.Editor, +parent: Identity.Key, +connected: Bool) -> +List<SurfaceTypes.Node>:
   match values:
     case Nil{}: Nil{}
     case Con{(ticket, +value), rest}:
-      List.append(&2, SurfaceTypes.Node, transfer_node(U.same_editor(Services.transfer_editor(value), editor), ticket, value, parent), transfer_nodes(rest, editor, parent))
+      List.append(&2, SurfaceTypes.Node, transfer_node(U.same_editor(Services.transfer_editor(value), editor), ticket, value, parent, connected), transfer_nodes(rest, editor, parent, connected))
 
 def files_observed(value: OperationParameters.Observed) -> +List<B.Attachment>:
   match value:
@@ -341,7 +358,7 @@ def file_field(+editor: U.Editor, +parent: Identity.Key, +state: InteractionType
   +access = Services.access(observed_services)
   +transfers = Services.transfers(observed_services)
   SurfaceTypes.Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", SurfaceTypes.Field{}, SurfaceTypes.ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
-    List.append(&2, SurfaceTypes.Node, attachment_nodes(files_observed(field_value(state, editor, OperationParameters.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent))
+    List.append(&2, SurfaceTypes.Node, attachment_nodes(files_observed(field_value(state, editor, OperationParameters.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent, Services.connected(access)))
 
 def workspace_value(value: Context.WorkspaceValue) -> D.Workspace:
   match value:
@@ -566,7 +583,7 @@ def field_node(+field: OperationParameters.FieldScene, +editor: U.Editor, +paren
 
 def configuration(body: U.Body) -> Maybe<&2, Context.Configuration>:
   match body:
-    case U.NewTask{message, profile, effort, config, work}: Some{config}
+    case U.NewTask{message, profile, effort, config, create_worktree, work}: Some{config}
     case U.Agent{id, revision, name, profile, effort, instructions, config, concurrency}: Some{config}
     case U.Fork{task, count, messages, config}: Some{config}
     case _: None{}
@@ -1070,12 +1087,62 @@ def page_approvals(+values: +List<Conversation.DecisionRequest>, +parent: Identi
     case Nil{}: Nil{}
     case Con{first, rest}: [page_region(parent, Composition.ApprovalDecisions{}, Composition.DockPosition{}, approval_queue(first <> rest, owner, state))]
 
+def worktree_observation(task: Nat, state: InteractionTypes.State) -> J.Json:
+  Commands.query(M.FeatureQuery{F.WorktreeQuery{Worktree.Read{task}}}, E.program(Core.application(state)))
+
+def worktree_status_label(status: String) -> String:
+  match status:
+    case "creating": "Creating worktree…"
+    case "creating_archived": "Creating worktree before archiving…"
+    case "ready": "Worktree ready"
+    case "create_failed": "Worktree creation failed"
+    case "archiving": "Archiving worktree…"
+    case "archived": "Worktree archived"
+    case "archive_failed": "Worktree archive failed"
+    case _: ""
+
+def worktree_fact(+identity: String, label: String, value: String, parent: Identity.Key) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, identity}, identity, label, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{value}, Nil{}}
+
+def worktree_diagnostic(message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match message:
+    case "": Nil{}
+    case other: [SurfaceTypes.Node{Identity.Part{parent, "worktree/error"}, "worktree/error", "Worktree", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{other}, Nil{}}]
+
+def worktree_feedback_status(status: String, message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match status:
+    case "creating": [worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)]
+    case "creating_archived": [worktree_fact("worktree/status", "Worktree", "Creating worktree before archiving…", parent)]
+    case "archiving": [worktree_fact("worktree/status", "Worktree", "Archiving worktree…", parent)]
+    case "create_failed": worktree_diagnostic("Worktree creation failed: " ++ message, parent)
+    case "archive_failed": worktree_diagnostic("Worktree archive failed: " ++ message, parent)
+    case _: Nil{}
+
+def worktree_feedback(+observation: J.Json, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  worktree_feedback_status(J.text(J.get(J.get(observation, "result"), "status")), J.text(J.get(J.get(observation, "result"), "message")), parent)
+
+def worktree_archive_retry(status: String, task: Nat, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match status:
+    case "archive_failed": [user_action(parent, "worktree/retry-archive", "Retry archive", U.Activate{U.RetryWorktreeArchive{task}}, True{}, state)]
+    case _: Nil{}
+
+def worktree_detail_admitted(present: Bool, +value: J.Json, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match present:
+    case False{}: Nil{}
+    case True{}:
+      List.append(&2, SurfaceTypes.Node, [worktree_fact("worktree/status", "Worktree status", worktree_status_label(J.text(J.get(value, "status"))), parent),
+        worktree_fact("worktree/source", "Source repository", J.text(J.get(value, "source_root")), parent),
+        worktree_fact("worktree/root", "Managed worktree", J.text(J.get(value, "root")), parent)], List.append(&2, SurfaceTypes.Node, worktree_diagnostic(J.text(J.get(value, "message")), parent), worktree_archive_retry(J.text(J.get(value, "status")), J.natural_or(J.natural(J.get(value, "task_id")), 0n), parent, state)))
+
+def worktree_details(+observation: J.Json, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  worktree_detail_admitted(J.boolean(J.get(observation, "ok")), J.get(observation, "result"), parent, state)
+
 def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timeline, previews: +List<Live.Output>, input: Maybe<&2, V.ComposerScene>, actions: V.TaskActions, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   Conversation.Timeline{task, generation, groups_value, live, decisions, reading, return_latest} = page_timeline
   V.TaskActions{detail, overflow} = actions
   +owner : Identity.Key = Identity.Entity{parent, "task", Nat.show(id)}
   page_region(parent, Composition.ConversationTitle{}, Composition.HeadingPosition{},
-    [region(owner, "heading", title, SurfaceTypes.Heading{}, Nil{})]) <>
+    region(owner, "heading", title, SurfaceTypes.Heading{}, Nil{}) <> worktree_feedback(worktree_observation(id, state), owner)) <>
   page_region(parent, Composition.TaskActions{}, Composition.HeadingPosition{},
     [declared(Identity.Part{owner, "heading"}, detail, state), more(U.TaskSubject{id}, Identity.Part{owner, "heading"}, state)]) <>
   page_region(parent, Composition.TimelineContent{}, Composition.BodyPosition{},
@@ -1103,7 +1170,7 @@ def workspace_primary(value: Maybe<&2, String>) -> String:
 def guidance_text(value: D.ProjectContext) -> String:
   match value:
     case D.NoProject{}: "No project guidance"
-    case D.ProjectContext{workspace, revision, instructions}: instructions
+    case D.ProjectContext{workspace, path, revision, instructions}: instructions
 
 def project_page(value: V.ProjectScene, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   V.ProjectScene{id, +name, D.Workspace{roots, primary}, guidance, tasks, actions} = value
@@ -1371,11 +1438,11 @@ def picker_fields(values: +List<V.InputGroup>, +editor: U.Editor, +parent: Ident
       declared_choice(delivery_selected(selected, U.Steer{}), "Guide the current run with this message.", steer, parent, state) <> picker_fields(rest, editor, parent, state)
     case Con{other, rest}: picker_fields(rest, editor, parent, state)
 
-def execution_details(value: Maybe<&2, V.TaskScene>, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+def execution_details(value: Maybe<&2, V.TaskScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match value:
     case None{}: [SurfaceTypes.Node{Identity.Part{parent, "missing"}, "missing", "Task unavailable", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"The task no longer exists"}, Nil{}}]
     case Some{V.TaskScene{id, title, status, context, timeline, previews, composer, details, actions}}:
-      [SurfaceTypes.Node{Identity.Part{parent, "execution"}, "execution", "Execution context", SurfaceTypes.Content{}, SurfaceTypes.TaskFacts{details}, Nil{}}]
+      SurfaceTypes.Node{Identity.Part{parent, "execution"}, "execution", "Execution context", SurfaceTypes.Content{}, SurfaceTypes.TaskFacts{details}, Nil{}} <> worktree_details(worktree_observation(id, state), parent, state)
 
 def enrichment_observation(value: B.Enrichment) -> String:
   match value:
@@ -1697,13 +1764,22 @@ def activity_draft_field_node(identity: Activity.DraftFieldIdentity, +parent: Id
 def activity_original_context(found: Maybe<&2, D.Project>, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match found:
     case None{}: Nil{}
-    case Some{D.Project{name, workspace, guidance}}:
+    case Some{D.Project{name, workspace, guidance, create_worktree}}:
       [activity_row(SurfaceTypes.SupportingRow{}, approval_fact(parent, "object", "Original project", name))]
 
+def worktree_field_label(editor: U.Editor) -> String:
+  match editor:
+    case U.NewTaskEditor{work}: "Create worktree"
+    case _: "Create worktree for new tasks"
+
+def worktree_field(+editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  field_node(OperationParameters.FieldScene{OperationParameters.CreateWorktree{}, worktree_field_label(editor), OperationParameters.Choice{}}, editor, parent, state, Nil{})
+
 def activity_original_expression(subject: Experience.Subject, +edit: Experience.ProjectEdit, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
-  Experience.Subject{editor, field} = subject
+  Experience.Subject{+editor, field} = subject
   List.append(&2, SurfaceTypes.Node, activity_original_context(UX.project_edit_original(edit), parent),
-    [activity_draft_field_node(Activity.draft_field_identity(edit, Experience.Subject{editor, OperationParameters.ProjectName{}}), parent, state)])
+    [activity_draft_field_node(Activity.draft_field_identity(edit, Experience.Subject{editor, OperationParameters.ProjectName{}}), parent, state),
+     activity_row(SurfaceTypes.DependencyRow{}, worktree_field(editor, parent, state))])
 
 def activity_inspection_focus(focused: Maybe<&2, OperationParameters.Field>, editor: U.Editor) -> Activity.View:
   match focused:
@@ -1964,13 +2040,23 @@ def model_source(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identi
       property_source_nodes(UX.model_property(editor, profile, reasoning, E.program(Core.application(state))), parent, state)
     case Con{other, rest}: model_source(rest, editor, parent, state)
 
+def workspace_worktree_available(available: Bool, editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match available:
+    case True{}: [worktree_field(editor, parent, state)]
+    case False{}: Nil{}
+
+def workspace_worktree_choice(editor: U.Editor, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.NewTaskEditor{work}: workspace_worktree_available(E.worktree_available(Core.application(state)), U.NewTaskEditor{work}, parent, state)
+    case _: Nil{}
+
 def workspace_menu_group(+editor: U.Editor, group: V.InputGroup, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match group:
     case V.ExecutionInput{config, Context.ContextUnavailable{reason}, controls, projects, reviewers}: unavailable_context(reason, parent)
     case V.ExecutionInput{config, +preview, V.WorkspaceControls{identity, roots, inherit}, projects, reviewers}:
       workspace_current_context(preview, parent) <>
       List.append(&2, SurfaceTypes.Node, workspace_collection_menu(context_workspace(preview), editor, inherit, parent, state),
-        property_source_nodes(UX.workspace_property(editor, Context.DraftExecution{preview}, E.program(Core.application(state))), parent, state))
+        List.append(&2, SurfaceTypes.Node, workspace_worktree_choice(editor, parent, state), property_source_nodes(UX.workspace_property(editor, Context.DraftExecution{preview}, E.program(Core.application(state))), parent, state)))
     case _: Nil{}
 
 def workspace_menu(groups: +List<V.InputGroup>, +editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -2026,7 +2112,7 @@ def committed_primary_text(primary: Bool) -> String:
 def committed_project_name(found: Maybe<&2, D.Project>, id: Nat) -> String:
   match found:
     case None{}: "Project unavailable (ID " ++ Nat.show(id) ++ ")"
-    case Some{D.Project{name, workspace, guidance}}: name
+    case Some{D.Project{name, workspace, guidance, create_worktree}}: name
 
 def committed_project_text(project: Maybe<&2, Nat>, world: M.World()) -> String:
   match project:
@@ -2493,7 +2579,7 @@ def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: Interacti
     case V.ModelSelection{+identity, query, +values}:
       activity_or_content(model_activity_groups(values, identity, state), query, parent, state, Nil{})
     case V.DeliverySelection{identity, values}: picker_fields(values, identity, parent, state)
-    case V.ExecutionDetails{value}: execution_details(value, parent)
+    case V.ExecutionDetails{value}: execution_details(value, parent, state)
     case V.Confirmation{title, confirm, cancel}: [dialog_actions(parent, [declared(parent, confirm, state), declared(parent, cancel, state)])]
 
 def layer_role(kind: V.LayerKind) -> SurfaceTypes.Role:

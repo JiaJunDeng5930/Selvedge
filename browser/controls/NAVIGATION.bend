@@ -46,6 +46,7 @@ def admitted(owner: Maybe<&2, String>, nodes: +List<Surface.Node>) -> Bool:
 def descend(meaning: Surface.Meaning, depth: Nat) -> Nat:
   match meaning:
     case Surface.ProjectGroup{project, selected, expanded}: (depth + 1n : Nat)
+    case Surface.TaskChildren{task}: (depth + 1n : Nat)
     case _: depth
 
 def menu_owned(layers: +List<View.Layer>, +create: String, +more: String) -> Bool:

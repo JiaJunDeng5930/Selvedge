@@ -19,6 +19,7 @@ import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
 import ../services/CONTEXT.bend as Context
 import ../../features/work/MODEL.bend as Work
+import ../../features/worktree/MODEL.bend as Worktree
 import ../../harness/features/MODEL.bend as F
 
 def post(decision: E.Decision) -> E.Application:
@@ -87,12 +88,12 @@ law task_visibility_stale_work_creation_keeps_the_new_interaction:
 
 type WorkRequirements is Type:
   WorkRequirements{
-    draft_owner: @+work:Maybe<&2, Nat> -> @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration ->
-      {U.owner(U.NewTask{message, profile, reasoning, context, work}) == U.NewTaskEditor{work} : U.Editor},
-    member_creation: @+work:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @now:U32 ->
-      {U.command(U.NewTask{message, profile, reasoning, context, Some{work}}, now) == M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, U.text(message), Context.settings(context)}}} : M.Command},
-    independent_creation: @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @now:U32 ->
-      {U.command(U.NewTask{message, profile, reasoning, context, None{}}, now) == M.Create{profile, reasoning, U.text(message), Context.settings(context)} : M.Command},
+    draft_owner: @+work:Maybe<&2, Nat> -> @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @enabled:Bool ->
+      {U.owner(U.NewTask{message, profile, reasoning, context, enabled, work}) == U.NewTaskEditor{work} : U.Editor},
+    member_creation: @+work:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:Bool -> @now:U32 ->
+      {U.command(U.NewTask{message, profile, reasoning, context, enabled, Some{work}}, now) == M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, U.text(message), Context.settings(context), enabled}}} : M.Command},
+    independent_creation: @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:Bool -> @now:U32 ->
+      {U.command(U.NewTask{message, profile, reasoning, context, enabled, None{}}, now) == U.task_creation(enabled, profile, reasoning, U.text(message), Context.settings(context)) : M.Command},
     rename_owner: @+work:Nat -> @+name:String -> @now:U32 ->
       {U.command(U.WorkName{work, name}, now) == M.FeatureCommand{F.WorkCommand{Work.Rename{work, name}}} : M.Command},
     selection_keeps_previous_location: @+work:Maybe<&2, Nat> -> @+route:U.Route -> @intent:E.NavigationIntent -> @collapsed:+List<Nat> -> @+previous:Maybe<&2, Nat> -> @+visits:+List<E.WorkVisit> -> @+generation:Nat ->
@@ -131,7 +132,15 @@ type WorkRequirements is Type:
     rejected_creation_keeps_interaction: @result:J.Json -> @+application:E.Application ->
       {E.created_work_checked(False{}, result, application) == E.unchanged(application) : E.Decision},
     stale_creation_keeps_current_interaction: @+result:J.Json -> @+application:E.Application ->
-      {E.complete_work_creation(False{}, result, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision}
+      {E.complete_work_creation(False{}, result, application) == E.Decision{application, result, Nil{}, Nil{}, False{}} : E.Decision},
+    workspace_observation_uses_active_scope: @+application:E.Application ->
+      {E.current_primary(application) == E.new_task_primary(E.find_draft(E.drafts(E.session(application)), E.creation_editor(E.session(application))), E.program(application)) : Maybe<&2, String>},
+    selection_observes_scoped_workspace: @+work:Maybe<&2, Nat> -> @+application:E.Application ->
+      {E.activate_selected(U.SelectWork{work}, application) == E.observe_scope_workspace(E.select_work(work, application)) : E.Decision},
+    refused_scope_observation_is_unchanged: @+decision:E.Decision ->
+      {E.observe_scope_workspace_checked(False{}, decision) == decision : E.Decision},
+    accepted_scope_observes_after_focus: @+decision:E.Decision ->
+      {E.observe_scope_workspace_checked(True{}, decision) == E.observe_workspace_git(decision) : E.Decision}
   }
 
 law work_evidence:
@@ -150,7 +159,7 @@ def catalog_selection_if(valid: Bool, +profile: D.Profile, fallback: Sigma<&2, &
 def catalog_selection(profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match profiles:
     case Nil{}: ("", "")
-    case Con{+profile, rest}: catalog_selection_if(D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, catalog_selection(rest))
+    case Con{+profile, rest}: catalog_selection_if(Bool.not(D.is_codex_auto_review(profile)) && D.profile_valid(profile) && D.profile_permitted(profile, D.profile_default(profile)), profile, catalog_selection(rest))
 
 def preference_selection_if(valid: Bool, value: E.ModelPreference, profiles: +List<D.Profile>) -> Sigma<&2, &2, String, (_ => String)>:
   match valid value:
@@ -164,20 +173,20 @@ def preference_selection(value: Maybe<&2, E.ModelPreference>, +profiles: +List<D
       E.ModelPreference{profile, reasoning} = selection
       preference_selection_if(E.permitted_preference(D.find_profile(profiles, profile), reasoning), selection, profiles)
 
-def selected_model_session(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, session: E.Session, work: Maybe<&2, Nat>) -> E.Session:
+def selected_model_session(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, create_worktree: Bool, session: E.Session, work: Maybe<&2, Nat>) -> E.Session:
   (selected, effort) = selection
-  E.with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, work}, feedback, directory_entry})
+  E.with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, create_worktree, work}, feedback, directory_entry})
 
 def model_resolution_if(valid: Bool, draft: U.Draft, +profiles: +List<D.Profile>, +session: E.Session) -> E.Session:
   match valid draft:
-    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context, work}, feedback, directory_entry}:
-      selected_model_session(preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, session, work)
+    case False{} U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}:
+      selected_model_session(preference_selection(E.preference(session), profiles), revision, message, context, feedback, directory_entry, create_worktree, session, work)
     case _ _: session
 
 def model_resolution_found(found: Maybe<&2, U.Draft>, +profiles: +List<D.Profile>, +session: E.Session) -> E.Session:
   match found:
-    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context, +work}, feedback, directory_entry}}:
-      model_resolution_if(E.creation_model_chosen(work, E.manual_model(session)) && E.permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context, work}, feedback, directory_entry}, profiles, session)
+    case Some{U.Draft{revision, U.NewTask{message, +profile, +reasoning, context, create_worktree, +work}, feedback, directory_entry}}:
+      model_resolution_if(E.creation_model_chosen(work, E.manual_model(session)) && E.permitted_preference(D.find_profile(profiles, profile), reasoning), U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}, profiles, session)
     case _: session
 
 def model_resolution(+session: E.Session, +world: M.World()) -> E.Session:
@@ -349,10 +358,10 @@ type Requirements is Type:
       @valid:{E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool} ->
       @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest : +List<E.Layer>} ->
       @found:{E.find_draft(E.drafts(session), U.NewTaskEditor{None{}}) ==
-        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
+        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, False{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{None{}}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, session)) ==
-       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, None{}}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, False{}, None{}}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{None{}}), session)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision},
     model_choice_complete: @+profile:String -> @+reasoning:String -> @+application:E.Application ->
@@ -375,7 +384,7 @@ type Requirements is Type:
     preference_keeps_tasks: @profile:String -> @reasoning:String -> @+world:M.World() -> @session:E.Session ->
       {E.program(post(E.restore_preference(profile, reasoning, E.from_program(world, session)))) == world : M.World()},
     completed_creation_resets_manual: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @+result:J.Json -> @+world:M.World() -> @+session:E.Session ->
-      {E.finish_body(U.NewTask{message, profile, reasoning, context, None{}}, U.Start{}, Nil{}, result, E.from_program(world, session)) ==
+      {E.finish_body(U.NewTask{message, profile, reasoning, context, False{}, None{}}, U.Start{}, Nil{}, result, E.from_program(world, session)) ==
         E.finish_scoped_task(E.same_work(None{}, E.active_work(session)), None{}, U.Start{}, Nil{}, result, E.from_program(world, session)) : E.Decision},
     rejected_execution_keeps_preference: @task:Nat -> @profile:String -> @reasoning:String -> @remember:Bool -> @+world:M.World() -> @+result:J.Json -> @previous:M.World() -> @+session:E.Session ->
       {E.finish_execution(False{}, task, profile, reasoning, remember, world, result, E.from_program(previous, session)) ==
@@ -421,6 +430,9 @@ def valid_completion_spec(completion: E.Completion, +program: M.World(), +result
     case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: E.finish_execution_view(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, occurrence, program, result, E.from_program(program, session))
     case E.ExecutionCompletion{task, profile, reasoning, remember}: E.finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, E.from_program(program, session))
     case E.DirectCompletion{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}
+    case E.WorktreePreferenceCompletion{draft, command}:
+      E.finish_worktree_preference(J.boolean(J.get(result, "ok")), draft, command, result,
+        E.from_program(program, E.retain_previews(session, program)))
     case E.DraftCompletion{+draft}:
       E.with_native(SubmissionRule.finish_submission_spec(J.boolean(J.get(result, "ok")) && E.owns_submission(draft, E.retain_previews(session, program)), draft, result,
         E.from_program(program, E.settle(draft, result, E.retain_previews(session, program)))), result, Nil{}, False{})
@@ -449,14 +461,27 @@ def stale_completion_spec(valid: Bool, previous: M.World(), +program: M.World(),
     case True{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}
     case False{}: E.refuse(E.from_program(previous, session), "The observed program violates a world invariant")
 
+def preference_request_spec(preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: E.Application) -> E.Decision:
+  match preference:
+    case None{}: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.DraftCompletion{draft}}], False{}}
+    case Some{update}: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{update, E.WorktreePreferenceCompletion{draft, command}}], False{}}
+
+def submission_checked_spec(allowed: Bool, preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: E.Application) -> E.Decision:
+  match allowed:
+    case False{}: E.refuse(application, "Wait for Git verification of the primary workspace before creating a worktree.")
+    case True{}: preference_request_spec(preference, command, draft, application)
+
+def submission_request_spec(command: M.Command, +application: E.Application, submitted: Maybe<&2, U.Draft>) -> E.Decision:
+  match submitted:
+    case None{}: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.DirectCompletion{}}], False{}}
+    case Some{+draft}: submission_checked_spec(E.worktree_submission_allowed(U.contents(draft), application), E.worktree_preference_available(E.worktree_available(application), U.contents(draft), E.program(application)), command, draft, application)
+
 type CommandRequirements is Type:
   CommandRequirements{
     receipt: @+completion:E.Completion -> @+program:M.World() -> @+result:J.Json -> @+session:E.Session -> @previous:M.World() ->
       {ExperienceProgram.step(E.CommandCompleted{program, result, completion}, E.from_program(previous, session)) == completion_spec(completion, program, result, session, previous) : E.Decision},
     request: @+command:M.Command -> @+application:E.Application -> @+submitted:Maybe<&2, U.Draft> ->
-      {E.execute(command, application, submitted) ==
-        E.Decision{application, D.success(J.Null{}), Nil{},
-          [E.RequestCommand{command, E.submission_completion(submitted)}], False{}} : E.Decision},
+      {E.execute(command, application, submitted) == submission_request_spec(command, application, submitted) : E.Decision},
     observation: @+program:M.World() -> @+session:E.Session -> @previous:M.World() ->
       {ExperienceProgram.step(E.ProgramObserved{program}, E.from_program(previous, session)) == observed_spec(program, session, previous) : E.Decision},
     stale: @+program:M.World() -> @+result:J.Json -> @+draft:U.Draft -> @+session:E.Session -> @previous:M.World() ->
@@ -680,3 +705,122 @@ law source_back_uses_actual_stack:
   @+field:Maybe<&2, Forms.Field> -> @+buffer:Maybe<&2, String> -> @+rest:+List<E.Layer> -> @+application:E.Application ->
   {E.dismiss_layers(E.Layer{U.PropertySource{origin}, trigger, initial, query, occurrence, expanded, field, buffer} <> rest, application) ==
     E.close_panel(application) : E.Decision}
+
+law worktree_unknown_is_unavailable:
+  @primary:Maybe<&2, String> ->
+  {E.workspace_git_matches(E.UnknownWorkspaceGit{}, primary) == False{} : Bool}
+
+law worktree_observation_dispatch:
+  @+ticket:Nat -> @+available:Bool -> @+application:E.Application ->
+  {ExperienceProgram.step(E.WorkspaceGitObserved{ticket, available}, application) ==
+    E.workspace_git_result(E.workspace_git(E.session(application)), ticket, available, application) : E.Decision}
+
+law current_worktree_observation_settles:
+  @+current:Nat -> @+ticket:Nat -> @+primary:String -> @+available:Bool -> @+application:E.Application ->
+  @observed:{E.git_observation_current(current, ticket, primary, E.current_primary(application)) == True{} : Bool} ->
+  {E.workspace_git_result(E.LoadingWorkspaceGit{current, primary}, ticket, available, application) ==
+    E.local(E.program(application), E.with_workspace_git(E.ObservedWorkspaceGit{primary, available},
+      E.disable_unavailable_worktree(available, E.find_draft(E.drafts(E.session(application)), E.creation_editor(E.session(application))), E.session(application))), Nil{}) : E.Decision}
+
+law prepared_task_retains_worktree_choice:
+  @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration ->
+  @+enabled:Bool -> @+work:Maybe<&2, Nat> -> @+observation:Context.DirectoryObservation -> @+now:U32 ->
+  {U.prepared_command(U.NewTask{message, profile, reasoning, context, enabled, work}, observation, now) ==
+    U.create_task(work, enabled, profile, reasoning, U.text(message), Context.observed_settings(context, observation)) : M.Command}
+
+law prepared_project_creation_retains_worktree_choice:
+  @+name:String -> @previous:D.Workspace -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @+enabled:Bool -> @now:U32 ->
+  {U.prepared_command(U.Project{None{}, name, previous, enabled}, Context.DirectoryObservation{workspace, guidance}, now) ==
+    M.CreateProject{name, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{enabled}} : M.Command}
+
+law prepared_project_update_retains_worktree_choice:
+  @+id:Nat -> @+name:String -> @previous:D.Workspace -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @+enabled:Bool -> @now:U32 ->
+  {U.prepared_command(U.Project{Some{id}, name, previous, enabled}, Context.DirectoryObservation{workspace, guidance}, now) ==
+    M.UpdateProject{id, Some{name}, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{enabled}} : M.Command}
+
+law worktree_loading_is_unavailable:
+  @ticket:Nat -> @root:String -> @primary:Maybe<&2, String> ->
+  {E.workspace_git_matches(E.LoadingWorkspaceGit{ticket, root}, primary) == False{} : Bool}
+
+law worktree_observed_requires_matching_primary:
+  @root:String -> @+available:Bool -> @primary:String ->
+  {E.workspace_git_matches(E.ObservedWorkspaceGit{root, available}, Some{primary}) ==
+    available && String.eq(root, primary) : Bool}
+
+law worktree_without_primary_is_unavailable:
+  @root:String -> @available:Bool ->
+  {E.workspace_git_matches(E.ObservedWorkspaceGit{root, available}, None{}) == False{} : Bool}
+
+law worktree_observation_requires_current_ticket_and_primary:
+  @+current:Nat -> @+ticket:Nat -> @+root:String -> @+primary:String ->
+  {E.git_observation_current(current, ticket, root, Some{primary}) ==
+    Nat.is_eq(current, ticket) && String.eq(root, primary) : Bool}
+
+law worktree_stale_observation_preserves_application:
+  @+current:Nat -> @+ticket:Nat -> @+root:String -> @+available:Bool -> @+application:E.Application ->
+  @stale:{E.git_observation_current(current, ticket, root, E.current_primary(application)) == False{} : Bool} ->
+  {E.workspace_git_result(E.LoadingWorkspaceGit{current, root}, ticket, available, application) == E.unchanged(application) : E.Decision}
+
+law worktree_stale_ticket_preserves_application:
+  @+current:Nat -> @+ticket:Nat -> @+root:String -> @+available:Bool -> @+application:E.Application ->
+  @stale:{Nat.is_eq(current, ticket) == False{} : Bool} ->
+  {E.workspace_git_result(E.LoadingWorkspaceGit{current, root}, ticket, available, application) == E.unchanged(application) : E.Decision}
+
+law worktree_changed_primary_preserves_application:
+  @+current:Nat -> @+ticket:Nat -> @+root:String -> @+primary:String -> @+available:Bool -> @+application:E.Application ->
+  @observed:{E.current_primary(application) == Some{primary} : Maybe<&2, String>} ->
+  @changed:{String.eq(root, primary) == False{} : Bool} ->
+  {E.workspace_git_result(E.LoadingWorkspaceGit{current, root}, ticket, available, application) == E.unchanged(application) : E.Decision}
+
+law task_without_worktree_uses_normal_creation:
+  @profile:String -> @reasoning:String -> @message:String -> @settings:J.Json ->
+  {U.task_creation(False{}, profile, reasoning, message, settings) == M.Create{profile, reasoning, message, settings} : M.Command}
+
+law task_with_worktree_uses_owned_creation:
+  @profile:String -> @reasoning:String -> @message:String -> @settings:J.Json ->
+  {U.task_creation(True{}, profile, reasoning, message, settings) ==
+    M.FeatureCommand{F.WorktreeCommand{Worktree.Create{profile, reasoning, message, settings}}} : M.Command}
+
+law model_selection_preserves_worktree_choice:
+  @+message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration ->
+  @+enabled:Bool -> @+work:Maybe<&2, Nat> -> @+selected:String -> @+effort:String -> @world:M.World() ->
+  {U.apply_edit(U.ChooseModel{selected, effort}, U.NewTask{message, profile, reasoning, context, enabled, work}, world) ==
+    Done{U.NewTask{message, selected, effort, context, enabled, work}} : Result<&2, &2, String, U.Body>}
+
+law saved_worktree_preference_continues_captured_submission:
+  @+draft:U.Draft -> @+command:M.Command -> @result:J.Json -> @+application:E.Application ->
+  @verified:{E.worktree_submission_allowed(U.contents(draft), application) == True{} : Bool} ->
+  {E.finish_worktree_preference(True{}, draft, command, result, application) ==
+    E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.DraftCompletion{draft}}], False{}} : E.Decision}
+
+law ordinary_task_submission_needs_no_git_observation:
+  @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @work:Maybe<&2, Nat> -> @application:E.Application ->
+  {E.worktree_submission_allowed(U.NewTask{message, profile, reasoning, context, False{}, work}, application) == True{} : Bool}
+
+law unverified_worktree_preparation_preserves_application:
+  @+draft:U.Draft -> @workspace:Maybe<&2, D.Workspace> -> @+application:E.Application ->
+  @blocked:{E.worktree_submission_allowed(U.contents(draft), application) == False{} : Bool} ->
+  {E.prepare(application, workspace, draft) ==
+    E.Decision{application, D.failure("interaction_refused", "Wait for Git verification of the primary workspace before creating a worktree."), Nil{}, Nil{}, False{}} : E.Decision}
+
+law unverified_worktree_command_preserves_application:
+  @+draft:U.Draft -> @+command:M.Command -> @+application:E.Application ->
+  @blocked:{E.worktree_submission_allowed(U.contents(draft), application) == False{} : Bool} ->
+  {E.execute(command, application, Some{draft}) ==
+    E.Decision{application, D.failure("interaction_refused", "Wait for Git verification of the primary workspace before creating a worktree."), Nil{}, Nil{}, False{}} : E.Decision}
+
+law unverified_saved_worktree_preference_stops_submission:
+  @+draft:U.Draft -> @+command:M.Command -> @result:J.Json -> @+application:E.Application ->
+  @blocked:{E.worktree_submission_allowed(U.contents(draft), application) == False{} : Bool} ->
+  {E.finish_worktree_preference(True{}, draft, command, result, application) ==
+    E.Decision{application, D.failure("interaction_refused", "Wait for Git verification of the primary workspace before creating a worktree."), Nil{}, Nil{}, False{}} : E.Decision}
+
+law unavailable_worktree_does_not_change_project_preference:
+  @body:U.Body -> @world:M.World() ->
+  {E.worktree_preference_available(False{}, body, world) == None{} : Maybe<&2, M.Command>}
+
+law refused_worktree_preference_stops_submission:
+  @+draft:U.Draft -> @command:M.Command -> @+result:J.Json -> @+world:M.World() -> @+session:E.Session ->
+  @failed:{J.boolean(J.get(result, "ok")) == False{} : Bool} ->
+  {E.finish_worktree_preference(False{}, draft, command, result, E.from_program(world, session)) ==
+    E.Decision{E.from_program(world, E.settle(draft, result, session)), result, Nil{}, Nil{}, False{}} : E.Decision}

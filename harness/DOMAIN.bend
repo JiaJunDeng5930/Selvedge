@@ -349,6 +349,26 @@ def profile_valid(profile: Profile) -> Bool:
   Profile{key, provider, name, reasoning, options} = profile
   nonempty(key) && nonempty(provider) && nonempty(name) && policy_options_valid(reasoning, options)
 
+# NOTE: Codex advertises its dedicated account reviewer as a hidden model.
+def codex_auto_review_model() -> String:
+  "codex-auto-review"
+
+def is_codex_auto_review(profile: Profile) -> Bool:
+  Profile{key, provider, name, reasoning, options} = profile
+  String.eq(provider, "chatgpt") && String.eq(name, codex_auto_review_model())
+
+def chatgpt_account_hash_digits(text: String) -> Bool:
+  match text:
+    case SNil{}: True{}
+    case SCon{+head, tail}:
+      (Char.is_digit(head) || String.contains("abcdef", SCon{head, SNil{}})) && chatgpt_account_hash_digits(tail)
+
+def chatgpt_account_profile_key(+key: String) -> Bool:
+  String.starts_with(key, "chatgpt/") &&
+    Nat.is_eq(String.length(String.take(String.drop(key, 8n), 16n)), 16n) &&
+    chatgpt_account_hash_digits(String.take(String.drop(key, 8n), 16n)) &&
+    String.eq(String.take(String.drop(key, 24n), 1n), "/")
+
 def bounded_reasoning_policy(policy: Reasoning.Policy, selection: String, default: String, values: +List<String>) -> Bool:
   match policy:
     case Reasoning.Fixed{}: Reasoning.member(values, selection)
@@ -407,12 +427,15 @@ def profiles_json(profiles: +List<Profile>) -> +List<J.Json>:
         profiles_json(rest)
 
 # Project guidance is a frozen external observation, not a hidden prompt read.
-# The host snapshots only the canonical workspace's root AGENTS.md. Its content
-# and revision enter Configure before task creation and remain in the contract.
+# The host selects the canonical workspace's root guidance through its declared
+# observer policy. Its exact source, content and revision enter committed history.
 
 type ProjectContext is Data:
   NoProject{}
-  ProjectContext{workspace: String, revision: String, instructions: String}
+  ProjectContext{workspace: String, path: String, revision: String, instructions: String}
+
+def project_source_path(workspace: String, path: String) -> Bool:
+  ProjectGuidanceContext.source_path(workspace, path)
 
 def project_limit() -> Nat:
   32768n
@@ -420,8 +443,8 @@ def project_limit() -> Nat:
 def project_json(project: ProjectContext) -> J.Json:
   match project:
     case NoProject{}: J.Null{}
-    case ProjectContext{workspace, revision, instructions}:
-      J.Object{[J.Field{"workspace", J.Text{workspace}}, J.Field{"source", J.Text{"AGENTS.md"}},
+    case ProjectContext{workspace, path, revision, instructions}:
+      J.Object{[J.Field{"workspace", J.Text{workspace}}, J.Field{"path", J.Text{path}},
         J.Field{"revision", J.Text{revision}}, J.Field{"instructions", J.Text{instructions}}]}
 
 # Freeze the selected model identity and project snapshot, not just mutable keys.
@@ -504,7 +527,7 @@ def access_name(access: ExecutionAccess) -> String:
     case Unrestricted{}: "unrestricted"
 
 type Project is Data:
-  Project{name: String, workspace: Workspace, guidance: ProjectContext}
+  Project{name: String, workspace: Workspace, guidance: ProjectContext, create_worktree: Bool}
 
 # Project identities use the same imported finite-map carrier as operation rights.
 
@@ -571,13 +594,14 @@ def sandbox_schema() -> J.Json:
 
 def approval_schema() -> J.Json:
   Schema.object([J.Field{"mode", string_schema("full-access, ask-for-approval, or approval-for-me")},
-    J.Field{"reviewer_profile", string_schema("Configured profile for the independent approval call; defaults to the task profile")}], [J.Text{"mode"}])
+    J.Field{"reviewer_profile", string_schema("Configured profile for the independent approval call; defaults to the same account's advertised Codex Auto-review model, otherwise the task profile")}], [J.Text{"mode"}])
 
 def guidance_schema() -> J.Json:
   Schema.object([J.Field{"workspace", string_schema("Canonical primary root observed by the host")},
-    J.Field{"revision", string_schema("AGENTS.md content revision or absent")},
+    J.Field{"revision", string_schema("Selected root guidance content revision or absent")},
+    J.Field{"path", string_schema("Actual selected root guidance path, or empty when absent")},
     J.Field{"instructions", string_schema("Unprivileged frozen root guidance")}],
-    [J.Text{"workspace"}, J.Text{"revision"}, J.Text{"instructions"}])
+    [J.Text{"workspace"}, J.Text{"path"}, J.Text{"revision"}, J.Text{"instructions"}])
 
 def task_settings_schema() -> J.Json:
   Schema.object([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
@@ -822,7 +846,7 @@ def is_model_request(work: Work) -> Bool:
     case _: False{}
 
 type ExecutionConfiguration is Data:
-  ExecutionConfiguration{profile: String, reasoning: String, model: Model, sandbox: Sandbox, approval: ApprovalPolicy}
+  ExecutionConfiguration{model: Model, sandbox: Sandbox, approval: ApprovalPolicy}
 
 type Task is Data:
   Task{id: Nat, lineage: +List<Nat>, contract: Contract, current: ExecutionConfiguration, status: Status,
@@ -855,23 +879,21 @@ def profile_key(profile: Profile) -> String:
 
 def execution_configuration(contract: Contract) -> ExecutionConfiguration:
   Contract{+model, tools, max_fork, max_descendants, plugins, TaskContext{workspace, sandbox, approval, project_id}} = contract
-  ExecutionConfiguration{profile_key(model_profile(model)), model_selection(model), model, sandbox, approval}
+  ExecutionConfiguration{model, sandbox, approval}
 
 def task_execution(task: Task) -> ExecutionConfiguration:
   Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   current
 
 def execution_model(current: ExecutionConfiguration) -> Model:
-  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
+  ExecutionConfiguration{model, sandbox, approval} = current
   model
 
 def execution_profile(current: ExecutionConfiguration) -> String:
-  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
-  profile
+  profile_key(model_profile(execution_model(current)))
 
 def execution_reasoning(current: ExecutionConfiguration) -> String:
-  ExecutionConfiguration{profile, reasoning, model, sandbox, approval} = current
-  reasoning
+  model_selection(execution_model(current))
 
 def task_model(task: Task) -> Model:
   execution_model(task_execution(task))
@@ -884,7 +906,7 @@ def task_reasoning(task: Task) -> String:
 
 def execution_context(current: ExecutionConfiguration, context: TaskContext) -> TaskContext:
   match current context:
-    case ExecutionConfiguration{profile, reasoning, model, sandbox, approval} TaskContext{workspace, original_sandbox, original_approval, project_id}:
+    case ExecutionConfiguration{model, sandbox, approval} TaskContext{workspace, original_sandbox, original_approval, project_id}:
       TaskContext{workspace, sandbox, approval, project_id}
 
 def task_context(+task: Task) -> TaskContext:
@@ -1016,7 +1038,7 @@ def context_bindings(history: History) -> +List<Context.Snapshot>:
 def selected_guidance(found: Maybe<&2, ProjectGuidanceContext.Guidance>) -> ProjectContext:
   match found:
     case None{}: NoProject{}
-    case Some{ProjectGuidanceContext.Guidance{workspace, revision, content}}: ProjectContext{workspace, revision, content}
+    case Some{ProjectGuidanceContext.Guidance{workspace, path, revision, content}}: ProjectContext{workspace, path, revision, content}
 
 def bindings_project(bindings: +List<Context.Snapshot>) -> ProjectContext:
   selected_guidance(ProjectGuidanceContext.latest(bindings))
@@ -1044,8 +1066,8 @@ def configured_context(content: String) -> Maybe<&2, HistoryContext>:
 def global_context(path: String, revision: String, content: String) -> Maybe<&2, HistoryContext>:
   introduced_context(InstructionContext.global_snapshot(path, revision, content))
 
-def project_guidance_context(workspace: String, revision: String, content: String) -> Maybe<&2, HistoryContext>:
-  introduced_context(ProjectGuidanceContext.snapshot(workspace, revision, content))
+def project_guidance_context(workspace: String, path: String, revision: String, content: String) -> Maybe<&2, HistoryContext>:
+  introduced_context(ProjectGuidanceContext.snapshot(workspace, path, revision, content))
 
 def history_initial_context(context: Maybe<&2, HistoryContext>, history: History) -> History:
   match context:
@@ -1066,24 +1088,14 @@ def context_diagnostic(known: Bool, message: String, task: Task) -> Task:
 def diagnose_context(+message: String, +task: Task) -> Task:
   context_diagnostic(context_failure_seen(task_history(task), message), message, task)
 
-def same_observation(previous: Maybe<&2, Context.Snapshot>, observed: Context.Snapshot) -> Bool:
-  match previous:
-    case None{}: False{}
-    case Some{old}: Context.same_value(Context.snapshot_value(old), Context.snapshot_value(observed))
-
-def append_context_change(change: Maybe<&2, Context.Change>, unchanged: Bool, task: Task) -> Task:
-  match change unchanged:
-    case Some{change} _: append_context(ContextChange{change}, task)
-    case None{} True{}: task
-    case None{} False{}: diagnose_context("Context update rejected: invalid revision or patch for tracked source.", task)
+def apply_context_resolution(resolution: Context.ObservationResolution, task: Task) -> Task:
+  match resolution:
+    case Context.ObservationChanged{change}: append_context(ContextChange{change}, task)
+    case Context.ObservationUnchanged{}: task
+    case Context.ObservationRejected{message}: diagnose_context(message, task)
 
 def apply_context_observation(observation: Context.Observation, +task: Task) -> Task:
-  match observation:
-    case Context.Present{+snapshot, +patch}: append_context_change(
-      Context.observation_change(context_bindings(task_history(task)), Context.Present{snapshot, patch}),
-      same_observation(Context.find(context_bindings(task_history(task)), Context.snapshot_key(snapshot)), snapshot), task)
-    case Context.Absent{key}: append_context_change(Context.observation_change(context_bindings(task_history(task)), Context.Absent{key}), True{}, task)
-    case Context.ObservationFailure{key, message}: diagnose_context(String.concat(["Context source observation failed: ", message]), task)
+  apply_context_resolution(Context.observation_resolution(context_bindings(task_history(task)), observation), task)
 
 def context_observations_go(observations: +List<Context.Observation>, task: Task) -> Task:
   match observations:
@@ -1103,29 +1115,37 @@ def retire_unselected_context(retained: Bool, key: Context.Key, revision: String
     case True{}: history
     case False{}: history_append_context(ContextChange{Context.Remove{key, revision}}, history)
 
-def context_workspace_retained(source: Maybe<&2, String>, workspace: String) -> Bool:
+def context_workspace_retained(source: Maybe<&2, String>, roots: +List<String>) -> Bool:
   match source:
     case None{}: True{}
-    case Some{root}: String.eq(root, workspace)
+    case Some{root}: Schema.contains(roots, root)
 
-def retire_scoped_bindings(bindings: +List<Context.Snapshot>, +workspace: String, history: History) -> History:
+def context_primary_workspace_retained(source: Maybe<&2, String>, primary: Maybe<&2, String>) -> Bool:
+  match source primary:
+    case None{} _: True{}
+    case Some{root} Some{primary}: String.eq(root, primary)
+    case Some{root} None{}: False{}
+
+def retire_scoped_bindings(bindings: +List<Context.Snapshot>, +roots: +List<String>, +primary: Maybe<&2, String>, history: History) -> History:
   match bindings:
     case Nil{}: history
     case Con{Context.Snapshot{+key, revision, value}, rest}:
-      retire_scoped_bindings(rest, workspace, retire_unselected_context(context_workspace_retained(Context.key_workspace(key), workspace), key, revision, history))
+      retire_scoped_bindings(rest, roots, primary, retire_unselected_context(
+        context_workspace_retained(Context.key_workspace(key), roots) && context_primary_workspace_retained(Context.key_primary_workspace(key), primary), key, revision, history))
 
 def introduce_selected(previous: Maybe<&2, Context.Snapshot>, project: ProjectContext, history: History) -> History:
   match previous project:
-    case None{} ProjectContext{workspace, revision, content}: history_initial_context(project_guidance_context(workspace, revision, content), history)
+    case None{} ProjectContext{workspace, path, revision, content}: history_initial_context(project_guidance_context(workspace, path, revision, content), history)
     case _ _: history
 
 def select_guidance(project: ProjectContext, +history: History) -> History:
   match project:
     case NoProject{}: history
-    case ProjectContext{+workspace, revision, content}: introduce_selected(Context.find(context_bindings(history), ProjectGuidanceContext.key(workspace)), ProjectContext{workspace, revision, content}, history)
+    case ProjectContext{+workspace, path, revision, content}: introduce_selected(Context.find(context_bindings(history), ProjectGuidanceContext.key(workspace)), ProjectContext{workspace, path, revision, content}, history)
 
 def select_project_history(context: TaskContext, +project: ProjectContext, +history: History) -> History:
-  select_guidance(project, retire_scoped_bindings(context_bindings(history), selected_workspace(context), history))
+  TaskContext{Workspace{roots, primary}, sandbox, approval, project_id} = context
+  select_guidance(project, retire_scoped_bindings(context_bindings(history), roots, primary, history))
 
 def selected_project(guidance: ProjectContext, +task: Task) -> Task:
   with_history(select_project_history(task_context(task), guidance, task_history(task)), task)
@@ -1138,7 +1158,7 @@ def initial_global(snapshot: Maybe<&2, InstructionSnapshot>, history: History) -
 def initial_project(project: ProjectContext, history: History) -> History:
   match project:
     case NoProject{}: history
-    case ProjectContext{workspace, revision, content}: history_initial_context(project_guidance_context(workspace, revision, content), history)
+    case ProjectContext{workspace, path, revision, content}: history_initial_context(project_guidance_context(workspace, path, revision, content), history)
 
 def initial_source_history(instructions: InitialInstructions, project: ProjectContext, history: History) -> History:
   InitialInstructions{configured, global} = instructions

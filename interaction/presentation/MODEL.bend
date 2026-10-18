@@ -81,13 +81,16 @@ type TaskEntry is Data:
 type WorkChoice is Data:
   WorkChoice{work: Maybe<&2, Nat>, name: String, description: String}
 
+type TaskTree is Data:
+  TaskTree{entry: TaskEntry, children: +List<TaskTree>}
+
 type ProjectEntry is Data:
   ProjectEntry{id: Nat, name: String, workspace: D.Workspace, selected: Bool,
-    expanded: Bool, tasks: +List<TaskEntry>, open: ControlDeclaration, create: ControlDeclaration, toggle: ControlDeclaration, more: ControlDeclaration}
+    expanded: Bool, tasks: +List<TaskTree>, open: ControlDeclaration, create: ControlDeclaration, toggle: ControlDeclaration, more: ControlDeclaration}
 
 type Navigation is Data:
   Navigation{expanded: Bool, create: ControlDeclaration, destinations: +List<ControlDeclaration>,
-    projects: +List<ProjectEntry>, ungrouped_tasks: +List<TaskEntry>, toggle: ControlDeclaration}
+    projects: +List<ProjectEntry>, ungrouped_tasks: +List<TaskTree>, toggle: ControlDeclaration}
 
 type TaskDetails is Data:
   TaskDetails{execution: Context.EffectiveContext, model: D.Model, tools: +List<D.Tool>,

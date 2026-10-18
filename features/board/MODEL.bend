@@ -74,7 +74,7 @@ type Command is Data:
   Regenerate{id: Nat, revision: Nat, profile: String, now: U32}
   Pin{id: Nat, revision: Nat, pinned: Bool, now: U32}
   Settings{automatic: Bool, draft_profile: String}
-  SaveAgent{id: Maybe<&2, Nat>, revision: Nat, agent: AgentProfile}
+  SaveAgent{id: Maybe<&2, Nat>, agent: AgentProfile}
   DeleteAgent{id: Nat, revision: Nat}
 
 type Query is Data:

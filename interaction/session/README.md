@@ -7,6 +7,12 @@ latest route and Task and new-graph editor identities; pending directory observa
 command completions keep that same editor scope. Work membership is read from the
 kernel, independently of Project configuration and Task ancestry.
 
+Each new-Task draft retains its Work scope and its separate managed-worktree
+choice. `current_primary` reads the active scope's creation editor; Git
+observations retain the existing ticket and primary-directory correlation.
+`observe_scope_workspace` refreshes that observation after a successful Work
+selection has constructed its focus effects, preserving their order.
+
 Board, Project management and Agent collection destinations select All Tasks;
 Task creation, conversations and Task graphs retain their owning Work scope.
 Work creation captures the current navigation generation. Later navigation or

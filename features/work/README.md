@@ -19,7 +19,10 @@ intended writes and ownership preservation to production functions.
 The registry uses the existing finite association map for Work records, explicit
 root ownership and graph ownership. Root and graph references are checked against
 their actual registries by [feature assembly](../../harness/features/README.md).
-The assembly creates ordinary Tasks through the existing task operation and
-records new roots in the same committed decision. It also derives query Task IDs
+The `create_work_task` command accepts the optional boolean `create_worktree`,
+which defaults to false. The assembly uses the ordinary Task operation or the
+managed-worktree Task operation and records the new root in the same complete
+decision. Worktree rejection leaves the original world and emits no effects.
+It also derives query Task IDs
 from each Task's identity and lineage. This module has no Task execution or host
 effects.

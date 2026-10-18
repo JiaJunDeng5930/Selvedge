@@ -28,10 +28,8 @@ Task storage's production `update_state` specializes the abstract
 `Tasks.update_carrier` computation to the domain model's task observation and
 write operation. Its provider proves the complete required update and frame
 preservation for arbitrary surrounding state; client proofs use that storage
-operation instead of expanding its concrete task list reconstruction. Actual
-native extension fixtures execute with the existing source and client tree frozen;
-replacement equality remains a production proof obligation rather than a
-checker-only test fixture.
+operation instead of expanding its concrete task list reconstruction.
+Replacement equality remains a production proof obligation.
 
 The locality, interaction and browser contracts group existing obligations by responsibility;
 their assembly still requires every group's evidence. Grouping is a reading
@@ -41,8 +39,8 @@ providers may destructure those states to discharge the original equations;
 their source paths are explicit owners in `../components.json`. This does not
 make every client proof independent of representation. The source ownership gate
 checks private construction and patterns, while the proof gate retains complete
-decisions, completion correlation and ordered effects. The `test:locality`
-fixtures provide separate evidence through frozen clients and native entry points.
+decisions, completion correlation and ordered effects. The focused source-scanner
+regression exercises alias and multiline syntax without recompiling extension copies.
 
 Preservation is scoped to the component operation that owns it. A law quantifying
 over all future feature events while freezing their entire state would prevent

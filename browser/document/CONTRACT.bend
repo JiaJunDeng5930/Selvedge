@@ -124,8 +124,8 @@ def instructions_text_when(empty: Bool, value: String) -> String:
 def instructions_text(+value: String) -> String:
   instructions_text_when(String.eq(value, ""), value)
 
-def project_law(+owner: UIIdentity.Key, +label: String, +directory: String, +revision: String, +instructions: String, +visual: Design.Style) -> Type:
-  {Authored.project_context_facts(owner, label, Domain.ProjectContext{directory, revision, instructions}, visual) ==
+def project_law(+owner: UIIdentity.Key, +label: String, +directory: String, +path: String, +revision: String, +instructions: String, +visual: Design.Style) -> Type:
+  {Authored.project_context_facts(owner, label, Domain.ProjectContext{directory, path, revision, instructions}, visual) ==
     [Authored.group(owner, visual, Model.Vertical{}, Model.StretchSize{}, Model.NaturalSize{}, [Authored.text(UIIdentity.part(owner, "title"), label, visual, T.Body{}, T.Strong{}), Authored.fact(UIIdentity.part(owner, "directory"), "Directory", directory, visual), Authored.fact(UIIdentity.part(owner, "revision"), "Revision", revision, visual), Authored.fact(UIIdentity.part(owner, "instructions"), "Instructions", instructions_text(instructions), visual)])] : +List<Source.Node>}
 
 def projection_law(+owner: UIIdentity.Key, +task: Nat, +roots: +List<String>, +primary: Maybe<&2, String>, +mode: Domain.SandboxMode, +network: Bool, +approval: Domain.ApprovalPolicy, +project: Maybe<&2, Nat>, +guidance: Domain.ProjectContext, +access: Domain.ExecutionAccess, +id: String, +provider: String, +name: String, +policy: Reasoning.Policy, +options: Maybe<&2, Domain.ReasoningOptions>, +reasoning: String, +tools: +List<Domain.Tool>, +lineage: +List<Nat>, +queued: +List<String>, +status: Domain.Status, +phase: Domain.Phase, +visual: Design.Style) -> Type:
@@ -135,7 +135,7 @@ def projection_law(+owner: UIIdentity.Key, +task: Nat, +roots: +List<String>, +p
 type TaskDetailsRequirements is Type:
   TaskDetailsRequirements{
     missing_project: @+owner:UIIdentity.Key -> @+label:String -> @+visual:Design.Style -> {Authored.project_context_facts(owner, label, Domain.NoProject{}, visual) == Nil{} : +List<Source.Node>},
-    frozen_project: @+owner:UIIdentity.Key -> @+label:String -> @+directory:String -> @+revision:String -> @+instructions:String -> @+visual:Design.Style -> project_law(owner, label, directory, revision, instructions, visual),
+    frozen_project: @+owner:UIIdentity.Key -> @+label:String -> @+directory:String -> @+path:String -> @+revision:String -> @+instructions:String -> @+visual:Design.Style -> project_law(owner, label, directory, path, revision, instructions, visual),
     no_tools: @+owner:UIIdentity.Key -> @+visual:Design.Style -> {Authored.tool_detail_nodes(owner, Nil{}, visual) == Nil{} : +List<Source.Node>},
     every_tool: @+owner:UIIdentity.Key -> @+name:String -> @+description:String -> @+schema:J.Json -> @+source:Domain.Source -> @+rest:+List<Domain.Tool> -> @+visual:Design.Style ->
       {Authored.tool_detail_nodes(owner, Con{Domain.Tool{name, description, schema, source}, rest}, visual) == Authored.fact(UIIdentity.entity(owner, "tool", name), name, description, visual) <> Authored.tool_detail_nodes(owner, rest, visual) : +List<Source.Node>},

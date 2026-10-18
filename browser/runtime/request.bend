@@ -31,6 +31,7 @@ def settings_fields(fields: +List<J.Field>) -> +List<J.Field>:
 def object_request(op: String, fields: +List<J.Field>) -> J.Json:
   match op:
     case "create": J.Object{settings_fields(fields)}
+    case "create_worktree_task": J.Object{settings_fields(fields)}
     case "fork": J.Object{settings_fields(fields)}
     case "save_board_agent": J.Object{settings_fields(fields)}
     case "create_project": J.Object{without_guidance(fields)}

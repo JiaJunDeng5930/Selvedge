@@ -101,7 +101,7 @@ def Rule.current_scope(state, capacity): {==}
 
 def Rule.logical_priority(state, capacity):
   match state capacity:
-    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}, Services.State{access, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
+    case InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}, Services.State{access, settings, appearance, next_service, transfers, preview, directory_picker}} View.Capacity{navigation_beside, details_beside}: {==}
 
 def Rule.current_surface(state, capacity, surface, observed):
   Equal.cong(SurfaceTypes.Surface, Model.Scope, (actual => Model.realized_scope(actual, Model.logical_scope(state, capacity))), InterfaceView.observe(capacity, state), surface, observed)
@@ -109,16 +109,16 @@ def Rule.current_surface(state, capacity, surface, observed):
 def toggle_absent(+application: E.Application, +panel: U.Panel, +trigger: String,
   absent: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == False{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == E.open_panel(panel, trigger, application) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}
   Equal.cong(Bool, E.Decision, (present => E.toggle_panel_selected(present, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), False{}, absent)
 
 def toggle_present(+application: E.Application, +panel: U.Panel, +trigger: String,
   present: {E.panel_present(Rule.application_layers(application), E.panel_target(panel)) == True{} : Bool}) ->
   {E.toggle_panel(panel, trigger, application) == Rule.closed_application(application, panel, trigger) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
-  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}} = application
+  +current: E.Application = E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git}}
   Equal.cong(Bool, E.Decision, (owned => E.toggle_panel_selected(owned, panel, trigger, current)),
     E.panel_present(layers, E.panel_target(panel)), True{}, present)
 

@@ -542,6 +542,7 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
     case UserInput.SelectWork{work}: NavigateTo{Columns{}}
     case UserInput.CreateWork{}: CreateItem{}
     case UserInput.RenameWork{work}: EditItem{}
+    case UserInput.RetryWorktreeArchive{task}: NamedAction{}
     case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
     case UserInput.BeginTask{None{}}: CreateItem{}
     case UserInput.BeginTask{Some{project}}: ProjectTaskCreation{}
@@ -785,7 +786,7 @@ def feedback_for(purpose: Purpose) -> Feedback:
     case CopyCode{Code.CopySucceeded{ticket}}: Succeeded{"Code copied"}
     case CopyCode{Code.CopyFailed{ticket}}: Failed{"Could not copy code"}
     case Connect{Services.Connecting{ticket}}: Working{"Connecting"}
-    case Connect{Services.ConnectionLost{reason}}: Failed{reason}
+    case Connect{Services.ConnectionLost{ticket, reason}}: Failed{reason}
     case _: Quiet{}
 
 def tooltip(text: String) -> Help:

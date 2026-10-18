@@ -7,6 +7,7 @@ const plugin = fileURLToPath(new URL('../', import.meta.url));
 const checkout = path.resolve(plugin, '../..');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const assets = ['model.mjs', 'model.mjs.json', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
+export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
 
 /** Compilation runs in the source checkout; installed runtime consumes only shipped assets. */
 export async function buildModel() {

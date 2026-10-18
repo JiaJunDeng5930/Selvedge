@@ -27,6 +27,11 @@ explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection gran
 apply across conversations, and local operations run in the selected project's
 Workspace.
 
+[Remote control](docs/remote-control.md) connects an authorized device through a
+Cloudflare Workers and Durable Objects relay. The host initiates HTTPS/WSS on
+TCP 443 and retains task execution and its journal. No public host IP, VPS or
+phone interface is required by the host implementation.
+
 ## Read the program
 
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
@@ -142,10 +147,9 @@ patterns, and construction or pattern matching of declared private model
 constructors against `components.json`; it runs during normal checks and builds,
 including cached builds. Model owners are explicit source paths. This source
 check complements the proof gate, which still requires complete decisions,
-completion correlation and ordered effects. `bun run test:locality` freezes existing
-source files in temporary copies, extends state and component vocabularies, replaces a component
-without changing its contract or clients, and builds the unchanged native entry.
-It challenges the source and semantic checks separately.
+completion correlation and ordered effects. Component contracts and storage
+types quantify arbitrary clients and surrounding state; normal checks validate
+their actual production instances.
 These checks constrain source changes, not human reading time or whole-build time.
 
 The existing standard-library proof terms and their checked translation live in
@@ -166,12 +170,32 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 `delete_project` are native commands. Task creation/fork accepts a `settings`
 object with `project_id`, `workspace`, `sandbox` and `approval`.
 
+For a primary workspace with a Git commit, the New task workspace menu offers
+**Create worktree**. Each project saves this choice in its `create_worktree`
+setting, which can also be changed in project settings. The command API exposes
+`create_worktree_task` with the same fields as `create`.
+Managed checkouts live under `<service home>/worktrees`, start at detached HEAD,
+and include tracked edits and untracked files that Git does not ignore.
+The service home must be outside the source Git repository so its private state
+cannot be copied into a task checkout.
+Archiving their task moves the checkout into `worktrees/archived`, retaining its
+files. `read_worktree` and `list_worktrees` expose the associated paths and any
+physical-operation failure; `retry_worktree_archive` retries a failed archive.
+Forked tasks can share the checkout. Archive those tasks before archiving the
+task that owns it.
+Git commands that write shared repository metadata continue to follow the task's
+sandbox and approval settings.
+
 Approval policy has three modes. **Full Access** runs Bash without isolation.
 **Ask for Approval** keeps ordinary commands sandboxed and shows an exact-command
 permission request in the conversation when the agent requests an exception.
 **Approval for Me** sends that request to a separate, tool-free model invocation;
 it does not create a task. Set `reviewer_profile` to a configured model profile,
-or omit it to use the task's profile. The offline echo profile cannot approve.
+or omit it to prefer the same ChatGPT account connection's advertised
+`codex-auto-review` model, including its hidden catalog entry. Other profiles and
+connections that do not advertise this model use the task's profile; account
+discovery reports that fallback. Explicit reviewer choices and existing task
+settings are preserved. The offline echo profile cannot approve.
 
 An agent requests an exception with `sandbox_permissions: "require_escalated"`
 and a concrete `justification` before executing the command. The Web UI shows
@@ -228,7 +252,7 @@ bun run start
 ```
 
 The default build checks production proofs and compiles JavaScript libraries
-with Bend 2.0.27's official `js_lib` backend: `KERNEL.bend` to
+with the pinned Bend compiler's official `js_lib` backend: `KERNEL.bend` to
 `.build/kernel-model.mjs`, executed in a Bun Worker, the browser entry to
 `host/public/generated/browser-model.mjs`, and `HOST.bend` to
 `host/public/generated/host-model.mjs`. Before compilation or cache reuse, the
@@ -306,18 +330,31 @@ shell descendants are terminated when the shell exits.
 The executable catalog and `limits` in `describe` are authoritative.
 
 Initial instructions and guidance enter task history with their source identity
-and revision. Before model and summary requests, the service observes configured
-instructions, global `AGENTS.md`, the current primary root's `AGENTS.md`, and
-explicitly configured skill metadata. Accepted changes append verified patches;
-unchanged content adds no record. Removed sources append a withdrawal, while
-failed observations preserve the previously accepted content. Forks inherit the
-recorded baseline and patches. Workspace and sandbox contracts stay frozen.
-Nested module guidance is read on demand through Bash.
+and revision. Before model and summary requests, the service refreshes configured
+instructions, service-home guidance, and guidance across all workspace roots.
+Discovery includes each root's Git ancestor chain and its nested directories.
+Without a Git ancestor, discovery starts at the selected root. Place guidance in
+`AGENTS.md`, or use `AGENTS.override.md` to replace that directory's usual file.
+Each source carries its actual path and applicable directory, so module guidance
+applies to that module's subtree. The executable definitions in
+[harness/context](harness/context/README.md) own source selection and precedence.
 
-Set `skills` in the service home's `config.json` to an array of `SKILL.md` paths
-(relative paths resolve from the service home). The model receives each skill's
-name, description and path; its body is not automatically loaded. Changes to
-unloaded skill bodies do not add context updates.
+Put reusable skills in `<service home>/skills/<name>/SKILL.md` or
+`<service home>/.agents/skills/<name>/SKILL.md`. Project skills are discovered in
+`.agents/skills/` and `.claude/skills/` at ancestor and nested directories, with
+their applicable directory recorded. Same-name skills retain separate paths.
+For explicit entries, set `skills` in the service home's `config.json` to an array
+of `SKILL.md` paths; relative paths resolve from the service home. A path already
+configured explicitly is not repeated by automatic discovery.
+
+The model receives skill names, descriptions and paths, and reads a relevant
+skill's body through ordinary Bash. Skill bodies and referenced materials do not
+become tracked context; body-only changes do not add metadata updates. Directory
+discovery is bounded, skips dependency/build directories, and does not follow
+symbolic links. A failed or incomplete discovery preserves its previous accepted
+collection. Accepted changes append verified patches; confirmed removals append
+withdrawals. Forks inherit the baseline and patches. Workspace and sandbox
+contracts stay frozen.
 
 These controls also appear in the browser from the native model.
 
@@ -452,7 +489,7 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-The current journal format is `selvedge-bend-journal-4`, independent of build
+The current journal format is `selvedge-bend-journal-6`, independent of build
 fingerprints and compiler versions, with task-local workspace settings stored in
 its inputs. Reopening validates integrity and complete committed decisions
 against the current kernel. Ordinary source, compiler and UI updates do not
@@ -470,8 +507,9 @@ Concurrent commands and editors can change the same files; any required locking,
 revision checks or atomic replacement belong in the project's commands or scripts.
 The Bend checker/compiler, generated JavaScript, Bun Worker, browser DOM,
 SQLite, OS and remote protocols remain explicit external boundaries. The optional
-native transport is also outside the proof boundary. Local integration tests exercise those paths;
-live provider acceptance and physical history sharing are not claimed.
+native transport is also outside the proof boundary. Focused regressions exercise
+selected physical failure paths; live provider acceptance and physical history
+sharing are not claimed.
 
 ## Develop and verify
 
@@ -484,8 +522,8 @@ bun run bench
 
 `check` verifies the pinned compiler, proof obligations and host/script syntax.
 The default build also produces the kernel, browser and host JavaScript libraries.
-The remaining tests cover actual compiler execution, external component boundaries
-and integration flows; their evidence responsibilities are recorded in
+The remaining tests target concrete physical failure risks after properties have
+been moved to constructions, types and proofs; their responsibilities are recorded in
 [tests-bend/README.md](tests-bend/README.md). Test commands listed here do not
 claim that a particular checkout has passed them. Tests that exercise workspace
 isolation require a working platform sandbox. The benchmark measures committed

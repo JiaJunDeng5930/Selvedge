@@ -226,25 +226,25 @@ def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result
 
 def encapsulated_failed_auth_no_attention(+state: Services.State, reason: String, application: E.Application) ->
   {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
-        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}) : InteractionTypes.Decision}:
+        Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]) : InteractionTypes.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_readiness_attention(+state: Services.State, +application: E.Application) ->
   {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
-        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision}:
+        InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_failed_auth(+state: Services.State, reason: String) ->
   {Services.authentication_calculation(state, Fail{reason}) ==
-        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{reason}, state)), Nil{}} : Services.Decision}:
+        Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]} : Services.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   {==}
 
 def encapsulated_accepted_auth_reusable(+state: Services.State, +ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
-        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state)), [Services.SessionReady{}]} : Services.Decision}:
+        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision}:
   Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
   Equal.trans(Services.Decision,
     Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, settings_open, appearance, next, transfers, preview, picker}),
@@ -255,7 +255,7 @@ def encapsulated_accepted_auth_reusable(+state: Services.State, +ticket: Nat, ow
 
 def encapsulated_accepted_auth(+state: Services.State, ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
-        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{}, state)), [Services.SessionReady{}]} : Services.Decision}:
+        Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision}:
   encapsulated_accepted_auth_reusable(state, ticket, owned)
 
 
@@ -291,7 +291,7 @@ def Rule.boundary_evidence():
     project => name => old_workspace => workspace => guidance => now => {==},
     name => workspace => guidance => {==},
     project => name => workspace => guidance => {==},
-    text => profile => reasoning => config => observation => now => work => {==},
+    text => profile => reasoning => config => observation => now => work => create_worktree => {==},
     config => workspace => guidance => settings_projection(config, workspace, guidance),
     task => operation => parts => outputs => world => inactive =>
       Equal.cong(Bool, +List<Live.Output>,
@@ -361,7 +361,8 @@ def task_reading(+value: V.TaskScene, +parent: Identity.Key, +state: Interaction
 
 def task_title(+value: V.TaskScene, +parent: Identity.Key, +state: InteractionTypes.State) ->
   {Rule.find_region(Model.page_contents(V.TaskPage{value}, parent, state), Composition.ConversationTitle{}) ==
-    Some{[Model.region(Rule.task_title_key(value, parent), "heading", Rule.task_title_text(value), SurfaceTypes.Heading{}, Nil{})]} : Maybe<&2, +List<SurfaceTypes.Node>>}:
+    Some{Model.region(Rule.task_title_key(value, parent), "heading", Rule.task_title_text(value), SurfaceTypes.Heading{}, Nil{}) <>
+      Rule.task_worktree_feedback(value, parent, state)} : Maybe<&2, +List<SurfaceTypes.Node>>}:
   match value:
     case V.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, operations, approvals, reading, latest}, previews, composer, details, V.TaskActions{detail, overflow}}: {==}
 
@@ -434,7 +435,7 @@ def page_payload(+page: V.Page, +state: InteractionTypes.State) ->
 
 def task_graphs_route_selects_nav(+world: M.World(), +session: E.Session) ->
   {Rule.task_graphs_navigation_selected(U.TaskGraphs{}, world, session) == True{} : Bool}:
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git} = session
   {==}
 
 def Rule.page_region_evidence():
@@ -532,7 +533,7 @@ def receipt_source(+decision: InteractionTypes.Decision, previous: +List<E.Layer
 def receipt_record_source(+before: InteractionTypes.State, key: String, +decision: InteractionTypes.Decision) ->
   {Rule.receipt(Model.record_source(before, key, decision)) == Rule.receipt(decision) : Rule.Receipt}:
   InteractionTypes.State{E.Application{program, E.Session{route, drafts, readers, +layers, attention,
-    navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual}}, services} = before
+    navigation, filter, now, next, pending, previews, code, next_layer, model_preference, draft_model_manual, workspace_git}}, services} = before
   receipt_source(decision, layers, Model.origin(layers, key))
 
 def receipt_navigation_closed(+decision: InteractionTypes.Decision) ->
@@ -689,15 +690,15 @@ def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text
     case Some{preview}: {==}
 
 def composer_has_context(+message: U.Text, +profile: String, reasoning: String, +context: Context.Configuration,
-  scene: V.EditorScene, +world: M.World(), +work: Maybe<&2, Nat>) ->
-  {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, work}, scene, world)) ==
+  scene: V.EditorScene, +world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: Bool) ->
+  {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
     [View.scoped_model_control(profile, reasoning, world, work),
          V.ComposerControl{UX.permissions_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
-def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World(), +work: Maybe<&2, Nat>) ->
-  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, work}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
+def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: Bool) ->
+  {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
@@ -711,8 +712,8 @@ def conversation_context_empty(scene: V.EditorScene, task: Nat, message: U.Text,
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
-def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World(), +work: Maybe<&2, Nat>) ->
-  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, work}, scene, world)) ==
+def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: Bool) ->
+  {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
     [V.ComposerControl{UX.project_property(U.NewTaskEditor{work}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
          V.ComposerControl{UX.workspace_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
@@ -759,12 +760,12 @@ def Rule.composition_evidence():
     identity => revision => message => footer => context => assessment => submit => feedback => pending => world => current_composer_context(identity, revision, message, footer, context, assessment, submit, feedback, pending, world),
     +input => +parent => +world => +session => +services => {==},
     +declaration => +rest => +parent => +state => {==},
-    message => profile => reasoning => context => scene => world => work => composer_has_context(message, profile, reasoning, context, scene, world, work),
+    message => profile => reasoning => context => scene => world => work => create_worktree => composer_has_context(message, profile, reasoning, context, scene, world, work, create_worktree),
     fallback => {==},
-    message => profile => reasoning => context => scene => world => work => creation_phase(scene, message, profile, reasoning, context, world, work),
+    message => profile => reasoning => context => scene => world => work => create_worktree => creation_phase(scene, message, profile, reasoning, context, world, work, create_worktree),
     task => message => delivery => scene => world => conversation_phase(scene, task, message, delivery, world),
     task => message => delivery => scene => world => conversation_context_empty(scene, task, message, delivery, world),
-    message => profile => reasoning => context => scene => world => work => creation_controls(scene, message, profile, reasoning, context, world, work)}
+    message => profile => reasoning => context => scene => world => work => create_worktree => creation_controls(scene, message, profile, reasoning, context, world, work, create_worktree)}
 
 def Rule.passive_obstruction_has_no_paragraph(obstruction, assessment, parent, passive):
   Equal.cong(Bool, +List<SurfaceTypes.Node>, (hidden => Model.visible_action_obstruction_selected(hidden, obstruction, assessment, parent)), UX.passive_obstruction(obstruction), True{}, passive)
@@ -779,3 +780,13 @@ def Rule.property_source_toggle_exposes_expansion(identity, label, prominence, i
 def Rule.property_source_controls_use_actual_top_layer(property, parent, state): {==}
 def Rule.workspace_current_retains_context_observation(preview, parent): {==}
 def Rule.permission_scope_retains_context_observation(editor, observation, parent, state): {==}
+
+def Rule.creating_worktree_has_visible_feedback(message, parent): {==}
+def Rule.failed_worktree_has_visible_diagnostic(message, parent): {==}
+def Rule.failed_worktree_archive_has_visible_diagnostic(message, parent): {==}
+
+def Rule.workspace_worktree_choice_retains_its_creation_scope(work, parent, state): {==}
+
+def Rule.available_worktree_choice_edits_the_requested_creation_scope(work, parent, state): {==}
+
+def Rule.unavailable_worktree_choice_has_no_control(editor, parent, state): {==}

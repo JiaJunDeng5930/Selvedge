@@ -379,9 +379,9 @@ def Rule.empty_message_obstruction_is_passive(target, field, reason): {==}
 
 def Rule.workspace_operation_classification(body):
   match body:
-    case U.NewTask{message, profile, reasoning, context, work}: {==}
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: {==}
     case U.WorkName{work, name}: {==}
-    case U.Project{id, name, workspace}: {==}
+    case U.Project{id, name, workspace, create_worktree}: {==}
     case U.Agent{id, revision, name, profile, reasoning, instructions, context, concurrency}: {==}
     case U.Fork{task, count, messages, context}: {==}
     case U.Message{task, message, delivery}: {==}
@@ -431,10 +431,10 @@ def Rule.activity_evidence():
 
 def Rule.project_relations_order(property, edit, revision, body, feedback, entry):
   match body:
-    case U.NewTask{message, profile, reasoning, context, work}: {==}
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}: {==}
     case U.Message{task, message, delivery}: {==}
     case U.WorkName{work, name}: {==}
-    case U.Project{id, name, workspace}: {==}
+    case U.Project{id, name, workspace, create_worktree}: {==}
     case U.Card{card, draft_revision, value, assist, profile, keep_open}: {==}
     case U.Agent{agent, draft_revision, name, profile, reasoning, instructions, context, concurrency}: {==}
     case U.Fork{task, count, messages, context}: {==}

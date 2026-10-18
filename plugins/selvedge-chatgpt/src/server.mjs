@@ -13,8 +13,7 @@ export function createServer(config) {
       inputSchema: z.fromJSONSchema(tool.inputSchema), annotations: tool.annotations,
     }, async (args, extra) => {
       try {
-        const reply = await callTool(config, tool.remote, args, { signal: extra.signal });
-        return boundary('plugin.response', { tool: tool.remote, reply });
+        return await callTool(config, tool.remote, args, { signal: extra.signal });
       } catch {
         return boundary('plugin.connection_failure', {});
       }

@@ -27,6 +27,6 @@ const reviews = rows.flatMap(row => {
 });
 assert.ok(reviews.some(review => review.seq <= seq && review.task === effect.task_id &&
   review.request < effect.ticket && review.decision === 'allow'), 'The grant must be durable before this process starts');
-assert.equal(process.cwd(), effect.execution.workspace.primary_root ?? '/');
+assert.equal(process.cwd(), effect.execution.workspace.primary_root);
 appendFileSync(marker, 'ran\n');
 process.stdout.write(JSON.stringify({ cwd: process.cwd(), ticket: effect.ticket }));
