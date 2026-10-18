@@ -1,4 +1,5 @@
 import Base
+import ./origin-proof.bend as OriginProof
 import ../MODEL.bend as M
 import ../DOMAIN.bend as D
 import ../../bendlib/json.bend as J
@@ -14,26 +15,26 @@ def audit_prepend(+index: Nat, +failed: Bool, +message: D.Message, +tail: +List<
     case Con{Actual.Speech{id, speaker, text, source}, rest}: {==}
     case Con{Actual.Activity{id, attention, entries}, rest}: {==}
 
-def provider_speech(+assistant: Bool, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>) ->
-  {Spec.sources(Actual.provider_speech(assistant, index, value, tail)) == D.ModelContext{value} <> Spec.sources(tail) : +List<D.Message>}:
+def provider_speech(+origin: D.OutputOrigin, +assistant: Bool, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>) ->
+  {Spec.sources(Actual.provider_speech(origin, assistant, index, value, tail)) == D.ModelContext{origin, value} <> Spec.sources(tail) : +List<D.Message>}:
   match assistant:
     case True{}: {==}
-    case False{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+    case False{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
 
-def provider_group(+kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>) ->
-  {Spec.sources(Actual.provider_group(kind, index, value, tail)) == D.ModelContext{value} <> Spec.sources(tail) : +List<D.Message>}:
+def provider_group(+origin: D.OutputOrigin, +kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>) ->
+  {Spec.sources(Actual.provider_group(origin, kind, index, value, tail)) == D.ModelContext{origin, value} <> Spec.sources(tail) : +List<D.Message>}:
   match kind:
-    case Content.SpeechContext{}: provider_speech(Content.provider_assistant(value), index, value, tail)
-    case Content.ReasoningContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
-    case Content.CompactionContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
-    case Content.OtherContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail)
+    case Content.SpeechContext{}: provider_speech(origin, Content.provider_assistant(value), index, value, tail)
+    case Content.ReasoningContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
+    case Content.CompactionContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
+    case Content.OtherContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
 
 def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
   {Spec.sources(Actual.prepend(message, index, tail)) == message <> Spec.sources(tail) : +List<D.Message>}:
   match message:
     case D.UserMessage{text}: {==}
-    case D.AssistantMessage{text}: {==}
-    case D.ModelContext{value}: provider_group(Content.provider_kind(value), index, value, tail)
+    case D.AssistantMessage{origin, text}: {==}
+    case D.ModelContext{+origin, value}: provider_group(origin, Content.provider_kind(value), index, value, tail)
     case D.FunctionCall{call}:
       +audit_message: D.Message = D.FunctionCall{call}
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
@@ -109,26 +110,26 @@ def audit_text(+index: Nat, +failed: Bool, +message: D.Message, +tail: +List<Act
     case Con{Actual.Speech{id, speaker, text, source}, rest}: evidence
     case Con{Actual.Activity{id, attention, entries}, rest}: evidence
 
-def provider_speech_text(+assistant: Bool, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
-  Spec.text_agreement(Actual.provider_speech(assistant, index, value, tail)):
+def provider_speech_text(+origin: D.OutputOrigin, +assistant: Bool, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
+  Spec.text_agreement(Actual.provider_speech(origin, assistant, index, value, tail)):
   match assistant:
     case True{}: ({==}, evidence)
-    case False{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
+    case False{}: audit_text(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail, evidence)
 
-def provider_group_text(+kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
-  Spec.text_agreement(Actual.provider_group(kind, index, value, tail)):
+def provider_group_text(+origin: D.OutputOrigin, +kind: Content.ContextKind, +index: Nat, +value: J.Json, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
+  Spec.text_agreement(Actual.provider_group(origin, kind, index, value, tail)):
   match kind:
-    case Content.SpeechContext{}: provider_speech_text(Content.provider_assistant(value), index, value, tail, evidence)
-    case Content.ReasoningContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
-    case Content.CompactionContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
-    case Content.OtherContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail, evidence)
+    case Content.SpeechContext{}: provider_speech_text(origin, Content.provider_assistant(value), index, value, tail, evidence)
+    case Content.ReasoningContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail, evidence)
+    case Content.CompactionContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail, evidence)
+    case Content.OtherContext{}: audit_text(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail, evidence)
 
 def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
   Spec.text_agreement(Actual.prepend(message, index, tail)):
   match message:
     case D.UserMessage{text}: ({==}, evidence)
-    case D.AssistantMessage{text}: ({==}, evidence)
-    case D.ModelContext{value}: provider_group_text(Content.provider_kind(value), index, value, tail, evidence)
+    case D.AssistantMessage{origin, text}: ({==}, evidence)
+    case D.ModelContext{+origin, value}: provider_group_text(origin, Content.provider_kind(value), index, value, tail, evidence)
     case D.FunctionCall{call}:
       +audit_message: D.Message = D.FunctionCall{call}
       audit_text(index, Actual.audit_failed(audit_message), audit_message, tail, evidence)

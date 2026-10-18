@@ -1,4 +1,5 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
 import ../../bendlib/stdlib.bend as Std
 import ./GEOMETRY.bend as Spatial
 import ./SPACE.bend as Space
@@ -443,16 +444,16 @@ def merge_width(~A: Data, ~E: Data, first: WidthOutcome<A, E>, rest: MeasuredChi
     case WidthReady{tree}:
       merge_width_ready(~A, ~E, rest, tree)
 
-def select_height(matches: Bool, +height: Nat, +rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+def select_height_lazy(matches: Bool, height: Nat, fallback: Unit -> Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match matches:
     case True{}: Some{height}
-    case False{}: rest
+    case False{}: fallback(Unit{})
 
 def find_height_samples(samples: +List<Model.HeightSample>, +key: String, +width: Nat) -> Maybe<&2, Nat>:
   match samples:
     case Nil{}: None{}
     case Con{Model.HeightSample{sample_key, sample_width, height}, rest}:
-      select_height(String.eq(key, sample_key) && Nat.is_eq(width, sample_width), height, find_height_samples(rest, key, width))
+      select_height_lazy(SafeText.string_equal(key, sample_key) && Nat.is_eq(width, sample_width), height, (_ => find_height_samples(rest, key, width)))
 
 def find_height(+key: String, +width: Nat, samples: +List<Model.HeightSample>) -> Maybe<&2, Nat>:
   find_height_samples(samples, key, width)

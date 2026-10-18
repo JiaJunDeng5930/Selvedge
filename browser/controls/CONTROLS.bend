@@ -26,6 +26,9 @@ import ../../interaction/services/CONTEXT.bend as Context
 import ../../harness/DOMAIN.bend as Domain
 import ../../features/board/MODEL.bend as Board
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
+import ../../interaction/interactive_markdown/SYNTAX.bend as InteractiveSyntax
+import ../../bendlib/json.bend as J
 
 type FocusOwnership is Data:
   IndependentFocus{}
@@ -100,6 +103,8 @@ type CreationParts is Data:
 
 def node_value(value: SurfaceTypes.Meaning) -> String:
   match value:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, +tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}:
+      Bool.pick(String, String.eq(tag, "slider") || String.eq(tag, "select") || String.eq(tag, "checkbox"), InteractiveSyntax.scalar_text(canonical), raw)
     case SurfaceTypes.Edit{editor, field, entry, observed_value, choices}: field_text(field, observed_value)
     case SurfaceTypes.BoardSearch{filter}: filter_search(filter)
     case SurfaceTypes.SearchChoices{query}: query
@@ -360,6 +365,7 @@ def invalid(+key: UIIdentity.Key, +visual: Design.Style, +diagnostic: String) ->
 
 def field_checked(value: SurfaceTypes.Meaning) -> Bool:
   match value:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: J.boolean(canonical)
     case SurfaceTypes.Edit{editor, field, entry, Forms.ToggleValue{enabled}, choices}: enabled
     case SurfaceTypes.Edit{editor, Forms.AssistedCapture{}, entry, Forms.AssistanceValue{enabled, profile}, choices}: enabled
     case SurfaceTypes.Edit{editor, Forms.NetworkAccess{}, entry, Forms.ContextValue{Context.ProspectiveContext{origin, project, workspace, Context.InheritedSandbox{Domain.Sandbox{mode, enabled}}, approval, guidance}, reviewers}, choices}: enabled
@@ -376,11 +382,19 @@ def option_values(values: +List<Forms.ChoiceValue>, +selected: String) -> +List<
     case Nil{}: Nil{}
     case Con{Forms.ChoiceValue{+value, label}, rest}: Source.Choice{value, label, String.eq(value, selected)} <> option_values(rest, selected)
 
+def interactive_choices(options: +List<String>, +selected: String) -> +List<Source.Choice>:
+  match options:
+    case Nil{}: Nil{}
+    case Con{+option, rest}: Source.Choice{option, option, String.eq(option, selected)} <> interactive_choices(rest, selected)
+
+
 def choices(value: SurfaceTypes.Meaning) -> +List<Source.Choice>:
   match value:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, Interactive.StateSchema{kind, initial, minimum, maximum, step, options, max_length}, raw, canonical, validation, enabled}, children}}: interactive_choices(options, J.text(canonical))
     case SurfaceTypes.BoardProfile{automatic, selected, profiles, enabled}: option_values(FieldOptions.profile_options(profiles), selected)
     case SurfaceTypes.Edit{editor, field, entry, observed, options}: option_values(options, field_text(field, observed))
     case _: Nil{}
+
 
 def field_placeholder(kind: EditorLayout.FieldKind, name: String) -> String:
   match kind:
@@ -405,8 +419,15 @@ def message_binding(field: Forms.Field, key: UIIdentity.Key) -> +List<Source.Att
     case Forms.MessageText{}: [Source.EditorBindingAttribute{key}]
     case _: Nil{}
 
+def interactive_validation_attributes(value: Maybe<&2, String>, key: UIIdentity.Key) -> +List<Source.Attribute>:
+  match value:
+    case None{}: [Source.AriaAttribute{"invalid", "false"}]
+    case Some{message}: [Source.AriaAttribute{"invalid", "true"}, Source.AriaAttribute{"describedby", UIIdentity.encode(UIIdentity.part(key, "validation"))}]
+
 def field_metadata(key: UIIdentity.Key, value: SurfaceTypes.Meaning) -> +List<Source.Attribute>:
   match value:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}:
+      interactive_validation_attributes(validation, key)
     case SurfaceTypes.Edit{+editor, +field, entry, observed, choices}:
       List.append(&2, Source.Attribute, [Source.DataAttribute{"field", Forms.key(field)}, Source.DataAttribute{"property", UX.subject_key(UXTypes.Subject{editor, field})}, Source.DataAttribute{"object-owner", UX.object_key(UX.owner(UXTypes.Subject{editor, field}))}], message_binding(field, key))
     case _: Nil{}
@@ -421,6 +442,8 @@ def field_kind(value: Controls.Widget) -> Source.NativeFieldKind:
     case Controls.MultiSelectInput{}: Source.MultiSelectField{}
     case Controls.ToggleInput{}: Source.ToggleField{}
     case Controls.NumberInput{minimum}: Source.NumberField{minimum}
+    case Controls.RangeInput{minimum, maximum, step}: Source.RangeField{minimum, maximum, step}
+    case Controls.DecimalInput{minimum, maximum, step}: Source.DecimalField{minimum, maximum, step}
     case Controls.FileChooser{face}: Source.FileField{False{}}
     case Controls.AttachmentList{}: Source.FileField{True{}}
     case Controls.DirectoryChooser{face}: Source.DirectoryField{}
@@ -501,6 +524,36 @@ def input_height(value: Controls.Widget) -> Model.AxisSize:
     case Controls.ToggleInput{}: Model.ExactSize{Source.toggle_target_size(Source.native_toggle_geometry())}
     case _: Model.NaturalSize{}
 
+def interactive_textarea_height(meaning: SurfaceTypes.Meaning, visual: Design.Style) -> Model.AxisSize:
+  match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "textarea", attrs, binding, children}}:
+      Model.ExactSize{Nat.add(16n, Nat.mul(6n, T.resolved_line_height(T.resolved(parent_font(visual)))))}
+    case _: Model.NaturalSize{}
+
+def input_height_for(meaning: SurfaceTypes.Meaning, widget: Controls.Widget, visual: Design.Style) -> Model.AxisSize:
+  match widget:
+    case Controls.TextArea{}: interactive_textarea_height(meaning, visual)
+    case other: input_height(other)
+
+def selected_textarea_policy(interactive: Bool, fallback: Source.FieldPolicy) -> Source.FieldPolicy:
+  match interactive:
+    case True{}: Source.FieldPolicy{1n, 6n, 6n}
+    case False{}: fallback
+
+def interactive_textarea_policy(meaning: SurfaceTypes.Meaning, fallback: Source.FieldPolicy) -> Source.FieldPolicy:
+  match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children}}:
+      selected_textarea_policy(String.eq(tag, "textarea"), fallback)
+    case _: selected_textarea_policy(False{}, fallback)
+
+def input_policy_kind(widget: Controls.Widget, meaning: SurfaceTypes.Meaning, fallback: Source.FieldPolicy) -> Source.FieldPolicy:
+  match widget:
+    case Controls.TextArea{}: interactive_textarea_policy(meaning, fallback)
+    case _: fallback
+
+def input_policy_for(meaning: SurfaceTypes.Meaning, +widget: Controls.Widget, visual: Design.Style, parameters: Design.LayoutParameters) -> Source.FieldPolicy:
+  input_policy_kind(widget, meaning, native_field_policy(widget, maximum_lines(widget, visual, parameters)))
+
 def label_field(+value: Controls.LabelPlacement, +key: UIIdentity.Key, name: String, +visual: Design.Style, field: Source.Node) -> Source.Node:
   match value:
     case Controls.AccessibleOnly{}: field
@@ -544,7 +597,7 @@ def expected_input_attributes(+key: UIIdentity.Key, input: Controls.FormInput) -
 def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visual: Design.Style, +parameters: Design.LayoutParameters) -> InputFieldRequest:
   Controls.FormInput{+meaning, +name, +widget, label, availability} = input
   InputFieldRequest{FieldBinding{key, expected_input_attributes(key, input)},
-    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget, visual, parameters), input_height(widget), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), native_field_policy(widget, maximum_lines(widget, visual, parameters)), name},
+    FieldContent{field_kind(widget), Factory.style(visual, input_width(widget, visual, parameters), input_height_for(meaning, widget, visual), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), input_policy_for(meaning, widget, visual, parameters), name},
     FieldProtocol{enabled(availability), field_input_event(meaning, widget, key), field_remaining_events(widget, key)}}
 
 def interpret_input_field(label: Controls.LabelPlacement, key: UIIdentity.Key, name: String, visual: Design.Style, request: InputFieldRequest) -> Source.Node:

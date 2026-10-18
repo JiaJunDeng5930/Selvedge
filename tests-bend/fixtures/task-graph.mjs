@@ -19,8 +19,8 @@ export const rule = (key, source, ...actions) => ({ key, source, actions });
 export const action = (target, message = output) => ({ target, message });
 export const command = command => ({ kind: 'command', command });
 export const model = (effect, items) => ({ kind: 'model', task_id: effect.task_id,
-  ticket: effect.ticket, ok: true, items });
-export const say = text => ({ type: 'text', text });
+  ticket: effect.ticket, ok: true, items: items.map((item, index) => item.type === 'text' || item.type === 'context' ? { ...item, part: index } : item) });
+export const say = text => ({ type: 'text', part: 0, text });
 
 export async function journalFixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-task-graph-'));

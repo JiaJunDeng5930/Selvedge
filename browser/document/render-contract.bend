@@ -6,6 +6,7 @@ import ./SOURCE.bend as Source
 import ../appearance/DESIGN.bend as Design
 import ../layout/enclosure.bend as Enclosure
 import ../../interaction/presentation/PROGRAM.bend as Interface
+import ../../interaction/presentation/CONTRACT.bend as FenceRules
 import ../../interaction/IDENTITY.bend as Identity
 import ../../interaction/conversation/OUTPUT.bend as Live
 import ./MODEL.bend as Observation
@@ -19,8 +20,10 @@ import ../../interaction/STATE.bend as Core
 import ../../interaction/session/MODEL.bend as E
 import ../../interaction/conversation/CODE.bend as Code
 import ../../interaction/TYPES.bend as InteractionTypes
+import ../../harness/DOMAIN.bend as D
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ./RENDERED.bend as Model
+import ./SPEC.bend as Spec
 import ../controls/GEOMETRY.bend as Geometry
 import ../../interaction/presentation/MODEL.bend as View
 import ./FRAME.bend as Frame
@@ -49,12 +52,21 @@ type CodeSurfaceRequirements is Type:
 law code_surface_evidence:
   CodeSurfaceRequirements
 
+def expected_known_code_observations(observations: +List<Observation.Observation>, +session: E.Session) -> Bool:
+  match observations:
+    case Nil{}: True{}
+    case Con{Observation.Observation{identity, text, source_value}, rest}:
+      E.code_source_known(identity, session) && expected_known_code_observations(rest, session)
+
+def observation_session(state: Browser.State) -> E.Session:
+  E.session(Core.application(Platform.core(Web.application(Legacy.web(Browser.legacy(state))))))
+
 def published_display_claim(displayed: Maybe<&2, Browser.Published>, +generation: Nat, +observations: +List<Observation.Observation>, +state: Browser.State) -> Type:
   match displayed:
     case None{}: {Browser.code_batch_qualified(generation, observations, state) == False{} : Bool}
     case Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
       {Browser.code_batch_qualified(generation, observations, state) ==
-        Browser.code_batch_owned(observations, source) : Bool}
+        (Browser.code_batch_owned(observations, source) && expected_known_code_observations(observations, observation_session(state))) : Bool}
 
 def published_qualification_claim(+generation: Nat, +observations: +List<Observation.Observation>, +state: Browser.State) -> Type:
   published_display_claim(Browser.displayed(state), generation, observations, state)
@@ -203,8 +215,8 @@ def published_membership(displayed: Maybe<&2, Browser.Published>, observations: 
     case Some{Browser.Published{Content.AllocatedWorld{Content.Snapshot{published, source, font}, tree, roots, policies}, semantic, scope, basis, frame}}:
       Browser.code_batch_owned(observations, source)
 
-def actual_membership(observations: +List<Observation.Observation>, +state: Browser.State) -> Bool:
-  published_membership(Browser.displayed(state), observations)
+def actual_membership(+observations: +List<Observation.Observation>, +state: Browser.State) -> Bool:
+  published_membership(Browser.displayed(state), observations) && expected_known_code_observations(observations, observation_session(state))
 
 law stale_batch:
   for +generation: Nat
@@ -233,17 +245,31 @@ law authored_source:
   {Browser.code_node_owned(Authored.rich_leaf(key, value, visual, code_visual, Some{owner}, attachments, native_owner), identity, source_value) ==
     declared_content_claim(owner, identity, value, source_value) : Bool}
 
+def expected_preview_origin(origin: Maybe<&2, D.OutputOrigin>, namespace: String, +task: Nat, operation: Nat, part: Nat) -> Code.Source:
+  match origin:
+    case None{}: Code.StreamingPart{task, operation, part}
+    case Some{value}: Code.Generated{namespace, task, value, False{}}
+
+def expected_preview_source(+task: Nat, +operation: Nat, +part: Nat, +state: InteractionTypes.State) -> Code.Source:
+  expected_preview_origin(Live.origin(Live.Output{task, operation, Nil{}}, part, E.program(Core.application(state))),
+    E.namespace(E.session(Core.application(state))), task, operation, part)
+
+def expected_output_key(+source: Code.Source, fallback: Identity.Key) -> Identity.Key:
+  match source:
+    case Code.Generated{namespace, viewer, origin, complete}: Identity.Entity{Identity.Place{"generated-output"}, "part", Code.source_key(source)}
+    case _: fallback
+
+type StreamPartPresentation<-task: Nat, -operation: Nat, -part: Nat, -text: String,
+  -parent: Identity.Key, -state: InteractionTypes.State> is Type:
+  StreamPartPresentation{
+    node: SurfaceTypes.Node,
+    complete: {Interface.live_parts([Live.Part{part, text}], task, operation, parent, state) == [node] : +List<SurfaceTypes.Node>},
+    attachments: FenceRules.LivePartAttachments(part, text, task, operation, parent, state, node)
+  }
+
 law stream_source:
-  for +task: Nat
-  for +operation: Nat
-  for +index: Nat
-  for +text: String
-  for +parent: Identity.Key
-  for +state: InteractionTypes.State
-  {Interface.live_parts([Live.Part{index, text}], task, operation, parent, state) ==
-    [SurfaceTypes.Node{Identity.Entity{parent, "part", Nat.show(index)}, "stream/part/" ++ Nat.show(index), "Agent output", SurfaceTypes.Content{},
-      SurfaceTypes.RichText{Code.StreamingPart{task, operation, index}, text},
-      Interface.code_nodes(Core.code_scenes(Interface.application(state)), Code.StreamingPart{task, operation, index}, Identity.Entity{parent, "part", Nat.show(index)})}] : +List<SurfaceTypes.Node>}
+  @+task:Nat -> @+operation:Nat -> @+index:Nat -> @+text:String -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  StreamPartPresentation<task, operation, index, text, parent, state>
 
 law stale_frame_retains_state:
   for +current: Nat
@@ -253,32 +279,6 @@ law stale_frame_retains_state:
   for +previous: Model.State
   for different: {Nat.is_eq(current, received) == False{} : Bool}
   {Model.observe(current, received, surface, frame, previous) == previous : Model.State}
-
-law native_ownership_is_complete:
-  for +identity: String
-  for owner: String
-  for +rest: +List<Model.NativeFocus>
-  for +active: +List<SurfaceTypes.Node>
-  for +elements: +List<Model.Element>
-  {Model.native_valid(Model.NativeFocus{identity, owner} <> rest, active, elements) ==
-    (Model.read_only(Interface.find_node(active, owner)) && Bool.not(Model.exists(Interface.find_node(active, identity))) &&
-     Model.native_element(Model.find_element(elements, identity)) && Bool.not(Model.native_member(rest, identity)) && Model.native_valid(rest, active, elements)) : Bool}
-
-law native_order_is_owned:
-  for +owner: String
-  for +identity: String
-  for +parent: String
-  for rest: +List<Model.NativeFocus>
-  {Model.owner_tabs(Model.NativeFocus{identity, parent} <> rest, owner) ==
-    Model.tab_entry(String.eq(parent, owner), identity, Model.owner_tabs(rest, owner)) : +List<String>}
-
-law native_tab_contract:
-  for +active: +List<SurfaceTypes.Node>
-  for +elements: +List<Model.Element>
-  for +native_focus: +List<Model.NativeFocus>
-  for order: +List<String>
-  {Model.tabs_valid(active, elements, native_focus, order) ==
-    (Model.native_valid(native_focus, active, elements) && Model.same_order(Model.expected_tabs(active, elements, native_focus), order)) : Bool}
 
 law absent_control_is_not_tab_stop:
   {Model.tab_stop(None{}) == False{} : Bool}
@@ -381,55 +381,12 @@ law movement_enabled_by_offered_input:
 
 type SourceFrameRequirements is Type:
   SourceFrameRequirements{
-    normal_projection: @+snapshot:Content.Snapshot -> @+tree:Allocation.AllocatedTree<Content.Value, Observation.DOMEvent> -> @+roots:+List<Content.AllocatedNative> -> @+policies:+List<Content.NativePolicy> -> @+frame:Model.Frame ->
-      {Frame.expectations(Content.AllocatedWorld{snapshot, tree, roots, policies}, frame) == Model.FrameExpectations{Frame.exposure_forest([tree], Source.Exposed{})} : Model.FrameExpectations},
-    inert_exposure: @+own:+List<Model.ControlExposure> -> @+rest:+List<Model.ControlExposure> ->
-      {Frame.retain_exposure(True{}, own, rest) == rest : +List<Model.ControlExposure>},
-    normal_correlated: @+current:Nat -> @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame -> @+previous:Model.State -> @+expectations:Model.FrameExpectations ->
-      {Model.observed_with(True{}, current, surface, frame, previous, expectations) == Model.accepted(Model.violations_with(surface, frame, expectations), current, frame) : Model.State},
-    normal_uncorrelated: @+current:Nat -> @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame -> @+previous:Model.State -> @+expectations:Model.FrameExpectations ->
-      {Model.observed_with(False{}, current, surface, frame, previous, expectations) == previous : Model.State},
-    concealed_source: @+key:String -> @+expected:Maybe<&2, Bool> -> @+observed:String -> @+visible:Bool -> @+enabled:Bool -> @+tab:Bool -> @+keyboard:Bool -> @+scroll:Bool -> @+bounds:Geometry.Rect -> @+hit:String -> @+paint:Geometry.Rect ->
-      {Model.source_concealment(Source.Concealed{}, key, expected, Some{Model.Element{observed, visible, enabled, tab, keyboard, scroll, bounds, hit, paint}}) == List.append(&2, Model.Violation, Model.issue(Bool.not(Model.enabled_expectation(expected, enabled)), Model.DisabledAppearance{key}), Model.issue(visible || tab || keyboard || Bool.not(String.eq(hit, "")), Model.UnreachableControl{key})) : +List<Model.Violation>},
-    concealed_ancestor: @+own:Source.Exposure ->
-      {Source.combine_exposure(Source.Concealed{}, own) == Source.Concealed{} : Source.Exposure},
-    exposed_paint: @+visible:Bool -> @+tab:Bool -> @+keyboard:Bool -> @+hit:String -> @+bounds:Geometry.Rect -> @+paint:Geometry.Rect -> @+viewport:Geometry.Rect ->
-      {Frame.exposure_geometry(Source.Exposed{}, visible, tab, keyboard, hit, bounds, paint, viewport) == (visible && Model.paint_geometry_valid(visible, bounds, paint, viewport)) : Bool},
-    concealed_paint: @+visible:Bool -> @+tab:Bool -> @+keyboard:Bool -> @+hit:String -> @+bounds:Geometry.Rect -> @+paint:Geometry.Rect -> @+viewport:Geometry.Rect ->
-      {Frame.exposure_geometry(Source.Concealed{}, visible, tab, keyboard, hit, bounds, paint, viewport) == (Bool.not(visible) && Bool.not(tab) && Bool.not(keyboard) && String.eq(hit, "")) : Bool},
-    inherited_leaf: @+parent:Source.Exposure -> @+physical:String -> @+value:Content.Value -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+rule:Model2.Rule -> @+demand:Space.Demand -> @+height:Model2.Height -> @+bounds:Spatial.Box -> @+canvas:Enclosure.Extent -> @+rest:+List<Allocation.AllocatedTree<Content.Value, Observation.DOMEvent>> ->
-      {Frame.forest_with(Allocation.AllocatedLeaf{physical, value, interaction, rule, demand, height, bounds, canvas} <> rest, parent) == Frame.entry_if(Frame.ordinary(value), value, bounds, interaction, Frame.value_exposure(parent, value), Frame.forest_with(rest, parent)) : +List<Frame.Expected>},
-    inherited_container: @+parent:Source.Exposure -> @+physical:String -> @+value:Content.Value -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+rule:Model2.Rule -> @+bounds:Spatial.Box -> @+canvas:Enclosure.Extent -> @+direction:Allocation.ResolvedDirection -> @+children:+List<Allocation.AllocatedTree<Content.Value, Observation.DOMEvent>> -> @+rest:+List<Allocation.AllocatedTree<Content.Value, Observation.DOMEvent>> ->
-      {Frame.forest_with(Allocation.AllocatedContainer{physical, value, interaction, rule, bounds, canvas, direction, children} <> rest, parent) == Frame.entry_if(Frame.ordinary(value), value, bounds, interaction, Frame.value_exposure(parent, value), List.append(&2, Frame.Expected, Frame.forest_with(children, Frame.value_exposure(parent, value)), Frame.forest_with(rest, parent))) : +List<Frame.Expected>},
-    actual_tree: @+snapshot:Content.Snapshot -> @+tree:Allocation.AllocatedTree<Content.Value, Observation.DOMEvent> -> @+roots:+List<Content.AllocatedNative> -> @+policies:+List<Content.NativePolicy> ->
-      {Frame.expected(Content.AllocatedWorld{snapshot, tree, roots, policies}) == Frame.forest([tree]) : +List<Frame.Expected>},
-    complete_node: @+exposure:Source.Exposure -> @+key:String -> @+bounds:Spatial.Box -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+rest:+List<Frame.Expected> -> @+elements:+List<Model.Element> -> @+viewport:Geometry.Rect ->
-      {Frame.nodes(Frame.Expected{key, bounds, interaction, exposure} <> rest, elements, viewport) ==
-        List.append(&2, Model.Violation, Model.issue(Bool.not(Nat.is_eq(Frame.occurrences(elements, key), 1n)), Model.MissingElement{key}),
-          List.append(&2, Model.Violation, Frame.node_geometry(exposure, key, bounds, interaction, Model.find_element(elements, key), viewport), Frame.nodes(rest, elements, viewport))) : +List<Model.Violation>},
-    source_tab_order: @+exposure:Source.Exposure -> @+key:String -> @+bounds:Spatial.Box -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+rest:+List<Frame.Expected> ->
-      {Frame.tabs(Frame.Expected{key, bounds, interaction, exposure} <> rest) == Model.tab_entry(Source.exposed(exposure) && Frame.interactive(interaction), key, Frame.tabs(rest)) : +List<String>},
-    leaf_traversal: @+physical:String -> @+value:Content.Value -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+rule:Model2.Rule -> @+demand:Space.Demand -> @+height:Model2.Height -> @+bounds:Spatial.Box -> @+canvas:Enclosure.Extent -> @+rest:+List<Allocation.AllocatedTree<Content.Value, Observation.DOMEvent>> ->
-      {Frame.forest(Allocation.AllocatedLeaf{physical, value, interaction, rule, demand, height, bounds, canvas} <> rest) == Frame.entry(value, bounds, interaction, Frame.forest(rest)) : +List<Frame.Expected>},
-    container_traversal: @+physical:String -> @+value:Content.Value -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+rule:Model2.Rule -> @+bounds:Spatial.Box -> @+canvas:Enclosure.Extent -> @+direction:Allocation.ResolvedDirection -> @+children:+List<Allocation.AllocatedTree<Content.Value, Observation.DOMEvent>> -> @+rest:+List<Allocation.AllocatedTree<Content.Value, Observation.DOMEvent>> ->
-      {Frame.forest(Allocation.AllocatedContainer{physical, value, interaction, rule, bounds, canvas, direction, children} <> rest) == Frame.entry(value, bounds, interaction, List.append(&2, Frame.Expected, Frame.forest_with(children, Frame.value_exposure(Source.Exposed{}, value)), Frame.forest(rest))) : +List<Frame.Expected>},
-    full_contract: @+world:Content.AllocatedWorld -> @+viewport:Geometry.Rect -> @+elements:+List<Model.Element> -> @+focused:Maybe<&2, String> -> @+tab_order:+List<String> -> @+native_focus:+List<Model.NativeFocus> ->
-      {Frame.check(world, Model.Frame{viewport, elements, focused, tab_order, native_focus}) ==
-        List.append(&2, Model.Violation, Frame.nodes(Frame.expected(world), elements, viewport),
-          List.append(&2, Model.Violation, Model.issue(Bool.not(Model.same_order(Frame.tabs(Frame.expected(world)), tab_order)), Model.WrongTabOrder{}),
-            List.append(&2, Model.Violation, Model.issue(Bool.not(Frame.no_native(world) && Frame.native_free(native_focus)), Model.FocusOutsideScope{}),
-              List.append(&2, Model.Violation, Frame.focus_checks(focused, Frame.expected(world), elements, viewport),
-                Model.independent_targets(Frame.controls(Frame.expected(world), elements)))))) : +List<Model.Violation>},
-    allocated_rectangle: @+left:Nat -> @+top:Nat -> @+width:Nat -> @+height:Nat ->
-      {Frame.rectangle(Spatial.Box{left, top, width, height}) == Geometry.Rect{F32.from_nat(left), F32.from_nat(top), F32.from_nat((left + width : Nat)), F32.from_nat((top + height : Nat))} : Geometry.Rect},
-    observed_geometry: @+exposure:Source.Exposure -> @+key:String -> @+bounds:Spatial.Box -> @+interaction:Model2.Interaction<Observation.DOMEvent> -> @+viewport:Geometry.Rect -> @+observed:String -> @+visible:Bool -> @+enabled:Bool -> @+tab:Bool -> @+keyboard:Bool -> @+scroll:Bool -> @+measured:Geometry.Rect -> @+hit:String -> @+paint:Geometry.Rect ->
-      {Frame.node_geometry(exposure, key, bounds, interaction, Some{Model.Element{observed, visible, enabled, tab, keyboard, scroll, measured, hit, paint}}, viewport) ==
-        List.append(&2, Model.Violation, Model.issue(Bool.not(Frame.same_rectangle(Frame.rectangle(bounds), measured) && Geometry.contains(viewport, measured) && Frame.exposure_geometry(exposure, visible, tab, keyboard, hit, measured, paint, viewport)), Model.InvalidPaintGeometry{key}),
-          Frame.operable_geometry(exposure, interaction, key, Model.Element{observed, visible, enabled, tab, keyboard, scroll, measured, hit, paint}, viewport)) : +List<Model.Violation>},
-    focus_contract: @+focused:Maybe<&2, String> -> @+entries:+List<Frame.Expected> -> @+elements:+List<Model.Element> -> @+viewport:Geometry.Rect ->
-      {Frame.focus_checks(focused, entries, elements, viewport) == List.append(&2, Model.Violation, Model.issue(Bool.not(Frame.focused_owned(focused, entries)), Model.FocusOutsideScope{}), Frame.focus_geometry(focused, elements, viewport)) : +List<Model.Violation>},
-    display_only: @+exposure:Source.Exposure -> @+key:String -> @+element:Model.Element -> @+viewport:Geometry.Rect ->
-      {Frame.operable_geometry(exposure, Model2.DisplayOnly{}, key, element, viewport) == Nil{} : +List<Model.Violation>}}
+    normal_projection: @+world:Content.AllocatedWorld -> @+frame:Model.Frame ->
+      {Frame.expectations(world, frame) == Spec.allocated_expectations(world, frame) : Model.FrameExpectations},
+    complete_observation: @+current:Nat -> @+received:Nat -> @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame -> @+previous:Model.State -> @+expectations:Model.FrameExpectations ->
+      {Model.observe_with(current, received, surface, frame, previous, expectations) == Spec.observed_frame(current, received, surface, frame, previous, expectations) : Model.State},
+    complete_allocation: @+world:Content.AllocatedWorld -> @+frame:Model.Frame ->
+      {Frame.check(world, frame) == Spec.allocated_frame_diagnostics(world, frame) : +List<Model.Violation>}}
 
 law source_frame_evidence:
   SourceFrameRequirements
@@ -447,3 +404,45 @@ law supporting_enabled_by_availability:
   for input: InteractionTypes.Input
   for +availability: View.Availability
   {Model.required_enabled(SurfaceTypes.SupportingControl{support, property, input, availability}) == UX.support_visible(support) && Model.enabled(availability) : Bool}
+
+# Public requirements describe engineering results, not a prepared lookup tree.
+law complete_element_lookup:
+  @+elements:+List<Model.Element> -> @+key:String ->
+  {Model.find_element(elements, key) == Spec.first_observed_element(elements, key) : Maybe<&2, Model.Element>}
+
+law complete_ordered_tabs:
+  @+nodes:+List<SurfaceTypes.Node> -> @+elements:+List<Model.Element> -> @+native_focus:+List<Model.NativeFocus> ->
+  {Model.expected_tabs(nodes, elements, native_focus) == Spec.expected_tabs(nodes, elements, native_focus) : +List<String>}
+
+law complete_native_ownership:
+  @+native_focus:+List<Model.NativeFocus> -> @+nodes:+List<SurfaceTypes.Node> -> @+elements:+List<Model.Element> ->
+  {Model.native_valid(native_focus, nodes, elements) == Spec.native_valid(native_focus, nodes, elements) : Bool}
+
+law complete_layout_check_with:
+  @+active:+List<SurfaceTypes.Node> -> @+frame:Model.Frame -> @+controls:+List<Model.ControlExposure> ->
+  {Model.layout_check_with(active, frame, controls) == Spec.layout_diagnostics(active, frame, controls) : +List<Model.Violation>}
+
+law complete_check:
+  @+active:+List<SurfaceTypes.Node> -> @+frame:Model.Frame ->
+  {Model.check(active, frame) == Spec.check_diagnostics(active, frame) : +List<Model.Violation>}
+
+law complete_violations:
+  @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame ->
+  {Model.violations(surface, frame) == Spec.ordinary_frame_diagnostics(surface, frame) : +List<Model.Violation>}
+
+law complete_violations_with:
+  @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame -> @+expectations:Model.FrameExpectations ->
+  {Model.violations_with(surface, frame, expectations) == Spec.frame_diagnostics(surface, frame, expectations) : +List<Model.Violation>}
+
+law complete_observation:
+  @+current:Nat -> @+received:Nat -> @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame -> @+previous:Model.State -> @+expectations:Model.FrameExpectations ->
+  {Model.observe_with(current, received, surface, frame, previous, expectations) ==
+    Spec.observed_frame(current, received, surface, frame, previous, expectations) : Model.State}
+
+law complete_ordinary_observation:
+  @+current:Nat -> @+received:Nat -> @+surface:SurfaceTypes.Surface -> @+frame:Model.Frame -> @+previous:Model.State ->
+  {Model.observe(current, received, surface, frame, previous) == Spec.ordinary_observed_frame(current, received, surface, frame, previous) : Model.State}
+
+law complete_allocated_frame:
+  @+world:Content.AllocatedWorld -> @+frame:Model.Frame ->
+  {Frame.check(world, frame) == Spec.allocated_frame_diagnostics(world, frame) : +List<Model.Violation>}

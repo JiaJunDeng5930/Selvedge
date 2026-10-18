@@ -111,7 +111,8 @@ def resolve_presentation(capacity: Nat, value: Presentation) -> TextStyle:
   resolve(capacity, tier, emphasis, scale)
 
 def resolved(value: Presentation) -> TextStyle:
-  resolve_presentation(NaturalSize.limit(), value)
+  Presentation{tier, emphasis, scale} = value
+  resolve(NaturalSize.limit(), tier, emphasis, scale)
 
 def with_tier(value: Presentation, tier: Tier) -> Presentation:
   Presentation{old_tier, emphasis, scale} = value

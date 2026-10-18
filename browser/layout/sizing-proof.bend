@@ -1,4 +1,6 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
+import ../../bendlib/equality-proof.bend as TextProof
 import ../../bendlib/categories.bend as Categories
 import ../document/SOURCE.bend as Source
 import ./CONTENT.bend as Content
@@ -21,6 +23,11 @@ import ./enclosure.bend as E
 import ../../bendlib/logic-proof.bend as Logic
 import ./MODEL.bend as World
 import ./CONTRACT.bend as RuleContract
+import ./measurement-contract.bend as RuleMeasurement
+import ./measurement-requirements.bend as Dimensions
+import ./measurement-proof.bend as MeasurementEvidence
+import ./physical-native.bend as NativePhysical
+import ../../interaction/conversation/CODE.bend as Code
 
 def field_native_footprint(+kind: Source.NativeFieldKind, +node: Source.Node, +key: String,
   +style: Source.ResolvedStyle, +generation: Nat, +observations: +List<Content.Observation>) ->
@@ -110,6 +117,8 @@ def field_minimum_height_fields(+capacity: Nat, +kind: Source.NativeFieldKind, +
     case Source.MultiSelectField{}: {==}
     case Source.ToggleField{}: {==}
     case Source.NumberField{minimum}: {==}
+    case Source.RangeField{minimum, maximum, step}: {==}
+    case Source.DecimalField{minimum, maximum, step}: {==}
     case Source.FileField{multiple}: {==}
     case Source.DirectoryField{}: {==}
     case Source.SearchField{}: {==}
@@ -133,6 +142,8 @@ def field_preferred_height_fields(+capacity: Nat, +kind: Source.NativeFieldKind,
     case Source.MultiSelectField{}: {==}
     case Source.ToggleField{}: {==}
     case Source.NumberField{minimum}: {==}
+    case Source.RangeField{minimum, maximum, step}: {==}
+    case Source.DecimalField{minimum, maximum, step}: {==}
     case Source.FileField{multiple}: {==}
     case Source.DirectoryField{}: {==}
     case Source.SearchField{}: {==}
@@ -155,7 +166,9 @@ def field_production_demand(+capacity: Nat, +label: Identity.Key, +kind: Source.
     options, policy, name, enabled, first_event, remaining_events}, key, font, rule, observation, roots, policies)) ==
     Some{SourceSource.field_natural_demand_at(capacity, kind, policy, font, observation)} : Maybe<&2, Space.Demand>}:
   match policy:
-    case Source.FieldPolicy{columns, minimum_lines, maximum_lines}: {==}
+    case Source.FieldPolicy{columns, minimum_lines, maximum_lines}:
+      match observation:
+        case Content.Observation{generation, observed_key, purpose, minimum, preferred, height, advance}: {==}
 
 def RulePhysicalSourceRules.source_evidence():
   RulePhysicalSourceRules.SourceRequirements{field_native_footprint, +snapshot => +observations => native_targets(snapshot, observations),
@@ -1287,3 +1300,508 @@ def physical_width_source_proof_preserved(~A: Data, ~E: Data, +tree: Model.Tree<
 
 def RulePhysicalSourceRules.width_source_evidence(A, E):
   RulePhysicalSourceRules.WidthSourceRequirements{+tree => +width => +samples => physical_width_source_proof_preserved(~A, ~E, tree, width, samples)}
+
+
+def probe_or_false(+value: Bool) -> {(value || False{}) == value : Bool}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def probe_or_true(+value: Bool) -> {(value || True{}) == True{} : Bool}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def probe_and_false(+value: Bool) -> {(value && False{}) == False{} : Bool}:
+  match value:
+    case False{}: {==}
+    case True{}: {==}
+
+def receipt_stages_complete(+generation: Bool, +key: Bool, +purpose: Bool, +shape: Bool,
+  valid: Unit -> Bool) ->
+  {RulePhysicalContentRules2.receipt_guard(generation, (_ =>
+    RulePhysicalContentRules2.receipt_guard(key, (_ =>
+      RulePhysicalContentRules2.receipt_guard(purpose, (_ =>
+        RulePhysicalContentRules2.receipt_guard(shape, valid))))))) ==
+    (generation && key && purpose && shape && valid(Unit{})) : Bool}:
+  match generation key purpose shape:
+    case False{} _ _ _: {==}
+    case True{} False{} _ _: {==}
+    case True{} True{} False{} _: {==}
+    case True{} True{} True{} False{}: {==}
+    case True{} True{} True{} True{}: {==}
+
+def measurement_generation(request: Content.Request) -> Nat:
+  Content.Request{generation, key, value, purpose, roots, policies} = request
+  generation
+
+def measurement_key(request: Content.Request) -> String:
+  Content.Request{generation, key, value, purpose, roots, policies} = request
+  key
+
+def measurement_purpose(request: Content.Request) -> Content.Purpose:
+  Content.Request{generation, key, value, purpose, roots, policies} = request
+  purpose
+
+def observation_generation(observation: Content.Observation) -> Nat:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  generation
+
+def observation_key(observation: Content.Observation) -> String:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  key
+
+def observation_purpose(observation: Content.Observation) -> Content.Purpose:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  purpose
+
+def observation_minimum(observation: Content.Observation) -> Nat:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  minimum
+
+def observation_preferred(observation: Content.Observation) -> Nat:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  preferred
+
+def observation_height(observation: Content.Observation) -> Nat:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  height
+
+def observation_advance(observation: Content.Observation) -> Nat:
+  Content.Observation{generation, key, purpose, minimum, preferred, height, advance} = observation
+  advance
+
+def receipt_predicate_complete(+request: Content.Request, +observation: Content.Observation) ->
+  {(Nat.is_eq(measurement_generation(request), observation_generation(observation)) && SafeText.string_equal(measurement_key(request), observation_key(observation)) && RulePhysicalContentRules2.same_purpose(measurement_purpose(request), observation_purpose(observation)) && Nat.is_le(observation_minimum(observation), observation_preferred(observation)) && RulePhysicalContentRules2.request_observation_valid(request, observation_height(observation), observation_advance(observation))) == Dimensions.observation_matches(request, observation) : Bool}:
+  Content.Request{+generation, +key, +value, +purpose, +roots, +policies} = request
+  Content.Observation{+observed_generation, +observed_key, +observed_purpose, +minimum, +preferred, +height, +advance} = observation
+  +full: Content.Request = Content.Request{generation, key, value, purpose, roots, policies}
+  +seen: Content.Observation = Content.Observation{observed_generation, observed_key, observed_purpose, minimum, preferred, height, advance}
+  %Equal.sym(Bool, SafeText.string_equal(key, observed_key), String.eq(key, observed_key), TextProof.public_refines(key, observed_key)) :
+    {(Nat.is_eq(generation, observed_generation) && _ && RulePhysicalContentRules2.same_purpose(purpose, observed_purpose) && Nat.is_le(minimum, preferred) && RulePhysicalContentRules2.request_observation_valid(full, height, advance)) == Dimensions.observation_matches(full, seen) : Bool}
+  %Equal.sym(Bool, RulePhysicalContentRules2.same_purpose(purpose, observed_purpose), Dimensions.same_purpose(purpose, observed_purpose), MeasurementEvidence.same_purpose(purpose, observed_purpose)) :
+    {(Nat.is_eq(generation, observed_generation) && String.eq(key, observed_key) && _ && Nat.is_le(minimum, preferred) && RulePhysicalContentRules2.request_observation_valid(full, height, advance)) == Dimensions.observation_matches(full, seen) : Bool}
+  %Equal.sym(Bool, RulePhysicalContentRules2.request_observation_valid(full, height, advance), Dimensions.request_observation_valid(full, height, advance), MeasurementEvidence.measurements_request_observation_valid(full, height, advance)) :
+    {(Nat.is_eq(generation, observed_generation) && String.eq(key, observed_key) && Dimensions.same_purpose(purpose, observed_purpose) && Nat.is_le(minimum, preferred) && _) == Dimensions.observation_matches(full, seen) : Bool}
+  {==}
+
+def receipt_matches_complete(+request: Content.Request, +observation: Content.Observation) ->
+  {RulePhysicalContentRules2.observation_matches(request, observation) == RuleMeasurement.receipt_valid_observation(request, observation) : Bool}:
+  match request:
+    case Content.Request{+generation, +key, Content.Value{+node, +font}, +purpose, +roots, +policies}:
+      match observation:
+        case Content.Observation{+observed_generation, +observed_key, +observed_purpose, +minimum, +preferred, +height, +advance}:
+          +full: Content.Request = Content.Request{generation, key, Content.Value{node, font}, purpose, roots, policies}
+          +seen: Content.Observation = Content.Observation{observed_generation, observed_key, observed_purpose, minimum, preferred, height, advance}
+          Equal.trans(Bool, RulePhysicalContentRules2.observation_matches(full, seen),
+            (Nat.is_eq(generation, observed_generation) && SafeText.string_equal(key, observed_key) && RulePhysicalContentRules2.same_purpose(purpose, observed_purpose) && Nat.is_le(minimum, preferred) && RulePhysicalContentRules2.request_observation_valid(full, height, advance)),
+            RuleMeasurement.receipt_valid_observation(full, seen),
+            receipt_stages_complete(Nat.is_eq(generation, observed_generation), SafeText.string_equal(key, observed_key), RulePhysicalContentRules2.same_purpose(purpose, observed_purpose), Nat.is_le(minimum, preferred), (_ => RulePhysicalContentRules2.request_observation_valid(full, height, advance))),
+            receipt_predicate_complete(full, seen))
+
+def RuleMeasurement.receipt_uses_request_guard(request, observation):
+  match request:
+    case Content.Request{generation, key, Content.Value{node, font}, purpose, roots, policies}:
+      match observation:
+        case Content.Observation{observed_generation, observed_key, observed_purpose, minimum, preferred, height, advance}:
+          receipt_matches_complete(Content.Request{generation, key, Content.Value{node, font}, purpose, roots, policies},
+            Content.Observation{observed_generation, observed_key, observed_purpose, minimum, preferred, height, advance})
+
+def receipt_admission_checked_complete(+request: Content.Request, +observation: Content.Observation,
+  fallback: Unit -> Maybe<&2, Content.Observation>, +accepted: Bool,
+  observed: {RulePhysicalContentRules2.observation_matches(request, observation) == accepted : Bool}) ->
+  {RulePhysicalContentRules2.receipt_admission(request,
+    Categories.admit_checked(Content.Observation,
+      (candidate => RulePhysicalContentRules2.observation_matches(request, candidate)), observation, accepted, observed), fallback) ==
+    RuleMeasurement.required_receipt_pick(accepted, observation, fallback(Unit{})) : Maybe<&2, Content.Observation>}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+def receipt_scan_complete(+observations: +List<Content.Observation>, +request: Content.Request) ->
+  {RulePhysicalContentRules2.scan(observations, request) ==
+    RuleMeasurement.required_receipt(request, observations) : Maybe<&2, Content.Observation>}:
+  match observations:
+    case Nil{}: {==}
+    case Con{+observation, +rest}:
+      +actual_tail: Maybe<&2, Content.Observation> = RulePhysicalContentRules2.scan(rest, request)
+      +expected_tail: Maybe<&2, Content.Observation> = RuleMeasurement.required_receipt(request, rest)
+      +actual_match: Bool = RulePhysicalContentRules2.observation_matches(request, observation)
+      +expected_match: Bool = RuleMeasurement.receipt_valid_observation(request, observation)
+      +actual_step: Maybe<&2, Content.Observation> = RuleMeasurement.required_receipt_pick(actual_match, observation, actual_tail)
+      +matched_step: Maybe<&2, Content.Observation> = RuleMeasurement.required_receipt_pick(expected_match, observation, actual_tail)
+      Equal.trans(Maybe<&2, Content.Observation>,
+        RulePhysicalContentRules2.scan(observation <> rest, request), actual_step,
+        RuleMeasurement.required_receipt(request, observation <> rest),
+        receipt_admission_checked_complete(request, observation, (_ => actual_tail), actual_match, {==}),
+        Equal.trans(Maybe<&2, Content.Observation>, actual_step, matched_step,
+          RuleMeasurement.required_receipt(request, observation <> rest),
+          Equal.cong(Bool, Maybe<&2, Content.Observation>,
+            (accepted => RuleMeasurement.required_receipt_pick(accepted, observation, actual_tail)),
+            actual_match, expected_match, receipt_matches_complete(request, observation)),
+          Equal.cong(Maybe<&2, Content.Observation>, Maybe<&2, Content.Observation>,
+            (tail => RuleMeasurement.required_receipt_pick(expected_match, observation, tail)),
+            actual_tail, expected_tail, receipt_scan_complete(rest, request))))
+
+def RuleMeasurement.find_first_valid_receipt(request, observations):
+  receipt_scan_complete(observations, request)
+
+def RuleMeasurement.width_probe_dimensions(generation, key, node, font, width, roots, policies, height, advance):
+  Equal.trans(Bool, RulePhysicalContentRules2.request_observation_valid(Content.Request{generation, key, Content.Value{node, font}, Content.AtWidth{width}, roots, policies}, height, advance),
+    RulePhysicalContentRules2.primitive_observation_valid(node, height, advance), Dimensions.primitive_observation_valid(node, height, advance),
+    probe_or_false(RulePhysicalContentRules2.primitive_observation_valid(node, height, advance)),
+    MeasurementEvidence.measurements_primitive_observation_valid(node, height, advance))
+
+def rootless_natural_zero(+node: Source.Node, +key: String, +height: Nat) ->
+  {RulePhysicalContentRules2.natural_ui_zero(node, key, Nil{}, height) == False{} : Bool}:
+  match node:
+    case Source.RichText{identity, style, Source.RichContent{source, value, policy}, attachments, native_owner}: {==}
+    case Source.NativeAttachment{identity, target, attributes, style, children}: {==}
+    case Source.Box{identity, tag, style, attributes, children}: {==}
+    case Source.Control{identity, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}: {==}
+    case Source.Text{identity, value, font, wrapping}: {==}
+    case Source.Glyph{identity, drawing, style}: {==}
+    case Source.Field{identity, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}: {==}
+
+def rootless_zero(+purpose: Content.Purpose, +node: Source.Node, +key: String, +height: Nat) ->
+  {RulePhysicalContentRules2.zero_height_ui(purpose, node, key, Nil{}, height) == False{} : Bool}:
+  match purpose:
+    case Content.Natural{}: rootless_natural_zero(node, key, height)
+    case Content.AtWidth{width}: {==}
+
+def RuleMeasurement.rootless_probe_dimensions(generation, key, node, font, purpose, policies, height, advance):
+  Equal.trans(Bool, RulePhysicalContentRules2.request_observation_valid(Content.Request{generation, key, Content.Value{node, font}, purpose, Nil{}, policies}, height, advance),
+    RulePhysicalContentRules2.primitive_observation_valid(node, height, advance), Dimensions.primitive_observation_valid(node, height, advance),
+    Equal.trans(Bool,
+      RulePhysicalContentRules2.request_observation_valid(Content.Request{generation, key, Content.Value{node, font}, purpose, Nil{}, policies}, height, advance),
+      (RulePhysicalContentRules2.primitive_observation_valid(node, height, advance) || False{}),
+      RulePhysicalContentRules2.primitive_observation_valid(node, height, advance),
+      Equal.cong(Bool, Bool, (extra => RulePhysicalContentRules2.primitive_observation_valid(node, height, advance) || extra),
+        RulePhysicalContentRules2.zero_height_ui(purpose, node, key, Nil{}, height), False{}, rootless_zero(purpose, node, key, height)),
+      probe_or_false(RulePhysicalContentRules2.primitive_observation_valid(node, height, advance))),
+    MeasurementEvidence.measurements_primitive_observation_valid(node, height, advance))
+
+def ordinary_zero(+node: Source.Node, +purpose: Content.Purpose, +key: String, +roots: +List<Content.NativeRoot>, +height: Nat,
+  ordinary: {RuleMeasurement.ordinary_probe(node) == True{} : Bool}) ->
+  {RulePhysicalContentRules2.zero_height_ui(purpose, node, key, roots, height) == False{} : Bool}:
+  match node:
+    case Source.RichText{identity, style, Source.RichContent{source, value, policy}, attachments, native_owner}: Logic.impossible({RulePhysicalContentRules2.zero_height_ui(purpose, node, key, roots, height) == False{} : Bool}, ordinary)
+    case Source.NativeAttachment{identity, target, attributes, style, children}:
+      match purpose:
+        case Content.Natural{}: {==}
+        case Content.AtWidth{width}: {==}
+    case Source.Box{identity, tag, style, attributes, children}:
+      match purpose:
+        case Content.Natural{}: {==}
+        case Content.AtWidth{width}: {==}
+    case Source.Control{identity, tag, style, attributes, accessible_name, enabled, first_event, remaining_events, children}:
+      match purpose:
+        case Content.Natural{}: {==}
+        case Content.AtWidth{width}: {==}
+    case Source.Text{identity, value, font, wrapping}:
+      match purpose:
+        case Content.Natural{}: {==}
+        case Content.AtWidth{width}: {==}
+    case Source.Glyph{identity, drawing, style}:
+      match purpose:
+        case Content.Natural{}: {==}
+        case Content.AtWidth{width}: {==}
+    case Source.Field{identity, kind, style, attributes, value, placeholder, options, policy, accessible_name, enabled, first_event, remaining_events}:
+      match purpose:
+        case Content.Natural{}: {==}
+        case Content.AtWidth{width}: {==}
+
+def RuleMeasurement.ordinary_probe_dimensions(generation, key, node, font, purpose, roots, policies, height, advance, ordinary):
+  Equal.trans(Bool, RulePhysicalContentRules2.request_observation_valid(Content.Request{generation, key, Content.Value{node, font}, purpose, roots, policies}, height, advance),
+    RulePhysicalContentRules2.primitive_observation_valid(node, height, advance), Dimensions.primitive_observation_valid(node, height, advance),
+    Equal.trans(Bool,
+      RulePhysicalContentRules2.request_observation_valid(Content.Request{generation, key, Content.Value{node, font}, purpose, roots, policies}, height, advance),
+      (RulePhysicalContentRules2.primitive_observation_valid(node, height, advance) || False{}),
+      RulePhysicalContentRules2.primitive_observation_valid(node, height, advance),
+      Equal.cong(Bool, Bool, (extra => RulePhysicalContentRules2.primitive_observation_valid(node, height, advance) || extra),
+        RulePhysicalContentRules2.zero_height_ui(purpose, node, key, roots, height), False{}, ordinary_zero(node, purpose, key, roots, height, ordinary)),
+      probe_or_false(RulePhysicalContentRules2.primitive_observation_valid(node, height, advance))),
+    MeasurementEvidence.measurements_primitive_observation_valid(node, height, advance))
+
+def singleton_root_correspondence(+root: Content.NativeRoot, +key: String, +source: Code.Source) ->
+  {RulePhysicalContentRules2.owned_interactive_root(root <> Nil{}, key, Some{source}) ==
+    (RuleMeasurement.single_interactive_owner(root, key, source) || False{}) : Bool}:
+  match root:
+    case Content.NativeRoot{owner_key, target, tree, attributes, style}:
+      match target:
+        case Source.InteractiveTarget{identity}: {==}
+        case Source.ToolbarTarget{identity}: {==}
+        case Source.CodeBodyTarget{identity, wrap}: {==}
+        case Source.InteractiveSourceTarget{identity, exposed}: {==}
+        case Source.InteractiveFrameTarget{identity, active}: {==}
+
+def natural_zero_owned(+prior: Bool, +owned: Bool, evidence: {owned == True{} : Bool}) ->
+  {(prior || ((owned || False{}) && True{})) == True{} : Bool}:
+  Std.transport(Bool, True{}, (value => {(prior || ((value || False{}) && True{})) == True{} : Bool}),
+    probe_or_true(prior), owned, evidence)
+
+def natural_zero_foreign(+prior: Bool, +owned: Bool, +height: Nat, evidence: {owned == False{} : Bool}) ->
+  {(prior || ((owned || False{}) && Nat.is_eq(height, 0n))) == prior : Bool}:
+  Std.transport(Bool, False{}, (value => {(prior || ((value || False{}) && Nat.is_eq(height, 0n))) == prior : Bool}),
+    probe_or_false(prior), owned, evidence)
+
+def RuleMeasurement.natural_owned_ui_zero_admissible(generation, key, font, style, policy, source, value, root, advance, evidence):
+  Equal.trans(Bool,
+    RulePhysicalContentRules2.request_observation_valid(RuleMeasurement.rich_probe_request(generation, key, font, style, policy, source, value, Content.Natural{}, root), 0n, advance),
+    (RulePhysicalContentRules2.content_height_valid(value, 0n) || ((RuleMeasurement.single_interactive_owner(root, key, source) || False{}) && True{})), True{},
+    Equal.cong(Bool, Bool, (owned => RulePhysicalContentRules2.content_height_valid(value, 0n) || (owned && True{})),
+      RulePhysicalContentRules2.owned_interactive_root(root <> Nil{}, key, Some{source}),
+      (RuleMeasurement.single_interactive_owner(root, key, source) || False{}), singleton_root_correspondence(root, key, source)),
+    natural_zero_owned(RulePhysicalContentRules2.content_height_valid(value, 0n), RuleMeasurement.single_interactive_owner(root, key, source), evidence))
+
+def RuleMeasurement.foreign_ui_dimensions(generation, key, font, style, policy, source, value, root, height, advance, evidence):
+  Equal.trans(Bool, RulePhysicalContentRules2.request_observation_valid(RuleMeasurement.rich_probe_request(generation, key, font, style, policy, source, value, Content.Natural{}, root), height, advance),
+    RulePhysicalContentRules2.content_height_valid(value, height), Dimensions.content_height_valid(value, height),
+    Equal.trans(Bool,
+      RulePhysicalContentRules2.request_observation_valid(RuleMeasurement.rich_probe_request(generation, key, font, style, policy, source, value, Content.Natural{}, root), height, advance),
+      (RulePhysicalContentRules2.content_height_valid(value, height) || ((RuleMeasurement.single_interactive_owner(root, key, source) || False{}) && Nat.is_eq(height, 0n))),
+      RulePhysicalContentRules2.content_height_valid(value, height),
+      Equal.cong(Bool, Bool, (owned => RulePhysicalContentRules2.content_height_valid(value, height) || (owned && Nat.is_eq(height, 0n))),
+        RulePhysicalContentRules2.owned_interactive_root(root <> Nil{}, key, Some{source}),
+        (RuleMeasurement.single_interactive_owner(root, key, source) || False{}), singleton_root_correspondence(root, key, source)),
+      natural_zero_foreign(RulePhysicalContentRules2.content_height_valid(value, height), RuleMeasurement.single_interactive_owner(root, key, source), height, evidence)),
+    MeasurementEvidence.measurements_content_height_valid(value, height))
+
+def RuleMeasurement.foreign_root_owner_rejected(key, source, owner_key, target, tree, attributes, style, evidence):
+  Equal.cong(Bool, Bool, (owned => owned && RuleMeasurement.target_interactive_owner(target, source)),
+    String.eq(owner_key, key), False{}, evidence)
+
+def RuleMeasurement.foreign_root_source_rejected(key, source, owner_key, identity, tree, attributes, style, evidence):
+  Equal.trans(Bool,
+    (String.eq(owner_key, key) && Code.belongs(identity, source)), (String.eq(owner_key, key) && False{}), False{},
+    Equal.cong(Bool, Bool, (belongs => String.eq(owner_key, key) && belongs), Code.belongs(identity, source), False{}, evidence),
+    probe_and_false(String.eq(owner_key, key)))
+
+def viewport_purpose_complete(+first: Content.Purpose, +second: Content.Purpose) ->
+  {RulePhysicalContentRules2.same_purpose(first, second) == RuleMeasurement.required_viewport_purpose(first, second) : Bool}:
+  match first second:
+    case Content.Natural{} Content.Natural{}: {==}
+    case Content.Natural{} Content.AtWidth{width}: {==}
+    case Content.AtWidth{width} Content.Natural{}: {==}
+    case Content.AtWidth{first_width} Content.AtWidth{second_width}: {==}
+
+def viewport_key_guard_complete(+eligible: Bool, +encoded: String, +target: Source.NativeTarget) ->
+  {NativePhysical.viewport_key_matches(eligible, encoded, target) ==
+    Bool.and(eligible, String.eq(encoded, Source.target_key(target))) : Bool}:
+  match eligible:
+    case True{}: {==}
+    case False{}: {==}
+
+def viewport_slot_keys(+eligible: Bool, +target: Source.NativeTarget, +observed: Source.NativeTarget) ->
+  {Bool.and(eligible, String.eq(Source.target_key(target), Source.target_key(observed))) == Bool.and(eligible, String.eq(Dimensions.target_key(target), Dimensions.target_key(observed))) : Bool}:
+  %Equal.sym(String, Source.target_key(target), Dimensions.target_key(target), MeasurementEvidence.target_key(target)) :
+    {Bool.and(eligible, String.eq(_, Source.target_key(observed))) == Bool.and(eligible, String.eq(Dimensions.target_key(target), Dimensions.target_key(observed))) : Bool}
+  Equal.cong(String, Bool, (key => Bool.and(eligible, String.eq(Dimensions.target_key(target), key))),
+    Source.target_key(observed), Dimensions.target_key(observed), MeasurementEvidence.target_key(observed))
+
+def viewport_matches_prepared_key(+generation: Nat, +owner: String, +purpose: Content.Purpose, +target: Source.NativeTarget, +value: Content.NativeViewport) ->
+  {NativePhysical.viewport_matches_key(generation, owner, purpose, Source.target_key(target), value) == RuleMeasurement.required_viewport_matches(NativePhysical.Query{generation, owner, purpose, target}, value) : Bool}:
+  match value:
+    case Content.NativeViewport{+observed_generation, +observed_owner, +observed_purpose, +observed_target, +bounds}:
+      +eligible = Nat.is_eq(generation, observed_generation) && String.eq(owner, observed_owner) && RulePhysicalContentRules2.same_purpose(purpose, observed_purpose)
+      +required = Nat.is_eq(generation, observed_generation) && String.eq(owner, observed_owner) && RuleMeasurement.required_viewport_purpose(purpose, observed_purpose)
+      +seen: Content.NativeViewport = Content.NativeViewport{observed_generation, observed_owner, observed_purpose, observed_target, bounds}
+      Equal.trans(Bool, NativePhysical.viewport_matches_key(generation, owner, purpose, Source.target_key(target), seen),
+        Bool.and(eligible, String.eq(Source.target_key(target), Source.target_key(observed_target))), RuleMeasurement.required_viewport_matches(NativePhysical.Query{generation, owner, purpose, target}, seen),
+        viewport_key_guard_complete(eligible, Source.target_key(target), observed_target),
+        Equal.trans(Bool, Bool.and(eligible, String.eq(Source.target_key(target), Source.target_key(observed_target))),
+          Bool.and(required, String.eq(Source.target_key(target), Source.target_key(observed_target))), RuleMeasurement.required_viewport_matches(NativePhysical.Query{generation, owner, purpose, target}, seen),
+          Equal.cong(Bool, Bool, (same => Bool.and(Nat.is_eq(generation, observed_generation) && String.eq(owner, observed_owner) && same, String.eq(Source.target_key(target), Source.target_key(observed_target)))),
+            RulePhysicalContentRules2.same_purpose(purpose, observed_purpose), RuleMeasurement.required_viewport_purpose(purpose, observed_purpose), viewport_purpose_complete(purpose, observed_purpose)),
+          viewport_slot_keys(required, target, observed_target)))
+
+def viewport_lazy_pick_complete(+same: Bool, +value: Content.NativeViewport,
+  fallback: Unit -> Maybe<&2, Content.NativeViewport>) ->
+  {NativePhysical.select_viewport_lazy(same, value, fallback) ==
+    RuleMeasurement.required_viewport_pick(same, value, fallback(Unit{})) : Maybe<&2, Content.NativeViewport>}:
+  match same:
+    case True{}: {==}
+    case False{}: {==}
+
+def viewport_scan_complete(+generation: Nat, +owner: String, +purpose: Content.Purpose,
+  +target: Source.NativeTarget, +values: +List<Content.NativeViewport>) ->
+  {NativePhysical.viewport_with_key(generation, owner, purpose, Source.target_key(target), values) ==
+    RuleMeasurement.required_viewport(NativePhysical.Query{generation, owner, purpose, target}, values) : Maybe<&2, Content.NativeViewport>}:
+  match values:
+    case Nil{}: {==}
+    case Con{+value, +rest}:
+      +encoded = Source.target_key(target)
+      +query: NativePhysical.Query = NativePhysical.Query{generation, owner, purpose, target}
+      +actual_tail: Maybe<&2, Content.NativeViewport> = NativePhysical.viewport_with_key(generation, owner, purpose, encoded, rest)
+      +expected_tail: Maybe<&2, Content.NativeViewport> = RuleMeasurement.required_viewport(query, rest)
+      +actual_match: Bool = NativePhysical.viewport_matches_key(generation, owner, purpose, encoded, value)
+      +expected_match: Bool = RuleMeasurement.required_viewport_matches(query, value)
+      +actual_step: Maybe<&2, Content.NativeViewport> = RuleMeasurement.required_viewport_pick(actual_match, value, actual_tail)
+      +matched_step: Maybe<&2, Content.NativeViewport> = RuleMeasurement.required_viewport_pick(expected_match, value, actual_tail)
+      Equal.trans(Maybe<&2, Content.NativeViewport>,
+        NativePhysical.viewport_with_key(generation, owner, purpose, encoded, value <> rest), actual_step,
+        RuleMeasurement.required_viewport(query, value <> rest),
+        viewport_lazy_pick_complete(actual_match, value, (_ => actual_tail)),
+        Equal.trans(Maybe<&2, Content.NativeViewport>, actual_step, matched_step,
+          RuleMeasurement.required_viewport(query, value <> rest),
+          Equal.cong(Bool, Maybe<&2, Content.NativeViewport>,
+            (same => RuleMeasurement.required_viewport_pick(same, value, actual_tail)),
+            actual_match, expected_match, viewport_matches_prepared_key(generation, owner, purpose, target, value)),
+          Equal.cong(Maybe<&2, Content.NativeViewport>, Maybe<&2, Content.NativeViewport>,
+            (tail => RuleMeasurement.required_viewport_pick(expected_match, value, tail)),
+            actual_tail, expected_tail, viewport_scan_complete(generation, owner, purpose, target, rest))))
+
+def viewport_scan_key_correspondence(+generation: Nat, +owner: String, +purpose: Content.Purpose,
+  +target: Source.NativeTarget, +encoded: String, +values: +List<Content.NativeViewport>,
+  correct: {encoded == Source.target_key(target) : String}) ->
+  {NativePhysical.viewport_with_key(generation, owner, purpose, encoded, values) ==
+    RuleMeasurement.required_viewport(NativePhysical.Query{generation, owner, purpose, target}, values) : Maybe<&2, Content.NativeViewport>}:
+  Equal.trans(Maybe<&2, Content.NativeViewport>,
+    NativePhysical.viewport_with_key(generation, owner, purpose, encoded, values),
+    NativePhysical.viewport_with_key(generation, owner, purpose, Source.target_key(target), values),
+    RuleMeasurement.required_viewport(NativePhysical.Query{generation, owner, purpose, target}, values),
+    Equal.cong(String, Maybe<&2, Content.NativeViewport>,
+      (key => NativePhysical.viewport_with_key(generation, owner, purpose, key, values)),
+      encoded, Source.target_key(target), correct),
+    viewport_scan_complete(generation, owner, purpose, target, values))
+
+def RuleMeasurement.viewport_matches_complete(query, value):
+  match query:
+    case NativePhysical.Query{generation, owner, purpose, target}:
+      viewport_matches_prepared_key(generation, owner, purpose, target, value)
+
+def complete_viewport_lookup(+query: NativePhysical.Query, +values: +List<Content.NativeViewport>) ->
+  {NativePhysical.viewport(query, values) == RuleMeasurement.required_viewport(query, values) : Maybe<&2, Content.NativeViewport>}:
+  match query values:
+    case NativePhysical.Query{generation, owner, purpose, target} Nil{}: {==}
+    case NativePhysical.Query{generation, owner, purpose, target} Con{value, rest}:
+      viewport_scan_complete(generation, owner, purpose, target, value <> rest)
+
+def RuleMeasurement.viewport_complete(query, values):
+  complete_viewport_lookup(query, values)
+
+def RuleMeasurement.viewport_empty(query):
+  match query:
+    case NativePhysical.Query{generation, owner, purpose, target}: {==}
+
+def required_viewport_head(+query: NativePhysical.Query, +value: Content.NativeViewport,
+  +rest: +List<Content.NativeViewport>, accepted: {RuleMeasurement.required_viewport_matches(query, value) == True{} : Bool}) ->
+  {RuleMeasurement.required_viewport(query, value <> rest) == Some{value} : Maybe<&2, Content.NativeViewport>}:
+  Equal.cong(Bool, Maybe<&2, Content.NativeViewport>,
+    (same => RuleMeasurement.required_viewport_pick(same, value, RuleMeasurement.required_viewport(query, rest))),
+    RuleMeasurement.required_viewport_matches(query, value), True{}, accepted)
+
+def required_viewport_skip(+query: NativePhysical.Query, +value: Content.NativeViewport,
+  +rest: +List<Content.NativeViewport>, rejected: {RuleMeasurement.required_viewport_matches(query, value) == False{} : Bool}) ->
+  {RuleMeasurement.required_viewport(query, value <> rest) == RuleMeasurement.required_viewport(query, rest) : Maybe<&2, Content.NativeViewport>}:
+  Equal.cong(Bool, Maybe<&2, Content.NativeViewport>,
+    (same => RuleMeasurement.required_viewport_pick(same, value, RuleMeasurement.required_viewport(query, rest))),
+    RuleMeasurement.required_viewport_matches(query, value), False{}, rejected)
+
+def RuleMeasurement.viewport_matching_head(query, value, rest, accepted):
+  Equal.trans(Maybe<&2, Content.NativeViewport>, NativePhysical.viewport(query, value <> rest),
+    RuleMeasurement.required_viewport(query, value <> rest), Some{value},
+    complete_viewport_lookup(query, value <> rest), required_viewport_head(query, value, rest, accepted))
+
+def RuleMeasurement.viewport_nonmatching_head(query, value, rest, rejected):
+  Equal.trans(Maybe<&2, Content.NativeViewport>, NativePhysical.viewport(query, value <> rest),
+    RuleMeasurement.required_viewport(query, value <> rest), NativePhysical.viewport(query, rest),
+    complete_viewport_lookup(query, value <> rest),
+    Equal.trans(Maybe<&2, Content.NativeViewport>, RuleMeasurement.required_viewport(query, value <> rest),
+      RuleMeasurement.required_viewport(query, rest), NativePhysical.viewport(query, rest),
+      required_viewport_skip(query, value, rest, rejected),
+      Equal.sym(Maybe<&2, Content.NativeViewport>, NativePhysical.viewport(query, rest), RuleMeasurement.required_viewport(query, rest),
+        complete_viewport_lookup(query, rest))))
+
+def RuleMeasurement.viewport_first_duplicate(query, first, second, rest, first_matches, second_matches):
+  Equal.trans(Maybe<&2, Content.NativeViewport>, NativePhysical.viewport(query, first <> second <> rest),
+    RuleMeasurement.required_viewport(query, first <> second <> rest), Some{first},
+    complete_viewport_lookup(query, first <> second <> rest), required_viewport_head(query, first, second <> rest, first_matches))
+
+def height_lazy_complete(+matches: Bool, +height: Nat, fallback: Unit -> Maybe<&2, Nat>) ->
+  {Allocation.select_height_lazy(matches, height, fallback) ==
+    RulePhysicalSourceRules.required_height_pick(matches, height, fallback(Unit{})) : Maybe<&2, Nat>}:
+  match matches:
+    case False{}: {==}
+    case True{}: {==}
+
+def height_scan_complete(+samples: +List<Model.HeightSample>, +key: String, +width: Nat) ->
+  {Allocation.find_height_samples(samples, key, width) ==
+    RulePhysicalSourceRules.required_height_scan(samples, key, width) : Maybe<&2, Nat>}:
+  match samples:
+    case Nil{}: {==}
+    case Con{Model.HeightSample{+sample_key, +sample_width, +height}, +rest}:
+      +actual_tail: Maybe<&2, Nat> = Allocation.find_height_samples(rest, key, width)
+      +expected_tail: Maybe<&2, Nat> = RulePhysicalSourceRules.required_height_scan(rest, key, width)
+      +actual_match: Bool = SafeText.string_equal(key, sample_key) && Nat.is_eq(width, sample_width)
+      +expected_match: Bool = String.eq(key, sample_key) && Nat.is_eq(width, sample_width)
+      +actual_step: Maybe<&2, Nat> = RulePhysicalSourceRules.required_height_pick(actual_match, height, actual_tail)
+      +matched_step: Maybe<&2, Nat> = RulePhysicalSourceRules.required_height_pick(expected_match, height, actual_tail)
+      Equal.trans(Maybe<&2, Nat>,
+        Allocation.find_height_samples(Model.HeightSample{sample_key, sample_width, height} <> rest, key, width), actual_step,
+        RulePhysicalSourceRules.required_height_scan(Model.HeightSample{sample_key, sample_width, height} <> rest, key, width),
+        height_lazy_complete(actual_match, height, (_ => actual_tail)),
+        Equal.trans(Maybe<&2, Nat>, actual_step, matched_step,
+          RulePhysicalSourceRules.required_height_scan(Model.HeightSample{sample_key, sample_width, height} <> rest, key, width),
+          Equal.cong(Bool, Maybe<&2, Nat>,
+            (matches => RulePhysicalSourceRules.required_height_pick(matches, height, actual_tail)),
+            actual_match, expected_match,
+            Equal.cong(Bool, Bool, (same => same && Nat.is_eq(width, sample_width)),
+              SafeText.string_equal(key, sample_key), String.eq(key, sample_key), TextProof.public_refines(key, sample_key))),
+          Equal.cong(Maybe<&2, Nat>, Maybe<&2, Nat>,
+            (tail => RulePhysicalSourceRules.required_height_pick(expected_match, height, tail)),
+            actual_tail, expected_tail, height_scan_complete(rest, key, width))))
+
+def RulePhysicalSourceRules.height_lookup_complete(samples, key, width):
+  height_scan_complete(samples, key, width)
+
+def RulePhysicalSourceRules.public_height_lookup_complete(key, width, samples):
+  height_scan_complete(samples, key, width)
+
+def leaf_height_complete(+height: Model.Height, +width: Nat, +samples: +List<Model.HeightSample>) ->
+  {Allocation.leaf_height(height, width, samples) ==
+    RulePhysicalSourceRules.required_leaf_height(height, width, samples) : Maybe<&2, Nat>}:
+  match height:
+    case Model.FixedHeight{value}: {==}
+    case Model.HeightAtWidth{key}: height_scan_complete(samples, key, width)
+
+def RulePhysicalSourceRules.leaf_height_lookup_complete(height, width, samples):
+  leaf_height_complete(height, width, samples)
+
+def leaf_height_completion_complete(~A: Data, ~E: Data, +sample: Maybe<&2, Nat>,
+  +key: String, +value: A, +interaction: Model.Interaction<E>, +rule: Model.Rule,
+  +demand: Space.Demand, +height: Model.Height, +inner_width: Nat, +outer_width: Nat,
+  +offset: Nat, +parent: Allocation.WidthReturn<A, E>, +samples: +List<Model.HeightSample>) ->
+  {Allocation.width_step(~A, ~E,
+    Allocation.WidthLeafHeight{sample, key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent}, samples) ==
+    RulePhysicalSourceRules.required_leaf_height_completion(~A, ~E, sample, key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent) : Allocation.WidthState<A, E>}:
+  match sample height:
+    case None{} Model.FixedHeight{fixed}: {==}
+    case None{} Model.HeightAtWidth{identity}: {==}
+    case Some{content_height} Model.FixedHeight{fixed}: {==}
+    case Some{content_height} Model.HeightAtWidth{identity}: {==}
+
+def RulePhysicalSourceRules.width_leaf_measurement_result(A, E, key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent, samples):
+  leaf_height_completion_complete(~A, ~E, RulePhysicalSourceRules.required_leaf_height(height, inner_width, samples), key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent, samples)
+
+def complete_measured_receipt(+request: Content.Request, +rule: Model.Rule, +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>, +observations: +List<Content.Observation>) ->
+  {SourceSource.measured(request, rule, roots, policies, observations) == Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies) : SourceSource.Forest}:
+  Equal.trans(SourceSource.Forest, SourceSource.measured(request, rule, roots, policies, observations),
+    SourceSource.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies),
+    Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies),
+    Equal.cong((Maybe<&2, Content.Observation>), SourceSource.Forest, (found => SourceSource.receipt(found, request, rule, roots, policies)),
+      RulePhysicalContentRules2.find(request, observations), RuleMeasurement.required_receipt(request, observations), receipt_scan_complete(observations, request)),
+    MeasurementEvidence.sourcesource_receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies))
+
+def RuleMeasurement.measured_receipt_complete(request, rule, roots, policies, observations): complete_measured_receipt(request, rule, roots, policies, observations)
+
+def complete_preparation_receipt(+request: Content.Request, +rule: Model.Rule, +roots: +List<Content.NativeRoot>, +policies: +List<Content.NativePolicy>, +observations: +List<Content.Observation>, +snapshot: Content.Snapshot) ->
+  {SourceSource.preparation(SourceSource.measured(request, rule, roots, policies, observations), snapshot) == Dimensions.preparation(Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies), snapshot) : Content.Preparation}:
+  Equal.trans(Content.Preparation, SourceSource.preparation(SourceSource.measured(request, rule, roots, policies, observations), snapshot),
+    SourceSource.preparation(Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies), snapshot),
+    Dimensions.preparation(Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies), snapshot),
+    Equal.cong(SourceSource.Forest, Content.Preparation, (forest => SourceSource.preparation(forest, snapshot)),
+      SourceSource.measured(request, rule, roots, policies, observations), Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies), complete_measured_receipt(request, rule, roots, policies, observations)),
+    MeasurementEvidence.sourcesource_preparation(Dimensions.receipt(RuleMeasurement.required_receipt(request, observations), request, rule, roots, policies), snapshot))
+
+def RuleMeasurement.preparation_receipt_complete(request, rule, roots, policies, observations, snapshot): complete_preparation_receipt(request, rule, roots, policies, observations, snapshot)

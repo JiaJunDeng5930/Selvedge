@@ -3,6 +3,10 @@ import Base
 import ../../interaction/STATE.bend as Core
 import ./MODEL.bend as Model
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
+import ../../interaction/presentation/CONTRACT.bend as SemanticRules
+import ../../interaction/experience/PROGRAM.bend as UX
+import ../../interaction/interactive_markdown/TYPES.bend as IM
+import ../../interaction/submission/FIELDS.bend as Forms
 import ../../interaction/IDENTITY.bend as Identity
 import ../../interaction/INPUT.bend as U
 import ../../interaction/session/MODEL.bend as E
@@ -17,6 +21,20 @@ import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../runtime/SEMANTICS.bend as Browser
 import ../controls/PROGRAM.bend as Controls
+import ../reading/MODEL.bend as Reading
+import ../../bendlib/association-map.bend as Finite
+
+def expected_same_target(first: Model.Target, second: Model.Target) -> Bool:
+  match first second:
+    case Model.Product{first} Model.Product{second}: String.eq(first, second)
+    case Model.Content{first_owner, first} Model.Content{second_owner, second}:
+      String.eq(first_owner, second_owner) && String.eq(first, second)
+    case _ _: False{}
+
+law same_target_exact:
+  for +first: Model.Target
+  for +second: Model.Target
+  {Model.same_target(first, second) == expected_same_target(first, second) : Bool}
 
 type CycleRequirements is Type:
   CycleRequirements{
@@ -212,18 +230,152 @@ def effects(value: Platform.Decision) -> +List<Platform.Effect>:
   Platform.Decision{product, platform, effects} = value
   effects
 
-def expected_effects(decision: InteractionTypes.Decision, +platform: Platform.Platform, +current: Model.Scope) -> +List<Platform.Effect>:
-  InteractionTypes.Decision{+observed_state_1, reply, runtime, +interaction, service, durable} = decision
-  +application = Core.application(observed_state_1)
-  +readers = Platform.readers(platform)
-  editors = Platform.editors(platform)
-  +focused = Platform.focused(platform)
-  +ticket = Platform.focus_ticket(platform)
-  +capacity = Platform.capacity(platform)
-  +scope = Platform.scope(platform)
-  +trigger = Platform.focus_transition(scope, current, focused, Platform.active_target(observed_state_1, capacity, focused))
-  List.append(&2, Platform.Effect, Platform.scope_effects(trigger, scope, current, interaction,
-    Platform.focus_revision(trigger, interaction, ticket)), Platform.layout_for(application, readers))
+def required_scope_nodes(found: Maybe<&2, SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: Nil{}
+    case Some{node}: [node]
+
+def required_active_nodes(surface: SurfaceTypes.Surface) -> +List<SurfaceTypes.Node>:
+  SurfaceTypes.Surface{content, base, overlays, scope} = surface
+  match scope:
+    case None{}: List.append(&2, SurfaceTypes.Node, base, overlays)
+    case Some{key}: required_scope_nodes(SemanticRules.first_named_node(overlays, key))
+
+def required_available(availability: View.Availability) -> Bool:
+  match availability:
+    case View.Available{}: True{}
+    case View.NeedsDirectoryObservation{}: True{}
+    case View.Unavailable{reason}: False{}
+
+def required_focusable(meaning: SurfaceTypes.Meaning) -> Bool:
+  match meaning:
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, IM.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: enabled
+    case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, IM.ActionBinding{kind, enabled, pending}, children}}: enabled && Bool.not(pending)
+    case SurfaceTypes.InteractiveView{event, command, label, enabled}: enabled
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: UX.assessment_ready(assessment) && required_available(availability)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: UX.support_visible(support) && required_available(availability)
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: required_available(availability)
+    case SurfaceTypes.Activate{input, availability}: required_available(availability)
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: required_available(availability)
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: True{}
+    case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: required_available(availability)
+    case SurfaceTypes.Edit{editor, field, Forms.DisplayOnly{}, value, choices}: False{}
+    case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: False{}
+    case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: False{}
+    case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
+    case SurfaceTypes.SearchChoices{query}: True{}
+    case SurfaceTypes.BoardSearch{filter}: True{}
+    case SurfaceTypes.ReceiveFile{editor, enabled}: enabled
+    case SurfaceTypes.EnterDirectory{editor, text}: True{}
+    case SurfaceTypes.DirectoryBrowserLocation{value}: True{}
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: enabled
+    case _: False{}
+
+def required_product_target(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, meaning, children}}: required_focusable(meaning)
+
+def required_content_owner(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
+  match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attrs, binding, original}}, children}}: String.eq(tag, "markdown")
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReadOnly{text}, children}}: True{}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InformationText{information_role}, children}}: True{}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.RichText{source, value}, children}}: True{}
+    case _: False{}
+
+def required_target_eligible(+surface: SurfaceTypes.Surface, target: Model.Target) -> Bool:
+  match target:
+    case Model.Product{identity}: required_product_target(SemanticRules.first_named_node(required_active_nodes(surface), identity))
+    case Model.Content{owner, identity}: required_content_owner(SemanticRules.first_named_node(required_active_nodes(surface), owner))
+
+def required_same_occurrence(previous: Maybe<&2, Nat>, current: Maybe<&2, Nat>) -> Bool:
+  match previous current:
+    case None{} None{}: True{}
+    case Some{before} Some{after}: Nat.is_eq(before, after)
+    case _ _: False{}
+
+# A loading dialog hands its root focus to the new initial input only if the
+# user has not moved elsewhere. Content focus never requests this handoff.
+def required_root_transfer(previous: Model.Scope, current: Model.Scope, target: Model.Target) -> Bool:
+  match previous current target:
+    case Model.Temporary{+old_owner, +old_initial, old_restore, old_occurrence}
+      Model.Temporary{new_owner, initial, restore, occurrence} Model.Product{focused}:
+      Bool.pick(Bool, String.eq(focused, old_initial),
+        (String.eq(old_owner, new_owner) && String.eq(old_initial, old_owner)) && Bool.not(String.eq(old_initial, initial)), False{})
+    case _ _ _: False{}
+
+def required_transition(previous: Model.Scope, +current: Model.Scope, +target: Model.Target, eligible: Bool) -> Bool:
+  match previous current:
+    case Model.Document{} Model.Document{}: False{}
+    case Model.Document{} Model.Temporary{identity, initial, restore, occurrence}: True{}
+    case Model.Temporary{identity, initial, restore, occurrence} Model.Document{}: True{}
+    case Model.Temporary{+old_owner, +old_initial, +old_restore, +old_occurrence} Model.Temporary{+owner, +initial, +restore, +occurrence}:
+      (Bool.not(String.eq(old_owner, owner) && required_same_occurrence(old_occurrence, occurrence)) || Bool.not(eligible)) ||
+        required_root_transfer(Model.Temporary{old_owner, old_initial, old_restore, old_occurrence}, Model.Temporary{owner, initial, restore, occurrence}, target)
+
+def required_explicit_focus(effects: +List<E.Effect>) -> Bool:
+  match effects:
+    case Nil{}: False{}
+    case Con{E.Attend{target}, rest}: True{}
+    case Con{other, rest}: required_explicit_focus(rest)
+
+def required_focus_ticket(transition: Bool, effects: +List<E.Effect>, +ticket: Nat) -> Nat:
+  Bool.pick(Nat, transition || required_explicit_focus(effects), (ticket + 1n : Nat), ticket)
+
+def required_explicit_effects(effects: +List<E.Effect>, +ticket: Nat) -> +List<Platform.Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{E.Attend{target}, rest}: Platform.Focus{ticket, Model.Product{target}} <> required_explicit_effects(rest, ticket)
+    case Con{E.ContentEffect{identity, effect}, rest}: Platform.Clipboard{identity, effect} <> required_explicit_effects(rest, ticket)
+    case Con{other, rest}: required_explicit_effects(rest, ticket)
+
+def required_content_effects(effects: +List<E.Effect>) -> +List<Platform.Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{E.ContentEffect{identity, effect}, rest}: Platform.Clipboard{identity, effect} <> required_content_effects(rest)
+    case Con{other, rest}: required_content_effects(rest)
+
+def required_scope_effects(transition: Bool, previous: Model.Scope, current: Model.Scope,
+  +effects: +List<E.Effect>, +ticket: Nat) -> +List<Platform.Effect>:
+  match transition:
+    case False{}: required_explicit_effects(effects, ticket)
+    case True{}:
+      Bool.pick((+List<Platform.Effect>), required_explicit_focus(effects), required_explicit_effects(effects, ticket),
+        Platform.ScopeFocus{ticket, previous, current} <> required_content_effects(effects))
+
+def required_bookmark(found: Maybe<&2, Reading.Bookmark>) -> Reading.Bookmark:
+  match found:
+    case None{}: Reading.Bookmark{None{}}
+    case Some{bookmark}: bookmark
+
+def required_reading_effects(effects: +List<Reading.Effect>, +task: Nat, +generation: Nat) -> +List<Platform.Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{effect, rest}: Platform.ApplyReading{task, generation, effect} <> required_reading_effects(rest, task, generation)
+
+def required_route_layout(route: U.Route, +readers: +List<Finite.Entry(E.Reader)>, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Platform.Effect>:
+  match route:
+    case U.Conversation{+task}:
+      required_reading_effects(Reading.layout(E.reader_position(E.reader(readers, task)),
+        required_bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))), task, E.reader_generation(E.reader(readers, task)))
+    case _: Nil{}
+
+def required_layout(application: E.Application, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Platform.Effect>:
+  +session = E.session(application)
+  required_route_layout(E.route(session), E.readers(session), bookmarks)
+
+def required_commit_effects(decision: InteractionTypes.Decision, +platform: Platform.Platform, +current: Model.Scope, +transition: Bool) -> +List<Platform.Effect>:
+  InteractionTypes.Decision{+core, reply, runtime, +interaction, service, durable} = decision
+  Platform.Platform{+readers, editors, focused, +ticket, reduced, capacity, +previous} = platform
+  List.append(&2, Platform.Effect, required_scope_effects(transition, previous, current, interaction,
+    required_focus_ticket(transition, interaction, ticket)), required_layout(Core.application(core), readers))
+
+def expected_effects(+decision: InteractionTypes.Decision, +platform: Platform.Platform, +current: Model.Scope) -> +List<Platform.Effect>:
+  InteractionTypes.Decision{+core, reply, runtime, interaction, service, durable} = decision
+  Platform.Platform{readers, editors, +focused, ticket, reduced, +capacity, +previous} = platform
+  required_commit_effects(decision, platform, current,
+    required_transition(previous, current, focused, required_target_eligible(InterfaceView.observe(capacity, core), focused)))
 
 type FocusRetentionRequirements is Type:
   FocusRetentionRequirements{
@@ -281,6 +433,35 @@ law content_observation_preserves_core:
   for identity: String
   for +core: InteractionTypes.State
   {Platform.decision_product(Platform.observed_focus(platform, True{}, Model.Content{owner, identity}, core)) == Platform.unchanged(core) : InteractionTypes.Decision}
+
+def expected_product_focus_observation(+core: InteractionTypes.State, platform: Platform.Platform, identity: String) -> Platform.Decision:
+  Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  Platform.Decision{Platform.unchanged(core),
+    Platform.Platform{readers, editors, Model.Product{identity}, (ticket + 1n : Nat), reduced, capacity, scope}, Nil{}}
+
+law active_product_focus_observation:
+  for +core: InteractionTypes.State
+  for +platform: Platform.Platform
+  for +identity: String
+  for active: {Platform.active_focus(core, Platform.capacity(platform), identity) == True{} : Bool}
+  {Platform.step(Platform.FocusObserved{identity}, Platform.State{core, platform}) ==
+    expected_product_focus_observation(core, platform, identity) : Platform.Decision}
+
+law available_surface_focus_observation:
+  for +core: InteractionTypes.State
+  for +platform: Platform.Platform
+  for +identity: String
+  for +key: Identity.Key
+  for +semantic: String
+  for +label: String
+  for +role: SurfaceTypes.Role
+  for +meaning: SurfaceTypes.Meaning
+  for +children: +List<SurfaceTypes.Node>
+  for found: {InterfaceView.find_node(InterfaceView.active_nodes(InterfaceView.observe(Platform.capacity(platform), core)), identity) ==
+    Some{SurfaceTypes.Node{key, semantic, label, role, meaning, children}} : Maybe<&2, SurfaceTypes.Node>}
+  for available: {InterfaceView.focusable(meaning) == True{} : Bool}
+  {Platform.step(Platform.FocusObserved{identity}, Platform.State{core, platform}) ==
+    expected_product_focus_observation(core, platform, identity) : Platform.Decision}
 
 def application_layers(+application: E.Application) -> +List<E.Layer>:
   +observed_session_1 = E.session(application)

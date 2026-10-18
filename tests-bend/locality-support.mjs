@@ -5,11 +5,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { bendSources } from '../scripts/check-components.mjs';
-import { compiler } from '../scripts/toolchain.mjs';
+import { compiler, compilerEnvironment, compilerInvocation } from '../scripts/toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const binary = compiler();
 const environment = { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' };
+const compilationEnvironment = { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' };
 
 export async function specimen(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-locality-'));
@@ -60,10 +61,11 @@ export function replaceDefinition(source, name, definition) {
 export async function nativeBuild(directory, entry = 'MAIN.bend', { signal, timeout = 300_000 } = {}) {
   signal?.throwIfAborted();
   const executable = path.join(directory, 'locality-native');
+  const invocation = compilerInvocation(binary, [entry, '-o', executable]);
   await new Promise((resolve, reject) => {
     const grouped = process.platform !== 'win32';
-    const child = spawn(binary, [entry, '-o', executable], {
-      cwd: directory, env: environment, detached: grouped, stdio: ['ignore', 'pipe', 'pipe'],
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: directory, env: compilationEnvironment, detached: grouped, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '', stderr = '', failure;
     const stop = error => {

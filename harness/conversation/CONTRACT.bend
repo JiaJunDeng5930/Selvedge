@@ -33,8 +33,8 @@ def visible_sources(groups: +List<Actual.VisibleGroup>) -> +List<D.Message>:
 def text(source: D.Message) -> String:
   match source:
     case D.UserMessage{value}: value
-    case D.AssistantMessage{value}: value
-    case D.ModelContext{value}: Content.provider_text(value)
+    case D.AssistantMessage{origin, value}: value
+    case D.ModelContext{origin, value}: Content.provider_text(value)
     case _: ""
 
 def text_agreement(groups: +List<Actual.Group>) -> Type:

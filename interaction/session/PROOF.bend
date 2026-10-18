@@ -1,3 +1,11 @@
+import ../interactive_markdown/DOCUMENTS.bend as Documents
+import ../interactive_markdown/TYPES.bend as Interactive
+import ../interactive_markdown/MODEL.bend as InteractiveCore
+import ../interactive_markdown/CONTRACT.bend as InteractiveRequirement
+import ../interactive_markdown/PROOF.bend as InteractiveEvidence
+import ../interactive_markdown/documents-proof.bend as DocumentRequirement
+import ../interactive_markdown/documents-contract.bend as DocumentDomain
+import ../presentation/surface-proof.bend as SurfaceEvidence
 import Base
 import ../submission/FIELDS.bend as Forms
 import ../../bendlib/categories.bend as Categories
@@ -9,6 +17,7 @@ import ../../harness/PROGRAM.bend as Program
 import ../../bendlib/association-map.bend as Finite
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
+import ../../harness/COMMANDS.bend as Commands
 import ../../bendlib/json.bend as J
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
@@ -23,41 +32,41 @@ import ../submission/PROOF.bend as SubmissionProof
 def open_allocation(+application: E.Application, +panel: U.Panel, +trigger: String) ->
   {E.open_panel(panel, trigger, application) == Rule.opened_application(application, panel, trigger) : E.Decision}:
   E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter,
-    now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+    now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   {==}
 
 def open_residence(application: E.Application, panel: U.Panel, trigger: String) ->
   {Rule.residence(Rule.post(E.open_panel(panel, trigger, application))) == Rule.residence(application) : Rule.Residence}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   {==}
 
 def open_attention(application: E.Application, panel: U.Panel, trigger: String) ->
   {Rule.attention(Rule.post(E.open_panel(panel, trigger, application))) == E.panel_target(panel) : String}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   {==}
 
 def open_effects(application: E.Application, panel: U.Panel, trigger: String) ->
   {Rule.interaction_effects(E.open_panel(panel, trigger, application)) == [E.Attend{E.panel_target(panel)}] : +List<E.Effect>}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   {==}
 
 def close_residence(application: E.Application) ->
   {Rule.residence(Rule.post(E.close_panel(application))) == Rule.residence(application) : Rule.Residence}:
-  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   match layers:
     case Nil{}: {==}
     case Con{E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer}, rest}: {==}
 
 def sequence_attention(application: E.Application, +panel: U.Panel, +trigger: String) ->
   {Rule.attention(Rule.post(E.close_panel(Rule.post(E.open_panel(panel, trigger, application))))) == trigger : String}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   {==}
 
 def native_without_submission_keeps_content(decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.session_content(Rule.post(E.native_result(decision, session, None{}, durable))) ==
     Rule.session_content(E.Application{Rule.runtime_program(decision), session}) : Rule.SessionContent}:
   C.Decision{program, result, effects} = decision
-  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive} = session
   {==}
 
 def runtime_keeps_content(+input: M.Input, application: E.Application) ->
@@ -69,24 +78,71 @@ def native_without_submission_keeps_frame(decision: M.Decision(), session: E.Ses
   {Rule.native_frame(Rule.post(E.native_result(decision, session, None{}, durable))) ==
     Rule.native_frame(E.Application{Rule.runtime_program(decision), session}) : Rule.NativeFrame}:
   C.Decision{program, result, effects} = decision
-  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive} = session
   {==}
 
 def native_without_submission_retains_previews(decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.previews(Rule.post(E.native_result(decision, session, None{}, durable))) ==
     Live.retained(Rule.previews(E.Application{Rule.runtime_program(decision), session}), Rule.runtime_program(decision)) : +List<Live.Output>}:
   C.Decision{program, result, effects} = decision
-  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive} = session
   {==}
 
-def preview_observation_keeps_content(observation: Live.Observation, application: E.Application) ->
-  {Rule.session_content(Rule.post(ExperienceProgram.step(E.PreviewObserved{observation}, application))) == Rule.session_content(application) : Rule.SessionContent}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention_value, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+def code_blocks_keep_content(+blocks: +List<Content.Block>, +session: E.Session) ->
+  {Rule.session_content_of(E.with_code_blocks(blocks, session)) == Rule.session_content_of(session) : Rule.SessionContent}:
+  E.Session{+route, +drafts, +readers, +layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, +model_preference, +draft_model_manual, +interactive} = session
   {==}
+
+def forgetting_sources_keeps_content(+effects: +List<Documents.Effect>, +session: E.Session) ->
+  {Rule.session_content_of(E.forget_code_sources(effects, session)) == Rule.session_content_of(session) : Rule.SessionContent}:
+  match effects:
+    case Nil{}: {==}
+    case Con{Documents.ForgetMarkdown{+key}, +rest}:
+      Equal.trans(Rule.SessionContent,
+        Rule.session_content_of(E.forget_code_sources(rest, E.with_code_blocks(E.without_code_source(E.code_blocks(session), key), session))),
+        Rule.session_content_of(E.with_code_blocks(E.without_code_source(E.code_blocks(session), key), session)),
+        Rule.session_content_of(session),
+        forgetting_sources_keeps_content(rest, E.with_code_blocks(E.without_code_source(E.code_blocks(session), key), session)),
+        code_blocks_keep_content(E.without_code_source(E.code_blocks(session), key), session))
+    case Con{Documents.ObserveMarkdown{document}, +rest}: forgetting_sources_keeps_content(rest, session)
+    case Con{Documents.CoreEffect{effect}, +rest}: forgetting_sources_keeps_content(rest, session)
+
+def interactive_state_keeps_content(+state: Documents.State, +session: E.Session) ->
+  {Rule.session_content_of(E.with_interactive(state, session)) == Rule.session_content_of(session) : Rule.SessionContent}:
+  E.Session{+route, +drafts, +readers, +layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, +model_preference, +draft_model_manual, +interactive} = session
+  {==}
+
+def interactive_result_keeps_content(+result: Documents.Decision, +application: E.Application) ->
+  {Rule.session_content(Rule.post(E.interactive_result(result, application))) == Rule.session_content(application) : Rule.SessionContent}:
+  Documents.Decision{+state, +effects} = result
+  E.Application{program, +session} = application
+  Equal.trans(Rule.SessionContent,
+    Rule.session_content_of(E.with_interactive(state, E.forget_code_sources(effects, session))),
+    Rule.session_content_of(E.forget_code_sources(effects, session)), Rule.session_content_of(session),
+    interactive_state_keeps_content(state, E.forget_code_sources(effects, session)),
+    forgetting_sources_keeps_content(effects, session))
+
+def partial_preview_keeps_content(+output: Live.Output, +application: E.Application) ->
+  {Rule.session_content(Rule.post(E.partial_preview(output, application))) == Rule.session_content(application) : Rule.SessionContent}:
+  Live.Output{+task, +operation, +parts} = output
+  E.Application{+program, +session} = application
+  E.Session{+route, +drafts, +readers, +layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, +model_preference, +draft_model_manual, +interactive} = session
+  interactive_result_keeps_content(
+    Documents.preview_outputs([output], task, program, E.interactive_data(E.with_previews(Live.observe(Live.PartialOutput{output}, E.previews(session), program), session))),
+    E.Application{program, E.with_previews(Live.observe(Live.PartialOutput{output}, E.previews(session), program), session)})
+
+def preview_observation_keeps_content(observation: Live.Observation, +application: E.Application) ->
+  {Rule.session_content(Rule.post(ExperienceProgram.step(E.PreviewObserved{observation}, application))) == Rule.session_content(application) : Rule.SessionContent}:
+  match observation:
+    case Live.ConnectionEnded{}: {==}
+    case Live.PartialOutput{+output}: partial_preview_keeps_content(output, application)
+    case Live.DiscardOutput{task, operation}:
+      E.Application{program, E.Session{+route, +drafts, +readers, +layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, +model_preference, +draft_model_manual, +interactive}} = application
+      {==}
 
 def navigate_keeps_drafts(route: U.Route, application: E.Application) ->
   {Rule.drafts(Rule.post(E.navigate(route, application))) == Rule.drafts(application) : +List<U.Draft>}:
-  E.Application{program, E.Session{old, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{old, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   {==}
 
 def visit_preserves_location(reader: E.Reader) ->
@@ -108,7 +164,7 @@ def reading_checked_refinement(owned: Bool, +task: Nat, generation: Nat, +intent
 def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +application: E.Application,
   not_owner: {Rule.reading_owner(application, task, generation) == False{} : Bool}) ->
   {ExperienceProgram.step(E.UserInput{U.ReadTimeline{task, generation, intent}}, application) == E.unchanged(application) : E.Decision}:
-  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}} = application
+  E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}} = application
   Equal.trans(E.Decision,
     E.read_current(task, generation, intent, application),
     reading_spec(Rule.reading_owner(application, task, generation), task, intent, application), E.unchanged(application),
@@ -119,7 +175,7 @@ def obsolete_reading(+task: Nat, +generation: Nat, +intent: U.ReadingIntent, +ap
 def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, readers: +List<Finite.Entry(E.Reader)>,
   +trigger: String, initial: String, query: String, layer_occurrence: Nat, +source_expanded: Bool, +decision_field: Maybe<&2, Forms.Field>, +parameter_buffer: Maybe<&2, String>, rest: +List<E.Layer>, old_attention: String,
   navigation: E.NavigationState, filter: B.Filter, now: U32, next: Nat, pending: +List<E.Pending>,
-  previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, E.ModelPreference>, draft_model_manual: Bool, revision: Nat, text: U.Text,
+  previews: +List<Live.Output>, code_blocks: +List<Content.Block>, next_layer: Nat, model_preference: Maybe<&2, E.ModelPreference>, draft_model_manual: Bool, interactive: Documents.State, revision: Nat, text: U.Text,
   old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback, +directory_entry: String,
   +new_profile: String, +new_reasoning: String,
   valid: {E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool},
@@ -128,22 +184,22 @@ def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, rea
   {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
       E.Application{program, E.Session{route, drafts, readers,
         E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest,
-        old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}}) ==
+        old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}}) ==
     E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route,
       U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
         E.without_draft(drafts, U.NewTaskEditor{}),
-      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}},
+      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}},
       D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}:
   session: E.Session = E.Session{route, drafts, readers,
     E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest,
-    old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}
+    old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}
   Equal.trans(E.Decision,
     E.manual_creation_edit(E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning), U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
     E.manual_creation_edit(True{}, U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
     E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route,
       U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
         E.without_draft(drafts, U.NewTaskEditor{}),
-      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}},
+      readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}},
       D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}),
     Equal.cong(Bool, E.Decision,
       valid => E.manual_creation_edit(valid, U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
@@ -161,7 +217,7 @@ def encapsulated_model_choice(+session: E.Session, +program: M.World(), +trigger
        E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{}), session)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
+  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual, interactive} = session
   backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest, session),
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ModelPicker{U.NewTaskEditor{}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest, observed_layers))
   %backwards_layers : {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{}, U.ChooseModel{new_profile, new_reasoning}}},
@@ -169,7 +225,7 @@ def encapsulated_model_choice(+session: E.Session, +program: M.World(), +trigger
        E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(_), U.NewTaskEditor{}), _)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}
-  model_choice(program, route, drafts, readers, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, revision, text, old_profile, old_reasoning, context, feedback, directory_entry, new_profile, new_reasoning, valid, found)
+  model_choice(program, route, drafts, readers, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive, revision, text, old_profile, old_reasoning, context, feedback, directory_entry, new_profile, new_reasoning, valid, found)
 
 def model_choice_checked(valid: Bool, +profile: String, +reasoning: String, +application: E.Application) ->
   {E.manual_creation_edit(valid, U.ChooseModel{profile, reasoning}, application) == Rule.model_choice_spec(valid, profile, reasoning, application) : E.Decision}:
@@ -198,7 +254,7 @@ def invalid_model_choice(+profile: String, +reasoning: String, +application: E.A
 def encapsulated_modal_close_empty(+session: E.Session, +program: M.World(), observed_layers: {E.layers(session) == Nil{} : +List<E.Layer>}) ->
   {E.close_panel(E.from_program(program, session)) ==
        E.unchanged(E.from_program(program, session)) : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
+  E.Session{+route, +drafts, +readers, +stored_layers, +attention_value, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual, interactive} = session
   backwards_layers = Equal.sym(E.Session, session, E.with_layers(Nil{}, session),
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), Nil{}, observed_layers))
   %backwards_layers : {E.close_panel(E.from_program(program, _)) ==
@@ -209,7 +265,7 @@ def encapsulated_modal_close_nonempty(+session: E.Session, +program: M.World(), 
   {E.close_panel(E.from_program(program, session)) ==
        E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, session))),
         D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}} : E.Decision}:
-  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual} = session
+  E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual, interactive} = session
   backwards_layers = Equal.sym(E.Session, session, E.with_layers(E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, session),
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{panel, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer} <> rest, observed_layers))
   %backwards_layers : {E.close_panel(E.from_program(program, _)) ==
@@ -295,7 +351,7 @@ def model_resolution_complete(+session: E.Session, +world: M.World()) ->
 
 def begin_focus_refinement(world: M.World(), session: E.Session) ->
   {E.navigate_with_attention(U.Start{}, "composer/new-task", E.Application{world, session}) == Rule.begin_focus(world, session) : E.Decision}:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, interactive} = session
   {==}
 
 def begin_changed_refinement(+result: Result<&2, &2, String, U.Body>, +revision: Nat, +directory_entry: String, +world: M.World(), +session: E.Session) ->
@@ -317,7 +373,7 @@ def begin_resolved_refinement(+origin: Context.Origin, +world: M.World(), +sessi
 
 def begin_task_complete(+project: Maybe<&2, Nat>, +world: M.World(), +session: E.Session) ->
   {E.begin_task(project, E.Application{world, session}) == Rule.begin_task_spec(project, world, session) : E.Decision}:
-  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual} = session
+  E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code, next_layer, preference, manual, interactive} = session
   Equal.trans(E.Decision, E.begin_task(project, E.Application{world, session}),
     E.begin_resolved(E.context_project(project), world, Rule.model_resolution(session, world)), Rule.begin_task_spec(project, world, session),
     Equal.cong(E.Session, E.Decision, resolved => E.begin_resolved(E.context_project(project), world, resolved),
@@ -362,7 +418,7 @@ def Rule.evidence():
 def native_decision(+decision: M.Decision(), session: E.Session, durable: Bool) ->
   {Rule.runtime_observation(E.native_result(decision, session, None{}, durable)) == decision : M.Decision()}:
   C.Decision{program, reply, effects} = decision
-  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
+  E.Session{route, drafts, readers, layers, focus, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive} = session
   {==}
 
 def runtime_input(+input: M.Input, +program: M.World(), session: E.Session) ->
@@ -409,19 +465,203 @@ def confirmation_checked_refinement(owned: Bool, +command: M.Command, +trigger: 
     case True{}:
       accepted_confirmation_refinement(J.boolean(J.get(result, "ok")), result, destination, application)
 
+def feedback_effect_mapping(+effects: +List<Interactive.Effect>) ->
+  {E.interactive_effects(Documents.core_effects(effects)) == Rule.feedback_effects(effects) : +List<E.Effect>}:
+  match effects:
+    case Nil{}: {==}
+    case Con{+effect, +rest}:
+      Equal.cong(+List<E.Effect>, +List<E.Effect>, (tail => E.InteractiveEffect{effect} <> tail),
+        E.interactive_effects(Documents.core_effects(rest)), Rule.feedback_effects(rest), feedback_effect_mapping(rest))
+
+def feedback_keeps_code_sources(+effects: +List<Interactive.Effect>, +session: E.Session) ->
+  {E.forget_code_sources(Documents.core_effects(effects), session) == session : E.Session}:
+  match effects:
+    case Nil{}: {==}
+    case Con{effect, rest}: feedback_keeps_code_sources(rest, session)
+
+def feedback_adapter_complete(+result: Interactive.Decision, +application: E.Application) ->
+  {E.interactive_result(Documents.apply_core_result(result, E.interactive_data(E.session(application))), application) ==
+    Rule.feedback_decision(result, application) : E.Decision}:
+  match result application:
+    case Interactive.Decision{+core, +effects} E.Application{+program, E.Session{+route, +drafts, +readers, +layers, +attention, +navigation, +filter, +now, +next_ticket, +pending, +previews, +code_blocks, +next_layer, +preference, +manual, Documents.State{+namespace, +sequence, +fresh, +allowed, +ready, +documents, old_core, +next_epoch, +retention}}}:
+      +previous: E.Session = E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, preference, manual, Documents.State{namespace, sequence, fresh, allowed, ready, documents, old_core, next_epoch, retention}}
+      Equal.trans(E.Decision,
+        E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, effects}, E.interactive_data(previous)), E.Application{program, previous}),
+        E.local(program, E.with_interactive(Documents.State{namespace, sequence, fresh, allowed, ready, documents, core, next_epoch, retention}, previous), E.interactive_effects(Documents.core_effects(effects))),
+        Rule.feedback_decision(Interactive.Decision{core, effects}, E.Application{program, previous}),
+        Equal.cong(E.Session, E.Decision,
+          (retained => E.local(program, E.with_interactive(Documents.State{namespace, sequence, fresh, allowed, ready, documents, core, next_epoch, retention}, retained), E.interactive_effects(Documents.core_effects(effects)))),
+          E.forget_code_sources(Documents.core_effects(effects), previous), previous, feedback_keeps_code_sources(effects, previous)),
+        Equal.cong(+List<E.Effect>, E.Decision,
+          (mapped => E.local(program, E.with_interactive(Documents.State{namespace, sequence, fresh, allowed, ready, documents, core, next_epoch, retention}, previous), mapped)),
+          E.interactive_effects(Documents.core_effects(effects)), Rule.feedback_effects(effects), feedback_effect_mapping(effects)))
+
+def feedback_no_change(+application: E.Application) ->
+  {E.interactive_result(Documents.Decision{E.interactive_data(E.session(application)), Nil{}}, application) == E.Decision{application, D.success(J.Null{}), Nil{}, Nil{}, False{}} : E.Decision}:
+  match application:
+    case E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, preference, manual, interactive}}: {==}
+
+def feedback_checked_complete(+owned: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) ->
+  {E.interactive_result(Documents.input_checked(owned, Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, E.interactive_data(E.session(application))), application) == Rule.feedback_permitted(owned, owner, path, ticket, result, application) : E.Decision}:
+  match owned:
+    case False{}: feedback_no_change(application)
+    case True{}: feedback_adapter_complete(InteractiveCore.step(Interactive.EffectCompleted{owner, path, ticket,
+      J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, Documents.core(E.interactive_data(E.session(application)))), application)
+
+def interactive_completion_complete(+owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) ->
+  {E.interactive_completed(owner, path, ticket, result, application) == Rule.interactive_completion_spec(owner, path, ticket, result, application) : E.Decision}:
+  +input: Interactive.Input = Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}
+  +documents = E.interactive_data(E.session(application))
+  Equal.trans(E.Decision, E.interactive_completed(owner, path, ticket, result, application),
+    E.interactive_result(Documents.input_checked(DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), input, documents), application), Rule.interactive_completion_spec(owner, path, ticket, result, application),
+    Equal.cong(Bool, E.Decision, (allowed => E.interactive_result(Documents.input_checked(allowed, input, documents), application)), Documents.input_allowed(input, documents), DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), DocumentRequirement.permission_meaning(input, documents)),
+    feedback_checked_complete(DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), owner, path, ticket, result, application))
+
+def feedback_interpret_empty(+core: Interactive.State, +application: E.Application) ->
+  {E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, Nil{}}, E.interactive_data(E.session(application))), application)) ==
+    E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, Nil{}}, E.interactive_data(E.session(application))), application) : E.Decision}:
+  match application:
+    case E.Application{program, session}: {==}
+
+def feedback_interpret_complete(+result: Interactive.Decision, +application: E.Application,
+  +terminal: {InteractiveRequirement.decision_effects(result) == Nil{} : +List<Interactive.Effect>}) ->
+  {E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(result, E.interactive_data(E.session(application))), application)) ==
+    E.interactive_result(Documents.apply_core_result(result, E.interactive_data(E.session(application))), application) : E.Decision}:
+  match result:
+    case Interactive.Decision{+core, +effects}:
+      Equal.trans(E.Decision,
+        E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, effects}, E.interactive_data(E.session(application))), application)),
+        E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, Nil{}}, E.interactive_data(E.session(application))), application)),
+        E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, effects}, E.interactive_data(E.session(application))), application),
+        Equal.cong(+List<Interactive.Effect>, E.Decision,
+          (items => E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, items}, E.interactive_data(E.session(application))), application))), effects, Nil{}, terminal),
+        Equal.trans(E.Decision,
+          E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, Nil{}}, E.interactive_data(E.session(application))), application)),
+          E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, Nil{}}, E.interactive_data(E.session(application))), application),
+          E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, effects}, E.interactive_data(E.session(application))), application),
+          feedback_interpret_empty(core, application),
+          Equal.cong(+List<Interactive.Effect>, E.Decision,
+            (items => E.interactive_result(Documents.apply_core_result(Interactive.Decision{core, items}, E.interactive_data(E.session(application))), application)), Nil{}, effects,
+            Equal.sym(+List<Interactive.Effect>, effects, Nil{}, terminal))))
+
+def input_completion_checked_complete(+owned: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) ->
+  {E.interpret_interactive_decision(E.interactive_result(Documents.input_checked(owned,
+    Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, E.interactive_data(E.session(application))), application)) ==
+    Rule.feedback_permitted(owned, owner, path, ticket, result, application) : E.Decision}:
+  match owned:
+    case False{}:
+      Equal.trans(E.Decision,
+        E.interpret_interactive_decision(E.interactive_result(Documents.Decision{E.interactive_data(E.session(application)), Nil{}}, application)),
+        E.interpret_interactive_decision(E.Decision{application, D.success(J.Null{}), Nil{}, Nil{}, False{}}),
+        Rule.feedback_permitted(False{}, owner, path, ticket, result, application),
+        Equal.cong(E.Decision, E.Decision, (value => E.interpret_interactive_decision(value)),
+          E.interactive_result(Documents.Decision{E.interactive_data(E.session(application)), Nil{}}, application),
+          E.Decision{application, D.success(J.Null{}), Nil{}, Nil{}, False{}}, feedback_no_change(application)), {==})
+    case True{}:
+      +core = InteractiveCore.step(Interactive.EffectCompleted{owner, path, ticket,
+        J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, Documents.core(E.interactive_data(E.session(application))))
+      Equal.trans(E.Decision,
+        E.interpret_interactive_decision(E.interactive_result(Documents.apply_core_result(core, E.interactive_data(E.session(application))), application)),
+        E.interactive_result(Documents.apply_core_result(core, E.interactive_data(E.session(application))), application),
+        Rule.feedback_permitted(True{}, owner, path, ticket, result, application),
+        feedback_interpret_complete(core, application, InteractiveRequirement.completion_emits_no_effects(owner, path, ticket,
+          J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message")), Documents.core(E.interactive_data(E.session(application))))),
+        feedback_adapter_complete(core, application))
+
+def interactive_input_completion_complete(+owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) ->
+  {E.interactive_input(Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, application) ==
+    Rule.interactive_completion_spec(owner, path, ticket, result, application) : E.Decision}:
+  +input: Interactive.Input = Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}
+  +documents = E.interactive_data(E.session(application))
+  Equal.trans(E.Decision, E.interactive_input(input, application),
+    E.interpret_interactive_decision(E.interactive_result(Documents.input_checked(DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), input, documents), application)),
+    Rule.interactive_completion_spec(owner, path, ticket, result, application),
+    Equal.cong(Bool, E.Decision, (allowed => E.interpret_interactive_decision(E.interactive_result(Documents.input_checked(allowed, input, documents), application))),
+      Documents.input_allowed(input, documents), DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), DocumentRequirement.permission_meaning(input, documents)),
+    input_completion_checked_complete(DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), owner, path, ticket, result, application))
+
+def Rule.interactive_feedback(owner, path, ticket, result, application):
+  interactive_input_completion_complete(owner, path, ticket, result, application)
+
+def feedback_business_empty(+result: Interactive.Decision, +application: E.Application,
+  terminal: {InteractiveRequirement.decision_effects(result) == Nil{} : +List<Interactive.Effect>}) ->
+  {Rule.business_effects(Rule.feedback_decision(result, application)) == (Nil{}, Nil{}) : +List<M.Effect()> & +List<E.Effect>}:
+  match result application:
+    case Interactive.Decision{core, +effects} E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, preference, manual, Documents.State{namespace, sequence, fresh, allowed, ready, documents, old_core, next_epoch, retention}}}:
+      Equal.cong(+List<Interactive.Effect>, +List<M.Effect()> & +List<E.Effect>,
+        (items => (Nil{}, Rule.feedback_effects(items))), effects, Nil{}, terminal)
+
+def feedback_permitted_business_empty(+owned: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) ->
+  {Rule.business_effects(Rule.feedback_permitted(owned, owner, path, ticket, result, application)) ==
+    (Nil{}, Nil{}) : +List<M.Effect()> & +List<E.Effect>}:
+  match owned:
+    case False{}: {==}
+    case True{}:
+      feedback_business_empty(InteractiveCore.step(Interactive.EffectCompleted{owner, path, ticket,
+        J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, Documents.core(E.interactive_data(E.session(application)))), application,
+        InteractiveRequirement.completion_emits_no_effects(owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message")), Documents.core(E.interactive_data(E.session(application)))))
+
+def Rule.interactive_feedback_is_terminal(owner, path, ticket, result, application):
+  +documents = E.interactive_data(E.session(application))
+  +input: Interactive.Input = Interactive.EffectCompleted{owner, path, ticket, J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}
+  Equal.trans(+List<M.Effect()> & +List<E.Effect>, Rule.business_effects(E.interactive_input(input, application)),
+    Rule.business_effects(Rule.interactive_completion_spec(owner, path, ticket, result, application)), (Nil{}, Nil{}),
+    Equal.cong(E.Decision, +List<M.Effect()> & +List<E.Effect>, (decision => Rule.business_effects(decision)),
+      E.interactive_input(input, application), Rule.interactive_completion_spec(owner, path, ticket, result, application),
+      interactive_input_completion_complete(owner, path, ticket, result, application)),
+    feedback_permitted_business_empty(DocumentDomain.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), owner, path, ticket, result, application))
+
+def captured_request_complete(+operation: Commands.Operation, +command: M.Command, +owner: Interactive.Owner, +path: String, +ticket: Nat, +application: E.Application) ->
+  {E.interactive_send_resolved(operation, command, owner, path, ticket, application) == Rule.captured_request(operation, command, owner, path, ticket, application) : E.Decision}:
+  match operation:
+    case Commands.Refuse{code, message}: interactive_completion_complete(owner, path, ticket, D.failure(code, message), application)
+    case Commands.ConfigureExecution{task, configuration}: {==}
+    case Commands.Start{profile, reasoning, message, selection}: {==}
+    case Commands.Deliver{task, message}: {==}
+    case Commands.Steer{task, message}: {==}
+    case Commands.Cancel{task, operation}: {==}
+    case Commands.Control{task, request, next}: {==}
+    case Commands.Branch{parent, count, messages, selection}: {==}
+    case Commands.Summarize{task}: {==}
+    case Commands.Checkpoint{task, summary}: {==}
+    case Commands.Observe{query}: {==}
+    case Commands.StoreProject{project_id, project, next_id}: {==}
+    case Commands.RemoveProject{project_id}: {==}
+    case Commands.Review{resolution}: {==}
+    case Commands.FeatureOperation{operation}: {==}
+
+def captured_ready_complete(+ready: Bool, +task: Nat, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) ->
+  {E.interactive_send_checked(ready, owner, path, ticket, U.Draft{0n, U.Message{task, U.initial_text(message), U.Send{}}, U.Editing{}, ""}, application) == Rule.captured_send_ready(ready, task, owner, path, ticket, message, application) : E.Decision}:
+  match ready:
+    case False{}: interactive_completion_complete(owner, path, ticket, D.failure("interaction_refused", "This task cannot accept this message now"), application)
+    case True{}:
+      +command: M.Command = U.command(U.Message{task, U.initial_text(message), U.Send{}}, E.now(E.session(application)))
+      captured_request_complete(Commands.resolve(command, E.program(application)), command, owner, path, ticket, application)
+
+def captured_owner_complete(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) ->
+  {E.interactive_send_owned(task, owner, path, ticket, message, application) == Rule.captured_send_owner(task, owner, path, ticket, message, application) : E.Decision}:
+  match task:
+    case None{}: interactive_completion_complete(owner, path, ticket, D.failure("interaction_refused", "This view no longer owns a task"), application)
+    case Some{+id}:
+      captured_ready_complete(E.submission_ready(E.pending(E.session(application)), E.program(application), U.Draft{0n, U.Message{id, U.initial_text(message), U.Send{}}, U.Editing{}, ""}), id, owner, path, ticket, message, application)
+
+def Rule.interactive_send(owner, path, ticket, message, application):
+  captured_owner_complete(Documents.current_owning_task(owner, E.interactive_data(E.session(application))), owner, path, ticket, message, application)
+
 def completed_checked_refinement(valid: Bool, +completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session, previous: M.World(), observed: {I.world(program) == valid : Bool}) ->
   {E.complete_command_admitted(Categories.admit_checked(M.World(), (world => I.world(world)), program, valid, observed), result, completion, E.Application{previous, session}) == Rule.completion_checked_spec(valid, completion, program, result, session, previous) : E.Decision}:
   match valid:
     case False{}: {==}
     case True{}:
       match completion:
+        case E.InteractiveCompletion{owner, path, ticket}: interactive_completion_complete(owner, path, ticket, result, E.from_program(program, E.retain_previews(session, program)))
         case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: {==}
         case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
         case E.DirectCompletion{}: {==}
         case E.DraftCompletion{draft}: SubmissionProof.native_session_refinement(Some{draft}, program, result, Nil{}, E.retain_previews(session, program), False{})
         case E.ConfirmationCompletion{command, trigger, destination, occurrence}:
-          E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual} = session
-          +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual}, program)}
+          E.Session{route, drafts, readers, +layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive} = session
+          +updated: E.Application = E.Application{program, E.retain_previews(E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, interactive}, program)}
           Equal.trans(E.Decision,
             E.complete_confirmation_current(command, trigger, occurrence, result, destination, updated),
             Rule.confirmation_result_spec(E.confirmation_owned(layers, command, trigger, occurrence), result, destination, updated),

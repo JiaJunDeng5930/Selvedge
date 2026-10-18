@@ -72,7 +72,7 @@ test('root requests use named snapshots and retain only authoritative output plu
   const snapshots = [];
   const items = await f.run(effect, { onSnapshot: (text, index) => snapshots.push([text, index]), onDelta: () => assert.fail('snapshots are not deltas') });
   assert.deepEqual(snapshots, [['provisional longer text', 0], ['short', 0], ['corrected 😀', 0], ['final 😀', 0]]);
-  assert.deepEqual(items[0], { type: 'text', text: 'final 😀' });
+  assert.deepEqual(items[0], { type: 'text', part: 0, text: 'final 😀' });
   assert.equal(items[1].value.type, 'provider_receipt');
   assert.equal(items[1].value.status, 'completed');
   const file = path.join(f.directory, 'providers/chatgpt-web/requests.sqlite');
@@ -127,7 +127,7 @@ test('object-argument calls return one exact result batch, then flush deferred m
     { role: 'user', content: 'new request during tools' },
     { role: 'function_output', call_id: 'a', content: 'ok', is_error: false }] };
   const output = await f.run(next);
-  assert.deepEqual(output.slice(0, 2), [{ type: 'text', text: 'tool turn completed' }, { type: 'text', text: 'new request answered' }]);
+  assert.deepEqual(output.slice(0, 2), [{ type: 'text', part: 0, text: 'tool turn completed' }, { type: 'text', part: 1, text: 'new request answered' }]);
   assert.deepEqual(output.at(-1).value.deferred, []);
   assert.equal(f.requests.length, 3);
   assert.deepEqual(f.failures, []);

@@ -10,6 +10,7 @@ type Scope is Data:
   WorkspaceScope{}
 
 type Observer is Data:
+  NativeText{revision: String, content: String}
   ConfigText{setting: String}
   HomeFile{relative: String}
   WorkspaceFile{relative: String}
@@ -156,6 +157,7 @@ def scope_json(scope: Scope) -> J.Json:
 
 def observer_json(observer: Observer) -> J.Json:
   match observer:
+    case NativeText{revision, content}: J.Object{[J.Field{"type", J.Text{"native_text"}}, J.Field{"revision", J.Text{revision}}, J.Field{"content", J.Text{content}}]}
     case ConfigText{setting}: J.Object{[J.Field{"type", J.Text{"config_text"}}, J.Field{"setting", J.Text{setting}}]}
     case HomeFile{relative}: J.Object{[J.Field{"type", J.Text{"home_file"}}, J.Field{"relative", J.Text{relative}}]}
     case WorkspaceFile{relative}: J.Object{[J.Field{"type", J.Text{"workspace_file"}}, J.Field{"relative", J.Text{relative}}]}
@@ -571,16 +573,17 @@ def parsed_scope(item: J.Json) -> Maybe<&2, Scope>:
     case J.Text{"workspace"}: Some{WorkspaceScope{}}
     case _: None{}
 
-def parsed_observer(kind: String, setting: J.Json, relative: J.Json) -> Maybe<&2, Observer>:
-  match kind setting relative:
-    case "config_text" J.Text{setting} _: Some{ConfigText{setting}}
-    case "config_files" J.Text{setting} _: Some{ConfigFiles{setting}}
-    case "home_file" _ J.Text{relative}: Some{HomeFile{relative}}
-    case "workspace_file" _ J.Text{relative}: Some{WorkspaceFile{relative}}
-    case _ _ _: None{}
+def parsed_observer(kind: String, setting: J.Json, relative: J.Json, revision: J.Json, content: J.Json) -> Maybe<&2, Observer>:
+  match kind setting relative revision content:
+    case "native_text" _ _ J.Text{revision} J.Text{content}: Some{NativeText{revision, content}}
+    case "config_text" J.Text{setting} _ _ _: Some{ConfigText{setting}}
+    case "config_files" J.Text{setting} _ _ _: Some{ConfigFiles{setting}}
+    case "home_file" _ J.Text{relative} _ _: Some{HomeFile{relative}}
+    case "workspace_file" _ J.Text{relative} _ _: Some{WorkspaceFile{relative}}
+    case _ _ _ _ _: None{}
 
 def observer(+item: J.Json) -> Maybe<&2, Observer>:
-  parsed_observer(J.text(J.get(item, "type")), J.get(item, "setting"), J.get(item, "relative"))
+  parsed_observer(J.text(J.get(item, "type")), J.get(item, "setting"), J.get(item, "relative"), J.get(item, "revision"), J.get(item, "content"))
 
 def parsed_identity_source(kind: String, value: J.Json) -> Maybe<&2, IdentitySource>:
   match kind value:

@@ -51,12 +51,25 @@ test('configured process order defines the unified chain; plugin tools, Bash and
   assert.ok(events.some(event => event.type === 'model_completed'));
   assert.ok(events.some(event => event.type === 'model_started'));
   assert.ok(events.some(event => event.type === 'task_changed'));
-  for (const id of ['shell', 'extension', 'internal', 'denied-fork']) {
-    assert.equal(events.filter(event => event.type === 'tool_completed' && event.payload.call_id === id).length, 1, id);
+  const completions = [];
+  for (const event of events.filter(event => event.type === 'tool_completed')) {
+    if (!event.payload_omitted) {
+      completions.push(event.payload);
+      continue;
+    }
+    const receipt = await service.command({ op: 'read', task_id: event.task_id, after: event.cursor - 1, limit: 1 });
+    assert.equal(receipt.reply.ok, true);
+    assert.equal(receipt.reply.result.messages.length, 1);
+    const [message] = receipt.reply.result.messages;
+    assert.ok(['function_output', 'operation_result'].includes(message.role));
+    completions.push({ call_id: message.call_id, value: message.content, error: message.is_error });
   }
-  const extension = events.find(event => event.type === 'tool_completed' && event.payload.call_id === 'extension');
-  assert.equal(extension.payload.value.status, 'running', 'a genuine result containing status=running is still a completion');
-  assert.equal(extension.payload.error, false);
+  for (const id of ['shell', 'extension', 'internal', 'denied-fork']) {
+    assert.equal(completions.filter(completion => completion.call_id === id).length, 1, id);
+  }
+  const extension = completions.find(completion => completion.call_id === 'extension');
+  assert.equal(extension.value.status, 'running', 'a genuine result containing status=running is still a completion');
+  assert.equal(extension.error, false);
   assert.equal(events.filter(event => event.type === 'tool_dispatched').length, 2, 'only actual external dispatch is reported');
   assert.deepEqual(provider.failures, []);
   assert.deepEqual(diagnostics, []);

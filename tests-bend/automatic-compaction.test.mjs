@@ -409,11 +409,19 @@ test('a large Unicode rebuild keeps actual compact effects within the kernel fra
   });
   await new Promise(resolve => target.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { target.closeAllConnections(); target.close(resolve); }));
+  const api_key_env = 'SELVEDGE_UNICODE_COMPACTION_FIXTURE';
+  const previousKey = process.env[api_key_env];
+  process.env[api_key_env] = 'local-unicode-fixture-only';
+  t.after(() => { if (previousKey === undefined) delete process.env[api_key_env]; else process.env[api_key_env] = previousKey; });
   const running = await accountCompactionService(t, (request, response) => {
     if (request.url === '/v1/responses/compact') return compactResponse(response, [checkpoint(`unicode-old-${++native}`)]);
     seeded++; modelResponse(response, [assistant(`Seeded original Unicode record ${seeded}.`)]);
-  }, { compaction: { ...policy(null), enabled: false, targets: [{ profile: 'fixture', window_tokens: window,
-    output_reserve_tokens: reserve, cache_ttl_ms: null, method: 'auto' }] } });
+  }, { profiles: { unicode_target: { provider: 'responses', model: 'fixture-model',
+    endpoint: `http://127.0.0.1:${target.address().port}/v1/responses`, api_key_env } },
+  compaction: { ...policy(null), enabled: false, targets: [
+    { profile: 'fixture', window_tokens: window, output_reserve_tokens: reserve, cache_ttl_ms: null, method: 'auto' },
+    { profile: 'unicode_target', window_tokens: window, output_reserve_tokens: reserve, cache_ttl_ms: null, method: 'summary' },
+  ] } });
   for (const [index, message] of originals.entries()) {
     assert.ok(Buffer.byteLength(JSON.stringify({ op: 'send', task_id: 0, message })) < running.service.limits.frame_bytes);
     assert.equal((await running.service.command(index === 0
@@ -433,10 +441,17 @@ test('a large Unicode rebuild keeps actual compact effects within the kernel fra
     }, 15_000);
   }
   assert.ok(perRecord * records > window, 'The source exceeds the old one-window character chunk');
-  await running.restart(config => ({ ...config, profiles: { ...config.profiles,
-    fixture: { ...config.profiles.fixture, endpoint: `http://127.0.0.1:${target.address().port}/v1/responses` } },
-  compaction: { ...policy(null), targets: [{ profile: 'fixture', window_tokens: window,
-    output_reserve_tokens: reserve, cache_ttl_ms: null, method: 'summary' }] } }));
+  assert.equal((await running.service.command({ op: 'configure_task_execution', task_id: 0,
+    profile: 'unicode_target', reasoning: 'medium', sandbox: { mode: 'workspace-write', network_access: false },
+    approval: { mode: 'ask-for-approval' } })).reply.ok, true);
+  const cursor = (await running.service.command({ op: 'read', task_id: 0, limit: 1 })).reply.result.task.cursor;
+  assert.equal((await running.service.command({ op: 'compact', task_id: 0 })).reply.ok, true);
+  await until('the final framed Unicode compaction', async () => {
+    const page = (await running.service.command({ op: 'read', task_id: 0, limit: 1 })).reply.result;
+    if (page.task.cursor <= cursor) return false;
+    const last = (await running.service.command({ op: 'read', task_id: 0, after: page.task.cursor - 1, limit: 1 })).reply.result;
+    return last.messages.at(-1)?.role === 'context_replacement';
+  }, 60_000);
   assert.equal((await running.service.command({ op: 'send', task_id: 0, message: 'Continue after switching the Unicode task endpoint.' })).reply.ok, true);
   await until('the complete framed Unicode reconstruction', async () => {
     const page = (await running.service.command({ op: 'read', task_id: 0, limit: 1 })).reply.result;

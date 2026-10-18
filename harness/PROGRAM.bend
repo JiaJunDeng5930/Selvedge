@@ -185,11 +185,11 @@ def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision()
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
 
-def model_matched(same: Bool, +outcome: D.Outcome, allowed: +List<String>, +task: D.Task, world: M.World()) -> M.Decision():
+def model_matched(same: Bool, +outcome: D.Outcome, +allowed: +List<String>, +task: D.Task, world: M.World()) -> M.Decision():
   match same:
     case False{}: respond(world, accepted(False{}))
     case True{}:
-      Protocol.accepted_reaction(FeatureExec.react_outputs(~output_send, D.task_id(task), T.reply_outputs(outcome),
+      Protocol.accepted_reaction(FeatureExec.react_outputs(~output_send, D.task_id(task), T.accepted_reply_outputs(outcome, allowed, task),
         store(T.model_outcome(outcome, allowed, task), world)))
 
 def tool_matched(same: Bool, operation: D.Operation(), value: J.Json, error: Bool, task: D.Task, world: M.World()) -> M.Decision():

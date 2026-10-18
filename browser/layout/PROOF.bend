@@ -31,30 +31,17 @@ def publication(+world: Content.AllocatedWorld, capacity: View.Capacity, +legacy
   match world:
     case Content.AllocatedWorld{Content.Snapshot{generation, source, font}, tree, roots, policies}: {==}
 
-def state_authored_evidence(+model_state: Browser.State, +source: Source.Node, +index: Nat, +capacity: View.Capacity, +font: T.Presentation, +viewport: SpatialModel.Box, +semantic: SurfaceTypes.Surface) ->
-  RulePhysicalContentRules.authored_claim(model_state, source, index, capacity, font, viewport, semantic):
-  Browser.State{+legacy, +serial, +anchors, +lifecycle, +displayed, +attention} = model_state
-  {==}
-
-def state_measured_evidence(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +tokens: +List<String>, +semantic: SurfaceTypes.Surface, +round: Nat) ->
-  RulePhysicalContentRules.measurement_claim(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), index, capacity, engine, tokens, semantic, round):
-  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed, +attention} = model_state
-  {==}
-
 def state_remeasure_evidence(+model_state: Browser.State, +index: Nat, +capacity: View.Capacity, +engine: World.Engine, +semantic: SurfaceTypes.Surface, +round: Nat) ->
   {Browser.remeasure(Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) ==
-        Browser.build(0n, Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state)) : Browser.Decision}:
-  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed, +attention} = model_state
+        Browser.Decision{Browser.with_lifecycle(Browser.Measuring{index, capacity, engine, semantic, round}, model_state), Nil{}} : Browser.Decision}:
+  Browser.State{+legacy, +serial, +anchors, +original_1, +displayed, +attention, +updates} = model_state
   {==}
 
 def RulePhysicalContentRules.evidence():
   RulePhysicalContentRules.Requirements{
     +world => capacity => +legacy => +semantic => publication(world, capacity, legacy, semantic),
-    state_authored_evidence,
     generation => first => remaining => index => capacity => engine => state => semantic => round => {==},
-    state_measured_evidence,
-    state_remeasure_evidence,
-    world => index => capacity => engine => state => semantic => round => {==}}
+    state_remeasure_evidence}
 
 def stale(+generation: Nat, +receipts: +List<String>, +engine: World.Engine,
   proof: {Nat.is_eq(generation, World.snapshot_generation(World.snapshot(engine))) == False{} : Bool}) ->

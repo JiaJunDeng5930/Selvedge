@@ -7,6 +7,17 @@ import ./context.bend as Context
 import ../../bendlib/json.bend as J
 import ../tasks/PROGRAM.bend as T
 import ../execution/OPERATIONS.bend as Ops
+import ../context/interactive-markdown.bend as InteractiveCapability
+
+# Only the trusted capability snapshot captured in this request authorizes UI.
+# Neither model text nor a provider's completion body grants this permission.
+def capability_mode(available: Bool) -> D.OutputMode:
+  match available:
+    case True{}: D.InteractiveV1{}
+    case False{}: D.Plain{}
+
+def request_mode(history: D.History) -> D.OutputMode:
+  capability_mode(InteractiveCapability.available(D.context_bindings(history)))
 
 # This specification does not import the production router or evaluator
 # settlement. It fixes the complete successor and ordered effect list. Context
@@ -19,7 +30,7 @@ def model_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, world:
       +ticket = D.state_next_ticket(task_state)
       +tools = T.task_tools(D.task_contract(task))
       +allowed = T.callable(tools, catalog)
-      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_phase(D.ModelPending{ticket, allowed}, task)), task_state)), rest}, J.Null{},
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, D.with_phase(D.ModelPending{ticket, allowed, request_mode(D.task_history(task))}, task)), task_state)), rest}, J.Null{},
         [Effects.RequestModel{D.task_id(task), ticket, D.task_model(task),
           D.task_history(task), tools, allowed, D.task_context(task), "", 0n}]}
 

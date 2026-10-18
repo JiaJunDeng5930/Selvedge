@@ -3,6 +3,10 @@ import { boundary } from './model-boundary.mjs';
 import { bendValue, bendTag, decodeBendValue, encodeBendValue, observedNatNumber } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { EventFrames } from './events.mjs';
+import { MarkdownFenceObserver } from './markdown-fences.mjs';
+import { scheduleDisplay, cancelDisplay } from './markdown.mjs';
+import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
+import { PresentationMotion } from './presentation-motion.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 import { parseJson, tokenizeJsonValue } from './json-tokens.mjs';
@@ -51,6 +55,13 @@ let observedClock = null;
 let codeObservationGroups = new Map();
 let codeObservationScheduled = false;
 const feedbackTimers = new Set();
+const interactiveObservers = new Map();
+const interactiveParseJobs = new Map();
+const snapshotPolicy = Bend.interactive_storage_policy();
+const interactiveStorage = new InteractiveSnapshotStorage({ maximumDocuments: Number(snapshotPolicy.maximum_documents), maximumBytes: Number(snapshotPolicy.maximum_bytes) });
+const presentationMotion = new PresentationMotion(root);
+let storeNamespace = '';
+let sourceFresh = false;
 let geometryFrame = null;
 let displayedGeometry = null;
 const physicalMeasurer = createPhysicalMeasurer({ surface: root, bend: Bend, onChange: geometryChanged });
@@ -87,6 +98,7 @@ const renderer = new Renderer(root, {
     }
   },
   codeKey: (source, ordinal) => Bend.code_dom_key(source, ordinal),
+  markdownComplete: source => Bend.markdown_complete(source ? bendValue('Some', { value: source }) : bendValue('None')),
   codeSource(source, ordinal, text, generation, source_value) {
     if (disposed) return;
     const sourceKey = Bend.code_key(source, 0n);
@@ -166,6 +178,9 @@ function render() {
     effects.push(...list(decision.effects));
   }
   const publication = Bend.publication(renderedGeneration ?? 0n, state);
+  renderer.presentationPending = Bend.display_pending(state);
+  root.dataset.displayPending = String(renderer.presentationPending);
+  root.dataset.sourcesFresh = String(sourceFresh);
   if (pendingFocus && pendingFocus.ticket !== Bend.focus_ticket(state)) pendingFocus = null;
   switch (bendTag(publication)) {
     case 'KeepPublished': break;
@@ -187,7 +202,11 @@ function render() {
     }
     default: throw new TypeError(`Unknown publication ${publication.$}`);
   }
+  const pendingPublication = renderer.presentationPending;
+  renderer.presentationPending = false;
   renderer.synchronizeFields(publication.fields);
+  renderer.presentationPending = pendingPublication;
+  presentationMotion.refresh();
   root.dataset.renderInspection = JSON.stringify(encodeBendValue(Bend.render_inspection(state)));
   root.dataset.renderStatus = Bend.render_status(state);
   root.dataset.renderViolations = JSON.stringify(encodeBendValue(list(Bend.render_violations(state))));
@@ -222,11 +241,11 @@ function geometryChanged() {
   });
 }
 function schedulePhysical() {
-  if (disposed) return;
+  if (disposed || physicalActive) return;
   const request = Bend.measurement_request(state);
   physicalQueued = bendTag(request) === 'Some'
     ? { plan: request.value.plan, ticket: request.value.ticket, revision: physicalRevision } : null;
-  if (!physicalQueued || physicalActive || physicalScheduled) return;
+  if (!physicalQueued || physicalScheduled) return;
   physicalScheduled = true;
   queueMicrotask(runPhysical);
 }
@@ -288,7 +307,18 @@ function retryPendingFocus() {
 }
 
 function commit(decision) {
-  state = decision.state; render();
+  if (Bend.physical_invalidated(state, decision.state)) {
+    physicalRevision++;
+    physicalQueued = null;
+    physicalMeasurer.cancel();
+  }
+  state = decision.state;
+  const acceptedNamespace = Bend.store_namespace(state);
+  if (acceptedNamespace !== storeNamespace) streams.clear();
+  storeNamespace = acceptedNamespace;
+  revision = Number(Bend.accepted_sequence(state));
+  sourceFresh = Bend.source_fresh(state);
+  render();
   for (const effect of list(decision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
 }
 function step(input) { commit(Bend.step(input, state)); }
@@ -308,33 +338,153 @@ function observeClock() {
 function clockVisibilityChanged() {
   if (document.visibilityState === 'visible') observeClock();
 }
-async function request(url, options = {}) {
-  const response = await fetch(url, { ...options, credentials: 'same-origin' });
-  const body = await response.json();
-  if (!response.ok) { const error = new Error(body.error?.message ?? body.error ?? `HTTP ${response.status}`); error.body = body; throw error; }
-  return body;
+function requestScope(authentication = null, controller = connection ?? null, bound = false) {
+  return { namespace: storeNamespace, sequence: revision, controller, authentication, bound };
 }
-function snapshot(body) {
-  revision = Math.max(revision, body.sequence);
-  step(bendValue('browser/runtime/SEMANTICS.Snapshot', { sequence: BigInt(body.sequence), program: decodeBendValue(body.program) }));
+function currentRequest(scope) {
+  return !disposed && scope.controller === (connection ?? null) && !scope.controller?.signal.aborted;
+}
+function requestError(reason, scope) {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  error.requestScope ??= scope;
+  return error;
+}
+function requireCurrentRequest(scope) {
+  if (!currentRequest(scope)) throw requestError(new DOMException('Request was superseded', 'AbortError'), scope);
+}
+function networkFailed(reason, scope = reason?.requestScope) {
+  if (!scope || !currentRequest(scope) || reason?.networkReported) return;
+  const error = requestError(reason, scope);
+  error.networkReported = true;
+  commit(Bend.network_failed(scope.namespace, BigInt(scope.sequence), error.message,
+    error.status === 401 || error.status === 403,
+    scope.authentication === null ? bendValue('None') : bendValue('Some', { value: scope.authentication }), state));
+}
+async function request(url, options = {}, scope = requestScope()) {
+  let response;
+  try {
+    // Watch and authentication reads share the controller; other effects keep their own cancellation and tickets.
+    if (scope.bound) requireCurrentRequest(scope);
+    response = await fetch(url, { ...options, credentials: 'same-origin',
+      signal: options.signal ?? (scope.bound ? scope.controller?.signal : undefined) });
+    if (scope.bound) requireCurrentRequest(scope);
+    const body = await response.json();
+    if (scope.bound) requireCurrentRequest(scope);
+    if (!response.ok) {
+      const error = new Error(body.error?.message ?? body.error ?? `HTTP ${response.status}`);
+      error.body = body;
+      throw error;
+    }
+    return body;
+  } catch (reason) {
+    const error = requestError(reason, scope);
+    if (response) error.status ??= response.status;
+    if (error.status === 401 || error.status === 403) networkFailed(error);
+    throw error;
+  }
+}
+function interactiveInput(input) {
+  product(bendValue('interaction/MODEL.InterfaceInput', { input: bendValue('interaction/TYPES.Interactive', { input }) }));
+}
+function snapshot(body, expectedNamespace) {
+  commit(Bend.snapshot_environment(expectedNamespace, typeof body.namespace === 'string' ? body.namespace : '', BigInt(body.sequence), decodeBendValue(body.program), state));
   streamFacts();
 }
-async function refresh() { snapshot(await request('/api/browser/state')); }
+async function refresh(scope = requestScope()) {
+  const body = await request('/api/browser/state', {}, scope);
+  requireCurrentRequest(scope);
+  snapshot(body, scope.namespace);
+}
 function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
 function result(ok, payload) { return ok ? bendValue('Done', { value: payload }) : bendValue('Fail', { error: payload }); }
+function observeInteractiveMarkdown(document) {
+  const key = Bend.markdown_source_key(document.source);
+  let entry = interactiveObservers.get(key);
+  if (!entry) {
+    entry = { document, observer: null };
+    entry.observer = new MarkdownFenceObserver({
+      onFence(record) {
+        if (disposed || interactiveObservers.get(key) !== entry) return;
+        const observation = bendValue('interaction/interactive_markdown/DOCUMENTS.FenceObservation', {
+          key, epoch: record.epoch, revision: record.inputRevision,
+          ordinal: record.ordinal, kind: record.kind, info: record.info,
+          info_complete: record.infoComplete, code: record.code, closed: record.closed,
+          input_prefix: record.inputPrefix,
+        });
+        queueMicrotask(() => {
+          if (!disposed && interactiveObservers.get(key) === entry) {
+            product(bendValue('interaction/MODEL.InterfaceInput', { input: bendValue('interaction/TYPES.ApplicationInput', {
+              input: bendValue('interaction/session/MODEL.InteractiveFenceObserved', { observation }),
+            }) }));
+          }
+        });
+      },
+    });
+    interactiveObservers.set(key, entry);
+  }
+  entry.document = document;
+  entry.observer.sync({ text: document.text, epoch: document.epoch, revision: document.revision,
+    ending: bendTag(document.ending).toLowerCase() });
+}
+function interactiveSettled(effect, success, message = '') {
+  if (disposed) return;
+  interactiveInput(bendValue('interaction/interactive_markdown/TYPES.EffectCompleted', {
+    owner: effect.owner, path: effect.path ?? '', ticket: effect.ticket ?? 0n, success, message,
+  }));
+}
+function interactiveStorageFailed(effect, message) {
+  if (!disposed) interactiveInput(bendValue('interaction/interactive_markdown/TYPES.StorageFailed', { owner: effect.owner, message }));
+}
+async function interactiveEffect(effect) {
+  switch (bendTag(effect)) {
+    case 'RestoreFieldBuffer':
+      renderer.rejectFieldBuffer(Bend.interactive_event_key(effect.event), effect.value);
+      break;
+    case 'ScheduleParse': {
+      const key = `${effect.owner.key}/${effect.owner.epoch}`;
+      if (!interactiveParseJobs.has(key)) interactiveParseJobs.set(key, scheduleDisplay(() => {
+        interactiveParseJobs.delete(key);
+        if (!disposed) interactiveInput(bendValue('interaction/interactive_markdown/TYPES.ContinueParsing', { owner: effect.owner }));
+      }));
+      break;
+    }
+    case 'WriteClipboard':
+      try { await navigator.clipboard.writeText(effect.text); interactiveSettled(effect, true); }
+      catch (error) { interactiveSettled(effect, false, String(error)); }
+      break;
+    case 'OpenUrl': window.open(effect.url, '_blank', 'noopener,noreferrer'); break;
+    case 'LoadSnapshot': {
+      try {
+        const stored = interactiveStorage.load(effect.owner);
+        if (stored) interactiveInput(bendValue('interaction/interactive_markdown/TYPES.Restored', {
+          owner: effect.owner, definition: stored.definition, payload: json(stored.payload),
+        }));
+      } catch (error) { interactiveStorageFailed(effect, String(error)); }
+      break;
+    }
+    case 'SaveSnapshot':
+      interactiveStorage.save(effect.owner, effect.definition, JSON.parse(showJson(effect.payload)),
+        (success, message) => { if (!success) interactiveStorageFailed(effect, message); });
+      break;
+    case 'RemoveSnapshot':
+      try { interactiveStorage.remove(effect.owner); }
+      catch (error) { interactiveStorageFailed(effect, String(error)); }
+      break;
+    default: throw new TypeError(`Unknown interactive effect ${effect.$}`);
+  }
+}
 async function execute(effect) {
   switch (bendTag(effect)) {
     case 'Command': {
       try {
         const body = await post('/api/browser/command', `{"command":${showJson(effect.command)}}`);
-        revision = Math.max(revision, body.sequence);
-        step(bendValue('browser/runtime/SEMANTICS.Completed', { ticket: effect.ticket, sequence: BigInt(body.sequence), program: decodeBendValue(body.program), reply: json(body.reply) }));
+        commit(Bend.completed_environment(effect.ticket, body.namespace, BigInt(body.sequence), decodeBendValue(body.program), json(body.reply), state));
       } catch (error) {
         if (error.body?.error?.code === 'command_not_submitted') {
           commit(Bend.command_rejected(effect.ticket, error.body.error.message, state));
         } else if (error.body?.program && error.body?.reply) {
           const body = error.body;
-          step(bendValue('browser/runtime/SEMANTICS.Completed', { ticket: effect.ticket, sequence: BigInt(body.sequence), program: decodeBendValue(body.program), reply: json(body.reply) }));
+          commit(Bend.completed_environment(effect.ticket, body.namespace, BigInt(body.sequence), decodeBendValue(body.program), json(body.reply), state));
         } else step(bendValue('browser/runtime/SEMANTICS.Failed', { ticket: effect.ticket, error: error.message }));
       }
       break;
@@ -347,6 +497,15 @@ async function execute(effect) {
       break;
     }
     case 'PersistModelPreference': localStorage.setItem('selvedge-model-preference', JSON.stringify({ profile: effect.profile, reasoning: effect.reasoning })); break;
+    case 'ObserveInteractiveMarkdown': observeInteractiveMarkdown(effect.document); break;
+    case 'ForgetInteractiveMarkdown': {
+      const forgotten = interactiveObservers.get(effect.key);
+      if (forgotten) codeObservationGroups.delete(Bend.code_key(forgotten.document.source, 0n));
+      forgotten?.observer.dispose();
+      interactiveObservers.delete(effect.key);
+      break;
+    }
+    case 'InteractiveEffect': await interactiveEffect(effect.effect); break;
     case 'BrowserEffect': await browserEffect(effect.effect); break;
     case 'RenderingFailed': console.error('Bend browser failure', JSON.stringify(encodeBendValue(effect))); break;
     default: throw new TypeError(`Unknown browser effect ${effect.$}`);
@@ -355,12 +514,18 @@ async function execute(effect) {
 async function service(effect) {
   switch (bendTag(effect)) {
     case 'Authenticate': {
+      const scope = requestScope(effect.ticket, connection ?? null, true);
       try {
-        const body = await request('/api/browser/state');
-        snapshot(body); product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(true, bendValue('Unit')) }));
-        connection?.abort(); connection = new AbortController();
-        void watch(connection.signal);
-      } catch (error) { product(bendValue('interaction/MODEL.Authenticated', { ticket: effect.ticket, result: result(false, error.message) })); }
+        const body = await request('/api/browser/state', {}, scope);
+        requireCurrentRequest(scope);
+        commit(Bend.authenticated_snapshot(scope.namespace, typeof body.namespace === 'string' ? body.namespace : '',
+          BigInt(body.sequence), decodeBendValue(body.program), effect.ticket, state));
+      } catch (error) { networkFailed(error, scope); }
+      break;
+    }
+    case 'SessionReady': {
+      connection?.abort(); connection = new AbortController();
+      void watch(connection);
       break;
     }
     case 'StoreAppearance': {
@@ -634,38 +799,124 @@ function applyReading(physical) {
   }
 }
 function streamFacts() {
-  const facts = [...streams.values()].map(entry => ({ task_id: entry.task, ticket: entry.ticket,
+  const facts = [...streams.values()].map(entry => ({ namespace: entry.namespace, task_id: entry.task, ticket: entry.ticket,
     parts: [...entry.parts].map(([output_index, text]) => ({ output_index, text })) }));
-  commit(Bend.streams(json({ kind: 'streams', streams: facts }), state));
+  commit(Bend.streams(json({ kind: 'streams', namespace: storeNamespace, streams: facts }), state));
 }
 function streamNotice(notice) {
-  const source = { state: [...streams.values()].map(entry => ({ task_id: entry.task, ticket: entry.ticket,
+  if (!Bend.stream_notice_owned(json(notice), state)) return false;
+  const source = { state: [...streams.values()].map(entry => ({ namespace: entry.namespace, task_id: entry.task, ticket: entry.ticket,
     parts: [...entry.parts].map(([output_index, text]) => ({ output_index, text })) })), notice };
   const next = boundary('browser.stream_step', source);
   streams.clear();
   for (const entry of next.state) streams.set(`${entry.task_id}:${entry.ticket}`,
-    { task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) });
-  if (next.publish) streamFacts();
+    { namespace: notice.namespace, task: entry.task_id, ticket: entry.ticket, parts: new Map(entry.parts.map(part => [part.output_index, part.text])) });
+  return next.publish;
 }
 
-async function watch(signal) {
-  while (!signal.aborted) {
-    try {
-      const response = await fetch(`/api/events?after=${revision}`, { credentials: 'same-origin', signal });
-      if (!response.ok || !response.body) throw new Error(`Event connection: HTTP ${response.status}`);
-      const reader = response.body.getReader(); const decoder = new TextDecoder();
-      const frames = new EventFrames(notice => {
-        if (signal.aborted) return;
-        if (notice.type === 'commit') { revision = Math.max(revision, notice.sequence); void refresh().catch(error => product(bendValue('interaction/MODEL.Disconnected', { reason: error.message }))); }
-        else if (notice.type === 'fatal') throw new Error(notice.message);
-        else streamNotice(notice);
+async function watch(controller) {
+  const current = () => currentRequest({ controller });
+  while (current()) {
+    let response;
+    let reader;
+    let subscription;
+    let opening;
+    let dirty = false;
+    let dirtyNamespace = null;
+    let dirtyNoticeCount = 0;
+    let flushTimer = null;
+    let flushTick = null;
+    const flushSignal = Symbol('stream publication');
+    const subscribed = () => current() && subscription?.namespace === storeNamespace;
+    const clearFlush = () => {
+      if (flushTimer !== null) clearTimeout(flushTimer);
+      flushTimer = null;
+      flushTick = null;
+    };
+    const flushStreams = () => {
+      const publish = dirty && subscribed() && dirtyNamespace === storeNamespace;
+      clearFlush();
+      dirty = false;
+      dirtyNamespace = null;
+      dirtyNoticeCount = 0;
+      if (publish) streamFacts();
+    };
+    const queueStreams = () => {
+      if (dirty) return;
+      dirty = true;
+      dirtyNamespace = storeNamespace;
+      flushTick = new Promise(resolve => {
+        flushTimer = setTimeout(() => {
+          flushTimer = null;
+          resolve(flushSignal);
+        }, 0);
       });
-      for (;;) { const { done, value: chunk } = await reader.read(); if (done) break; frames.write(decoder.decode(chunk, { stream: true })); }
-      throw new Error('Event connection ended');
+    };
+    try {
+      await refresh(requestScope(null, controller, true));
+      if (!current()) return;
+      opening = requestScope(null, controller);
+      response = await fetch(`/api/events?after=${opening.sequence}`, { credentials: 'same-origin', signal: controller.signal });
+      if (!current() || opening.namespace !== storeNamespace) return;
+      if (!response.ok || !response.body) { const error = new Error(`Event connection: HTTP ${response.status}`); error.status = response.status; throw error; }
+      subscription = opening;
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const notices = [];
+      const frames = new EventFrames(notice => notices.push(notice));
+      let reading = null;
+      let turnStarted = performance.now();
+      for (;;) {
+        if (!subscribed()) return;
+        if (performance.now() - turnStarted >= 8) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (!subscribed()) return;
+          turnStarted = performance.now();
+        }
+        if (notices.length) {
+          const notice = notices.shift();
+          const lifecycle = notice.type === 'stream_start' || notice.type === 'stream_end' || notice.type === 'stream_cancel';
+          if (lifecycle || notice.type === 'stream-state' || notice.type === 'commit' || notice.type === 'fatal' ||
+              (typeof notice.namespace === 'string' && notice.namespace !== storeNamespace)) {
+            flushStreams();
+            if (!subscribed()) return;
+          }
+          if (notice.type === 'commit') {
+            if (Bend.commit_refresh_needed(json(notice), state)) {
+              await refresh(requestScope(null, controller, true));
+              if (!subscribed()) return;
+            }
+          } else if (notice.type === 'fatal') throw new Error(notice.message);
+          else {
+            const publish = streamNotice(notice);
+            if (publish) queueStreams();
+            if (dirty) dirtyNoticeCount++;
+            if (lifecycle || dirtyNoticeCount >= 64) flushStreams();
+          }
+          continue;
+        }
+        reading ??= reader.read();
+        const received = await (flushTick ? Promise.race([reading, flushTick]) : reading);
+        if (!subscribed()) return;
+        if (received === flushSignal) { flushStreams(); continue; }
+        reading = null;
+        if (received.done) throw new Error('Event connection ended');
+        frames.write(decoder.decode(received.value, { stream: true }));
+      }
     } catch (error) {
-      if (signal.aborted) return;
-      product(bendValue('interaction/MODEL.Disconnected', { reason: error.message }));
+      if (!current() || (subscription && subscription.namespace !== storeNamespace)) return;
+      try { flushStreams(); } catch (flushError) { error = flushError; }
+      if (!current() || (subscription && subscription.namespace !== storeNamespace)) return;
+      const scope = error.requestScope ?? (subscription ? { ...subscription, sequence: revision } : opening);
+      networkFailed(requestError(error, scope));
       await new Promise(resolve => setTimeout(resolve, 1000));
+    } finally {
+      clearFlush();
+      dirty = false;
+      dirtyNamespace = null;
+      dirtyNoticeCount = 0;
+      const cancelled = reader ? reader.cancel() : response?.body?.cancel();
+      cancelled?.catch(() => {});
     }
   }
 }
@@ -721,6 +972,12 @@ window.addEventListener('pagehide', () => {
   for (const timer of feedbackTimers) clearTimeout(timer);
   feedbackTimers.clear();
   physicalRevision++;
+  for (const { observer } of interactiveObservers.values()) observer.dispose();
+  interactiveObservers.clear();
+  for (const job of interactiveParseJobs.values()) cancelDisplay(job);
+  interactiveParseJobs.clear();
+  interactiveStorage.dispose();
+  presentationMotion.dispose();
   physicalMeasurer.dispose();
   if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
   textMeasurer.dispose();

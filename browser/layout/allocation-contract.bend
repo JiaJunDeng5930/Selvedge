@@ -150,6 +150,8 @@ def expected_height(+capacity: Nat, kind: Authored.NativeFieldKind, policy: Auth
     case Authored.MultiSelectField{}: fixed_field_height(capacity, policy, font, observation)
     case Authored.ToggleField{}: fixed_field_height(capacity, policy, font, observation)
     case Authored.NumberField{minimum}: fixed_field_height(capacity, policy, font, observation)
+    case Authored.RangeField{minimum, maximum, step}: fixed_field_height(capacity, policy, font, observation)
+    case Authored.DecimalField{minimum, maximum, step}: fixed_field_height(capacity, policy, font, observation)
     case Authored.FileField{multiple}: fixed_field_height(capacity, policy, font, observation)
     case Authored.DirectoryField{}: fixed_field_height(capacity, policy, font, observation)
     case Authored.SearchField{}: fixed_field_height(capacity, policy, font, observation)
@@ -331,3 +333,71 @@ law height_evidence:
   for ~A: Data
   for ~E: Data
   HeightRequirements<A, E>
+
+# Height lookup specifies the first complete key-and-width match, including zero.
+def required_height_pick(matches: Bool, height: Nat, rest: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+  match matches:
+    case True{}: Some{height}
+    case False{}: rest
+
+def required_height_scan(samples: +List<Model.HeightSample>, +key: String, +width: Nat) -> Maybe<&2, Nat>:
+  match samples:
+    case Nil{}: None{}
+    case Con{Model.HeightSample{sample_key, sample_width, height}, rest}:
+      required_height_pick(String.eq(key, sample_key) && Nat.is_eq(width, sample_width), height,
+        required_height_scan(rest, key, width))
+
+def required_leaf_height(height: Model.Height, width: Nat, samples: +List<Model.HeightSample>) -> Maybe<&2, Nat>:
+  match height:
+    case Model.FixedHeight{value}: Some{value}
+    case Model.HeightAtWidth{key}: required_height_scan(samples, key, width)
+
+def required_height_key(height: Model.Height) -> String:
+  match height:
+    case Model.FixedHeight{value}: ""
+    case Model.HeightAtWidth{key}: key
+
+def required_leaf_height_completion(~A: Data, ~E: Data, sample: Maybe<&2, Nat>,
+  +key: String, +value: A, +interaction: Model.Interaction<E>, +rule: Model.Rule,
+  +demand: Space.Demand, +height: Model.Height, +inner_width: Nat, +outer_width: Nat,
+  +offset: Nat, +parent: Allocation.WidthReturn<A, E>) -> Allocation.WidthState<A, E>:
+  match sample:
+    case None{}:
+      Allocation.WidthComplete{Allocation.HeightPending{Model.HeightRequest{required_height_key(height), value, inner_width}, Nil{}}, parent}
+    case Some{content_height}:
+      Allocation.WidthComplete{Allocation.WidthReady{Allocation.MeasuredLeaf{key, value, interaction, rule, demand, height, outer_width, offset, content_height}}, parent}
+
+law height_lookup_complete:
+  for +samples: +List<Model.HeightSample>
+  for +key: String
+  for +width: Nat
+  {Allocation.find_height_samples(samples, key, width) == required_height_scan(samples, key, width) : Maybe<&2, Nat>}
+
+law public_height_lookup_complete:
+  for +key: String
+  for +width: Nat
+  for +samples: +List<Model.HeightSample>
+  {Allocation.find_height(key, width, samples) == required_height_scan(samples, key, width) : Maybe<&2, Nat>}
+
+law leaf_height_lookup_complete:
+  for +height: Model.Height
+  for +width: Nat
+  for +samples: +List<Model.HeightSample>
+  {Allocation.leaf_height(height, width, samples) == required_leaf_height(height, width, samples) : Maybe<&2, Nat>}
+
+law width_leaf_measurement_result:
+  for ~A: Data
+  for ~E: Data
+  for +key: String
+  for +value: A
+  for +interaction: Model.Interaction<E>
+  for +rule: Model.Rule
+  for +demand: Space.Demand
+  for +height: Model.Height
+  for +inner_width: Nat
+  for +outer_width: Nat
+  for +offset: Nat
+  for +parent: Allocation.WidthReturn<A, E>
+  for +samples: +List<Model.HeightSample>
+  {Allocation.width_step(~A, ~E, Allocation.WidthLeafHeight{required_leaf_height(height, inner_width, samples), key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent}, samples) ==
+    required_leaf_height_completion(~A, ~E, required_leaf_height(height, inner_width, samples), key, value, interaction, rule, demand, height, inner_width, outer_width, offset, parent) : Allocation.WidthState<A, E>}

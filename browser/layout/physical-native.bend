@@ -19,23 +19,42 @@ type NativeAllocation is Data:
   NeedsMeasurements{first: Content.Request, remaining: +List<Content.Request>}
   Invalid{error: Content.Error}
 
-def select_viewport(matches: Bool, +viewport: Content.NativeViewport, +rest: Maybe<&2, Content.NativeViewport>) -> Maybe<&2, Content.NativeViewport>:
-  match matches:
-    case True{}: Some{viewport}
-    case False{}: rest
+def viewport_key_matches(admitted: Bool, key: String, target: Source.NativeTarget) -> Bool:
+  match admitted:
+    case False{}: False{}
+    case True{}: String.eq(key, Source.target_key(target))
+
+def viewport_matches_key(generation: Nat, owner: String, purpose: Content.Purpose, key: String, value: Content.NativeViewport) -> Bool:
+  Content.NativeViewport{observed_generation, observed_owner, observed_purpose, observed_target, bounds} = value
+  viewport_key_matches(Nat.is_eq(generation, observed_generation) && String.eq(owner, observed_owner)
+    && Measurements.same_purpose(purpose, observed_purpose), key, observed_target)
 
 def viewport_matches(query: Query, value: Content.NativeViewport) -> Bool:
   Query{generation, owner, purpose, target} = query
-  Content.NativeViewport{observed_generation, observed_owner, observed_purpose, observed_target, bounds} = value
-  Nat.is_eq(generation, observed_generation) && String.eq(owner, observed_owner)
-    && Measurements.same_purpose(purpose, observed_purpose)
-    && String.eq(Source.target_key(target), Source.target_key(observed_target))
+  viewport_matches_key(generation, owner, purpose, Source.target_key(target), value)
+
+def select_viewport_lazy(matches: Bool, value: Content.NativeViewport, fallback: Unit -> Maybe<&2, Content.NativeViewport>) -> Maybe<&2, Content.NativeViewport>:
+  match matches:
+    case True{}: Some{value}
+    case False{}: fallback(Unit{})
+
+def viewport_with_key(+generation: Nat, +owner: String, +purpose: Content.Purpose, +key: String, values: +List<Content.NativeViewport>) -> Maybe<&2, Content.NativeViewport>:
+  match values:
+    case Nil{}: None{}
+    case Con{+value, rest}:
+      select_viewport_lazy(viewport_matches_key(generation, owner, purpose, key, value), value,
+        (_ => viewport_with_key(generation, owner, purpose, key, rest)))
+
+def viewport_nonempty(query: Query, values: +List<Content.NativeViewport>) -> Maybe<&2, Content.NativeViewport>:
+  Query{generation, owner, purpose, target} = query
+  +key: String = Source.target_key(target)
+  viewport_with_key(generation, owner, purpose, key, values)
 
 def viewport(+query: Query, values: +List<Content.NativeViewport>) -> Maybe<&2, Content.NativeViewport>:
   match values:
     case Nil{}: None{}
     case Con{+value, rest}:
-      select_viewport(viewport_matches(query, value), value, viewport(query, rest))
+      viewport_nonempty(query, value <> rest)
 
 def absent(found: Maybe<&2, Content.NativeViewport>, +query: Query) -> +List<Query>:
   match found:

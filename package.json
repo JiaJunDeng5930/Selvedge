@@ -17,7 +17,8 @@
     "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
     "build:native": "bun scripts/build.mjs --native",
     "test:ci": "bun run build && bun scripts/test.mjs --ci",
-    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs"
+    "test:chatgpt-plugin": "bun run build && bun test --parallel=2 --max-concurrency 2 ./tests-bend/chatgpt-plugin*.test.mjs",
+    "test:interactive-markdown": "bun run build && bun test tests-bend/interactive-markdown-*.test.mjs && python3 scripts/test-interactive-markdown-browser.py --mode all"
   },
   "dependencies": {
     "diff": "9.0.0",

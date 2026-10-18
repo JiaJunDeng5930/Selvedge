@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile, rename, rm, realpath } from 'node:
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { expectedVersion } from './toolchain.mjs';
+import { expectedVersion, compilerEnvironment, compilerInvocation } from './toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const sourceVersion = '2.0.34';
@@ -60,8 +60,9 @@ export async function compileJavaScript({ entry, exports: publicExports, output,
       realpath(path.resolve(root, entry)), realpath(path.resolve(root, sourceRoot)),
     ]);
     await writeFile(request, JSON.stringify({ entry: canonicalEntry, sourceRoot: canonicalSourceRoot, exports: Object.fromEntries(entries), output: path.resolve(root, output), response }));
-    const result = spawnSync(process.execPath, [driver, '--emit', request], {
-      cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, BEND_NO_TELEMETRY: '1' },
+    const invocation = compilerInvocation(process.execPath, [driver, '--emit', request]);
+    const result = spawnSync(invocation.command, invocation.args, {
+      cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1' },
     });
     if (result.error || result.status !== 0) {
       const diagnostic = result.error?.message || result.stderr.trim() || result.stdout.trim() || 'No compiler diagnostic was emitted';

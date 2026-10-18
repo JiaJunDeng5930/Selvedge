@@ -1,9 +1,12 @@
 import Base
+import ../../bendlib/string-equality.bend as SafeText
 import ../IDENTITY.bend as UIIdentity
+import ../../harness/DOMAIN.bend as D
 
 type Source is Data:
   Message{task: Nat, message: Nat}
   StreamingPart{task: Nat, operation: Nat, part: Nat}
+  Generated{namespace: String, viewer: Nat, origin: D.OutputOrigin, complete: Bool}
 
 type Identity is Data:
   Identity{source: Source, ordinal: Nat}
@@ -45,6 +48,15 @@ def source_key(source: Source) -> String:
   match source:
     case Message{task, message}: "task/" ++ Nat.show(task) ++ "/message/" ++ Nat.show(message)
     case StreamingPart{task, operation, part}: "task/" ++ Nat.show(task) ++ "/stream/" ++ Nat.show(operation) ++ "/part/" ++ Nat.show(part)
+    case Generated{namespace, viewer, D.OutputOrigin{producer_task, operation, part, mode}, complete}:
+      "store/" ++ namespace ++ "/viewer/" ++ Nat.show(viewer) ++ "/output/" ++ Nat.show(producer_task) ++ "/" ++ Nat.show(operation) ++ "/part/" ++ Nat.show(part)
+
+def complete(source: Maybe<&2, Source>) -> Bool:
+  match source:
+    case None{}: True{}
+    case Some{Message{task, message}}: True{}
+    case Some{StreamingPart{task, operation, part}}: False{}
+    case Some{Generated{namespace, viewer, origin, complete}}: complete
 
 def key(identity: Identity) -> String:
   Identity{source, ordinal} = identity
@@ -124,7 +136,7 @@ def expire_code_feedback(owned: Bool, block: Block) -> Decision:
 def step(block: Block, input: Input) -> Decision:
   Block{identity, +source, CodeView{+wrap, +copy}, next} = block
   match input:
-    case SourceChanged{+current}: source_changed(String.eq(source, current), current, Block{identity, source, CodeView{wrap, copy}, next})
+    case SourceChanged{+current}: source_changed(SafeText.string_equal(source, current), current, Block{identity, source, CodeView{wrap, copy}, next})
     case ToggleWrap{}: Decision{Block{identity, source, toggle_code_wrap(CodeView{wrap, copy}), next}, Nil{}}
     case Copy{}: begin(code_can_copy(CodeView{wrap, copy}), Block{identity, source, CodeView{wrap, copy}, next})
     case Copied{+ticket, success}: copy_result(same_ticket(copy, ticket), ticket, success, Block{identity, source, CodeView{wrap, copy}, next})

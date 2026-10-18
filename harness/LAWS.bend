@@ -666,8 +666,9 @@ law rejected_delivery_no_effects:
   {P.decision_effects(P.output_admitted(False{}, decision, world)) == Nil{} : +List<M.Effect()>}
 
 law context_has_no_call_authority:
+  for part: Nat
   for value: J.Json
-  {T.item_calls([D.Context{value}]) == Nil{} : +List<D.Call>}
+  {T.item_calls([D.Context{part, value}]) == Nil{} : +List<D.Call>}
 
 # This is an idempotent context projection, not a semantic-equivalence claim
 # about model-generated text. The append-only history invariant is unchanged.

@@ -73,7 +73,7 @@ test('text and record definitions extend actual observation, history and provide
         assert.equal(JSON.stringify(body).includes('PRIVATE-REVIEW-BODY'), false);
         if (effect.task_id === selectedTask) selected = { model: effect, body, observations: observed.get(selectedTask) };
         completed = await send({ kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true,
-          items: [{ type: 'text', text: 'done' }] });
+          items: [{ type: 'text', part: 0, text: 'done' }] });
       }
       assert.equal(completed.reply.ok, true);
       pending.push(...completed.effects);

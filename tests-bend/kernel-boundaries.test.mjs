@@ -1,8 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { Kernel } from '../host/kernel.mjs';
 import { parseJson, stringifyJson, JsonNumber } from '../host/codec.mjs';
 import { settleContextObservations } from './support.mjs';
+
+test('browser streams accept ordinary long output on the default V8 stack', { timeout: 30_000 }, async () => {
+  if (process.versions.bun) {
+    const checked = spawnSync('node', ['--test', '--test-name-pattern', '^browser streams accept ordinary long output on the default V8 stack$', fileURLToPath(import.meta.url)], {
+      encoding: 'utf8', timeout: 25_000, maxBuffer: 1024 * 1024,
+    });
+    assert.ifError(checked.error);
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+    return;
+  }
+  const { boundary } = await import('../host/public/model-boundary.mjs');
+  const text = 'x'.repeat(16 * 1024);
+  const entry = value => ({ task_id: 17, ticket: 3, parts: [{ output_index: 5, text: value }] });
+  const result = boundary('browser.stream_step', {
+    state: [entry('prefix:')],
+    notice: { type: 'delta', task_id: 17, ticket: 3, output_index: 5, text },
+  });
+  assert.deepEqual(result, { state: [entry('prefix:' + text)], publish: true });
+});
 
 const remote = { name: 'mcp__fixture__inspect', description: 'Inspect input', schema: { type: 'object' }, server: 'fixture', remote: 'inspect' };
 
@@ -20,7 +41,7 @@ async function kernel(t, overrides = {}) {
 
 function model(task_id, ticket, text = 'done', calls = []) {
   return { kind: 'model', task_id, ticket, ok: true,
-    items: [...(text ? [{ type: 'text', text }] : []), ...calls.map(call => ({ type: 'call', ...call }))] };
+    items: [...(text ? [{ type: 'text', part: 0, text }] : []), ...calls.map(call => ({ type: 'call', ...call }))] };
 }
 
 test('Bend-generated JavaScript Worker and codec transport preserves Unicode, embedded controls and exact JSON numeric lexemes', async t => {

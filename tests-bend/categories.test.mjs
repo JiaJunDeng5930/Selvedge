@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { compiler } from '../scripts/toolchain.mjs';
+import { compiler, compilerEnvironment, compilerInvocation } from '../scripts/toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bend = path.join(root, '.build/bend/bin/bend');
@@ -83,9 +83,10 @@ async function fixture(t, source) {
   const directory = await mkdtemp(path.join(root, '.build/categories-boundary-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await writeFile(path.join(directory, 'client.bend'), source);
-  return () => spawnSync(bend, ['client.bend'], {
+  const invocation = compilerInvocation(bend, ['client.bend']);
+  return () => spawnSync(invocation.command, invocation.args, {
     cwd: directory, encoding: 'utf8', timeout: 20_000, maxBuffer: 1024 * 1024,
-    env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
+    env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
 }
 

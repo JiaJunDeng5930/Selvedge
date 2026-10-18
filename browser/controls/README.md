@@ -166,3 +166,23 @@ and existing gap to its minimum demand. The containing panel therefore cannot
 choose its width only from a shorter description and split the navigation across
 rows. This policy retains each original control's command, availability and
 target; it applies equally to settings, dependencies and source inspection.
+
+Interactive Markdown charts use [chart.bend](chart.bend) for typed line/bar
+admission, bounded ordered original values, fixed-decimal axis domains and point
+geometry. Numeric axes include zero with a symmetric domain; categorical x values
+retain input order. Empty/all-zero domains use the smallest positive six-place
+value. Invalid or missing fields produce a diagnostic instead of a fabricated
+point, and the public chart producer rejects an unsupported kind. Nested field
+paths use the same accessor as declaration validation and accessible summaries.
+Only the first 512 rows are drawn, with the total and truncation exposed.
+Lines connect consecutive input points and mark single points. Bars extend from
+the zero baseline toward their signed values; their centered width is at most
+20 logical units so boundary points remain inside the canvas.
+
+Charts keep a 480 by 240 logical drawing canvas inside a horizontal scrollport.
+The scrollport follows its allocated width; axes and values share canvas
+coordinates and retain their original keys. CONTRACT/PROOF bind the admitted
+line/bar geometry and real drawing payloads through physical preparation;
+layout render-contract/render-proof retain the canvas allocation requirements.
+These proofs do not establish the decimal implementation's full mathematical
+ordering properties or physical browser rendering.

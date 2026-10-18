@@ -22,6 +22,9 @@ import ../../features/board/MODEL.bend as Board
 import ../../features/board/filter.bend as Filter
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../../interaction/TYPES.bend as InteractionTypes
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
+import ../../interaction/interactive_markdown/SCENE.bend as InteractiveScene
+import ../../bendlib/json.bend as J
 
 # The visible face never determines the command. The binding below is retained
 # from the product observation, including unavailable actions and their reasons.
@@ -235,6 +238,8 @@ type Widget is Data:
   MultiSelectInput{}
   ToggleInput{}
   NumberInput{minimum: Nat}
+  RangeInput{minimum: String, maximum: String, step: String}
+  DecimalInput{minimum: String, maximum: String, step: String}
   DirectoryList{}
   AttachmentList{}
   FileChooser{face: Face}
@@ -962,6 +967,30 @@ def label_placement(widget: Widget) -> LabelPlacement:
 def make_input(meaning: SurfaceTypes.Meaning, name: String, +widget: Widget, availability: View.Availability) -> Representation:
   Input{FormInput{meaning, name, widget, label_placement(widget), availability}}
 
+def interactive_limit(value: Maybe<&2, J.Json>) -> String:
+  match value:
+    case None{}: ""
+    case Some{value}: InteractiveScene.scalar_text(value)
+
+def interactive_numeric_fields(range: Bool, minimum: Maybe<&2, J.Json>, maximum: Maybe<&2, J.Json>, step: J.Json) -> Widget:
+  match range:
+    case True{}: RangeInput{interactive_limit(minimum), interactive_limit(maximum), InteractiveScene.scalar_text(step)}
+    case False{}: DecimalInput{interactive_limit(minimum), interactive_limit(maximum), InteractiveScene.scalar_text(step)}
+
+def interactive_numeric_widget(schema: Interactive.StateSchema, range: Bool) -> Widget:
+  Interactive.StateSchema{kind, initial, minimum, maximum, step, options, max_length} = schema
+  interactive_numeric_fields(range, minimum, maximum, step)
+
+def interactive_widget(+tag: String, +schema: Interactive.StateSchema) -> Widget:
+  match tag:
+    case "slider": interactive_numeric_widget(schema, True{})
+    case "number-input": interactive_numeric_widget(schema, False{})
+    case "textarea": TextArea{}
+    case "checkbox": ToggleInput{}
+    case "select": SelectInput{}
+    case _: TextInput{}
+
+
 def field_availability(entry: Forms.Entry) -> View.Availability:
   match entry:
     case Forms.DisplayOnly{}: View.Unavailable{"Read only"}
@@ -1205,8 +1234,20 @@ def setting_representation(subject: UXTypes.Subject, title: String, value: Strin
       Action{Button{input, availability, name, SettingFace{subject, title, value}, behavior, geometry, placement, feedback}}
     case other: other
 
+def interactive_representation(+key: UIIdentity.Key, +node: Interactive.ExpandedNode, +label: String, role: SurfaceTypes.Role, context: Context) -> Representation:
+  Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children} = node
+  match binding:
+    case Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}:
+      make_input(SurfaceTypes.InteractiveNode{node}, label, interactive_widget(tag, schema), InterfaceView.availability(enabled))
+    case Interactive.ActionBinding{kind, enabled, pending}:
+      represent_action(key, InteractionTypes.Interactive{Interactive.Activated{InteractiveScene.event(node)}}, InterfaceView.availability(enabled && Bool.not(pending)), label, role, context)
+    case _: NoControl{}
+
+
 def represent_plain(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String, role: SurfaceTypes.Role, +context: Context) -> Representation:
   match meaning:
+    case SurfaceTypes.InteractiveNode{node}: interactive_representation(key, node, label, role, context)
+    case SurfaceTypes.InteractiveView{event, command, name, enabled}: represent_action(key, InteractionTypes.Interactive{Interactive.ViewChanged{event, command}}, InterfaceView.availability(enabled), name, role, context)
     case SurfaceTypes.ActivityRow{row}: NoControl{}
     case SurfaceTypes.SupportingControl{support, property, input, availability}: make_support(key, support, property, input, availability, label, role, context)
     case SurfaceTypes.ActionCommit{assessment, input, availability}: represent_action(key, input, assessment_availability(assessment, availability), label, role, context)

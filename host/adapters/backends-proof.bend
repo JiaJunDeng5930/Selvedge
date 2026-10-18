@@ -78,3 +78,10 @@ def B.context_amendment_patch_encoding():
   key => base_revision => revision => patch => {==}
 def B.context_removal_encoding():
   key => base_revision => {==}
+
+
+def B.board_text_output_mode_plain():
+  effect => {==}
+
+def B.approval_output_mode_plain():
+  effect => {==}

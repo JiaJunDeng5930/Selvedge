@@ -221,7 +221,8 @@ export async function responsesServer(t, respond, { measure } = {}) {
       requests.push(body);
       const output = await respond(body, requests.length - 1, request);
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', delta: '处理中 😀' })}\r\n\r\n`);
+      const outputIndex = output.findIndex(item => item.type === 'message');
+      if (outputIndex >= 0) response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', output_index: outputIndex, delta: '处理中 😀' })}\r\n\r\n`);
       response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\r\n\r\n`);
     })().catch(error => {
       failures.push(error);

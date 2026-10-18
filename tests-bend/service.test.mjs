@@ -60,8 +60,8 @@ test('root-issued browser sessions, event delivery, CLI discovery, and restart u
   const stream = await fetch(`${running.address}/api/events?after=0`, { headers: browserHeaders(), signal: controller.signal });
   const iterator = events(stream.body, running.service.limits.frame_bytes);
   try {
-    assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'stream-state', streams: [] });
-    assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'commit', sequence });
+    assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'stream-state', namespace: running.service.journal.namespace, streams: [] });
+    assert.deepEqual(JSON.parse((await iterator.next()).value), { type: 'commit', namespace: running.service.journal.namespace, sequence });
   }
   finally {
     controller.abort();

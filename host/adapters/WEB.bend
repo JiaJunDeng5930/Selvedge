@@ -1042,16 +1042,20 @@ def emitted_call(+call: J.Json) -> J.Json:
   object(field("type", text("call")) <> field("id", get(call, "call_id")) <> subset(call, "name" <> "arguments" <> Nil{}))
 def settle_deferred(pending: Bool, +answer: String, +source: J.Json) -> J.Json:
   match pending:
-    case True{}: Model.success(object(field("items", J.Array{object(field("type", text("text")) <> field("text", text(answer)) <> Nil{}) <> Nil{}}) <> field("snapshot", text(answer)) <> field("continue", J.Boolean{True{}}) <> field("deferred", J.Array{Nil{}}) <> field("body", successor_body(get(get(source, "resource"), "id"), J.items(get(source, "deferred")))) <> Nil{}))
-    case False{}: Model.success(object(field("items", J.Array{object(field("type", text("text")) <> field("text", text(answer)) <> Nil{}) <> Nil{}}) <> field("snapshot", text(answer)) <> field("continue", J.Boolean{False{}}) <> field("deferred", get(source, "deferred")) <> field("body", get(source, "body")) <> Nil{}))
+    case True{}: Model.success(object(field("items", J.Array{object(field("type", text("text")) <> field("part", get(source, "index")) <> field("text", text(answer)) <> Nil{}) <> Nil{}}) <> field("snapshot", text(answer)) <> field("continue", J.Boolean{True{}}) <> field("deferred", J.Array{Nil{}}) <> field("body", successor_body(get(get(source, "resource"), "id"), J.items(get(source, "deferred")))) <> Nil{}))
+    case False{}: Model.success(object(field("items", J.Array{object(field("type", text("text")) <> field("part", get(source, "index")) <> field("text", text(answer)) <> Nil{}) <> Nil{}}) <> field("snapshot", text(answer)) <> field("continue", J.Boolean{False{}}) <> field("deferred", get(source, "deferred")) <> field("body", get(source, "body")) <> Nil{}))
 def settle_answer(answer: String, +source: J.Json) -> J.Json:
   settle_deferred(Nat.is_lt(0n, count(J.items(get(source, "deferred")))), answer, source)
 def settle_completed(completed: Bool, +source: J.Json) -> J.Json:
   match completed:
     case True{}: settle_answer(settled_text(J.items(get(first_item(J.items(get(get(source, "resource"), "output"))), "content"))), source)
     case False{}: Model.success(object(field("items", J.Array{Std.map(~J.Json, ~J.Json, ~(item => emitted_call(item)), J.items(get(get(source, "resource"), "output")))}) <> field("snapshot", text("")) <> field("continue", J.Boolean{False{}}) <> field("deferred", get(source, "deferred")) <> field("body", get(source, "body")) <> Nil{}))
+def settle_stage(valid: Bool, +source: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure("Unsupported ChatGPT Web output stage; only parts 0 and 1 are defined")
+    case True{}: settle_completed(eq(get(source, "resource"), "status", "completed"), source)
 def calculation_settle(+source: J.Json) -> J.Json:
-  settle_completed(eq(get(source, "resource"), "status", "completed"), source)
+  settle_stage(natural(get(source, "index")) && (Model.same_json(get(source, "index"), J.nat(0n)) || Model.same_json(get(source, "index"), J.nat(1n))), source)
 def cancel_owner_result(result: J.Json, task: J.Json) -> J.Json:
   Model.success(object(field("owner", get(result, "value")) <> subset(task, "ticket" <> Nil{})))
 

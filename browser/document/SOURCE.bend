@@ -60,6 +60,8 @@ type NativeFieldKind is Data:
   MultiSelectField{}
   ToggleField{}
   NumberField{minimum: Nat}
+  RangeField{minimum: String, maximum: String, step: String}
+  DecimalField{minimum: String, maximum: String, step: String}
   FileField{multiple: Bool}
   DirectoryField{}
   SearchField{}
@@ -84,7 +86,9 @@ def toggle_center_offset(value: ToggleGeometry) -> Nat:
   Nat.div(Nat.sub(target_size, visual_size), 2n)
 
 def native_field_appearance(kind: NativeFieldKind) -> String:
-  "none"
+  match kind:
+    case RangeField{minimum, maximum, step}: "auto"
+    case _: "none"
 
 type Exposure is Data:
   Exposed{}
@@ -162,6 +166,9 @@ type RichContent is Data:
 type NativeTarget is Data:
   ToolbarTarget{identity: Code.Identity}
   CodeBodyTarget{identity: Code.Identity, wrap: Bool}
+  InteractiveTarget{identity: Code.Identity}
+  InteractiveSourceTarget{identity: Code.Identity, exposed: Bool}
+  InteractiveFrameTarget{identity: Code.Identity, active: Bool}
 
 type Node is Data:
   NativeAttachment{key: Identity.Key, target: NativeTarget, attributes: +List<Attribute>,
@@ -314,6 +321,9 @@ def target_key(target: NativeTarget) -> String:
   match target:
     case ToolbarTarget{identity}: Code.dom_key(identity) ++ "/toolbar"
     case CodeBodyTarget{identity, wrap}: Code.dom_key(identity) ++ "/code"
+    case InteractiveTarget{identity}: Code.dom_key(identity) ++ "/ui"
+    case InteractiveSourceTarget{identity, exposed}: Code.dom_key(identity) ++ "/source"
+    case InteractiveFrameTarget{identity, active}: Code.dom_key(identity) ++ "/frame"
 
 def field_policy_valid(policy: FieldPolicy) -> Bool:
   FieldPolicy{minimum_columns, +minimum_lines, maximum_lines} = policy

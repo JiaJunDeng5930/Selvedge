@@ -28,7 +28,7 @@ def request_environment(-StateRest: Data, -EffectRest: Data, +task: D.Task, worl
       +contract = D.task_contract(task)
       +tools = T.task_tools(contract)
       +allowed = T.callable(tools, catalog)
-      next = D.with_phase(D.ModelPending{ticket, allowed}, task)
+      next = D.with_phase(D.ModelPending{ticket, allowed, D.history_output_mode(D.task_history(task))}, task)
       C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), rest}, J.Null{},
         [Effects.RequestModel{D.task_id(task), ticket, D.task_model(task), D.task_history(task), tools, allowed, D.task_context(task), "", 0n}]}
 

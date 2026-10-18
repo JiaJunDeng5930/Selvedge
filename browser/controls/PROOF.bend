@@ -7,14 +7,24 @@ import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/presentation/INFORMATION.bend as Information
 import ./authored-proof.bend as AuthoredProof
 import ../document/MODEL.bend as Doc
+import ../document/RENDERED.bend as Rendered
 import ./authored-primitives.bend as Factory
 import ../../bendlib/categories.bend as Categories
+import ../../bendlib/json.bend as J
 import ./button-proof.bend as ButtonEvidence
 import ../layout/geometry-proof.bend as ProofGeometryProof
 import Base
+import ../../bendlib/string-equality.bend as SafeText
+import ../../bendlib/equality-proof.bend as TextProof
 import ../../features/board/filter.bend as Filter
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ./CONTRACT.bend as Rule
+import ./interactive-markdown.bend as InteractiveRendering
+import ./chart.bend as Chart
+import ../../interaction/interactive_markdown/DECIMAL.bend as Decimal
+import ../../interaction/interactive_markdown/EXPRESSION.bend as Expression
+import ../layout/CONTENT.bend as PhysicalContent
+import ../layout/SOURCE.bend as PhysicalSource
 import ../layout/SPACE.bend as Space
 import ../appearance/TYPOGRAPHY.bend as T
 import ../appearance/ICONS.bend as Icons
@@ -45,7 +55,10 @@ import ../../interaction/session/MODEL.bend as E
 import ./SURFACES.bend as Surfaces
 import ../../interaction/presentation/COMPOSITION.bend as Composition
 import ./SHELL.bend as Shell
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
+import ../../interaction/interactive_markdown/SCENE.bend as InteractiveScene
 import ../../interaction/presentation/CONTRACT.bend as CoreDirectory
+import ../../interaction/presentation/interaction-proof.bend as AttachmentEvidence
 import ../runtime/SEMANTICS.bend as Browser
 import ../../interaction/services/CONTEXT.bend as Context
 import ../../interaction/TYPES.bend as InteractionTypes
@@ -142,6 +155,9 @@ def navigation_header_binding(matches: Bool, owner: UIIdentity.Key, project: Nat
 def navigation_region_meaning_binding(+key: UIIdentity.Key, +owner: UIIdentity.Key, +semantic: String, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +children: +List<SurfaceTypes.Node>, +depth: Nat, +attention: Navigation.Attention, +layers: +List<View.Layer>) ->
   {Rule.binding(Controls.navigation_fields(key, SurfaceTypes.Region{}, Controls.SourceFamily{SurfaceTypes.Node{owner, semantic, label, role, meaning, children}}, depth, attention, layers, Controls.NoControl{})) == SurfaceTypes.Region{} : SurfaceTypes.Meaning}:
   match meaning:
+    case SurfaceTypes.InteractiveRegion{identity, source_visible}: {==}
+    case SurfaceTypes.InteractiveNode{node}: {==}
+    case SurfaceTypes.InteractiveView{event, command, name, enabled}: {==}
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: navigation_header_binding(String.eq(UIIdentity.encode(key), UIIdentity.encode(UIIdentity.Part{owner, "actions"})), owner, project, depth, attention, layers)
     case SurfaceTypes.SettingEntry{subject, value, input, availability}: {==}
     case SurfaceTypes.DecisionGroup{decision}: {==}
@@ -215,10 +231,22 @@ def setting_fields_retains_binding(+subject: UXTypes.Subject, +title: String, +v
     case Controls.Input{input}: {==}
     case Controls.Movable{control}: {==}
 
+def interactive_representation_binding(+key: UIIdentity.Key, +node: Interactive.ExpandedNode, +label: String, +role: SurfaceTypes.Role, +context: Controls.Context) ->
+  {Rule.binding(Controls.interactive_representation(key, node, label, role, context)) == Rule.interactive_source_binding(node) : SurfaceTypes.Meaning}:
+  Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children} = node
+  match binding:
+    case Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}: {==}
+    case Interactive.ActionBinding{kind, enabled, pending}:
+      represented_action_retains_binding(key, InteractionTypes.Interactive{Interactive.Activated{InteractiveScene.event(node)}}, InterfaceView.availability(enabled && Bool.not(pending)), label, role, context)
+    case Interactive.NoBinding{}: {==}
+
 def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label: String,
   +role: SurfaceTypes.Role, +context: Controls.Context) ->
   {Rule.binding(Controls.represent(key, meaning, label, role, context)) == Rule.source_binding(meaning) : SurfaceTypes.Meaning}:
   match meaning:
+    case SurfaceTypes.InteractiveRegion{identity, source_visible}: {==}
+    case SurfaceTypes.InteractiveNode{node}: interactive_representation_binding(key, node, label, role, context)
+    case SurfaceTypes.InteractiveView{event, command, name, enabled}: represented_action_retains_binding(key, InteractionTypes.Interactive{Interactive.ViewChanged{event, command}}, InterfaceView.availability(enabled), name, role, context)
     case SurfaceTypes.ActionExplanation{assessment}: {==}
     case SurfaceTypes.ActionCommit{assessment, input, availability}: represented_action_retains_binding(key, input, Controls.assessment_availability(assessment, availability), label, role, context)
     case SurfaceTypes.Activate{input, availability}: represented_action_retains_binding(key, input, availability, label, role, context)
@@ -870,7 +898,14 @@ def removed_occurrences(nodes: +List<SurfaceTypes.Node>, +key: String) ->
   match nodes:
     case Nil{}: {==}
     case Con{SurfaceTypes.Node{+current, semantic, label, role, meaning, +children}, +rest}:
-      removed_step(String.eq(UIIdentity.encode(current), key), current, semantic, label, role, meaning, children, rest, key, {==}, removed_occurrences(children, key), removed_occurrences(rest, key))
+      Equal.trans(Nat,
+        Rule.occurrences(InterfaceView.without_node(SurfaceTypes.Node{current, semantic, label, role, meaning, children} <> rest, key), key),
+        Rule.occurrences(InterfaceView.retain_node(Bool.not(String.eq(UIIdentity.encode(current), key)),
+          SurfaceTypes.Node{current, semantic, label, role, meaning, InterfaceView.without_node(children, key)}, InterfaceView.without_node(rest, key)), key), 0n,
+        Equal.cong(Bool, Nat, (same => Rule.occurrences(InterfaceView.retain_node(Bool.not(same),
+          SurfaceTypes.Node{current, semantic, label, role, meaning, InterfaceView.without_node(children, key)}, InterfaceView.without_node(rest, key)), key)),
+          SafeText.string_equal(UIIdentity.encode(current), key), String.eq(UIIdentity.encode(current), key), TextProof.public_refines(UIIdentity.encode(current), key)),
+        removed_step(String.eq(UIIdentity.encode(current), key), current, semantic, label, role, meaning, children, rest, key, {==}, removed_occurrences(children, key), removed_occurrences(rest, key)))
 
 def actual_relocation(+scene: InteractionTypes.Scene, +base: +List<SurfaceTypes.Node>, +overlays: +List<SurfaceTypes.Node>,
   +key: String, +node: SurfaceTypes.Node, +target: Nat,
@@ -1466,12 +1501,22 @@ def initial_execution(+content: InteractionTypes.Scene) ->
   InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect} = settings
   {==}
 
+def own_tab_stop_enabled(+eligible: Bool, +elements: +List<Rendered.Element>, +identity: String) ->
+  {Rendered.own_tab_stop(eligible, elements, identity) == eligible && Rendered.tab_stop(Rendered.find_element(elements, identity)) : Bool}:
+  match eligible:
+    case False{}: {==}
+    case True{}: {==}
+
 def Rule.context_control_evidence():
   Rule.ContextControlRequirements{
     +key => kind => icon => +selected => description => +input => +availability => +label => role => context => choice_retains_binding(key, kind, icon, selected, description, input, availability, label, role, context),
     kind => icon => +selected => description => +input => +availability => {==},
     kind => icon => +selected => description => +input => +availability => {==},
-    +key => semantic => +label => role => kind => icon => +selected => description => +input => +availability => +elements => +native_focus => {==},
+    +key => semantic => +label => role => kind => icon => +selected => description => +input => +availability => +elements => +native_focus =>
+      Equal.cong(Bool, (+List<String>), (own => Rendered.tab_entry(own, UIIdentity.encode(key), Nil{})),
+        Rendered.own_tab_stop(Rendered.enabled(availability), elements, UIIdentity.encode(key)),
+        (Rendered.enabled(availability) && Rendered.tab_stop(Rendered.find_element(elements, UIIdentity.encode(key)))),
+        own_tab_stop_enabled(Rendered.enabled(availability), elements, UIIdentity.encode(key))),
     +label => expanded => {==},
     +property => +key => +parent => +geometry => +parameters => {==},
     initial_execution,
@@ -1511,11 +1556,410 @@ def Rule.compact_property_current_values(property, key, parent): {==}
 
 def Rule.property_caption_wraps(property): {==}
 
+def Rule.interactive_canvas_geometry(style, size):
+  match style size:
+    case Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states} Enclosure.Extent{extent_width, extent_height}: {==}
+
+def Rule.interactive_plot_geometry(style):
+  match style:
+    case Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}: {==}
+
+def Rule.interactive_plot_canvas_geometry(style):
+  match style:
+    case Source.Style{Source.Layout{direction, main, cross, frame, width, height, minimum, scroll, position}, font, chrome, states}: {==}
+
+def chart_checked_row_origin(+source: J.Json, +x: J.Json, +y: J.Json, +valid: Bool) ->
+  Rule.chart_row_origin(source, Chart.row_checked(source, x, y, valid)):
+  match y valid:
+    case J.Number{number} True{}: {==}
+    case J.Number{number} False{}: {==}
+    case J.Null{} False{}: {==}
+    case J.Null{} True{}: {==}
+    case J.Boolean{value} False{}: {==}
+    case J.Boolean{value} True{}: {==}
+    case J.Text{value} False{}: {==}
+    case J.Text{value} True{}: {==}
+    case J.Array{items} False{}: {==}
+    case J.Array{items} True{}: {==}
+    case J.Object{fields} False{}: {==}
+    case J.Object{fields} True{}: {==}
+
+def chart_read_row_origin(+source: J.Json, +x: String, +y: String) ->
+  Rule.chart_row_origin(source, Chart.read_row(source, x, y)):
+  chart_checked_row_origin(source, Expression.path_field(source, x), Expression.path_field(source, y),
+    Chart.x_valid(Expression.path_field(source, x)) && Chart.y_valid(Expression.path_field(source, y)))
+
+def chart_prepend_row_origin(+source: J.Json, +rest: +List<J.Json>, +limit: Nat,
+  +first: Result<&2, &2, String, Chart.Row>, +tail: Result<&2, &2, String, +List<Chart.Row>>,
+  original: Rule.chart_row_origin(source, first), remaining: Rule.chart_rows_origin(limit, rest, tail)) ->
+  Rule.chart_rows_origin(1n+limit, source <> rest, Chart.prepend_row(first, tail)):
+  match first tail:
+    case Fail{reason} Fail{remaining_reason}: {==}
+    case Fail{reason} Done{rows}: {==}
+    case Done{row} Fail{reason}: {==}
+    case Done{+row} Done{+rows}:
+      Equal.trans(+List<J.Json>, Rule.chart_row_source(row) <> Std.map(~Chart.Row, ~J.Json, ~Rule.chart_row_source, rows),
+        source <> Std.map(~Chart.Row, ~J.Json, ~Rule.chart_row_source, rows), source <> List.take(&2, J.Json, rest, limit),
+        Equal.cong(J.Json, +List<J.Json>, (head => head <> Std.map(~Chart.Row, ~J.Json, ~Rule.chart_row_source, rows)),
+          Rule.chart_row_source(row), source, original),
+        Equal.cong(+List<J.Json>, +List<J.Json>, (values => source <> values),
+          Std.map(~Chart.Row, ~J.Json, ~Rule.chart_row_source, rows), List.take(&2, J.Json, rest, limit), remaining))
+
+def chart_ordered_original_rows(+limit: Nat, +rows: +List<J.Json>, +x: String, +y: String) ->
+  Rule.chart_rows_origin(limit, rows, Chart.read_rows(limit, rows, x, y)):
+  match limit rows:
+    case 0n Nil{}: {==}
+    case 0n Con{row, rest}: {==}
+    case 1n+left Nil{}: {==}
+    case 1n+ +left Con{+row, +rest}:
+      chart_prepend_row_origin(row, rest, left, Chart.read_row(row, x, y), Chart.read_rows(left, rest, x, y),
+        chart_read_row_origin(row, x, y), chart_ordered_original_rows(left, rest, x, y))
+
+def chart_checked_point_origin(+row: Chart.Row, +x: Result<&2, &2, String, String>, +y: Result<&2, &2, String, String>) ->
+  Rule.chart_point_origin(row, Chart.point_result(row, x, y)):
+  match x y:
+    case Fail{reason} Fail{remaining_reason}: {==}
+    case Fail{reason} Done{top}: {==}
+    case Done{left} Fail{reason}: {==}
+    case Done{left} Done{top}: {==}
+
+def chart_projected_point_origin(+row: Chart.Row, +xm: String, +ym: String, +index: Nat, +count: Nat) ->
+  Rule.chart_point_origin(row, Chart.point(row, xm, ym, index, count)):
+  match row:
+    case Chart.Row{source, x, y}:
+      chart_checked_point_origin(row, Chart.x_coordinate(x, xm, index, count), Chart.numeric_coordinate(y, ym, "120", "90", False{}))
+
+def chart_prepend_point_origin(+row: Chart.Row, +rest: +List<Chart.Row>,
+  +first: Result<&2, &2, String, Chart.Point>, +tail: Result<&2, &2, String, +List<Chart.Point>>,
+  original: Rule.chart_point_origin(row, first), remaining: Rule.chart_points_origin(rest, tail)) ->
+  Rule.chart_points_origin(row <> rest, Chart.prepend_point(first, tail)):
+  match first tail:
+    case Fail{reason} Fail{remaining_reason}: {==}
+    case Fail{reason} Done{points}: {==}
+    case Done{point} Fail{reason}: {==}
+    case Done{+point} Done{+points}:
+      Equal.trans(+List<Chart.Row>, Rule.chart_point_row(point) <> Std.map(~Chart.Point, ~Chart.Row, ~Rule.chart_point_row, points),
+        row <> Std.map(~Chart.Point, ~Chart.Row, ~Rule.chart_point_row, points), row <> rest,
+        Equal.cong(Chart.Row, +List<Chart.Row>, (head => head <> Std.map(~Chart.Point, ~Chart.Row, ~Rule.chart_point_row, points)),
+          Rule.chart_point_row(point), row, original),
+        Equal.cong(+List<Chart.Row>, +List<Chart.Row>, (values => row <> values),
+          Std.map(~Chart.Point, ~Chart.Row, ~Rule.chart_point_row, points), rest, remaining))
+
+def chart_projected_values_preserved(+rows: +List<Chart.Row>, +xm: String, +ym: String, +index: Nat, +count: Nat) ->
+  Rule.chart_points_origin(rows, Chart.points(rows, xm, ym, index, count)):
+  match rows:
+    case Nil{}: {==}
+    case Con{+row, +rest}:
+      chart_prepend_point_origin(row, rest, Chart.point(row, xm, ym, index, count), Chart.points(rest, xm, ym, 1n+index, count),
+        chart_projected_point_origin(row, xm, ym, index, count), chart_projected_values_preserved(rest, xm, ym, 1n+index, count))
+
+def Rule.chart_line_kind(): {==}
+
+def Rule.chart_bar_kind(): {==}
+
+def chart_invalid_kind(+attrs: J.Json,
+  rejected: {Chart.parse_kind(J.text(J.get(attrs, "@chart-kind"))) == None{} : Maybe<&2, Chart.ChartKind>}) ->
+  {Chart.read(attrs) == Fail{"Unsupported chart kind; expected line-chart or bar-chart"} : Result<&2, &2, String, Chart.Values>}:
+  Std.transport(Maybe<&2, Chart.ChartKind>, None{},
+    (found => {Chart.read_kind(found, attrs) == Fail{"Unsupported chart kind; expected line-chart or bar-chart"} : Result<&2, &2, String, Chart.Values>}),
+    {==}, Chart.parse_kind(J.text(J.get(attrs, "@chart-kind"))), rejected)
+
+def Rule.chart_public_empty(kind):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_single_zero(kind, label):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_single_negative(kind, label):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_numeric_signed_pair(kind):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_numeric_zero(kind):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_nested_fields(kind, label):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_missing_y(kind, label):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_nonnumeric_y(kind, label, text):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_missing_x(kind):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_overflow_y(kind, label):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_invalid_path(kind, rows):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_unsupported_kind(): {==}
+
+def Rule.chart_public_nonarray(kind):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_public_nonscalar_x(kind, enabled):
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def Rule.chart_empty_values(kind, total): {==}
+
+def Rule.chart_row_limit(rows, x, y):
+  match rows:
+    case Nil{}: {==}
+    case Con{row, rest}: {==}
+
+def Rule.chart_invalid_row(source, x, y):
+  match y:
+    case J.Null{}: {==}
+    case J.Boolean{value}: {==}
+    case J.Number{value}: {==}
+    case J.Text{value}: {==}
+    case J.Array{items}: {==}
+    case J.Object{fields}: {==}
+
+def Rule.chart_original_row(source, x, y): {==}
+
+def Rule.chart_source_field_paths(source, x, y): {==}
+
+def Rule.chart_magnitude_increases(value, previous): {==}
+
+def Rule.chart_magnitude_retained(value, previous): {==}
+
+def Rule.chart_coordinate_failure(row, reason, y):
+  match y:
+    case Fail{remaining_reason}: {==}
+    case Done{top}: {==}
+
+def Rule.chart_point_preserves_values(row, x, y): {==}
+
+def chart_coordinate_addition(+value: String, +magnitude: String, +center: String, +span: String, +ratio: String, +delta: String, +coordinate: String,
+  divided: {Decimal.arithmetic("/", value, magnitude) == Done{ratio} : Result<&2, &2, String, String>},
+  scaled: {Decimal.arithmetic("*", ratio, span) == Done{delta} : Result<&2, &2, String, String>},
+  offset: {Decimal.arithmetic("+", center, delta) == Done{coordinate} : Result<&2, &2, String, String>}) ->
+  {Chart.numeric_coordinate(value, magnitude, center, span, True{}) == Done{coordinate} : Result<&2, &2, String, String>}:
+  Std.transport(Result<&2, &2, String, String>, Done{ratio},
+    (quotient => {Chart.offset_result(center, True{}, Chart.scaled_result(span, quotient)) == Done{coordinate} : Result<&2, &2, String, String>}),
+    Std.transport(Result<&2, &2, String, String>, Done{delta},
+      (product => {Chart.offset_result(center, True{}, product) == Done{coordinate} : Result<&2, &2, String, String>}),
+      offset, Decimal.arithmetic("*", ratio, span), scaled),
+    Decimal.arithmetic("/", value, magnitude), divided)
+
+def chart_coordinate_subtraction(+value: String, +magnitude: String, +center: String, +span: String, +ratio: String, +delta: String, +coordinate: String,
+  divided: {Decimal.arithmetic("/", value, magnitude) == Done{ratio} : Result<&2, &2, String, String>},
+  scaled: {Decimal.arithmetic("*", ratio, span) == Done{delta} : Result<&2, &2, String, String>},
+  offset: {Decimal.arithmetic("-", center, delta) == Done{coordinate} : Result<&2, &2, String, String>}) ->
+  {Chart.numeric_coordinate(value, magnitude, center, span, False{}) == Done{coordinate} : Result<&2, &2, String, String>}:
+  Std.transport(Result<&2, &2, String, String>, Done{ratio},
+    (quotient => {Chart.offset_result(center, False{}, Chart.scaled_result(span, quotient)) == Done{coordinate} : Result<&2, &2, String, String>}),
+    Std.transport(Result<&2, &2, String, String>, Done{delta},
+      (product => {Chart.offset_result(center, False{}, product) == Done{coordinate} : Result<&2, &2, String, String>}),
+      offset, Decimal.arithmetic("*", ratio, span), scaled),
+    Decimal.arithmetic("/", value, magnitude), divided)
+
+def Rule.chart_categorical_x(text, magnitude, index, count): {==}
+
+def Rule.chart_negative_magnitude(source, x, magnitude):
+  match x:
+    case J.Null{}: {==}
+    case J.Boolean{value}: {==}
+    case J.Number{value}: {==}
+    case J.Text{value}: {==}
+    case J.Array{items}: {==}
+    case J.Object{fields}: {==}
+
+def Rule.chart_line_order(row, x, y, rest): {==}
+
+def Rule.chart_single_point_visible(row, x, y): {==}
+
+def Rule.chart_bar_zero_baseline(row, x, y, width, rest): {==}
+
+def Rule.chart_line_path(points): {==}
+
+def Rule.chart_bar_path(points): {==}
+
+def Rule.interactive_plot_source_complete(key, attrs, visual, kind, points, total, xm, ym):
+  match visual kind:
+    case Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} Chart.Line{}: {==}
+    case Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} Chart.Bar{}: {==}
+
+def Rule.interactive_plot_drawing_payloads(key, attrs, visual, kind, points, total, xm, ym):
+  match visual kind:
+    case Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} Chart.Line{}: {==}
+    case Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} Chart.Bar{}: {==}
+
+def interactive_plot_admitted(+key: UIIdentity.Key, +attrs: J.Json, +visual: Design.Style, +values: Chart.Values,
+  admitted: {Chart.read(attrs) == Done{values} : Result<&2, &2, String, Chart.Values>}) ->
+  {InteractiveRendering.plot(key, attrs, visual) == InteractiveRendering.plot_values(key, attrs, visual, values) : Source.Node}:
+  Std.transport(Result<&2, &2, String, Chart.Values>, Done{values},
+    (result => {InteractiveRendering.plot_admitted(key, attrs, visual, result) == InteractiveRendering.plot_values(key, attrs, visual, values) : Source.Node}),
+    {==}, Chart.read(attrs), admitted)
+
+def interactive_plot_refused(+key: UIIdentity.Key, +attrs: J.Json, +visual: Design.Style, +reason: String,
+  rejected: {Chart.read(attrs) == Fail{reason} : Result<&2, &2, String, Chart.Values>}) ->
+  {InteractiveRendering.plot(key, attrs, visual) == A.invalid(key, visual, reason) : Source.Node}:
+  Std.transport(Result<&2, &2, String, Chart.Values>, Fail{reason},
+    (result => {InteractiveRendering.plot_admitted(key, attrs, visual, result) == A.invalid(key, visual, reason) : Source.Node}),
+    {==}, Chart.read(attrs), rejected)
+
+def Rule.chart_ordered_original_rows(limit, rows, x, y):
+  chart_ordered_original_rows(limit, rows, x, y)
+
+def Rule.chart_projected_values_preserved(rows, xm, ym, index, count):
+  chart_projected_values_preserved(rows, xm, ym, index, count)
+
+def Rule.chart_invalid_kind(attrs, rejected):
+  chart_invalid_kind(attrs, rejected)
+
+def Rule.chart_coordinate_addition(value, magnitude, center, span, ratio, delta, coordinate, divided, scaled, offset):
+  chart_coordinate_addition(value, magnitude, center, span, ratio, delta, coordinate, divided, scaled, offset)
+
+def Rule.chart_coordinate_subtraction(value, magnitude, center, span, ratio, delta, coordinate, divided, scaled, offset):
+  chart_coordinate_subtraction(value, magnitude, center, span, ratio, delta, coordinate, divided, scaled, offset)
+
+def Rule.interactive_plot_admitted(key, attrs, visual, values, admitted):
+  interactive_plot_admitted(key, attrs, visual, values, admitted)
+
+def Rule.interactive_plot_refused(key, attrs, visual, reason, rejected):
+  interactive_plot_refused(key, attrs, visual, reason, rejected)
+
+def Rule.interactive_plot_prepared(key, attrs, visual, kind, points, total, xm, ym, parent_font, generation, observations):
+  match visual kind:
+    case Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} Chart.Line{}: {==}
+    case Design.Style{text, Design.Chrome{foreground, background, border, border_width, radius, shadow}, alignment, flow, overflow, frame, minimum_height, maximum_width_percent, states} Chart.Bar{}: {==}
+
+def Rule.interactive_view_action_source(capacity, key, label, role, event, command, name, enabled, visual, representation, children, parameters, content): {==}
+
+def Rule.interactive_checkbox_field_style(identity, occurrence, attrs, binding, children, typography): {==}
+
+def Rule.interactive_slider_uses_canonical(identity, occurrence, attrs, state_id, schema, raw, canonical, validation, enabled, children): {==}
+
+def Rule.interactive_select_uses_canonical(identity, occurrence, attrs, state_id, schema, raw, canonical, validation, enabled, children): {==}
+
+def Rule.interactive_number_preserves_raw(identity, occurrence, attrs, state_id, schema, raw, canonical, validation, enabled, children): {==}
+
+def Rule.interactive_range_source_is_canonical(key, identity, occurrence, attrs, state_id, schema, raw, canonical, validation, enabled, children, name, minimum, maximum, step, availability, visual, parameters): {==}
+
+def Rule.interactive_select_source_is_canonical(key, identity, occurrence, attrs, state_id, schema, raw, canonical, validation, enabled, children, name, availability, visual, parameters): {==}
+
+def Rule.interactive_number_source_preserves_raw(key, identity, occurrence, attrs, state_id, schema, raw, canonical, validation, enabled, children, name, minimum, maximum, step, availability, visual, parameters): {==}
+
 def Rule.native_field_policy_correspondence(widget, maximum_lines): {==}
 
 def Rule.native_message_minimum_lines(maximum_lines): {==}
 
-def Rule.native_input_policy(key, meaning, name, widget, label, availability, visual, parameters): {==}
+def selected_textarea_policy_correspondence(+interactive: Bool, +fallback: Source.FieldPolicy) ->
+  {A.selected_textarea_policy(interactive, fallback) == Rule.expected_selected_textarea_policy(interactive, fallback) : Source.FieldPolicy}:
+  match interactive:
+    case True{}: {==}
+    case False{}: {==}
+
+def native_textarea_policy_correspondence(+meaning: SurfaceTypes.Meaning, +fallback: Source.FieldPolicy) ->
+  {A.interactive_textarea_policy(meaning, fallback) == Rule.expected_textarea_policy(meaning, fallback) : Source.FieldPolicy}:
+  match meaning:
+    case SurfaceTypes.SettingEntry{subject, value, input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActivityRow{role}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActivityGroup{activity, dismiss, outside, escape}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.DecisionGroup{decision}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.WorkspaceCollection{collection}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.WorkspaceMember{collection, path}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActionUnit{action}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActionFeedback{feedback}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActionExplanation{assessment}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActionCommit{assessment, input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ObjectGroup{object}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.SupportingControl{support, property, input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.InformationText{role}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.LayerRegion{dismiss, outside, escape}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.DirectoryBrowserLocation{value}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.PanelToggle{expanded, input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.CardContent{face}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.MovableCard{destinations, face}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.Region{}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.PageContext{conversation}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ActivityContent{expanded, audit}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ProjectGroup{project, selected, expanded}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.TaskRow{task, status, selected}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ProjectChooser{selected}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.DirectoryRow{path, primary}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ContextSummary{observation}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ChoiceGroup{}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.Choice{kind, classification, selected, description, input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.PageRegion{region, position}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.BoardLane{stage, count}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.CardArchive{count}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.BoardSearch{filter}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.BoardGroup{grouping}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ReadOnly{text}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.Fact{value}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.RichText{source, value}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.TaskFacts{details}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.CodeFacts{view}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.InteractiveRegion{identity, source_visible}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children}}:
+      selected_textarea_policy_correspondence(String.eq(tag, "textarea"), fallback)
+    case SurfaceTypes.InteractiveView{event, command, label, enabled}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.Activate{input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.Edit{editor, field, entry, value, choices}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.SearchChoices{query}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.ReceiveFile{editor, enabled}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.EnterDirectory{editor, text}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: selected_textarea_policy_correspondence(False{}, fallback)
+
+def input_policy_kind_correspondence(+widget: Controls.Widget, +meaning: SurfaceTypes.Meaning, +fallback: Source.FieldPolicy) ->
+  {A.input_policy_kind(widget, meaning, fallback) == Rule.expected_input_policy_kind(widget, meaning, fallback) : Source.FieldPolicy}:
+  match widget:
+    case Controls.PlainValue{}: {==}
+    case Controls.TextInput{}: {==}
+    case Controls.MessageInput{}: {==}
+    case Controls.TextArea{}: native_textarea_policy_correspondence(meaning, fallback)
+    case Controls.SelectInput{}: {==}
+    case Controls.MultiSelectInput{}: {==}
+    case Controls.ToggleInput{}: {==}
+    case Controls.NumberInput{minimum}: {==}
+    case Controls.RangeInput{minimum, maximum, step}: {==}
+    case Controls.DecimalInput{minimum, maximum, step}: {==}
+    case Controls.DirectoryList{}: {==}
+    case Controls.AttachmentList{}: {==}
+    case Controls.FileChooser{face}: {==}
+    case Controls.DirectoryChooser{face}: {==}
+    case Controls.SearchInput{}: {==}
+    case Controls.SecretInput{}: {==}
+
+def Rule.native_input_policy(key, meaning, name, widget, label, availability, visual, parameters):
+  input_policy_kind_correspondence(widget, meaning, A.native_field_policy(widget, A.maximum_lines(widget, visual, parameters)))
+
+def Rule.native_interactive_textarea_six_lines(key, identity, occurrence, attrs, binding, children, name, label, availability, visual, parameters):
+  selected_textarea_policy_correspondence(True{}, A.native_field_policy(Controls.TextArea{}, A.maximum_lines(Controls.TextArea{}, visual, parameters)))
 
 def Rule.adaptive_supporting_evidence():
   Rule.AdaptiveSupportingRequirements{
@@ -1682,3 +2126,21 @@ def Rule.navigation_preserves_actual_return_control(key, tag, style, attributes,
 
 def Rule.navigation_group_combines_whole_control_and_title_demand(key, tag, style, attributes, children, rest):
   {==}
+
+def Rule.ordered_fence_speech_tabs(id, speaker, text, message, task, parent, state, elements, native_focus):
+  Equal.cong(SurfaceTypes.Node, +List<String>, (node => Rendered.expected_tabs([node], elements, native_focus)),
+    InterfaceView.speech_node(id, speaker, text, message, task, parent, state),
+    Rule.speech_authorship_input(id, speaker, text, message, task, parent, state),
+    AttachmentEvidence.complete_speech_frame(id, speaker, text, message, task, parent, state))
+
+def Rule.ordered_fence_speech_forest(id, speaker, text, message, task, parent, state, capacity, context, typography, in_main, start, parameters):
+  Equal.cong(SurfaceTypes.Node, Authored.Forest, (node => Authored.forest(capacity, Appearance.nodes_at([node], context, typography, in_main, start), parameters)),
+    InterfaceView.speech_node(id, speaker, text, message, task, parent, state),
+    Rule.speech_authorship_input(id, speaker, text, message, task, parent, state),
+    AttachmentEvidence.complete_speech_frame(id, speaker, text, message, task, parent, state))
+
+def Rule.ordered_fence_speech_source(id, speaker, text, message, task, parent, state, capacity, context, typography, in_main, start, parameters):
+  Equal.cong(SurfaceTypes.Node, Authored.Authorship, (node => Authored.nodes(capacity, Appearance.nodes_at([node], context, typography, in_main, start), parameters)),
+    InterfaceView.speech_node(id, speaker, text, message, task, parent, state),
+    Rule.speech_authorship_input(id, speaker, text, message, task, parent, state),
+    AttachmentEvidence.complete_speech_frame(id, speaker, text, message, task, parent, state))

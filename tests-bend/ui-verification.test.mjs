@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -152,6 +153,15 @@ def apply(input: Core.Input, state: Core.State) -> Core.State:
   return import(pathToFileURL(output).href);
 }
 
+let activityFacades;
+// Compile shared clients once; behavior deadlines cover their actual operations.
+beforeAll(async () => {
+  const lifetime = { after: afterAll };
+  const ui = await browserUI(lifetime, { sourceAdmission: true });
+  const input = await activityInput(lifetime);
+  activityFacades = { ui, input };
+}, 900_000);
+
 const uiValue = (name, fields = {}) => bendValue(`interaction/INPUT.${name}`, fields);
 const listValues = list => {
   const values = [];
@@ -177,7 +187,7 @@ const actualUIInput = (value, tag) => {
 // These observations deliberately stop at the emitted semantic tree. Physical
 // geometry needs the actual browser: this repository has no DOM/measurement fixture.
 test('production activity surfaces retain current decisions and project obstructions', { timeout: 240_000 }, async t => {
-  const [ui, input] = await Promise.all([browserUI(t, { sourceAdmission: true }), activityInput(t)]);
+  const { ui, input } = activityFacades;
   const upstream = await chatgptFixture(t, (request, response) => {
     if (request.method === 'GET') jsonResponse(response, { models: [{
       slug: 'activity-model', display_name: 'Activity model', priority: 0, visibility: 'list', supported_in_api: false,
@@ -445,7 +455,7 @@ test('production activity surfaces retain current decisions and project obstruct
 
 
 test('production activity choices complete and compound cancellation discards buffers', { timeout: 240_000 }, async t => {
-  const [ui, input] = await Promise.all([browserUI(t, { sourceAdmission: true }), activityInput(t)]);
+  const { ui, input } = activityFacades;
   const editor = uiValue('NewTaskEditor');
   const observe = state => surfaceNodes(ui.surface_state(state));
   const apply = (state, value) => input.apply(bendValue('interaction/TYPES.ApplicationInput', {

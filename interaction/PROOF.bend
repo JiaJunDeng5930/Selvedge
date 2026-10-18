@@ -1,5 +1,7 @@
 import ./INPUT.bend as U
 import Base
+import ../bendlib/string-equality.bend as SafeText
+import ../bendlib/equality-proof.bend as TextProof
 import ../bendlib/json.bend as J
 import ./IDENTITY.bend as Identity
 import ./identity-laws.bend as Rule
@@ -35,15 +37,23 @@ def part_payload(owner: Identity.Key, name: String) ->
 
 def place_comparison(path: String, other_path: String) ->
   {Identity.same(Identity.Place{path}, Identity.Place{other_path}) == String.eq(path, other_path) : Bool}:
-  {==}
+  TextProof.public_refines(path, other_path)
 
 def entity_comparison(owner: Identity.Key, kind: String, identity: String, other_owner: Identity.Key, other_kind: String, other_identity: String) ->
   {Identity.same(Identity.Entity{owner, kind, identity}, Identity.Entity{other_owner, other_kind, other_identity}) == (Identity.same(owner, other_owner) && (String.eq(kind, other_kind) && String.eq(identity, other_identity))) : Bool}:
-  {==}
+  Equal.trans(Bool,
+    Identity.same(Identity.Entity{owner, kind, identity}, Identity.Entity{other_owner, other_kind, other_identity}),
+    (Identity.same(owner, other_owner) && (String.eq(kind, other_kind) && SafeText.string_equal(identity, other_identity))),
+    (Identity.same(owner, other_owner) && (String.eq(kind, other_kind) && String.eq(identity, other_identity))),
+    Equal.cong(Bool, Bool, (same => Identity.same(owner, other_owner) && (same && SafeText.string_equal(identity, other_identity))),
+      SafeText.string_equal(kind, other_kind), String.eq(kind, other_kind), TextProof.public_refines(kind, other_kind)),
+    Equal.cong(Bool, Bool, (same => Identity.same(owner, other_owner) && (String.eq(kind, other_kind) && same)),
+      SafeText.string_equal(identity, other_identity), String.eq(identity, other_identity), TextProof.public_refines(identity, other_identity)))
 
 def part_comparison(owner: Identity.Key, name: String, other_owner: Identity.Key, other_name: String) ->
   {Identity.same(Identity.Part{owner, name}, Identity.Part{other_owner, other_name}) == (Identity.same(owner, other_owner) && String.eq(name, other_name)) : Bool}:
-  {==}
+  Equal.cong(Bool, Bool, (same => Identity.same(owner, other_owner) && same),
+    SafeText.string_equal(name, other_name), String.eq(name, other_name), TextProof.public_refines(name, other_name))
 
 def place_entity_distinct(path: String, owner: Identity.Key, kind: String, identity: String) ->
   {Identity.same(Identity.Place{path}, Identity.Entity{owner, kind, identity}) == False{} : Bool}:
@@ -147,6 +157,14 @@ def Contract.actual_control_observation(state, identity, label, prominence, inpu
 def Contract.submission_obstruction_preserves_admission(access, transfers, input):
   match input:
     case E.ContentInput{+p0, +p1}: {==}
+    case E.InteractiveInput{input}: {==}
+    case E.InteractiveEnvironmentObserved{namespace, sequence, fresh, allowed}: {==}
+    case E.InteractiveFenceObserved{observation}: {==}
+    case E.InteractiveSynchronize{}: {==}
+    case E.ToggleInteractiveSource{identity}: {==}
+    case E.DismissRetained{key}: {==}
+    case E.ToggleArchived{key}: {==}
+    case E.ClearDiscarded{task}: {==}
     case E.PreviewObserved{+p0}: {==}
     case E.UserInput{U.Activate{U.Navigate{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.Navigate{p0}), access))
     case E.UserInput{U.Activate{U.SelectProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.SelectProject{p0}), access))

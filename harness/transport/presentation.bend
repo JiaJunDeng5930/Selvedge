@@ -68,7 +68,7 @@ def effect(effect: M.Effect()) -> J.Json:
         J.Field{"settings", D.task_context_json(context)}, J.Field{"definitions", Context.definitions_json(ContextKinds.definitions())}, J.Field{"bindings", Context.snapshots_json(D.context_bindings(history))}]}
     case Effects.RequestModel{+task_id, ticket, +model, +history, tools, callable, context, +scope, +reserve}:
       J.Object{[J.Field{"kind", J.Text{"model"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
-        J.Field{"model", model_json(model)}, J.Field{"settings", D.task_context_json(context)},
+        J.Field{"model", model_json(model)}, J.Field{"output_mode", J.Text{D.output_mode_name(D.history_output_mode(history))}}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"sampling", ReasoningContext.sampling(task_id, model, history)},
         J.Field{"history", J.Array{model_history(Nat.is_lt(0n, reserve), history, scope)}},
         J.Field{"context_selected", J.Boolean{Nat.is_lt(0n, reserve)}}, J.Field{"context_scope", J.Text{scope}},

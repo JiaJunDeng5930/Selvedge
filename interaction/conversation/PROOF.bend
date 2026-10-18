@@ -139,8 +139,8 @@ def audit_classification(+message: D.Message, +index: Nat, +tail: +List<Actual.G
   {Actual.prepend(message, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(message), message, tail) : +List<Actual.Group>}:
   match message:
     case D.UserMessage{text}: impossible({Actual.prepend(D.UserMessage{text}, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(D.UserMessage{text}), D.UserMessage{text}, tail) : +List<Actual.Group>}, is_audit)
-    case D.AssistantMessage{text}: impossible({Actual.prepend(D.AssistantMessage{text}, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(D.AssistantMessage{text}), D.AssistantMessage{text}, tail) : +List<Actual.Group>}, is_audit)
-    case D.ModelContext{value}: impossible({Actual.prepend(D.ModelContext{value}, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(D.ModelContext{value}), D.ModelContext{value}, tail) : +List<Actual.Group>}, is_audit)
+    case D.AssistantMessage{origin, text}: impossible({Actual.prepend(D.AssistantMessage{origin, text}, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(D.AssistantMessage{origin, text}), D.AssistantMessage{origin, text}, tail) : +List<Actual.Group>}, is_audit)
+    case D.ModelContext{origin, value}: impossible({Actual.prepend(D.ModelContext{origin, value}, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail) : +List<Actual.Group>}, is_audit)
     case D.FunctionCall{call}: {==}
     case D.FunctionOutput{call_id, value, error}: {==}
     case D.OperationResult{ticket, call_id, tool, value, error}: {==}

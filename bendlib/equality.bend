@@ -175,7 +175,7 @@ def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
         json(budget, D.approval_reviewer_json(reviewer_a), D.approval_reviewer_json(reviewer_b)) &&
         json(budget, D.approval_outcome_json(outcome_a), D.approval_outcome_json(outcome_b))
     case D.UserMessage{a} D.UserMessage{b}: string_equal(a, b)
-    case D.AssistantMessage{a} D.AssistantMessage{b}: string_equal(a, b)
+    case D.AssistantMessage{left, a} D.AssistantMessage{right, b}: J.same(D.output_origin_json(left), D.output_origin_json(right)) && string_equal(a, b)
     case D.FailureMessage{a} D.FailureMessage{b}: string_equal(a, b)
     case D.FunctionCall{a} D.FunctionCall{b}: call(budget, a, b)
     case D.FunctionOutput{id_a, a, error_a} D.FunctionOutput{id_b, b, error_b}:
@@ -183,7 +183,7 @@ def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
     case D.OperationResult{ticket_a, id_a, tool_a, a, error_a} D.OperationResult{ticket_b, id_b, tool_b, b, error_b}:
       Nat.is_eq(ticket_a, ticket_b) && string_equal(id_a, id_b) && string_equal(tool_a, tool_b) &&
         booleans(error_a, error_b) && json(budget, a, b)
-    case D.ModelContext{a} D.ModelContext{b}: json(budget, a, b)
+    case D.ModelContext{left, a} D.ModelContext{right, b}: J.same(D.output_origin_json(left), D.output_origin_json(right)) && json(budget, a, b)
     case D.ContextReplacement{a} D.ContextReplacement{b}: json(budget, a, b)
     case D.ReasoningRecord{oa, ea, ra, sa} D.ReasoningRecord{ob, eb, rb, sb}:
       Nat.is_eq(oa, ob) && string_equal(ea, eb) && Nat.is_eq(ra, rb) && booleans(sa, sb)

@@ -91,10 +91,20 @@ export async function startServer(options) {
     return session;
   }
 
-  function sendEvent(response, event) {
+  function writeSseFrame(response, frame) {
     if (response.destroyed || response.writableEnded) return;
+    if (response.writableLength + Buffer.byteLength(frame) > service.limits.frame_bytes) {
+      response.destroy();
+      return;
+    }
+    // A false result means this frame was accepted with backpressure. Keep the
+    // connection; the byte limit above bounds a client that cannot keep up.
+    response.write(frame);
+  }
+
+  function sendEvent(response, event) {
     const id = event.type === 'commit' ? `id: ${event.sequence}\n` : '';
-    if (!response.write(`${id}data: ${stringifyJson(event)}\n\n`)) response.destroy();
+    writeSseFrame(response, `${id}data: ${stringifyJson(event)}\n\n`);
   }
 
   async function route(request, response) {
@@ -241,9 +251,9 @@ export async function startServer(options) {
           clients.add(response);
           response.once('close', () => clients.delete(response));
           // Capture active streams before this synchronous subscription yields to notices.
-          sendEvent(response, { type: 'stream-state', streams: service.browserStreams() });
+          sendEvent(response, { type: 'stream-state', namespace: service.journal.namespace, streams: service.browserStreams() });
           // Reconnection needs the current durable revision, not historical invalidations.
-          sendEvent(response, { type: 'commit', sequence: service.journal.sequence });
+          sendEvent(response, { type: 'commit', namespace: service.journal.namespace, sequence: service.journal.sequence });
           return;
         }
         case 'event_page':
@@ -262,7 +272,7 @@ export async function startServer(options) {
     if (event.type === 'fatal') setImmediate(() => close().catch(() => {}));
   });
   const heartbeat = setInterval(() => {
-    for (const client of clients) if (!client.write(': keepalive\n\n')) client.destroy();
+    for (const client of clients) writeSseFrame(client, ': keepalive\n\n');
   }, 15_000);
   heartbeat.unref();
 

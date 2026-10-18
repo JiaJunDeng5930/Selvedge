@@ -18,6 +18,7 @@ import ./CONTROLS.bend as AuthoredControls
 import ./BUTTONS.bend as Buttons
 import ./button-proof.bend as ButtonProof
 import ./authored-proof.bend as AuthoredProof
+import ./interactive-markdown.bend as Interactive
 import ../appearance/DESIGN.bend as Design
 import ../layout/physical-space.bend as Model
 import ../layout/GEOMETRY.bend as Spatial
@@ -181,6 +182,9 @@ def target_source(+target: Source.NativeTarget) -> Code.Source:
   match target:
     case Source.ToolbarTarget{Code.Identity{source, ordinal}}: source
     case Source.CodeBodyTarget{Code.Identity{source, ordinal}, wrap}: source
+    case Source.InteractiveTarget{Code.Identity{source, ordinal}}: source
+    case Source.InteractiveSourceTarget{Code.Identity{source, ordinal}, exposed}: source
+    case Source.InteractiveFrameTarget{Code.Identity{source, ordinal}, active}: source
 
 def owner_validation(+matches: Bool, +owner: UIIdentity.Key, +expected: Code.Source, +actual: Code.Source) -> Authorship:
   match matches:
@@ -795,6 +799,7 @@ def regular_content(capacity: Nat, +key: UIIdentity.Key, +label: String, +role: 
     case SurfaceTypes.PanelToggle{expanded, input, availability}: button_source(key, visual, parameters, representation)
     case SurfaceTypes.SettingEntry{subject, value, input, availability}: add_attributes(button_source(key, visual, parameters, representation), [Source.DataAttribute{"setting-subject", UX.subject_key(subject)}])
     case SurfaceTypes.Activate{input, availability}: button_source(key, visual, parameters, representation)
+    case SurfaceTypes.InteractiveView{event, command, name, enabled}: button_source(key, visual, parameters, representation)
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: button_source(key, visual, parameters, representation)
     case SurfaceTypes.ProjectGroup{project, selected, expanded}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"project", Nat.show(project)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}, Source.DataAttribute{"expanded", FieldOptions.boolean(expanded)}], content)
     case SurfaceTypes.TaskRow{task, status, selected}: box(key, Source.Div{}, role_style(visual, role), [Source.DataAttribute{"task", Nat.show(task)}, Source.DataAttribute{"status", View2.task_status_label(status)}, Source.DataAttribute{"selected", FieldOptions.boolean(selected)}], task_children(children, status, visual))
@@ -1016,6 +1021,8 @@ def read_only_role(+capacity: Nat, +role: SurfaceTypes.Role, +key: UIIdentity.Ke
 
 def authored_node_content(+capacity: Nat, +key: UIIdentity.Key, +label: String, +role: SurfaceTypes.Role, +meaning: SurfaceTypes.Meaning, +visual: Design.Style, +control: Controls.Representation, +children: +List<Child>, +parameters: Design.LayoutParameters) -> Authorship:
   match meaning:
+    case SurfaceTypes.InteractiveRegion{identity, source_visible}: Authored{Interactive.region(key, identity, source_visible, visual, ordinary(all_nodes(children)))}
+    case SurfaceTypes.InteractiveNode{node}: Authored{[Interactive.render(key, node, visual, control, ordinary(all_nodes(children)), parameters)]}
     case SurfaceTypes.CodeFacts{Code.Scene{identity, literal, wrap, copy, enabled, controls}}: Authored{code_children(key, identity, wrap, visual, children)}
     case SurfaceTypes.ReadOnly{value}: read_only_role(capacity, role, key, label, value, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, None{})
     case SurfaceTypes.RichText{source, value}: read_only_role(capacity, role, key, label, value, visual, Appearance.style(SurfaceTypes.CodeBlock{}, SurfaceTypes.ReadOnly{value}, Design.style_text(visual)), control, children, parameters, Some{source})

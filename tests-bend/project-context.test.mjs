@@ -106,7 +106,13 @@ test('instruction changes append committed deltas across file changes, forks and
   assert.equal((await service.command({ op: 'create', profile: 'fixture', message: 'original objective' })).reply.ok, true);
   const original = await taskIdle(service);
   const initial = effects[0].history;
-  assert.deepEqual(initial.map(item => item.role === 'task_context' ? item.type : item.role), ['context_change', 'context_change', 'context_change', 'settings', 'user']);
+  assert.deepEqual(initial.map(item => item.role === 'task_context' ? item.type : item.role), ['context_change', 'context_change', 'context_change', 'settings', 'user', 'context_change']);
+  const capability = initial[5].change.snapshot;
+  assert.equal(capability.key.type, 'interactive_markdown_v1');
+  assert.equal(capability.key.definition.observer.type, 'native_text');
+  assert.equal(capability.revision, '2');
+  assert.match(capability.value.fields.content, /selvedge-ui/);
+  assert.equal(effects[0].output_mode, 'interactive-v1');
   const configured = initial[0].change.snapshot, global = initial[1].change.snapshot;
   assert.equal(initial[0].change.type, 'introduce');
   assert.equal(configured.key.type, 'configured_instruction');

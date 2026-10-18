@@ -236,8 +236,8 @@ def latest_failure(history: D.History) -> Bool:
     case D.EmptyHistory{}: False{}
     case D.HistoryNode{previous, D.FailureMessage{text}}: True{}
     case D.HistoryNode{previous, D.UserMessage{text}}: False{}
-    case D.HistoryNode{previous, D.AssistantMessage{text}}: False{}
-    case D.HistoryNode{previous, D.ModelContext{value}}: False{}
+    case D.HistoryNode{previous, D.AssistantMessage{origin, text}}: False{}
+    case D.HistoryNode{previous, D.ModelContext{origin, value}}: False{}
     case D.HistoryNode{previous, other}: latest_failure(previous)
 
 def awaiting(operations: +List<D.Operation()>) -> Bool:

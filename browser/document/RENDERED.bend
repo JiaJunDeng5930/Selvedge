@@ -1,6 +1,8 @@
 import ./SOURCE.bend as Source
 import ../../interaction/experience/PROGRAM.bend as UX
 import Base
+import ../../bendlib/string-equality.bend as SafeText
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
 import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
@@ -13,6 +15,13 @@ type Element is Data:
   Element{key: String, visible: Bool, enabled: Bool, tab_stop: Bool,
     keyboard_reachable: Bool, scroll_reachable: Bool, bounds: Geometry.Rect,
     center_hit_owner: String, paint_bounds: Geometry.Rect}
+
+type ResolvedNode is Data:
+  ResolvedNode{original: SurfaceTypes.Node, identity: String,
+    observation: Maybe<&2, Element>, children: +List<ResolvedNode>}
+
+type PreparedElement is Data:
+  PreparedElement{fingerprint: U32, original: Element}
 
 type NativeFocus is Data:
   NativeFocus{identity: String, owner: String}
@@ -51,7 +60,7 @@ def declared_exposure(controls: +List<ControlExposure>, +key: String) -> Source.
   match controls:
     case Nil{}: Source.Exposed{}
     case Con{ControlExposure{owner, exposure, command_enabled}, rest}:
-      choose_exposure(String.eq(owner, key), exposure, declared_exposure(rest, key))
+      choose_exposure(SafeText.string_equal(owner, key), exposure, declared_exposure(rest, key))
 
 type State is Data:
   AwaitingFrame{generation: Nat}
@@ -72,6 +81,9 @@ def field_control(entry: Forms.Entry) -> Bool:
 
 def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: True{}
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.ActionBinding{kind, enabled, pending}, children}}: True{}
+    case SurfaceTypes.InteractiveView{event, command, label, enabled}: True{}
     case SurfaceTypes.SupportingControl{support, property, input, availability}: UX.support_visible(support)
     case SurfaceTypes.MovableCard{destinations, face}: True{}
     case SurfaceTypes.ActionCommit{assessment, input, availability}: True{}
@@ -90,6 +102,9 @@ def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
 
 def required_enabled(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: enabled
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.ActionBinding{kind, enabled, pending}, children}}: enabled && Bool.not(pending)
+    case SurfaceTypes.InteractiveView{event, command, label, enabled}: enabled
     case SurfaceTypes.SupportingControl{support, property, input, availability}: UX.support_visible(support) && enabled(availability)
     case SurfaceTypes.MovableCard{destinations, face}: InterfaceView.has_available_destination(destinations)
     case SurfaceTypes.ActionCommit{assessment, input, availability}: UX.assessment_ready(assessment) && enabled(availability)
@@ -101,16 +116,52 @@ def required_enabled(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: enabled
     case other: interactive(other)
 
-def choose_element(same: Bool, element: Element, fallback: Maybe<&2, Element>) -> Maybe<&2, Element>:
+def element_key(element: Element) -> String:
+  Element{key, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds} = element
+  key
+
+def find_element_match(same: Bool, element: Element, fallback: Unit -> Maybe<&2, Element>) -> Maybe<&2, Element>:
   match same:
     case True{}: Some{element}
-    case False{}: fallback
+    case False{}: fallback(Unit{})
 
 def find_element(elements: +List<Element>, +key: String) -> Maybe<&2, Element>:
   match elements:
     case Nil{}: None{}
-    case Con{Element{+current, visible, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}, rest}:
-      choose_element(String.eq(current, key), Element{current, visible, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds}, find_element(rest, key))
+    case Con{+element, rest}:
+      find_element_match(SafeText.string_equal(element_key(element), key), element, (_ => find_element(rest, key)))
+
+def key_fingerprint_acc(text: String, accumulator: U32) -> U32:
+  match text:
+    case SNil{}: accumulator
+    case SCon{Chr{code}, rest}:
+      key_fingerprint_acc(rest, U32.add(U32.mul(accumulator, 31), code))
+
+def key_fingerprint(text: String) -> U32:
+  key_fingerprint_acc(text, 0)
+
+def prepare_elements(elements: +List<Element>) -> +List<PreparedElement>:
+  match elements:
+    case Nil{}: Nil{}
+    case Con{+element, rest}:
+      PreparedElement{key_fingerprint(element_key(element)), element} <> prepare_elements(rest)
+
+def fingerprint_match_admitted(admitted: Bool, left: String, right: String) -> Bool:
+  match admitted:
+    case False{}: False{}
+    case True{}: SafeText.string_equal(left, right)
+
+def fingerprint_match(left_fingerprint: U32, right_fingerprint: U32,
+  left: String, right: String) -> Bool:
+  fingerprint_match_admitted(U32.is_eq(left_fingerprint, right_fingerprint), left, right)
+
+def find_prepared_element(elements: +List<PreparedElement>, +fingerprint: U32,
+  +key: String) -> Maybe<&2, Element>:
+  match elements:
+    case Nil{}: None{}
+    case Con{PreparedElement{stored, +element}, rest}:
+      find_element_match(fingerprint_match(stored, fingerprint, element_key(element), key),
+        element, (_ => find_prepared_element(rest, fingerprint, key)))
 
 def persistent(role: SurfaceTypes.Role) -> Bool:
   match role:
@@ -131,7 +182,7 @@ def enabled_geometry(required: Bool, +key: String, +visible: Bool, keyboard: Boo
     case True{}:
       List.append(&2, Violation,
         issue(Bool.not(keyboard && (visible || scroll)) || (must_be_visible && Bool.not(visible && Geometry.contains(viewport, bounds))), UnreachableControl{key}),
-        issue(visible && Bool.not(String.eq(key, hit)), OccludedControl{key}))
+        issue(visible && Bool.not(SafeText.string_equal(key, hit)), OccludedControl{key}))
 
 def control_geometry(+required: Bool, +key: String, found: Maybe<&2, Element>, must_be_visible: Bool, viewport: Geometry.Rect) -> +List<Violation>:
   match found:
@@ -169,9 +220,6 @@ def node_controls_with(is_control: Bool, meaning: SurfaceTypes.Meaning, +key: St
     case False{}: Nil{}
     case True{}: exposed_control(declared_exposure(controls, key), meaning, key, found, persistent, viewport)
 
-def node_controls(is_control: Bool, meaning: SurfaceTypes.Meaning, key: String, found: Maybe<&2, Element>, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
-  node_controls_with(is_control, meaning, key, found, persistent, viewport, Nil{})
-
 def reachable_toolbar(key: String, found: Maybe<&2, Element>) -> +List<Violation>:
   match found:
     case None{}: [MissingElement{key}]
@@ -208,19 +256,6 @@ def node_geometry_with(found: Maybe<&2, Element>, +meaning: SurfaceTypes.Meaning
     case Some{+element}:
       List.append(&2, Violation, node_controls_with(interactive(meaning), meaning, key, Some{element}, persistent, viewport, controls), region_geometry(role, key, Some{element}, viewport))
 
-def nodes_with(entries: +List<SurfaceTypes.Node>, +inherited: Bool, +elements: +List<Element>, +viewport: Geometry.Rect, +controls: +List<ControlExposure>) -> +List<Violation>:
-  match entries:
-    case Nil{}: Nil{}
-    case Con{SurfaceTypes.Node{+key, semantic, label, +role, meaning, children}, rest}:
-      List.append(&2, Violation, node_geometry_with(find_element(elements, UIIdentity.encode(key)), meaning, role, UIIdentity.encode(key), inherited || persistent(role), viewport, controls),
-        List.append(&2, Violation, nodes_with(children, inherited || persistent(role) || code_in_view(role, find_element(elements, UIIdentity.encode(key)), viewport), elements, viewport, controls), nodes_with(rest, inherited, elements, viewport, controls)))
-
-def node_geometry(found: Maybe<&2, Element>, meaning: SurfaceTypes.Meaning, role: SurfaceTypes.Role, key: String, persistent: Bool, viewport: Geometry.Rect) -> +List<Violation>:
-  node_geometry_with(found, meaning, role, key, persistent, viewport, Nil{})
-
-def nodes(entries: +List<SurfaceTypes.Node>, inherited: Bool, elements: +List<Element>, viewport: Geometry.Rect) -> +List<Violation>:
-  nodes_with(entries, inherited, elements, viewport, Nil{})
-
 def tab_stop(found: Maybe<&2, Element>) -> Bool:
   match found:
     case None{}: False{}
@@ -234,10 +269,12 @@ def tab_entry(included: Bool, key: String, rest: +List<String>) -> +List<String>
 def native_member(entries: +List<NativeFocus>, +identity: String) -> Bool:
   match entries:
     case Nil{}: False{}
-    case Con{NativeFocus{key, owner}, rest}: String.eq(key, identity) || native_member(rest, identity)
+    case Con{NativeFocus{key, owner}, rest}: SafeText.string_equal(key, identity) || native_member(rest, identity)
 
 def read_only(found: Maybe<&2, SurfaceTypes.Node>) -> Bool:
   match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, original}}, children}}: SafeText.string_equal(tag, "markdown")
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.InformationText{role_name}, children}}: True{}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReadOnly{text}, children}}: True{}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.RichText{source, value}, children}}: True{}
     case _: False{}
@@ -265,14 +302,27 @@ def native_owned(+entries: +List<NativeFocus>, +active: +List<SurfaceTypes.Node>
 def owner_tabs(entries: +List<NativeFocus>, +owner: String) -> +List<String>:
   match entries:
     case Nil{}: Nil{}
-    case Con{NativeFocus{identity, parent}, rest}: tab_entry(String.eq(parent, owner), identity, owner_tabs(rest, owner))
+    case Con{NativeFocus{identity, parent}, rest}: tab_entry(SafeText.string_equal(parent, owner), identity, owner_tabs(rest, owner))
+
+# Only native Markdown content contributes its declared descendants to the
+# tab sequence. Rejected tags do not scan unrelated native-focus ownership.
+def content_tabs_admitted(admitted: Bool, entries: +List<NativeFocus>, key: String) -> +List<String>:
+  match admitted:
+    case False{}: Nil{}
+    case True{}: owner_tabs(entries, key)
 
 def content_tabs(meaning: SurfaceTypes.Meaning, entries: +List<NativeFocus>, key: String) -> +List<String>:
   match meaning:
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, binding, children}}: content_tabs_admitted(SafeText.string_equal(tag, "markdown"), entries, key)
     case SurfaceTypes.InformationText{role}: owner_tabs(entries, key)
     case SurfaceTypes.ReadOnly{text}: owner_tabs(entries, key)
     case SurfaceTypes.RichText{source, value}: owner_tabs(entries, key)
     case _: Nil{}
+
+def own_tab_stop(eligible: Bool, elements: +List<Element>, identity: String) -> Bool:
+  match eligible:
+    case False{}: False{}
+    case True{}: tab_stop(find_element(elements, identity))
 
 def expected_tabs(nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>) -> +List<String>:
   match nodes:
@@ -280,18 +330,15 @@ def expected_tabs(nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>, +n
     case Con{+node, rest}:
       SurfaceTypes.Node{key, semantic, label, role, +meaning, children} = node
       +identity = InterfaceView.node_key(node)
-      tab_entry(interactive(meaning) && required_enabled(meaning) && tab_stop(find_element(elements, identity)), identity,
+      tab_entry(own_tab_stop(interactive(meaning) && required_enabled(meaning), elements, identity), identity,
         List.append(&2, String, content_tabs(meaning, native_focus, identity),
           List.append(&2, String, expected_tabs(children, elements, native_focus), expected_tabs(rest, elements, native_focus))))
 
 def same_order(expected: +List<String>, actual: +List<String>) -> Bool:
   match expected actual:
     case Nil{} Nil{}: True{}
-    case Con{left, ls} Con{right, rs}: String.eq(left, right) && same_order(ls, rs)
+    case Con{left, ls} Con{right, rs}: SafeText.string_equal(left, right) && same_order(ls, rs)
     case _ _: False{}
-
-def tabs_valid(+active: +List<SurfaceTypes.Node>, +elements: +List<Element>, +native_focus: +List<NativeFocus>, order: +List<String>) -> Bool:
-  native_valid(native_focus, active, elements) && same_order(expected_tabs(active, elements, native_focus), order)
 
 def focus_visible(found: Maybe<&2, Element>, viewport: Geometry.Rect) -> Bool:
   match found:
@@ -320,12 +367,76 @@ def include_element(included: Bool, found: Maybe<&2, Element>, rest: +List<Eleme
     case True{} Some{Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, +paint_bounds}}: Element{key, True{}, enabled, tab, keyboard, scroll, bounds, hit, paint_bounds} <> rest
     case _ _: rest
 
-def actionable_elements(nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>) -> +List<Element>:
+def resolve_nodes(nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>) -> +List<ResolvedNode>:
   match nodes:
     case Nil{}: Nil{}
-    case Con{SurfaceTypes.Node{key, semantic, label, role, +meaning, children}, rest}:
-      include_element(interactive(meaning) && required_enabled(meaning), find_element(elements, UIIdentity.encode(key)),
-        List.append(&2, Element, actionable_elements(children, elements), actionable_elements(rest, elements)))
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      +identity: String = UIIdentity.encode(key)
+      ResolvedNode{node, identity, find_element(elements, identity), resolve_nodes(children, elements)} <>
+        resolve_nodes(rest, elements)
+
+def frame_forest_nonempty(nodes: +List<SurfaceTypes.Node>) -> Bool:
+  match nodes:
+    case Nil{}: False{}
+    case Con{node, rest}: True{}
+
+def frame_nodes_many(nodes: +List<SurfaceTypes.Node>) -> Bool:
+  match nodes:
+    case Nil{}: False{}
+    case Con{SurfaceTypes.Node{key, semantic, label, role, meaning, children}, rest}:
+      frame_forest_nonempty(children) || frame_forest_nonempty(rest)
+
+def frame_elements_many(elements: +List<Element>) -> Bool:
+  match elements:
+    case Nil{}: False{}
+    case Con{element, rest}:
+      match rest:
+        case Nil{}: False{}
+        case Con{next, remaining}: True{}
+
+def resolve_prepared_nodes(nodes: +List<SurfaceTypes.Node>, +elements: +List<PreparedElement>) -> +List<ResolvedNode>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{+node, rest}:
+      SurfaceTypes.Node{key, semantic, label, role, meaning, children} = node
+      +identity: String = UIIdentity.encode(key)
+      ResolvedNode{node, identity, find_prepared_element(elements, key_fingerprint(identity), identity), resolve_prepared_nodes(children, elements)} <>
+        resolve_prepared_nodes(rest, elements)
+
+def resolve_frame_admitted(prepared: Bool, +nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>) -> +List<ResolvedNode>:
+  match prepared:
+    case False{}: resolve_nodes(nodes, elements)
+    case True{}: resolve_prepared_nodes(nodes, prepare_elements(elements))
+
+def resolve_frame_nodes(+nodes: +List<SurfaceTypes.Node>, +elements: +List<Element>) -> +List<ResolvedNode>:
+  resolve_frame_admitted(frame_nodes_many(nodes) && frame_elements_many(elements), nodes, elements)
+
+def resolved_diagnostics(entries: +List<ResolvedNode>, +inherited: Bool,
+  +viewport: Geometry.Rect, +controls: +List<ControlExposure>) -> +List<Violation>:
+  match entries:
+    case Nil{}: Nil{}
+    case Con{ResolvedNode{SurfaceTypes.Node{key, semantic, label, +role, meaning, original_children}, identity, +found, children}, rest}:
+      List.append(&2, Violation,
+        node_geometry_with(found, meaning, role, identity, inherited || persistent(role), viewport, controls),
+        List.append(&2, Violation,
+          resolved_diagnostics(children, inherited || persistent(role) || code_in_view(role, found, viewport), viewport, controls),
+          resolved_diagnostics(rest, inherited, viewport, controls)))
+
+def resolved_actionable_elements(nodes: +List<ResolvedNode>) -> +List<Element>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{ResolvedNode{SurfaceTypes.Node{key, semantic, label, role, +meaning, original_children}, identity, found, children}, rest}:
+      include_element(interactive(meaning) && required_enabled(meaning), found,
+        List.append(&2, Element, resolved_actionable_elements(children), resolved_actionable_elements(rest)))
+
+def resolved_tabs(nodes: +List<ResolvedNode>, +native_focus: +List<NativeFocus>) -> +List<String>:
+  match nodes:
+    case Nil{}: Nil{}
+    case Con{ResolvedNode{SurfaceTypes.Node{key, semantic, label, role, +meaning, original_children}, +identity, found, children}, rest}:
+      tab_entry(interactive(meaning) && required_enabled(meaning) && tab_stop(found), identity,
+        List.append(&2, String, content_tabs(meaning, native_focus, identity),
+          List.append(&2, String, resolved_tabs(children, native_focus), resolved_tabs(rest, native_focus))))
 
 def against(first: Element, rest: +List<Element>) -> +List<Violation>:
   Element{+key, visible, enabled, tab, keyboard, scroll, +bounds, hit, +paint_bounds} = first
@@ -342,10 +453,12 @@ def independent_targets(elements: +List<Element>) -> +List<Violation>:
 
 def layout_check_with(+active: +List<SurfaceTypes.Node>, frame: Frame, controls: +List<ControlExposure>) -> +List<Violation>:
   Frame{+viewport, +elements, focused, tab_order, +native_focus} = frame
-  List.append(&2, Violation, nodes_with(active, False{}, elements, viewport, controls),
+  +resolved: +List<ResolvedNode> = resolve_frame_nodes(active, elements)
+  List.append(&2, Violation, resolved_diagnostics(resolved, False{}, viewport, controls),
     List.append(&2, Violation, focus_checks(focused, active, elements, viewport, native_focus),
-      List.append(&2, Violation, issue(Bool.not(tabs_valid(active, elements, native_focus, tab_order)), WrongTabOrder{}),
-        independent_targets(actionable_elements(active, elements)))))
+      List.append(&2, Violation,
+        issue(Bool.not(native_valid(native_focus, active, elements) && same_order(resolved_tabs(resolved, native_focus), tab_order)), WrongTabOrder{}),
+        independent_targets(resolved_actionable_elements(resolved)))))
 
 def layout_check(active: +List<SurfaceTypes.Node>, frame: Frame) -> +List<Violation>:
   layout_check_with(active, frame, Nil{})

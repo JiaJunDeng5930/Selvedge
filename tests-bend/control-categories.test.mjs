@@ -5,12 +5,13 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { compiler } from '../scripts/toolchain.mjs';
+import { compiler, compilerEnvironment, compilerInvocation } from '../scripts/toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bend = path.join(root, '.build/bend/bin/bend');
 const imports = `import Base
-import ./PROOF.bend as ProductionProof
+import ./browser/controls/authored-proof.bend as AuthoredProof
+import ./interaction/presentation/surface-proof.bend as SurfaceProof
 import ./browser/controls/CONTROLS.bend as Authored
 import ./browser/controls/PROGRAM.bend as Controls
 import ./browser/document/SOURCE.bend as Source
@@ -84,9 +85,10 @@ async function fixture(t) {
     await cp(path.join(root, name), path.join(directory, name), { recursive: true });
   }
   await writeFile(path.join(directory, 'CLIENT.bend'), concrete);
-  const compile = () => spawnSync(bend, ['CLIENT.bend'], {
+  const invocation = compilerInvocation(bend, ['CLIENT.bend']);
+  const compile = () => spawnSync(invocation.command, invocation.args, {
     cwd: directory, encoding: 'utf8', timeout: 60_000, maxBuffer: 8 * 1024 * 1024,
-    env: { ...process.env, BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
+    env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
   return { directory, compile };
 }
@@ -97,7 +99,7 @@ function accepted(result) {
   assert.equal(result.status, 0, result.stdout + result.stderr);
 }
 
-test('generic input and movable clients project production memberships and execute native fields', { timeout: 180_000 }, async t => {
+test('generic input and movable controls execute native fields', { timeout: 180_000 }, async t => {
   assert.equal(compiler(), bend, 'Use the pinned workspace compiler');
   const { compile } = await fixture(t);
   const executed = compile();

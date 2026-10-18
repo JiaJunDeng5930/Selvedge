@@ -20,7 +20,7 @@ async function kernel(t) {
 }
 
 const done = effect => ({ kind: 'model', task_id: effect.task_id, ticket: effect.ticket, ok: true,
-  items: [{ type: 'text', text: 'Waiting for the result.' }] });
+  items: [{ type: 'text', part: 0, text: 'Waiting for the result.' }] });
 const escalation = { command: 'printf approved > /outside-workspace', sandbox_permissions: 'require_escalated',
   justification: 'Write the exact output file requested by the user.' };
 

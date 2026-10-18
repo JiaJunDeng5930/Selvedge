@@ -1,4 +1,5 @@
 import Base
+import ./string-equality.bend as SafeText
 import ./stdlib.bend as Std
 
 type Json is Data:
@@ -110,7 +111,7 @@ def find(fields: +List<Field>, +name: String) -> Json:
     case Nil{}:
       Null{}
     case Con{Field{key, value}, rest}:
-      choose_field(String.eq(key, name), value, find(rest, name))
+      choose_field(SafeText.string_equal(key, name), value, find(rest, name))
 
 def get(value: Json, name: String) -> Json:
   match value:
@@ -220,12 +221,14 @@ def escaped_other(control: Bool, +code: U32) -> String:
     case False{}:
       SCon{Chr{code}, SNil{}}
 
-def escaped_char(code: U32) -> String:
-  match code:
-    case 34: "\\\""
-    case 92: "\\\\"
-    case +other:
-      escaped_other(U32.is_lt(other, 32), other)
+def escaped_selected(quoted: Bool, backslash: Bool, +code: U32) -> String:
+  match quoted backslash:
+    case True{} _: "\\\""
+    case False{} True{}: "\\\\"
+    case False{} False{}: escaped_other(U32.is_lt(code, 32), code)
+
+def escaped_char(+code: U32) -> String:
+  escaped_selected(U32.is_eq(code, 34), U32.is_eq(code, 92), code)
 
 # Each escaped character contributes at most six characters, bounding append depth.
 

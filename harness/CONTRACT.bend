@@ -341,11 +341,11 @@ type Coordination is Type:
       {Ops.result(Ops.announce(operation), value, error) ==
         D.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : D.Message},
     pending_model: @id:Nat -> @lineage:+List<Nat> -> @contract:D.Contract -> @current:D.ExecutionConfiguration -> @status:D.Status ->
-      @history:D.History -> @queued:+List<String> -> @ticket:Nat -> @allowed:+List<String> ->
+      @history:D.History -> @queued:+List<String> -> @ticket:Nat -> @allowed:+List<String> -> @mode:D.OutputMode ->
       @operations:+List<D.Operation()> -> @notified:Bool -> @operation:D.Operation() -> @value:J.Json -> @error:Bool ->
       {D.task_phase(T.complete_operation(operation, value, error,
-        D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed}, operations, notified})) ==
-        D.ModelPending{ticket, allowed} : D.Phase}}
+        D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed, mode}, operations, notified})) ==
+        D.ModelPending{ticket, allowed, mode} : D.Phase}}
 
 law coordination:
   Coordination

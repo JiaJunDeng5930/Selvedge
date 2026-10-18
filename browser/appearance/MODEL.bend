@@ -17,6 +17,7 @@ import ../layout/natural-size.bend as NaturalSize
 import ../../interaction/presentation/MODEL.bend as View
 import ../../interaction/presentation/COMPOSITION.bend as Composition
 import ../../interaction/presentation/SURFACE.bend as SurfaceTypes
+import ../../interaction/interactive_markdown/TYPES.bend as Interactive
 import ../../interaction/TYPES.bend as InteractionTypes
 
 def paint(name: String) -> Design.Paint:
@@ -250,6 +251,7 @@ def search_field_style(+typography: T.Presentation) -> Design.Style:
 def field_style(meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Design.Style:
   match meaning:
     case SurfaceTypes.BoardSearch{filter}: search_field_style(typography)
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "checkbox", attrs, binding, children}}: toggle_field(typography)
     case SurfaceTypes.Edit{editor, +field, +entry, +value, choices}:
       normalize_field(EditorLayout.field_kind(meaning), Controls.widget_for(entry, field, value), widget_field_style(Controls.widget_for(entry, field, value), entry, typography))
     case _: editable_field(typography)

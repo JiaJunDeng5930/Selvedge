@@ -34,6 +34,9 @@ without owning task state or policy.
 
 Host integration tests exercise persistence, HTTP delivery, model transport, and
 process execution. Bend laws do not prove those implementations or their services.
+SSE writes retain accepted frames when the HTTP writer signals backpressure.
+Each client's buffered UTF-8 frames stay within the existing frame-byte budget;
+a client that exceeds that budget is disconnected rather than buffered indefinitely.
 
 Board text generation is a committed `RequestBoardText` effect interpreted by
 `board-text.mjs`; native ticket/revision matching owns settlement. The
@@ -159,8 +162,10 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-Format 3 is independent of build provenance. Persisted formats are not migrated;
-unknown formats and incompatible decisions fail without altering the journal. Existing execution plans retain
+The current format, `selvedge-bend-journal-7`, binds each journal to one persisted
+random data namespace, independently of its URL or browser credentials. Persisted
+formats are not migrated; unknown formats and incompatible decisions fail without
+altering the journal. Existing execution plans retain
 their meaning after a restart in another launch directory. No workspace migration
 or global directory binding is involved. Different operations and service homes
 do not serialize arbitrary filesystem mutations, even when pointed at the same

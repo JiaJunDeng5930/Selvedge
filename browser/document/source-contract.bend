@@ -61,6 +61,8 @@ def native_field_footprint(+kind: Source.NativeFieldKind, +style: Source.Resolve
     case Source.SelectField{}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
     case Source.MultiSelectField{}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
     case Source.NumberField{minimum}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
+    case Source.RangeField{minimum, maximum, step}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
+    case Source.DecimalField{minimum, maximum, step}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
     case Source.FileField{multiple}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
     case Source.DirectoryField{}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}
     case Source.SearchField{}: {Source.native_field_rule(kind, style) == Source.physical_rule(style) : Model.Rule}

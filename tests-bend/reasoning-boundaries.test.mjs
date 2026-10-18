@@ -33,7 +33,7 @@ async function kernel(t, adaptive = policy()) {
     },
     create: () => command({ op: 'create', profile: 'automatic', message: 'Complete the original task, preserving its constraints.' }),
     choose: (pending, effort = 'low', generations = 2) => send({ kind: 'reasoning', task_id: pending.task_id, ticket: pending.ticket, ok: true, effort, generations }),
-    model: (pending, items = [{ type: 'text', text: 'Finished.' }]) => send({ kind: 'model', task_id: pending.task_id, ticket: pending.ticket, ok: true, items }),
+    model: (pending, items = [{ type: 'text', part: 0, text: 'Finished.' }]) => send({ kind: 'model', task_id: pending.task_id, ticket: pending.ticket, ok: true, items }),
   };
 }
 
@@ -73,7 +73,7 @@ test('Bend-generated JavaScript evaluator wire omits private continuation even w
   const k = await kernel(t);
   const first = effect(await k.choose(effect(await k.create(), 'reasoning'), 'low', 10), 'model');
   const result = await k.model(first, [
-    { type: 'context', value: { type: 'reasoning', encrypted_content: 'PRIVATE-CONTINUATION-NEVER-FOR-JEV',
+    { type: 'context', part: 0, value: { type: 'reasoning', encrypted_content: 'PRIVATE-CONTINUATION-NEVER-FOR-JEV',
       summary: [{ type: 'summary_text', text: 'Public progress summary.' }] } },
     { ...readCall('self-with-private-history'), arguments: { task_id: 0, after: 0, limit: 32 } }, readCall('missing', 999),
   ]);

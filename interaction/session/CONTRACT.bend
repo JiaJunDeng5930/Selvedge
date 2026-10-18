@@ -7,6 +7,7 @@ import ../../harness/INVARIANTS.bend as I
 import ../../harness/MODEL.bend as M
 import ../../bendlib/component.bend as C
 import ../../harness/DOMAIN.bend as D
+import ../../harness/COMMANDS.bend as Commands
 import ../../bendlib/json.bend as J
 import ../../harness/transport/command-codec.bend as CommandCodec
 import ./MODEL.bend as E
@@ -18,6 +19,10 @@ import ../../bendlib/association-map.bend as Finite
 import ../conversation/CODE.bend as Content
 import ../conversation/OUTPUT.bend as Live
 import ../services/CONTEXT.bend as Context
+import ../interactive_markdown/TYPES.bend as Interactive
+import ../interactive_markdown/MODEL.bend as InteractiveCore
+import ../interactive_markdown/DOCUMENTS.bend as Documents
+import ../interactive_markdown/documents-contract.bend as DocumentRequirement
 
 def model_choice_spec(valid: Bool, +profile: String, +reasoning: String, +application: E.Application) -> E.Decision:
   match valid:
@@ -296,8 +301,93 @@ def confirmation_result_spec(owned: Bool, +result: J.Json, destination: U.Route,
     case False{}: E.Decision{application, result, Nil{}, Nil{}, False{}}
     case True{}: accepted_confirmation_spec(J.boolean(J.get(result, "ok")), result, destination, application)
 
+# A completed interactive command is feedback to its captured owner, path and
+# ticket. It is not another submission, and it never edits the composer. This
+# adapter specification writes every Session/Decision field; the core operation
+# is the separately specified public interactive-language boundary.
+def feedback_effects(+effects: +List<Interactive.Effect>) -> +List<E.Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{effect, rest}: E.InteractiveEffect{effect} <> feedback_effects(rest)
+
+def feedback_decision(+result: Interactive.Decision, +application: E.Application) -> E.Decision:
+  match result application:
+    case Interactive.Decision{core, effects} E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, preference, manual, Documents.State{namespace, sequence, fresh, allowed, ready, documents, old_core, next_epoch, retention}}}:
+      E.Decision{E.Application{program, E.Session{route, drafts, readers, layers, attention, navigation, filter, now, next_ticket, pending, previews, code_blocks, next_layer, preference, manual, Documents.State{namespace, sequence, fresh, allowed, ready, documents, core, next_epoch, retention}}}, D.success(J.Null{}), Nil{}, feedback_effects(effects), False{}}
+
+def feedback_permitted(+owned: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) -> E.Decision:
+  match owned:
+    case False{}: E.Decision{application, D.success(J.Null{}), Nil{}, Nil{}, False{}}
+    case True{}:
+      feedback_decision(InteractiveCore.step(Interactive.EffectCompleted{owner, path, ticket,
+        J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))},
+        Documents.core(E.interactive_data(E.session(application)))), application)
+
+def interactive_completion_spec(+owner: Interactive.Owner, +path: String, +ticket: Nat, +result: J.Json, +application: E.Application) -> E.Decision:
+  +documents = E.interactive_data(E.session(application))
+  feedback_permitted(DocumentRequirement.owns(Documents.namespace(documents), owner, False{}, Documents.documents(documents)), owner, path, ticket, result, application)
+
+law interactive_feedback:
+  for +owner: Interactive.Owner
+  for +path: String
+  for +ticket: Nat
+  for +result: J.Json
+  for +application: E.Application
+  {E.interactive_input(Interactive.EffectCompleted{owner, path, ticket,
+    J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, application) ==
+    interactive_completion_spec(owner, path, ticket, result, application) : E.Decision}
+
+def business_effects(+decision: E.Decision) -> +List<M.Effect()> & +List<E.Effect>:
+  E.Decision{application, reply, runtime, interaction, durable} = decision
+  (runtime, interaction)
+
+law interactive_feedback_is_terminal:
+  for +owner: Interactive.Owner
+  for +path: String
+  for +ticket: Nat
+  for +result: J.Json
+  for +application: E.Application
+  {business_effects(E.interactive_input(Interactive.EffectCompleted{owner, path, ticket,
+    J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, application)) ==
+    (Nil{}, Nil{}) : +List<M.Effect()> & +List<E.Effect>}
+
+# Sending from a view captures its declared message, never the mutable composer.
+# The existing submission rules and authoritative Commands resolver decide
+# whether that captured request may run. Failure settles the same correlation;
+# success emits exactly one request and keeps the entire application unchanged.
+def captured_request(+operation: Commands.Operation, +command: M.Command, +owner: Interactive.Owner, +path: String, +ticket: Nat, +application: E.Application) -> E.Decision:
+  match operation:
+    case Commands.Refuse{code, message}: interactive_completion_spec(owner, path, ticket, D.failure(code, message), application)
+    case _: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.InteractiveCompletion{owner, path, ticket}}], False{}}
+
+def captured_send_ready(+ready: Bool, +task: Nat, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) -> E.Decision:
+  match ready:
+    case False{}: interactive_completion_spec(owner, path, ticket, D.failure("interaction_refused", "This task cannot accept this message now"), application)
+    case True{}:
+      +command: M.Command = U.command(U.Message{task, U.initial_text(message), U.Send{}}, E.now(E.session(application)))
+      captured_request(Commands.resolve(command, E.program(application)), command, owner, path, ticket, application)
+
+def captured_send_owner(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) -> E.Decision:
+  match task:
+    case None{}: interactive_completion_spec(owner, path, ticket, D.failure("interaction_refused", "This view no longer owns a task"), application)
+    case Some{+id}:
+      captured_send_ready(UX.draft_can_prepare(U.Draft{0n, U.Message{id, U.initial_text(message), U.Send{}}, U.Editing{}, ""},
+        E.busy(E.pending(E.session(application)), U.MessageEditor{id}), E.program(application)), id, owner, path, ticket, message, application)
+
+def captured_send(+owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) -> E.Decision:
+  captured_send_owner(Documents.current_owning_task(owner, E.interactive_data(E.session(application))), owner, path, ticket, message, application)
+
+law interactive_send:
+  for +owner: Interactive.Owner
+  for +path: String
+  for +ticket: Nat
+  for +message: String
+  for +application: E.Application
+  {E.interpret_interactive_effect(Interactive.SendMessage{owner, path, ticket, message}, application) == captured_send(owner, path, ticket, message, application) : E.Decision}
+
 def valid_completion_spec(completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session) -> E.Decision:
   match completion:
+    case E.InteractiveCompletion{owner, path, ticket}: interactive_completion_spec(owner, path, ticket, result, E.from_program(program, E.retain_previews(session, program)))
     case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: E.finish_execution_view(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, occurrence, program, result, E.from_program(program, session))
     case E.ExecutionCompletion{task, profile, reasoning, remember}: E.finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, E.from_program(program, session))
     case E.DirectCompletion{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}

@@ -475,6 +475,8 @@ def field_observation(+kind: Source.NativeFieldKind, node: Doc.Node) -> Maybe<&2
     case Source.SelectField{}: observation(node)
     case Source.MultiSelectField{}: observation(node)
     case Source.NumberField{minimum}: observation(node)
+    case Source.RangeField{minimum, maximum, step}: observation(node)
+    case Source.DecimalField{minimum, maximum, step}: observation(node)
     case Source.FileField{multiple}: observation(node)
     case Source.DirectoryField{}: observation(node)
     case Source.SearchField{}: observation(node)
@@ -587,3 +589,106 @@ type RendererRequirements is Type:
 
 law renderer_evidence:
   RendererRequirements
+
+# Stable selection retains complete nodes, their multiplicity and input order.
+def required_owned_step(+matches: Bool, +node: Doc.Node, +later: +List<Doc.Node>) -> +List<Doc.Node>:
+  match matches:
+    case True{}: node <> later
+    case False{}: later
+
+def required_owned_nodes(+values: +List<Renderer.Owned>, +key: String) -> +List<Doc.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Renderer.Owned{+owner, +node}, +rest}:
+      required_owned_step(String.eq(owner, key), node, required_owned_nodes(rest, key))
+
+law owned_nodes_complete:
+  for +values: +List<Renderer.Owned>
+  for +key: String
+  {Renderer.owned_nodes(values, key) == required_owned_nodes(values, key) : +List<Doc.Node>}
+
+law owned_nodes_empty:
+  for key: String
+  {Renderer.owned_nodes(Nil{}, key) == Nil{} : +List<Doc.Node>}
+
+law owned_nodes_matching:
+  for +owner: String
+  for +node: Doc.Node
+  for +rest: +List<Renderer.Owned>
+  for +key: String
+  for matches: {String.eq(owner, key) == True{} : Bool}
+  {Renderer.owned_nodes(Renderer.Owned{owner, node} <> rest, key) ==
+    node <> required_owned_nodes(rest, key) : +List<Doc.Node>}
+
+law owned_nodes_nonmatching:
+  for +owner: String
+  for +node: Doc.Node
+  for +rest: +List<Renderer.Owned>
+  for +key: String
+  for matches: {String.eq(owner, key) == False{} : Bool}
+  {Renderer.owned_nodes(Renderer.Owned{owner, node} <> rest, key) ==
+    required_owned_nodes(rest, key) : +List<Doc.Node>}
+
+law owned_nodes_concatenated:
+  for +first: +List<Renderer.Owned>
+  for +later: +List<Renderer.Owned>
+  for +key: String
+  {Renderer.owned_nodes(List.append(&2, Renderer.Owned, first, later), key) ==
+    List.append(&2, Doc.Node, required_owned_nodes(first, key), required_owned_nodes(later, key)) : +List<Doc.Node>}
+
+law owned_nodes_repeated:
+  for +first_owner: String
+  for +first: Doc.Node
+  for +second_owner: String
+  for +second: Doc.Node
+  for +rest: +List<Renderer.Owned>
+  for +key: String
+  for first_matches: {String.eq(first_owner, key) == True{} : Bool}
+  for second_matches: {String.eq(second_owner, key) == True{} : Bool}
+  {Renderer.owned_nodes(Renderer.Owned{first_owner, first} <> Renderer.Owned{second_owner, second} <> rest, key) ==
+    first <> second <> required_owned_nodes(rest, key) : +List<Doc.Node>}
+
+def chart_viewport_rule() -> Model.Rule:
+  Model.Rule{Model.Horizontal{}, Spatial.Leading{}, Spatial.Stretch{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}},
+    0n, Model.StretchSize{}, Model.ExactSize{240n}, Enclosure.Extent{0n, 0n}, Model.ScrollHorizontally{}, Spatial.InFlow{}}
+
+def chart_canvas_rule() -> Model.Rule:
+  Model.Rule{Model.Layered{}, Spatial.Leading{}, Spatial.Stretch{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}},
+    0n, Model.ExactSize{480n}, Model.ExactSize{240n}, Enclosure.Extent{0n, 0n}, Model.Confined{}, Spatial.InFlow{}}
+
+def chart_glyph_rule() -> Model.Rule:
+  Model.Rule{Model.Horizontal{}, Spatial.Centered{}, Spatial.Centered{}, Enclosure.Frame{Enclosure.ambient(0n, 0n), Enclosure.EmbeddedContent{0n}},
+    0n, Model.ExactSize{480n}, Model.ExactSize{240n}, Enclosure.Extent{480n, 240n}, Model.Confined{}, Spatial.InFlow{}}
+
+def chart_tree(+viewport_key: String, +canvas_key: String, +axes_key: String, +values_key: String,
+  viewport: Content.Value, canvas: Content.Value, axes: Content.Value, values: Content.Value) -> Model.Tree<Content.Value, Doc.DOMEvent>:
+  Model.Container{viewport_key, viewport, Model.DisplayOnly{}, chart_viewport_rule(),
+    [Model.Container{canvas_key, canvas, Model.DisplayOnly{}, chart_canvas_rule(),
+      [Model.Leaf{axes_key, axes, Model.DisplayOnly{}, chart_glyph_rule(), Space.fixed_demand(480n, 240n), Model.FixedHeight{240n}},
+       Model.Leaf{values_key, values, Model.DisplayOnly{}, chart_glyph_rule(), Space.fixed_demand(480n, 240n), Model.FixedHeight{240n}}]}]}
+
+def allocated_chart_glyph(key: String, value: Content.Value) -> Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>:
+  Allocation.AllocatedLeaf{key, value, Model.DisplayOnly{}, chart_glyph_rule(), Space.fixed_demand(480n, 240n), Model.FixedHeight{240n},
+    Spatial.Box{0n, 0n, 480n, 240n}, Enclosure.Extent{480n, 240n}}
+
+def allocated_chart(+viewport_key: String, +canvas_key: String, +axes_key: String, +values_key: String,
+  viewport: Content.Value, canvas: Content.Value, axes: Content.Value, values: Content.Value, +width: Nat) -> Allocation.AllocatedTree<Content.Value, Doc.DOMEvent>:
+  Allocation.AllocatedContainer{viewport_key, viewport, Model.DisplayOnly{}, chart_viewport_rule(), Spatial.Box{0n, 0n, width, 240n},
+    Enclosure.Extent{Nat.max(width, 480n), 240n}, Allocation.Horizontal{},
+    [Allocation.AllocatedContainer{canvas_key, canvas, Model.DisplayOnly{}, chart_canvas_rule(), Spatial.Box{0n, 0n, 480n, 240n},
+      Enclosure.Extent{480n, 240n}, Allocation.Layered{},
+      [allocated_chart_glyph(axes_key, axes), allocated_chart_glyph(values_key, values)]}]}
+
+law chart_scroll_allocation:
+  for +viewport_key: String
+  for +canvas_key: String
+  for +axes_key: String
+  for +values_key: String
+  for +viewport: Content.Value
+  for +canvas: Content.Value
+  for +axes: Content.Value
+  for +values: Content.Value
+  for +width: Nat
+  {Allocation.allocate(~Content.Value, ~Doc.DOMEvent, chart_tree(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values),
+    Spatial.Box{0n, 0n, width, 240n}, Nil{}) ==
+    Allocation.Allocated{allocated_chart(viewport_key, canvas_key, axes_key, values_key, viewport, canvas, axes, values, width)} : Allocation.Outcome<Content.Value, Doc.DOMEvent>}

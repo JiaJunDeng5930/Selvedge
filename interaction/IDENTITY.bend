@@ -1,4 +1,5 @@
 import Base
+import ../bendlib/string-equality.bend as SafeText
 import ../bendlib/json.bend as J
 
 type Key is Data:
@@ -17,11 +18,11 @@ def part(owner: Key, name: String) -> Key:
 
 def same(left: Key, right: Key) -> Bool:
   match left right:
-    case Place{path} Place{other_path}: String.eq(path, other_path)
+    case Place{path} Place{other_path}: SafeText.string_equal(path, other_path)
     case Entity{owner, kind, identity} Entity{other_owner, other_kind, other_identity}:
-      same(owner, other_owner) && (String.eq(kind, other_kind) && String.eq(identity, other_identity))
+      same(owner, other_owner) && (SafeText.string_equal(kind, other_kind) && SafeText.string_equal(identity, other_identity))
     case Part{owner, name} Part{other_owner, other_name}:
-      same(owner, other_owner) && String.eq(name, other_name)
+      same(owner, other_owner) && SafeText.string_equal(name, other_name)
     case _ _: False{}
 
 # Tags and quoted fields preserve the boundary between an identity and its parts.

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { beforeAll, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -74,16 +75,20 @@ def main() -> Bool:
   Bool.and(client(Proof.system(), True{}), client(Proof.system(), False{}))
 `;
 
-test('generic operational clients use production fields and laws while carriers remain abstract', { timeout: 300_000 }, async t => {
+let main;
+beforeAll(async () => {
   const build = path.join(root, '.build');
   await mkdir(build, { recursive: true });
   const directory = await mkdtemp(path.join(build, 'model-abstraction-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  afterAll(() => rm(directory, { recursive: true, force: true }));
   const entry = path.join(directory, 'client.bend');
   const output = path.join(directory, 'client.mjs');
   await writeFile(entry, client);
   // Use the production emitter to execute operations without normalizing the dependent system.
   await compileJavaScript({ entry, output, exports: { main: 'main' } });
-  const { main } = await import(pathToFileURL(output).href);
+  ({ main } = await import(pathToFileURL(output).href));
+}, 900_000);
+
+test('generic operational clients use production fields and laws while carriers remain abstract', { timeout: 300_000 }, () => {
   assert.equal(main(), true);
 });

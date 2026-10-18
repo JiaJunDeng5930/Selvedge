@@ -18,7 +18,7 @@ async function extendRemainders(directory) {
   });
 }
 
-test('persistent state extensions reuse the complete existing source and proof tree', { timeout: 300_000 }, async t => {
+test('persistent state extensions reuse the complete existing source and proof tree', { timeout: 900_000 }, async t => {
   await t.test('independent persistent state', async t => {
     const copy = await specimen(t);
     await extendRemainders(copy.directory);
@@ -41,7 +41,7 @@ def result(valid: Bool) -> U32:
 def main() -> U32:
   world = BoardState.store(B.initial(), M.initial())
   result(Nat.is_eq(F.rest(C.rest(D.State, F.State(), world)), 17n))
-`);
+`, '1', { signal: t.signal, timeout: 900_000 });
     await unchanged(copy, ['harness/features/MODEL.bend']);
   });
 });

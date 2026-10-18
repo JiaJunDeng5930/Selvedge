@@ -17,6 +17,7 @@ import ./approval/HOOKS.bend as Hooks
 import ./workspace/WORKSPACE.bend as Workspace
 import ./workspace/PROJECTS.bend as Projects
 import ./approval/MODEL.bend as Approvals
+import ./context/interactive-markdown.bend as InteractiveCapability
 
 # A world is an append-only registry of tasks, whose ancestry is a forest.
 # These predicates are executed by PROGRAM's admission boundary and named by
@@ -113,7 +114,7 @@ def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.
     case _ D.Idle{}: True{}
     case _ D.Ready{pending}: attempts(pending, history)
     case _ D.ContextPending{ticket, revision, purpose}: Nat.is_lt(ticket, next_ticket) && Nat.is_le(revision, D.history_length(history))
-    case _ D.ModelPending{ticket, names}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
+    case _ D.ModelPending{ticket, names, mode}: Nat.is_lt(ticket, next_ticket) && callable(names, tools)
     case _ D.ReasoningPending{ticket, revision}: Nat.is_lt(ticket, next_ticket) && Nat.is_le(revision, D.history_length(history))
     case _ D.HookPending{ticket, reference, call, pending, remaining}:
       Nat.is_lt(ticket, next_ticket) && attempts(D.CheckedAttempt{call, reference <> pending} <> remaining, history)
@@ -121,7 +122,7 @@ def phase(status: D.Status, phase: D.Phase, +history: D.History, tools: +List<D.
 def ticket_is(phase: D.Phase, ticket: Nat) -> Bool:
   match phase:
     case D.ContextPending{expected, revision, purpose}: Nat.is_eq(expected, ticket)
-    case D.ModelPending{expected, callable}: Nat.is_eq(expected, ticket)
+    case D.ModelPending{expected, callable, mode}: Nat.is_eq(expected, ticket)
     case D.ReasoningPending{expected, revision}: Nat.is_eq(expected, ticket)
     case D.HookPending{expected, reference, call, pending, remaining}: Nat.is_eq(expected, ticket)
     case _: False{}
@@ -225,7 +226,7 @@ def checked_attempts(attempts: +List<D.Attempt>, +history: D.History, +owner: Na
 def checked_phase(phase: D.Phase, +history: D.History, +owner: Nat, +contract: D.Contract, +budget: Nat) -> Bool:
   match phase:
     case D.Ready{attempts}: checked_attempts(attempts, history, owner, contract, budget)
-    case D.ModelPending{ticket, callable}:
+    case D.ModelPending{ticket, callable, mode}:
       ReasoningContext.valid_sample(D.model_reasoning(T.task_model(contract)), owner, history)
     case D.ReasoningPending{ticket, revision}: Reasoning.automatic(D.model_reasoning(T.task_model(contract)))
     case D.HookPending{ticket, reference, +call, pending, remaining}:
@@ -252,7 +253,7 @@ def has_ticket(tasks: +List<D.Task>, +ticket: Nat) -> Bool:
 def distinct_ticket(phase: D.Phase, tasks: +List<D.Task>) -> Bool:
   match phase:
     case D.ContextPending{ticket, revision, purpose}: Bool.not(has_ticket(tasks, ticket))
-    case D.ModelPending{ticket, callable}: Bool.not(has_ticket(tasks, ticket))
+    case D.ModelPending{ticket, callable, mode}: Bool.not(has_ticket(tasks, ticket))
     case D.ReasoningPending{ticket, revision}: Bool.not(has_ticket(tasks, ticket))
     case D.HookPending{ticket, reference, call, pending, remaining}: Bool.not(has_ticket(tasks, ticket))
     case _: True{}
@@ -470,11 +471,18 @@ def observation_effect(found: Maybe<&2, D.Task>, ticket: Nat, sent_history: D.Hi
       Nat.is_eq(ticket, expected) && Nat.is_eq(revision, D.history_length(history)) && Same.history(budget, sent_history, history)
     case _: False{}
 
-def model_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, sent_history: D.History,
+def request_mode_matches(mode: D.OutputMode, available: Bool) -> Bool:
+  match mode available:
+    case D.Plain{} False{}: True{}
+    case D.InteractiveV1{} True{}: True{}
+    case _ _: False{}
+
+def model_effect(found: Maybe<&2, D.Task>, ticket: Nat, model: D.Model, +sent_history: D.History,
   tools: +List<D.Tool>, callable: +List<String>, +budget: Nat) -> Bool:
   match found:
-    case Some{D.Task{id, lineage, +contract, +current, D.Active{}, +history, queued, D.ModelPending{expected, allowed}, operations, notified}}:
-      Nat.is_eq(ticket, expected) && Same.model(model, D.execution_model(current)) &&
+    case Some{D.Task{id, lineage, +contract, +current, D.Active{}, +history, queued, D.ModelPending{expected, allowed, mode}, operations, notified}}:
+      request_mode_matches(mode, InteractiveCapability.available(D.context_bindings(sent_history))) &&
+        Nat.is_eq(ticket, expected) && Same.model(model, D.execution_model(current)) &&
         ReasoningContext.valid_sample(D.model_reasoning(D.execution_model(current)), id, history) &&
         Same.history(budget, sent_history, history) && Same.tools(budget, tools, T.task_tools(contract)) && Same.strings(callable, allowed)
     case _: False{}

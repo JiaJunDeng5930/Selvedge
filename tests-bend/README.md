@@ -13,7 +13,7 @@ or rejection of source code, proofs or certificates.
 | Generic clients execute affine operational memberships and observe complete execution and application results without concrete state | `model-abstraction.test.mjs` |
 | JavaScript translators reject unsupported source AST, constants, inductives, proof syntax, changed statements and reflection premises | `stdlib.test.mjs`, `association-map.test.mjs`, `relations.test.mjs` |
 | Category admission and intersection execute and extract actual admitted values, with Some/None outcomes | `categories.test.mjs` |
-| Generic input, movable-source and recovery clients execute native fields and check emitted nodes, bindings and filtering | `control-categories.test.mjs` |
+| Input and movable-source controls emit native fields with retained values, bindings and available destinations | `control-categories.test.mjs` |
 | Component extensions with unrelated source and clients frozen; actual native decode/commit/query/effect round trips | `locality.test.mjs`, `locality-support.mjs`, `fixtures/locality-extension.mjs`; actual-source boundary checks in `scripts/check-components.mjs` |
 | Private model construction and binding/case destructuring rejected by the actual source gate; public command values, explicit model/proof owners and inert text accepted; malformed, unknown and duplicate representation policies rejected | `locality.test.mjs`; JavaScript source and configuration boundary checks |
 | Bend-generated JavaScript, Worker and codec transport: Unicode, embedded controls, exact numeric lexemes and malformed completion envelopes | `kernel-boundaries.test.mjs` |
@@ -65,8 +65,9 @@ fixtures check the concrete values and external boundaries listed above.
 
 These files describe evidence responsibilities, not results for the current
 checkout. Loopback fixtures do not establish commercial model quality or
-availability. Browser geometry, focus and physical interaction need actual
-browser evidence; no current executable browser fixture supplies it.
+availability. Browser geometry, focus and physical interaction need the actual
+Chromium checks described below; the service and parser tests alone do not
+establish those properties.
 
 Do not add tests whose only criterion is Bend accepting or rejecting source code,
 proofs or certificates. Keep actual compiler execution, JavaScript translator
@@ -82,3 +83,33 @@ compiler workloads. Production
 proofs and certificate checks still run in every PR. The workflow's manual `full`
 input runs the complete suite on Linux and macOS once the workflow is present on
 the default branch.
+
+
+## Interactive Markdown checks
+
+`interactive-markdown-fences.test.mjs` checks the adapter to the existing Markdown
+parser. `interactive-markdown-storage.test.mjs` checks ordinary save, removal,
+eviction and storage failures. `interactive-markdown-service.test.mjs` checks
+large SSE delivery and sparse provider output indices. The default V8 regression
+in `kernel-boundaries.test.mjs` covers the stack overflow previously observed with
+ordinary model output.
+
+The browser script checks the actual provider-to-control path, native IME,
+restoration, task graph subscriptions, asynchronous submission, and data removal
+after namespace or authorization changes. It uses the production service and
+compiled browser, with a controlled provider peer and isolated temporary journals.
+
+It requires Python 3 with `playwright`, an installed Chromium executable, and Bun.
+Build the production libraries before running it:
+
+```sh
+bun run build
+BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium \
+  python3 scripts/test-interactive-markdown-browser.py --mode all
+```
+
+The environment must permit loopback servers and Chromium. No model account is
+required. Use `--help` for individual modes. Failure details are saved under
+`.workpad/interactive-browser-results`, or the selected `--artifacts` directory.
+The IME check uses Chromium composition events; it does not cover every operating
+system input method.

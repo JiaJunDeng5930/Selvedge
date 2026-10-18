@@ -131,3 +131,13 @@ requested subactivity.
 It is shared by dependent decisions and parameter summaries. Browser authorship
 interprets these roles as a leading label, trailing current value and disclosure
 inside the original whole-row native button, rather than parsing a joined string.
+
+Markdown attachments follow the parser's code ordinal, with each fence's code
+toolbar before its interactive region. The presentation retains complete node
+payloads and duplicate occurrences, including UI observed before a code scene.
+The contract requires ordinal order, code controls before UI at the same ordinal,
+and exact complete-payload preservation for every ordinal/category group. The
+actual speech, live and retained outputs carry those requirements. The proof
+establishes these properties for natural-run merging without specifying a second
+sorting algorithm.
+The existing source, native target, mount and frame validation rules still apply.

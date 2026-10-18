@@ -108,6 +108,18 @@ def platform_effects(effects: +List<Platform.Effect>, +surface: SurfaceTypes.Sur
     case Nil{}: Nil{}
     case Con{effect, rest}: List.append(&2, Effect, resolved_effect(effect, surface), platform_effects(rest, surface))
 
+def deferred_platform_effects(source: +List<Platform.Effect>, surface: Unit -> SurfaceTypes.Surface) -> +List<Effect>:
+  match source:
+    case Nil{}: Nil{}
+    case Con{Platform.Focus{ticket, target}, rest}:
+      platform_effects(Platform.Focus{ticket, target} <> rest, surface(Unit{}))
+    case Con{Platform.ScopeFocus{ticket, previous, current}, rest}:
+      platform_effects(Platform.ScopeFocus{ticket, previous, current} <> rest, surface(Unit{}))
+    case Con{Platform.ApplyReading{task, generation, effect}, rest}:
+      PlatformEffect{Platform.ApplyReading{task, generation, effect}} <> deferred_platform_effects(rest, surface)
+    case Con{Platform.Clipboard{block, effect}, rest}:
+      PlatformEffect{Platform.Clipboard{block, effect}} <> deferred_platform_effects(rest, surface)
+
 def environment_root(environment: Design.Environment) -> Nat:
   Design.Environment{viewport, system_dark, root_font_size_milli} = environment
   root_font_size_milli
@@ -146,7 +158,7 @@ def production_commit(decision: Platform.Decision, +generation: Nat, environment
   Platform.Decision{+product, +platform, +effects} = decision
   +application = Platform.next(Platform.Decision{product, platform, effects})
   Decision{State{application, generation, Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)},
-    product, platform_effects(effects, Order.ordered_surface(surface(application)))}
+    product, deferred_platform_effects(effects, (_ => Order.ordered_surface(surface(application))))}
 
 def production_platform_input(input: Platform.Input, application: Platform.State) -> Platform.Input:
   match input:

@@ -31,7 +31,7 @@ export function providerInput(history, profile = {}) {
   return boundary('backend.input', { history, profile });
 }
 
-export function providerOutput(output, profile = {}) {
+export function providerOutput(output, profile = {}, output_indices = []) {
   const arguments_observations = [];
   // Parsing supplies raw structural observations; admission belongs to Bend.
   if (Array.isArray(output)) {
@@ -41,7 +41,7 @@ export function providerOutput(output, profile = {}) {
       }
     });
   }
-  return boundary('backend.output', { output, profile, arguments_observations });
+  return boundary('backend.output', { output, profile, output_indices, arguments_observations });
 }
 
 export function responseBody(effect, profile = { provider: effect.model.provider }) {
@@ -169,7 +169,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
       case 'delta': onDelta(step.text, step.index); break;
       case 'terminal': {
         onObservation({ scope, now: Date.now(), usage: event.response?.usage });
-        const items = providerOutput(step.output, profile);
+        const items = providerOutput(step.output, profile, step.output_indices);
         return effect.kind === 'model' ? boundary('backend.compaction_bind_output', { items, scope }) : items;
       }
       case 'failure':

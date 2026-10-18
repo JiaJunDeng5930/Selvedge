@@ -12,6 +12,9 @@ import ../execution/OPERATIONS.bend as Ops
 import ../features/MODEL.bend as F
 import ./CONTRACT.bend as A
 import ../LAWS.bend as Laws
+import ../context/interactive-markdown.bend as InteractiveCapability
+import ../tasks/PROGRAM.bend as Tasks
+import ../../bendlib/json.bend as J
 
 def route_meaning(+policy: R.Policy, +lease: R.Lease) ->
   {Actual.route(policy, lease) == R.requirement(policy, lease) : R.Plan}:
@@ -21,10 +24,36 @@ def route_meaning(+policy: R.Policy, +lease: R.Lease) ->
     case R.Adaptive{evaluator, efforts, baseline, transport, maximum} R.Lease{effort, 0n}: {==}
     case R.Adaptive{evaluator, efforts, baseline, transport, maximum} R.Lease{effort, 1n+remaining}: {==}
 
+def capability_mode_meaning(+available: Bool) ->
+  {D.available_output_mode(available) == Spec.capability_mode(available) : D.OutputMode}:
+  match available:
+    case True{}: {==}
+    case False{}: {==}
+
+def request_mode_meaning(+history: D.History) ->
+  {D.history_output_mode(history) == Spec.request_mode(history) : D.OutputMode}:
+  capability_mode_meaning(InteractiveCapability.available(D.context_bindings(history)))
+
+def request_environment_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task,
+  +world: C.Frame<D.State, StateRest>, +environment: D.Environment) ->
+  {Actual.request_environment(StateRest, EffectRest, task, world, environment) ==
+    Spec.model_environment(StateRest, EffectRest, task, world, environment) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
+  match world environment:
+    case C.Frame{D.State{+tasks, +next_task, +ticket, +existing, +limits, +projects}, +rest} D.Environment{+catalog, profiles, forks, descendants, project, plugins, instructions}:
+      +tools = Tasks.task_tools(D.task_contract(task))
+      +allowed = Tasks.callable(tools, catalog)
+      Equal.cong(D.OutputMode, C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>,
+        mode => C.Decision{C.Frame{D.State{Tasks.replace(tasks, D.with_phase(D.ModelPending{ticket, allowed, mode}, task)),
+          next_task, 1n+ticket, existing, limits, projects}, rest}, J.Null{},
+          [Effects.RequestModel{D.task_id(task), ticket, D.task_model(task), D.task_history(task), tools, allowed, D.task_context(task), "", 0n}]},
+        D.history_output_mode(D.task_history(task)), Spec.request_mode(D.task_history(task)), request_mode_meaning(D.task_history(task)))
+
+def A.request_environment_meaning(task, world, environment):
+  request_environment_meaning(F.State(), F.Effect, task, world, environment)
+
 def request_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
   {Actual.request(StateRest, EffectRest, task, world) == Spec.model(StateRest, EffectRest, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:
-  match world:
-    case C.Frame{D.State{tasks, next_task, ticket, D.Environment{catalog, profiles, forks, descendants, project, plugins, instructions}, limits, projects}, rest}: {==}
+  request_environment_meaning(StateRest, EffectRest, task, world, D.state_environment(C.local(D.State, StateRest, world)))
 
 def evaluator_meaning(-StateRest: Data, -EffectRest: Data, +task: D.Task, +world: C.Frame<D.State, StateRest>) ->
   {Actual.evaluate(StateRest, EffectRest, task, world) == Spec.evaluator(StateRest, EffectRest, task, world) : C.Decision<C.Frame<D.State, StateRest>, Effects.Effect<EffectRest>>}:

@@ -19,6 +19,7 @@ const model = (task_id, ticket, calls = []) => ({ kind: 'model', task_id, ticket
 test('committed inputs reconstruct the actual Bend state; recovery does not reissue a pending unsafe effect', async t => {
   const filename = await temporary(t);
   let journal = await Journal.open(filename);
+  const namespace = journal.namespace;
   t.after(() => journal.close());
   await journal.execute(environment);
   const created = await settleContextObservations(input => journal.execute(input),
@@ -30,6 +31,7 @@ test('committed inputs reconstruct the actual Bend state; recovery does not reis
   assert.equal(before.sequence, 4);
   await journal.close();
   journal = await Journal.open(filename);
+  assert.equal(journal.namespace, namespace);
   assert.deepEqual((await journal.execute(command({ op: 'read', task_id: 0 }))).reply, before.reply);
   const recovered = await journal.execute({ kind: 'recover' });
   assert.equal(recovered.effects.some(effect => effect.kind === 'tool'), false);
@@ -81,7 +83,7 @@ test('obsolete schemas and journal formats fail without changing saved data', as
   await current.execute(environment);
   await current.close();
   const database = new DatabaseSync(currentFile);
-  for (const format of ['selvedge-bend-journal-5', 'unknown-format']) {
+  for (const format of ['selvedge-bend-journal-6', 'unknown-format']) {
     database.prepare("UPDATE meta SET value = ? WHERE key='format'").run(format);
     const metadata = database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     const saved = database.prepare('SELECT * FROM journal ORDER BY seq').all();
@@ -117,7 +119,7 @@ test('the journal stores task workspaces rather than a service-wide cwd identity
   assert.deepEqual((await reopened.execute(command({ op: 'read', task_id: 0 }))).reply, original.reply);
   const database = new DatabaseSync(filename, { readOnly: true });
   try {
-    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-6' }]);
+    assert.deepEqual(database.prepare('SELECT key, value FROM meta ORDER BY key').all().map(({ key, value }) => ({ key, value })), [{ key: 'format', value: 'selvedge-bend-journal-7' }, { key: 'namespace', value: first.namespace }]);
   } finally { database.close(); }
   await reopened.close();
 });
