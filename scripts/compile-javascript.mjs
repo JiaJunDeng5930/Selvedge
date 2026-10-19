@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile, rename, rm, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -21,13 +22,15 @@ let compilationQueue = Promise.resolve();
 async function currentSources(entry) {
   const files = new Map();
   const active = new Set();
-  async function visit(filename) {
-    const file = await realpath(filename);
+  // Synchronous snapshots avoid the GC thrashing reproduced by per-file async
+  // callbacks while the complete checked proof book remains resident.
+  function visit(filename) {
+    const file = realpathSync(filename);
     // DEFENSE: A source import cycle cannot supply a reusable cache closure; the compiler reports it.
     if (active.has(file)) return false;
     if (files.has(file)) return true;
     active.add(file);
-    const bytes = await readFile(file);
+    const bytes = readFileSync(file);
     files.set(file, hash(bytes));
     for (const line of bytes.toString('utf8').split('\n')) {
       const text = line.trim();
@@ -39,7 +42,7 @@ async function currentSources(entry) {
       if (match[1] === 'Base' && !match[2]) {
         // Base belongs to the checksum-verified compiler archive, bound by compiler identity.
       } else if (match[2] && /^(?:\.\/|(?:\.\.\/)*)(?:[A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/.test(match[1])) {
-        if (!await visit(path.resolve(path.dirname(file), match[1]))) return false;
+        if (!visit(path.resolve(path.dirname(file), match[1]))) return false;
       } else {
         // DEFENSE: Hub imports are resolved by the compiler rather than guessed by the cache scanner.
         return false;
@@ -49,7 +52,7 @@ async function currentSources(entry) {
     return true;
   }
   try {
-    for (const filename of Array.isArray(entry) ? entry : [entry]) if (!await visit(filename)) return null;
+    for (const filename of Array.isArray(entry) ? entry : [entry]) if (!visit(filename)) return null;
     return [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
       .map(([file, sha256]) => ({ path: path.relative(root, file), sha256 }));
   } catch (error) {
@@ -299,7 +302,7 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
       throw new Error(`JavaScript compilation requires a pure implemented definition: ${definition}`);
     }
   }
-  const sources = await Promise.all([...seen.keys()].filter(file => file !== Bend.BASE_BEND).sort().map(async file => ({ path: path.relative(root, file), sha256: hash(await readFile(file)) })));
+  const sources = [...seen.keys()].filter(file => file !== Bend.BASE_BEND).sort().map(file => ({ path: path.relative(root, file), sha256: hash(readFileSync(file)) }));
   const identity = await compilationIdentity(request, sources);
   const { fingerprint } = identity;
   const reusable = before !== null && JSON.stringify(before) === JSON.stringify(sources);
@@ -313,7 +316,7 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
   if (library.includes('throw new Error("bend: no effect registers "')) throw new Error('JavaScript compilation refuses reachable foreign effects');
   const { source: optimized, intrinsics } = optimizeJavaScript(library, {
     sourceHashes: new Map([...sources.map(source => [path.resolve(root, source.path), source.sha256]),
-      [Bend.BASE_BEND, hash(await readFile(Bend.BASE_BEND))]]),
+      [Bend.BASE_BEND, hash(readFileSync(Bend.BASE_BEND))]]),
     sourceRoot: request.sourceRoot, basePath: Bend.BASE_BEND,
   });
   const marker = 'export default {\n';

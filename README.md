@@ -293,6 +293,8 @@ with their own imports and proof providers. Process isolation releases the proof
 book and browser IR before the next backend, repeating some shared compilation.
 Compiler children retain generational garbage collection with lower allocation
 growth and synchronous marking to reduce headroom around temporary proof terms.
+Source snapshots use synchronous reads to avoid repeated collection while the
+full proof book remains resident.
 Entry-owned data constructors or conflicting definitions retain independent
 compilation. Artifact identities bind the complete participating source closures
 and toolchain bytes.
