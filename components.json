@@ -9,7 +9,8 @@
     "harness/tasks/CONTRACT.bend",
     "harness/tools/MODEL.bend",
     "harness/transport/wire-shape.bend",
-    "harness/workspace/PROJECTS.bend"
+    "harness/workspace/PROJECTS.bend",
+    "harness/tasks/side-conversation.bend"
   ],
   "core_forbidden_dependencies": [
     "harness/MODEL.bend",

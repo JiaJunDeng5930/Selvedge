@@ -123,6 +123,7 @@ type Panel is Data:
   CardDetails{card: Nat}
   EditObject{editor: Editor}
   TaskDetails{task: Nat}
+  SideConversation{task: Nat}
   WorkspaceConfiguration{editor: Editor}
   PermissionsConfiguration{editor: Editor}
   TaskContext{task: Nat}
@@ -147,6 +148,9 @@ type Action is Data:
   EditTitlePrompts{}
   DeleteTaskGraph{graph: Nat}
   ForkTask{task: Nat}
+  BeginSideConversation{task: Nat}
+  ShowSideConversation{task: Nat}
+  ReturnSideConversation{task: Nat}
   CompactTask{task: Nat}
   Submit{editor: Editor}
   RetryWorkspace{editor: Editor}
@@ -186,6 +190,8 @@ def approval_outcome(allow: Bool, reason: String) -> D.ApprovalOutcome:
 def direct_command(action: Action) -> Maybe<&2, M.Command>:
   match action:
     case CreateWork{}: Some{M.FeatureCommand{F.WorkCommand{Work.Create{""}}}}
+    case BeginSideConversation{task}: Some{M.OpenSideConversation{task, ""}}
+    case ReturnSideConversation{task}: Some{M.ReturnSideConversation{task}}
     case ControlTask{task, control}: Some{M.ChangeStatus{task, control}}
     case CancelOperation{task, operation}: Some{M.Cancel{task, operation}}
     case ReviewApproval{task, operation, allow, reason}: Some{M.ReviewApproval{task, operation, approval_outcome(allow, reason)}}
@@ -369,6 +375,20 @@ def message_command(delivery: Delivery, task: Nat, message: String) -> M.Command
     case Send{}: M.Send{task, message}
     case Steer{}: M.Steer{task, message}
 
+def side_conversation_question_checked(enabled: Bool, suffix: String) -> Maybe<&2, String>:
+  match enabled:
+    case True{}: Some{String.trim(suffix)}
+    case False{}: None{}
+
+def side_conversation_question(value: String) -> Maybe<&2, String>:
+  +trimmed = String.trim(value)
+  side_conversation_question_checked(String.eq(trimmed, "/side") || String.starts_with(trimmed, "/side ") || String.starts_with(trimmed, "/side\n") || String.starts_with(trimmed, "/side\t"), String.drop(trimmed, 5n))
+
+def composer_message_command(question: Maybe<&2, String>, delivery: Delivery, task: Nat, message: String) -> M.Command:
+  match question:
+    case None{}: message_command(delivery, task, message)
+    case Some{question}: M.OpenSideConversation{task, question}
+
 def graph_payload(parsed: Maybe<&2, J.Json>) -> J.Json:
   match parsed:
     case None{}: J.Null{}
@@ -398,7 +418,7 @@ def command(body: Body, now: U32) -> M.Command:
   match body:
     case WorkName{work, name}: M.FeatureCommand{F.WorkCommand{Work.Rename{work, name}}}
     case NewTask{message, profile, reasoning, context, create_worktree, work}: create_task(work, create_worktree, profile, reasoning, text(message), Context.settings(context))
-    case Message{task, message, delivery}: message_command(delivery, task, text(message))
+    case Message{task, +message, delivery}: composer_message_command(side_conversation_question(text(message)), delivery, task, text(message))
     case Project{id, name, workspace, create_worktree}: project_command(id, name, D.workspace_json(workspace), J.Null{}, create_worktree)
     case Card{id, revision, value, assist, profile, keep_open}: M.FeatureCommand{F.BoardCommand{card_command(id, revision, value, assist, profile, now)}}
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:

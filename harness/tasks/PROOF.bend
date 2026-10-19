@@ -1,4 +1,5 @@
 import Base
+import ./side-proof.bend as SideProof
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/component.bend as C
 import ../DOMAIN.bend as D

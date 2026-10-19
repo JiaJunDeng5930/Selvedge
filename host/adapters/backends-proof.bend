@@ -79,6 +79,12 @@ def B.context_amendment_patch_encoding():
 def B.context_removal_encoding():
   key => base_revision => {==}
 
+def B.side_conversation_input_encoding():
+  message => profile => {==}
+
+def B.side_return_cursor_not_model_input():
+  message => profile => {==}
+
 
 def B.board_text_output_mode_plain():
   effect => {==}

@@ -142,6 +142,8 @@ def birth(history: D.History, +id: Nat) -> Nat:
     case D.EmptyHistory{}: 0n
     case D.HistoryNode{+previous, D.ForkResult{owner, call_id, branch}}:
       birth_match(Nat.is_eq(id, owner), D.history_length(previous), birth(previous, id))
+    case D.HistoryNode{previous, D.ContextMessage{D.SideConversation{owner, parent, start}}}:
+      birth_match(Nat.is_eq(id, owner), start, birth(previous, id))
     case D.HistoryNode{previous, other}: birth(previous, id)
 
 def start(previous: Maybe<&2, D.Task>, +task: D.Task) -> Nat:

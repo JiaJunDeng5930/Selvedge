@@ -517,6 +517,7 @@ def panel_purpose(panel: UserInput.Panel, expanded: Bool) -> Purpose:
     case UserInput.PermissionsConfiguration{editor}: ChooseValue{expanded}
     case UserInput.TaskContext{task}: OpenPanel{Inspector{}, False{}, expanded}
     case UserInput.TaskDetails{task}: OpenPanel{Inspector{}, False{}, expanded}
+    case UserInput.SideConversation{task}: OpenPanel{Conversation{}, False{}, expanded}
     case UserInput.ArchivedCards{}: OpenPanel{ArchiveBox{}, False{}, expanded}
     case UserInput.EditObject{editor}: OpenPanel{Pencil{}, False{}, expanded}
     case UserInput.Confirm{command, title, destination}: OpenPanel{Warning{}, False{}, expanded}
@@ -562,6 +563,9 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
     case UserInput.EditTitlePrompts{}: EditItem{}
     case UserInput.DeleteTaskGraph{graph}: DeleteItem{}
     case UserInput.ForkTask{task}: OpenPanel{Branch{}, False{}, panel_open(layers, UIIdentity.encode(key))}
+    case UserInput.BeginSideConversation{task}: OpenPanel{Conversation{}, False{}, False{}}
+    case UserInput.ShowSideConversation{task}: OpenPanel{Conversation{}, False{}, False{}}
+    case UserInput.ReturnSideConversation{task}: NamedAction{}
     case UserInput.CompactTask{task}: OpenPanel{Compact{}, False{}, panel_open(layers, UIIdentity.encode(key))}
     case UserInput.ControlTask{task, control}: task_control(control)
     case UserInput.CancelOperation{task, operation}: AbortOperation{}

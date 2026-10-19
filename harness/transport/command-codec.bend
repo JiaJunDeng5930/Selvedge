@@ -43,6 +43,10 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
         J.Field{"messages", J.Array{J.text_items(messages)}}])}
     case M.Compact{id, summary}: compact_json(id, summary)
+    case M.OpenSideConversation{id, message}:
+      J.Object{[J.Field{"op", J.Text{"open_side_conversation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
+    case M.ReturnSideConversation{id}:
+      J.Object{[J.Field{"op", J.Text{"return_side_conversation"}}, J.Field{"task_id", J.nat(id)}]}
     case M.Observe{M.Read{id, after, limit}}:
       J.Object{[J.Field{"op", J.Text{"read"}}, J.Field{"task_id", J.nat(id)}, J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]}
     case M.Observe{M.ListTasks{}}: J.Object{[J.Field{"op", J.Text{"list"}}]}

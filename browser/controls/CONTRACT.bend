@@ -636,6 +636,26 @@ def encoded_sequence(+attribute: S.Attribute, +rest: +List<S.Attribute>) -> Type
 def page_context(+previous: Maybe<&2, Reading.Context>, +task: Nat, +generation: Nat) -> Type:
   {Authored.context_from_meaning(previous, SurfaceTypes.PageContext{Some{Conversation.Identity{task, generation}}}) == Some{Reading.Context{task, generation}} : Maybe<&2, Reading.Context>}
 
+law page_context_section_fills_remaining_height:
+  for +visual: Design.Style
+  {Authored.page_context_style(visual, SurfaceTypes.Section{}) ==
+    Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{}) : S.Style}
+
+law page_context_source_uses_context_layout:
+  for +capacity: Nat
+  for +key: UIIdentity.Key
+  for +label: String
+  for +role: SurfaceTypes.Role
+  for +conversation: Maybe<&2, Conversation.Identity>
+  for +visual: Design.Style
+  for +representation: Controls.Representation
+  for +children: +List<Authored.Child>
+  for +parameters: Design.LayoutParameters
+  for +content: +List<S.Node>
+  {Authored.regular_content(capacity, key, label, role, SurfaceTypes.PageContext{conversation}, visual, representation, children, parameters, content) ==
+    Authored.box(key, Authored.role_tag(role), Authored.page_context_style(visual, role), [S.AriaAttribute{"label", label}],
+      Authored.append(Authored.caption(key, label, role, visual), content)) : S.Node}
+
 def cleared_context(+previous: Maybe<&2, Reading.Context>) -> Type:
   {Authored.context_from_meaning(previous, SurfaceTypes.PageContext{None{}}) == None{} : Maybe<&2, Reading.Context>}
 
@@ -2912,6 +2932,63 @@ law desktop_workspace_content_preserved:
     List.append(&2, S.Node, work_tabs, [S.Box{UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), S.Div{}, Shell.neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
       Shell.body_direction(placement, parameters, structure, reading_width, navigation, main, settings, other, docked, font) <> Shell.back_to_front(workspace_layers)}]) : +List<S.Node>}
 
+def required_docked_minimum(required: Nat, style: S.Style) -> S.Style:
+  S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{previous, minimum_height}, scroll, position}, selected_font, chrome, states} = style
+  S.Style{S.Layout{direction, main, cross, frame, width, height, E.Extent{required, minimum_height}, scroll, position}, selected_font, chrome, states}
+
+def required_docked_main_style(required: Nat, font: T.Presentation) -> S.Style:
+  required_docked_minimum(required, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}))
+
+def required_main_and_docked_details(+structure: Design.MainStructure, +reading_width: Nat, main: +List<S.Node>, other: +List<S.Node>, docked: +List<S.Node>, +main_minimum_width: Nat, +font: T.Presentation) -> +List<S.Node>:
+  match docked:
+    case Nil{}:
+      List.append(&2, S.Node, Shell.main_nodes(main, structure, reading_width, False{}, main_minimum_width), other)
+    case Con{first, rest}:
+      [S.Box{UIIdentity.part(UIIdentity.place("/application"), "main-and-details"), S.Div{}, Shell.neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+        S.Box{UIIdentity.part(UIIdentity.place("/application"), "main-content"), S.Div{}, required_docked_main_style(main_minimum_width, font), Nil{},
+          List.append(&2, S.Node, Shell.main_nodes(main, structure, reading_width, False{}, main_minimum_width), other)} <> first <> rest}]
+
+law main_and_docked_details_complete:
+  for +structure: Design.MainStructure
+  for +reading_width: Nat
+  for +main: +List<S.Node>
+  for +other: +List<S.Node>
+  for +docked: +List<S.Node>
+  for +main_minimum_width: Nat
+  for +font: T.Presentation
+  {Shell.main_and_docked_details(structure, reading_width, main, other, docked, main_minimum_width, font) ==
+    required_main_and_docked_details(structure, reading_width, main, other, docked, main_minimum_width, font) : +List<S.Node>}
+
+law nonleading_body_content_complete:
+  for +navigation_width: Nat
+  for +main_minimum_width: Nat
+  for +structure: Design.MainStructure
+  for +reading_width: Nat
+  for +navigation: +List<S.Node>
+  for +main: +List<S.Node>
+  for +settings: +List<S.Node>
+  for +other: +List<S.Node>
+  for +docked: +List<S.Node>
+  for +font: T.Presentation
+  {Shell.body_mode(False{}, navigation_width, main_minimum_width, structure, reading_width, navigation, main, settings, other, docked, font) ==
+    S.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), S.Div{}, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
+      S.Box{UIIdentity.part(UIIdentity.place("/application"), "topbar"), S.Div{}, Shell.neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, Spatial.Centered{}), Nil{},
+        List.append(&2, S.Node, navigation, Shell.spacer(UIIdentity.part(UIIdentity.place("/application"), "topbar-spacer"), font) <> settings)} <>
+      required_main_and_docked_details(structure, reading_width, main, other, docked, main_minimum_width, font)} : S.Node}
+
+def required_docked_details_width(parameters: Design.LayoutParameters) -> Model.AxisSize:
+  Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
+  Model.LimitedSize{details_width, details_width, details_width}
+
+law docked_details_keep_minimum_width:
+  for +parameters: Design.LayoutParameters
+  for +node: S.Node
+  for +docked: +List<S.Node>
+  for +floating: +List<S.Node>
+  for +workspace_layers: +List<S.Node>
+  {Shell.dock_overlay(parameters, node, docked, floating, workspace_layers) ==
+    Shell.OverlayParts{Shell.resize(node, required_docked_details_width(parameters), Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating, workspace_layers} : Shell.OverlayParts}
+
 law compact_workspace_content_complete:
   for +navigation: +List<S.Node>
   for +main: +List<S.Node>
@@ -2929,7 +3006,7 @@ law compact_workspace_content_complete:
     [S.Box{UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), S.Div{}, Shell.neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
       S.Box{UIIdentity.part(UIIdentity.place("/application"), "compact-flow"), S.Div{}, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
         List.append(&2, S.Node, work_tabs, [S.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), S.Div{}, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
-          List.append(&2, S.Node, Shell.main_nodes(main, structure, reading_width, False{}, Design.main_minimum_width(parameters)), List.append(&2, S.Node, other, docked))}])} <> Shell.back_to_front(workspace_layers)}] : +List<S.Node>}
+          required_main_and_docked_details(structure, reading_width, main, other, docked, Design.main_minimum_width(parameters), font)}])} <> Shell.back_to_front(workspace_layers)}] : +List<S.Node>}
 
 law compact_work_scope_native_fields:
   for +key: UIIdentity.Key

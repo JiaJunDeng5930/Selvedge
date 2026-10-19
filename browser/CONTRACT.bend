@@ -14,6 +14,7 @@ import ./appearance/FONT.bend as F
 import ./appearance/TYPOGRAPHY.bend as T
 import ./editor/MODEL.bend as Editor
 import ./focus/MODEL.bend as Focus
+import ./focus/CONTRACT.bend as FocusRules
 import ./controls/GEOMETRY.bend as Physical
 import ./runtime/PLATFORM.bend as Platform
 import ./reading/MODEL.bend as Reading
@@ -62,9 +63,6 @@ def stale_reading_law(-application: E.Application, -services: Services.State, -p
 
 def session_readers(session: E.Session) -> +List<Finite.Entry(E.Reader)>:
   E.readers(session)
-
-def conversation_session(session: E.Session, task: Nat) -> E.Session:
-  E.with_route(U.Conversation{task}, session)
 
 def RetainedEntry(found: Maybe<&2, U.Draft>) -> Type:
   match found:
@@ -175,13 +173,16 @@ type Reading is Type:
       {Reading.step(Reading.FollowLatest{}, U.ReadHistory{}, bookmark, reduced) ==
           Reading.Decision{Reading.Bookmark{None{}}, Some{U.FollowLatest{}}, [Reading.CancelAnchorObservation{}, Reading.AlignLatest{Bool.not(reduced)}]} :
           Reading.Decision},
-    layout_after_product: @program:M.World() -> @session:E.Session -> @task:Nat -> @generation:Nat ->
+    task_layout_preserves_anchor: @session:E.Session -> @task:Nat -> @generation:Nat ->
       @disclosures:+List<E.Disclosure> -> @bookmarks:+List<Finite.Entry(Reading.Bookmark)> -> @anchor:Physical.Anchor ->
       @reader_observed:{E.reader(session_readers(session), task) == E.Reader{generation, U.ReadHistory{}, disclosures} : E.Reader} ->
       @bookmark_observed:{Finite.find(~Reading.Bookmark, bookmarks, task) ==
         Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>} ->
-      {Platform.layout_for(E.from_program(program, conversation_session(session, task)), bookmarks) ==
+      {Platform.layout_route(U.Conversation{task}, session_readers(session), bookmarks) ==
         [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>},
+    layout_after_product: @+program:M.World() -> @+session:E.Session -> @+bookmarks:+List<Finite.Entry(Reading.Bookmark)> ->
+      {Platform.layout_for(E.from_program(program, session), bookmarks) ==
+        FocusRules.required_tasks_layout(E.visible_tasks(session), session_readers(session), bookmarks) : +List<Platform.Effect>},
     after_core_keeps_bookmarks: @decision:InteractionTypes.Decision -> @platform:Platform.Platform ->
       {decision_bookmarks(Platform.after_core(decision, platform)) == platform_bookmarks(platform) :
         +List<Finite.Entry(Reading.Bookmark)>},

@@ -3022,3 +3022,26 @@ law available_worktree_choice_edits_the_requested_creation_scope:
 law unavailable_worktree_choice_has_no_control:
   @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->
   {Model.workspace_worktree_available(False{}, editor, parent, state) == Nil{} : +List<SurfaceTypes.Node>}
+
+law side_window_adapts_to_available_details_space:
+  @task:Nat ->
+  {View.layer_kind(U.SideConversation{task}, True{}) == V.TrailingDetails{} : V.LayerKind} &
+  {View.layer_kind(U.SideConversation{task}, False{}) == V.ModalDialog{} : V.LayerKind}
+
+law side_window_closes_without_returning_content:
+  @task:Nat -> @trigger:String ->
+  {View.layer_dismissal(U.SideConversation{task}, trigger) == V.ByTrigger{U.ClosePanel{}} : V.Dismissal}
+
+law side_window_uses_its_task_and_explicit_return_control:
+  @+task:Nat -> @+session:E.Session -> @+world:M.World() ->
+  {View.layer_content(U.SideConversation{task}, session, world) ==
+    V.SideConversation{task, View.side_parent_found(T.find(Commands.entries(world), task)), View.optional_task(T.find(Commands.entries(world), task), session, world),
+      View.side_return_control(task, View.side_parent_found(T.find(Commands.entries(world), task)), world), View.control("side/close/" ++ Nat.show(task), "关闭", U.ClosePanel{})} : V.LayerContent}
+
+law side_conversation_has_its_own_reading_and_composer_context:
+  @+id:Nat -> @title:String -> @status:V.TaskStatus -> @context:Context.EffectiveContext -> @+task:Nat -> @+generation:Nat -> @+groups:+List<Conversation.VisibleGroup> -> @+live:+List<Conversation.LiveOperation> -> @+decisions:+List<Conversation.DecisionRequest> -> @reading:U.ReadingIntent -> @+latest:Maybe<&2, U.Input> -> @+previews:+List<Live.Output> -> @+input:Maybe<&2, V.ComposerScene> -> @details:V.TaskDetails -> @actions:V.TaskActions -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.side_conversation_content(Some{V.TaskScene{id, title, status, context, Conversation.Timeline{task, generation, groups, live, decisions, reading, latest}, previews, input, details, actions}}, parent, state) ==
+    [SurfaceTypes.Node{Identity.Entity{parent, "task", Nat.show(id)}, "side/content", "", SurfaceTypes.Section{}, SurfaceTypes.PageContext{Some{Conversation.Identity{task, generation}}},
+      List.append(&2, SurfaceTypes.Node, Model.conversation_timeline(id, groups, live, previews, Identity.Entity{parent, "task", Nat.show(id)}, state),
+        List.append(&2, SurfaceTypes.Node, Model.latest(latest, Identity.Entity{parent, "task", Nat.show(id)}, state),
+          List.append(&2, SurfaceTypes.Node, Model.approval_queue(decisions, Identity.Entity{parent, "task", Nat.show(id)}, state), Model.composer(input, Identity.Entity{parent, "task", Nat.show(id)}, state))))}] : +List<SurfaceTypes.Node>}

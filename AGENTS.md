@@ -123,14 +123,14 @@ This file is for coding agents working in this repository.
 |harness:{COMMANDS.bend,CONTRACT.bend,DOMAIN.bend,INVARIANTS.bend,LAWS.bend,LOCALITY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,approval/,compaction/,context/,conversation/,execution/,features/,history/,protocol/,reasoning/,tasks/,tools/,transport/,workspace/}
 |harness/approval:{CONTRACT.bend,HOOKS.bend,MODEL.bend,PROOF.bend,README.md}
 |harness/compaction:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
-|harness/context:{CONTRACT.bend,KINDS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,constructor-proof.bend,instruction.bend,interactive-markdown.bend,patch-proof.bend,project-guidance.bend,selection-proof.bend,selection.bend,skill-information.bend}
+|harness/context:{CONTRACT.bend,KINDS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,constructor-proof.bend,instruction.bend,interactive-markdown.bend,patch-proof.bend,project-guidance.bend,selection-proof.bend,selection.bend,skill-information.bend,task-lifecycle.bend}
 |harness/conversation:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TITLE.bend,origin-contract.bend,origin-proof.bend}
 |harness/execution:{OPERATIONS.bend,PROGRAM.bend,PROOF.bend,README.md,notifications.bend}
 |harness/features:{CODEC.bend,CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,SPEC.bend,STATE.bend,execution.bend,graph-execution.bend,graph-proof.bend,graph-spec.bend,graph-state.bend,laws.bend,operations.bend,protocol.bend,remote-proof.bend,remote.bend,resolution.bend,work-proof.bend,work-state.bend,worktree-execution.bend,worktree-proof.bend,worktree-sharing-proof.bend,worktree-spec.bend,worktree-state.bend,worktree-storage-proof.bend}
 |harness/history:{MODEL.bend,PROGRAM.bend,PROOF.bend,README.md}
 |harness/protocol:{COMMIT.bend,PROGRAM.bend,PROOF.bend,README.md,RESULTS.bend,commit-proof.bend}
 |harness/reasoning:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,SPEC.bend,context.bend,view-proof.bend,view.bend}
-|harness/tasks:{CONTRACT.bend,PROGRAM.bend,PROOF.bend,README.md}
+|harness/tasks:{CONTRACT.bend,PROGRAM.bend,PROOF.bend,README.md,side-context-contract.bend,side-context-proof.bend,side-context.bend,side-contract.bend,side-conversation.bend,side-proof.bend}
 |harness/tools:{MODEL.bend,README.md,SYNTAX.bend}
 |harness/transport:{CONTRACT.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,command-codec.bend,command-contract.bend,model-json.bend,presentation.bend,schema.bend,wire-shape.bend,wire.bend}
 |harness/workspace:{CONTRACT.bend,PROJECTS.bend,PROOF.bend,README.md,WORKSPACE.bend}

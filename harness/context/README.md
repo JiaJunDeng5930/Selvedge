@@ -9,6 +9,19 @@ families to actual snapshot admission, patch application and history operations.
 Adding a definition reuses those properties rather than adding another proof.
 The `NativeText` observer carries a versioned runtime capability from its native definition; it does not read configuration or files. Interactive Markdown uses that source. Ordinary model requests freeze the advertised mode from its accepted exact snapshot; helper input projections omit the capability.
 
+The `NativeState` observer identifies context constructed from authoritative
+kernel state. [task-lifecycle.bend](task-lifecycle.bend) defines a side
+conversation's parent task identity, status and phase. It is reconciled by
+[task observations](../tasks/side-context.bend) before scheduling and after each
+scheduler step, including when the side is idle. These records do not wake the
+side. They are excluded from the host-observed catalog and from explicit side
+returns through `is_parent_context`; ordinary context changes remain returnable.
+Before commit, requests created in the same decision are frozen with the latest
+side history and matching observation revisions. Requests from earlier commits
+retain their captured history; a later source callback follows ordinary revision
+validation and retries when its baseline has changed. Archived side histories
+remain sealed.
+
 The wire parser produces snapshot candidates once. `observed_resolution` owns their
 single semantic admission and consumes the admitted snapshot when producing an
 introduction or amendment. Absent and failed observations admit their keys at

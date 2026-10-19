@@ -16,6 +16,8 @@ import ../bendlib/equality.bend as Same
 import ./MODEL.bend as M
 import ../bendlib/json.bend as J
 import ./tasks/PROGRAM.bend as T
+import ./tasks/side-conversation.bend as Side
+import ./tasks/side-contract.bend as SideRequirements
 import ./execution/OPERATIONS.bend as Ops
 import ./INVARIANTS.bend as I
 import ../bendlib/stdlib.bend as Std
@@ -40,6 +42,8 @@ type Operation is Data:
   Cancel{task: D.Task, operation: D.Operation()}
   Control{task: D.Task, request: D.Control, next: D.Status}
   Branch{parent: D.Task, count: Nat, messages: +List<String>, selection: Workspace.Selection}
+  OpenSideConversation{parent: D.Task, message: String}
+  ReturnSideConversation{side: D.Task, parent: D.Task, after: Nat, through: Nat, transcript: String}
   Summarize{task: D.Task}
   Checkpoint{task: D.Task, summary: String}
   Observe{query: M.Query}
@@ -263,6 +267,62 @@ def branched(found: Maybe<&2, D.Task>, count: Nat, messages: +List<String>, worl
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+parent}: branch_ready(D.task_status(parent), D.task_phase(parent), parent, count, messages, world)
 
+def side_open_permitted(+world: M.World(), operation: Operation) -> Bool:
+  match operation:
+    case OpenSideConversation{+parent, message}:
+      D.accepts_input(D.task_status(parent)) && branch_fits(1n, Nil{}, parent, world)
+    case _: False{}
+
+def open_side(found: Maybe<&2, D.Task>, message: String, +world: M.World()) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The parent task does not exist"}
+    case Some{parent}:
+      require(operation => side_open_permitted(world, operation), OpenSideConversation{parent, message},
+        "side_unavailable", "A side conversation requires a non-archived parent and available descendant capacity")
+
+# DEFENSE: An independently growing side history can exceed the configured serialization budget; refuse without advancing its return cursor.
+def side_return_encoded(encoded: Result<&2, &2, String, String>, side: D.Task, parent: D.Task, after: Nat, through: Nat) -> Operation:
+  match encoded:
+    case Fail{reason}: Refuse{"output_limit", "The complete side conversation transcript exceeds the encoding bound"}
+    case Done{text}: ReturnSideConversation{side, parent, after, through, Side.returned_message(text)}
+
+def side_return_content(messages: +List<D.Message>, +side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, world: M.World()) -> Operation:
+  match messages:
+    case Nil{}: Refuse{"no_side_content", "This side conversation has no new content to return"}
+    case Con{message, rest}:
+      side_return_encoded(Side.return_text(D.state_render_budget(C.local(D.State, F.State(), world)), side, D.task_id(parent), after, through),
+        side, parent, after, through)
+
+def side_return_available(allowed: Bool, +side: D.Task, +parent: D.Task, +start: Nat, world: M.World()) -> Operation:
+  match allowed:
+    case False{}: Refuse{"task_archived", "Returning side conversation content requires non-archived source and parent tasks"}
+    case True{}:
+      +after = SideRequirements.return_cursor(D.task_history(side), D.task_id(side), start)
+      side_return_content(Side.suffix(side, after), side, parent, after, D.history_length(D.task_history(side)), world)
+
+def executable_operation(allowed: Bool, operation: Operation) -> Operation:
+  match allowed:
+    case True{}: operation
+    case False{}: Refuse{"worktree_creation_failed", "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace."}
+
+def side_return_parent(found: Maybe<&2, D.Task>, +side: D.Task, start: Nat, +world: M.World()) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The side conversation's parent task does not exist"}
+    case Some{+parent}:
+      executable_operation(FeatureState.execution_allowed(D.task_id(parent), world),
+        side_return_available(D.accepts_input(D.task_status(parent)) && D.accepts_input(D.task_status(side)), side, parent, start, world))
+
+def side_return_origin(origin: Maybe<&2, D.HistoryContext>, side: D.Task, +world: M.World()) -> Operation:
+  match origin:
+    case Some{D.SideConversation{owner, parent, start}}:
+      side_return_parent(T.find(entries(world), parent), side, start, world)
+    case _: Refuse{"not_side_conversation", "The target task is not a side conversation"}
+
+def return_side(found: Maybe<&2, D.Task>, world: M.World()) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The side conversation does not exist"}
+    case Some{+side}: side_return_origin(D.task_side_conversation(side), side, world)
+
 def checkpoint_ready(status: D.Status, phase: D.Phase, +task: D.Task, summary: Maybe<&2, String>) -> Operation:
   match status phase summary:
     case D.Archived{} _ _: Refuse{"task_archived", "An archived task cannot be changed"}
@@ -402,11 +462,6 @@ def pending_operation(allowed: Bool, operation: Operation) -> Operation:
     case True{}: operation
     case False{}: Refuse{"worktree_pending", "Wait for worktree creation or archive the task before changing its execution"}
 
-def executable_operation(allowed: Bool, operation: Operation) -> Operation:
-  match allowed:
-    case True{}: operation
-    case False{}: Refuse{"worktree_creation_failed", "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace."}
-
 def execution_control_allowed(request: D.Control, id: Nat, world: M.World()) -> Bool:
   match request:
     case D.Archive{}: True{}
@@ -433,6 +488,10 @@ def resolve(command: M.Command, +world: M.World()) -> Operation:
     case M.Cancel{id, ticket}: cancellation(T.find(entries(world), id), ticket)
     case M.ChangeStatus{+id, +control}: archive_operation(archival_control_allowed(control, id, world), executable_operation(execution_control_allowed(control, id, world), pending_operation(FeatureState.control_allowed(control, id, world), controlled(T.find(entries(world), id), control))))
     case M.Fork{+id, count, messages, options}: executable_operation(FeatureState.execution_allowed(id, world), configure_branch(branched(T.find(entries(world), id), count, messages, world), options, world))
+    case M.OpenSideConversation{+id, message}:
+      executable_operation(FeatureState.execution_allowed(id, world), open_side(T.find(entries(world), id), message, world))
+    case M.ReturnSideConversation{+id}:
+      executable_operation(FeatureState.execution_allowed(id, world), return_side(T.find(entries(world), id), world))
     case M.Compact{id, summary}: compacted(T.find(entries(world), id), summary)
     case M.Observe{query}: Observe{query}
     case M.CreateProject{name, workspace, guidance, create_worktree}: create_project(name, workspace, guidance, create_worktree, world)
@@ -610,6 +669,18 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
   +parent = D.append_message(D.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
+def side_opened(+parent: D.Task, +message: String, world: M.World()) -> M.Decision():
+  C.Frame{+task_state, board} = world
+  +id = D.state_next_task(task_state)
+  child = SideRequirements.initial_message(String.is_empty(message), message, SideRequirements.required_child(id, parent))
+  C.Decision{C.Frame{D.with_state_next_task(1n+id, D.with_state_tasks(List.append(&2, D.Task, D.state_tasks(task_state), [child]), task_state)), board},
+    D.success(J.Object{[J.Field{"task_id", J.nat(id)}, J.Field{"parent_task_id", J.nat(D.task_id(parent))}]}), Nil{}}
+
+def side_returned(+side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, transcript: String, world: M.World()) -> M.Decision():
+  C.Decision{replace(D.append_context(D.SideReturnCursor{D.task_id(side), through}, side), replace(T.receive(transcript, parent), world)),
+    D.success(J.Object{[J.Field{"task_id", J.nat(D.task_id(parent))}, J.Field{"side_task_id", J.nat(D.task_id(side))},
+      J.Field{"after", J.nat(after)}, J.Field{"through", J.nat(through)}]}), Nil{}}
+
 def summarize(task: D.Task, world: M.World()) -> M.Decision():
   RequiredReasoning.observe_context(F.State(), F.Effect, task, D.SummaryContext{}, world)
 
@@ -703,6 +774,8 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
         [Effects.CancelTicket{D.task_id(task), Ops.callback(operation)}]}
     case Control{task, request, next}: lifecycle(request, next, task, world)
     case Branch{task, count, messages, selection}: branch(task, count, messages, selection, world)
+    case OpenSideConversation{parent, message}: side_opened(parent, message, world)
+    case ReturnSideConversation{side, parent, after, through, transcript}: side_returned(side, parent, after, through, transcript, world)
     case Summarize{task}: summarize(task, world)
     case Checkpoint{+task, summary}: Compaction.meaning(Compaction.supplied(summary, task, world), world)
     case Observe{request}: C.Decision{world, query(request, world), Nil{}}

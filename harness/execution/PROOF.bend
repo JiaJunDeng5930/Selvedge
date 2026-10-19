@@ -23,12 +23,18 @@ import ../MODEL.bend as M
 import ../PROGRAM.bend as P
 import ../LAWS.bend as Laws
 import ../tasks/PROGRAM.bend as T
+import ../tasks/side-context.bend as SideContext
 import ../../bendlib/stdlib.bend as Std
 import ./PROGRAM.bend as Execution
 import ../protocol/PROOF.bend as ProtocolProof
 import ../CONTRACT.bend as A
 import ./OPERATIONS.bend as Ops
+import ./notifications.bend as Notifications
 import ../../bendlib/json.bend as J
+
+def Laws.side_birth_notification_boundary(history, owner, parent, start, id, matching):
+  Equal.cong(Bool, Nat, (same => Notifications.birth_match(same, start, Notifications.birth(history, id))),
+    Nat.is_eq(id, owner), True{}, matching)
 
 # Local proof obligations for the execution boundary. No runtime policy lives here.
 def Laws.execution_semantics(action, world):
@@ -77,6 +83,18 @@ def scheduling_zero(+candidate: Maybe<&2, D.Task>, +decision: M.Decision()) ->
     case None{} _: {==}
     case Some{task} C.Decision{world, reply, effects}: {==}
 
+def scheduling_continuation(+fuel: Nat, induction: Scheduling(fuel), +actual: M.Decision(), +expected: M.Decision(),
+  same: {actual == expected : M.Decision()}) ->
+  {P.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(actual)), CompactionState.registry(P.decision_world(actual))), actual) ==
+    Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(expected)), CompactionState.registry(P.decision_world(expected))), expected) : M.Decision()}:
+  +following = CompactionSpec.runnable(P.tasks(P.decision_world(actual)), CompactionState.registry(P.decision_world(actual)))
+  Equal.trans(M.Decision(), P.schedule(fuel, following, actual), Execution.schedule(fuel, following, actual),
+    Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(expected)), CompactionState.registry(P.decision_world(expected))), expected),
+    induction(following, actual),
+    Equal.cong(M.Decision(), M.Decision(),
+      (+value => Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(value)), CompactionState.registry(P.decision_world(value))), value)),
+      actual, expected, same))
+
 def scheduling_successor(+fuel: Nat, induction: Scheduling(fuel), +candidate: Maybe<&2, D.Task>, +decision: M.Decision()) ->
   {P.schedule(1n+fuel, candidate, decision) == Execution.schedule(1n+fuel, candidate, decision) : M.Decision()}:
   match candidate:
@@ -84,14 +102,12 @@ def scheduling_successor(+fuel: Nat, induction: Scheduling(fuel), +candidate: Ma
     case Some{+task}:
       +work = D.task_work(task)
       +world = P.decision_world(decision)
-      +actual = P.combine(decision, P.work_calculation(work, task, world))
-      +expected = Execution.combine(decision, Execution.work_calculation(work, task, world))
-      +following = CompactionSpec.runnable(P.tasks(P.decision_world(actual)), CompactionState.registry(P.decision_world(actual)))
-      Equal.trans(M.Decision(), P.schedule(fuel, following, actual), Execution.schedule(fuel, following, actual),
-        Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(expected)), CompactionState.registry(P.decision_world(expected))), expected), induction(following, actual),
-        Equal.cong(M.Decision(), M.Decision(),
-          (+value => Execution.schedule(fuel, CompactionSpec.runnable(P.tasks(P.decision_world(value)), CompactionState.registry(P.decision_world(value))), value)),
-          actual, expected, combined_work_semantics(task, decision)))
+      scheduling_continuation(fuel, induction,
+        SideContext.reconcile_dispatch(Features.State(), Features.Effect, P.combine(decision, P.work_calculation(work, task, world))),
+        SideContext.reconcile_dispatch(Features.State(), Features.Effect, Execution.combine(decision, Execution.work_calculation(work, task, world))),
+        Equal.cong(M.Decision(), M.Decision(), (value => SideContext.reconcile_dispatch(Features.State(), Features.Effect, value)),
+          P.combine(decision, P.work_calculation(work, task, world)), Execution.combine(decision, Execution.work_calculation(work, task, world)),
+          combined_work_semantics(task, decision)))
 
 def Laws.schedule_semantics(fuel, candidate, decision):
   Std.nat_ind(~Scheduling, ~scheduling_zero,
@@ -157,13 +173,20 @@ def board_preparation(+decision: M.Decision()) ->
   +prepared = BoardSchedulingSpec.synchronize(decision)
   board_pump(8n, BoardSchedulingSpec.next(BoardSchedulingSpec.decision_world(prepared)), prepared)
 
+def prepared_scheduling_at(+prepared: M.Decision()) ->
+  {BoardSchedulingSpec.finish(P.schedule(P.scheduling_budget(P.decision_world(prepared)),
+      CompactionSpec.runnable(P.tasks(P.decision_world(prepared)), CompactionState.registry(P.decision_world(prepared))), prepared)) ==
+    BoardSchedulingSpec.finish(Execution.schedule(Execution.budget(Execution.world(prepared)),
+      CompactionSpec.runnable(Commands.entries(Execution.world(prepared)), CompactionState.registry(Execution.world(prepared))), prepared)) : M.Decision()}:
+  +fuel = P.scheduling_budget(P.decision_world(prepared))
+  +candidate = CompactionSpec.runnable(P.tasks(P.decision_world(prepared)), CompactionState.registry(P.decision_world(prepared)))
+  Equal.cong(M.Decision(), M.Decision(), (value => BoardSchedulingSpec.finish(value)),
+    P.schedule(fuel, candidate, prepared), Execution.schedule(fuel, candidate, prepared),
+    Laws.schedule_semantics(fuel, candidate, prepared))
+
 def prepared_scheduling(+decision: M.Decision()) ->
   {P.scheduled_prepared(decision) == Execution.scheduled_prepared(decision) : M.Decision()}:
-  +fuel = P.scheduling_budget(P.decision_world(decision))
-  +candidate = CompactionSpec.runnable(P.tasks(P.decision_world(decision)), CompactionState.registry(P.decision_world(decision)))
-  Equal.cong(M.Decision(), M.Decision(), (value => BoardSchedulingSpec.finish(value)),
-    P.schedule(fuel, candidate, decision), Execution.schedule(fuel, candidate, decision),
-    Laws.schedule_semantics(fuel, candidate, decision))
+  prepared_scheduling_at(SideContext.reconcile_dispatch(Features.State(), Features.Effect, decision))
 
 def Laws.scheduling_semantics(enabled, decision):
   match enabled:

@@ -9,6 +9,7 @@ import ../bendlib/stdlib.bend as Std
 import ./MODEL.bend as M
 import ./PROGRAM.bend as P
 import ./tasks/PROGRAM.bend as T
+import ./tasks/side-context.bend as SideContext
 import ./tasks/CONTRACT.bend as TaskRequirements
 import ../bendlib/json.bend as J
 import ./INVARIANTS.bend as I
@@ -124,6 +125,15 @@ law plugin_observation_budget_failure:
   for enriched: M.Decision()
   for +plain: M.Decision()
   {Notifications.fit(Fail{reason}, bytes, enriched, plain) == plain : M.Decision()}
+
+law side_birth_notification_boundary:
+  for +history: D.History
+  for +owner: Nat
+  for +parent: Nat
+  for +start: Nat
+  for +id: Nat
+  for matching: {Nat.is_eq(id, owner) == True{} : Bool}
+  {Notifications.birth(D.HistoryNode{history, D.ContextMessage{D.SideConversation{owner, parent, start}}}, id) == start : Nat}
 
 # User-facing decisions are native entities too. The adapter cannot choose a
 # different command resolver or manufacture state/effects while projecting it.
@@ -298,7 +308,7 @@ law scheduling_exhausted:
     C.Decision{world, reply, List.append(&2, M.Effect(), effects, [Effects.ContinueScheduling{}])} : M.Decision()}
 
 def scheduled_step(+task: D.Task, +decision: M.Decision()) -> M.Decision():
-  P.combine(decision, P.work_calculation(D.task_work(task), task, P.decision_world(decision)))
+  SideContext.reconcile_dispatch(F.State(), F.Effect, P.combine(decision, P.work_calculation(D.task_work(task), task, P.decision_world(decision))))
 
 law scheduling_progress:
   for +fuel: Nat
