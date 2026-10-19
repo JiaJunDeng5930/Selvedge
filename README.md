@@ -8,6 +8,14 @@ planned work, execution roles, drag ordering, files and assisted capture without
 creating a second task scheduler. The default profile is an offline echo
 demonstration, not a coding model or summarizer.
 
+Type `/side` in a Task's message box to open a side conversation, or `/side`
+followed by a question to start it immediately. The side inherits a snapshot of
+the conversation while the original Task continues running. Closing the window
+keeps the side Task without sending anything back. **追加回 task #…** explicitly
+sends its new content to the parent; later returns send only later content.
+Side instructions and tracked parent status updates are excluded. The existing
+`read_task` tool can inspect the parent, or any other Task, by ID.
+
 Model tasks generate a short title in the background from the first
 nonempty user request. The request-derived title remains visible until generation
 finishes. **Settings → 标题生成** edits the Task board and Agent conversation

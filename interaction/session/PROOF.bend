@@ -489,6 +489,7 @@ def confirmation_identity_refinement(+layers: +List<E.Layer>, +command: M.Comman
         case U.CardDetails{card}: {==}
         case U.EditObject{editor}: {==}
         case U.TaskDetails{task}: {==}
+        case U.SideConversation{task}: {==}
         case U.WorkspaceConfiguration{editor}: {==}
         case U.PermissionsConfiguration{editor}: {==}
         case U.TaskContext{task}: {==}
@@ -661,6 +662,8 @@ def captured_request_complete(+operation: Commands.Operation, +command: M.Comman
     case Commands.Cancel{task, operation}: {==}
     case Commands.Control{task, request, next}: {==}
     case Commands.Branch{parent, count, messages, selection}: {==}
+    case Commands.OpenSideConversation{parent, message}: {==}
+    case Commands.ReturnSideConversation{side, parent, after, through, transcript}: {==}
     case Commands.Summarize{task}: {==}
     case Commands.Checkpoint{task, summary}: {==}
     case Commands.Observe{query}: {==}
@@ -674,7 +677,7 @@ def captured_ready_complete(+ready: Bool, +task: Nat, +owner: Interactive.Owner,
   match ready:
     case False{}: interactive_completion_complete(owner, path, ticket, D.failure("interaction_refused", "This task cannot accept this message now"), application)
     case True{}:
-      +command: M.Command = U.command(U.Message{task, U.initial_text(message), U.Send{}}, E.now(E.session(application)))
+      +command: M.Command = U.message_command(U.Send{}, task, message)
       captured_request_complete(Commands.resolve(command, E.program(application)), command, owner, path, ticket, application)
 
 def captured_owner_complete(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) ->
@@ -693,6 +696,18 @@ def work_creation_refinement(current: Bool, +result: J.Json, +application: E.App
     case False{}: {==}
     case True{}: {==}
 
+def side_response_refinement(accepted: Bool, +result: J.Json, +application: E.Application) ->
+  {E.complete_side_response(accepted, result, application) == Rule.side_response_spec(accepted, result, application) : E.Decision}:
+  match accepted:
+    case False{}: {==}
+    case True{}: {==}
+
+def side_creation_refinement(current: Bool, +draft: Maybe<&2, U.Draft>, +result: J.Json, +application: E.Application) ->
+  {E.complete_side_creation_checked(current, draft, result, application) == Rule.side_creation_spec(current, draft, result, application) : E.Decision}:
+  match current:
+    case False{}: {==}
+    case True{}: side_response_refinement(J.boolean(J.get(result, "ok")), result, E.from_program(E.program(application), E.settle_side_draft(draft, result, E.session(application))))
+
 def completed_checked_refinement(valid: Bool, +completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session, previous: M.World(), observed: {I.world(program) == valid : Bool}) ->
   {E.complete_command_admitted(Categories.admit_checked(M.World(), (world => I.world(world)), program, valid, observed), result, completion, E.Application{previous, session}) == Rule.completion_checked_spec(valid, completion, program, result, session, previous) : E.Decision}:
   match valid:
@@ -701,6 +716,8 @@ def completed_checked_refinement(valid: Bool, +completion: E.Completion, +progra
       match completion:
         case E.InteractiveCompletion{owner, path, ticket}: interactive_completion_complete(owner, path, ticket, result, E.from_program(program, E.retain_previews(session, program)))
         case E.WorkCreationCompletion{generation, layer_generation}: work_creation_refinement(E.work_creation_current(generation, layer_generation, session), result, E.from_program(program, E.retain_previews(session, program)))
+        case E.SideCreationCompletion{parent, +draft, generation, layer_generation}:
+          side_creation_refinement(E.side_creation_current(parent, draft, generation, layer_generation, E.retain_previews(session, program)), draft, result, E.from_program(program, E.retain_previews(session, program)))
         case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: {==}
         case E.ExecutionCompletion{task, profile, reasoning, remember}: {==}
         case E.DirectCompletion{}: {==}
@@ -1009,3 +1026,20 @@ def Rule.unverified_saved_worktree_preference_stops_submission(draft, command, r
 def Rule.unavailable_worktree_does_not_change_project_preference(body, world): {==}
 def Rule.refused_worktree_preference_stops_submission(draft, command, result, world, session, failed):
   SubmissionProof.failed_native(draft, world, result, Nil{}, session, False{}, failed)
+
+def Rule.composer_side_command(task, message, question, delivery, now, recognized):
+  Equal.cong(Maybe<&2, String>, M.Command, (found => U.composer_message_command(found, delivery, task, message)), U.side_conversation_question(message), Some{question}, recognized)
+
+def Rule.composer_plain_message(task, message, delivery, now, ordinary):
+  Equal.cong(Maybe<&2, String>, M.Command, (found => U.composer_message_command(found, delivery, task, message)), U.side_conversation_question(message), None{}, ordinary)
+
+def Rule.side_creation_captures_composer_and_attention(parent, message, draft, application): {==}
+def Rule.side_creation_requires_current_owner_and_attention(parent, draft, generation, layer_generation, session): {==}
+def Rule.stale_side_creation_settles_only_its_captured_draft(draft, result, application): {==}
+def Rule.side_window_dismissal_does_not_return_content(task, trigger, initial, query, occurrence, source, field, buffer, rest, application): {==}
+def Rule.side_return_is_explicit(task): {==}
+def Rule.visible_tasks_include_side_windows_and_the_original_route(route, layers, session):
+  E.Session{old, drafts, readers, previous, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, preference, manual, git, interactive} = session
+  {==}
+def Rule.interactive_documents_follow_visible_tasks(application): {==}
+def Rule.captured_interactive_send_remains_literal(task, message, now): {==}

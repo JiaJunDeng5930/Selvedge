@@ -155,6 +155,7 @@ type LayerContent is Data:
   ModelSelection{editor: U.Editor, query: String, fields: +List<InputGroup>}
   DeliverySelection{editor: U.Editor, fields: +List<InputGroup>}
   ExecutionDetails{task: Maybe<&2, TaskScene>}
+  SideConversation{task: Nat, parent: Maybe<&2, Nat>, conversation: Maybe<&2, TaskScene>, return_content: ControlDeclaration, close: ControlDeclaration}
   Confirmation{title: String, confirm: ControlDeclaration, cancel: ControlDeclaration}
 
 type LayerKind is Data:

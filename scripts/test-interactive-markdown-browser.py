@@ -155,10 +155,11 @@ class Fixture:
 def navigate_task_id(page, task_id):
     deadline = time.monotonic() + 15
     identity = page.wait_for_function('''id => {
-      const expected=['part',['entity',['place','/navigation'],'task',String(id)],'task/'+id];
       for(const button of document.querySelectorAll('button[data-native-key]')) {
         if(button.closest('[inert]'))continue;
-        if(JSON.stringify(JSON.parse(button.dataset.nativeKey))===JSON.stringify(expected))
+        const key=JSON.parse(button.dataset.nativeKey), owner=key[1];
+        if(key[0]==='part' && key[2]==='task/'+id && owner[0]==='entity'
+            && owner[2]==='task' && owner[3]===String(id))
           return button.dataset.nativeKey;
       }
       return false;
@@ -170,6 +171,7 @@ def navigate_task_id(page, task_id):
     remaining = max(1, (deadline - time.monotonic()) * 1000)
     page.locator('button[data-native-key=' + json.dumps(key) + ']').filter(visible=True).click(timeout=remaining)
     expect(page.get_by_role('button', name='Task details', exact=True)).to_be_visible()
+    expect(page.locator('textarea[data-object-owner="message-draft/' + str(task_id) + '"][data-field="message-text"]').filter(visible=True)).to_be_visible()
 
 
 def document_contains_marker(page, marker):
@@ -361,9 +363,118 @@ def authorization_boundaries(page, fixture):
     print(json.dumps({'boundary': 'actual HTTP 403 revokes live source projections from visible and inert measurement DOM, then reauthorizes', 'passed': True}))
 
 
+def side_conversation_boundaries(page, fixture, artifacts):
+    title = 'Concurrent side conversation browser fixture'
+    parent = fixture.command(op='create', profile='interactive', message=title)['task_id']
+    parent_request = fixture.request(title)
+    navigate_task_id(page, parent)
+    composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+    composer.fill('/side')
+    composer.press('Enter')
+    expect(page.get_by_text(re.compile(r'^Side conversation · task #')).filter(visible=True)).to_be_visible()
+    tasks = fixture.command(op='list')['tasks']
+    side = next(task['id'] for task in tasks if task['parent'] == parent)
+    assert not fixture.call('/status')['requests'][parent_request]['closed'], 'Opening a side cancelled the parent request'
+    composers = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+    expect(composers).to_have_count(2)
+    side_composer = composers.last
+    side_composer.fill('Inspect the parent before reflecting on its approach.')
+    side_composer.press('Enter')
+    side_request = fixture.request('Inspect the parent before reflecting')
+    side_input = fixture.call('/status')['requests'][side_request]['input']
+    assert 'Its parent is task #' + str(parent) in json.dumps(side_input)
+    fixture.finish(side_request, output=[{'type': 'function_call', 'call_id': 'inspect-parent',
+                                        'name': 'read_task', 'arguments': json.dumps({'task_id': parent})}])
+    side_reply = fixture.request('inspect-parent')
+    assert 'model_pending' in json.dumps(fixture.call('/status')['requests'][side_reply]['input'])
+    fixture.emit(parent_request, 'The parent keeps streaming while the side conversation is open.\n')
+    expect(page.get_by_text('The parent keeps streaming while the side conversation is open.', exact=True).filter(visible=True)).to_be_visible()
+    fixture.finish(side_reply, text='''Side reflection with a local note.
+
+```selvedge-ui
+<ui id="side-note">
+<state id="note" type="string" initial="" />
+<text-input id="note-input" label="Side note" bind="note" />
+</ui>
+```
+''')
+    fixture.idle(side)
+    note = page.get_by_role('textbox', name='Side note', exact=True).filter(visible=True)
+    expect(note).to_be_visible()
+    parent_box, side_box = composers.first.bounding_box(), composers.last.bounding_box()
+    assert side_box['x'] >= parent_box['x'] + parent_box['width'], 'Desktop side conversation is not beside its parent'
+    assert page.viewport_size['height'] - 200 <= side_box['y'] < page.viewport_size['height'], 'Side composer is not docked at the bottom'
+    page.screenshot(path=str(artifacts / 'side-desktop.png'))
+    note.focus()
+    cdp = page.context.new_cdp_session(page)
+    cdp.send('Input.imeSetComposition', {'text': '侧聊', 'selectionStart': 2, 'selectionEnd': 2})
+    fixture.emit(parent_request, 'Another parent stream update during side input.\n')
+    expect(note).to_have_value('侧聊')
+    cdp.send('Input.insertText', {'text': '侧聊'})
+    page.set_viewport_size({'width': 650, 'height': 900})
+    expect(page.get_by_role('dialog').filter(visible=True)).to_be_visible()
+    expect(page.get_by_role('textbox', name='Side note', exact=True).filter(visible=True)).to_have_value('侧聊')
+    page.screenshot(path=str(artifacts / 'side-mobile.png'))
+    page.set_viewport_size({'width': 1440, 'height': 1000})
+    page.get_by_role('button', name='关闭', exact=True).filter(visible=True).click()
+    expect(page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)).to_have_count(1)
+    assert fixture.command(op='read', task_id=parent)['task']['queued'] == 0, 'Closing a side returned content'
+    assert not fixture.call('/status')['requests'][parent_request]['closed']
+    navigate_task_id(page, side)
+    page.get_by_role('button', name='追加回 task #' + str(parent), exact=True).filter(visible=True).click()
+    deadline = time.monotonic() + 15
+    while fixture.command(op='read', task_id=parent)['task']['queued'] != 1:
+        assert time.monotonic() < deadline, 'Manual return did not reach the running parent queue'
+        page.wait_for_timeout(50)
+    assert not fixture.call('/status')['requests'][parent_request]['closed'], 'Returning side content cancelled parent inference'
+    fixture.finish(parent_request)
+    returned_request = fixture.request('Side reflection with a local note.')
+    returned_input = fixture.call('/status')['requests'][returned_request]['input']['input']
+    transfer = next(item['content'] for item in returned_input
+                    if item.get('role') == 'user' and 'Side reflection with a local note.' in str(item.get('content')))
+    assert 'inspect-parent' in transfer, 'Return lost the new tool conversation'
+    for administrative in ['side_conversation', 'side_return_cursor', 'task_lifecycle', 'Its parent is task #']:
+        assert administrative not in transfer, 'Side runtime context leaked into returned content: ' + administrative
+    fixture.finish(returned_request, text='Parent received the side reflection.')
+    fixture.idle(parent)
+    assert any('task_lifecycle' in json.dumps(message) and message.get('change', {}).get('type') == 'amend'
+               for message in fixture.command(op='read', task_id=side)['messages'])
+    navigate_task_id(page, parent)
+    held_commands = []
+    def hold_side_creation(route):
+        if route.request.post_data_json['command']['op'] == 'open_side_conversation':
+            held_commands.append(route)
+        else:
+            route.continue_()
+    page.route('**/api/browser/command', hold_side_creation)
+    try:
+        composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+        composer.fill('/side')
+        composer.press('Enter')
+        deadline = time.monotonic() + 15
+        while not held_commands:
+            assert time.monotonic() < deadline, 'No side creation crossed the browser command boundary'
+            page.wait_for_timeout(50)
+        navigate_task_id(page, side)
+        response = held_commands[0].fetch()
+        assert response.ok
+        held_commands[0].fulfill(response=response)
+    finally:
+        page.unroute('**/api/browser/command', hold_side_creation)
+    expect(page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)).to_have_count(1)
+    navigate_task_id(page, parent)
+    expect(page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)).to_have_value('')
+    fixture.call('/restart', {})
+    before = fixture.command(op='read', task_id=parent)['cursor']
+    replayed = fixture.call('/command', {'op': 'return_side_conversation', 'task_id': side})
+    assert not replayed['reply']['ok'] and replayed['reply']['error']['code'] == 'no_side_content', replayed
+    assert fixture.command(op='read', task_id=parent)['cursor'] == before
+    print(json.dumps({'boundary': 'concurrent provider streams, side input/IME, explicit filtered return and durable cursor replay', 'passed': True}))
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['calculator', 'actions', 'namespace', 'authorization', 'all'], default='all')
+    parser.add_argument('--mode', choices=['calculator', 'actions', 'namespace', 'authorization', 'side', 'all'], default='all')
     parser.add_argument('--chromium', default=os.environ.get('CHROMIUM_BIN') or shutil.which('chromium'))
     parser.add_argument('--artifacts', default=str(ROOT / '.workpad/interactive-browser-results'))
     args = parser.parse_args()
@@ -394,6 +505,8 @@ def main():
                     namespace_boundaries(page, fixture, parent)
                 if args.mode in ['authorization', 'all']:
                     authorization_boundaries(page, fixture)
+                if args.mode in ['side', 'all']:
+                    side_conversation_boundaries(page, fixture, artifacts)
                 assert not errors, errors
                 assert not fixture.call('/status')['failures'], fixture.call('/status')['failures']
                 print(json.dumps({'result': 'passed', 'mode': args.mode, 'chromium': browser.version}))

@@ -27,6 +27,7 @@ import ../../bendlib/json.bend as J
 import ../../harness/transport/command-codec.bend as CommandCodec
 import ../services/CONTEXT.bend as Context
 import ../INPUT.bend as U
+import ../IDENTITY.bend as Identity
 import ../submission/FIELDS.bend as Forms
 
 type Disclosure is Data:
@@ -73,6 +74,7 @@ type Application is Data:
 
 type Completion is Data:
   WorkCreationCompletion{generation: Nat, layer_generation: Nat}
+  SideCreationCompletion{parent: Nat, draft: Maybe<&2, U.Draft>, generation: Nat, layer_generation: Nat}
   DirectCompletion{}
   DraftCompletion{draft: U.Draft}
   WorktreePreferenceCompletion{draft: U.Draft, command: M.Command}
@@ -828,9 +830,30 @@ def reader_generation(reader: Reader) -> Nat:
   Reader{generation, position, disclosures} = reader
   generation
 
+def with_readers(value: +List<Finite.Entry(Reader)>, state: Session) -> Session:
+  Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = state
+  Session{route, drafts, value, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
+
+def side_tasks(layers: +List<Layer>) -> +List<Nat>:
+  match layers:
+    case Nil{}: Nil{}
+    case Con{Layer{U.SideConversation{task}, trigger, initial, query, occurrence, source, field, buffer}, rest}: task <> side_tasks(rest)
+    case Con{layer, rest}: side_tasks(rest)
+
+def visible_route_tasks(route: U.Route, layers: +List<Layer>) -> +List<Nat>:
+  match route:
+    case U.Conversation{task}: Documents.add_viewer(side_tasks(layers), task)
+    case _: side_tasks(layers)
+
+def visible_tasks(+session: Session) -> +List<Nat>:
+  visible_route_tasks(route(session), layers(session))
+
+def task_visible(+session: Session, task: Nat) -> Bool:
+  Documents.present_nat(visible_tasks(session), task)
+
 def reading_owned(request: ReadingRequest) -> Bool:
-  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}} = request
-  U.route_owns(route, task) && Nat.is_eq(generation, reader_generation(reader(readers, task)))
+  ReadingRequest{+task, generation, intent, Application{program, Session{route, drafts, +readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}} = request
+  task_visible(Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, task) && Nat.is_eq(generation, reader_generation(reader(readers, task)))
 
 def owned_reading() -> ReadingRequest -> Type:
   Categories.holds(ReadingRequest, reading_owned)
@@ -945,6 +968,7 @@ def panel_target(panel: U.Panel) -> String:
     case U.CardDetails{card}: "card-details/" ++ Nat.show(card)
     case U.EditObject{editor}: "editor/" ++ U.editor_key(editor)
     case U.TaskDetails{task}: "task-details/" ++ Nat.show(task)
+    case U.SideConversation{task}: "side-conversation/" ++ Nat.show(task)
     case U.WorkspaceConfiguration{editor}: "workspace-configuration/" ++ U.editor_key(editor)
     case U.PermissionsConfiguration{editor}: "permissions-configuration/" ++ U.editor_key(editor)
     case U.TaskContext{task}: "task-context/" ++ Nat.show(task)
@@ -981,6 +1005,57 @@ def open_panel(+panel: U.Panel, trigger: String, application: Application) -> De
   +target = panel_target(panel)
   local(program, Session{route, drafts, readers, Layer{panel, trigger, target, "", next_layer, False{}, None{}, None{}} <> without_panel(layers, panel_target(panel)),
     target, navigation, filter, now, next, pending, previews, code_blocks, (next_layer + 1n : Nat), model_preference, draft_model_manual, workspace_git, interactive}, [Attend{target}])
+
+def side_message_target(+task: Nat) -> String:
+  Identity.encode(Identity.Part{Identity.Entity{Identity.Entity{Identity.Entity{Identity.Place{"/layers"}, "layer", panel_target(U.SideConversation{task})}, "task", Nat.show(task)}, "composer", U.editor_key(U.MessageEditor{task})}, "message-text"})
+
+def attend_side_message(+task: Nat, decision: Decision) -> Decision:
+  Decision{Application{program, session}, result, runtime, interaction, durable} = decision
+  +target = side_message_target(task)
+  Decision{Application{program, with_attention(target, session)}, result, runtime, [Attend{target}], durable}
+
+def side_parent_or(fallback: Nat, found: Maybe<&2, D.Task>) -> Nat:
+  match found:
+    case None{}: fallback
+    case Some{task}:
+      U.chosen(~Nat, D.side_parent(task), fallback)
+
+def show_side_window(+task: Nat, application: Application) -> Decision:
+  Application{+program, +session} = application
+  +editor: U.Editor = U.MessageEditor{task}
+  +prepared: Session = ensure(find_draft(drafts(session), editor), U.Message{task, U.initial_text(""), U.Send{}}, session)
+  +visited: Session = with_readers(visit_readers(U.Conversation{task}, readers(prepared)), prepared)
+  attend_side_message(task, open_panel(U.SideConversation{task}, "composer/" ++ U.editor_key(U.MessageEditor{side_parent_or(task, Tasks.find(Commands.entries(program), task))}), Application{program, visited}))
+
+def decision_session(decision: Decision) -> Session:
+  Decision{changed, result, runtime, interaction, durable} = decision
+  session(changed)
+
+def side_visit_checked(same: Bool, parent: Nat, application: Application) -> Session:
+  match same:
+    case True{}: session(application)
+    case False{}: decision_session(visit(U.Conversation{parent}, application))
+
+def side_route_session(route: U.Route, +parent: Nat, application: Application) -> Session:
+  match route:
+    case U.Conversation{current}: side_visit_checked(Nat.is_eq(parent, current), parent, application)
+    case _: side_visit_checked(False{}, parent, application)
+
+def session_from_visit(parent: Nat, +application: Application) -> Session:
+  side_route_session(route(session(application)), parent, application)
+
+def show_side_parent(parent: Maybe<&2, Nat>, +task: Nat, +application: Application) -> Decision:
+  match parent:
+    case None{}: refuse(application, "This task is not a side conversation")
+    case Some{parent}: show_side_window(task, Application{program(application), session_from_visit(parent, application)})
+
+def show_side_found(found: Maybe<&2, D.Task>, task: Nat, application: Application) -> Decision:
+  match found:
+    case None{}: refuse(application, "The side conversation no longer exists")
+    case Some{value}: show_side_parent(D.side_parent(value), task, application)
+
+def show_side_conversation(+task: Nat, +application: Application) -> Decision:
+  show_side_found(Tasks.find(Commands.entries(program(application)), task), task, application)
 
 def panel_present(layers: +List<Layer>, +target: String) -> Bool:
   match layers:
@@ -1400,6 +1475,45 @@ def owns_submission(draft: U.Draft, session: Session) -> Bool:
   Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   same_revision(find_draft(drafts, U.owner(body)), revision)
 
+def side_draft_owned(draft: Maybe<&2, U.Draft>, session: Session) -> Bool:
+  match draft:
+    case None{}: True{}
+    case Some{draft}: owns_submission(draft, session)
+
+def settle_side_draft(draft: Maybe<&2, U.Draft>, result: J.Json, session: Session) -> Session:
+  match draft:
+    case None{}: session
+    case Some{draft}: settle(draft, result, session)
+
+def side_creation_current(parent: Nat, draft: Maybe<&2, U.Draft>, generation: Nat, layer_generation: Nat, +session: Session) -> Bool:
+  task_visible(session, parent) && side_draft_owned(draft, session) && work_creation_current(generation, layer_generation, session)
+
+def show_created_side(found: Maybe<&2, Nat>, application: Application) -> Decision:
+  match found:
+    case None{}: unchanged(application)
+    case Some{task}: show_side_window(task, application)
+
+def complete_side_response(accepted: Bool, +result: J.Json, application: Application) -> Decision:
+  match accepted:
+    case False{}: reply(application, result)
+    case True{}: with_native(show_created_side(J.natural(J.get(J.get(result, "result"), "task_id")), application), result, Nil{}, False{})
+
+def complete_side_creation_checked(current: Bool, draft: Maybe<&2, U.Draft>, +result: J.Json, +application: Application) -> Decision:
+  match current:
+    case False{}: reply(Application{program(application), settle_side_draft(draft, result, session(application))}, result)
+    case True{}:
+      +updated: Application = Application{program(application), settle_side_draft(draft, result, session(application))}
+      complete_side_response(J.boolean(J.get(result, "ok")), result, updated)
+
+def complete_side_creation(parent: Nat, +draft: Maybe<&2, U.Draft>, generation: Nat, layer_generation: Nat, +result: J.Json, +application: Application) -> Decision:
+  complete_side_creation_checked(side_creation_current(parent, draft, generation, layer_generation, session(application)), draft, result, application)
+
+def side_creation_completion(parent: Nat, draft: Maybe<&2, U.Draft>, +application: Application) -> Completion:
+  SideCreationCompletion{parent, draft, selection_generation(session(application)), next_layer(session(application))}
+
+def begin_side_conversation(+task: Nat, +application: Application) -> Decision:
+  request_command(M.OpenSideConversation{task, ""}, side_creation_completion(task, None{}, application), application)
+
 def follow_created(id: Maybe<&2, Nat>, application: Application) -> Decision:
   match id:
     case None{}: unchanged(application)
@@ -1549,9 +1663,14 @@ def request_submitted(allowed: Bool, command: M.Command, draft: U.Draft, applica
     case False{}: unverified_worktree_submission(application)
     case True{}: request_command(command, DraftCompletion{draft}, application)
 
-def execute_preference(preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: Application) -> Decision:
+def composer_completion(command: M.Command, draft: U.Draft, application: Application) -> Completion:
+  match command:
+    case M.OpenSideConversation{parent, message}: side_creation_completion(parent, Some{draft}, application)
+    case _: DraftCompletion{draft}
+
+def execute_preference(preference: Maybe<&2, M.Command>, +command: M.Command, draft: U.Draft, +application: Application) -> Decision:
   match preference:
-    case None{}: request_command(command, DraftCompletion{draft}, application)
+    case None{}: request_command(command, composer_completion(command, draft, application), application)
     case Some{update}: request_command(update, WorktreePreferenceCompletion{draft, command}, application)
 
 def execute_submitted(allowed: Bool, preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: Application) -> Decision:
@@ -1833,6 +1952,9 @@ def complete_command_member(member: Categories.Membership<M.World(), program_wor
     case WorkCreationCompletion{generation, layer_generation}:
       Application{previous, +session} = application
       complete_work_creation(work_creation_current(generation, layer_generation, session), result, Application{program, retain_previews(session, program)})
+    case SideCreationCompletion{parent, draft, generation, layer_generation}:
+      Application{previous, session} = application
+      complete_side_creation(parent, draft, generation, layer_generation, result, Application{program, retain_previews(session, program)})
     case ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: finish_execution_view(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, occurrence, program, result, application)
     case ExecutionCompletion{task, profile, reasoning, remember}: finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, application)
     case DirectCompletion{}:
@@ -1952,6 +2074,9 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.EditTaskGraph{graph}: task_graph_editor(graph, application)
     case U.EditTitlePrompts{}: title_prompt_editor(application)
     case U.ForkTask{+task}: open_editor(U.Fork{task, 1n, Nil{}, Context.defaults(Context.ParentTask{task})}, application)
+    case U.BeginSideConversation{task}: begin_side_conversation(task, application)
+    case U.ShowSideConversation{task}: show_side_conversation(task, application)
+    case U.ReturnSideConversation{task}: execute_direct(U.direct_command(U.ReturnSideConversation{task}), application)
     case U.CompactTask{task}: open_editor(U.Compact{task, None{}}, application)
     case U.Submit{editor}: submit(editor, application)
     case U.RetryWorkspace{editor}: retry_workspace(editor, application)
@@ -2290,7 +2415,7 @@ def interactive_viewer(+value: U.Route) -> Maybe<&2, Nat>:
 
 def interactive_synchronize(+application: Application) -> Decision:
   +current = session(application)
-  interactive_result(Documents.reconcile(interactive_viewer(route(current)), previews(current), program(application), interactive_data(current)), application)
+  interactive_result(Documents.reconcile_visible(visible_tasks(current), previews(current), program(application), interactive_data(current)), application)
 
 def interactive_environment(+namespace: String, +sequence: Nat, +fresh: Bool, +allowed: Bool, +application: Application) -> Decision:
   interactive_result(Documents.environment(namespace, sequence, fresh, allowed, interactive_data(session(application))), application)
@@ -2330,12 +2455,17 @@ def interactive_send_resolved(+resolved: Commands.Operation, +command: M.Command
     case Commands.Refuse{+code, +message}: interactive_completed(owner, path, ticket, D.failure(code, message), application)
     case _: request_command(command, InteractiveCompletion{owner, path, ticket}, application)
 
+def interactive_message_command(body: U.Body, now: U32) -> M.Command:
+  match body:
+    case U.Message{task, message, delivery}: U.message_command(delivery, task, U.text(message))
+    case other: U.command(other, now)
+
 def interactive_send_checked(+ready: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +draft: U.Draft, +application: Application) -> Decision:
   match ready:
     case False{}: interactive_completed(owner, path, ticket, D.failure("interaction_refused", "This task cannot accept this message now"), application)
     case True{}:
       U.Draft{+revision, +body, +feedback, +directory_entry} = draft
-      +command: M.Command = U.command(body, now(session(application)))
+      +command: M.Command = interactive_message_command(body, now(session(application)))
       interactive_send_resolved(Commands.resolve(command, program(application)), command, owner, path, ticket, application)
 
 def interactive_send_owned(+found: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: Application) -> Decision:

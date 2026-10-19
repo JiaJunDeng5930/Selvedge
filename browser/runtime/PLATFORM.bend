@@ -129,7 +129,7 @@ def active_reader(+application: E.Application, +task: Nat, generation: Nat) -> B
   +observed_session_1 = E.session(application)
   +route = E.route(observed_session_1)
   +readers = E.readers(observed_session_1)
-  U.route_owns(route, task) && Nat.is_eq(E.reader_generation(E.reader(readers, task)), generation)
+  E.task_visible(observed_session_1, task) && Nat.is_eq(E.reader_generation(E.reader(readers, task)), generation)
 
 def reading_intent(+application: E.Application, task: Nat) -> U.ReadingIntent:
   +observed_session_1 = E.session(application)
@@ -191,9 +191,14 @@ def layout_route(route: U.Route, +readers: +List<Finite.Entry(E.Reader)>, bookma
     case U.Conversation{+task}: wrap_scroll(Reading.layout(E.reader_position(E.reader(readers, task)), bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))), task, E.reader_generation(E.reader(readers, task)))
     case _: Nil{}
 
+def layout_tasks(tasks: +List<Nat>, +readers: +List<Finite.Entry(E.Reader)>, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Effect>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{task, rest}: List.append(&2, Effect, layout_route(U.Conversation{task}, readers, bookmarks), layout_tasks(rest, readers, bookmarks))
+
 def layout_for(+application: E.Application, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Effect>:
   +session = E.session(application)
-  layout_route(E.route(session), E.readers(session), bookmarks)
+  layout_tasks(E.visible_tasks(session), E.readers(session), bookmarks)
 
 def focus_effects(effects: +List<E.Effect>, +ticket: Nat) -> +List<Effect>:
   match effects:

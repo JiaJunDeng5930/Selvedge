@@ -11,6 +11,15 @@ import ../conversation/OUTPUT.bend as Live
 import ../../harness/DOMAIN.bend as D
 import ../../harness/MODEL.bend as Harness
 
+law visible_document_exposure_uses_its_viewing_task:
+  @+source:Code.Source -> @+text:String -> @+epoch:Nat -> @+revision:Nat -> @+ending:UI.Ending -> @+observed:Nat -> @+fences:+List<Docs.Fence> -> @active:Bool -> @+rest:+List<Docs.Document> -> @+viewers:+List<Nat> -> @+entries:+List<Docs.RetainedEntry> ->
+  {Docs.exposed_visible_documents(Docs.Document{source, text, epoch, revision, ending, observed, fences, active} <> rest, viewers, entries) ==
+    Docs.Document{source, text, epoch, revision, ending, observed, fences, Docs.present_nat(viewers, Docs.source_viewer(source)) && Bool.not(Docs.entry_archived(entries, Code.source_key(source)))} <> Docs.exposed_visible_documents(rest, viewers, entries) : +List<Docs.Document>}
+
+law visible_document_exposure_refreshes_actual_documents:
+  @+viewers:+List<Nat> -> @+world:Harness.World() -> @+state:Docs.State ->
+  {Docs.expose_visible(viewers, world, state) == Docs.refresh(world, Docs.with_documents(Docs.exposed_visible_documents(Docs.documents(state), viewers, Docs.retained_entries(Docs.retention(state))), state)) : Docs.Decision}
+
 # Authority is an identity in the current data space, not a retained eligibility
 # flag. The viewer and immutable producer/request/part all occur in Code.key.
 def canonical_source(+store: String, source: Code.Source) -> Bool:

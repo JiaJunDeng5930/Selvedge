@@ -14,6 +14,8 @@ import ./DOMAIN.bend as D
 import ./MODEL.bend as M
 import ../bendlib/json.bend as J
 import ./tasks/PROGRAM.bend as T
+import ./tasks/side-conversation.bend as Side
+import ./tasks/side-context.bend as SideContext
 import ./execution/OPERATIONS.bend as Ops
 import ./protocol/RESULTS.bend as Results
 import ../bendlib/theory.bend as Theory
@@ -133,6 +135,18 @@ def execute_branch(+task: D.Task, +count: Nat, +messages: +List<String>, selecti
   commit_fork(children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages), call, Nil{}, parent,
     C.Frame{D.with_state_next_ticket(1n+next_ticket, task_state), board})
 
+def execute_open_side(+parent: D.Task, message: String, world: M.World()) -> M.Decision():
+  C.Frame{+task_state, board} = world
+  +id = D.state_next_task(task_state)
+  child = Side.opened(id, parent, message)
+  respond(C.Frame{D.with_state_next_task(1n+id, D.with_state_tasks(List.append(&2, D.Task, D.state_tasks(task_state), [child]), task_state)), board},
+    J.Object{[J.Field{"task_id", J.nat(id)}, J.Field{"parent_task_id", J.nat(D.task_id(parent))}]})
+
+def execute_return_side(+side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, transcript: String, world: M.World()) -> M.Decision():
+  respond(store(D.append_context(D.SideReturnCursor{D.task_id(side), through}, side), store(T.receive(transcript, parent), world)),
+    J.Object{[J.Field{"task_id", J.nat(D.task_id(parent))}, J.Field{"side_task_id", J.nat(D.task_id(side))},
+      J.Field{"after", J.nat(after)}, J.Field{"through", J.nat(through)}]})
+
 # PROGRAM realizes the resolved operation. The refinement proof compares the
 # entire decision with COMMANDS.meaning, including replies and requested work.
 
@@ -165,6 +179,8 @@ def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.D
         [Effects.CancelTicket{D.task_id(task), Ops.callback(operation)}]}
     case Commands.Control{task, request, next}: change_requested(request, next, task, world)
     case Commands.Branch{task, count, messages, selection}: execute_branch(task, count, messages, selection, world)
+    case Commands.OpenSideConversation{parent, message}: execute_open_side(parent, message, world)
+    case Commands.ReturnSideConversation{side, parent, after, through, transcript}: execute_return_side(side, parent, after, through, transcript, world)
     case Commands.Summarize{task}: summary_request(task, world)
     case Commands.Checkpoint{task, summary}: execute_checkpoint(summary, task, world)
     case Commands.Observe{query}: observe(query, world)
@@ -372,7 +388,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work_calculation(D.task_work(task), task, decision_world(decision)))
+      +next = SideContext.reconcile_dispatch(F.State(), F.Effect, combine(decision, work_calculation(D.task_work(task), task, decision_world(decision))))
       schedule(p, CompactionSpec.runnable(tasks(decision_world(next)), CompactionState.registry(decision_world(next))), next)
 
 def scheduling_budget(world: M.World()) -> Nat:
@@ -381,8 +397,9 @@ def scheduling_budget(world: M.World()) -> Nat:
 def board_dispatch(command: M.Command, world: M.World()) -> M.Decision():
   apply_command(command, world)
 
-def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
-  BoardSchedulingSpec.finish(schedule(scheduling_budget(decision_world(decision)), CompactionSpec.runnable(tasks(decision_world(decision)), CompactionState.registry(decision_world(decision))), decision))
+def scheduled_prepared(decision: M.Decision()) -> M.Decision():
+  +prepared = SideContext.reconcile_dispatch(F.State(), F.Effect, decision)
+  BoardSchedulingSpec.finish(schedule(scheduling_budget(decision_world(prepared)), CompactionSpec.runnable(tasks(decision_world(prepared)), CompactionState.registry(decision_world(prepared))), prepared))
 
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:

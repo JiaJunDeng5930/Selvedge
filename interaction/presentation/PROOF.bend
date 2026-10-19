@@ -265,6 +265,9 @@ def compact_overview_action_role(+role: SurfaceTypes.Role, +action: U.Action, +a
     case U.EditTitlePrompts{}: {==}
     case U.DeleteTaskGraph{p0}: {==}
     case U.ForkTask{p0}: {==}
+    case U.BeginSideConversation{p0}: {==}
+    case U.ShowSideConversation{p0}: {==}
+    case U.ReturnSideConversation{p0}: {==}
     case U.CompactTask{p0}: {==}
     case U.Submit{p0}: {==}
     case U.RetryWorkspace{p0}: {==}
@@ -546,6 +549,9 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.EditTitlePrompts{}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.DeleteTaskGraph{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ForkTask{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.BeginSideConversation{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ShowSideConversation{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.ReturnSideConversation{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CompactTask{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Submit{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RetryWorkspace{p0}}}}: {==}
@@ -797,3 +803,10 @@ def Rule.inspection_readonly_dependency_uses_its_actual_relation(owner, subject,
 
 def Rule.inspection_root_precedes_its_retained_dependencies(decision, actual, children, activity, current, query, parent, state):
   {==}
+
+def Rule.side_window_adapts_to_available_details_space(task):
+  ({==}, {==})
+
+def Rule.side_window_closes_without_returning_content(task, trigger): {==}
+def Rule.side_window_uses_its_task_and_explicit_return_control(task, session, world): {==}
+def Rule.side_conversation_has_its_own_reading_and_composer_context(id, title, status, context, task, generation, groups, live, decisions, reading, latest, previews, input, details, actions, parent, state): {==}

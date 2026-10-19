@@ -1360,6 +1360,22 @@ def worktree_detail_admitted(present: Bool, +value: J.Json, +parent: Identity.Ke
 def worktree_details(+observation: J.Json, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   worktree_detail_admitted(J.boolean(J.get(observation, "ok")), J.get(observation, "result"), parent, state)
 
+def side_task_controls(parent_task: Maybe<&2, Nat>, +task: Nat, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match parent_task:
+    case None{}: Nil{}
+    case Some{+parent_task}:
+      [declared(parent, View.side_return_control(task, Some{parent_task}, E.program(application(state))), state),
+        declared(parent, View.control("side/show/" ++ Nat.show(task), "打开侧窗口", U.ShowSideConversation{task}), state)]
+
+def task_side_controls(+task: Nat, parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  side_task_controls(View.side_parent_found(T.find(Commands.entries(E.program(application(state))), task)), task, parent, state)
+
+def conversation_timeline(+id: Nat, groups_value: +List<Conversation.VisibleGroup>, live: +List<Conversation.LiveOperation>, previews: +List<Live.Output>, +owner: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  [region(owner, "timeline", "Conversation", SurfaceTypes.Timeline{},
+    List.append(&2, SurfaceTypes.Node, groups(groups_value, id, Identity.Part{owner, "timeline"}, state),
+      List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, discarded_unfinished_count(E.retained_discarded(id, E.session(application(state))), id, owner), retained_parts(E.retained_parts(id, E.session(application(state))), owner, state)),
+        List.append(&2, SurfaceTypes.Node, live_outputs(previews, owner, state), operations(live, owner, state)))))]
+
 def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timeline, previews: +List<Live.Output>, input: Maybe<&2, V.ComposerScene>, actions: V.TaskActions, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   Conversation.Timeline{task, generation, groups_value, live, decisions, reading, return_latest} = page_timeline
   V.TaskActions{detail, overflow} = actions
@@ -1367,12 +1383,9 @@ def task_page_fields(+id: Nat, +title: String, page_timeline: Conversation.Timel
   page_region(parent, Composition.ConversationTitle{}, Composition.HeadingPosition{},
     region(owner, "heading", title, SurfaceTypes.Heading{}, Nil{}) <> worktree_feedback(worktree_observation(id, state), owner)) <>
   page_region(parent, Composition.TaskActions{}, Composition.HeadingPosition{},
-    [declared(Identity.Part{owner, "heading"}, detail, state), more(U.TaskSubject{id}, Identity.Part{owner, "heading"}, state)]) <>
+    List.append(&2, SurfaceTypes.Node, [declared(Identity.Part{owner, "heading"}, detail, state), more(U.TaskSubject{id}, Identity.Part{owner, "heading"}, state)], task_side_controls(id, Identity.Part{owner, "heading"}, state))) <>
   page_region(parent, Composition.TimelineContent{}, Composition.BodyPosition{},
-    [region(owner, "timeline", "Conversation", SurfaceTypes.Timeline{},
-      List.append(&2, SurfaceTypes.Node, groups(groups_value, id, Identity.Part{owner, "timeline"}, state),
-        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, discarded_unfinished_count(E.retained_discarded(id, E.session(application(state))), id, owner), retained_parts(E.retained_parts(id, E.session(application(state))), owner, state)),
-          List.append(&2, SurfaceTypes.Node, live_outputs(previews, owner, state), operations(live, owner, state)))))]) <>
+    conversation_timeline(id, groups_value, live, previews, owner, state)) <>
   List.append(&2, SurfaceTypes.Node, page_latest(return_latest, parent, owner, state),
     List.append(&2, SurfaceTypes.Node, page_approvals(decisions, parent, owner, state), page_composer(input, parent, owner, state, Composition.DockPosition{})))
 
@@ -2781,6 +2794,21 @@ def work_overview(selected: Maybe<&2, Nat>, works: +List<V.WorkChoice>, +parent:
       region(parent, "overview/action-space", "", SurfaceTypes.Section{}, Nil{}),
       declared(parent, View.control("overview/done", "Done", U.ClosePanel{}), state)])]
 
+def side_conversation_content(value: Maybe<&2, V.TaskScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match value:
+    case None{}: [SurfaceTypes.Node{Identity.Part{parent, "missing"}, "missing", "Task unavailable", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{"The side conversation no longer exists"}, Nil{}}]
+    case Some{V.TaskScene{+id, title, status, context, Conversation.Timeline{task, generation, groups_value, live, decisions, reading, return_latest}, previews, input, details, actions}}:
+      +owner: Identity.Key = Identity.Entity{parent, "task", Nat.show(id)}
+      [SurfaceTypes.Node{owner, "side/content", "", SurfaceTypes.Section{}, SurfaceTypes.PageContext{Some{Conversation.Identity{task, generation}}},
+      List.append(&2, SurfaceTypes.Node, conversation_timeline(id, groups_value, live, previews, owner, state),
+        List.append(&2, SurfaceTypes.Node, latest(return_latest, owner, state),
+          List.append(&2, SurfaceTypes.Node, approval_queue(decisions, owner, state), composer(input, owner, state))))}]
+
+def side_parent_description(parent: Maybe<&2, Nat>) -> String:
+  match parent:
+    case None{}: "Side conversation"
+    case Some{parent}: "源自 task #" ++ Nat.show(parent) ++ " · 独立运行。关闭不回传；仅手动追加已保存的新内容。生成中的回复可稍后追加。"
+
 def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
     case V.GlobalNavigation{route, destinations}: global_navigation_menu(route, destinations, parent, state)
@@ -2804,6 +2832,11 @@ def layer_content(view: V.LayerContent, +parent: Identity.Key, +state: Interacti
       activity_or_content(model_activity_groups(values, identity, state), query, parent, state, Nil{})
     case V.DeliverySelection{identity, values}: picker_fields(values, identity, parent, state)
     case V.ExecutionDetails{value}: execution_details(value, parent, state)
+    case V.SideConversation{task, parent_task, value, return_content, close}:
+      List.append(&2, SurfaceTypes.Node,
+        [region(parent, "side/actions", "Side conversation actions", SurfaceTypes.Toolbar{}, [declared(parent, return_content, state), declared(parent, close, state)]),
+         SurfaceTypes.Node{Identity.Part{parent, "side/parent"}, "side/parent", side_parent_description(parent_task), SurfaceTypes.Content{}, SurfaceTypes.InformationText{Information.Description{}}, Nil{}}],
+        side_conversation_content(value, parent, state))
     case V.Confirmation{title, confirm, cancel}: [dialog_actions(parent, [declared(parent, confirm, state), declared(parent, cancel, state)])]
 
 def layer_role(kind: V.LayerKind) -> SurfaceTypes.Role:

@@ -81,6 +81,12 @@ The browser script requires Python Playwright. It uses temporary local services
 and saves failures under `.workpad/interactive-browser-results`; no live model
 account is used.
 
+Its `--mode side` probe holds real parent and side model HTTP streams open while
+the browser uses separate composers, a side Interactive Markdown input and IME.
+It checks local dismissal, explicit return delivery through the running parent's
+queue, provider encoding of filtered records, and the return cursor after SQLite
+reopen. Side snapshot and filtering semantics remain production proof obligations.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

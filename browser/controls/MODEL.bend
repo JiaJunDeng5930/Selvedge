@@ -175,6 +175,11 @@ def role_style(+visual: Design.Style, +role: SurfaceTypes.Role) -> Source.Style:
     case SurfaceTypes.UserMessage{}: Factory.style(visual, Factory.adaptive_natural_width(visual), Model.NaturalSize{}, Model.Confined{})
     case _: Factory.style(visual, Model.StretchSize{}, Model.NaturalSize{}, Model.Confined{})
 
+def page_context_style(visual: Design.Style, role: SurfaceTypes.Role) -> Source.Style:
+  match role:
+    case SurfaceTypes.Section{}: Factory.style(visual, Model.StretchSize{}, Model.StretchSize{}, Model.Confined{})
+    case other: role_style(visual, other)
+
 def section_caption(+empty: Bool, +key: UIIdentity.Key, +label: String, +visual: Design.Style) -> +List<Source.Node>:
   match empty:
     case True{}: Nil{}
@@ -832,7 +837,7 @@ def regular_content(capacity: Nat, +key: UIIdentity.Key, +label: String, +role: 
     case SurfaceTypes.Fact{value}: fact(key, label, value, visual)
     case SurfaceTypes.InformationText{text_role}: box(key, role_tag(role), role_style(visual, role), Nil{}, [AuthoredControls.owned_text(key, text_role, label, visual)])
     case SurfaceTypes.ReadOnly{value}: box(key, Source.Div{}, role_style(visual, role), [Source.RoleAttribute{"alert"}, Source.AriaAttribute{"label", label}], text(UIIdentity.part(key, "text"), value, visual, T.Body{}, T.Regular{}) <> content)
-    case SurfaceTypes.PageContext{conversation}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
+    case SurfaceTypes.PageContext{conversation}: box(key, role_tag(role), page_context_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case SurfaceTypes.Region{}: box(key, role_tag(role), role_style(visual, role), [Source.AriaAttribute{"label", label}], append(caption(key, label, role, visual), content))
     case other: input_with_support(capacity, key, representation, visual, parameters, content)
 

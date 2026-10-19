@@ -14,6 +14,8 @@ import ./appearance/FONT.bend as F
 import ./appearance/TYPOGRAPHY.bend as T
 import ./editor/MODEL.bend as Editor
 import ./focus/MODEL.bend as Focus
+import ./focus/CONTRACT.bend as FocusRules
+import ./focus/PROOF.bend as FocusEvidence
 import ./controls/GEOMETRY.bend as Physical
 import ./runtime/PLATFORM.bend as Platform
 import ./reading/MODEL.bend as Reading
@@ -140,14 +142,14 @@ def stale_reading_raw(application: E.Application, services: Services.State, plat
           Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
         Platform.active_reader(application, task, generation), False{}, inactive)
 
-def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +generation: Nat,
+def task_layout_preserves_anchor(+session: E.Session, +task: Nat, +generation: Nat,
   +disclosures: +List<E.Disclosure>, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>,
   +anchor: Physical.Anchor,
   +reader_observed: {E.reader(Rule.session_readers(session), task) ==
     E.Reader{generation, U.ReadHistory{}, disclosures} : E.Reader},
   bookmark_observed: {Finite.find(~Reading.Bookmark, bookmarks, task) ==
     Some{Reading.Bookmark{Some{anchor}}} : Maybe<&2, Reading.Bookmark>}) ->
-  {Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks) ==
+  {Platform.layout_route(U.Conversation{task}, Rule.session_readers(session), bookmarks) ==
     [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}] : +List<Platform.Effect>}:
   E.Session{route, +drafts, +readers, +layers, attention, navigation, filter, now, next, +pending, +previews, +code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   reader = E.reader(readers, task)
@@ -182,10 +184,15 @@ def layout_after_product(program: M.World(), +session: E.Session, +task: Nat, +g
     Reading.layout(E.reader_position(reader), Platform.bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))),
     [Reading.PreserveAnchor{anchor}], layout_preserves)
   Equal.trans(+List<Platform.Effect>,
-    Platform.layout_for(E.Application{program, Rule.conversation_session(session, task)}, bookmarks),
+    Platform.layout_route(U.Conversation{task}, Rule.session_readers(session), bookmarks),
     [Platform.ApplyReading{task, E.reader_generation(reader), Reading.PreserveAnchor{anchor}}],
     [Platform.ApplyReading{task, generation, Reading.PreserveAnchor{anchor}}],
     effect, generation_effect)
+
+def layout_after_product(+program: M.World(), +session: E.Session, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>) ->
+  {Platform.layout_for(E.from_program(program, session), bookmarks) ==
+    FocusRules.required_tasks_layout(E.visible_tasks(session), Rule.session_readers(session), bookmarks) : +List<Platform.Effect>}:
+  FocusEvidence.layout_policy(E.from_program(program, session), bookmarks)
 
 def after_core_keeps_bookmarks(decision: InteractionTypes.Decision, platform: Platform.Platform) ->
   {Rule.decision_bookmarks(Platform.after_core(decision, platform)) == Rule.platform_bookmarks(platform) :
@@ -795,9 +802,10 @@ def Rule.evidence():
         [Reading.MeasureAnchor{}],
         Rules_reading_rules.missing_history_anchor()),
       bookmark => reduced => {==},
-      program => session => task => generation => disclosures => bookmarks => anchor => reader_observed => bookmark_observed =>
-      layout_after_product(program, session, task, generation, disclosures, bookmarks, anchor,
+      session => task => generation => disclosures => bookmarks => anchor => reader_observed => bookmark_observed =>
+      task_layout_preserves_anchor(session, task, generation, disclosures, bookmarks, anchor,
         reader_observed, bookmark_observed),
+      layout_after_product,
       decision => platform => after_core_keeps_bookmarks(decision, platform),
       count => seed =>
       Std.nat_ind(~(steps => @+initial:Rule.Tape ->

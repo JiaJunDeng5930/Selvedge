@@ -307,6 +307,16 @@ def main_nodes(values: +List<Source.Node>, +structure: Design.MainStructure, +ma
       reserved_main_node(beside, required, main_box(structure, key, tag, style, attributes, children, maximum)) <> main_nodes(rest, structure, maximum, beside, required)
     case Con{node, rest}: node <> main_nodes(rest, structure, maximum, beside, required)
 
+def main_and_docked_details(+structure: Design.MainStructure, +reading_width: Nat, main: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +main_minimum_width: Nat, +font: Typography.Presentation) -> +List<Source.Node>:
+  match docked:
+    case Nil{}:
+      List.append(&2, Source.Node, main_nodes(main, structure, reading_width, False{}, main_minimum_width), other)
+    case Con{first, rest}:
+      [wrap(UIIdentity.part(UIIdentity.place("/application"), "main-and-details"), neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}),
+        wrap(UIIdentity.part(UIIdentity.place("/application"), "main-content"),
+          beside_style(True{}, main_minimum_width, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{})),
+          List.append(&2, Source.Node, main_nodes(main, structure, reading_width, False{}, main_minimum_width), other)) <> first <> rest)]
+
 def body_mode(beside: Bool, navigation_width: Nat, main_minimum_width: Nat, +structure: Design.MainStructure, +reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
   match beside:
     case True{}:
@@ -316,7 +326,7 @@ def body_mode(beside: Bool, navigation_width: Nat, main_minimum_width: Nat, +str
       Source.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), Source.Div{}, neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), Nil{},
         Source.Box{UIIdentity.part(UIIdentity.place("/application"), "topbar"), Source.Div{}, neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, Spatial.Centered{}), Nil{},
           List.append(&2, Source.Node, navigation, spacer(UIIdentity.part(UIIdentity.place("/application"), "topbar-spacer"), font) <> settings)} <>
-        List.append(&2, Source.Node, main_nodes(main, structure, reading_width, False{}, main_minimum_width), List.append(&2, Source.Node, other, docked))}
+        main_and_docked_details(structure, reading_width, main, other, docked, main_minimum_width, font)}
 
 def body_direction(placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, structure: Design.MainStructure, reading_width: Nat, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +font: Typography.Presentation) -> Source.Node:
   match placement:
@@ -342,9 +352,9 @@ def back_to_front(floating: +List<Source.Node>) -> +List<Source.Node>:
 def workspace_stage(body: Source.Node, workspace_layers: +List<Source.Node>, font: Typography.Presentation) -> Source.Node:
   wrap(UIIdentity.part(UIIdentity.place("/application"), "workspace-stage"), neutral(font, Model.Layered{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}), body <> back_to_front(workspace_layers))
 
-def compact_body(+structure: Design.MainStructure, +reading_width: Nat, main: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +parameters: Design.LayoutParameters, font: Typography.Presentation) -> Source.Node:
+def compact_body(+structure: Design.MainStructure, +reading_width: Nat, main: +List<Source.Node>, other: +List<Source.Node>, docked: +List<Source.Node>, +parameters: Design.LayoutParameters, +font: Typography.Presentation) -> Source.Node:
   wrap(UIIdentity.part(UIIdentity.place("/application"), "body"), neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, Spatial.Stretch{}),
-    List.append(&2, Source.Node, main_nodes(main, structure, reading_width, False{}, Design.main_minimum_width(parameters)), List.append(&2, Source.Node, other, docked)))
+    main_and_docked_details(structure, reading_width, main, other, docked, Design.main_minimum_width(parameters), font))
 
 def workspace_content(full: Bool, navigation: +List<Source.Node>, main: +List<Source.Node>, settings: +List<Source.Node>, other: +List<Source.Node>, work_tabs: +List<Source.Node>, structure: Design.MainStructure, reading_width: Nat, placement: View.NavigationPlacement, +parameters: Design.LayoutParameters, docked: +List<Source.Node>, workspace_layers: +List<Source.Node>, +font: Typography.Presentation) -> +List<Source.Node>:
   match full:
@@ -470,7 +480,7 @@ def outer_width(+coordinate_capacity: Nat, +parameters: Design.LayoutParameters,
 
 def dock_overlay(parameters: Design.LayoutParameters, node: Source.Node, docked: +List<Source.Node>, floating: +List<Source.Node>, workspace_layers: +List<Source.Node>) -> OverlayParts:
   Design.LayoutParameters{navigation_width, main_minimum_width, +details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
-  OverlayParts{resize(node, Model.LimitedSize{0n, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating, workspace_layers}
+  OverlayParts{resize(node, Model.LimitedSize{details_width, details_width, details_width}, Model.StretchSize{}, Model.ScrollVertically{}, Spatial.Stretch{}, Spatial.InFlow{}) <> docked, floating, workspace_layers}
 
 def outside_insets(+unit: Nat) -> Enclosure.Insets:
   Enclosure.Insets{Nat.mul(2n, unit), Nat.mul(2n, unit)}

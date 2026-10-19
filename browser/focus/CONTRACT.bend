@@ -389,9 +389,15 @@ def required_route_layout(route: U.Route, +readers: +List<Finite.Entry(E.Reader)
         required_bookmark(Finite.find(~Reading.Bookmark, bookmarks, task))), task, E.reader_generation(E.reader(readers, task)))
     case _: Nil{}
 
+def required_tasks_layout(tasks: +List<Nat>, +readers: +List<Finite.Entry(E.Reader)>, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Platform.Effect>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{task, rest}: List.append(&2, Platform.Effect,
+      required_route_layout(U.Conversation{task}, readers, bookmarks), required_tasks_layout(rest, readers, bookmarks))
+
 def required_layout(application: E.Application, bookmarks: +List<Finite.Entry(Reading.Bookmark)>) -> +List<Platform.Effect>:
   +session = E.session(application)
-  required_route_layout(E.route(session), E.readers(session), bookmarks)
+  required_tasks_layout(E.visible_tasks(session), E.readers(session), bookmarks)
 
 def required_commit_effects(decision: InteractionTypes.Decision, +platform: Platform.Platform, +current: Model.Scope, +transition: Bool) -> +List<Platform.Effect>:
   InteractionTypes.Decision{+core, reply, runtime, +interaction, service, durable} = decision
@@ -550,6 +556,7 @@ law dismissal_evidence:
 def dismissal_panel_policy(panel: U.Panel, trigger: String, dismissal: View.Dismissal) -> Type:
   match panel:
     case U.TaskDetails{task}: {dismissal == View.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}} : View.Dismissal}
+    case U.SideConversation{task}: {dismissal == View.ByTrigger{U.ClosePanel{}} : View.Dismissal}
     case _: {dismissal == View.OutsideOrEscape{U.ClosePanel{}} : View.Dismissal}
 
 law all_panel_policies:

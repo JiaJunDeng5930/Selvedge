@@ -1,4 +1,7 @@
 import Base
+import ../tasks/side-conversation.bend as Side
+import ../tasks/side-contract.bend as SideRequirements
+import ../tasks/side-proof.bend as SideProof
 import ../../features/compaction/PROOF.bend as CompactionProof
 import ../../features/compaction/SPEC.bend as CompactionSpec
 import ../../bendlib/categories.bend as Categories
@@ -124,6 +127,13 @@ def Laws.operation_semantics(operation, world):
       +parent = D.append_message(D.FunctionCall{call}, task)
       branch_commit_semantics(Commands.children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages),
         call, parent, C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board})
+    case Commands.OpenSideConversation{+parent, +message} C.Frame{D.State{+tasks, +next_task, +next_ticket, +environment, +limits, +projects}, +board}:
+      Equal.cong(D.Task, M.Decision(),
+        (child => C.Decision{C.Frame{D.State{List.append(&2, D.Task, tasks, [child]), 1n+next_task, next_ticket, environment, limits, projects}, board},
+          D.success(J.Object{[J.Field{"task_id", J.nat(next_task)}, J.Field{"parent_task_id", J.nat(D.task_id(parent))}]}), Nil{}}),
+        Side.opened(next_task, parent, message), SideRequirements.initial_message(String.is_empty(message), message, SideRequirements.required_child(next_task, parent)),
+        SideProof.opened(next_task, parent, message))
+    case Commands.ReturnSideConversation{side, parent, after, through, transcript} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board}: {==}
     case Commands.Summarize{task} _: ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{}, world)
     case Commands.Checkpoint{task, summary} _: CompactionProof.meaning(CompactionSpec.supplied(summary, task, world), world)
     case Commands.Observe{+query} _:
