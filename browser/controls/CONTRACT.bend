@@ -1402,15 +1402,6 @@ type DialogSpatialRequirements is Type:
       @toggle:{Controls.widget_for(entry, field, value) == Controls.ToggleInput{} : Controls.Widget} ->
       {Appearance.field_style(SurfaceTypes.Edit{editor, field, entry, value, choices}, typography) == Appearance.toggle_field(typography) : Design.Style},
     dialog_outer_inset: @+typography:T.Presentation -> {SpaceRules.frame_coordinates(Design.style_frame(Appearance.style(SurfaceTypes.Dialog{}, SurfaceTypes.Region{}, typography))) == (0n, (0n, 0n)) : (Nat & (Nat & Nat))},
-    concrete_field_kinds:   {[EditorLayout.card_field(Forms.CardTitle{}), EditorLayout.card_field(Forms.CardDescription{}),
-          EditorLayout.card_field(Forms.CardStage{}), EditorLayout.card_field(Forms.CardPriority{}),
-          EditorLayout.card_field(Forms.CardProject{}), EditorLayout.card_field(Forms.CardOwner{}),
-          EditorLayout.card_field(Forms.CardLabels{}), EditorLayout.card_field(Forms.ContinueCapture{}),
-          EditorLayout.card_field(Forms.AssistedCapture{}), EditorLayout.card_field(Forms.AssistanceProfile{})] ==
-         [EditorLayout.WorkTitle{}, EditorLayout.WorkDescription{}, EditorLayout.MetadataFlexible{},
-          EditorLayout.MetadataFlexible{}, EditorLayout.MetadataFlexible{}, EditorLayout.MetadataWide{},
-          EditorLayout.MetadataWide{}, EditorLayout.CaptureOption{}, EditorLayout.CaptureOption{},
-          EditorLayout.CaptureOption{}] : +List<EditorLayout.FieldKind>},
     field_layout_binding: @card:Maybe<&2, Nat> -> @field:Forms.Field -> @entry:Forms.Entry -> @value:Forms.Observed ->
       @choices:+List<Forms.ChoiceValue> ->
       {EditorLayout.field_kind(SurfaceTypes.Edit{User.CardEditor{card}, field, entry, value, choices}) ==

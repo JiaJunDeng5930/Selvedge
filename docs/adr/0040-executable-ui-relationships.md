@@ -21,9 +21,9 @@ presentation and authored-source boundary. Shared constructors determine how an
 owned title, label, value or explanation is rendered and associated with its
 owner. A compound observation is projected by the field it represents; its
 profile and reasoning values cannot share an unspecified string projection.
-The existing section and choice structures remain authoritative; a second
-form hierarchy is unnecessary. Browser JavaScript interprets authored documents
-and focus policies rather than reconstructing these relationships from labels.
+Section and choice structures already express those ownership relationships,
+so a second form hierarchy is unnecessary. Browser JavaScript interprets authored
+documents and focus policies rather than reconstructing these relationships from labels.
 
 Creation provenance and current execution settings have different lifetimes.
 Their state and guarantees are separate so that an intentional configuration
@@ -68,7 +68,7 @@ traversing the completed source tree.
 
 ## Evidence boundaries
 
-Executable requirements and their production proofs are the authority for these
+Executable definitions and their production proofs express and check these
 relationships. This document records why the boundaries changed, not another
 account of their transitions. Compiler, storage, provider continuation and DOM
 behavior remain external boundaries. Their focused integration checks and actual

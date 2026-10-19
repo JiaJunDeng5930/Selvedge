@@ -13,7 +13,8 @@ import ../../harness/tasks/PROGRAM.bend as T
 import ../../bendlib/association-map.bend as Finite
 
 # Complete observable equations for an accepted board operation. This module
-# imports neither the production interpreter nor PROGRAM. In particular,
+# shares task storage and interruption primitives with the task component.
+# In particular,
 # archiving may cancel only its associated conversation, and title-only results
 # cannot replace a description or authorize an unrelated generation.
 def archive_result(+id: Nat, +card: B.Card, archived: Bool, now: U32, world: M.World()) -> M.Decision():

@@ -32,14 +32,14 @@ const intrinsics = new Map([
   }],
   ['$bendlib$047json$escape$', {
     source: 'bendlib/json.bend',
-    sourceSha256: 'b690659d70e1d9dbf5257444ed9b3b225703a81fdc4af004ae51e0d60bb72dd4',
+    sourceSha256: '443eb440b533c67cdc5c0a8d938cb81d5d956fca1e2a7df8bbc799fde642eab0',
     functionSha256: 'd398f323e7eca1ce28e5c970998c0cf4282437ea940df508bbc0eb53f0ba69d0',
     parameters: 1,
     fast: ([text]) => escaped(text),
   }],
   ['$bendlib$047json$utf8_length_acc$', {
     source: 'bendlib/json.bend',
-    sourceSha256: 'b690659d70e1d9dbf5257444ed9b3b225703a81fdc4af004ae51e0d60bb72dd4',
+    sourceSha256: '443eb440b533c67cdc5c0a8d938cb81d5d956fca1e2a7df8bbc799fde642eab0',
     functionSha256: '8e761574bde712dd71c10e9050e36be96e2125fbaeb97909598eec205b50eb39',
     parameters: 2,
     fast: ([text, total]) => `if (${strings(text)} && typeof TextEncoder === "function" && Number.isSafeInteger(${total}) && !Object.is(${total}, -0) && ${total} >= 0 && ${total} <= 281474976710655) return nat_chk(${total} + new TextEncoder().encode(${text}).byteLength);`,

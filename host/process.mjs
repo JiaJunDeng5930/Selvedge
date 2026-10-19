@@ -94,7 +94,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
     ? { ...arguments_, command: { utf16: Array.from({ length: arguments_.command.length },
       (_, index) => arguments_.command.charCodeAt(index)) } }
     : arguments_;
-  const { timeout, maximum } = boundary('effect.bash_arguments', { arguments: observedArguments, arguments_: observedArguments, limits,
+  const { timeout, maximum } = boundary('effect.bash_arguments', { arguments: observedArguments, limits,
     options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
   const artifacts = [];
   let child;
@@ -102,7 +102,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
   try {
     if (execution) launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
     if (artifactDirectory) {
-      boundary('effect.artifact_limit', { arguments: arguments_, arguments_, limits, options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
+      boundary('effect.artifact_limit', { arguments: arguments_, limits, options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
       const directory = await mkdtemp(path.join(artifactDirectory, 'bash-'));
       for (const stream of ['stdout', 'stderr']) {
@@ -193,7 +193,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       catch (error) { reason ??= { code: 'sandbox_cleanup_failed', message: error.message }; }
       const out = stdout.result();
       const err = stderr.result();
-      resolve(boundary('effect.process_result', { arguments: arguments_, arguments_, limits,
+      resolve(boundary('effect.process_result', { arguments: arguments_, limits,
         options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot }, exitCode, exitSignal, out, err, outArtifact, errArtifact, reason }));
     });
   });

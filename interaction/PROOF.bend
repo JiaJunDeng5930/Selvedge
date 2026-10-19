@@ -174,61 +174,15 @@ def Contract.actual_control_observation(state, identity, label, prominence, inpu
   InteractionTypes.State{application, services} = state
   {==}
 
-def Contract.submission_obstruction_preserves_admission(access, transfers, input):
-  match input:
-    case E.ContentInput{+p0, +p1}: {==}
-    case E.InteractiveInput{input}: {==}
-    case E.InteractiveEnvironmentObserved{namespace, sequence, fresh, allowed}: {==}
-    case E.InteractiveFenceObserved{observation}: {==}
-    case E.InteractiveSynchronize{}: {==}
-    case E.ToggleInteractiveSource{identity}: {==}
-    case E.DismissRetained{key}: {==}
-    case E.ToggleArchived{key}: {==}
-    case E.ClearDiscarded{task}: {==}
-    case E.PreviewObserved{+p0}: {==}
-    case E.UserInput{U.Activate{U.CreateWork{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CreateWork{}), access))
-    case E.UserInput{U.Activate{U.SelectWork{+work}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.SelectWork{work}), access))
-    case E.UserInput{U.Activate{U.RenameWork{+work}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.RenameWork{work}), access))
-    case E.UserInput{U.Activate{U.Navigate{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.Navigate{p0}), access))
-    case E.UserInput{U.Activate{U.SelectProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.SelectProject{p0}), access))
-    case E.UserInput{U.Activate{U.ToggleProjectGroup{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ToggleProjectGroup{p0}), access))
-    case E.UserInput{U.Activate{U.BeginTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BeginTask{p0}), access))
-    case E.UserInput{U.Activate{U.EditProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditProject{p0}), access))
-    case E.UserInput{U.Activate{U.EditTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTaskGraph{p0}), access))
-    case E.UserInput{U.Activate{U.EditTitlePrompts{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditTitlePrompts{}), access))
-    case E.UserInput{U.Activate{U.NewCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.NewCard{p0}), access))
-    case E.UserInput{U.Activate{U.EditCard{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditCard{p0}), access))
-    case E.UserInput{U.Activate{U.EditAgent{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.EditAgent{p0}), access))
-    case E.UserInput{U.Activate{U.ForkTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ForkTask{p0}), access))
-    case E.UserInput{U.Activate{U.CompactTask{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CompactTask{p0}), access))
-    case E.UserInput{U.Activate{U.Submit{+p0}}}: Contract.service_submit_obstruction(Services.connected(access), Services.blocks(p0, transfers))
-    case E.UserInput{U.Activate{U.RetryWorkspace{+p0}}}: Contract.service_submit_obstruction(Services.connected(access), Services.blocks(p0, transfers))
-    case E.UserInput{U.Activate{U.ControlTask{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ControlTask{p0, p1}), access))
-    case E.UserInput{U.Activate{U.CancelOperation{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.CancelOperation{p0, p1}), access))
-    case E.UserInput{U.Activate{U.ReviewApproval{+p0, +p1, +p2, +p3}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ReviewApproval{p0, p1, p2, p3}), access))
-    case E.UserInput{U.Activate{U.RetryWorktreeArchive{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.RetryWorktreeArchive{p0}), access))
-    case E.UserInput{U.Activate{U.DeleteProject{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteProject{p0}), access))
-    case E.UserInput{U.Activate{U.DeleteTaskGraph{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.DeleteTaskGraph{p0}), access))
-    case E.UserInput{U.Activate{U.BoardCommand{+p0}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.BoardCommand{p0}), access))
-    case E.UserInput{U.Activate{U.OpenPanel{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.OpenPanel{p0, p1}), access))
-    case E.UserInput{U.Activate{U.TogglePanel{+p0, +p1}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.TogglePanel{p0, p1}), access))
-    case E.UserInput{U.Activate{U.ClosePanel{}}}: Contract.service_action_obstruction(Core.command_offline(U.direct_command(U.ClosePanel{}), access))
-    case E.UserInput{U.Activate{U.ConfirmAction{}}}: Contract.service_action_obstruction(Bool.not(Services.connected(access)))
-    case E.UserInput{U.EnterDecision{+editor, +field_key}}: {==}
-    case E.UserInput{U.LeaveDecision{+editor}}: {==}
-    case E.UserInput{U.WriteDecisionParameter{+editor, +value}}: {==}
-    case E.UserInput{U.CompleteDecisionParameter{+editor}}: {==}
-    case E.UserInput{U.EditDraft{+p0, +p1}}: {==}
-    case E.UserInput{U.ReadTimeline{+p0, +p1, +p2}}: {==}
-    case E.UserInput{U.SetDisclosure{+p0, +p1, +p2, +p3}}: {==}
-    case E.UserInput{U.SetNavigation{+p0}}: {==}
-    case E.UserInput{U.SearchChoices{+p0}}: {==}
-    case E.UserInput{U.TogglePropertySource{+p0}}: {==}
-    case E.UserInput{U.FilterBoard{+p0}}: {==}
-    case E.RuntimeInput{+p0}: {==}
-    case E.ProgramObserved{+p0}: {==}
-    case E.CommandCompleted{+p0, +p1, +p2}: {==}
-    case E.DirectoriesObserved{+p0, +p1}: {==}
-    case E.ClockObserved{+p0}: {==}
-    case E.ModelPreferenceRestored{+p0, +p1}: {==}
-    case E.WorkspaceGitObserved{+p0, +p1}: {==}
+def Contract.submission_service_requirements(access, transfers, editor):
+  Contract.service_submit_obstruction(Services.connected(access), Services.blocks(editor, transfers))
+
+def Contract.workspace_retry_service_requirements(access, transfers, editor):
+  Contract.service_submit_obstruction(Services.connected(access), Services.blocks(editor, transfers))
+
+def Contract.confirmation_service_requirement(access, transfers):
+  Contract.service_action_obstruction(Bool.not(Services.connected(access)))
+
+def Contract.command_service_requirement(access, command): {==}
+
+def Contract.local_action_requires_no_connection(access): {==}

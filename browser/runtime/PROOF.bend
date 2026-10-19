@@ -3174,10 +3174,8 @@ def application_operations() -> Model.ApplicationOperations<M.World(), Browser.S
 
 def application_model() -> Model.Application(M.World(), Browser.State, Browser.Input, Browser.Decision, Browser.Pending, Browser.Effect):
   Categories.Membership{
-    Categories.Implementation{application_operations(), application_operations()},
-      Categories.Intersection{Model.ApplicationFaithfulness{a0 => a1 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => a2 => a3 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => a2 => {==}, a0 => a1 => a2 => a3 => a4 => {==}, a0 => a1 => {==}},
-
-      Categories.Intersection{
+    application_operations(),
+    Categories.Intersection{
       Model.ApplicationInitialization{world => serial => {==}},
       Categories.Intersection{
         Model.ApplicationCorrelation{
@@ -3185,7 +3183,7 @@ def application_model() -> Model.Application(M.World(), Browser.State, Browser.I
           ticket => serial => world => reply => state => completion_dispatch(ticket, serial, world, reply, state)},
         Model.ApplicationOrdering{
           serial => world => state => stale => stale_snapshot(serial, world, state, stale),
-          serial => world => reply => state => {==}}}}}}
+          serial => world => reply => state => {==}}}}}
 
 def display_operations() -> Model.DisplayOperations<M.World(), Browser.State, Browser.Input, Browser.Effect, BrowserModel.State, BrowserModel.Decision, BrowserModel.Publication, +List<Native.Update>, Document.Document>:
   Model.DisplayOperations{
@@ -3200,16 +3198,15 @@ def display_operations() -> Model.DisplayOperations<M.World(), Browser.State, Br
 def display_model() -> Model.DisplayModel(M.World(), Browser.State, Browser.Input, Browser.Effect,
   world => serial => Browser.initial(world, serial), state => Browser.program(state)):
   (BrowserModel.State, (BrowserModel.Decision, (BrowserModel.Publication,
-          (+List<Native.Update>, (Document.Document,
+    (+List<Native.Update>, (Document.Document,
       Categories.Membership{
-        Categories.Implementation{display_operations(), display_operations()},
-      Categories.Intersection{Model.DisplayFaithfulness{a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => a2 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}},
-          Categories.Intersection{
+        display_operations(),
+        Categories.Intersection{
           Model.DisplayComposition{
             world => serial => {==},
             state => {==}},
           Model.DisplayRetention{capacity => last => state => published => pending =>
-            publication_preserves_pending_at(capacity, last, state, published, pending)}}}})))))
+            publication_preserves_pending_at(capacity, last, state, published, pending)}}})))))
 
 def Rule.supporting_mask_evidence(blocked, support, property, input, availability):
   match blocked:

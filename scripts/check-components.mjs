@@ -1,52 +1,14 @@
 import { readFile, readdir, realpath } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const defaultRoot = fileURLToPath(new URL('../', import.meta.url));
-const configKeys = ['version', 'core_modules', 'application_dependencies',
+const configKeys = ['version', 'core_roots', 'core_forbidden_dependencies',
   'feature_alphabet', 'feature_alphabet_types', 'feature_match_owners', 'model_representations', 'proof_root', 'runtime_roots', 'foreign_sources'];
 
 export function isProofSource(filename) {
   const name = path.posix.basename(filename);
   return name === 'PROOF.bend' || name.endsWith('-proof.bend');
-}
-
-/** Registration permits dependencies; the full proof gate still checks evidence. */
-export function constructionProviders(root = defaultRoot) {
-  let config;
-  try {
-    config = JSON.parse(readFileSync(path.join(root, 'components.json'), 'utf8'));
-  } catch (error) {
-    if (error.code === 'ENOENT') return new Map();
-    throw error;
-  }
-  if (!Object.hasOwn(config, 'construction_providers')) return new Map();
-  const plainObject = value => value !== null && typeof value === 'object' &&
-    !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
-  const entries = config.construction_providers;
-  if (!plainObject(entries)) throw new Error('Invalid construction provider registry');
-  const providers = new Map();
-  for (const [filename, entry] of Object.entries(entries)) {
-    if (!/^(browser|interaction)\/.+-proof\.bend$/.test(filename) ||
-        path.posix.normalize(filename) !== filename || !plainObject(entry) ||
-        JSON.stringify(Object.keys(entry).sort()) !== JSON.stringify(['constructors', 'contract'])) {
-      throw new Error(`Invalid construction provider: ${filename}`);
-    }
-    const { contract, constructors } = entry;
-    if (typeof contract !== 'string' || !/^(browser|interaction)\/.+\.bend$/.test(contract) ||
-        path.posix.normalize(contract) !== contract || isProofSource(contract) ||
-        path.posix.dirname(contract) !== path.posix.dirname(filename)) {
-      throw new Error(`Invalid construction provider contract: ${filename}`);
-    }
-    if (!plainObject(constructors) || !Object.keys(constructors).length ||
-        Object.entries(constructors).some(([name, correspondence]) => !name.trim() ||
-          typeof correspondence !== 'string' || !correspondence.trim())) {
-      throw new Error(`Invalid construction provider constructors: ${filename}`);
-    }
-    providers.set(filename, { contract, constructors });
-  }
-  return providers;
 }
 
 function mask(source) {
@@ -170,7 +132,9 @@ export async function bendSources(root = defaultRoot) {
         if (name.split('/').length > 3) throw new Error(`Bend source exceeds two directory levels: ${name}`);
         result.push(name);
       }
-      else if (item.isSymbolicLink()) throw new Error(`Component audit does not accept source symlinks: ${name}`);
+      else if (item.isSymbolicLink() && name.endsWith('.bend')) {
+        throw new Error(`Component audit does not accept source symlinks: ${name}`);
+      }
     }
   }
   await visit('');
@@ -243,37 +207,17 @@ export async function entrySources(root, entry) {
 export async function auditComponents(root = defaultRoot) {
   root = await realpath(root);
   const config = JSON.parse(await readFile(path.join(root, 'components.json'), 'utf8'));
-  if (config.version !== 1 || JSON.stringify(Object.keys(config).filter(key => key !== 'construction_providers').sort()) !== JSON.stringify([...configKeys].sort())) {
+  if (config.version !== 2 || JSON.stringify(Object.keys(config).sort()) !== JSON.stringify([...configKeys].sort())) {
     throw new Error('Unsupported or incomplete components.json');
   }
-  for (const key of ['core_modules', 'feature_alphabet_types', 'feature_match_owners', 'runtime_roots']) {
+  for (const key of ['core_roots', 'core_forbidden_dependencies', 'feature_alphabet_types', 'feature_match_owners', 'runtime_roots']) {
     if (!Array.isArray(config[key]) || !config[key].length || config[key].some(value => typeof value !== 'string' || !value)) {
       throw new Error(`Invalid component boundary ${key}`);
-    }
-  }
-  if (!config.application_dependencies || Array.isArray(config.application_dependencies) ||
-      typeof config.application_dependencies !== 'object' || !Object.keys(config.application_dependencies).length) {
-    throw new Error('Invalid application dependency boundaries');
-  }
-  for (const [filename, dependencies] of Object.entries(config.application_dependencies)) {
-    if (!filename || !Array.isArray(dependencies) || dependencies.some(value => typeof value !== 'string' || !value)) {
-      throw new Error(`Invalid application dependency boundary: ${filename}`);
     }
   }
   const { filenames, sources, graph, imports } = await sourceGraph(root, config);
   const errors = [];
   const representations = modelPolicies(config, sources);
-  for (const [filename, { contract }] of constructionProviders(root)) {
-    if (!sources.has(filename) || !sources.has(contract)) {
-      throw new Error(`Missing construction provider source: ${filename} -> ${contract}`);
-    }
-    if (!Object.hasOwn(config.application_dependencies, filename) ||
-        !config.application_dependencies[filename].includes(contract) || !graph.get(filename).includes(contract)) {
-      errors.push(`Construction provider must declare and import its contract: ${filename} -> ${contract}`);
-    }
-  }
-
-
   for (const [filename, source] of sources) {
     const bindings = new Map(imports.get(filename).map(({ alias, target }) => [alias, target]));
     for (const use of qualifiedConstructors(source)) {
@@ -285,20 +229,16 @@ export async function auditComponents(root = defaultRoot) {
     }
   }
 
-  const core = new Set(config.core_modules);
-  for (const filename of core) {
-    if (!sources.has(filename)) throw new Error(`Missing core module: ${filename}`);
-    for (const target of graph.get(filename)) {
-      if (!core.has(target)) errors.push(`Core representation dependency: ${filename} -> ${target}`);
+  const core = new Set();
+  for (const entry of config.core_roots) {
+    for (const filename of sourceClosure(graph, entry)) {
+      core.add(filename);
+      if (config.core_forbidden_dependencies.some(pattern => matchesPattern(filename, pattern))) {
+        errors.push(`Core depends on application assembly or feature ownership: ${entry} -> ${filename}`);
+      }
     }
   }
   if (!sources.has(config.feature_alphabet)) throw new Error('Missing component alphabet');
-  for (const [filename, dependencies] of Object.entries(config.application_dependencies)) {
-    if (!sources.has(filename) || dependencies.some(target => !sources.has(target))) throw new Error(`Missing application boundary source: ${filename}`);
-    for (const target of graph.get(filename)) {
-      if (!dependencies.includes(target)) errors.push(`Application imports outside its contract: ${filename} -> ${target}`);
-    }
-  }
   const featureConstructors = constructors(sources.get(config.feature_alphabet), config.feature_alphabet_types);
   if (!featureConstructors.size) throw new Error('Feature alphabet has no recognized constructors');
   for (const [filename, source] of sources) {

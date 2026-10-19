@@ -189,9 +189,6 @@ def run(value: Nat) -> Nat:
     assert.equal(executeLibrary(requests[index].output, 'increment', 2).value, String(index ? 12 : 3));
     const manifest = JSON.parse(await readFile(`${requests[index].output}.json`, 'utf8'));
     assert.deepEqual(manifest.jointEntries, ['first.bend', 'second.bend']);
-    // Each module loads on its own, and contains no other entry's wrapper.
-    const emitted = await readFile(requests[index].output, 'utf8');
-    assert.equal(emitted.includes(`function $${index ? 'first' : 'second'}$run$(`), false);
   }
   assert.deepEqual((await compile()).map(result => result.cached), [true, true]);
   await writeFile(requests[0].entry, source(4, 2));
@@ -211,7 +208,7 @@ def run(value: Nat) -> Nat:
   assert.deepEqual((await compile()).map(result => result.cached), [false, true]);
   assert.equal(executeLibrary(requests[0].output, 'run', 2).value, '11');
 
-  // A root-owned constructor keeps its historical unqualified wire identity.
+  // Batching must preserve the source entry's public constructor identity.
   await writeFile(requests[0].entry, `import Base
 
 type Box is Data:

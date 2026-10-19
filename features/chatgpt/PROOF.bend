@@ -109,48 +109,6 @@ def constructed_completion_equation(+id: Nat, +value: J.Json, +error: Bool, +sta
   completion_equation(G.construct_completion(id, value, error, state))
 
 
-def command_value_calculation(construction: Categories.Construction<G.CommandRequest, G.Resolution>) -> G.Resolution:
-  Categories.Construction{request, result} = construction
-  G.request_resolution(request)
-
-def command_value_equation(member: G.ConstructedCommand()) ->
-  {G.command_value(member) == command_value_calculation(Categories.value(
-    Categories.Construction<G.CommandRequest, G.Resolution>,
-    Categories.constructed_by(G.CommandRequest, G.Resolution, G.request_resolution), member)) : G.Resolution}:
-  Categories.Membership{Categories.Construction{request, result}, evidence} = member
-  evidence
-
-def command_resolution_equation(+command: G.Command, +state: G.State, +projects: D.Projects) ->
-  {G.resolve(command, state, projects) == G.resolve_calculation(command, state, projects) : G.Resolution}:
-  {==}
-
-def completion_value_calculation(construction: Categories.Construction<G.CompletionRequest, Maybe<&2, G.Change>>) -> Maybe<&2, G.Change>:
-  Categories.Construction{request, result} = construction
-  G.completion_resolution(request)
-
-def completion_value_equation(member: G.ConstructedCompletion()) ->
-  {G.completion_value(member) == completion_value_calculation(Categories.value(
-    Categories.Construction<G.CompletionRequest, Maybe<&2, G.Change>>,
-    Categories.constructed_by(G.CompletionRequest, Maybe<&2, G.Change>, G.completion_resolution), member)) : Maybe<&2, G.Change>}:
-  Categories.Membership{Categories.Construction{request, result}, evidence} = member
-  evidence
-
-def change_construction_calculation(construction: Categories.Construction<Actual.ChangeRequest, C.Decision<G.State, G.Effect>>) -> C.Decision<G.State, G.Effect>:
-  Categories.Construction{request, result} = construction
-  Actual.change_result(request)
-
-def change_equation(member: Actual.ConstructedChange()) ->
-  {Actual.change_value(member) == change_construction_calculation(Categories.value(
-    Categories.Construction<Actual.ChangeRequest, C.Decision<G.State, G.Effect>>,
-    Categories.constructed_by(Actual.ChangeRequest, C.Decision<G.State, G.Effect>, Actual.change_result), member)) : C.Decision<G.State, G.Effect>}:
-  Categories.Membership{Categories.Construction{request, result}, evidence} = member
-  evidence
-
-def change_factory_equation(+change: G.Change, +state: G.State) ->
-  {Actual.realize_calculation(change, state) == Actual.change_calculation(change, state) : C.Decision<G.State, G.Effect>}:
-  {==}
-
-
 # NOTE: The quoted map closure exports removal absence, but no inserted-head lookup.
 # This bridge is tied to the actual ChatGPT update and read operations.
 def cancel_key_same(+id: Nat) -> {Nat.is_eq(id, id) == True{} : Bool}:
@@ -181,20 +139,6 @@ def owner_bool_checked(+accepted: Bool, +connection: Nat, +project: Nat, +id: Na
     case True{}: {==}
     case False{}: {==}
 
-def owner_bool_equation(+accepted: Bool, +connection: Nat, +project: Nat, +id: Nat, +job: G.Job,
-  observed: {G.owned(connection, project, job) == accepted : Bool}) ->
-  {G.owner_admission(connection, project, id, False{},
-     Categories.admit(G.Job, candidate => G.owned(connection, project, candidate), job)) ==
-   owner_bool_calculation(accepted, connection, project, id, job) : G.Resolution}:
-  Equal.trans(G.Resolution,
-    G.owner_admission(connection, project, id, False{},
-      Categories.admit(G.Job, candidate => G.owned(connection, project, candidate), job)),
-    owner_bool_calculation(G.owned(connection, project, job), connection, project, id, job),
-    owner_bool_calculation(accepted, connection, project, id, job),
-    owner_bool_checked(G.owned(connection, project, job), connection, project, id, job, {==}),
-    Equal.cong(Bool, G.Resolution, value => owner_bool_calculation(value, connection, project, id, job),
-      G.owned(connection, project, job), accepted, observed))
-
 def authority_bool_calculation(accepted: Bool, +connection: Nat, +project: Nat, +id: Nat, state: G.State) -> G.Resolution:
   match accepted:
     case True{}: G.found_job(Finite.find(~G.Job, G.jobs(state), id), connection, project, id, False{})
@@ -208,21 +152,6 @@ def authority_bool_checked(+accepted: Bool, +connection: Nat, +project: Nat, +id
   match accepted:
     case True{}: {==}
     case False{}: {==}
-
-def authority_bool_equation(+accepted: Bool, +connection: Nat, +project: Nat, +id: Nat, +state: G.State, +grant: G.Grant,
-  observed: {G.project_grant_allowed(project, grant) == accepted : Bool}) ->
-  {G.edit_authorized(connection, project,
-     Categories.admit(G.Grant, candidate => G.project_grant_allowed(project, candidate), grant), id, False{}, state) ==
-   authority_bool_calculation(accepted, connection, project, id, state) : G.Resolution}:
-  Equal.trans(G.Resolution,
-    G.edit_authorized(connection, project,
-      Categories.admit(G.Grant, candidate => G.project_grant_allowed(project, candidate), grant), id, False{}, state),
-    authority_bool_calculation(G.project_grant_allowed(project, grant), connection, project, id, state),
-    authority_bool_calculation(accepted, connection, project, id, state),
-    authority_bool_checked(G.project_grant_allowed(project, grant), connection, project, id, state, grant, {==}),
-    Equal.cong(Bool, G.Resolution, value => authority_bool_calculation(value, connection, project, id, state),
-      G.project_grant_allowed(project, grant), accepted, observed))
-
 
 def owner_bool_actual(+connection: Nat, +project: Nat, +id: Nat, +job: G.Job) ->
   {G.owner_admission(connection, project, id, False{},

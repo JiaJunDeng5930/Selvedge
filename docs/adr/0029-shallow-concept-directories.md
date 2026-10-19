@@ -24,12 +24,13 @@ entries. Root `MAIN.bend`, `KERNEL.bend` and `BROWSER.bend` retain their native
 boundary roles. Keep reusable theory, JSON, component frames and parameterized
 effects in `bendlib`; domain correspondence stays with its owning model.
 
-Move sources and resolve their imports without changing their non-import bodies.
-The executable requirements, mandatory contracts and proof assembly remain the
-semantic authority. Source ownership and closed import boundaries follow the
-new paths; the model representation decision in
-[ADR 0028](0028-model-representation-boundaries.md) remains in force. Do not retain
-old-path forwarding modules or symlinks, or document a second migration map.
+This organizational move changed source paths and imports while holding behavior
+fixed, so its verification could isolate the move. Executable contracts and proof
+assembly express the behavior being checked; their requirements still need a
+basis in the engineering goal. Source ownership and core import boundaries follow
+the new paths; [ADR 0028](0028-model-representation-boundaries.md) explains those
+owners. The move retained no old-path forwarding modules, symlinks or second
+migration map.
 
 ## Tradeoffs and evidence boundaries
 

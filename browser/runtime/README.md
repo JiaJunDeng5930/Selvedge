@@ -20,10 +20,8 @@ request's raw recovery calculation. The provider uses
 `frontend-utility.source_with_recovery` to replace only the recovery children with
 constructed nodes; diagnostic and layout calculations stay shared. Independence
 from the assembled runtime avoids an import cycle, while provider-before-consumer
-order satisfies the pinned compiler's live-reference checks. Formal acceptance
-and focused construction checks completed; their scope is recorded in
-[the exploration notes](../../docs/bend2-exploration.md). Physical browser behavior
-and external effects remain separate verification boundaries.
+order satisfies the pinned compiler's live-reference checks. Physical browser
+behavior and external effects remain separate verification boundaries.
 
 Normal physical receipts continue the production display calculation. A terminal
 failure uses the same recovery producer as the initial build, making its reason

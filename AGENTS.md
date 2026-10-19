@@ -4,10 +4,11 @@ This file is for coding agents working in this repository.
 
 ## 最高原则：直接围绕工程需求与目标
 
-- 工程需求与工程目标是本仓库一切工作的最高依据。本原则优先于其余仓库约定、技能流程、历史方案和工作记录；不得用这些内容代替需求判断。
-- 写入工程的所有内容，包括文字、代码、规格、证明、测试、脚本和配置，都必须直接定义、实现、证明或验证工程需求与目标。禁止任何间接路径；不得用另一个对象充当工程正确性的依据。
+- 工程目标是本仓库一切工作的最终依据。需求、规格、仓库约定、技能流程、历史方案和工作记录均须据此判断和调整，不得成为脱离目标的独立要求。
+- 写入工程的所有内容，包括文字、代码、规格、证明、测试、脚本和配置，都必须直接围绕工程目标所要求的性质及解决这些性质所需的问题展开。
+- 已有工程产物可以作为参考或工具，但不得仅凭其存在、既有结构或既有行为引入新要求。调整工程时，已有产物默认删除或调整；只有经验或证据表明其仍服务于工程目标时才保留。
 - 规格必须直接表达需求。实现必须满足规格；证明必须建立实现对规格的保证；测试必须直接检验所负责的工程行为或边界。不得把历史实现、当前实现自身、证明便利性、测试通过或流程完成当作正确性的依据。
-- 修改实现时，以工程规格为准。不得仅为保持旧算法而保留旧实现、建立新旧实现等价要求，或把旧实现的具体选择追加为程序义务。
+- 修改实现前，先确认工程规格仍准确表达工程目标；规格偏离目标时一并修正。不得仅为保持旧算法而保留旧实现、建立新旧实现等价要求，或把旧实现的具体选择追加为程序义务。
 - 审查首先判断内容是否直接服务于工程目标，再判断其内部是否正确。不能说明直接需求依据的内容，应删除或改正，不得通过追加假设、适配、证明、测试或审查流程使其自我成立。
 - 不得为了简化实现或通过验证而削弱真实需求。进度以工程目标的实际完成情况衡量，不以新增定义、证明、检查或审查轮次的数量衡量。
 - 测试是否新增或保留，必须结合真实使用场景、故障经验、具体改动风险、已有保障和运行维护成本判断；“这是需求”或“想保证某个性质”本身不构成增测理由。删除收益不足的测试，不得把人为测试门槛反过来当作工程目标。
@@ -29,9 +30,9 @@ This file is for coding agents working in this repository.
 - The host interprets committed effects. Keep task policy in Bend and verify host ordering through integration tests.
 - For each property, prefer construction in the domain language, then types, then proofs, then focused tests, and finally end-to-end tests. Check those earlier mechanisms before retaining a test; do not test a property already guaranteed there. A possible bug or an external boundary alone does not justify a test: require a convincing, concrete likelihood of real failure relative to its maintenance cost; default to deleting it otherwise. Merge related physical checks and their setup. Keep the complete production proof gate. The remaining test responsibilities are in tests-bend/README.md.
 - Express decision reasons that are program requirements as Bend entities, executable specifications or public rules bound to actual production computations. Do not maintain another account in documentation of requirements already expressed there. ADRs are optional; record exploration-specific findings in `docs/bend2-exploration.md`.
-- Keep the core import closure declared in `components.json` independent of the assembled harness/MODEL.bend and concrete features. Add feature cases in their owning `features/<concept>` modules or `harness/features` assembly; global consumers process stable outer categories. Boundary configuration changes require the same review as contract changes.
+- Keep the transitive import closure of the core roots in `components.json` independent of the assembled harness/MODEL.bend, harness/features and concrete features. New helpers need no dependency inventory when they preserve that independence. Add feature cases in their owning `features/<concept>` modules or `harness/features` assembly; global consumers process stable outer categories. Review boundary changes against those responsibilities.
 - Bind component refinement, intended writes and unrelated-state preservation to actual production functions. Scope preservation to the owning component's operations. Check changed component interfaces and assembly through the production proof and source-ownership gates; do not maintain hypothetical extensions that repeatedly compile copies of the application.
-- Keep shared surface types independent of feature views. Feature cursor encoding, validation and decoding belong to the same assembly boundary as navigation. Contract-preserving replacement equality belongs to production proofs, not checker-only fixtures.
+- Keep shared surface types independent of feature views. Feature cursor encoding, validation and decoding belong to the same assembly boundary as navigation. Replacement implementations must satisfy the required observations and updates through production proofs; equality with an old implementation is not an independent obligation.
 
 ## Git Hooks
 

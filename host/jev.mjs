@@ -5,8 +5,8 @@ import { readText } from './network.mjs';
 import { adaptivePolicy } from './reasoning-config.mjs';
 import { boundary, observeJson } from './public/model-boundary.mjs';
 
-export const evaluatorLimits = Object.freeze({ tool_output_tokens: 1000, recent_calls: 6, request_tokens: 28_000,
-  request_bytes: 2_100_000, response_bytes: 65_536, tokenizer: 'o200k_base' });
+const evaluatorToolOutputTokens = 1000;
+const evaluatorResponseBytes = 65_536;
 const tokenizerOptions = { disallowedSpecial: new Set() };
 const omittedMiddle = '\n[Tool output preview: middle omitted]\n';
 
@@ -69,8 +69,8 @@ function observedKind(value) {
 }
 
 function budgetConstruction(outputs, maximum) {
-  // Observe the budget before touching outputs, retaining the original rejection
-  // order without attempting to serialize undefined or nonfinite numbers.
+  // Reject invalid budgets before inspecting output accessors or serializing
+  // undefined or nonfinite observations.
   evaluatorOperation('budget_plan', { maximum: typeof maximum === 'number' && Number.isFinite(maximum) ? maximum : null, entries: [] });
   const entries = Array.from({ length: outputs.length }, (_, index) => {
     if (!(index in outputs)) return { index, absent: true, own_fields: [],
@@ -101,12 +101,7 @@ function budgetConstruction(outputs, maximum) {
   });
   const construction = { ...source, allocation, previews };
   const plan = evaluatorOperation('budget_finish', construction);
-  return { construction, plan, outputs: outputs.map((output, index) => ({ ...output,
-    text: plan[index].text_action === 'original' ? output.text : plan[index].text, preview: plan[index].preview })) };
-}
-
-export function budgetOutputs(outputs, maximum = evaluatorLimits.tool_output_tokens) {
-  return budgetConstruction(outputs, maximum).outputs;
+  return { construction, plan };
 }
 
 function contextConstruction(effect) {
@@ -116,25 +111,17 @@ function contextConstruction(effect) {
   })) : [];
   const source = { effect, observations };
   const selected = evaluatorOperation('context_select', source);
-  const budgeted = selected.recent_tool_calls.map(call => budgetConstruction(call.outputs, evaluatorLimits.tool_output_tokens));
+  const budgeted = selected.recent_tool_calls.map(call => budgetConstruction(call.outputs, evaluatorToolOutputTokens));
   const construction = { ...source, selected, budgeted: budgeted.map(value => ({ construction: value.construction, plan: value.plan })) };
   return { construction, context: evaluatorOperation('context_finish', construction) };
 }
 
-export function decisionContext(effect) {
-  return contextConstruction(effect).context;
-}
-
 export function decisionRequest(effect, evaluator) {
   const policy = adaptivePolicy(effect.model.adaptive_reasoning);
-  // Native policy admission precedes context work, as in the original API.
+  // Reject invalid adaptive policy before constructing evaluator context.
   evaluatorOperation('request', { effect, evaluator, policy, phase: 'policy', context: null });
   const { context, construction } = contextConstruction(effect);
   return evaluatorOperation('request', { effect, evaluator, policy, context, context_construction: construction });
-}
-
-export function validateDecision(reply, evaluator, policy) {
-  return evaluatorOperation('decision', { reply, evaluator, policy });
 }
 
 function retryPlan(source) {
@@ -204,7 +191,7 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
     }
     let text, observation;
     try {
-      text = await readText(response.body, evaluatorLimits.response_bytes);
+      text = await readText(response.body, evaluatorResponseBytes);
       observation = observeJson(text);
       if (observation.error) throw new SyntaxError(observation.error);
     } catch { deadline.throwIfAborted(); throw new Error('Jev returned an invalid or oversized JSON response'); }

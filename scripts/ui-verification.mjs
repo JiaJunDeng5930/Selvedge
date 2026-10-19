@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { constructionProviders, isProofSource } from './check-components.mjs';
+import { isProofSource } from './check-components.mjs';
 
 function mask(source) {
   return source.replace(/"(?:\\.|[^"\\])*"|#[^\n]*/g, text => text.replace(/[^\n]/g, ' '));
@@ -12,7 +12,7 @@ function inventory(root) {
     for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
       if (entry.name.startsWith('.') || ['node_modules', 'target', 'crates'].includes(entry.name)) continue;
       const filename = path.posix.join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`UI verification refuses source symlinks: ${filename}`);
+      if (entry.isSymbolicLink() && filename.endsWith('.bend')) throw new Error(`UI verification refuses source symlinks: ${filename}`);
       if (entry.isDirectory()) visit(filename);
       else if (entry.isFile() && filename.endsWith('.bend')) sources.set(filename, readFileSync(path.join(root, filename), 'utf8'));
     }
@@ -46,8 +46,6 @@ function imports(filename, source) {
   return { aliases, targets };
 }
 
-// Only declaration heads participate in separation; equality in a predicate's
-// body or parameter does not make that predicate a proof implementation.
 function declarations(filename, source) {
   const text = mask(source);
   const result = [];
@@ -61,21 +59,7 @@ function declarations(filename, source) {
       else if (char === ':' && depth === 0) break;
     }
     if (end === text.length) throw new Error(`Missing declaration head delimiter: ${filename}:${match[2]}`);
-    const head = text.slice(match.index, end);
-    let signature = '';
-    if (match[1] === 'def') {
-      let parameterDepth = 0;
-      const start = head.indexOf('(');
-      for (let index = start; index >= 0 && index < head.length; index++) {
-        if (head[index] === '(') parameterDepth++;
-        else if (head[index] === ')' && --parameterDepth === 0) {
-          signature = head.slice(index + 1).trim();
-          break;
-        }
-      }
-    }
-    result.push({ kind: match[1], name: match[2], signature,
-      line: text.slice(0, match.index).split('\n').length + 1 });
+    result.push({ kind: match[1], name: match[2] });
   }
   return result;
 }
@@ -88,10 +72,9 @@ function canonical(filename, name, aliases) {
   return `${filename.slice(0, -5)}.${name}`;
 }
 
-function lawProviders(proofs, modules, laws) {
+function lawProviders(modules, laws) {
   const providers = new Map([...laws].map(law => [law, []]));
-  for (const filename of proofs) {
-    const module = modules.get(filename);
+  for (const [filename, module] of modules) {
     for (const declaration of module.declarations) {
       if (declaration.kind !== 'def') continue;
       providers.get(canonical(filename, declaration.name, module.aliases))?.push(filename);
@@ -107,99 +90,16 @@ function inspect(root) {
   }]));
   const rules = [...sources.keys()].filter(filename => isRule(filename, sources.get(filename))).sort();
   const proofs = [...sources.keys()].filter(filename => /^(interaction|browser)\//.test(filename) && isProofSource(filename)).sort();
-  const witnesses = new Set();
   const laws = new Set();
   for (const rule of rules) {
     for (const declaration of modules.get(rule).declarations) {
-      if (declaration.kind === 'type' && /Requirements?$/.test(declaration.name)) witnesses.add(canonical(rule, declaration.name, new Map()));
       if (declaration.kind === 'law') laws.add(canonical(rule, declaration.name, new Map()));
     }
   }
-  const providers = lawProviders(proofs, modules, laws);
+  const providers = lawProviders(modules, laws);
   const errors = [];
-  const constructions = constructionProviders(root);
-  const allowedConstructions = new Set();
-  const lawOwners = new Map();
   for (const rule of rules) {
-    for (const declaration of modules.get(rule).declarations) {
-      if (declaration.kind === 'law') lawOwners.set(canonical(rule, declaration.name, new Map()), rule);
-    }
-  }
-  for (const [filename, { contract, constructors }] of constructions) {
-    const initialErrors = errors.length;
-    const module = modules.get(filename);
-    if (!module || !rules.includes(contract)) {
-      errors.push(`UI construction provider requires a discovered rule: ${filename} -> ${contract}`);
-      continue;
-    }
-    if (!module.targets.includes(contract)) {
-      errors.push(`UI construction provider must import its contract: ${filename} -> ${contract}`);
-    }
-    const declaredLaws = new Set(modules.get(contract).declarations
-      .filter(declaration => declaration.kind === 'law').map(declaration => declaration.name));
-    for (const name of new Set(Object.entries(constructors).flat())) {
-      if (!declaredLaws.has(name)) {
-        errors.push(`UI construction provider names a missing contract law: ${filename} -> ${contract}:${name}`);
-        continue;
-      }
-      const implementations = providers.get(canonical(contract, name, new Map()));
-      if (implementations.length !== 1 || implementations[0] !== filename) {
-        errors.push(`UI construction law requires its registered sole provider: ${contract}:${name} -> ${filename}`);
-      }
-    }
-    for (const declaration of module.declarations) {
-      if (declaration.kind !== 'def') continue;
-      const name = canonical(filename, declaration.name, module.aliases);
-      if (lawOwners.has(name) && lawOwners.get(name) !== contract) {
-        errors.push(`UI construction provider implements another rule: ${filename}:${declaration.name} -> ${lawOwners.get(name)}`);
-      }
-    }
-    if (errors.length === initialErrors) allowedConstructions.add(filename);
-  }
-  for (const [filename, module] of modules) {
-    if (!/^(interaction|browser)\//.test(filename) || isProofSource(filename)) continue;
-    const seen = new Set();
-    const pending = [filename];
-    while (pending.length) {
-      const current = pending.pop();
-      if (seen.has(current)) continue;
-      seen.add(current);
-      if (isProofSource(current) && !allowedConstructions.has(current)) {
-        errors.push(`UI model/rule imports a proof provider: ${filename} -> ${current}`);
-        continue;
-      }
-      const imported = modules.get(current);
-      if (!imported) throw new Error(`Missing UI verification source: ${current}`);
-      pending.push(...imported.targets);
-    }
-    for (const declaration of module.declarations) {
-      if (declaration.kind !== 'def') continue;
-      const name = canonical(filename, declaration.name, module.aliases);
-      if (laws.has(name)) errors.push(`UI law implementation outside proofs: ${filename}:${declaration.line}: ${declaration.name}`);
-      if (declaration.signature.includes('==') || declaration.signature.includes('!=')) {
-        errors.push(`UI equality witness outside proofs: ${filename}:${declaration.line}: ${declaration.name}`);
-      }
-      for (const token of declaration.signature.matchAll(/\b[A-Za-z_][\w.]*/g)) {
-        if (witnesses.has(canonical(filename, token[0], module.aliases))) {
-          errors.push(`UI contract witness outside proofs: ${filename}:${declaration.line}: ${declaration.name}`);
-          break;
-        }
-      }
-    }
-  }
-  for (const rule of rules) {
-    const moduleDeclarations = modules.get(rule).declarations;
-    const declarations = moduleDeclarations.filter(declaration => declaration.kind === 'law');
-    if (!declarations.length) {
-      const contracts = moduleDeclarations.filter(declaration =>
-        declaration.kind === 'type' && /Requirements?$/.test(declaration.name));
-      // This existing aggregate is committed by architecture.surface and filled
-      // by interaction/PROOF; it does not declare a second facade-local evidence law.
-      if (contracts.length && rule !== 'interaction/CONTRACT.bend') {
-        errors.push(`UI contract has no public law committing its requirements: ${rule}: ${contracts.map(declaration => declaration.name).join(', ')}`);
-      }
-      continue;
-    }
+    const declarations = modules.get(rule).declarations.filter(declaration => declaration.kind === 'law');
     for (const declaration of declarations) {
       const implementations = providers.get(canonical(rule, declaration.name, new Map()));
       if (!implementations.length) {
@@ -211,23 +111,22 @@ function inspect(root) {
         continue;
       }
       const [provider] = implementations;
-      if (!modules.get(provider).targets.includes(rule)) {
+      if (provider !== rule && !modules.get(provider).targets.includes(rule)) {
         errors.push(`UI proof must import its rule: ${provider} -> ${rule}`);
       }
     }
   }
-  if (errors.length) throw new Error(`UI verification separation failed:\n${errors.join('\n')}`);
-  return { discovered: [...new Set([...rules, ...proofs])].sort(), providers };
+  if (errors.length) throw new Error(`UI law provider check failed:\n${errors.join('\n')}`);
+  return { discovered: [...new Set([...rules, ...proofs, ...[...providers.values()].flat()])].sort(), providers };
 }
 
-export function checkUiSeparation(root) {
+export function checkUiLawProviders(root) {
   return inspect(realpathSync(root)).discovered;
 }
 
-function orderProofs(root, discovered, providers) {
-  const proofs = discovered.filter(isProofSource);
-  const dependencies = new Map(proofs.map(filename => [filename, new Set()]));
-  for (const filename of proofs) {
+function orderProviders(root, discovered, providers) {
+  const dependencies = new Map(discovered.map(filename => [filename, new Set()]));
+  for (const filename of discovered) {
     const source = readFileSync(path.join(root, filename), 'utf8');
     const module = imports(filename, source);
     const required = dependencies.get(filename);
@@ -245,7 +144,7 @@ function orderProofs(root, discovered, providers) {
     }
   }
   const ordered = [];
-  const pending = new Set(proofs);
+  const pending = new Set(discovered);
   while (pending.size) {
     const ready = [...pending].sort().find(filename =>
       [...dependencies.get(filename)].every(provider => !pending.has(provider)));
@@ -283,7 +182,7 @@ export function prepareUiVerification(root) {
   const { discovered, providers } = inspect(root);
   const sources = [...new Set(['PROOF.bend', 'BROWSER.bend', ...discovered])].sort();
   const entries = ['PROOF.bend', 'BROWSER.bend'];
-  const ordered = [...discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))), ...orderProofs(root, discovered, providers), ...entries];
+  const ordered = [...orderProviders(root, discovered, providers), ...entries];
   const imports = ['import Base', ...ordered
     .map((filename, index) => `import ../${filename} as Verification${index}`)];
   const entry = '.build/ui-verification.bend';

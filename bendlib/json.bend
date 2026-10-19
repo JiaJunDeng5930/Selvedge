@@ -37,7 +37,6 @@ def same(left: Json, right: Json) -> Bool:
     case Object{Con{Field{left_name, left_value}, left_rest}} Object{Con{Field{right_name, right_value}, right_rest}}:
       same_text(left_name, right_name) && same(left_value, right_value) && same(Object{left_rest}, Object{right_rest})
     case _ _: False{}
-    case _ _: False{}
 
 # Objects with unique keys compare independently of field order. Array order
 # and numeric lexemes retain their structural meaning.

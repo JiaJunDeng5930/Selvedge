@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { auditComponents } from '../scripts/check-components.mjs';
@@ -20,9 +20,9 @@ def text() -> String:
   "Core.State{value} case Feature.Add{value}:"
 `),
     write('components.json', JSON.stringify({
-      version: 1,
-      core_modules: ['core.bend'],
-      application_dependencies: { 'client.bend': ['core.bend', 'alphabet.bend'] },
+      version: 2,
+      core_roots: ['core.bend'],
+      core_forbidden_dependencies: ['alphabet.bend'],
       feature_alphabet: 'alphabet.bend',
       feature_alphabet_types: ['Command'],
       feature_match_owners: ['alphabet.bend'],
@@ -32,6 +32,7 @@ def text() -> String:
       foreign_sources: {},
     })),
   ]);
+  await symlink('core.bend', path.join(directory, 'source-link.txt'));
   assert.equal((await auditComponents(directory)).ok, true);
 
   await write('client.bend', imports + `
@@ -49,4 +50,17 @@ def feature_value(command: Feature.Command) -> Nat:
   assert.equal(errors.length, 2);
   assert.ok(errors.some(error => error.includes('Model representation outside its owner boundary: client.bend:')));
   assert.ok(errors.some(error => error.includes('Feature pattern outside its component/assembly boundary: client.bend:')));
+
+  // Adding an independent helper needs no copy of the current import graph.
+  await write('helper.bend', 'import Base\n');
+  await write('core.bend', 'import Base\nimport ./helper.bend as Helper\ntype State is Data:\n  State{value: Nat}\n');
+  await write('client.bend', imports);
+  assert.equal((await auditComponents(directory)).ok, true);
+  // The same helper must not smuggle a feature dependency into the core.
+  await write('helper.bend', 'import Base\nimport ./alphabet.bend as Feature\n');
+  assert.ok((await auditComponents(directory)).errors.some(error =>
+    error.includes('Core depends on application assembly or feature ownership: core.bend -> alphabet.bend')));
+  await write('helper.bend', 'import Base\n');
+  await write('PROOF.bend', 'import Base\n');
+  assert.ok((await auditComponents(directory)).errors.includes('Pure production module outside proof closure: helper.bend'));
 });

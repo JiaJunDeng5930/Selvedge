@@ -28,9 +28,11 @@ for the exact three existing IO assumptions, not additional promises or a type
 error. This does not turn the native entry into pure evidence. The default checker
 remains a trusted boundary; the optional independent BendTT verdict is not claimed.
 
-Keep test files serialized because native compilation still has a large working
-set. Retain the existing subprocess limit, every mutation test and actual native
-round trips.
+This upgrade used serialized test files because native compilation had a large
+working set. Its comparison kept the existing subprocess limit, mutation cases
+and native round trips fixed to isolate the compiler change. Those experimental
+controls do not require future checks to retain the same deadlines or fixtures;
+the current workflow is described in the root README.
 
 ## Evidence and consequences
 

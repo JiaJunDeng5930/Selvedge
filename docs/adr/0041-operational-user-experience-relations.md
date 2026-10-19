@@ -41,5 +41,5 @@ The design draws on [mental models](https://www.nngroup.com/articles/mental-mode
 [object-oriented UX](https://ooux.com/),
 [proximity](https://www.nngroup.com/articles/gestalt-proximity/) and
 [visual hierarchy](https://www.nngroup.com/articles/visual-hierarchy-ux-definition/).
-These inform the choice of relationships; the executable definitions remain the
-source of the application's requirements.
+These inform the choice of relationships; the executable definitions encode the
+chosen relationships for checking against the user's activity and goals.

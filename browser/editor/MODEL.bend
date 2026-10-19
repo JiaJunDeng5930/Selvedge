@@ -43,22 +43,11 @@ type FieldKind is Data:
   Ordinary{}
   WorkTitle{}
   WorkDescription{}
-  MetadataFlexible{}
-  MetadataWide{}
-  CaptureOption{}
 
 def card_field(field: Forms.Field) -> FieldKind:
   match field:
     case Forms.CardTitle{}: WorkTitle{}
     case Forms.CardDescription{}: WorkDescription{}
-    case Forms.CardStage{}: MetadataFlexible{}
-    case Forms.CardPriority{}: MetadataFlexible{}
-    case Forms.CardProject{}: MetadataFlexible{}
-    case Forms.CardOwner{}: MetadataWide{}
-    case Forms.CardLabels{}: MetadataWide{}
-    case Forms.ContinueCapture{}: CaptureOption{}
-    case Forms.AssistedCapture{}: CaptureOption{}
-    case Forms.AssistanceProfile{}: CaptureOption{}
     case _: Ordinary{}
 
 def field_kind(meaning: SurfaceTypes.Meaning) -> FieldKind:

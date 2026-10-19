@@ -25,9 +25,10 @@ do not create another wrapper merely to rename an already proved family or split
 every Boolean clause. Current ownership and authorization remain contextual
 properties, and external process execution retains its host boundary.
 
-Checker-only tests are removed because accepting or rejecting a Bend source,
-proof or certificate repeats the production checker's verdict rather than
-observing an independent domain behavior. Production constructions and their
-proofs retain the universal requirements and mandatory check gate. Actual
-runtime values, JavaScript translator source-data boundaries, native round trips
-with frozen clients and external integration remain test responsibilities.
+Checker-only fixtures were removed where they merely repeated the production
+checker's verdict without supplying useful additional evidence. Production
+constructions and proofs check the specified universal properties. Runtime
+values, JavaScript translation, native round trips and external integration can
+need separate observations, selected for their concrete failure risk and cost.
+Keeping clients fixed in an extension experiment isolates that extension; it
+does not freeze those clients for later requirement changes.

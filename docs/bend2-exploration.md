@@ -1,9 +1,13 @@
 # Bend 2 migration: exploration record
 
-This record collects findings from implementing the executable model. The current
-requirements themselves live in `../harness/LAWS.bend`, the domain in `../harness/MODEL.bend`, and the
-executed transition in `../harness/PROGRAM.bend`. Dates describe observations on this branch,
-not claims about all Bend versions.
+This record collects findings from implementing the executable model. For the
+current execution specification, follow `../harness/LAWS.bend`, the domain in
+`../harness/MODEL.bend`, and the executed transition in `../harness/PROGRAM.bend`.
+These specifications are assessed against the engineering goal. Entries describe
+their original snapshots, measurements and decisions; later entries can supersede
+them. Counts, commands, limits and retained algorithms below are historical
+evidence, not current configuration or requirements for future work. Consult the
+root README and owning source for the current workflow.
 
 ## Task-board integration
 
@@ -1536,14 +1540,13 @@ them. Their leaf closures avoid the assembled-model import cycles. Recovery
 source composition shares `source_with_recovery` and changes only its proved
 children, without duplicating diagnostic or layout calculations.
 
-The existing model-to-proof import denial also rejected these independent
-construction libraries. Their dependency role is now declared explicitly in
-`components.construction_providers`, separately from assembled system proof.
-Contract and constructor correspondence bindings identify the unique owner;
-transitive inspection still rejects unregistered proof sources and global
-assembly. This records permitted construction reuse rather than treating
-registration as semantic evidence. Full proof acceptance, foreign-boundary and
-zero-hole gates remain mandatory.
+At this snapshot, the model-to-proof import denial also rejected these independent
+construction libraries. A `components.construction_providers` exception registry
+declared their dependency role separately from assembled system proof. The
+restriction and registry were later removed: provider discovery and unique law
+bindings locate the evidence without that extra registration. The measurements
+below describe the earlier adoption; compiler acceptance of the production
+proofs remains separate from source registration.
 
 The final authored formal check exited zero with all proof obligations accepted
 across 467 sources. Its source snapshot remained unchanged, all 46 browser exports

@@ -80,17 +80,15 @@ through the assembled models. This is an ordering constraint, not a namespace
 resolution failure or a reason to weaken the contracts.
 
 Certified construction libraries have a different dependency role from the
-assembled system proof. `components.json` explicitly declares the three owning
-providers in `construction_providers`, binding each to its contract, constructors
-and complete caller-source correspondence laws. This allows production models to
-consume their established constructions without importing the global proof
-assembly. The boundary checks require the declared laws' unique owning provider
-and continue traversing its dependencies, rejecting unregistered proof sources
-and assembled proof entries. Registration declares this limited dependency role;
-it does not establish proof acceptance or replace the mandatory evidence,
-foreign-boundary and zero-hole gates. The completed formal check accepted this
-boundary adoption; its scope and focused fixture results are recorded in the
-exploration notes.
+assembled system proof. An earlier `construction_providers` registry in
+`components.json` allowed these libraries through a blanket model-to-proof import
+restriction. That restriction and its exception registry have since been removed:
+provider discovery and unique law bindings already locate the required evidence,
+without prescribing provider filenames, directories or one contract per provider.
+Production models consume the constructions through their actual dependencies;
+the compiler still checks complete caller-source correspondence, foreign
+boundaries and absence of proof holes. The formal and focused fixture results in
+the exploration notes describe the earlier registry's adoption.
 
 Recovery uses the independent runtime utility provider. Its source replaces only
 recovery children through the proved factory and shares `source_with_recovery`
@@ -105,9 +103,9 @@ rejection outcomes, remain obligations of production proofs.
 
 ## Verification boundaries
 
-The executable model and production proof entries own the requirements; this ADR
-does not duplicate their law definitions. Isolated compiler checks establish only
-the closures they actually check. The whole-project check and test results belong
+The executable model and production proof entries state and check the intended
+properties; this ADR does not duplicate their law definitions. Isolated compiler
+checks establish only the closures they actually check. The whole-project check and test results belong
 to [the exploration notes](../bend2-exploration.md). The pinned production proof
 check includes input-content and exact-viewport construction obligations; the
 earlier project check, locality tests and complete integration suite passed as

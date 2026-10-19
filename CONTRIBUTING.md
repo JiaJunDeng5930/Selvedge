@@ -1,12 +1,16 @@
 # Contributing to Selvedge
 
 Read [README.md](README.md) and the relevant module README before changing code.
-The executable requirements in [harness/MODEL.bend](harness/MODEL.bend),
+Start from the engineering goal and the behavior the change needs to provide.
+The executable specifications in [harness/MODEL.bend](harness/MODEL.bend),
 [harness/INVARIANTS.bend](harness/INVARIANTS.bend) and
-[harness/LAWS.bend](harness/LAWS.bend) are the entry point for behavior changes.
+[harness/LAWS.bend](harness/LAWS.bend) are the execution entry points to review.
 [harness/PROGRAM.bend](harness/PROGRAM.bend) executes those definitions;
 [PROOF.bend](PROOF.bend) checks the
-required facts. Do not weaken a requirement merely to make an implementation pass.
+stated properties. Correct specifications along with their implementations when
+they do not express the goal. A passing proof or an existing behavior does not
+establish that the specification is appropriate; do not weaken a real requirement
+merely to make an implementation pass.
 
 ## Setup and checks
 
@@ -23,15 +27,15 @@ runs the focused physical regression suite after the production build.
 `just check` runs the same checks, and `just hooks`
 executes the configured hook stages. GitHub Actions CI is disabled; run these checks locally.
 
-For each proposed or existing test, first move its property to the domain language's
-construction, types or proofs wherever possible. Do not test that property again.
-Then ask whether experience gives a convincing likelihood of actual failure and
-whether the check justifies its maintenance cost; default to deletion if it does
-not. An external boundary or an unproved possibility alone is insufficient.
-Prefer a focused test over an end-to-end scenario and merge related physical
-checks and their setup. See `tests-bend/README.md` for the remaining responsibilities.
-The complete production proof and certificate checks remain mandatory; they do
-not prove that a host, compiler or remote provider obeys the model.
+Choose assurance for the behavior at risk. Use domain construction, types and
+proofs where they establish the needed property, then assess what a test would
+add: a real failure history, a credible failure path, or an observation outside
+that guarantee. Retain a test only when that evidence justifies its runtime and
+maintenance cost; a duplicate assertion or an external boundary alone is
+insufficient. Prefer focused checks and share related physical setup. See
+[tests-bend/README.md](tests-bend/README.md) for the current responsibilities.
+The configured production proof and certificate checks validate the model and
+its evidence; they do not prove that a host, compiler or remote provider obeys it.
 
 After adding, renaming, or removing files, stage them, run `bun run index`, and
 stage `AGENTS.md`. The index is derived from Git's staged tracked paths. Temporary
@@ -48,8 +52,10 @@ rather than changing it to make a development run succeed.
 Work on a focused branch; `main` is protected. Explain the resulting behavior,
 its reason, and the relevant verification. Express decision reasons that are
 program requirements as Bend entities, executable specifications or public rules
-bound to actual production computations. Do not maintain another account in
-documentation of requirements already expressed there. ADRs are optional.
+bound to actual production computations. Documentation can explain their goal,
+rationale, use and evidence limits; link to the owning definitions instead of
+maintaining a competing specification. ADRs record decisions in their original
+scope and do not freeze their implementations or supply new requirements.
 Record findings specific to the executable-model exploration in
 [docs/bend2-exploration.md](docs/bend2-exploration.md); avoid restating code tables
 or maintaining a second state-machine diagram.

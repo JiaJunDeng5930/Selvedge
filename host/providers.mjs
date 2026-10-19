@@ -27,10 +27,6 @@ export class ContextScopeChangedError extends Error {
   }
 }
 
-export function providerInput(history, profile = {}) {
-  return boundary('backend.input', { history, profile });
-}
-
 export function providerOutput(output, profile = {}, output_indices = []) {
   const arguments_observations = [];
   // Parsing supplies raw structural observations; admission belongs to Bend.
