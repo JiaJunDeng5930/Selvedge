@@ -11,6 +11,8 @@ import ./RPC.bend as Rpc
 import ./CONFIGURATION.bend as Configuration
 import ./EVALUATOR.bend as Evaluator
 import ./HTTP.bend as Http
+import ./AUDIO.bend as Audio
+import ./CODEX_AUDIO_ACCOUNT.bend as CodexAudioAccount
 
 def http_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -62,8 +64,18 @@ def backend_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json
     case True{}: Backends.run(operation, source)
     case False{}: account_route(String.starts_with(operation, "account."), operation, source)
 
+def audio_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: Audio.run(operation, source)
+    case False{}: backend_route(String.starts_with(operation, "backend."), operation, source)
+
+def codex_audio_account_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: CodexAudioAccount.run(operation, source)
+    case False{}: audio_route(String.starts_with(operation, "audio."), operation, source)
+
 def run(+operation: String, +source: J.Json) -> J.Json:
-  backend_route(String.starts_with(operation, "backend."), operation, source)
+  codex_audio_account_route(String.starts_with(operation, "codex_audio_account."), operation, source)
 
 def meaning_http_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -115,8 +127,18 @@ def meaning_backend_route(accepted: Bool, +operation: String, +source: J.Json) -
     case True{}: Backends.meaning(operation, source)
     case False{}: meaning_account_route(String.starts_with(operation, "account."), operation, source)
 
+def meaning_audio_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: Audio.meaning(operation, source)
+    case False{}: meaning_backend_route(String.starts_with(operation, "backend."), operation, source)
+
+def meaning_codex_audio_account_route(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: CodexAudioAccount.meaning(operation, source)
+    case False{}: meaning_audio_route(String.starts_with(operation, "audio."), operation, source)
+
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  meaning_backend_route(String.starts_with(operation, "backend."), operation, source)
+  meaning_codex_audio_account_route(String.starts_with(operation, "codex_audio_account."), operation, source)
 
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}

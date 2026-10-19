@@ -33,9 +33,11 @@ export class StdioRpc extends EventEmitter {
 
   get available() { return this.#decide('rpc.available'); }
 
-  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128 } = {}) {
+  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128, decodeMessage = message => message, decodeResult = value => value } = {}) {
     super();
     Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending });
+    this.decodeMessage = decodeMessage;
+    this.decodeResult = decodeResult;
     this.stderr = capture(limits.tool_output_bytes);
     this.#child = spawn(config.command, config.args ?? [], {
       cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
@@ -47,7 +49,8 @@ export class StdioRpc extends EventEmitter {
     this.closed = new Promise(resolve => {
       this.#child.once('exit', () => killGroup(this.#child));
       this.#child.once('close', (code, signal) => {
-        const decision = this.#decide('rpc.exit', { code, signal });
+        // DEFENSE: Bun emits an undefined close signal when spawn fails (for example ENOENT); observe the absent signal as null.
+        const decision = this.#decide('rpc.exit', { code, signal: signal ?? null });
         // DEFENSE: A plugin/MCP process can exit before pending replies arrive; reject those requests and withdraw its routes.
         if (decision.action === 'fail') this.#fail(new Error(decision.error));
         resolve();
@@ -118,7 +121,7 @@ export class StdioRpc extends EventEmitter {
   }
 
   #message(message) {
-    const decision = this.#decide('rpc.message', { message });
+    const decision = this.#decide('rpc.message', { message: this.decodeMessage(message) });
     const execute = {
       ignore: () => {},
       notify: () => this.emit('notification', decision.message),
@@ -126,7 +129,7 @@ export class StdioRpc extends EventEmitter {
       resolve: () => {
         const pending = this.#pending.get(decision.id);
         this.#apply(decision);
-        pending.resolve(decision.value);
+        pending.resolve(this.decodeResult(decision.value, message));
       },
       reject: () => {
         const pending = this.#pending.get(decision.id);

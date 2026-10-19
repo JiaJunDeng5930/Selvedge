@@ -1,3 +1,5 @@
+import ./features/idle.bend as IdleCreation
+import ./conversation/speech.bend as Speech
 import Base
 import ../features/titles/PROGRAM.bend as Titles
 import ../features/compaction/PROGRAM.bend as Compaction
@@ -78,6 +80,20 @@ def execute_start_environment(profile: D.Profile, reasoning: String, message: St
 
 def execute_start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   execute_start_environment(profile, reasoning, message, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
+
+def execute_start_idle_environment(profile: D.Profile, reasoning: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
+  match selection world environment_value:
+    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
+      tasks = D.state_tasks(task_state)
+      +next_task = D.state_next_task(task_state)
+      +contract : D.Contract = D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context}
+      task : D.Task = D.Task{next_task, Nil{}, contract, D.execution_configuration(contract),
+        D.Active{}, D.EmptyHistory{}, Nil{}, D.Idle{}, Nil{}, True{}}
+      task = D.initialize_idle_history(instructions, guidance, task)
+      respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
+
+def execute_start_idle(profile: D.Profile, reasoning: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+  execute_start_idle_environment(profile, reasoning, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def execute_delivery(text: String, +task: D.Task, world: M.World()) -> M.Decision():
   respond(store(T.receive(text, task), world), id_result(D.task_id(task)))
@@ -167,6 +183,12 @@ def realize_calculation(operation: Commands.Operation, +world: M.World()) -> M.D
     case Commands.ConfigureExecution{task, configuration}: Commands.configured_task(task, configuration, world)
     case Commands.Refuse{code, reason}: reject(world, code, reason)
     case Commands.Review{resolution}: review_result(resolution, world)
+    case Commands.StartIdle{profile, reasoning, +selection, work, create_worktree}: IdleCreation.actual(work, create_worktree, selection, world, execute_start_idle(profile, reasoning, selection, world))
+    case Commands.ReplaySpeech{result}: respond(world, result)
+    case Commands.RecordSpeech{+task, +session, +item, speaker, completion, text}:
+      respond(store(Speech.record(session, item, speaker, completion, text, task), world), Speech.transcript_result(D.task_id(task), session, item, False{}))
+    case Commands.DelegateSpeech{+task, +session, +identity, +mode, message}:
+      C.Decision{store(Speech.accepted(session, identity, mode, message, task), world), D.success(Speech.delegation_result(D.task_id(task), session, identity, False{})), Commands.speech_effects(mode, task)}
     case Commands.Start{profile, reasoning, message, selection}: execute_start(profile, reasoning, message, selection, world)
     case Commands.FeatureOperation{operation}: FeatureExec.realize_calculation(~execute_start, operation, world)
     case Commands.Deliver{task, message}: execute_delivery(message, task, world)

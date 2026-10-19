@@ -31,6 +31,9 @@ type Query is Data:
 
 type Command is Data:
   Create{profile: String, reasoning: String, message: String, settings: J.Json}
+  CreateIdle{profile: String, reasoning: String, settings: J.Json, work: Maybe<&2, Nat>, create_worktree: Bool}
+  RecordSpeechTranscript{task_id: Nat, session_id: String, item_id: String, speaker: String, completion: String, text: String}
+  AcceptSpeechDelegation{task_id: Nat, session_id: String, delegation_id: String, message: String, mode: String}
   Send{task_id: Nat, message: String}
   Steer{task_id: Nat, message: String}
   Cancel{task_id: Nat, operation_id: Nat}
@@ -50,6 +53,9 @@ type Command is Data:
 type CommandKind is Data:
   ConfigureTaskExecutionCommand{}
   CreateCommand{}
+  CreateIdleCommand{}
+  RecordSpeechTranscriptCommand{}
+  AcceptSpeechDelegationCommand{}
   SendCommand{}
   SteerCommand{}
   CancelCommand{}
@@ -84,12 +90,21 @@ def feature_specs(specs: +List<F.CommandSpec>) -> +List<CommandSpec>:
     case Con{F.CommandSpec{name, description, kind, schema}, rest}:
       CommandSpec{name, description, FeatureKind{kind}, schema} <> feature_specs(rest)
 
+def speech_choice_schema(description: String, values: +List<String>) -> J.Json:
+  J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"description", J.Text{description}}, J.Field{"enum", J.Array{J.text_items(values)}}]}
+
 def commands() -> +List<CommandSpec>:
   List.append(&2, CommandSpec, feature_specs(F.specs(D.task_settings_schema())),
   [CommandSpec{"configure_task_execution", "Change a quiescent task's current execution settings while preserving its creation snapshot.", ConfigureTaskExecutionCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"profile", D.string_schema("Configured execution profile")},
        J.Field{"reasoning", D.string_schema("Permitted reasoning effort")}, J.Field{"sandbox", D.sandbox_schema()},
        J.Field{"approval", D.approval_schema()}], [J.Text{"task_id"}, J.Text{"profile"}, J.Text{"reasoning"}, J.Text{"sandbox"}, J.Text{"approval"}])},
+   CommandSpec{"create_idle", "Create a task with frozen execution settings without submitting an initial input.", CreateIdleCommand{},
+     D.command_schema([J.Field{"profile", D.string_schema("Configured execution profile")}, J.Field{"reasoning", D.string_schema("Permitted reasoning effort")}, J.Field{"settings", D.task_settings_schema()}, J.Field{"work_id", D.task_id_schema()}, J.Field{"create_worktree", J.Object{[J.Field{"type", J.Text{"boolean"}}]}}], [J.Text{"profile"}])},
+   CommandSpec{"record_speech_transcript", "Record a final speech transcript without invoking or scheduling the task model.", RecordSpeechTranscriptCommand{},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"session_id", D.string_schema("Voice session identity")}, J.Field{"item_id", D.string_schema("Upstream transcript item identity")}, J.Field{"speaker", speech_choice_schema("Speaker in the voice session", ["user", "assistant"])}, J.Field{"completion", speech_choice_schema("Transcript completion", ["completed", "interrupted"])}, J.Field{"text", D.string_schema("Final transcript text")}], [J.Text{"task_id"}, J.Text{"session_id"}, J.Text{"item_id"}, J.Text{"speaker"}, J.Text{"completion"}, J.Text{"text"}])},
+   CommandSpec{"accept_speech_delegation", "Accept a voice work delegation through ordinary task input, retaining its receipt in the same decision.", AcceptSpeechDelegationCommand{},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"session_id", D.string_schema("Voice session identity")}, J.Field{"delegation_id", D.string_schema("Stable upstream delegation identity")}, J.Field{"message", D.string_schema("Work instruction")}, J.Field{"mode", speech_choice_schema("Ordinary task input behavior", ["send", "steer"])}], [J.Text{"task_id"}, J.Text{"session_id"}, J.Text{"delegation_id"}, J.Text{"message"}, J.Text{"mode"}])},
    CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
      D.command_schema([J.Field{"profile", D.string_schema("Configured model profile")},
        J.Field{"reasoning", D.string_schema("Reasoning effort; defaults to medium")},
@@ -194,6 +209,10 @@ def feature_input_mode(schedules: Bool) -> InputMode:
 
 def input_mode(input: Input) -> InputMode:
   match input:
+    case UserCommand{CreateIdle{profile, reasoning, settings, work, create_worktree}}: UpdateOnly{}
+    case UserCommand{RecordSpeechTranscript{id, session, item, speaker, completion, text}}: UpdateOnly{}
+    case RemoteCommand{request, CreateIdle{profile, reasoning, settings, work, create_worktree}, environment}: UpdateOnly{}
+    case RemoteCommand{request, RecordSpeechTranscript{id, session, item, speaker, completion, text}, environment}: UpdateOnly{}
     case UserCommand{Observe{query}}: Observation{}
     case UserCommand{FeatureCommand{command}}: feature_input_mode(F.schedules(command))
     case RemoteProbe{request, command}: Observation{}

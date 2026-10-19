@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
+import ./AUDIO.bend as Audio
 
 def flag(+source: J.Json, name: String) -> Bool:
   J.boolean(J.get(source, name))
@@ -192,6 +193,31 @@ def remote_route_rejection(known: Bool, query_empty: Bool) -> J.Json:
     case True{} True{}: rejection("405", "method", "Use the remote management endpoint's supported method")
     case False{} _: unknown_route()
 
+# NOTE: Audio IDs are opaque path segments; query credentials never enter the account adapter.
+def audio_path_segments(parts: List<&2, String>) -> String:
+  match parts:
+    case [a, b, c, +d]:
+      Bool.pick(String, String.eq(a, "") && String.eq(b, "api") && String.eq(c, "audio") &&
+        (String.eq(d, "capabilities") || String.eq(d, "transcribe") || String.eq(d, "sessions") || String.eq(d, "login")),
+        Bool.pick(String, String.eq(d, "sessions"), "create", d), "")
+    case [a, b, c, d, id, +e]:
+      Bool.pick(String, String.eq(a, "") && String.eq(b, "api") && String.eq(c, "audio") && String.eq(d, "sessions") &&
+        Bool.not(String.eq(id, "")) && (String.eq(e, "events") || String.eq(e, "stop")), e, "")
+    case _: ""
+
+def audio_path(+source: J.Json) -> String:
+  audio_path_segments(String.split(J.text(J.get(source, "pathname")), Chr{47}))
+
+def audio_method(+source: J.Json, +kind: String) -> Bool:
+  Bool.pick(Bool, String.eq(kind, "capabilities") || String.eq(kind, "events"),
+    String.eq(J.text(J.get(source, "method")), "GET"), String.eq(J.text(J.get(source, "method")), "POST"))
+
+def audio_target_kind(+source: J.Json, +kind: String) -> String:
+  Bool.pick(String, Bool.not(String.eq(kind, "")) && audio_method(source, kind), String.append("audio_", kind), "")
+
+def audio_target(+source: J.Json) -> String:
+  audio_target_kind(source, audio_path(source))
+
 def local_unknown_route(+source: J.Json) -> J.Json:
   remote_route_rejection(remote_management_path(source), J.same(J.get(source, "search"), J.Text{""}))
 
@@ -297,8 +323,17 @@ def body_shape_remote(remote: Bool, +target: String, body: J.Json) -> Bool:
     case True{}: remote_body_shape(target, body)
     case False{}: body_shape_refresh(String.eq(target, "account_refresh"), target, body)
 
-def body_shape(+target: String, body: J.Json) -> Bool:
-  body_shape_remote(starts(target, "remote_"), target, body)
+def audio_create_body(+body: J.Json) -> Bool:
+  Model.same_json(body, J.Object{[J.Field{"connection", J.get(body, "connection")}, J.Field{"task_id", J.get(body, "task_id")},
+    J.Field{"sdp", J.get(body, "sdp")}, J.Field{"browser_id", J.get(body, "browser_id")}]}) &&
+    remote_identifier(J.get(body, "connection")) && remote_identifier(J.get(body, "sdp")) && remote_identifier(J.get(body, "browser_id"))
+
+def audio_login_body(+body: J.Json) -> Bool:
+  Model.same_json(body, J.Object{[J.Field{"browser_id", J.get(body, "browser_id")}]}) && remote_identifier(J.get(body, "browser_id"))
+
+def body_shape(+target: String, +body: J.Json) -> Bool:
+  Bool.pick(Bool, String.eq(target, "audio_login"), audio_login_body(body),
+    Bool.pick(Bool, String.eq(target, "audio_create"), audio_create_body(body), body_shape_remote(starts(target, "remote_"), target, body)))
 
 def connection_path(+source: J.Json) -> Bool:
   starts(J.text(J.get(source, "pathname")), "/api/chatgpt/")
@@ -333,9 +368,13 @@ def body_target_remote(empty: Bool, remote: String, +source: J.Json) -> String:
     case True{}: body_target_0(path_method(source, "POST", "/api/accounts/refresh"), source)
     case False{}: remote
 
-def body_target(+source: J.Json) -> String:
+def body_target_existing(+source: J.Json) -> String:
   +remote = remote_body_target(source)
   body_target_remote(String.eq(remote, ""), remote, source)
+
+def body_target(+source: J.Json) -> String:
+  +target = audio_target(source)
+  Bool.pick(String, String.eq(target, "audio_create") || String.eq(target, "audio_login"), target, body_target_existing(source))
 
 # DEFENSE: Request text or its host parsing observation can be malformed; reject
 # a failed parse before checking the route's body shape or extracting its value.
@@ -367,7 +406,9 @@ def body_error_remote(remote: Bool, +target: String) -> J.Json:
     case False{}: body_error(String.eq(target, "account_refresh"))
 
 def body_error_target(+target: String) -> J.Json:
-  body_error_remote(starts(target, "remote_"), target)
+  Bool.pick(J.Json, String.eq(target, "audio_login"), exception("TypeError", "Voice sign-in contains only browser_id"),
+    Bool.pick(J.Json, String.eq(target, "audio_create"), exception("TypeError", "Voice session requires connection, Task, SDP and browser identity"),
+      body_error_remote(starts(target, "remote_"), target)))
 
 def reply_status_plan(ok: Bool) -> J.Json:
   match ok:
@@ -494,10 +535,14 @@ def request_guard(+source: J.Json, local: Categories.Membership<J.Json, LocalReq
   open_host_guard(source, candidate => request_admitted(Categories.admit_intersection(J.Json,
     (candidate => open_valid(candidate)), (candidate => host_valid(candidate)), candidate), local, connection))
 
+def local_audio_target(+source: J.Json) -> String:
+  +target = audio_target(source)
+  Bool.pick(String, String.eq(target, ""), remote_read_target(source), target)
+
 def local_target_7(accepted: Bool, +source: J.Json) -> String:
   match accepted:
     case True{}: "health"
-    case False{}: remote_read_target(source)
+    case False{}: local_audio_target(source)
 
 def local_target_6(accepted: Bool, +source: J.Json) -> String:
   match accepted:
@@ -671,10 +716,54 @@ def content_admission(+source: J.Json) -> J.Json:
 def body_admission(+source: J.Json) -> J.Json:
   request_guard(source, member => content_request(LocalRequest, member, True{}), member => content_request(ConnectionRequest, member, True{}))
 
-def meaning_9(accepted: Bool, operation: String, +source: J.Json) -> J.Json:
+def audio_limit() -> J.Json:
+  J.Object{[J.Field{"allowed", J.Boolean{True{}}}, J.Field{"max_bytes", J.Number{Audio.asr_max_bytes()}},
+    J.Field{"timeout_ms", J.Number{Audio.request_timeout_ms()}}, J.Field{"connect_timeout_ms", J.Number{Audio.connect_timeout_ms()}}, J.Field{"session_max_ms", J.Number{Audio.session_max_ms()}}]}
+
+def audio_reject(message: String) -> J.Json:
+  J.Object{[J.Field{"allowed", J.Boolean{False{}}}, J.Field{"message", J.Text{message}}]}
+
+def audio_decimal_bounded(value: J.Json, maximum: String) -> Bool:
+  match value:
+    case J.Number{+text}: Model.decimal_digits(text) && Model.decimal_le(trim_zero(text), maximum)
+    case _: False{}
+
+def audio_owner_valid(+source: J.Json) -> Bool:
+  remote_identifier(J.get(source, "browser_id")) && J.same(J.get(source, "browser_id"), J.get(source, "owner"))
+
+# DEFENSE: Authenticated browsers can exceed media budgets or name a live session owned by another browser.
+def audio_admission_kind(+source: J.Json, +kind: String) -> J.Json:
+  Bool.pick(J.Json, String.eq(kind, "create"),
+    Bool.pick(J.Json, remote_identifier(J.get(source, "browser_id")) && flag(source, "task_valid") && audio_decimal_bounded(J.get(source, "session_count"), "0"),
+      audio_limit(), audio_reject("Voice requires an existing Task and one session per browser")),
+    Bool.pick(J.Json, String.eq(kind, "transcribe"),
+      Bool.pick(J.Json, remote_identifier(J.get(source, "browser_id")) && starts(J.text(J.get(source, "mime")), "audio/") &&
+        audio_decimal_bounded(J.get(source, "body_bytes"), Audio.asr_max_bytes()) && audio_decimal_bounded(J.get(source, "elapsed_ms"), Audio.request_timeout_ms()),
+        audio_limit(), audio_reject("Audio upload requires audio MIME and is limited to 25 MiB and 120 seconds")),
+      Bool.pick(J.Json, audio_owner_valid(source) && flag(source, "exists") && audio_decimal_bounded(J.get(source, "elapsed_ms"), Audio.session_max_ms()),
+        audio_limit(), audio_reject("Audio session is unavailable to this browser"))))
+
+def audio_admission(+source: J.Json) -> J.Json:
+  audio_admission_kind(source, J.text(J.get(source, "kind")))
+
+def public_command_allowed(+source: J.Json) -> J.Json:
+  +op = J.text(J.get(J.get(source, "command"), "op"))
+  J.Object{[J.Field{"allowed", J.Boolean{Bool.not(String.eq(op, "record_speech_transcript") || String.eq(op, "accept_speech_delegation"))}}]}
+
+def meaning_public_command(accepted: Bool, source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: Model.success(public_command_allowed(source))
+    case False{}: Model.failure("Unknown HTTP operation")
+
+def meaning_audio(accepted: Bool, +operation: String, source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: Model.success(audio_admission(source))
+    case False{}: meaning_public_command(String.eq(operation, "http.public_command"), source)
+
+def meaning_9(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: Model.success(reply_status_plan(J.boolean(J.get(J.get(source, "reply"), "ok"))))
-    case False{}: Model.failure("Unknown HTTP operation")
+    case False{}: meaning_audio(String.eq(operation, "http.audio"), operation, source)
 
 def meaning_8(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -917,3 +1006,7 @@ law admitted_content_route_target:
 law admitted_body_route_target:
   @-Request:(J.Json -> Type) -> @source:J.Json -> @evidence:BodyRequest(Request, source) ->
   {J.get(body_terminal(Request, Categories.Membership{source, evidence}), "action") == J.Text{body_target(source)} : J.Json}
+
+# Resource observations are checked before physical media or control operations.
+law admitted_audio_owner:
+  @source:J.Json -> {audio_owner_valid(source) == (remote_identifier(J.get(source, "browser_id")) && J.same(J.get(source, "browser_id"), J.get(source, "owner"))) : Bool}

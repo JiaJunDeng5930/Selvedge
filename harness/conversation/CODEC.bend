@@ -8,6 +8,10 @@ def call_json(call: D.Call) -> J.Json:
 
 def message_json(message: D.Message) -> J.Json:
   match message:
+    case D.SpeechTranscript{owner, session, item, speaker, completion, text}:
+      J.Object{[J.Field{"role", J.Text{"speech_transcript"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"session_id", J.Text{session}}, J.Field{"item_id", J.Text{item}}, J.Field{"speaker", J.Text{D.speech_speaker_name(speaker)}}, J.Field{"completion", J.Text{D.speech_completion_name(completion)}}, J.Field{"content", J.Text{text}}]}
+    case D.SpeechDelegationReceipt{owner, session, delegation, mode, message}:
+      J.Object{[J.Field{"role", J.Text{"speech_delegation_receipt"}}, J.Field{"task_id", J.nat(owner)}, J.Field{"session_id", J.Text{session}}, J.Field{"delegation_id", J.Text{delegation}}, J.Field{"mode", J.Text{mode}}, J.Field{"content", J.Text{message}}]}
     case D.ForkResult{owner, call_id, branch}:
       J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"call_id", J.Text{call_id}},
         J.Field{"content", J.nat(branch)}, J.Field{"is_error", J.Boolean{False{}}}]}

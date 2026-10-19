@@ -546,6 +546,8 @@ def context_item(+message: J.Json, profile: J.Json) -> J.Json:
   context_item_checked(context_valid(J.text(J.get(message, "type")), message), message, profile)
 
 type InputItemRoleName is Data:
+  InputItemRoleNameSpeechTranscript{}
+  InputItemRoleNameSpeechDelegationReceipt{}
   InputItemRoleNameReasoningRecord{}
   InputItemRoleNameTaskContext{}
   InputItemRoleNameUser{}
@@ -558,7 +560,9 @@ type InputItemRoleName is Data:
   InputItemRoleNameOther{}
 
 def input_item_role_discriminant(+value: String) -> InputItemRoleName:
-  Bool.pick(InputItemRoleName, String.eq(value, "reasoning_record"), InputItemRoleNameReasoningRecord{},
+  Bool.pick(InputItemRoleName, String.eq(value, "speech_transcript"), InputItemRoleNameSpeechTranscript{},
+    Bool.pick(InputItemRoleName, String.eq(value, "speech_delegation_receipt"), InputItemRoleNameSpeechDelegationReceipt{},
+    Bool.pick(InputItemRoleName, String.eq(value, "reasoning_record"), InputItemRoleNameReasoningRecord{},
     Bool.pick(InputItemRoleName, String.eq(value, "tool_receipt"), InputItemRoleNameReasoningRecord{},
     Bool.pick(InputItemRoleName, String.eq(value, "after_record"), InputItemRoleNameReasoningRecord{},
     Bool.pick(InputItemRoleName, String.eq(value, "approval_record"), InputItemRoleNameReasoningRecord{},
@@ -571,10 +575,13 @@ def input_item_role_discriminant(+value: String) -> InputItemRoleName:
     Bool.pick(InputItemRoleName, String.eq(value, "hook_record"), InputItemRoleNameHookRecord{},
     Bool.pick(InputItemRoleName, String.eq(value, "error"), InputItemRoleNameError{},
     Bool.pick(InputItemRoleName, String.eq(value, "model_context"), InputItemRoleNameModelContext{},
-    InputItemRoleNameOther{})))))))))))))
+    InputItemRoleNameOther{})))))))))))))))
 
 def input_item_role_classified(role: InputItemRoleName, +message: J.Json, +profile: J.Json) -> J.Json:
   match role:
+    case InputItemRoleNameSpeechTranscript{}:
+      Model.success(J.Array{[J.Object{[J.Field{"role", J.get(message, "speaker")}, J.Field{"content", J.get(message, "content")}]}]})
+    case InputItemRoleNameSpeechDelegationReceipt{}: Model.success(J.Array{Nil{}})
     case InputItemRoleNameReasoningRecord{}: history_data(message)
     case InputItemRoleNameTaskContext{}: context_item(message, profile)
     case InputItemRoleNameUser{}: Model.success(J.Array{Con{J.Object{Con{J.Field{"role", J.get(message, "role")}, Con{J.Field{"content", J.get(message, "content")}, Nil{}}}}, Nil{}}})

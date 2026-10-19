@@ -17,6 +17,17 @@ semantic requirements, component refinement and unrelated-state preservation.
 Tests do not recompile hypothetical application extensions or repeat semantic
 traces through HTTP and SQLite.
 
+Audio checks exercise multipart bytes and account refresh, WebRTC call/control
+protocol delivery, media teardown and committed task progress. The service probe
+uses a real delayed Responses fixture to check that accepted work completes after
+voice ends. Speech admission, draft updates, transcript-only history and delegation
+receipt semantics belong to their production Bend proofs.
+
+The official audio authentication component has one subprocess boundary check for
+its versionless RPC frames, login notifications, secret isolation, refresh and
+shutdown. It uses an isolated home; public SiwC inference authorization does not
+advertise audio access.
+
 The source gate checks core entries' actual transitive dependencies against
 application and feature ownership, private representation access, and production
 proof coverage. Independent helpers need no duplicate import whitelist. The UI

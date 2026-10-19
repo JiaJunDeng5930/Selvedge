@@ -1,8 +1,12 @@
+import ../bendlib/json.bend as J
+import ./speech/MODEL.bend as Speech
+import ./services/CONTEXT.bend as Context
 import Base
 import ../bendlib/categories.bend as Categories
 import ./conversation/CODE.bend as Content
 import ./conversation/OUTPUT.bend as Live
 import ../harness/MODEL.bend as M
+import ../harness/transport/command-codec.bend as CommandCodec
 import ../features/board/MODEL.bend as B
 import ../bendlib/association-map.bend as Finite
 import ./INPUT.bend as U
@@ -267,8 +271,91 @@ def directory_request_admitted(found: Maybe<&1, Categories.Membership<ServiceReq
     case Some{member}: directory_allowed(member)
     case None{}: application_result(E.refuse(application, "The workspace editor is not available"), services)
 
+def speech_draft(application: E.Application, editor: U.Editor) -> Maybe<&2, U.Draft>:
+  E.find_draft(E.drafts(E.session(application)), editor)
+
+def speech_text(body: U.Body) -> Maybe<&2, String>:
+  match body:
+    case U.NewTask{text, profile, reasoning, context, worktree, work}: Some{U.text(text)}
+    case U.Message{task, text, delivery}: Some{U.text(text)}
+    case _: None{}
+
+def speech_insertion(append: Bool, +old: String, text: String, start: Nat, end: Nat) -> String:
+  match append:
+    case True{}: old ++ text
+    case False{}: String.take(old, start) ++ text ++ String.drop(old, end)
+
+def insert_speech_admitted(found: Maybe<&2, String>, accepted: Bool, editor: U.Editor, text: String, append: Bool, start: Nat, end: Nat, application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
+  match found accepted:
+    case Some{old} True{}:
+      application_result(apply_edit(Some{U.WriteMessage{U.Text{speech_insertion(append, old, text, start, end)}}}, editor, application),
+        Services.with_speech(Speech.with_activity(Speech.Idle{}, Services.speech(services)), services))
+    case _ _: application_result(E.unchanged(application), services)
+
+def speech_new_command(body: U.Body) -> J.Json:
+  match body:
+    case U.NewTask{message, profile, reasoning, context, create_worktree, work}:
+      CommandCodec.command_json(M.CreateIdle{profile, reasoning, Context.settings(context), work, create_worktree})
+    case _: J.Null{}
+
+def insert_speech_text(found: Maybe<&2, String>, current: Nat, target: Speech.Target, text: String, +append: Bool, +application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  Speech.Target{+editor, revision, start, end} = target
+  insert_speech_admitted(found, (append || Nat.is_eq(current, revision)) && Bool.not(E.busy(E.pending(E.session(application)), editor)), editor, text, append, start, end, application, services)
+
+def speech_begin_new_found(found: Maybe<&2, U.Draft>, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, +work}, feedback, directory_entry}}:
+      service_result(Services.step(Services.SpeechInput{Speech.BeginNewVoice{U.NewTaskEditor{work}, speech_new_command(U.NewTask{message, profile, reasoning, context, create_worktree, work})}}, services), application)
+    case _: application_result(E.refuse(application, "Open a new task composer to start voice"), services)
+
+def insert_speech_found(found: Maybe<&2, U.Draft>, target: Speech.Target, text: String, append: Bool, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
+  match found:
+    case Some{U.Draft{current, body, feedback, directory_entry}}:
+      insert_speech_text(speech_text(body), current, target, text, append, application, services)
+    case None{}: application_result(E.unchanged(application), services)
+
+def insert_speech_activity(activity: Speech.Activity, append: Bool, +application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match activity:
+    case Speech.Retained{Speech.Target{+editor, +revision, +start, +end}, text}:
+      insert_speech_found(speech_draft(application, editor), Speech.Target{editor, revision, start, end}, text, append, application, services)
+    case _: application_result(E.unchanged(application), services)
+
+def insert_speech(append: Bool, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
+  insert_speech_activity(Speech.activity(Services.speech(services)), append, application, services)
+
+def speech_completion_owned(current: Bool, ticket: Nat, text: String, +application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match current:
+    case False{}: application_result(E.unchanged(application), services)
+    case True{}:
+      insert_speech(False{}, application, service_decision_state(Services.step(Services.SpeechInput{Speech.Transcribed{ticket, text}}, services)))
+
+def speech_completion_activity(activity: Speech.Activity, +ticket: Nat, text: String, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match activity:
+    case Speech.Transcribing{current, target}:
+      speech_completion_owned(Nat.is_eq(current, ticket), ticket, text, application, services)
+    case _: application_result(E.unchanged(application), services)
+
+def speech_completion(+ticket: Nat, text: String, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
+  speech_completion_activity(Speech.activity(Services.speech(services)), ticket, text, application, services)
+
+def speech_task_created(current: Bool, ticket: Nat, +task: Nat, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match current:
+    case False{}: application_result(E.unchanged(application), services)
+    case True{}: service_result(Services.step(Services.SpeechInput{Speech.TaskCreated{ticket, task}}, services), attached(ExperienceProgram.step(E.UserInput{U.Activate{U.Navigate{U.Conversation{task}}}}, application)))
+
+def speech_input(input: Speech.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
+  match input:
+    case Speech.Transcribed{ticket, text}: speech_completion(ticket, text, application, services)
+    case Speech.InsertTranscript{}: insert_speech(True{}, application, services)
+    case Speech.BeginNewVoice{editor, command}:
+      speech_begin_new_found(speech_draft(application, editor) , application, services)
+    case Speech.TaskCreated{+ticket, +task}:
+      speech_task_created(Speech.owned(Speech.activity(Services.speech(services)), ticket), ticket, task, application, services)
+    case other: service_result(Services.step(Services.SpeechInput{other}, services), application)
+
 def service_input(input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match input:
+    case Services.SpeechInput{input}: speech_input(input, application, services)
     case Services.OpenDirectoryPicker{+editor, path, trigger}:
       directory_request_admitted(Categories.admit(ServiceRequest, directory_request_available, ServiceRequest{Services.OpenDirectoryPicker{editor, path, trigger}, application, services}), application, services)
     case Services.AddFile{+editor, file}:

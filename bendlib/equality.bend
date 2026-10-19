@@ -175,6 +175,13 @@ def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
         json(budget, D.approval_reviewer_json(reviewer_a), D.approval_reviewer_json(reviewer_b)) &&
         json(budget, D.approval_outcome_json(outcome_a), D.approval_outcome_json(outcome_b))
     case D.UserMessage{a} D.UserMessage{b}: string_equal(a, b)
+    case D.SpeechTranscript{owner_a, session_a, item_a, speaker_a, completion_a, text_a} D.SpeechTranscript{owner_b, session_b, item_b, speaker_b, completion_b, text_b}:
+      Nat.is_eq(owner_a, owner_b) && string_equal(session_a, session_b) && string_equal(item_a, item_b) &&
+        string_equal(D.speech_speaker_name(speaker_a), D.speech_speaker_name(speaker_b)) &&
+        string_equal(D.speech_completion_name(completion_a), D.speech_completion_name(completion_b)) && string_equal(text_a, text_b)
+    case D.SpeechDelegationReceipt{owner_a, session_a, delegation_a, mode_a, message_a} D.SpeechDelegationReceipt{owner_b, session_b, delegation_b, mode_b, message_b}:
+      Nat.is_eq(owner_a, owner_b) && string_equal(session_a, session_b) && string_equal(delegation_a, delegation_b) &&
+        string_equal(mode_a, mode_b) && string_equal(message_a, message_b)
     case D.AssistantMessage{left, a} D.AssistantMessage{right, b}: J.same(D.output_origin_json(left), D.output_origin_json(right)) && string_equal(a, b)
     case D.FailureMessage{a} D.FailureMessage{b}: string_equal(a, b)
     case D.FunctionCall{a} D.FunctionCall{b}: call(budget, a, b)

@@ -1,3 +1,4 @@
+import ../speech/MODEL.bend as Speech
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import ../experience/ACTIVITY.bend as Activity
@@ -770,6 +771,82 @@ def ordinary_editor(view: Maybe<&2, V.EditorScene>, +parent: Identity.Key, +stat
     case Some{V.EditorScene{+identity, +revision, groups, structure, +assessment, +submit, feedback, +pending}}:
       List.append(&2, SurfaceTypes.Node, title_prompt_controls(identity, pending, parent), List.append(&2, SurfaceTypes.Node, sections(structure, identity, parent, 0n, state, groups), List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, parent, state), action_feedback_nodes(identity, feedback, parent)), [dialog_actions(parent, [canonical_commit(UX.action(identity, revision, pending), assessment, submit, parent, state)])])))
 
+def speech_control(+parent: Identity.Key, identity: String, label: String, input: Speech.Input, enabled: Bool) -> SurfaceTypes.Node:
+  product_action(parent, "speech/" ++ identity, label, InteractionTypes.ServiceInput{Services.SpeechInput{input}}, enabled)
+
+def speech_selected(selected: Maybe<&2, String>, id: String) -> Bool:
+  match selected:
+    case None{}: False{}
+    case Some{current}: String.eq(current, id)
+
+def speech_mute_label(muted: Bool, on: String, off: String) -> String:
+  match muted:
+    case True{}: on
+    case False{}: off
+
+def speech_notice_empty(empty: Bool, text: String, +identity: String, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match empty:
+    case True{}: Nil{}
+    case False{}: [SurfaceTypes.Node{Identity.Part{parent, "speech/" ++ identity}, "speech/" ++ identity, "Voice", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}}]
+
+def speech_connection_tail(values: +List<Speech.Connection>, +selected: Maybe<&2, String>, +parent: Identity.Key, +enabled: Bool) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Speech.Connection{+id, label, asr, voice}, rest}:
+      selected_node(speech_selected(selected, id), speech_control(parent, "connection/" ++ id, label, Speech.Select{id}, enabled)) <> speech_connection_tail(rest, selected, parent, enabled)
+
+def speech_choices(values: +List<Speech.Connection>, +selected: Maybe<&2, String>, +parent: Identity.Key, +enabled: Bool) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: [speech_control(parent, "sign-in", "Sign in for voice", Speech.Authorize{}, enabled)]
+    case values: speech_connection_tail(values, selected, parent, enabled)
+
+def speech_start_voice(+editor: U.Editor, parent: Identity.Key, enabled: Bool) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.MessageEditor{task}: [speech_control(parent, "start-voice", "Start voice", Speech.BeginVoice{task}, enabled)]
+    case U.NewTaskEditor{work}: [speech_control(parent, "start-voice", "Start voice", Speech.BeginNewVoice{U.NewTaskEditor{work}, J.Null{}}, enabled)]
+    case _: Nil{}
+
+def speech_notice(+text: String, +identity: String, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  speech_notice_empty(String.eq(text, ""), text, identity, parent)
+
+def speech_idle(+editor: U.Editor, revision: Nat, +parent: Identity.Key, +speech: Speech.State) -> +List<SurfaceTypes.Node>:
+  speech_control(parent, "dictate", "Dictate", Speech.BeginDictation{editor, revision}, Speech.can_begin(speech, False{})) <>
+    speech_start_voice(editor, parent, Speech.can_begin(speech, True{}))
+
+def speech_status(parent: Identity.Key, text: String) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, "speech/status"}, "speech/status", "Voice", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}}
+
+def speech_activity(activity: Speech.Activity, editor: U.Editor, revision: Nat, +parent: Identity.Key, +speech: Speech.State) -> +List<SurfaceTypes.Node>:
+  match activity:
+    case Speech.Idle{}: speech_idle(editor, revision, parent, speech)
+    case Speech.Acquiring{ticket, target, version}:
+      [speech_status(parent, "Requesting microphone access…"), speech_control(parent, "cancel", "Cancel", Speech.Cancel{}, True{})]
+    case Speech.Recording{ticket, target}:
+      [speech_status(parent, "Recording…"), speech_control(parent, "finish", "Finish dictation", Speech.FinishDictation{}, True{}), speech_control(parent, "cancel", "Cancel", Speech.Cancel{}, True{})]
+    case Speech.Transcribing{ticket, target}:
+      [speech_status(parent, "Transcribing…"), speech_control(parent, "cancel", "Cancel", Speech.Cancel{}, True{})]
+    case Speech.Retained{target, text}:
+      [SurfaceTypes.Node{Identity.Part{parent, "speech/transcript"}, "speech/transcript", "Draft changed; transcript retained", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}},
+       speech_control(parent, "insert", "Append to original draft", Speech.InsertTranscript{}, True{}), speech_control(parent, "dismiss", "Discard transcript", Speech.DismissTranscript{}, True{})]
+    case Speech.CreatingTask{ticket}:
+      [speech_status(parent, "Creating voice task…"), speech_control(parent, "cancel", "Cancel voice", Speech.Cancel{}, True{})]
+    case Speech.ConnectingVoice{ticket, task}:
+      [speech_status(parent, "Connecting voice…"), speech_control(parent, "cancel", "Cancel voice", Speech.Cancel{}, True{})]
+    case Speech.Voice{ticket, task, input_muted, output_muted}:
+      [speech_status(parent, "Voice connected"),
+       speech_control(parent, "microphone", speech_mute_label(input_muted, "Unmute microphone", "Mute microphone"), Speech.ToggleInputMute{}, True{}),
+       speech_control(parent, "speaker", speech_mute_label(output_muted, "Unmute speaker", "Mute speaker"), Speech.ToggleOutputMute{}, True{}),
+       speech_control(parent, "end", "End voice", Speech.Cancel{}, True{})]
+
+def speech_controls(+editor: U.Editor, revision: Nat, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +speech = Services.speech(Core.services(state))
+  [region(parent, "speech-controls", "Speech input", SurfaceTypes.Toolbar{},
+    List.append(&2, SurfaceTypes.Node, speech_choices(Speech.connections(speech), Speech.selected(speech), parent, Speech.free(speech)),
+      List.append(&2, SurfaceTypes.Node, speech_activity(Speech.activity(speech), editor, revision, parent, speech),
+        List.append(&2, SurfaceTypes.Node, speech_notice(Speech.notice(speech), "notice", parent),
+          List.append(&2, SurfaceTypes.Node, speech_notice(Speech.live_text(speech), "live", parent),
+            [speech_control(parent, "refresh", "Refresh audio connections", Speech.Refresh{}, Speech.free(speech))])))))]
+
 def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
     case None{}: Nil{}
@@ -778,7 +855,8 @@ def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +
       List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, UX.action(identity, revision, pending), key, state),
         [SurfaceTypes.Node{key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, key, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), action_feedback_nodes(identity, feedback, key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)])}])
+            List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, key, state),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), action_feedback_nodes(identity, feedback, key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}])
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
@@ -788,7 +866,8 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: In
       List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, UX.action(identity, revision, pending), composer_key, state),
         [SurfaceTypes.Node{composer_key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, composer_key, state), action_feedback_nodes(identity, feedback, composer_key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, composer_key, state)])}])
+            List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, composer_key, state),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, composer_key, state), action_feedback_nodes(identity, feedback, composer_key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, composer_key, state)]))}])
 
 def approval_value(value: J.Json) -> String:
   match value:

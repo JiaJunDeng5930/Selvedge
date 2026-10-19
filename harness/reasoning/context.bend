@@ -34,6 +34,7 @@ def lease(history: D.History, +owner: Nat) -> R.Lease:
     case D.HistoryNode{previous, D.ReasoningRecord{other, effort, remaining, sampling}}:
       recorded(Nat.is_eq(owner, other), effort, remaining)
     case D.HistoryNode{previous, D.UserMessage{text}}: R.NoLease{}
+    case D.HistoryNode{previous, D.SpeechTranscript{owner, session, item, D.SpeechUser{}, completion, text}}: R.NoLease{}
     case D.HistoryNode{previous, D.ContextMessage{D.ContextChange{change}}}: R.NoLease{}
     case D.HistoryNode{previous, D.FailureMessage{text}}: R.NoLease{}
     case D.HistoryNode{previous, D.ContextReplacement{text}}: R.NoLease{}
@@ -246,6 +247,8 @@ def public_value(+fuel: Nat, +value: J.Json) -> J.Json:
 
 def public_message(message: D.Message, rest: +List<J.Json>) -> +List<J.Json>:
   match message:
+    case D.SpeechTranscript{owner, session, item, speaker, completion, text}:
+      J.Object{[J.Field{"role", J.Text{D.speech_speaker_name(speaker)}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.AssistantMessage{origin, text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.FailureMessage{text}: J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]} <> rest

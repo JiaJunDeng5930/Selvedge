@@ -1,6 +1,8 @@
 import { boundary } from './public/model-boundary.mjs';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { createChatGPTAudio } from './chatgpt-audio.mjs';
 import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
@@ -43,8 +45,9 @@ export class Service extends EventEmitter {
   #catalogTail = Promise.resolve();
   #closePromise;
   #streams = [];
+  #audioSessions = new Map();
 
-  static async open({ home, config, cwd = process.cwd(), journalOptions, remoteOptions } = {}) {
+  static async open({ home, config, cwd = process.cwd(), journalOptions, remoteOptions, audioOptions, audioFactory = createChatGPTAudio } = {}) {
     // DEFENSE: The process sandbox supports only the Linux and macOS implementations; refuse other OS launches.
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
@@ -111,6 +114,8 @@ export class Service extends EventEmitter {
       // DEFENSE: Saved connection grants can refer to projects removed from the current journal; startup must report native configuration rejection.
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
       service.remote = await RemoteControl.open(service, remoteOptions);
+      service.audio = audioFactory({ config: () => service.config, home, ...audioOptions,
+        onEvent: event => service.#audioEvent(event) });
       return service;
     // DEFENSE: Account, filesystem or subprocess initialization can fail after the journal and clients opened; release those acquired resources.
     } catch (error) {
@@ -373,6 +378,7 @@ export class Service extends EventEmitter {
     }
     // DEFENSE: Even the reduced failure completion can exceed a full world's output budget; surface the rejected settlement.
     if (!result.reply.ok) throw new Error(`Effect settlement rejected: ${result.reply.error.message}`);
+    this.#queueAudioProgress(effect.task_id);
     if (effect.kind === 'model') {
       // DEFENSE: Cancellation may occur while model completion is committing; do not record stale cache activity after the request was aborted.
       if (observation && !signal.aborted) {
@@ -414,7 +420,13 @@ export class Service extends EventEmitter {
     }
   }
 
+  #publicCommand(command) {
+    // DEFENSE: Browser, CLI and remote command clients can forge upstream transcript and delegation objects; only the live sideband callback has that authority.
+    if (!boundary('http.public_command', { command }).allowed) throw new CommandNotSubmitted(new TypeError('Speech observations require a live upstream session'));
+  }
+
   async command(command) {
+    this.#publicCommand(command);
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
@@ -431,6 +443,7 @@ export class Service extends EventEmitter {
 
   /** Remote intent, authorization and receipt share the ordinary native commit. */
   remoteCommand(controller_id, grant_epoch, request) {
+    this.#publicCommand(request?.command);
     // DEFENSE: Authenticated remote JSON-RPC commands can omit their params or required command/receipt fields; preserve absence for native rejection.
     const intent = structuredClone(request?.command);
     const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
@@ -553,6 +566,179 @@ export class Service extends EventEmitter {
     return next;
   }
 
+  #audioAdmission(kind, observations) {
+    const plan = boundary('http.audio', { kind, ...observations });
+    // DEFENSE: Authenticated clients can exceed the native audio resource contract or name another browser's live session.
+    if (!plan.allowed) throw new TypeError(plan.message);
+    return plan;
+  }
+
+  audioCapabilities(options) {
+    // DEFENSE: An already accepted HTTP request may resume during service shutdown.
+    if (this.#closing || this.#failure) throw this.#failure ?? new Error('Service is stopping');
+    return this.audio.capabilities(options);
+  }
+
+  audioLogin({ browser_id }, options) {
+    // DEFENSE: A sign-in HTTP request can already be in flight when service shutdown starts.
+    if (this.#closing || this.#failure) throw this.#failure ?? new Error('Service is stopping');
+    return this.audio.startLogin(options);
+  }
+
+  async audioTranscribe({ browser_id, connection, audio, mime, language, elapsed_ms, signal }) {
+    this.#audioAdmission('transcribe', { browser_id, body_bytes: audio.byteLength, elapsed_ms, mime });
+    return this.audio.transcribe({ connection, audio, mime, language, signal });
+  }
+
+  async audioCreate({ browser_id, connection, task_id, sdp }, { signal } = {}) {
+    // DEFENSE: Browser requests can race a previous connect before its upstream call is ready; reserve ownership before awaiting the call.
+    const task = await this.command({ op: 'read', task_id });
+    const session_count = [...this.#audioSessions.values()].filter(session => session.browser_id === browser_id).length;
+    const plan = this.#audioAdmission('create', { browser_id, session_count, task_valid: task.reply.ok });
+    const id = randomUUID();
+    const session = { id, browser_id, task_id, started: Date.now(), cursor: task.reply.result.cursor,
+      progress: Promise.resolve(), delegations: new Set(), state: 'connecting', maximum: plan.session_max_ms };
+    this.#audioSessions.set(id, session);
+    try {
+      const contextPlan = boundary('audio.initial_context_plan', { cursor: task.reply.result.cursor });
+      const observed = await this.command({ op: 'read', task_id, ...contextPlan });
+      if (!observed.reply.ok) throw new Error(observed.reply.error.message);
+      const page = observed.reply.result;
+      const initial_items = boundary('audio.initial_context', { messages: page.messages, task: page.task });
+      session.cursor = page.after + page.messages.length;
+      const result = await this.audio.createSession({ id, connection, task_id, sdp, initial_items, signal });
+      // DEFENSE: A page can disappear after receiving the SDP response but before opening its owner event stream.
+      this.#audioTimer(session, plan.connect_timeout_ms);
+      return result;
+    } catch (error) {
+      clearTimeout(session.timer);
+      this.#audioSessions.delete(id);
+      throw error;
+    }
+  }
+
+  #audioTimer(session, duration) {
+    clearTimeout(session.timer);
+    session.timer = setTimeout(() => this.#stopAudio(session.id).catch(error => this.notify({ type: 'diagnostic', message: error.message })), duration);
+    session.timer.unref();
+  }
+
+  #ownedAudio(id, browser_id) {
+    const session = this.#audioSessions.get(id);
+    this.#audioAdmission('session', { browser_id, owner: session?.browser_id ?? null, exists: Boolean(session),
+      elapsed_ms: session ? Date.now() - session.started : 0 });
+    return session;
+  }
+
+  audioSubscribe(id, browser_id, observer) {
+    const session = this.#ownedAudio(id, browser_id);
+    this.#audioTimer(session, session.maximum - (Date.now() - session.started));
+    const receive = event => { if (event.type === 'account_changed' || event.session_id === id) observer(event); };
+    this.on('audio', receive);
+    observer({ type: session.state, session_id: id, task_id: session.task_id });
+    return () => this.off('audio', receive);
+  }
+
+  async audioDisconnect(id, browser_id) {
+    // DEFENSE: The stop response can close SSE after the same physical session has already been released.
+    if (!this.#audioSessions.has(id)) return;
+    this.#ownedAudio(id, browser_id);
+    return this.#stopAudio(id);
+  }
+
+  async audioStop(id, browser_id) {
+    this.#ownedAudio(id, browser_id);
+    await this.#stopAudio(id);
+    return { stopped: true };
+  }
+
+  async #stopAudio(id) {
+    const session = this.#audioSessions.get(id);
+    // DEFENSE: The SSE connection and explicit stop request can close the same physical session concurrently.
+    if (!session) return;
+    session.stopping ??= (async () => {
+      await this.audio.stopSession(id);
+      await session.progress;
+      clearTimeout(session.timer);
+      this.#audioSessions.delete(id);
+      this.emit('audio', { type: 'stopped', session_id: id, task_id: session.task_id });
+    })();
+    return session.stopping;
+  }
+
+  #speechCommand(command) {
+    // The live connection fixes Task/session identity. These observations need no filesystem work and may flush while Service.close is releasing audio.
+    return this.journal.execute({ kind: 'command', command });
+  }
+
+  async #audioEvent(event) {
+    // NOTE: The local account authority constructs this event; the upstream sideband decoder cannot produce it.
+    if (event.type === 'account_changed') {
+      this.notify({ type: 'account_changed' });
+      this.emit('audio', { type: 'account_changed' });
+      return;
+    }
+    const session = this.#audioSessions.get(event.session_id);
+    // DEFENSE: A socket can deliver a final close notification after its physical session was released.
+    if (!session) return;
+    if (event.type === 'ready') {
+      session.state = 'ready';
+      this.emit('audio', { type: 'ready', session_id: session.id, task_id: session.task_id });
+      this.#queueAudioProgress(session.task_id);
+    } else if (event.type === 'transcript' && event.final) {
+      const result = await this.#speechCommand({ op: 'record_speech_transcript', task_id: session.task_id,
+        session_id: session.id, item_id: event.item_id, speaker: event.role, text: event.text,
+        completion: event.completion ?? 'completed' });
+      // DEFENSE: The trusted upstream can send conflicting item content or a Task may already have been removed.
+      if (!result.reply.ok) throw new Error(result.reply.error.message);
+      this.emit('audio', { ...event, task_id: session.task_id });
+    } else if (event.type === 'delegation') {
+      const result = await this.#speechCommand({ op: 'accept_speech_delegation', task_id: session.task_id,
+        session_id: session.id, delegation_id: event.delegation_id, message: event.text, mode: event.mode ?? 'send' });
+      // The durable receipt and queued Task input have committed before the sideband is told that work was accepted.
+      await this.audio.appendContext(session.id, { delegation_item_id: event.delegation_id, channel: 'commentary',
+        text: result.reply.ok ? `Task #${session.task_id} accepted the requested work.` : `The work was rejected: ${result.reply.error.message}` });
+      if (result.reply.ok) {
+        session.delegations.add(event.delegation_id);
+        this.#queueAudioProgress(session.task_id);
+      }
+    } else if (event.type === 'delta') {
+      this.emit('audio', { ...event, type: 'transcript', final: false, task_id: session.task_id });
+    } else if (event.type === 'error') {
+      this.emit('audio', { ...event, message: event.error ?? event.message, task_id: session.task_id });
+    } else if (event.type === 'closed' || event.type === 'stopped') {
+      clearTimeout(session.timer);
+      this.emit('audio', { type: 'stopped', session_id: session.id, task_id: session.task_id, reason: event.reason });
+      this.#audioSessions.delete(session.id);
+    }
+  }
+
+  #queueAudioProgress(task_id) {
+    for (const session of this.#audioSessions.values()) {
+      if (session.task_id !== task_id || session.state !== 'ready' || session.stopping) continue;
+      session.progress = session.progress.then(async () => {
+        // DEFENSE: A queued progress read can outlive the voice connection or service shutdown.
+        if (!this.#audioSessions.has(session.id) || this.#closing || this.#failure) return;
+        const delegations = [...session.delegations];
+        let page;
+        do {
+          const result = await this.command({ op: 'read', task_id, after: session.cursor, limit: 100 });
+          if (!result.reply.ok) throw new Error(result.reply.error.message);
+          page = result.reply.result;
+          const updates = boundary('audio.task_progress', { messages: page.messages, task: page.task });
+          session.cursor = page.after + page.messages.length;
+          for (const update of updates) for (const delegation_item_id of delegations.length ? delegations : [undefined]) await this.audio.appendContext(session.id, {
+            delegation_item_id, channel: update.channel,
+            text: `Task #${task_id} progress (accepted requests can be combined): ${update.text}` });
+        } while (page.has_more);
+        if (page.task.phase === 'idle') for (const id of delegations) session.delegations.delete(id);
+      }).catch(error => {
+        // DEFENSE: An upstream close during delivery or a rejected native read must remain visible while ordinary Task execution continues.
+        this.emit('audio', { type: 'error', session_id: session.id, task_id, message: error.message });
+      });
+    }
+  }
+
   browserSnapshot() {
     // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
@@ -627,7 +813,9 @@ export class Service extends EventEmitter {
   async #close() {
     this.#closing = true;
     // DEFENSE: Network/process cleanup can fail; finish releasing all resources, then report every failed close to the caller.
-    const settled = await Promise.allSettled([this.remote?.close()]);
+    const settled = await Promise.allSettled([this.remote?.close(),
+      ...[...this.#audioSessions.keys()].map(id => this.#stopAudio(id))]);
+    settled.push(...await Promise.allSettled([this.audio?.close()]));
     if (this.#continuation) clearImmediate(this.#continuation);
     if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));

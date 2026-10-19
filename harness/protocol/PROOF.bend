@@ -1,3 +1,4 @@
+import ../features/idle.bend as IdleCreation
 import Base
 import ../tasks/side-conversation.bend as Side
 import ../tasks/side-contract.bend as SideRequirements
@@ -109,6 +110,12 @@ def spawn_semantics(+profile: D.Profile, +reasoning: String, +message: String, +
     case Workspace.Selection{context, guidance}
       C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}, limits, projects}, rest}: {==}
 
+def idle_spawn_semantics(+profile: D.Profile, +reasoning: String, +selection: Workspace.Selection, +world: M.World()) ->
+  {P.execute_start_idle(profile, reasoning, selection, world) == Commands.start_idle(profile, reasoning, selection, world) : M.Decision()}:
+  match selection world:
+    case Workspace.Selection{context, guidance}
+      C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}, limits, projects}, rest}: {==}
+
 def Laws.operation_semantics(operation, world):
   match operation world:
     case Commands.FeatureOperation{operation} _:
@@ -116,6 +123,17 @@ def Laws.operation_semantics(operation, world):
         ~(+profile => +reasoning => +message => +selection => +state => spawn_semantics(profile, reasoning, message, selection, state)), operation, world)
     case Commands.ConfigureExecution{task, configuration} _: {==}
     case Commands.Refuse{code, reason} _: {==}
+    case Commands.StartIdle{+profile, +reasoning, +selection, +work, +create_worktree} +world:
+      Equal.trans(M.Decision(),
+        IdleCreation.actual(work, create_worktree, selection, world, P.execute_start_idle(profile, reasoning, selection, world)),
+        IdleCreation.actual(work, create_worktree, selection, world, Commands.start_idle(profile, reasoning, selection, world)),
+        IdleCreation.required(work, create_worktree, selection, world, Commands.start_idle(profile, reasoning, selection, world)),
+        Equal.cong(M.Decision(), M.Decision(), value => IdleCreation.actual(work, create_worktree, selection, world, value),
+          P.execute_start_idle(profile, reasoning, selection, world), Commands.start_idle(profile, reasoning, selection, world), idle_spawn_semantics(profile, reasoning, selection, world)),
+        IdleCreation.meaning(work, create_worktree, selection, world, Commands.start_idle(profile, reasoning, selection, world)))
+    case Commands.ReplaySpeech{result} _: {==}
+    case Commands.RecordSpeech{task, session, item, speaker, completion, text} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
+    case Commands.DelegateSpeech{task, session, identity, mode, message} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Commands.Start{profile, reasoning, message, Workspace.Selection{context, guidance}}
          C.Frame{D.State{tasks, next_task, next_ticket, D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}, limits, projects}, +board}: {==}
     case Commands.Deliver{task, message} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}

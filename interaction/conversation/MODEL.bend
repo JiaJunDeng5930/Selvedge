@@ -112,10 +112,18 @@ def provider_group(+origin: D.OutputOrigin, kind: Content.ContextKind, index: Na
     case Content.SpeechContext{}: provider_speech(origin, Content.provider_assistant(value), index, value, tail)
     case _: prepend_audit(index, audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
 
+def speech_speaker(speaker: D.SpeechSpeaker) -> Speaker:
+  match speaker:
+    case D.SpeechUser{}: UserSpeech{}
+    case D.SpeechAssistant{}: AssistantSpeech{}
+
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
     case D.UserMessage{+text}: Speech{index, UserSpeech{}, text, D.UserMessage{text}} <> tail
     case D.AssistantMessage{+origin, +text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{origin, text}} <> tail
+    case D.SpeechTranscript{+owner, +session_id, +item_id, +speaker, +completion, +text}:
+      Speech{index, speech_speaker(speaker), text, D.SpeechTranscript{owner, session_id, item_id, speaker, completion, text}} <> tail
+    case D.SpeechDelegationReceipt{owner, session_id, delegation_id, mode, message}: tail
     case D.ModelContext{+origin, +value}: provider_group(origin, Content.provider_kind(value), index, value, tail)
     case +other: prepend_audit(index, audit_failed(other), other, tail)
 

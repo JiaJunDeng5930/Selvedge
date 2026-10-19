@@ -1,3 +1,4 @@
+import { AudioRuntime } from './audio.mjs';
 import * as Bend from './generated/browser-model.mjs';
 import { boundary } from './model-boundary.mjs';
 import { bendValue, bendTag, decodeBendValue, encodeBendValue } from './bend-value.mjs';
@@ -342,12 +343,14 @@ function commit(decision) {
   }
   state = decision.state;
   const acceptedNamespace = Bend.store_namespace(state);
-  if (acceptedNamespace !== storeNamespace) streams.clear();
+  const namespaceChanged = acceptedNamespace !== storeNamespace;
+  if (namespaceChanged) streams.clear();
   storeNamespace = acceptedNamespace;
   revision = Number(Bend.accepted_sequence(state));
   sourceFresh = Bend.source_fresh(state);
   render();
   for (const effect of list(decision.effects)) void execute(effect);
+  if (namespaceChanged) product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Released') }));
 }
 function step(input) { commit(Bend.step(input, state)); }
 function native(input) { step(bendValue('browser/runtime/SEMANTICS.Native', { input })); }
@@ -390,6 +393,7 @@ function networkFailed(reason, scope = reason?.requestScope) {
   commit(Bend.network_failed(scope.namespace, BigInt(scope.sequence), scope.connectionTicket, error.message,
     error.status === 401 || error.status === 403,
     scope.authentication === null ? bendValue('None') : bendValue('Some', { value: scope.authentication }), state));
+  product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Released') }));
 }
 async function request(url, options = {}, scope = requestScope()) {
   let response;
@@ -403,7 +407,7 @@ async function request(url, options = {}, scope = requestScope()) {
     if (scope.bound) requireCurrentRequest(scope);
     // DEFENSE: Authentication, command and filesystem endpoints can return non-success HTTP statuses.
     if (!response.ok) {
-      const error = new Error(body.error?.message ?? body.error ?? `HTTP ${response.status}`);
+      const error = new Error(body.reply?.error?.message ?? body.error?.message ?? body.error ?? `HTTP ${response.status}`);
       error.body = body;
       throw error;
     }
@@ -425,6 +429,33 @@ function snapshot(body, expectedNamespace) {
   streamFacts();
 }
 function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
+const audio = new AudioRuntime({
+  limits: boundary('audio.contract', {}),
+  loginTarget(url) {
+    const parsed = new URL(url);
+    return boundary('audio.login_target', { url: parsed.href, protocol: parsed.protocol,
+      hostname: parsed.hostname, port: parsed.port, pathname: parsed.pathname, username: parsed.username, password: parsed.password }).url;
+  },
+  browserId: crypto.randomUUID(),
+  request,
+  field: owner => [...root.querySelectorAll('textarea[data-field="message-text"][data-native-editor-key]:not([data-physical-field-content])')]
+    .find(node => node.getAttribute('data-object-owner') === owner),
+  emit(type, values) {
+    if (type === 'Capabilities') values = { connections: linked(values.connections.map(value =>
+      bendValue('interaction/speech/MODEL.Connection', { id: value.id, label: value.label, asr: bool(value.asr), voice: bool(value.voice) }))) };
+    product(bendValue('interaction/MODEL.SpeechObserved', {
+      input: bendValue(`interaction/speech/MODEL.${type}`, values),
+    }));
+  },
+  async createTask(command, signal) {
+    const expectedNamespace = storeNamespace;
+    const body = await request('/api/browser/command', { method: 'POST', signal,
+      headers: { 'content-type': 'application/json' }, body: `{"command":${showJson(command)}}` });
+    snapshot(body, expectedNamespace);
+    if (!body.reply?.ok) throw new Error(body.reply?.error?.message ?? 'Voice task creation failed');
+    return body.reply.result.task_id;
+  },
+});
 function result(ok, payload) { return ok ? bendValue('Done', { value: payload }) : bendValue('Fail', { error: payload }); }
 function observeInteractiveMarkdown(document) {
   const key = Bend.markdown_source_key(document.source);
@@ -569,6 +600,7 @@ async function execute(effect) {
 }
 async function service(effect) {
   switch (bendTag(effect)) {
+    case 'SpeechEffect': await audio.execute(bendTag(effect.effect), effect.effect); break;
     case 'Authenticate': {
       connection?.abort();
       const controller = new AbortController();
@@ -591,6 +623,7 @@ async function service(effect) {
           if (initial) {
             commit(Bend.authenticated_snapshot(authentication.namespace, body.namespace,
               BigInt(body.sequence), decodeBendValue(body.program), effect.ticket, state));
+            product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Refresh') }));
           } else snapshot(body, subscription.namespace);
         },
         ready() {},
@@ -605,8 +638,8 @@ async function service(effect) {
       });
       break;
     }
-    case 'SessionReady': break;
-    case 'SessionEnded': connection?.abort(); break;
+    case 'SessionReady': product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Refresh') })); break;
+    case 'SessionEnded': connection?.abort(); product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Released') })); break;
     case 'ScheduleReconnect': {
       if (disposed) break;
       const timer = setTimeout(() => {
@@ -921,6 +954,7 @@ function streamFacts() {
   commit(Bend.streams(json({ kind: 'streams', namespace: storeNamespace, streams: facts }), state));
 }
 function streamNotice(notice) {
+  if (notice.type === 'account_changed') { audio.accountChanged(); return false; }
   if (!Bend.stream_notice_owned(json(notice), state)) return false;
   const source = { state: [...streams.values()].map(entry => ({ namespace: entry.namespace, task_id: entry.task, ticket: entry.ticket,
     parts: [...entry.parts].map(([output_index, text]) => ({ output_index, text })) })), notice };
@@ -970,6 +1004,8 @@ root.addEventListener('focusin', () => {
   commit(Bend.native_focus_observed(generation, contentOwner, identity, state));
 });
 window.addEventListener('pagehide', () => {
+  product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Released') }));
+  audio.dispose();
   disposed = true;
   pendingFocus = [];
   if (displayedFrameRequest !== null) cancelAnimationFrame(displayedFrameRequest);
@@ -1029,7 +1065,7 @@ observeClock();
 clockTimer = setInterval(observeClock, 60_000);
 document.addEventListener('visibilitychange', clockVisibilityChanged);
 document.addEventListener('visibilitychange', retryPendingFocus);
-window.addEventListener('focus', retryPendingFocus);
+window.addEventListener('focus', () => { retryPendingFocus(); audio.focus(); });
 native(bendValue('browser/MODEL.Mount'));
 commit(Bend.connect(state));
 void document.fonts.ready.then(environment);

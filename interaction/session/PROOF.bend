@@ -657,6 +657,10 @@ def captured_request_complete(+operation: Commands.Operation, +command: M.Comman
     case Commands.Refuse{code, message}: interactive_completion_complete(owner, path, ticket, D.failure(code, message), application)
     case Commands.ConfigureExecution{task, configuration}: {==}
     case Commands.Start{profile, reasoning, message, selection}: {==}
+    case Commands.StartIdle{profile, reasoning, selection, work, create_worktree}: {==}
+    case Commands.RecordSpeech{task, session, item, speaker, completion, text}: {==}
+    case Commands.DelegateSpeech{task, session, identity, mode, message}: {==}
+    case Commands.ReplaySpeech{result}: {==}
     case Commands.Deliver{task, message}: {==}
     case Commands.Steer{task, message}: {==}
     case Commands.Cancel{task, operation}: {==}

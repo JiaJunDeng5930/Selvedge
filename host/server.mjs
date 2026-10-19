@@ -41,6 +41,7 @@ export async function startServer(options) {
   const service = await Service.open(options);
   const token = randomBytes(32).toString('hex');
   const clients = new Set();
+  const audioClients = new Set();
   const filename = path.join(options.home, 'server.json');
   let closing;
   let address;
@@ -113,6 +114,44 @@ export async function startServer(options) {
     writeSseFrame(response, `${id}data: ${stringifyJson(event)}\n\n`);
   }
 
+  function requestSignal(request, response) {
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error('Audio client disconnected'));
+    request.once('aborted', abort);
+    const closed = () => { if (!response.writableEnded) abort(); };
+    response.once('close', closed);
+    return { signal: controller.signal, close() {
+      request.off('aborted', abort);
+      response.off('close', closed);
+    } };
+  }
+
+  async function readAudio(request, browser_id) {
+    const started = Date.now();
+    const mime = request.headers['content-type'] ?? '';
+    const admit = body_bytes => {
+      const plan = boundary('http.audio', { kind: 'transcribe', browser_id, mime,
+        body_bytes, elapsed_ms: Date.now() - started });
+      // DEFENSE: A microphone upload can exceed its native byte/time contract while streaming without Content-Length.
+      if (!plan.allowed) throw new RangeError(plan.message);
+      return plan;
+    };
+    const plan = admit(Number(request.headers['content-length'] ?? 0));
+    const chunks = [];
+    let size = 0;
+    // DEFENSE: A client can hold an upload open without sending bytes; stop retaining the request when its declared duration expires.
+    const timer = setTimeout(() => request.destroy(new Error('Audio upload timed out')), plan.timeout_ms);
+    timer.unref();
+    try {
+      for await (const chunk of request) {
+        size += chunk.byteLength;
+        admit(size);
+        chunks.push(chunk);
+      }
+      return { audio: Buffer.concat(chunks, size), mime, elapsed_ms: Date.now() - started };
+    } finally { clearTimeout(timer); }
+  }
+
   async function route(request, response) {
     // Secrets stay opaque. Each observation is made only when the native plan
     // requests it, preserving rejection before later parsing or secret access.
@@ -182,6 +221,47 @@ export async function startServer(options) {
           response.end(data);
           return;
         }
+        case 'audio_capabilities': {
+          const operation = requestSignal(request, response);
+          try { json(response, 200, await service.audioCapabilities({ signal: operation.signal })); }
+          finally { operation.close(); }
+          return;
+        }
+        case 'audio_transcribe': {
+          const operation = requestSignal(request, response);
+          try {
+            const browser_id = url.searchParams.get('browser_id');
+            const upload = await readAudio(request, browser_id);
+            json(response, 200, await service.audioTranscribe({ ...upload, browser_id,
+              connection: url.searchParams.get('connection'), language: url.searchParams.get('language'), signal: operation.signal }));
+          } finally { operation.close(); }
+          return;
+        }
+        case 'audio_events': {
+          const id = url.pathname.split('/')[4];
+          // Validate and register before sending headers: the callback's first ready observation is sent below.
+          const pending = [];
+          let opened = false;
+          const unsubscribe = service.audioSubscribe(id, url.searchParams.get('browser_id'), event => {
+            if (!opened) { pending.push(event); return; }
+            sendEvent(response, event);
+            if (event.type === 'stopped') response.end();
+          });
+          response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+          response.flushHeaders();
+          audioClients.add(response);
+          opened = true;
+          for (const event of pending) sendEvent(response, event);
+          response.once('close', () => {
+            audioClients.delete(response);
+            unsubscribe();
+            service.audioDisconnect(id, url.searchParams.get('browser_id')).catch(error => service.notify({ type: 'diagnostic', message: error.message }));
+          });
+          return;
+        }
+        case 'audio_stop':
+          json(response, 200, await service.audioStop(url.pathname.split('/')[4], url.searchParams.get('browser_id')));
+          return;
         case 'attachment_upload': {
           const attachment = await saveBoardAttachment(service.home, url.searchParams.get('name'), request);
           json(response, 201, { ok: true, result: attachment });
@@ -198,6 +278,8 @@ export async function startServer(options) {
           return;
         }
         case 'account_refresh':
+        case 'audio_create':
+        case 'audio_login':
         case 'remote_pair':
         case 'remote_enable':
         case 'remote_disable':
@@ -208,7 +290,7 @@ export async function startServer(options) {
         case 'command':
         case 'connection_command': {
           if (!bodyObserved) {
-            const maximum = plan.action === 'account_refresh' ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
+            const maximum = ['account_refresh', 'audio_login'].includes(plan.action) ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
             const text = await readText(request, maximum);
             const parsed = parseJson(text);
             const tokens = [];
@@ -221,6 +303,18 @@ export async function startServer(options) {
           }
           const body = plan.body;
           switch (plan.action) {
+            case 'audio_login': {
+              const operation = requestSignal(request, response);
+              try { json(response, 200, await service.audioLogin(body, { signal: operation.signal })); }
+              finally { operation.close(); }
+              return;
+            }
+            case 'audio_create': {
+              const operation = requestSignal(request, response);
+              try { json(response, 200, await service.audioCreate(body, { signal: operation.signal })); }
+              finally { operation.close(); }
+              return;
+            }
             case 'remote_pair':
               json(response, 200, { ok: true, result: await service.remote.pair() });
               return;
@@ -307,14 +401,14 @@ export async function startServer(options) {
     }));
   });
   const heartbeat = setInterval(() => {
-    for (const client of clients) writeSseFrame(client, ': keepalive\n\n');
+    for (const client of [...clients, ...audioClients]) writeSseFrame(client, ': keepalive\n\n');
   }, 15_000);
   heartbeat.unref();
 
   async function close() {
     closing ??= (async () => {
       clearInterval(heartbeat);
-      for (const client of clients) client.end();
+      for (const client of [...clients, ...audioClients]) client.end();
       // DEFENSE: Startup can fail before listen succeeds; ERR_SERVER_NOT_RUNNING then means there is no listener to close.
       const stopped = new Promise((resolve, reject) => server.close(error => error && error.code !== 'ERR_SERVER_NOT_RUNNING' ? reject(error) : resolve()));
       server.closeAllConnections();

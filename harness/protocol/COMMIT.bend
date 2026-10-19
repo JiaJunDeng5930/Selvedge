@@ -26,9 +26,12 @@ def schedules(input: M.Input, decision: M.Decision()) -> Bool:
     case M.UserCommand{M.FeatureCommand{command}}:
       C.Decision{world, reply, effects} = decision
       F.schedules(command) && J.boolean(J.get(reply, "ok"))
-    case M.UserCommand{other}:
+    case M.UserCommand{M.AcceptSpeechDelegation{id, session, identity, message, mode}}:
+      C.Decision{world, +reply, effects} = decision
+      J.boolean(J.get(reply, "ok")) && Bool.not(J.boolean(J.get(J.get(reply, "result"), "replayed")))
+    case M.UserCommand{+other}:
       C.Decision{world, reply, effects} = decision
-      J.boolean(J.get(reply, "ok"))
+      M.schedules(M.UserCommand{other}) && J.boolean(J.get(reply, "ok"))
     case other: M.schedules(other)
 
 def frame_bytes_limits(world: M.World(), limits_value: D.ExecutionLimits) -> U32:
