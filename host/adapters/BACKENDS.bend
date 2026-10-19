@@ -502,19 +502,28 @@ type ContextValidName is Data:
   ContextValidNameContextChange{}
   ContextValidNameSettings{}
   ContextValidNameReasoningConfiguration{}
+  ContextValidNameSideConversation{}
+  ContextValidNameSideReturnCursor{}
   ContextValidNameOther{}
 
 def context_valid_discriminant(+value: String) -> ContextValidName:
   Bool.pick(ContextValidName, String.eq(value, "context_change"), ContextValidNameContextChange{},
     Bool.pick(ContextValidName, String.eq(value, "settings"), ContextValidNameSettings{},
     Bool.pick(ContextValidName, String.eq(value, "reasoning_configuration"), ContextValidNameReasoningConfiguration{},
-    ContextValidNameOther{})))
+    Bool.pick(ContextValidName, String.eq(value, "side_conversation"), ContextValidNameSideConversation{},
+    Bool.pick(ContextValidName, String.eq(value, "side_return_cursor"), ContextValidNameSideReturnCursor{},
+    ContextValidNameOther{})))))
 
 def context_valid_classified(kind: ContextValidName, +message: J.Json) -> Bool:
   match kind:
     case ContextValidNameContextChange{}: context_change_valid(J.get(message, "change"))
     case ContextValidNameSettings{}: J.is_object(J.get(message, "content")) && text(J.get(message, "profile")) && text(J.get(message, "reasoning"))
     case ContextValidNameReasoningConfiguration{}: text(J.get(message, "effort"))
+    case ContextValidNameSideConversation{}:
+      context_natural(J.natural(J.get(message, "owner_task"))) && context_natural(J.natural(J.get(message, "parent_task"))) &&
+        context_natural(J.natural(J.get(message, "start")))
+    case ContextValidNameSideReturnCursor{}:
+      context_natural(J.natural(J.get(message, "owner_task"))) && context_natural(J.natural(J.get(message, "through")))
     case ContextValidNameOther{}: False{}
 
 def context_valid(kind: String, +message: J.Json) -> Bool:
@@ -577,17 +586,29 @@ def context_change_text(+change: J.Json) -> String:
 type ContextItemKindName is Data:
   ContextItemKindNameContextChange{}
   ContextItemKindNameReasoningConfiguration{}
+  ContextItemKindNameSideConversation{}
+  ContextItemKindNameSideReturnCursor{}
   ContextItemKindNameOther{}
+
+def side_conversation_text(+message: J.Json) -> String:
+  "Side conversation context for task #" ++ json_text(J.get(message, "owner_task")) ++
+    ". Its parent is task #" ++ json_text(J.get(message, "parent_task")) ++
+    ". The parent continues independently. Use read_task with task_id=" ++ json_text(J.get(message, "parent_task")) ++
+    " to inspect its committed conversation and current status. read_task also accepts any other task ID, after (exclusive cursor, default 0), and limit (1..100). Parent lifecycle changes arrive as tracked context; active plus idle does not imply success. Closing the side window sends nothing to the parent. Only the user's explicit return action appends new side content to the parent. This is runtime context, not part of the content to return. This context belongs to its named task; inheriting this record in another task does not make that task a side conversation."
 
 def context_item_kind_discriminant(+value: String) -> ContextItemKindName:
   Bool.pick(ContextItemKindName, String.eq(value, "context_change"), ContextItemKindNameContextChange{},
     Bool.pick(ContextItemKindName, String.eq(value, "reasoning_configuration"), ContextItemKindNameReasoningConfiguration{},
-    ContextItemKindNameOther{}))
+    Bool.pick(ContextItemKindName, String.eq(value, "side_conversation"), ContextItemKindNameSideConversation{},
+    Bool.pick(ContextItemKindName, String.eq(value, "side_return_cursor"), ContextItemKindNameSideReturnCursor{},
+    ContextItemKindNameOther{}))))
 
 def context_item_kind_classified(kind: ContextItemKindName, +message: J.Json, profile: J.Json) -> J.Json:
   match kind:
     case ContextItemKindNameContextChange{}: history_developer(J.Text{context_change_text(J.get(message, "change"))})
     case ContextItemKindNameReasoningConfiguration{}: choose(account(profile), history_developer(J.Text{"Committed reasoning effort for subsequent responses: " ++ J.text(J.get(message, "effort"))}), Model.success(J.Array{[J.Object{[J.Field{"type", J.Text{"configuration_update"}}, J.Field{"reasoning", J.Object{[J.Field{"effort", J.get(message, "effort")}]}}]}]}))
+    case ContextItemKindNameSideConversation{}: history_developer(J.Text{side_conversation_text(message)})
+    case ContextItemKindNameSideReturnCursor{}: Model.success(J.Array{Nil{}})
     case ContextItemKindNameOther{}: history_data(message)
 
 def context_item_kind(kind: String, +message: J.Json, profile: J.Json) -> J.Json:
@@ -1784,6 +1805,14 @@ law context_amendment_patch_encoding:
 law context_removal_encoding:
   @key:J.Json -> @base_revision:J.Json ->
   {context_change_text_kind("remove", J.Object{[J.Field{"key", key}, J.Field{"base_revision", base_revision}]}) == context_removal_text(key) : String}
+
+law side_conversation_input_encoding:
+  @message:J.Json -> @profile:J.Json ->
+  {context_item_kind("side_conversation", message, profile) == history_developer(J.Text{side_conversation_text(message)}) : J.Json}
+
+law side_return_cursor_not_model_input:
+  @message:J.Json -> @profile:J.Json ->
+  {context_item_kind("side_return_cursor", message, profile) == Model.success(J.Array{Nil{}}) : J.Json}
 
 
 law board_text_output_mode_plain:

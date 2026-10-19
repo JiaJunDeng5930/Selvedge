@@ -14,6 +14,7 @@ import ../../bendlib/json.bend as J
 import ../transport/presentation.bend as View
 import ./PROGRAM.bend as Protocol
 import ../execution/notifications.bend as Notifications
+import ../tasks/side-context.bend as SideContext
 
 # Complete command meaning includes the finite scheduling and commit boundary.
 # A refusal cannot advance unrelated tasks. Accepted commands may advance any
@@ -169,7 +170,8 @@ def configuration_checked(input: M.Input, +decision: M.Decision(), +previous: M.
   configuration_admitted(Commands.configuration_allowed(input, previous, decision), decision, previous)
 
 def construct_update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M.Input, +decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
-  construct_finish(M.durable(input), configuration_checked(input, Notifications.decorate(input, previous, schedule(schedules(input, decision), decision)), previous), previous)
+  construct_finish(M.durable(input), configuration_checked(input, Notifications.decorate(input, previous,
+    schedule(schedules(input, decision), SideContext.prepare_dispatch(F.State(), F.Effect, schedules(input, decision), decision))), previous), previous)
 
 def update(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
   value(previous, construct_update(~schedule, input, decision, previous))

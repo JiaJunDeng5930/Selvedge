@@ -36,6 +36,8 @@ type Command is Data:
   Cancel{task_id: Nat, operation_id: Nat}
   ChangeStatus{task_id: Nat, control: D.Control}
   Fork{task_id: Nat, count: Nat, messages: +List<String>, settings: J.Json}
+  OpenSideConversation{task_id: Nat, message: String}
+  ReturnSideConversation{task_id: Nat}
   Compact{task_id: Nat, summary: Maybe<&2, String>}
   Observe{query: Query}
   CreateProject{name: String, workspace: J.Json, guidance: J.Json, create_worktree: J.Json}
@@ -53,6 +55,8 @@ type CommandKind is Data:
   CancelCommand{}
   ControlCommand{control: D.Control}
   ForkCommand{}
+  OpenSideConversationCommand{}
+  ReturnSideConversationCommand{}
   CompactCommand{}
   ReadCommand{}
   ListCommand{}
@@ -112,6 +116,10 @@ def commands() -> +List<CommandSpec>:
        J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", D.string_schema("Child request")}]}},
        J.Field{"settings", D.task_settings_schema()}],
        [J.Text{"task_id"}, J.Text{"child_count"}])},
+   CommandSpec{"open_side_conversation", "Open a side conversation from the task's committed history while its work continues. An omitted message creates an idle side task.", OpenSideConversationCommand{},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.string_schema("Optional initial side conversation request")}], [J.Text{"task_id"}])},
+   CommandSpec{"return_side_conversation", "Append only this side conversation's new content to its parent, excluding side instructions and parent lifecycle updates. Current work continues.", ReturnSideConversationCommand{},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}], [J.Text{"task_id"}])},
    CommandSpec{"read", "Read a bounded history page without advancing the task.", ReadCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"after", D.integer_schema("History offset", 0, 4294967295)},
        J.Field{"limit", D.integer_schema("Page size; defaults to 100", 1, 100)}], [J.Text{"task_id"}])},

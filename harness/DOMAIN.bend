@@ -709,6 +709,8 @@ type HistoryContext is Data:
   ContextChange{change: Context.Change}
   TaskSettings{context: TaskContext, profile: String, reasoning: String}
   ReasoningConfiguration{effort: String}
+  SideConversation{owner: Nat, parent: Nat, start: Nat}
+  SideReturnCursor{owner: Nat, through: Nat}
 
 type OutputMode is Data:
   Plain{}
@@ -1053,6 +1055,31 @@ def history_append_context(context: HistoryContext, history: History) -> History
 def append_context(context: HistoryContext, +task: Task) -> Task:
   with_history(history_append_context(context, task_history(task)), task)
 
+# A fork inherits earlier side markers as observations. Only its own marker
+# identifies a side conversation and authorizes returning to its recorded parent.
+def selected_side_conversation(same: Bool, context: HistoryContext, rest: Maybe<&2, HistoryContext>) -> Maybe<&2, HistoryContext>:
+  match same:
+    case True{}: Some{context}
+    case False{}: rest
+
+def side_conversation(history: History, +owner: Nat) -> Maybe<&2, HistoryContext>:
+  match history:
+    case EmptyHistory{}: None{}
+    case HistoryNode{previous, ContextMessage{SideConversation{+actual, +parent, +start}}}:
+      selected_side_conversation(Nat.is_eq(actual, owner), SideConversation{actual, parent, start}, side_conversation(previous, owner))
+    case HistoryNode{previous, other}: side_conversation(previous, owner)
+
+def task_side_conversation(+task: Task) -> Maybe<&2, HistoryContext>:
+  side_conversation(task_history(task), task_id(task))
+
+def side_context_parent(context: Maybe<&2, HistoryContext>) -> Maybe<&2, Nat>:
+  match context:
+    case Some{SideConversation{owner, parent, start}}: Some{parent}
+    case _: None{}
+
+def side_parent(task: Task) -> Maybe<&2, Nat>:
+  side_context_parent(task_side_conversation(task))
+
 def available_output_mode(available: Bool) -> OutputMode:
   match available:
     case True{}: InteractiveV1{}
@@ -1083,6 +1110,12 @@ def task_guidance(task: Task) -> ProjectContext:
 
 def context_json(context: HistoryContext) -> J.Json:
   match context:
+    case SideConversation{owner, parent, start}:
+      J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"side_conversation"}},
+        J.Field{"owner_task", J.nat(owner)}, J.Field{"parent_task", J.nat(parent)}, J.Field{"start", J.nat(start)}]}
+    case SideReturnCursor{owner, through}:
+      J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"side_return_cursor"}},
+        J.Field{"owner_task", J.nat(owner)}, J.Field{"through", J.nat(through)}]}
     case ContextChange{change}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"context_change"}}, J.Field{"change", Context.change_json(change)}]}
     case TaskSettings{context, profile, reasoning}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"settings"}}, J.Field{"content", task_context_json(context)}, J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}]}
     case ReasoningConfiguration{effort}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"reasoning_configuration"}}, J.Field{"effort", J.Text{effort}}]}

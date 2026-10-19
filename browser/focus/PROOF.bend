@@ -197,6 +197,7 @@ def Rule.all_panel_policies(panel, trigger):
     case U.CardDetails{card}: {==}
     case U.EditObject{editor}: {==}
     case U.TaskDetails{task}: {==}
+    case U.SideConversation{task}: {==}
     case U.WorkspaceConfiguration{editor}: {==}
     case U.PermissionsConfiguration{editor}: {==}
     case U.TaskContext{task}: {==}
@@ -420,10 +421,26 @@ def route_layout_policy(+route: U.Route, +readers: +List<Finite.Entry(E.Reader)>
     case U.AgentCollection{}: {==}
     case U.TaskGraphs{}: {==}
 
+def tasks_layout_policy(+tasks: +List<Nat>, +readers: +List<Finite.Entry(E.Reader)>, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>) ->
+  {Platform.layout_tasks(tasks, readers, bookmarks) == Rule.required_tasks_layout(tasks, readers, bookmarks) : +List<Platform.Effect>}:
+  match tasks:
+    case Nil{}: {==}
+    case Con{+task, +rest}:
+      Equal.trans(+List<Platform.Effect>, Platform.layout_tasks(task <> rest, readers, bookmarks),
+        List.append(&2, Platform.Effect, Rule.required_route_layout(U.Conversation{task}, readers, bookmarks), Platform.layout_tasks(rest, readers, bookmarks)),
+        Rule.required_tasks_layout(task <> rest, readers, bookmarks),
+        Equal.cong(+List<Platform.Effect>, +List<Platform.Effect>,
+          (head => List.append(&2, Platform.Effect, head, Platform.layout_tasks(rest, readers, bookmarks))),
+          Platform.layout_route(U.Conversation{task}, readers, bookmarks), Rule.required_route_layout(U.Conversation{task}, readers, bookmarks),
+          route_layout_policy(U.Conversation{task}, readers, bookmarks)),
+        Equal.cong(+List<Platform.Effect>, +List<Platform.Effect>,
+          (tail => List.append(&2, Platform.Effect, Rule.required_route_layout(U.Conversation{task}, readers, bookmarks), tail)),
+          Platform.layout_tasks(rest, readers, bookmarks), Rule.required_tasks_layout(rest, readers, bookmarks), tasks_layout_policy(rest, readers, bookmarks)))
+
 def layout_policy(+application: E.Application, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>) ->
   {Platform.layout_for(application, bookmarks) == Rule.required_layout(application, bookmarks) : +List<Platform.Effect>}:
   +session = E.session(application)
-  route_layout_policy(E.route(session), E.readers(session), bookmarks)
+  tasks_layout_policy(E.visible_tasks(session), E.readers(session), bookmarks)
 
 def scope_node_policy(found: Maybe<&2, SurfaceTypes.Node>) ->
   {InterfaceView.scope_node(found) == Rule.required_scope_nodes(found) : +List<SurfaceTypes.Node>}:

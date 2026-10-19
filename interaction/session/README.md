@@ -2,6 +2,16 @@
 
 Owns application and session observations, navigation and interaction transitions.
 
+In a Task composer, submit `/side` to open an independent side conversation, or
+`/side your question` to start it with a question. The original Task keeps
+running. The side window uses a trailing panel when space permits and a dialog
+on narrow screens. Closing it only dismisses the window. **追加回 task #N** sends
+its saved new content to its parent; later replies can be appended again.
+Side Tasks remain in the Task tree, with explicit return and **打开侧窗口** actions.
+The side creation receipt settles only its captured draft revision, and opens
+the window only while its original Task, navigation and layer claim remain current.
+Reading and Interactive Markdown use every visible Task's own identity.
+
 Work selection is session navigation. Each Work and All Tasks retain their own
 latest route and Task and new-graph editor identities; pending directory observations and
 command completions keep that same editor scope. Work membership is read from the

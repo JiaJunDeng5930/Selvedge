@@ -775,6 +775,32 @@ def reconcile(+viewer: Maybe<&2, Nat>, +previews: +List<Live.Output>, +world: M.
   +retained: Decision = prune(documents(state), world, state)
   append_result(result_effects(retained), reconcile_available(viewer, previews, world, result_state(retained)))
 
+def exposed_visible_documents(values: +List<Document>, +viewers: +List<Nat>, +entries: +List<RetainedEntry>) -> +List<Document>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Document{+source, text, epoch, revision, ending, observed_prefix, fences, active}, rest}:
+      Document{source, text, epoch, revision, ending, observed_prefix, fences, present_nat(viewers, source_viewer(source)) && Bool.not(entry_archived(entries, Code.source_key(source)))} <> exposed_visible_documents(rest, viewers, entries)
+
+def expose_visible(+viewers: +List<Nat>, +world: M.World(), +state: State) -> Decision:
+  refresh(world, with_documents(exposed_visible_documents(documents(state), viewers, retained_entries(retention(state))), state))
+
+def reconcile_visible_bounded(+viewers: +List<Nat>, +world: M.World(), +state: State) -> Decision:
+  +bounded: Decision = bound_retention(state)
+  append_result(result_effects(bounded), expose_visible(viewers, world, result_state(bounded)))
+
+def reconcile_visible_dormant(+viewers: +List<Nat>, +world: M.World(), +state: State) -> Decision:
+  +retained: Decision = retain_interrupted(documents(state), world, state)
+  append_result(result_effects(retained), reconcile_visible_bounded(viewers, world, result_state(retained)))
+
+def reconcile_visible_available(+viewers: +List<Nat>, +previews: +List<Live.Output>, +world: M.World(), +state: State) -> Decision:
+  +all: +List<Nat> = preview_viewers(previews, document_viewers(documents(state), viewers))
+  +known: Decision = reconcile_viewers(all, previews, world, with_documents(deactivate_all(documents(state)), state))
+  append_result(result_effects(known), reconcile_visible_dormant(viewers, world, result_state(known)))
+
+def reconcile_visible(+viewers: +List<Nat>, +previews: +List<Live.Output>, +world: M.World(), +state: State) -> Decision:
+  +retained: Decision = prune(documents(state), world, state)
+  append_result(result_effects(retained), reconcile_visible_available(viewers, previews, world, result_state(retained)))
+
 
 def environment_same(+same: Bool, +namespace: String, +sequence: Nat, +fresh: Bool, +allowed: Bool, +state: State) -> Decision:
   match same state:

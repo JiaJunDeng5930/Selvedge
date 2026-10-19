@@ -1,5 +1,10 @@
 # Interactive Markdown
 
+When a Task and its side conversation are visible together, both document sets
+remain active under their independent viewing Task identities. Dismissing the
+side window removes that viewing Task from active exposure while retaining its
+ordinary saved conversation and local document state.
+
 Owns the bounded declaration language, local input, incremental syntax, expression
 evaluation and event admission for explicit `selvedge-ui` Markdown fences. The full
 design is [DESIGN.md](DESIGN.md). Executable contracts state the required behavior

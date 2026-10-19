@@ -19,6 +19,7 @@ import ./PROGRAM.bend as Protocol
 import ../execution/PROOF.bend as ExecutionProof
 import ./PROOF.bend as ProtocolProof
 import ../execution/notifications.bend as Notifications
+import ../tasks/side-context.bend as SideContext
 
 # The output bound consumes and preserves the existing domain certificate.
 def sized_projection(+previous: M.World(), admission: Maybe<&1, Categories.Membership<String, Commit.bounded_envelope(previous)>>,
@@ -60,10 +61,11 @@ def remote_observation_projection(authorization: Remote.Authorization, +world: M
 
 def after_apply_semantics(+input: M.Input, +decision: M.Decision(), +previous: M.World()) ->
   {P.after_apply(input, decision, previous) == Commit.update(~Execution.scheduled, input, decision, previous) : M.Decision()}:
+  +prepared = SideContext.prepare_dispatch(Features.State(), Features.Effect, Commit.schedules(input, decision), decision)
   Equal.cong(M.Decision(), M.Decision(),
     (value => Commit.finish(M.durable(input), Commit.configuration_checked(input, Notifications.decorate(input, previous, value), previous), previous)),
-    P.scheduled(Commit.schedules(input, decision), decision), Execution.scheduled(Commit.schedules(input, decision), decision),
-    Laws.scheduling_semantics(Commit.schedules(input, decision), decision))
+    P.scheduled(Commit.schedules(input, decision), prepared), Execution.scheduled(Commit.schedules(input, decision), prepared),
+    Laws.scheduling_semantics(Commit.schedules(input, decision), prepared))
 
 def updated_command_semantics(+command: M.Command, +world: M.World()) ->
   {P.update(M.UserCommand{command}, world) == Commit.update(~Execution.scheduled, M.UserCommand{command}, Commands.command(command, world), world) : M.Decision()}:
@@ -85,6 +87,8 @@ def Laws.command_transition(command, world):
     case M.Cancel{id, ticket}: updated_command_semantics(M.Cancel{id, ticket}, world)
     case M.ChangeStatus{id, control}: updated_command_semantics(M.ChangeStatus{id, control}, world)
     case M.Fork{id, count, messages, options}: updated_command_semantics(M.Fork{id, count, messages, options}, world)
+    case M.OpenSideConversation{id, message}: updated_command_semantics(M.OpenSideConversation{id, message}, world)
+    case M.ReturnSideConversation{id}: updated_command_semantics(M.ReturnSideConversation{id}, world)
     case M.Compact{id, summary}: updated_command_semantics(M.Compact{id, summary}, world)
     case M.CreateProject{name, workspace, guidance, create_worktree}: updated_command_semantics(M.CreateProject{name, workspace, guidance, create_worktree}, world)
     case M.UpdateProject{id, name, workspace, guidance, create_worktree}: updated_command_semantics(M.UpdateProject{id, name, workspace, guidance, create_worktree}, world)

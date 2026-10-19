@@ -71,6 +71,7 @@ def layer_title(content: ViewTypes.LayerContent) -> String:
     case ViewTypes.ModelSelection{editor, query, fields}: "Choose model"
     case ViewTypes.DeliverySelection{editor, fields}: "Delivery options"
     case ViewTypes.ExecutionDetails{task}: "Task details"
+    case ViewTypes.SideConversation{task, parent, conversation, return_content, close}: "Side conversation · task #" ++ Nat.show(task)
     case ViewTypes.Confirmation{title, confirm, cancel}: title
 
 # Capacity describes available simultaneous regions, not a device or toolkit.
@@ -735,7 +736,21 @@ def task_actions(+id: Nat, +world: M.World()) -> ViewTypes.TaskActions:
   ViewTypes.TaskActions{control("details/" ++ Nat.show(id), "Task details", U.TogglePanel{U.TaskDetails{id}, "details/" ++ Nat.show(id)}),
     [lifecycle(id, D.Interrupt{}, "Interrupt", world), lifecycle(id, D.Freeze{}, "Freeze", world), lifecycle(id, D.Unfreeze{}, "Resume", world),
     lifecycle(id, D.Stop{}, "Stop", world), lifecycle(id, D.Archive{}, "Archive", world),
+    native("side/begin/" ++ Nat.show(id), "Side conversation", ViewTypes.Secondary{}, U.BeginSideConversation{id}, world),
     control("fork/" ++ Nat.show(id), "Fork", U.ForkTask{id}), control("compact/" ++ Nat.show(id), "Compact", U.CompactTask{id})]}
+
+def side_parent_found(found: Maybe<&2, D.Task>) -> Maybe<&2, Nat>:
+  match found:
+    case None{}: None{}
+    case Some{task}: D.side_parent(task)
+
+def side_return_label(parent: Maybe<&2, Nat>) -> String:
+  match parent:
+    case None{}: "追加回上级 task"
+    case Some{parent}: "追加回 task #" ++ Nat.show(parent)
+
+def side_return_control(+task: Nat, parent: Maybe<&2, Nat>, world: M.World()) -> ViewTypes.ControlDeclaration:
+  native("side/return/" ++ Nat.show(task), side_return_label(parent), ViewTypes.Secondary{}, U.ReturnSideConversation{task}, world)
 
 def task_scene(+task: D.Task, +session: E.Session, +world: M.World()) -> ViewTypes.TaskScene:
   readers = E.readers(session)
@@ -1081,6 +1096,9 @@ def layer_content(panel: U.Panel, +session: E.Session, +world: M.World()) -> Vie
       ViewTypes.BoardFilters{filter}
     case U.EditObject{id}: ViewTypes.ObjectEditor{editor(id, session, world)}
     case U.TaskDetails{task}: ViewTypes.ExecutionDetails{optional_task(Tasks.find(Commands.entries(world), task), session, world)}
+    case U.SideConversation{+task}:
+      +parent = side_parent_found(Tasks.find(Commands.entries(world), task))
+      ViewTypes.SideConversation{task, parent, optional_task(Tasks.find(Commands.entries(world), task), session, world), side_return_control(task, parent, world), control("side/close/" ++ Nat.show(task), "关闭", U.ClosePanel{})}
     case U.WorkspaceConfiguration{+id}: ViewTypes.WorkspaceSettings{id, selected_fields(editor(id, session, world), ViewTypes.ExecutionFields{})}
     case U.PermissionsConfiguration{+id}: ViewTypes.PermissionSettings{id, selected_fields(editor(id, session, world), ViewTypes.ExecutionFields{})}
     case U.TaskContext{task}: ViewTypes.CommittedContext{committed_context(Tasks.find(Commands.entries(world), task))}
@@ -1103,6 +1121,7 @@ def layer_kind(panel: U.Panel, beside: Bool) -> ViewTypes.LayerKind:
     case U.WorkspaceConfiguration{editor}: ViewTypes.AnchoredMenu{}
     case U.PermissionsConfiguration{editor}: ViewTypes.AnchoredMenu{}
     case U.TaskDetails{task}: details_kind(beside)
+    case U.SideConversation{task}: details_kind(beside)
     case _: ViewTypes.ModalDialog{}
 
 def profile_matches(profile: D.Profile, query: String) -> Bool:
@@ -1162,6 +1181,7 @@ def search_content(content: ViewTypes.LayerContent, +query: String) -> ViewTypes
 def layer_dismissal(panel: U.Panel, trigger: String) -> ViewTypes.Dismissal:
   match panel:
     case U.TaskDetails{task}: ViewTypes.ByTrigger{U.TogglePanel{U.TaskDetails{task}, trigger}}
+    case U.SideConversation{task}: ViewTypes.ByTrigger{U.ClosePanel{}}
     case _: ViewTypes.OutsideOrEscape{U.ClosePanel{}}
 
 def source_parent_projection(matched: Bool, shown: +List<ViewTypes.Layer>) -> +List<ViewTypes.Layer>:

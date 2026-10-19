@@ -17,6 +17,7 @@ import ./CONCEPTS.bend as Entry
 import ./harness/reasoning/PROOF.bend as ReasoningProof
 import ./harness/context/PROOF.bend as TrackedContextProof
 import ./harness/tasks/PROOF.bend as TasksProof
+import ./harness/tasks/side-context-proof.bend as SideContextProof
 import ./features/board/PROOF.bend as BoardProof
 import ./features/task_graph/PROOF.bend as TaskGraphProof
 import ./features/work/PROOF.bend as WorkProof

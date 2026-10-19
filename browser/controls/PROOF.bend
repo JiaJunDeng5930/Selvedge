@@ -499,6 +499,10 @@ def encoded_sequence(+attribute: Source.Attribute, +rest: +List<Source.Attribute
 def page_context(+previous: Maybe<&2, Reading.Context>, +task: Nat, +generation: Nat) -> Rule.page_context(previous, task, generation):
   {==}
 
+def Rule.page_context_section_fills_remaining_height(visual): {==}
+
+def Rule.page_context_source_uses_context_layout(capacity, key, label, role, conversation, visual, representation, children, parameters, content): {==}
+
 def cleared_context(+previous: Maybe<&2, Reading.Context>) -> Rule.cleared_context(previous):
   {==}
 
@@ -2302,7 +2306,32 @@ def Rule.navigation_target_uses_actual_visual_floor(capacity, visual): {==}
 
 def Rule.desktop_workspace_content_preserved(navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font): {==}
 
-def Rule.compact_workspace_content_complete(navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font): {==}
+def Rule.main_and_docked_details_complete(structure, reading_width, main, other, docked, main_minimum_width, font):
+  match docked main_minimum_width:
+    case Nil{} _: {==}
+    case Con{first, rest} 0n: {==}
+    case Con{first, rest} 1n+minimum: {==}
+
+def Rule.nonleading_body_content_complete(navigation_width, main_minimum_width, structure, reading_width, navigation, main, settings, other, docked, font):
+  Equal.cong(+List<Source.Node>, Source.Node,
+    (content => Source.Box{UIIdentity.part(UIIdentity.place("/application"), "body"), Source.Div{}, Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, SpatialModel.Stretch{}), Nil{},
+      Source.Box{UIIdentity.part(UIIdentity.place("/application"), "topbar"), Source.Div{}, Shell.neutral(font, Model.Horizontal{}, Model.StretchSize{}, Model.NaturalSize{}, SpatialModel.Centered{}), Nil{},
+        List.append(&2, Source.Node, navigation, Shell.spacer(UIIdentity.part(UIIdentity.place("/application"), "topbar-spacer"), font) <> settings)} <> content}),
+    Shell.main_and_docked_details(structure, reading_width, main, other, docked, main_minimum_width, font),
+    Rule.required_main_and_docked_details(structure, reading_width, main, other, docked, main_minimum_width, font),
+    Rule.main_and_docked_details_complete(structure, reading_width, main, other, docked, main_minimum_width, font))
+
+def Rule.docked_details_keep_minimum_width(parameters, node, docked, floating, workspace_layers):
+  Design.LayoutParameters{navigation_width, main_minimum_width, details_width, reading_width, overview_width, toolbar_height, input_minimum_height, input_maximum_height, line_height, creation_height, lane_width, navigation_minimum_width, activity_primary_advance, activity_support_advance} = parameters
+  {==}
+
+def Rule.compact_workspace_content_complete(navigation, main, settings, other, work_tabs, structure, reading_width, placement, parameters, docked, workspace_layers, font):
+  Equal.cong(+List<Source.Node>, +List<Source.Node>,
+    (content => [Shell.workspace_stage(Shell.wrap(UIIdentity.part(UIIdentity.place("/application"), "compact-flow"), Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, SpatialModel.Stretch{}),
+      List.append(&2, Source.Node, work_tabs, [Shell.wrap(UIIdentity.part(UIIdentity.place("/application"), "body"), Shell.neutral(font, Model.Vertical{}, Model.StretchSize{}, Model.StretchSize{}, SpatialModel.Stretch{}), content)])), workspace_layers, font)]),
+    Shell.main_and_docked_details(structure, reading_width, main, other, docked, Design.main_minimum_width(parameters), font),
+    Rule.required_main_and_docked_details(structure, reading_width, main, other, docked, Design.main_minimum_width(parameters), font),
+    Rule.main_and_docked_details_complete(structure, reading_width, main, other, docked, Design.main_minimum_width(parameters), font))
 
 def Rule.compact_work_scope_native_fields(key, count, label, visual, native_key, tag, style, attributes, name, enabled, first, remaining, children): {==}
 

@@ -305,7 +305,7 @@ def reading_owner(application: E.Application, +task: Nat, generation: Nat) -> Bo
   +observed_session = E.session(application)
   route = E.route(observed_session)
   readers = E.readers(observed_session)
-  U.route_owns(route, task) && Nat.is_eq(generation, E.reader_generation(E.reader(readers, task)))
+  E.task_visible(observed_session, task) && Nat.is_eq(generation, E.reader_generation(E.reader(readers, task)))
 
 def opened_application(+application: E.Application, +panel: U.Panel, trigger: String) -> E.Decision:
   +program = E.program(application)
@@ -488,7 +488,7 @@ def captured_send_ready(+ready: Bool, +task: Nat, +owner: Interactive.Owner, +pa
   match ready:
     case False{}: interactive_completion_spec(owner, path, ticket, D.failure("interaction_refused", "This task cannot accept this message now"), application)
     case True{}:
-      +command: M.Command = U.command(U.Message{task, U.initial_text(message), U.Send{}}, E.now(E.session(application)))
+      +command: M.Command = U.message_command(U.Send{}, task, message)
       captured_request(Commands.resolve(command, E.program(application)), command, owner, path, ticket, application)
 
 def captured_send_owner(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) -> E.Decision:
@@ -514,9 +514,20 @@ def work_creation_spec(current: Bool, +result: J.Json, application: E.Applicatio
     case False{}: E.Decision{application, result, Nil{}, Nil{}, False{}}
     case True{}: E.with_native(E.created_work(result, application), result, Nil{}, False{})
 
+def side_response_spec(accepted: Bool, +result: J.Json, +application: E.Application) -> E.Decision:
+  match accepted:
+    case False{}: E.Decision{application, result, Nil{}, Nil{}, False{}}
+    case True{}: E.with_native(E.show_created_side(J.natural(J.get(J.get(result, "result"), "task_id")), application), result, Nil{}, False{})
+
+def side_creation_spec(current: Bool, draft: Maybe<&2, U.Draft>, +result: J.Json, +application: E.Application) -> E.Decision:
+  match current:
+    case False{}: E.Decision{E.from_program(E.program(application), E.settle_side_draft(draft, result, E.session(application))), result, Nil{}, Nil{}, False{}}
+    case True{}: side_response_spec(J.boolean(J.get(result, "ok")), result, E.from_program(E.program(application), E.settle_side_draft(draft, result, E.session(application))))
+
 def valid_completion_spec(completion: E.Completion, +program: M.World(), +result: J.Json, +session: E.Session) -> E.Decision:
   match completion:
     case E.WorkCreationCompletion{generation, layer_generation}: work_creation_spec(E.work_creation_current(generation, layer_generation, session), result, E.from_program(program, E.retain_previews(session, program)))
+    case E.SideCreationCompletion{parent, +draft, generation, layer_generation}: side_creation_spec(E.side_creation_current(parent, draft, generation, layer_generation, E.retain_previews(session, program)), draft, result, E.from_program(program, E.retain_previews(session, program)))
     case E.InteractiveCompletion{owner, path, ticket}: interactive_completion_spec(owner, path, ticket, result, E.from_program(program, E.retain_previews(session, program)))
     case E.ExecutionViewCompletion{task, profile, reasoning, remember, occurrence}: E.finish_execution_view(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, occurrence, program, result, E.from_program(program, session))
     case E.ExecutionCompletion{task, profile, reasoning, remember}: E.finish_execution(J.boolean(J.get(result, "ok")), task, profile, reasoning, remember, program, result, E.from_program(program, session))
@@ -552,9 +563,9 @@ def stale_completion_spec(valid: Bool, previous: M.World(), +program: M.World(),
     case True{}: E.Decision{E.from_program(program, E.retain_previews(session, program)), result, Nil{}, Nil{}, False{}}
     case False{}: E.refuse(E.from_program(previous, session), "The observed program violates a world invariant")
 
-def preference_request_spec(preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: E.Application) -> E.Decision:
+def preference_request_spec(preference: Maybe<&2, M.Command>, +command: M.Command, draft: U.Draft, +application: E.Application) -> E.Decision:
   match preference:
-    case None{}: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.DraftCompletion{draft}}], False{}}
+    case None{}: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{command, E.composer_completion(command, draft, application)}], False{}}
     case Some{update}: E.Decision{application, D.success(J.Null{}), Nil{}, [E.RequestCommand{update, E.WorktreePreferenceCompletion{draft, command}}], False{}}
 
 def submission_checked_spec(allowed: Bool, preference: Maybe<&2, M.Command>, command: M.Command, draft: U.Draft, application: E.Application) -> E.Decision:
@@ -925,3 +936,48 @@ law refused_worktree_preference_stops_submission:
   @failed:{J.boolean(J.get(result, "ok")) == False{} : Bool} ->
   {E.finish_worktree_preference(False{}, draft, command, result, E.from_program(world, session)) ==
     E.Decision{E.from_program(world, E.settle(draft, result, session)), result, Nil{}, Nil{}, False{}} : E.Decision}
+
+law composer_side_command:
+  @+task:Nat -> @+message:String -> @+question:String -> @delivery:U.Delivery -> @now:U32 ->
+  @recognized:{U.side_conversation_question(message) == Some{question} : Maybe<&2, String>} ->
+  {U.command(U.Message{task, U.initial_text(message), delivery}, now) == M.OpenSideConversation{task, question} : M.Command}
+
+law composer_plain_message:
+  @+task:Nat -> @+message:String -> @+delivery:U.Delivery -> @now:U32 ->
+  @ordinary:{U.side_conversation_question(message) == None{} : Maybe<&2, String>} ->
+  {U.command(U.Message{task, U.initial_text(message), delivery}, now) == U.message_command(delivery, task, message) : M.Command}
+
+law side_creation_captures_composer_and_attention:
+  @+parent:Nat -> @message:String -> @+draft:U.Draft -> @+application:E.Application ->
+  {E.composer_completion(M.OpenSideConversation{parent, message}, draft, application) ==
+    E.SideCreationCompletion{parent, Some{draft}, E.selection_generation(E.session(application)), E.next_layer(E.session(application))} : E.Completion}
+
+law side_creation_requires_current_owner_and_attention:
+  @+parent:Nat -> @+draft:Maybe<&2, U.Draft> -> @+generation:Nat -> @+layer_generation:Nat -> @+session:E.Session ->
+  {E.side_creation_current(parent, draft, generation, layer_generation, session) ==
+    E.task_visible(session, parent) && E.side_draft_owned(draft, session) && E.work_creation_current(generation, layer_generation, session) : Bool}
+
+law stale_side_creation_settles_only_its_captured_draft:
+  @+draft:Maybe<&2, U.Draft> -> @+result:J.Json -> @+application:E.Application ->
+  {E.complete_side_creation_checked(False{}, draft, result, application) ==
+    E.Decision{E.from_program(E.program(application), E.settle_side_draft(draft, result, E.session(application))), result, Nil{}, Nil{}, False{}} : E.Decision}
+
+law side_window_dismissal_does_not_return_content:
+  @task:Nat -> @trigger:String -> @initial:String -> @query:String -> @occurrence:Nat -> @source:Bool -> @field:Maybe<&2, Forms.Field> -> @buffer:Maybe<&2, String> -> @rest:+List<E.Layer> -> @+application:E.Application ->
+  {E.dismiss_layers(E.Layer{U.SideConversation{task}, trigger, initial, query, occurrence, source, field, buffer} <> rest, application) == E.close_panel(application) : E.Decision}
+
+law side_return_is_explicit:
+  @+task:Nat ->
+  {U.direct_command(U.ReturnSideConversation{task}) == Some{M.ReturnSideConversation{task}} : Maybe<&2, M.Command>}
+
+law visible_tasks_include_side_windows_and_the_original_route:
+  @+route:U.Route -> @+layers:+List<E.Layer> -> @+session:E.Session ->
+  {E.visible_tasks(E.with_layers(layers, E.with_route(route, session))) == E.visible_route_tasks(route, layers) : +List<Nat>}
+
+law interactive_documents_follow_visible_tasks:
+  @+application:E.Application ->
+  {E.interactive_synchronize(application) == E.interactive_result(Documents.reconcile_visible(E.visible_tasks(E.session(application)), E.previews(E.session(application)), E.program(application), E.interactive_data(E.session(application))), application) : E.Decision}
+
+law captured_interactive_send_remains_literal:
+  @+task:Nat -> @+message:String -> @now:U32 ->
+  {E.interactive_message_command(U.Message{task, U.initial_text(message), U.Send{}}, now) == M.Send{task, message} : M.Command}

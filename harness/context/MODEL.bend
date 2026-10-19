@@ -29,6 +29,7 @@ def workspace_skills_policy() -> DiscoveryPolicy:
   DiscoveryPolicy{["SKILL.md"], [".agents/skills", ".claude/skills"], [".git"], discovery_excluded(), 10000n, 100000n, 1024n, 262144n}
 
 type Observer is Data:
+  NativeState{}
   NativeText{revision: String, content: String}
   ConfigText{setting: String}
   HomeFile{relative: String}
@@ -229,6 +230,7 @@ def discovery_observer_json(kind: String, policy: DiscoveryPolicy) -> J.Json:
 
 def observer_json(observer: Observer) -> J.Json:
   match observer:
+    case NativeState{}: J.Object{[J.Field{"type", J.Text{"native_state"}}]}
     case NativeText{revision, content}: J.Object{[J.Field{"type", J.Text{"native_text"}}, J.Field{"revision", J.Text{revision}}, J.Field{"content", J.Text{content}}]}
     case ConfigText{setting}: J.Object{[J.Field{"type", J.Text{"config_text"}}, J.Field{"setting", J.Text{setting}}]}
     case HomeFile{relative}: J.Object{[J.Field{"type", J.Text{"home_file"}}, J.Field{"relative", J.Text{relative}}]}
@@ -728,6 +730,7 @@ def discovery_policy(+item: J.Json) -> Maybe<&2, DiscoveryPolicy>:
 
 def parsed_observer(kind: String, setting: J.Json, relative: J.Json, revision: J.Json, content: J.Json, policy: Maybe<&2, DiscoveryPolicy>) -> Maybe<&2, Observer>:
   match kind setting relative revision content policy:
+    case "native_state" _ _ _ _ _: Some{NativeState{}}
     case "native_text" _ _ J.Text{revision} J.Text{content} _: Some{NativeText{revision, content}}
     case "config_text" J.Text{setting} _ _ _ _: Some{ConfigText{setting}}
     case "config_files" J.Text{setting} _ _ _ _: Some{ConfigFiles{setting}}

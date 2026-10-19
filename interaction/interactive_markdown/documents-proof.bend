@@ -12,6 +12,9 @@ import ../../harness/DOMAIN.bend as D
 import ../../harness/MODEL.bend as Harness
 import ./documents-contract.bend as Spec
 
+def Spec.visible_document_exposure_uses_its_viewing_task(source, text, epoch, revision, ending, observed, fences, active, rest, viewers, entries): {==}
+def Spec.visible_document_exposure_refreshes_actual_documents(viewers, world, state): {==}
+
 # Proofs below connect these domain relations to complete production results.
 def source_meaning(+source: Code.Source, +store: String) ->
   {Docs.source_scope(source, store) == Spec.canonical_source(store, source) : Bool}:

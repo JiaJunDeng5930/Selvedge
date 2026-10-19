@@ -13,6 +13,7 @@ import ../MODEL.bend as M
 import ../COMMANDS.bend as Commands
 import ../protocol/PROGRAM.bend as Protocol
 import ../tasks/PROGRAM.bend as T
+import ../tasks/side-context.bend as SideContext
 import ../../bendlib/json.bend as J
 import ../transport/schema.bend as Schema
 import ../transport/presentation.bend as View
@@ -422,7 +423,7 @@ def schedule(fuel: Nat, candidate: Maybe<&2, D.Task>, +decision: M.Decision()) -
     case 0n Some{task}: defer(decision)
     case 1n+p None{}: decision
     case 1n+p Some{+task}:
-      +next = combine(decision, work_calculation(D.task_work(task), task, world(decision)))
+      +next = SideContext.reconcile_dispatch(F.State(), F.Effect, combine(decision, work_calculation(D.task_work(task), task, world(decision))))
       schedule(p, Compaction.runnable(Commands.entries(world(next)), CompactionState.registry(world(next))), next)
 
 def budget_limits(world: M.World(), limits_value: D.ExecutionLimits) -> Nat:
@@ -433,8 +434,9 @@ def budget_limits(world: M.World(), limits_value: D.ExecutionLimits) -> Nat:
 def budget(+world: M.World()) -> Nat:
   budget_limits(world, D.state_limits(C.local(D.State, F.State(), world)))
 
-def scheduled_prepared(+decision: M.Decision()) -> M.Decision():
-  BoardScheduling.finish(schedule(budget(world(decision)), Compaction.runnable(Commands.entries(world(decision)), CompactionState.registry(world(decision))), decision))
+def scheduled_prepared(decision: M.Decision()) -> M.Decision():
+  +prepared = SideContext.reconcile_dispatch(F.State(), F.Effect, decision)
+  BoardScheduling.finish(schedule(budget(world(prepared)), Compaction.runnable(Commands.entries(world(prepared)), CompactionState.registry(world(prepared))), prepared))
 
 def scheduled(enabled: Bool, +decision: M.Decision()) -> M.Decision():
   match enabled:

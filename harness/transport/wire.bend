@@ -93,6 +93,10 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.ForkCommand{}:
       M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
         J.text_values(J.items(J.get(body, "messages"))), J.get(body, "settings")}
+    case M.OpenSideConversationCommand{}:
+      M.OpenSideConversation{Protocol.number(body, "task_id", 0n), J.text_or(J.get(body, "message"), "")}
+    case M.ReturnSideConversationCommand{}:
+      M.ReturnSideConversation{Protocol.number(body, "task_id", 0n)}
     case M.ReadCommand{}:
       M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
@@ -718,6 +722,8 @@ def root_environment_command(command: M.Command) -> Bool:
   match command:
     case M.Create{profile, reasoning, message, settings}: True{}
     case M.Fork{task, count, messages, settings}: True{}
+    case M.OpenSideConversation{task, message}: False{}
+    case M.ReturnSideConversation{task}: False{}
     case M.FeatureCommand{command}: Features.root_environment(command)
     case _: False{}
 

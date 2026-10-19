@@ -63,7 +63,10 @@
     "harness/context/instruction.bend",
     "harness/context/project-guidance.bend",
     "harness/context/selection.bend",
-    "harness/context/interactive-markdown.bend"
+    "harness/context/interactive-markdown.bend",
+    "harness/context/task-lifecycle.bend",
+    "harness/tasks/side-contract.bend",
+    "harness/tasks/side-conversation.bend"
   ],
   "application_dependencies": {
     "BROWSER.bend": [
@@ -174,7 +177,8 @@
       "browser/controls/PROOF.bend",
       "features/remote/PROOF.bend",
       "harness/features/remote-proof.bend",
-      "features/work/PROOF.bend"
+      "features/work/PROOF.bend",
+      "harness/tasks/side-context-proof.bend"
     ],
     "bendlib/categories.bend": [],
     "bendlib/equality-proof.bend": [
@@ -214,7 +218,8 @@
       "browser/appearance/CONTRACT.bend",
       "browser/layout/render-contract.bend",
       "interaction/TYPES.bend",
-      "interaction/presentation/SURFACE.bend"
+      "interaction/presentation/SURFACE.bend",
+      "browser/focus/CONTRACT.bend"
     ],
     "browser/MODEL.bend": [
       "browser/layout/natural-size.bend",
@@ -264,7 +269,9 @@
       "browser/reading/CONTRACT.bend",
       "browser/runtime/CONTRACT.bend",
       "interaction/TYPES.bend",
-      "interaction/presentation/SURFACE.bend"
+      "interaction/presentation/SURFACE.bend",
+      "browser/focus/CONTRACT.bend",
+      "browser/focus/PROOF.bend"
     ],
     "browser/appearance/CONTRACT.bend": [
       "browser/layout/natural-size.bend",
@@ -1753,7 +1760,9 @@
       "harness/reasoning/context.bend",
       "harness/reasoning/MODEL.bend",
       "harness/features/work-state.bend",
-      "features/titles/STATE.bend"
+      "features/titles/STATE.bend",
+      "harness/tasks/side-conversation.bend",
+      "harness/tasks/side-contract.bend"
     ],
     "harness/CONTRACT.bend": [
       "interaction/CONTRACT.bend",
@@ -1816,7 +1825,8 @@
       "harness/reasoning/SPEC.bend",
       "features/compaction/SPEC.bend",
       "features/compaction/STATE.bend",
-      "features/titles/SPEC.bend"
+      "features/titles/SPEC.bend",
+      "harness/tasks/side-context.bend"
     ],
     "harness/MODEL.bend": [
       "harness/tools/MODEL.bend",
@@ -1913,7 +1923,8 @@
       "harness/approval/MODEL.bend",
       "harness/protocol/RESULTS.bend",
       "harness/reasoning/SPEC.bend",
-      "features/titles/SPEC.bend"
+      "features/titles/SPEC.bend",
+      "harness/tasks/side-context.bend"
     ],
     "harness/features/CODEC.bend": [
       "features/compaction/MODEL.bend",
@@ -2145,7 +2156,8 @@
       "features/remote/MODEL.bend",
       "features/remote/PROGRAM.bend",
       "harness/features/remote.bend",
-      "harness/transport/command-codec.bend"
+      "harness/transport/command-codec.bend",
+      "harness/tasks/side-context.bend"
     ],
     "harness/protocol/PROGRAM.bend": [
       "features/compaction/SPEC.bend",
@@ -2203,7 +2215,10 @@
       "harness/approval/MODEL.bend",
       "harness/CONTRACT.bend",
       "harness/execution/OPERATIONS.bend",
-      "harness/transport/command-contract.bend"
+      "harness/transport/command-contract.bend",
+      "harness/tasks/side-conversation.bend",
+      "harness/tasks/side-contract.bend",
+      "harness/tasks/side-proof.bend"
     ],
     "harness/protocol/commit-proof.bend": [
       "bendlib/categories.bend",
@@ -2225,7 +2240,8 @@
       "harness/execution/notifications.bend",
       "features/remote/MODEL.bend",
       "features/remote/PROGRAM.bend",
-      "harness/features/remote.bend"
+      "harness/features/remote.bend",
+      "harness/tasks/side-context.bend"
     ],
     "harness/reasoning/CONTRACT.bend": [
       "harness/features/MODEL.bend",
@@ -2294,7 +2310,8 @@
       "bendlib/theory.bend",
       "harness/CONTRACT.bend",
       "bendlib/json.bend",
-      "bendlib/stdlib.bend"
+      "bendlib/stdlib.bend",
+      "harness/tasks/side-proof.bend"
     ],
     "harness/transport/CONTRACT.bend": [
       "harness/DOMAIN.bend",
@@ -2916,7 +2933,8 @@
       "features/work/MODEL.bend",
       "harness/features/work-state.bend",
       "features/titles/MODEL.bend",
-      "features/titles/STATE.bend"
+      "features/titles/STATE.bend",
+      "interaction/IDENTITY.bend"
     ],
     "interaction/session/PROGRAM.bend": [
       "interaction/session/MODEL.bend",
@@ -3190,7 +3208,9 @@
       "harness/reasoning/PROGRAM.bend",
       "features/board/scheduling.bend",
       "features/board/scheduling-spec.bend",
-      "features/titles/PROGRAM.bend"
+      "features/titles/PROGRAM.bend",
+      "harness/tasks/side-conversation.bend",
+      "harness/tasks/side-context.bend"
     ],
     "harness/execution/PROOF.bend": [
       "features/compaction/PROOF.bend",
@@ -3222,7 +3242,9 @@
       "bendlib/json.bend",
       "features/titles/PROGRAM.bend",
       "features/titles/SPEC.bend",
-      "features/titles/PROOF.bend"
+      "features/titles/PROOF.bend",
+      "harness/tasks/side-context.bend",
+      "harness/execution/notifications.bend"
     ],
     "host/adapters/accounts-proof.bend": [
       "bendlib/categories.bend",
@@ -4454,6 +4476,78 @@
     ],
     "harness/conversation/TITLE.bend": [
       "bendlib/json.bend"
+    ],
+    "harness/context/task-lifecycle.bend": [
+      "harness/context/MODEL.bend"
+    ],
+    "harness/tasks/side-context-contract.bend": [
+      "bendlib/component.bend",
+      "bendlib/json.bend",
+      "harness/DOMAIN.bend",
+      "harness/context/MODEL.bend",
+      "harness/context/task-lifecycle.bend",
+      "harness/tasks/PROGRAM.bend"
+    ],
+    "harness/tasks/side-context-proof.bend": [
+      "bendlib/component.bend",
+      "harness/DOMAIN.bend",
+      "harness/context/MODEL.bend",
+      "harness/context/task-lifecycle.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/tasks/side-context.bend",
+      "harness/tasks/side-context-contract.bend",
+      "bendlib/effects.bend",
+      "harness/reasoning/MODEL.bend",
+      "harness/reasoning/context.bend"
+    ],
+    "harness/tasks/side-context.bend": [
+      "bendlib/component.bend",
+      "bendlib/effects.bend",
+      "bendlib/json.bend",
+      "harness/DOMAIN.bend",
+      "harness/context/MODEL.bend",
+      "harness/context/task-lifecycle.bend",
+      "harness/tasks/PROGRAM.bend"
+    ],
+    "harness/tasks/side-contract.bend": [
+      "harness/DOMAIN.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/context/MODEL.bend",
+      "harness/context/task-lifecycle.bend",
+      "harness/execution/OPERATIONS.bend",
+      "harness/conversation/CODEC.bend",
+      "bendlib/json.bend"
+    ],
+    "harness/tasks/side-conversation.bend": [
+      "harness/DOMAIN.bend",
+      "harness/tasks/PROGRAM.bend",
+      "harness/tasks/side-contract.bend",
+      "bendlib/json.bend"
+    ],
+    "harness/tasks/side-proof.bend": [
+      "harness/DOMAIN.bend",
+      "harness/tasks/side-contract.bend",
+      "harness/tasks/side-conversation.bend"
+    ],
+    "harness/transport/command-codec.bend": [
+      "harness/features/CODEC.bend",
+      "harness/DOMAIN.bend",
+      "harness/MODEL.bend",
+      "bendlib/json.bend"
+    ],
+    "harness/execution/notifications.bend": [
+      "harness/features/MODEL.bend",
+      "bendlib/effects.bend",
+      "bendlib/component.bend",
+      "harness/DOMAIN.bend",
+      "harness/MODEL.bend",
+      "harness/approval/HOOKS.bend",
+      "harness/INVARIANTS.bend",
+      "bendlib/json.bend",
+      "harness/tasks/PROGRAM.bend",
+      "bendlib/equality.bend",
+      "harness/transport/presentation.bend",
+      "harness/protocol/PROGRAM.bend"
     ]
   },
   "feature_alphabet": "harness/features/MODEL.bend",
