@@ -196,28 +196,23 @@ def summarized_activity(failure: Maybe<&2, Audit>, +entries: +List<Audit>) -> St
 def activity_summary(+entries: +List<Audit>) -> String:
   summarized_activity(latest_failure(entries), entries)
 
-def json_detail(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{text}: text
-    case Fail{reason}: "Unable to display JSON: " ++ reason
-
 def result_detail(error: Bool, value: J.Json) -> String:
   match error:
-    case True{}: "Error\n" ++ json_detail(J.show(value))
-    case False{}: "Result\n" ++ json_detail(J.show(value))
+    case True{}: "Error\n" ++ J.stringify(value)
+    case False{}: "Result\n" ++ J.stringify(value)
 
 def audit_detail(message: D.Message) -> String:
   match message:
-    case D.FunctionCall{D.Call{id, name, arguments}}: name ++ "\n" ++ json_detail(J.show(arguments))
+    case D.FunctionCall{D.Call{id, name, arguments}}: name ++ "\n" ++ J.stringify(arguments)
     case D.FunctionOutput{id, value, error}: result_detail(error, value)
     case D.OperationResult{ticket, id, tool, value, error}: tool ++ "\n" ++ result_detail(error, value)
     case D.ToolReceipt{task, operation, D.Call{id, name, arguments}, value, error}: name ++ "\n" ++ result_detail(error, value)
-    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: json_detail(J.show(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome})))
-    case D.HookRecord{task, call, plugin, outcome}: json_detail(J.show(D.hook_json(outcome)))
-    case D.AfterRecord{task, operation, plugin, outcome}: json_detail(J.show(D.after_json(outcome)))
+    case D.ApprovalRecord{task, operation, call, reviewer, outcome}: J.stringify(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome}))
+    case D.HookRecord{task, call, plugin, outcome}: J.stringify(D.hook_json(outcome))
+    case D.AfterRecord{task, operation, plugin, outcome}: J.stringify(D.after_json(outcome))
     case D.FailureMessage{text}: text
     case D.ContextReplacement{value}: "Context compacted; original conversation retained."
-    case D.ModelContext{+origin, value}: json_detail(J.show(value))
+    case D.ModelContext{+origin, value}: J.stringify(value)
     case other: audit_title(other)
 
 def groups(messages: +List<D.Message>, +index: Nat) -> +List<Group>:

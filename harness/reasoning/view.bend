@@ -26,13 +26,9 @@ def preview_value_checked(short: Bool, original: J.Json, text: String) -> J.Json
     case True{}: original
     case False{}: J.Text{excerpt(text)}
 
-def preview_value_result(result: Result<&2, &2, String, String>, original: J.Json) -> J.Json:
-  match result:
-    case Done{+text}: preview_value_checked(Nat.is_le(String.length(text), 1024n), original, text)
-    case Fail{error}: J.Text{omission()}
-
 def preview_value(+value: J.Json) -> J.Json:
-  preview_value_result(J.show(value), value)
+  +text = J.stringify(value)
+  preview_value_checked(Nat.is_le(String.length(text), 1024n), value, text)
 
 def preview_message(+kind: String, +message: J.Json) -> J.Json:
   match kind:
@@ -126,13 +122,8 @@ def items(selection: Selection) -> +List<J.Json>:
   Selection{users, notes, outputs, items} = selection
   items
 
-def fits_text(result: Result<&2, &2, String, String>) -> Bool:
-  match result:
-    case Done{text}: Nat.is_le(J.utf8_length(text), maximum_bytes())
-    case Fail{error}: False{}
-
 def fits(+messages: +List<J.Json>) -> Bool:
-  fits_text(J.show(J.Array{messages}))
+  Nat.is_le(J.utf8_length(J.stringify(J.Array{messages})), maximum_bytes())
 
 def marker() -> J.Json:
   J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{omission()}}]}

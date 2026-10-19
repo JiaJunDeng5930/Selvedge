@@ -10,6 +10,7 @@ export async function canonicalWorkspace(value) {
   const canonical = async root => {
     boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root), value });
     const resolved = await realpath(root);
+    // DEFENSE: An explicitly selected external workspace path can name a file or change before stat.
     if (!(await stat(resolved)).isDirectory()) throw new TypeError('A workspace root must be a directory');
     return resolved;
   };
@@ -62,6 +63,7 @@ function environment(scratch, projectOnly = false) {
 async function executable(candidates) {
   for (const candidate of candidates) {
     try { await access(candidate, constants.X_OK); return candidate; }
+    // DEFENSE: The supported OS installation paths may omit the sandbox binary or contain a nonexecutable file.
     catch (error) { if (!['ENOENT', 'EACCES'].includes(error.code)) throw error; }
   }
   throw new Error(`Sandbox executable unavailable (${candidates.join(', ')}); refusing to run without isolation`);
@@ -75,6 +77,7 @@ async function runtimeReads(platform) {
   const paths = [];
   for (const root of candidates) {
     try { paths.push({ root, canonical: await realpath(root) }); }
+    // DEFENSE: Runtime directories differ across supported OS installations; only existing declared roots are mounted.
     catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return paths;
@@ -99,8 +102,10 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
   const scratch = await realpath(await mkdtemp(path.join(tmpdir(), 'selvedge-sandbox-')));
   const handles = [];
   const cleanup = async () => {
-    await Promise.allSettled(handles.map(handle => handle.close()));
+    // DEFENSE: Launch preparation may fail after opening descriptors; attempt every close and propagate failures.
+    const closed = await Promise.allSettled(handles.map(handle => handle.close()));
     await rm(scratch, { recursive: true, force: true });
+    for (const result of closed) if (result.status === 'rejected') throw result.reason;
   };
   try {
     const protectedRoots = await Promise.all(readOnlyPaths.map(root => realpath(root)));
@@ -132,5 +137,6 @@ export async function prepareSandbox(plan, { platform = process.platform, archit
     }
     const terminal = boundary('effect.sandbox_launch', { ...context, bindings, runtimeReads: observedRuntime });
     return { file, ...terminal, env: environment(scratch, projectOnly), descriptors: handles.map(handle => handle.fd), cleanup };
+  // DEFENSE: Sandbox binary/policy preparation can fail after allocating scratch space and pinned descriptors.
   } catch (error) { await cleanup(); throw error; }
 }

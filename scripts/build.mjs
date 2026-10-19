@@ -25,12 +25,14 @@ async function entryRequest(entry, output, { publicSource = entry, namespacePref
   // Root entry definitions are public wrappers; import aliases are not compiler names.
   const source = await readFile(path.join(root, publicSource), 'utf8');
   const names = [...source.matchAll(/^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm)].map(match => match[1]);
+  // DEFENSE: An edited public entry can remove every wrapper and would otherwise produce an empty runtime interface.
   if (!names.length) throw new Error(`No public Bend wrappers in ${publicSource}`);
   return { entry, exports: Object.fromEntries(names.map(name => [name, `${namespacePrefix}${name}`])), output, sourceRoot: root };
 }
 
 async function nativeIdentity(bend, compileArguments) {
   const compilerPath = Bun.which(bend);
+  // DEFENSE: The selected native compiler can disappear from PATH between its version check and executable hashing.
   if (!compilerPath) throw new Error(`Cannot resolve native Bend compiler: ${bend}`);
   const compilerBytes = await readFile(compilerPath);
   const hash = createHash('sha256');
@@ -97,14 +99,21 @@ export async function build({ native = false, force = false } = {}) {
     const compileArguments = ['MAIN.bend', '-o', '.build/selvedge-kernel'];
     const identity = await nativeIdentity(bend, compileArguments);
     let previous;
-    try { previous = JSON.parse(await readFile(path.join(directory, 'native.json'), 'utf8')); } catch {}
+    // DEFENSE: A first build or interrupted manifest write leaves no usable native cache identity.
+    try { previous = JSON.parse(await readFile(path.join(directory, 'native.json'), 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
     const output = path.join(directory, 'selvedge-kernel');
     let outputSha256;
-    try { outputSha256 = createHash('sha256').update(await readFile(output)).digest('hex'); } catch {}
-    if (previous?.fingerprint !== identity.fingerprint || !outputSha256 || previous.outputSha256 !== outputSha256 || force) {
+    // DEFENSE: The optional executable can be absent before its first build or after cache cleanup.
+    try { outputSha256 = createHash('sha256').update(await readFile(output)).digest('hex'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    // DEFENSE: Missing, edited or stale native cache artifacts must be rebuilt from the current compiler and source bytes.
+    if (previous?.fingerprint !== identity.fingerprint || previous.outputSha256 !== outputSha256 || force) {
       const invocation = compilerInvocation(bend, compileArguments);
       const result = spawnSync(invocation.command, invocation.args, { cwd: root, stdio: 'inherit', env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1' } });
+      // DEFENSE: The native compiler launcher can fail to start because the OS refuses its process.
       if (result.error) throw result.error;
+      // DEFENSE: The native compiler can exit unsuccessfully or be terminated before producing its executable.
       if (result.status !== 0) throw new Error(`Native Bend compilation failed (${result.status})`);
       await writeFile(path.join(directory, 'native.json'), JSON.stringify({ ...identity,
         outputSha256: createHash('sha256').update(await readFile(output)).digest('hex'),

@@ -10,7 +10,9 @@ const syntax = new Bun.Transpiler({ loader: 'js' });
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
+  // DEFENSE: A checker executable can fail to start because it is missing or the OS refuses the process.
   if (result.error) throw result.error;
+  // DEFENSE: A checker can fail or terminate by signal, whose null status must still fail this command.
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
@@ -24,6 +26,7 @@ async function checkDirectory(directory) {
       try {
         syntax.transformSync(source);
       } catch (error) {
+        // DEFENSE: An edited JavaScript file can fail parsing; identify its path while preserving the parser diagnostic.
         throw new Error(`JavaScript syntax check failed: ${filename}`, { cause: error });
       }
     }

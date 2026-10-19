@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# DEFENSE: A fresh machine may lack Bun, which runs every build and service command.
 command -v bun >/dev/null || { echo 'Install Bun 1.4.2 or later first' >&2; exit 1; }
+# DEFENSE: An installed Bun can predate the repository's required runtime version.
 bun -e 'const actual = Bun.version.split(".").map(Number); const minimum = [1, 4, 2]; const different = actual.findIndex((part, index) => part !== minimum[index]); if (different !== -1 && actual[different] < minimum[different]) throw new Error("Bun 1.4.2 or later is required")'
+# DEFENSE: A fresh machine may lack the C compiler required by the native entry build.
 command -v cc >/dev/null || { echo 'Install a C compiler (Xcode Command Line Tools or build-essential) first' >&2; exit 1; }
+# DEFENSE: Linux/macOS require their actual isolation launcher; unsupported OSes cannot run the sandbox contract.
 case "$(uname -s)" in
   Linux) command -v bwrap >/dev/null || { echo 'Install bubblewrap first (for example: sudo apt-get install bubblewrap)' >&2; exit 1; } ;;
   Darwin) test -x /usr/bin/sandbox-exec || { echo 'The macOS Seatbelt launcher is unavailable' >&2; exit 1; } ;;
   *) echo 'Selvedge supports Linux and macOS only' >&2; exit 1 ;;
 esac
-if ! bun scripts/toolchain.mjs >/dev/null 2>&1; then bash scripts/install-bend.sh; fi
+# DEFENSE: A fresh checkout has no workspace compiler; install its pinned archive before checking the toolchain.
+if [[ ! -x .build/bend/bin/bend ]]; then bash scripts/install-bend.sh; fi
+bun scripts/toolchain.mjs
 bun install --frozen-lockfile
 bun run build
 if command -v pre-commit >/dev/null; then

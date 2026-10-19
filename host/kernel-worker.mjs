@@ -1,10 +1,9 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
-import { parseJson } from './codec.mjs';
 
 const { default: model } = await import(pathToFileURL(workerData.module).href);
 let world = model.initial();
-parentPort.on('message', ({ frame: bytes, maximum, snapshot }) => {
+parentPort.on('message', ({ frame: bytes, snapshot }) => {
   try {
     // The native frame already defines the generic JSON token vocabulary.
     const frame = Buffer.from(bytes);
@@ -18,17 +17,11 @@ parentPort.on('message', ({ frame: bytes, maximum, snapshot }) => {
     let list = { $: 'Nil' };
     for (let index = tokens.length - 1; index >= 0; index--) list = { $: 'Con', head: tokens[index], tail: list };
     const output = model.packet(list, world);
-    const shown = model.show(model.envelope(output));
-    if (shown.$ !== 'Done') throw new Error(shown.error ?? 'Kernel envelope serialization failed');
-    const text = shown.value;
-    if (typeof text !== 'string' || Buffer.byteLength(text) > maximum) throw new Error('Kernel output exceeds its frame limit');
-    const value = parseJson(text);
-    if (typeof value.durable !== 'boolean' || typeof value.reply?.ok !== 'boolean' || !Array.isArray(value.effects)) {
-      throw new Error('Malformed kernel decision');
-    }
+    const text = model.show(model.envelope(output));
     world = model.state(output);
     parentPort.postMessage(snapshot ? { text, program: world } : { text });
+  // DEFENSE: Compiled JavaScript can fail at runtime, including the reproduced large-text stack overflow; the owner must reject the pending transition.
   } catch (error) {
-    parentPort.postMessage({ error: String(error?.message ?? error) });
+    parentPort.postMessage({ error: error.message });
   }
 });

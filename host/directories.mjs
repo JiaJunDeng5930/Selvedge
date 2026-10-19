@@ -7,15 +7,15 @@ const maximumEntries = 512;
 /** Observe folder names only; selecting workspace roots remains a native command. */
 export async function browseDirectories(location, maximumBytes) {
   try {
+    // DEFENSE: The browser supplies this path; reject malformed or oversized navigation requests.
     if (typeof location !== 'string' || !path.isAbsolute(location) || location.includes('\0') ||
         Buffer.byteLength(location) > maximumPathBytes) {
       throw new TypeError('Expected a bounded absolute directory path');
     }
-    if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) {
-      throw new TypeError('The kernel did not declare a directory-observation bound');
-    }
     const current = await realpath(location);
+    // DEFENSE: Resolving a user-selected link can produce a canonical path beyond the wire path limit.
     if (Buffer.byteLength(current) > maximumPathBytes) throw new TypeError('Directory path exceeds the model boundary');
+    // DEFENSE: A browser path can name a file or be replaced by one before observation.
     if (!(await stat(current)).isDirectory()) throw new TypeError('The selected path is not a directory');
     const children = await readdir(current, { withFileTypes: true });
     const entries = [];
@@ -25,7 +25,7 @@ export async function browseDirectories(location, maximumBytes) {
       if (child.isSymbolicLink()) {
         try { directory = (await stat(childPath)).isDirectory(); }
         catch (error) {
-          // Broken and cyclic links cannot be navigation destinations.
+          // DEFENSE: Directory listings can contain broken or cyclic links, which cannot be navigation destinations.
           if (!['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code)) throw error;
         }
       }
@@ -35,11 +35,13 @@ export async function browseDirectories(location, maximumBytes) {
     const parent = path.dirname(current);
     const result = { ok: true, path: current, parent: parent === current ? null : parent,
       entries: entries.slice(0, maximumEntries), truncated: entries.length > maximumEntries };
+    // DEFENSE: A directory with long child names can exceed the browser frame budget after entry-count limiting.
     if (Buffer.byteLength(JSON.stringify(result)) > maximumBytes) {
       throw new Error('Directory observation exceeds the frame byte limit');
     }
     return result;
   } catch (error) {
+    // DEFENSE: Browser-selected paths may disappear or deny access; return the observation's explicit failure envelope.
     return { ok: false, error: error.message };
   }
 }

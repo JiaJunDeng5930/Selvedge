@@ -1067,6 +1067,7 @@ def snapshot_result(+changed: Bool, +namespace: String, +sequence: Nat, program:
 
 def snapshot_current(accepted: Bool, +changed: Bool, +namespace: String, +sequence: Nat, +program: M.World(), +state: State) -> Decision:
   match accepted:
+    # DEFENSE: A refresh response may carry an older durable sequence than a command response already accepted in this namespace.
     case False{}: Decision{state, Nil{}}
     case True{}:
       accept(True{}, snapshot_result(changed, namespace, sequence, program, state), invalidate_if(changed || view_removed(program, state), state))
@@ -1080,6 +1081,7 @@ def invalid_namespace(+state: State) -> Decision:
 
 def snapshot_namespace(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +state: State) -> Decision:
   match valid:
+    # DEFENSE: The service snapshot protocol requires a valid data namespace before exposing or persisting its source values.
     case False{}: invalid_namespace(state)
     case True{}:
       +changed = Bool.not(String.eq(current_namespace(state), namespace))
@@ -1087,6 +1089,7 @@ def snapshot_namespace(valid: Bool, +namespace: String, +sequence: Nat, program:
 
 def snapshot_scope(owned: Bool, +namespace: String, sequence: Nat, program: M.World(), +state: State) -> Decision:
   match owned:
+    # DEFENSE: A refresh started before a service restart may return after the browser has accepted a different data namespace.
     case False{}: Decision{state, Nil{}}
     case True{}: snapshot_namespace(Live.valid_namespace(namespace), namespace, sequence, program, state)
 
@@ -1129,6 +1132,7 @@ def network_failure_result(namespace: String, sequence: Nat,+connection: Nat,  r
 
 def network_failed_current(owned: Bool, namespace: String, sequence: Nat,+connection: Nat,  reason: String, +revoked: Bool, +authentication: Maybe<&2, Nat>, +state: State) -> Decision:
   match owned:
+    # DEFENSE: An earlier HTTP/SSE request can fail after a replacement connection or namespace has already taken ownership.
     case False{}: Decision{state, Nil{}}
     case True{}:
       accept(True{}, network_failure_result(namespace, network_failure_sequence(authentication, sequence, state), connection, reason, revoked, authentication, state), invalidate_if(revoked, state))
@@ -1140,6 +1144,7 @@ def authenticated_result(ticket: Nat, value: Legacy.Decision) -> Legacy.Decision
   Legacy.Decision{next, first} = value
   synchronized_result(Legacy.native(Web.PlatformInput{Platform.ProductInput{Product.Authenticated{ticket, Done{Unit{}}}}}, next), first)
 
+# DEFENSE: Authentication refresh can return a snapshot older than an independently completed command in the same namespace.
 def authenticated_snapshot_current(stale: Bool, +changed: Bool, namespace: String, sequence: Nat, +program: M.World(), ticket: Nat, +state: State) -> Decision:
   match stale:
     case True{}: accept(True{}, authenticated_result(ticket, Legacy.Decision{legacy(state), Nil{}}), state)
@@ -1148,6 +1153,7 @@ def authenticated_snapshot_current(stale: Bool, +changed: Bool, namespace: Strin
 
 def authenticated_snapshot_valid(valid: Bool, +namespace: String, +sequence: Nat, program: M.World(), +ticket: Nat, +state: State) -> Decision:
   match valid:
+    # DEFENSE: Authentication snapshots must carry the current service data-namespace format before sources are authorized.
     case False{}: network_failed(current_namespace(state), Legacy.sequence(legacy(state)), ticket, "Invalid service data namespace", True{}, Some{ticket}, state)
     case True{}:
       +changed = Bool.not(String.eq(current_namespace(state), namespace))
@@ -1155,6 +1161,7 @@ def authenticated_snapshot_valid(valid: Bool, +namespace: String, +sequence: Nat
 
 def authenticated_snapshot_owned(owned: Bool, +namespace: String, sequence: Nat, program: M.World(), ticket: Nat, +state: State) -> Decision:
   match owned:
+    # DEFENSE: A sign-in request can finish after its authentication ticket or data namespace has been superseded.
     case False{}: Decision{state, Nil{}}
     case True{}: authenticated_snapshot_valid(Live.valid_namespace(namespace), namespace, sequence, program, ticket, state)
 
@@ -1163,6 +1170,7 @@ def authenticated_snapshot(expected_namespace: String, namespace: String, sequen
 
 def completed_current(changed: Bool, ticket: Nat, namespace: String, +sequence: Nat, +program: M.World(), reply: J.Json, +state: State) -> Decision:
   match changed:
+    # DEFENSE: A command accepted by the old service can return after the browser has switched to a new data namespace.
     case True{}: Decision{state, Nil{}}
     case False{}: accept(True{}, Legacy.step(Legacy.Completed{ticket, sequence, program, reply}, legacy(state)),
       invalidate_if(Nat.is_le(Legacy.sequence(legacy(state)), sequence) && view_removed(program, state), state))
@@ -1201,6 +1209,7 @@ def service_connected(state: State) -> Bool:
 
 def commit_refresh_needed_at(sequence: Maybe<&2, Nat>, +notice: J.Json, +state: State) -> Bool:
   match sequence:
+    # DEFENSE: A dequeued watch commit whose sequence is missing or outside the immediate Nat protocol cannot establish that the current snapshot covers it.
     case None{}: True{}
     case Some{received}:
       Bool.not(String.eq(J.text(J.get(notice, "type")), "commit") &&
@@ -1214,6 +1223,7 @@ def commit_refresh_needed(+notice: J.Json, state: State) -> Bool:
 
 def activate_ready(blocked: Bool, +key: String, +state: State) -> Decision:
   match blocked:
+    # DEFENSE: A native click can arrive during semantic publication lag, after its owner changes, or while submission is disconnected.
     case True{}: Decision{state, Nil{}}
     case False{}: accept(True{}, Legacy.activate(key, legacy(state)), state)
 
@@ -1244,6 +1254,7 @@ def edit_text_owned(member: Categories.Membership<TextEditCandidate, edit_text_c
 
 def edit_text_admitted(admission: Maybe<&1, Categories.Membership<TextEditCandidate, edit_text_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: A queued text event can outlive its current field owner or mount occurrence after a publication.
     case None{}: Decision{state, Nil{}}
     case Some{member}: edit_text_owned(member)
 
@@ -1269,6 +1280,7 @@ def edit_structured_text_owned(member: Categories.Membership<StructuredTextEditC
 
 def edit_structured_text_admitted(admission: Maybe<&1, Categories.Membership<StructuredTextEditCandidate, edit_structured_text_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: A queued structured-text event may belong to a superseded field mount or a field no longer accepting structured text.
     case None{}: Decision{state, Nil{}}
     case Some{member}: edit_structured_text_owned(member)
 
@@ -1291,6 +1303,7 @@ def confirm_text_owned(member: Categories.Membership<TextConfirmationCandidate, 
 
 def confirm_text_admitted(admission: Maybe<&1, Categories.Membership<TextConfirmationCandidate, confirm_text_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: An Enter/composition confirmation can be delivered after its field owner or mount occurrence has changed.
     case None{}: Decision{state, Nil{}}
     case Some{member}: confirm_text_owned(member)
 
@@ -1313,6 +1326,7 @@ def edit_toggle_owned(member: Categories.Membership<ToggleEditCandidate, edit_to
 
 def edit_toggle_admitted(admission: Maybe<&1, Categories.Membership<ToggleEditCandidate, edit_toggle_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: A native checkbox event can arrive after its field owner or mount occurrence is replaced.
     case None{}: Decision{state, Nil{}}
     case Some{member}: edit_toggle_owned(member)
 
@@ -1335,6 +1349,7 @@ def attach_owned(member: Categories.Membership<AttachmentCandidate, attach_categ
 
 def attach_admitted(admission: Maybe<&1, Categories.Membership<AttachmentCandidate, attach_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: The file picker can complete after its originating field owner or mount occurrence has been replaced.
     case None{}: Decision{state, Nil{}}
     case Some{member}: attach_owned(member)
 
@@ -1439,6 +1454,7 @@ def code_sources_if_qualified(member: Categories.Membership<CodeSourcesCandidate
 
 def code_sources_admitted(admission: Maybe<&1, Categories.Membership<CodeSourcesCandidate, code_sources_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: Paced Markdown parsing can report code after the published source text or source identity has been replaced.
     case None{}: Decision{state, Nil{}}
     case Some{member}: code_sources_if_qualified(member)
 
@@ -1454,6 +1470,7 @@ def stream_notice_owned(+body: J.Json, +state: State) -> Bool:
 
 def streams_current(owned: Bool, body: J.Json, +state: State) -> Decision:
   match owned:
+    # DEFENSE: Buffered SSE observations from an old service namespace must not update the current conversation.
     case False{}: Decision{state, Nil{}}
     case True{}: accept(True{}, Legacy.streams(body, legacy(state)), state)
 
@@ -1536,6 +1553,7 @@ def utility_frame_owned(member: Categories.Membership<UtilityFrameCandidate, uti
 def utility_frame_admitted(admission: Maybe<&1, Categories.Membership<UtilityFrameCandidate, utility_frame_category()>>, state: State) -> Decision:
   match admission:
     case Some{member}: utility_frame_owned(member)
+    # DEFENSE: The physical frame contract requires native focus, exposure and geometry to match the admitted recovery source.
     case None{}: utility_frame_rejection(state)
 
 def utility_frame_result(+world: Content.AllocatedWorld, +frame: Rendered.Frame, +state: State) -> Decision:
@@ -1570,6 +1588,7 @@ def received_frame(member: Categories.Membership<FrameCandidate, receive_frame_c
 
 def receive_frame_admitted(admission: Maybe<&1, Categories.Membership<FrameCandidate, receive_frame_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: An animation-frame callback can deliver geometry after a newer display generation has been published.
     case None{}: Decision{state, Nil{}}
     case Some{member}: received_frame(member)
 
@@ -1639,6 +1658,7 @@ def native_focus_if_owned(member: Categories.Membership<NativeObservationCandida
 
 def native_focus_observed_admitted(admission: Maybe<&1, Categories.Membership<NativeObservationCandidate, native_focus_observed_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: Native link focus can be delivered after its Markdown owner, link identity or display generation has changed.
     case None{}: Decision{state, Nil{}}
     case Some{member}: native_focus_if_owned(member)
 
@@ -1661,6 +1681,7 @@ def auxiliary_focus_owned(member: Categories.Membership<AuxiliaryFocusCandidate,
 def auxiliary_focus_admitted(admission: Maybe<&1, Categories.Membership<AuxiliaryFocusCandidate, auxiliary_focus_category()>>, state: State) -> Decision:
   match admission:
     case Some{member}: auxiliary_focus_owned(member)
+    # DEFENSE: Focus feedback from the normal document cannot alter the independently owned recovery/utility display.
     case None{}: Decision{state, Nil{}}
 
 def auxiliary_focus(+input: Web.Input, +state: State) -> Decision:
@@ -1687,6 +1708,7 @@ def outside_owned(member: Categories.Membership<OutsideCandidate, outside_catego
 def outside_admitted(admission: Maybe<&1, Categories.Membership<OutsideCandidate, outside_category()>>, state: State) -> OutsideDecision:
   match admission:
     case Some{member}: outside_owned(member)
+    # DEFENSE: A native outside-click for the normal document cannot dismiss an independently owned recovery/utility display.
     case None{}: OutsideDecision{False{}, Decision{state, Nil{}}}
 
 def outside_event(+identity: String, +state: State) -> OutsideDecision:
@@ -1791,6 +1813,7 @@ def receipt_selection(status: World.ReceiptStatus, +index: Nat, +capacity: View.
 def utility_fallback(reason: String, state: State) -> Decision:
   utility_start(Utility.Recovery{reason}, True{}, state)
 
+# DEFENSE: A physical measurement failure in the recovery view gets one glyph-only recovery attempt; a failed glyph-only attempt blocks instead of looping.
 def utility_measurement_failure(reason: String, +state: State) -> Decision:
   State{legacy, serial, anchors, lifecycle, displayed, attention, updates} = state
   match lifecycle:
@@ -1837,6 +1860,7 @@ def measured_current(member: Categories.Membership<MeasurementCandidate, physica
 
 def physical_measured_admitted(admission: Maybe<&1, Categories.Membership<MeasurementCandidate, physical_measured_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: Awaited font or Markdown measurement can finish after the owning display generation or receipt round has changed.
     case None{}: Decision{state, Nil{}}
     case Some{member}: measured_current(member)
 
@@ -1859,6 +1883,7 @@ def measurement_failed(member: Categories.Membership<MeasurementFailureCandidate
 
 def physical_measurement_failed_admitted(admission: Maybe<&1, Categories.Membership<MeasurementFailureCandidate, physical_measurement_failed_category()>>, state: State) -> Decision:
   match admission:
+    # DEFENSE: A cancelled measurement can report failure after a newer generation or receipt round owns the display.
     case None{}: Decision{state, Nil{}}
     case Some{member}: measurement_failed(member)
 
@@ -1912,6 +1937,7 @@ def attention_change(valid: Bool, +value: Navigation.Attention, +state: State) -
     case True{}: attention_changed(Bool.not(Navigation.same(value, attention(state))), value, state)
 
 
+# DEFENSE: A pointer observation may still name a navigation row removed by a concurrent publication.
 def navigation_pointer_fields(+owner: Maybe<&2, String>, +state: State, previous: Navigation.Attention) -> Decision:
   Navigation.Attention{hovered, focused, capable} = previous
   attention_change(Navigation.admitted(owner, InterfaceView.active_nodes(current_surface(state))), Navigation.Attention{owner, focused, capable}, state)
@@ -1919,6 +1945,7 @@ def navigation_pointer_fields(+owner: Maybe<&2, String>, +state: State, previous
 def navigation_pointer(+owner: Maybe<&2, String>, +state: State) -> Decision:
   navigation_pointer_fields(owner, state, attention(state))
 
+# DEFENSE: A focus observation may still name a navigation row removed by a concurrent publication.
 def navigation_focus_fields(+owner: Maybe<&2, String>, +state: State, previous: Navigation.Attention) -> Decision:
   Navigation.Attention{hovered, focused, capable} = previous
   attention_change(Navigation.admitted(owner, InterfaceView.active_nodes(current_surface(state))), Navigation.Attention{hovered, owner, capable}, state)

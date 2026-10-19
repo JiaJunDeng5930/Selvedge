@@ -13,8 +13,7 @@ export class InteractiveSnapshotStorage {
   load(owner) {
     const raw = this.store.getItem(this.key(owner));
     if (raw === null) return null;
-    try { return JSON.parse(raw); }
-    catch { this.store.removeItem(this.key(owner)); return null; }
+    return JSON.parse(raw);
   }
   save(owner, definition, payload, settled) {
     this.pending.set(this.key(owner), { definition, payload, settled });
@@ -26,9 +25,9 @@ export class InteractiveSnapshotStorage {
     for (const key of Object.keys(storage)) {
       if (!key.startsWith(this.prefix) || key === protectedKey) continue;
       const value = storage.getItem(key);
+      // DEFENSE: Another tab can remove a shared localStorage key between enumeration and this read.
       if (value === null) continue;
-      let savedAt = 0;
-      try { savedAt = JSON.parse(value).savedAt ?? 0; } catch {}
+      const { savedAt } = JSON.parse(value);
       retained.push({ key, bytes: (key.length + value.length) * 2, savedAt });
     }
     retained.sort((a, b) => a.savedAt - b.savedAt || a.key.localeCompare(b.key));
@@ -36,6 +35,7 @@ export class InteractiveSnapshotStorage {
     const reservedDocuments = protectedKey === null ? 0 : 1;
     while (retained.length + reservedDocuments > this.maximumDocuments || bytes > this.maximumBytes) {
       const evicted = retained.shift();
+      // DEFENSE: A single protected snapshot can exceed the byte budget after every other snapshot is evicted.
       if (!evicted) throw new RangeError('Interactive snapshot exceeds storage capacity');
       storage.removeItem(evicted.key);
       bytes -= evicted.bytes;
@@ -46,14 +46,20 @@ export class InteractiveSnapshotStorage {
     this.timer = null;
     for (const [key, entry] of this.pending) {
       this.pending.delete(key);
+      let failure = null;
       try {
         const raw = JSON.stringify({ definition: entry.definition, payload: entry.payload, savedAt: Date.now() });
+        // DEFENSE: User-authored interactive values can exceed the configured physical storage budget.
         if (raw.length * 2 > this.maximumBytes) throw new RangeError('Interactive snapshot exceeds storage capacity');
         this.trim(key, (key.length + raw.length) * 2);
         this.store.setItem(key, raw);
         this.trim();
-        entry.settled?.(true, '');
-      } catch (error) { entry.settled?.(false, String(error)); }
+      } catch (error) {
+        // DEFENSE: Storage may deny access, exhaust quota, or contain invalid JSON; report these failures to the owning document.
+        if (!['SecurityError', 'QuotaExceededError', 'SyntaxError', 'RangeError'].includes(error.name)) throw error;
+        failure = error;
+      }
+      entry.settled?.(failure === null, failure === null ? '' : String(failure));
     }
   }
   remove(owner) { this.pending.delete(this.key(owner)); this.store.removeItem(this.key(owner)); }

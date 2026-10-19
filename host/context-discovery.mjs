@@ -16,6 +16,7 @@ export function createContextDiscovery({ home, settings, signal }) {
   async function directory(filename) {
     signal?.throwIfAborted();
     const stat = await lstat(filename);
+    // DEFENSE: External directory replacement or links must not make discovery traverse outside canonical roots.
     if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(filename) !== filename) {
       throw new Error(`Context discovery requires a canonical directory without symbolic links: ${filename}`);
     }
@@ -25,6 +26,7 @@ export function createContextDiscovery({ home, settings, signal }) {
   async function exists(filename) {
     signal?.throwIfAborted();
     try { return await lstat(filename); }
+    // DEFENSE: Guidance/skill candidates are optional and can disappear during a directory scan.
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   }
 
@@ -34,6 +36,7 @@ export function createContextDiscovery({ home, settings, signal }) {
       const filename = path.join(folder, name);
       const stat = await exists(filename);
       if (stat === null) continue;
+      // DEFENSE: A named guidance/skill source can be a link or special file supplied by the workspace.
       if (!stat.isFile() || stat.isSymbolicLink()) {
         throw new Error(`Context discovery source must be a regular file without symbolic links: ${filename}`);
       }
@@ -64,9 +67,11 @@ export function createContextDiscovery({ home, settings, signal }) {
     return {
       directory(filename) {
         directories.add(filename);
+        // DEFENSE: A real workspace can contain more directories than the native discovery budget admits.
         if (directories.size > policy.max_directories) throw new Error('Context discovery directory budget exceeded');
       },
       entry() {
+        // DEFENSE: Directory streams may contain arbitrarily many external entries.
         if (++entries > policy.max_entries) throw new Error('Context discovery entry budget exceeded');
       },
       snapshot() { return { directories: [...directories], entries }; },
@@ -89,6 +94,7 @@ export function createContextDiscovery({ home, settings, signal }) {
       for await (const entry of stream) {
         signal?.throwIfAborted();
         budget.entry();
+        // DEFENSE: Files, directory links and kernel-excluded folders must not be traversed as discovery directories.
         if (!entry.isDirectory() || entry.isSymbolicLink() || excluded.has(entry.name)) continue;
         children.push(path.join(folder, entry.name));
       }
@@ -124,6 +130,7 @@ export function createContextDiscovery({ home, settings, signal }) {
     const result = [];
     function add(item) {
       result.push(item);
+      // DEFENSE: A workspace can expose more guidance/skill files than the native source budget admits.
       if (result.length > policy.max_sources) throw new Error('Context discovery source budget exceeded');
     }
     switch (observer.type) {
@@ -173,7 +180,6 @@ export function createContextDiscovery({ home, settings, signal }) {
         }
         break;
       }
-      default: throw new TypeError('Unknown context discovery strategy');
     }
     return result;
   };

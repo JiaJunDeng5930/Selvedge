@@ -57,7 +57,11 @@ test('snapshot HTTP 503 releases its SSE stream and a new connection observes th
   const resumed = connect();
   try {
     await Promise.race([complete, resumed.then(() => { throw new Error('Connection ended before recovery'); })]);
-  } finally { controller.abort(); await resumed.catch(error => { if (error.name !== 'AbortError') throw error; }); }
+  } finally {
+    controller.abort();
+    // DEFENSE: Stopping the live SSE observation rejects its pending read with AbortError.
+    await resumed.catch(error => { if (error.name !== 'AbortError') throw error; });
+  }
   assert.equal(sequence, 1);
   assert.equal(subscriptions, 2);
 });
@@ -65,7 +69,9 @@ test('snapshot HTTP 503 releases its SSE stream and a new connection observes th
 async function browserExecutable() {
   const candidates = [process.env.SELVEDGE_BROWSER, '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].filter(Boolean);
   for (const candidate of candidates) {
-    try { await access(candidate, constants.X_OK); return candidate; } catch {}
+    try { await access(candidate, constants.X_OK); return candidate; }
+    // DEFENSE: The supported Linux/macOS browser paths can be absent or non-executable; disk failures must not be mistaken for an uninstalled browser.
+    catch (error) { if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) throw error; }
   }
   throw new Error('Native browser checks require Chromium/Chrome; set SELVEDGE_BROWSER to its executable');
 }
@@ -135,6 +141,7 @@ fetch('/result?'+new URLSearchParams({
   let stdout = ''; let stderr = '';
   browser.stdout.on('data', data => { stdout += data; }); browser.stderr.on('data', data => { stderr += data; });
   const stopBrowser = () => {
+    // DEFENSE: A failed spawn has no PID; an exited browser may already have released its process group before cleanup.
     if (browser.pid === undefined) return;
     try { process.kill(-browser.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
   };

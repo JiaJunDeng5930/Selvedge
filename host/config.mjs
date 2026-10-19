@@ -1,4 +1,4 @@
-import { readFile, access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { accountConfig, accountConnection } from './chatgpt-account.mjs';
@@ -26,11 +26,13 @@ function urlObservation(value) {
   try {
     const url = new URL(value);
     return Object.fromEntries(['href', 'protocol', 'hostname', 'port', 'username', 'password', 'hash', 'pathname', 'search', 'origin'].map(key => [key, url[key]]));
+  // DEFENSE: A user-configured endpoint can be an invalid URL; native admission rejects the null observation.
   } catch { return null; }
 }
 
 function profileBoundary(operation, source) {
   try { return boundary(operation, source); }
+  // DEFENSE: Invalid user configuration is reported to CLI/HTTP callers as a configuration TypeError.
   catch (error) { throw new TypeError(error.message); }
 }
 
@@ -116,11 +118,10 @@ export async function loadConfig({ home, filename } = {}) {
   let config;
   try { config = JSON.parse(await readFile(filename, 'utf8')); }
   catch (error) {
+    // DEFENSE: Only an absent default config.json starts a new home with defaults; explicit files and other read/parse failures must fail.
     if (error.code !== 'ENOENT') throw error;
     if (filename !== path.join(home, 'config.json')) throw error;
-    try { await access(path.join(home, 'config.toml')); }
-    catch (legacyError) { if (legacyError.code !== 'ENOENT') throw legacyError; config = structuredClone(defaultConfig); }
-    if (!config) throw new Error('A legacy config.toml exists in this home; choose a new home or supply the current config.json explicitly');
+    config = structuredClone(defaultConfig);
   }
   const validated = validateConfig(config);
   configurationFiles.set(validated, filename);

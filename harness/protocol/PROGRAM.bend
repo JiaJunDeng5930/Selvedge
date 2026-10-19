@@ -67,6 +67,7 @@ def matching_admitted(admission: Maybe<&1, Categories.Membership<MatchingRequest
       MatchingRequest{+ticket, +expected, +event} = request
       Ignore{}
 
+# DEFENSE: An asynchronous completion can arrive after cancellation or a newer invocation; only the current one-use ticket may settle it.
 def matching(+ticket: Nat, +expected: Nat, +event: ResolvedEvent) -> ResolvedEvent:
   +request = {MatchingRequest{ticket, expected, event} : MatchingRequest}
   matching_admitted(Categories.admit(MatchingRequest, matching_accepts, request), request)
@@ -76,6 +77,7 @@ def matching_calculation(same: Bool, event: ResolvedEvent) -> ResolvedEvent:
     case True{}: event
     case False{}: Ignore{}
 
+# DEFENSE: Context observation may finish after task archival or phase change; discard the stale result.
 def context_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat,
   outcome: Result<&2, &2, String, +List<D.ContextObservation()>>) -> ResolvedEvent:
   match status phase:
@@ -89,6 +91,7 @@ def context_observed(found: Maybe<&2, D.Task>, ticket: Nat, outcome: Result<&2, 
     case None{}: Ignore{}
     case Some{+task}: context_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
+# DEFENSE: Model IO may finish after task archival or phase change; discard the stale result.
 def model_phase(status: D.Status, phase: D.Phase, +task: D.Task, +ticket: Nat, +outcome: D.Outcome) -> ResolvedEvent:
   match status phase:
     case D.Archived{} _: Ignore{}
@@ -101,6 +104,7 @@ def model(found: Maybe<&2, D.Task>, ticket: Nat, outcome: D.Outcome) -> Resolved
     case None{}: Ignore{}
     case Some{+task}: model_phase(D.task_status(task), D.task_phase(task), task, ticket, outcome)
 
+# DEFENSE: Evaluator IO may finish after task archival or a replaced reasoning request; discard the stale result.
 def reasoning_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outcome: R.Outcome) -> ResolvedEvent:
   match status:
     case D.Archived{}: Ignore{}
@@ -118,6 +122,7 @@ def reasoning(found: Maybe<&2, D.Task>, ticket: Nat, outcome: R.Outcome) -> Reso
 type ExecutingResultRequest is Data:
   ExecutingResultRequest{operation: D.Operation(), task: D.Task, value: J.Json, error: Bool}
 
+# DEFENSE: A tool callback may arrive after its operation was cancelled or retired; only an executing operation may consume it.
 def executing_result_accepts(request: ExecutingResultRequest) -> Bool:
   ExecutingResultRequest{+operation, +task, +value, +error} = request
   Ops.executing(Ops.stage(operation))
@@ -145,6 +150,7 @@ def tool_operation(found: Maybe<&2, D.Operation()>, task: D.Task, value: J.Json,
     case None{}: Ignore{}
     case Some{+operation}: executing_result(operation, task, value, error)
 
+# DEFENSE: An after-hook callback can outlive its result-pending stage; require that stage and its current ticket.
 def after_stage(stage: D.OperationStage, task: D.Task, operation: D.Operation(), ticket: Nat, outcome: D.AfterOutcome) -> ResolvedEvent:
   match stage:
     case D.ResultPending{expected, plugin, pending, value, error}:
@@ -171,6 +177,7 @@ def tool(found: Maybe<&2, D.Task>, ticket: Nat, value: J.Json, error: Bool) -> R
     case None{}: Ignore{}
     case Some{+task}: tool_status(D.task_status(task), task, ticket, value, error)
 
+# DEFENSE: A before-hook callback may arrive after archival or phase change; it cannot grant execution then.
 def hook_phase(status: D.Status, phase: D.Phase, task: D.Task, ticket: Nat, outcome: D.HookOutcome) -> ResolvedEvent:
   match status phase:
     case D.Archived{} _: Ignore{}
@@ -428,6 +435,7 @@ def native_feature_permitted(command: M.Command, caller: D.Task, world: M.World(
     case M.Observe{query}: True{}
     case _: False{}
 
+# DEFENSE: Model-selected feature arguments may name a replaced schema or exceed caller workspace authority; reject before resolving the native command.
 def feature_invocation_accepts(request: FeatureInvocation) -> Bool:
   FeatureInvocation{operation, F.CommandSpec{+name, description, +kind, +schema}, frozen_schema, +arguments, caller, world} = request
   +body = Schema.command_body(name, arguments)

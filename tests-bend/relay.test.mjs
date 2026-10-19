@@ -25,6 +25,7 @@ test('real Durable Object hibernation restores live WebSocket identities and an 
     let ended = false;
     socket.on('message', raw => { messages.push(JSON.parse(raw.toString())); for (const wake of waiters) wake(); });
     socket.on('close', () => { ended = true; for (const wake of waiters) wake(); });
+    // DEFENSE: Peer teardown emits error followed by close; connect errors reject below and later closure fails any pending next() observation.
     socket.on('error', () => {});
     await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
     return {

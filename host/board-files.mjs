@@ -15,7 +15,7 @@ function mediaType(bytes) {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
   if (bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6))) return 'image/gif';
   if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
-  // SVG, HTML and a caller-supplied MIME type never authorize an inline preview.
+  // DEFENSE: Uploaded SVG/HTML and caller-supplied MIME types must not authorize active inline content.
   return 'application/octet-stream';
 }
 
@@ -24,6 +24,7 @@ async function vault(home) {
   const directory = path.join(canonicalHome, 'board-attachments');
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await lstat(directory);
+  // DEFENSE: Replacing the attachment vault with a link must not redirect writes outside the service home.
   if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
     throw new Error('The attachment vault must be a real directory inside the service home');
   }
@@ -34,8 +35,10 @@ async function regularFile(file, maximum) {
   const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await handle.stat();
+    // DEFENSE: Stored attachment paths can be replaced by oversized or special files outside the upload API.
     if (!stat.isFile() || stat.size > maximum) throw new RangeError('Attachment storage is not a bounded regular file');
     const data = await handle.readFile();
+    // DEFENSE: An external write can grow the opened attachment after the initial stat.
     if (data.length > maximum) throw new RangeError('Attachment storage changed beyond its byte budget');
     return data;
   } finally { await handle.close(); }
@@ -46,6 +49,7 @@ export async function readBoardAttachment(home, id) {
   const root = await vault(home);
   const directory = path.join(root, id);
   const stat = await lstat(directory);
+  // DEFENSE: A replaced attachment directory must not redirect reads outside its content-addressed vault.
   if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
     throw new Error('Attachment directories cannot be symbolic links');
   }
@@ -81,6 +85,7 @@ export async function saveBoardAttachment(home, name, stream) {
       await metadata.sync();
     } finally { await metadata.close(); }
     try { await rename(pending, target); }
+    // DEFENSE: Repeated or concurrent uploads of identical bytes share the existing immutable hash directory.
     catch (error) { if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error; }
     // Repeated bytes reuse immutable metadata, including its original name.
     return (await readBoardAttachment(home, id)).attachment;

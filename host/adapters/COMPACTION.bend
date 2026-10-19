@@ -72,6 +72,7 @@ def maybe_natural(value: Maybe<&2, Nat>) -> Bool:
 def natural_json(value: J.Json) -> Bool:
   maybe_natural(J.natural(value))
 
+# DEFENSE: An external token counter can return a nonnumeric or negative count; reject it before using the model window budget.
 def meter_result_checked(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("The provider returned an invalid input token count")
@@ -81,6 +82,7 @@ def meter_result_checked(valid: Bool, +source: J.Json) -> J.Json:
 def meter_result(+source: J.Json) -> J.Json:
   meter_result_checked(natural_json(J.get(J.get(source, "response"), "input_tokens")), source)
 
+# DEFENSE: A native compaction response can omit or corrupt its replacement window; reject it before replacing history.
 def native_result_checked(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("The native compactor returned an invalid replacement window")
@@ -114,15 +116,10 @@ def summary_result(+source: J.Json) -> J.Json:
   Model.success(J.Object{[J.Field{"summary_text", J.Text{summary_parts(J.items(J.get(source, "items")))}},
     J.Field{"scope", J.get(source, "scope")}, J.Field{"usage", J.get(source, "usage")}]})
 
-def rendered(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{value}: value
-    case Fail{message}: ""
-
 def scope(+source: J.Json) -> J.Json:
   +profile = J.get(source, "profile")
-  Model.success(J.Text{rendered(J.show(J.Array{[J.get(profile, "provider"), J.get(profile, "endpoint"),
-    J.get(source, "model"), J.get(source, "account_id")]}))})
+  Model.success(J.Text{J.stringify(J.Array{[J.get(profile, "provider"), J.get(profile, "endpoint"),
+    J.get(source, "model"), J.get(source, "account_id")]})})
 
 def bind_item(scoped: Bool, +item: J.Json, scope: J.Json) -> J.Json:
   match scoped:
@@ -198,6 +195,7 @@ def meter_fallback_content(opaque: Bool, +source: J.Json) -> J.Json:
   match opaque:
     case True{}: Model.success(J.Object{[J.Field{"action", J.Text{"error"}}]})
     case False{}: meter_fallback_checked(J.is_object(J.get(source, "request")) && unsupported_route(source), source)
+# DEFENSE: A compatible provider may explicitly reject its token-count route; use the UTF-8 bound only for a readable request and the listed unsupported-route errors.
 def meter_fallback(+source: J.Json) -> J.Json:
   meter_fallback_content(request_has_opaque(J.get(source, "request")), source)
 
@@ -215,6 +213,7 @@ def native_failure_checked(unavailable: Bool) -> J.Json:
     case True{}: Model.success(J.Object{[J.Field{"action", J.Text{"native_unavailable"}}]})
     case False{}: Model.success(J.Object{[J.Field{"action", J.Text{"error"}}]})
 
+# DEFENSE: A provider can explicitly report an unsupported native compaction route/model; permit the existing portable method only for those capability failures.
 def native_failure(+source: J.Json) -> J.Json:
   native_failure_checked(unsupported_route(source) || unsupported_compaction_model(source))
 

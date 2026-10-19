@@ -11,9 +11,11 @@ const limits = { bash_timeout_ms: 1000, bash_default_output_length: 4, bash_max_
 
 test('real full pipes drain while capped Unicode artifacts retain exact readable bytes and hashes', async t => {
   const artifactDirectory = await home(t);
+  const execution = { access: 'unrestricted', workspace: { roots: [artifactDirectory], primary_root: artifactDirectory },
+    sandbox: { mode: 'workspace-write', network_access: true } };
   const program = "process.stdout.write('🙂'.repeat(32768)); process.stderr.write('界'.repeat(32768));";
   const result = await runBash({ command: `${shellQuote(process.execPath)} -e ${shellQuote(program)}` },
-    { ...limits, bash_timeout_ms: 5000, artifact_bytes: 5 }, { artifactDirectory });
+    { ...limits, bash_timeout_ms: 5000, artifact_bytes: 5 }, { artifactDirectory, execution });
   assert.equal(result.error, false, JSON.stringify(result.value));
   for (const [stream, text, total] of [['stdout', '🙂', 131072], ['stderr', '界', 98304]]) {
     const artifact = result.value[`${stream}_artifact`];
@@ -29,17 +31,20 @@ test('real full pipes drain while capped Unicode artifacts retain exact readable
 
 test('deadline, cancellation and shell exit release owned background processes and pipe handles', async t => {
   const directory = await home(t);
+  const execution = { access: 'unrestricted', workspace: { roots: [directory], primary_root: directory },
+    sandbox: { mode: 'workspace-write', network_access: true } };
   for (const mode of ['deadline', 'cancellation', 'exit']) {
     const marker = path.join(directory, `${mode}.escaped`);
     const ready = path.join(directory, `${mode}.ready`);
     const controller = new AbortController();
     const command = `printf ready > ${shellQuote(ready)}; (sleep 0.3; printf escaped > ${shellQuote(marker)}) & ` +
       (mode === 'exit' ? 'printf done' : 'exec sleep 60');
-    const pending = runBash({ command, timeout_ms: mode === 'deadline' ? 100 : 1000 }, limits, { signal: controller.signal });
+    const pending = runBash({ command, timeout_ms: mode === 'deadline' ? 100 : 1000 }, limits, { signal: controller.signal, execution });
     if (mode === 'cancellation') {
       const deadline = Date.now() + 1000;
       while (Date.now() < deadline) {
         try { await access(ready); break; }
+        // DEFENSE: The subprocess can still be starting when the test first checks its ready file.
         catch (error) { if (error.code !== 'ENOENT') throw error; await delay(10); }
       }
       await access(ready);

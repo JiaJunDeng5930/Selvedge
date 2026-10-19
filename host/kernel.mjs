@@ -18,16 +18,18 @@ export class Kernel {
     this.maximum = 128 * 1024;
     this.#worker = new Worker(new URL('./kernel-worker.mjs', import.meta.url), { workerData: { module } });
     this.#worker.on('message', message => {
+      // DEFENSE: Timeout/abort clears the pending request before Worker termination completes; an already queued completion can still arrive.
+      if (this.#failure) return;
+      // DEFENSE: A compiled transition can throw in the Worker; retire its world and reject queued callers.
       if (message.error) { this.#fail(new Error(message.error)); return; }
       const pending = this.#pending;
-      if (!pending) { this.#fail(new Error('Unexpected kernel output')); return; }
       this.#pending = undefined;
       clearTimeout(pending.timer);
-      try { pending.resolve({ ...message, value: parseJson(message.text) }); }
-      catch (error) { pending.reject(error); this.#fail(error); }
+      pending.resolve({ ...message, value: parseJson(message.text) });
     });
     this.#worker.on('error', error => this.#fail(error));
     this.exited = new Promise(resolve => this.#worker.once('exit', code => {
+      // DEFENSE: OS/runtime Worker termination outside close leaves the current world unavailable.
       if (!this.#closing || this.#pending) this.#fail(new Error(`Bend worker exited (${code})`));
       resolve({ code, signal: null });
     }));
@@ -35,10 +37,6 @@ export class Kernel {
 
   async initialize() {
     const { value, program } = await this.request({ kind: 'command', command: { op: 'describe' } });
-    if (!value.reply?.ok || !Number.isInteger(value.reply.result?.limits?.frame_bytes)) {
-      this.abort(new Error('Kernel did not provide its boundary contract'));
-      throw new Error('Kernel did not provide its boundary contract');
-    }
     this.initialProgram = program;
     this.description = value.reply.result;
     this.maximum = this.description.limits.frame_bytes;
@@ -46,6 +44,7 @@ export class Kernel {
   }
 
   #fail(error) {
+    // DEFENSE: Worker error, exit and timeout can report the same failure; settle the pending request once.
     if (this.#failure) return;
     this.#failure = error;
     const pending = this.#pending;
@@ -67,15 +66,17 @@ export class Kernel {
   #request(input, snapshot) {
     const frame = encodeFrame(input, this.maximum);
     const result = this.#tail.then(() => {
+      // DEFENSE: A queued request can reach its turn after an earlier transition failed or shutdown started.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Kernel is closed');
       return new Promise((resolve, reject) => {
+        // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
         this.#pending = { resolve, reject, timer };
-        try { this.#worker.postMessage({ frame, maximum: this.maximum, snapshot }); }
-        catch (error) { this.#fail(error); }
+        this.#worker.postMessage({ frame, snapshot });
       });
     });
+    // DEFENSE: The request's returned promise reports its failure; the queue must still admit close and reject later callers explicitly.
     this.#tail = result.catch(() => {});
     return result;
   }
@@ -83,6 +84,7 @@ export class Kernel {
   abort(reason = new Error('Kernel transaction aborted')) { this.#fail(reason); }
 
   async close() {
+    // DEFENSE: Startup cleanup and normal shutdown can both close the same Worker.
     if (this.#closing) return this.exited;
     this.#closing = true;
     await this.#tail;

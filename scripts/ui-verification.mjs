@@ -12,6 +12,7 @@ function inventory(root) {
     for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
       if (entry.name.startsWith('.') || ['node_modules', 'target', 'crates'].includes(entry.name)) continue;
       const filename = path.posix.join(directory, entry.name);
+      // DEFENSE: A Bend source symlink can resolve outside the enumerated proof inventory; unrelated links are not compiler inputs.
       if (entry.isSymbolicLink() && filename.endsWith('.bend')) throw new Error(`UI verification refuses source symlinks: ${filename}`);
       if (entry.isDirectory()) visit(filename);
       else if (entry.isFile() && filename.endsWith('.bend')) sources.set(filename, readFileSync(path.join(root, filename), 'utf8'));
@@ -36,8 +37,10 @@ function imports(filename, source) {
     if (!/^\s*import\b/.test(line)) continue;
     if (/^\s*import\s+"/.test(line)) continue;
     const match = line.match(/^import\s+(\S+)(?:\s+as\s+(\w+))?\s*(?:#.*)?$/);
+    // DEFENSE: Edited Bend source can contain imports this source-boundary scanner cannot resolve.
     if (!match) throw new Error(`Unsupported UI verification import: ${filename}:${index + 1}`);
     if (match[1] === 'Base' && !match[2]) continue;
+    // DEFENSE: An unaliased or non-relative import cannot be resolved to the concept that owns its declarations.
     if (!match[1].startsWith('.') || !match[2]) throw new Error(`UI verification requires a relative aliased import: ${filename}:${index + 1}`);
     const target = path.posix.normalize(path.posix.join(path.posix.dirname(filename), match[1]));
     aliases.set(match[2], target);
@@ -58,6 +61,7 @@ function declarations(filename, source) {
       else if (')]}'.includes(char)) depth--;
       else if (char === ':' && depth === 0) break;
     }
+    // DEFENSE: An incomplete edited Bend declaration has no head delimiter for the proof inventory scanner.
     if (end === text.length) throw new Error(`Missing declaration head delimiter: ${filename}:${match[2]}`);
     result.push({ kind: match[1], name: match[2] });
   }
@@ -102,20 +106,24 @@ function inspect(root) {
     const declarations = modules.get(rule).declarations.filter(declaration => declaration.kind === 'law');
     for (const declaration of declarations) {
       const implementations = providers.get(canonical(rule, declaration.name, new Map()));
+      // DEFENSE: Editing a UI law or its implementation can leave that public law with no provider.
       if (!implementations.length) {
         errors.push(`UI proof does not fill its rule law: ${rule}:${declaration.name}`);
         continue;
       }
+      // DEFENSE: Multiple source definitions can fill the same UI law, leaving the provider ordering ambiguous.
       if (implementations.length !== 1) {
         errors.push(`UI rule law has multiple proof providers: ${rule}:${declaration.name}: ${implementations.join(', ')}`);
         continue;
       }
       const [provider] = implementations;
+      // DEFENSE: A source implementation can fill a qualified law without importing the contract whose declaration it must check against.
       if (provider !== rule && !modules.get(provider).targets.includes(rule)) {
         errors.push(`UI proof must import its rule: ${provider} -> ${rule}`);
       }
     }
   }
+  // DEFENSE: Missing, duplicate or unbound UI law implementations cannot establish the checked public law providers.
   if (errors.length) throw new Error(`UI law provider check failed:\n${errors.join('\n')}`);
   return { discovered: [...new Set([...rules, ...proofs, ...[...providers.values()].flat()])].sort(), providers };
 }
@@ -168,11 +176,9 @@ function orderProviders(root, discovered, providers) {
       visiting.pop();
       visited.add(filename);
     }
-    for (const filename of [...pending].sort()) {
-      const cycle = findCycle(filename);
-      if (cycle) throw new Error(`UI verification proof dependency cycle: ${cycle.join(' -> ')}`);
-    }
-    throw new Error('UI verification proof dependency ordering failed');
+    const cycle = findCycle([...pending].sort()[0]);
+    // DEFENSE: With no ready provider, the finite pending dependency graph contains an edited source import or law-reference cycle.
+    throw new Error(`UI verification proof dependency cycle: ${cycle.join(' -> ')}`);
   }
   return ordered;
 }
@@ -189,6 +195,7 @@ export function prepareUiVerification(root) {
   const source = `${imports.join('\n')}\n`;
   mkdirSync(path.join(root, '.build'), { recursive: true });
   let previous;
+  // DEFENSE: A clean build directory has no generated proof entry to compare before writing it.
   try { previous = readFileSync(path.join(root, entry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previous !== source) writeFileSync(path.join(root, entry), source);
   const runtimeEntry = '.build/ui-runtime.bend';
@@ -196,6 +203,7 @@ export function prepareUiVerification(root) {
     .flatMap((filename, index) => filename === 'PROOF.bend' ? [] : [`import ../${filename} as Verification${index}`]),
   'import ../harness/approval/PROOF.bend as RuntimeApprovalProof'].join('\n')}\n`;
   let previousRuntime;
+  // DEFENSE: A clean build directory has no generated runtime entry to compare before writing it.
   try { previousRuntime = readFileSync(path.join(root, runtimeEntry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previousRuntime !== runtimeSource) writeFileSync(path.join(root, runtimeEntry), runtimeSource);
   return { entry, runtimeEntry, browserPrefix: 'BROWSER.', sources };

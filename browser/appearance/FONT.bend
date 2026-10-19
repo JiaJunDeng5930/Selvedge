@@ -156,6 +156,7 @@ def body_admitted(generation: Nat, scale: T.Scale,
   admitted: Maybe<&1, Categories.Membership<T.Metric, body_metric>>) -> State:
   match admitted:
     case Some{member}: admit_checked(generation, scale, member)
+    # DEFENSE: The font measurement contract requires a positive body reference advance and matching body identity before font calibration.
     case None{}: Failed{generation, scale}
 
 def admit_tail(generation: Nat, scale: T.Scale, +metric: T.Metric, rest: +List<T.Metric>) -> State:
@@ -186,6 +187,7 @@ def pair_admitted(+specification: T.MeasurementSpec, rest: Maybe<&2, +List<T.Mea
   admitted: Maybe<&1, Categories.Membership<T.Metric, measured_metric(specification)>>) -> Maybe<&2, +List<T.Measured>>:
   match admitted:
     case Some{member}: pair_checked(specification, member, rest)
+    # DEFENSE: Each received metric must match its issued text specification and satisfy the metric relations before entering the font cache.
     case None{}: None{}
 
 def pair(specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> Maybe<&2, +List<T.Measured>>:
@@ -226,6 +228,7 @@ def pending_admitted(generation: Nat, scale: T.Scale, specifications: +List<T.Me
   admitted: Maybe<&1, Categories.Membership<T.Metric, body_metric>>) -> State:
   match admitted:
     case Some{member}: pending_checked(generation, scale, member, specifications, metrics)
+    # DEFENSE: The pending font batch must include the positive reference metric required by the font measurement protocol.
     case None{}: Failed{generation, scale}
 
 def pending_batch(generation: Nat, scale: T.Scale, +specifications: +List<T.MeasurementSpec>, metrics: +List<T.Metric>) -> State:
@@ -272,6 +275,7 @@ def observation_admitted(+state: State, specifications: +List<T.MeasurementSpec>
   admitted: Maybe<&1, Categories.Membership<Observation, current_observation(generation(state))>>) -> State:
   match admitted:
     case Some{member}: receive(state, specifications, member)
+    # DEFENSE: An awaited native font measurement can complete after a newer root-font environment starts a new generation.
     case None{}: state
 
 def accept(+state: State, specifications: +List<T.MeasurementSpec>, observation: Observation) -> State:

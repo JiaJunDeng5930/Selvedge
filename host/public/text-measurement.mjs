@@ -1,61 +1,13 @@
-const stringFields = ['key', 'text', 'reference_text', 'fontFamily', 'whiteSpace', 'overflowWrap', 'wordBreak'];
-
-function length(value, name) {
-  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`Invalid text measurement ${name}`);
-  return value;
-}
-
-function validate(spec) {
-  if (!spec || typeof spec !== 'object') throw new TypeError('Invalid text measurement specification');
-  for (const field of stringFields) {
-    if (typeof spec[field] !== 'string') throw new TypeError(`Invalid text measurement ${field}`);
-  }
-  for (const field of ['fontFamily', 'whiteSpace', 'overflowWrap', 'wordBreak']) {
-    if (!spec[field].trim()) throw new TypeError(`Empty text measurement ${field}`);
-  }
-  length(spec.fontSize, 'fontSize');
-  length(spec.lineHeight, 'lineHeight');
-  if (spec.available_width !== null) length(spec.available_width, 'available_width');
-  if (typeof spec.fontWeight === 'number') length(spec.fontWeight, 'fontWeight');
-  else if (typeof spec.fontWeight !== 'string' || !spec.fontWeight.trim()) {
-    throw new TypeError('Invalid text measurement fontWeight');
-  }
-}
-
 function observedLength(style, property) {
-  const raw = style.getPropertyValue(property).trim();
-  if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(raw)) {
-    throw new TypeError(`Unavailable text measurement ${property}: ${raw}`);
-  }
-  const measured = Number(raw.slice(0, -2));
-  const rounded = Math.ceil(measured);
-  if (!Number.isFinite(measured) || measured < 0 || !Number.isSafeInteger(rounded)) {
-    throw new TypeError(`Invalid observed text measurement ${property}`);
-  }
-  return rounded;
-}
-
-function suppliedStyle(style, property, value) {
-  style.setProperty(property, String(value));
-  if (!style.getPropertyValue(property)) throw new TypeError(`Invalid text measurement style ${property}`);
+  return Math.ceil(Number.parseFloat(style.getPropertyValue(property)));
 }
 
 export function createTextMeasurer(rootElement) {
-  if (!rootElement?.ownerDocument || typeof rootElement.appendChild !== 'function') {
-    throw new TypeError('Text measurement requires a root element');
-  }
   const document = rootElement.ownerDocument;
   const window = document.defaultView;
-  let disposed = false;
 
   return {
     measure(specs) {
-      if (disposed) throw new Error('Text measurer is disposed');
-      if (!Array.isArray(specs)) throw new TypeError('Text measurement requires specifications');
-      for (const spec of specs) validate(spec);
-      if (!rootElement.isConnected || !window?.getComputedStyle) {
-        throw new Error('Text measurement requires an attached document');
-      }
       if (specs.length === 0) return [];
       const batch = document.createDocumentFragment();
       const container = document.createElement('div');
@@ -71,7 +23,7 @@ export function createTextMeasurer(rootElement) {
             ['line-height', `${spec.lineHeight}px`], ['font-weight', spec.fontWeight],
             ['white-space', spec.whiteSpace], ['overflow-wrap', spec.overflowWrap],
             ['word-break', spec.wordBreak],
-          ]) suppliedStyle(probe.style, property, value);
+          ]) probe.style.setProperty(property, String(value));
           probe.textContent = spec.text;
           probe.style.width = 'min-content';
           const preferred = probe.cloneNode(true);
@@ -100,9 +52,5 @@ export function createTextMeasurer(rootElement) {
         container.remove();
       }
     },
-    invalidate() {
-      if (disposed) throw new Error('Text measurer is disposed');
-    },
-    dispose() { disposed = true; },
   };
 }

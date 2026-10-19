@@ -9,7 +9,6 @@ import ../../harness/MODEL.bend as M
 import ../../bendlib/json.bend as J
 import ../presentation/PROGRAM.bend as InterfaceView
 import ../../bendlib/stdlib.bend as Std
-import ../../harness/transport/CONTRACT.bend as JsonRender
 import ../presentation/SURFACE.bend as SurfaceTypes
 import ../TYPES.bend as InteractionTypes
 
@@ -22,18 +21,8 @@ def impossible(P: Type, evidence: {False{} == True{} : Bool}) -> P:
   Std.transport(Bool, False{}, (value => false_goal(P, value)), Unit{}, True{},
     Equal.sym(Bool, False{}, True{}, evidence))
 
-def serialized_parameter_witness(+value: J.Json, witness: JsonRender.Completed(J.show(value))) -> Rule.RenderedParameter(value):
-  (+text, +completed) = witness
-  (text, (completed,
-    Equal.cong(Result<&2, &2, String, String>, String, InterfaceView.approval_serialized,
-      J.show(value), Done{text}, completed)))
-
-def serialized_parameter_requirements(+value: J.Json, requirements: JsonRender.JsonRenderRequirements) -> Rule.RenderedParameter(value):
-  JsonRender.JsonRenderRequirements{sufficient, render_complete, show_complete, _} = requirements
-  serialized_parameter_witness(value, show_complete(value))
-
 def serialized_parameter(+value: J.Json) -> Rule.RenderedParameter(value):
-  serialized_parameter_requirements(value, JsonRender.json_render_evidence())
+  (J.stringify(value), (J.stringify_complete(value), {==}))
 
 def request_context(+reviewer: D.ApprovalReviewer, id: Nat, call: D.Call, +context: D.TaskContext, task: Nat, world: M.World()) ->
   {Rule.request_context(Actual.decision(reviewer, id, call, context, task, world)) == context : D.TaskContext}:
@@ -47,20 +36,14 @@ def owning_context(reader: E.Reader, +task: D.Task, +world: M.World()) ->
   match reader:
     case E.Reader{generation, position, disclosures}: {==}
 
-def serialized_parameter_result(+result: Result<&2, &2, String, String>) ->
-  {InterfaceView.approval_serialized(result) == Rule.expected_serialized_parameter(result) : String}:
-  match result:
-    case Done{text}: {==}
-    case Fail{reason}: {==}
-
 def parameter(+value: J.Json) -> {InterfaceView.approval_value(value) == Rule.expected_parameter(value) : String}:
   match value:
     case J.Text{text}: {==}
-    case J.Null{}: serialized_parameter_result(J.show(J.Null{}))
-    case J.Boolean{value}: serialized_parameter_result(J.show(J.Boolean{value}))
-    case J.Number{lexeme}: serialized_parameter_result(J.show(J.Number{lexeme}))
-    case J.Array{items}: serialized_parameter_result(J.show(J.Array{items}))
-    case J.Object{fields}: serialized_parameter_result(J.show(J.Object{fields}))
+    case J.Null{}: {==}
+    case J.Boolean{value}: {==}
+    case J.Number{lexeme}: {==}
+    case J.Array{items}: {==}
+    case J.Object{fields}: {==}
 
 def argument_label(+name: String) -> {InterfaceView.approval_argument_label(name) == Rule.expected_argument_label(name) : String}:
   {==}

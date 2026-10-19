@@ -52,18 +52,15 @@ def decoded(+result: Result<&2, &2, String, +List<T.Local>>, +views: J.Json) -> 
     case Done{locals} J.Object{fields}: Done{RestoredValues{locals, fields}}
     case _ _: Fail{"Invalid saved view state"}
 
+# DEFENSE: Local storage can hold corrupt or obsolete snapshot data; reject the current-format/schema mismatch rather than migrate it.
 def decode_admitted(+valid: Bool, +locals: +List<T.Local>, +payload: J.Json) -> Result<&2, &2, String, RestoredValues>:
   match valid:
     case False{}: Fail{"Unsupported or corrupt local snapshot"}
     case True{}: decoded(restore_locals(locals, J.items(J.get(payload, "locals"))), J.get(payload, "views"))
 
-def encoded_length(+result: Result<&2, &2, String, String>) -> Nat:
-  match result:
-    case Done{text}: String.length(text)
-    case Fail{reason}: 262145n
-
+# DEFENSE: A saved or restored payload can exceed the shared 262144-scalar limit; reject its storage admission.
 def payload_fits(+payload: J.Json) -> Bool:
-  Nat.is_le(encoded_length(J.show(payload)), 262144n)
+  Nat.is_le(String.length(J.stringify(payload)), 262144n)
 
 def decode(+locals: +List<T.Local>, +payload: J.Json) -> Result<&2, &2, String, RestoredValues>:
   decode_admitted(J.same(J.get(payload, "version"), J.nat(1n)) && Nat.is_eq(List.length(&2, T.Local, locals), List.length(&2, J.Json, J.items(J.get(payload, "locals")))) && payload_fits(payload), locals, payload)

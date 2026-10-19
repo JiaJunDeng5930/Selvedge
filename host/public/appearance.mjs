@@ -1,8 +1,7 @@
 import { bendValue, bendTag } from './bend-value.mjs';
 
 export function appearanceObservation(storage) {
-  let stored = null;
-  try { stored = storage.getItem('selvedge-appearance'); } catch {}
+  const stored = storage.getItem('selvedge-appearance');
   return bendValue('interaction/MODEL.AppearanceRestored', {
     stored: stored === null ? bendValue('None') : bendValue('Some', { value: stored }),
   });

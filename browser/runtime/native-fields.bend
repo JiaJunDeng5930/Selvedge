@@ -115,7 +115,9 @@ def ended(session: Session, +identity: Maybe<&2, Identity>, +canonical: Maybe<&2
   match session:
     case Idle{}: Decision{Record{identity, canonical, Idle{}}, True{}, False{}}
     case Composing{}: Decision{Record{identity, canonical, Idle{}}, True{}, False{}}
+    # DEFENSE: A canonical update or field rebind can supersede the native composition before compositionend arrives.
     case SupersededComposing{}: Decision{Record{identity, canonical, SupersededTail{}}, False{}, True{}}
+    # DEFENSE: Browsers can emit a trailing input/change event after a superseded composition; retain the current canonical value.
     case SupersededTail{}: Decision{Record{identity, canonical, SupersededTail{}}, False{}, True{}}
 
 def observed(session: Session, +identity: Maybe<&2, Identity>, +canonical: Maybe<&2, String>) -> Decision:
@@ -123,6 +125,7 @@ def observed(session: Session, +identity: Maybe<&2, Identity>, +canonical: Maybe
     case Idle{}: Decision{Record{identity, canonical, Idle{}}, True{}, False{}}
     case Composing{}: Decision{Record{identity, canonical, Composing{}}, False{}, False{}}
     case SupersededComposing{}: Decision{Record{identity, canonical, SupersededComposing{}}, False{}, True{}}
+    # DEFENSE: Browsers can emit a trailing input/change event after a superseded composition; retain the current canonical value.
     case SupersededTail{}: Decision{Record{identity, canonical, SupersededTail{}}, False{}, True{}}
 
 def step(event: FieldEvent, record: Record) -> Decision:

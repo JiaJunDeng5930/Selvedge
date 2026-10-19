@@ -790,15 +790,10 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: In
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, composer_key, state), action_feedback_nodes(identity, feedback, composer_key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, composer_key, state)])}])
 
-def approval_serialized(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{text}: text
-    case Fail{reason}: "Serialization failed: " ++ reason
-
 def approval_value(value: J.Json) -> String:
   match value:
     case J.Text{text}: text
-    case other: approval_serialized(J.show(other))
+    case other: J.stringify(other)
 
 def approval_argument_label(name: String) -> String:
   OperationParameters.label(name)
@@ -1176,7 +1171,7 @@ def agents(values: +List<V.AgentScene>, +parent: Identity.Key, +state: Interacti
       agent_observation(id, value, edit, parent, state) <> agents(rest, parent, state)
 
 def task_graph_message(message: G.Message) -> String:
-  approval_serialized(J.show(GraphCodec.message_json(message)))
+  J.stringify(GraphCodec.message_json(message))
 
 def resolved_task_graph_endpoint(key: String, found: Maybe<&2, Nat>) -> String:
   match found:

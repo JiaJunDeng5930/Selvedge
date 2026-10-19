@@ -64,7 +64,7 @@ This file is for coding agents working in this repository.
 
 ## Code Marker Comments
 
-- Allowed tags: `TODO`, `FIXME`, `HACK`, `NOTE`, `XXX`.
+- Allowed tags: `TODO`, `FIXME`, `HACK`, `NOTE`, `XXX`, `DEFENSE`.
 - Format: `<comment marker> <TAG>(<optional issue>): <specific action or reason>`.
 - Marker comments must explain the intent, decision, risk, or follow-up behind the code. Do not use marker comments to restate facts already visible from the code.
 - `TODO` means known follow-up work while current code is acceptable.
@@ -72,6 +72,13 @@ This file is for coding agents working in this repository.
 - `HACK` means a temporary workaround that should be replaced by normal design.
 - `NOTE` means important context that affects code understanding.
 - `XXX` means high-risk code that needs reviewer attention.
+
+## 防御性代码约束
+
+- 任何防御性代码都必须对应开发或实际运行中遇到过的问题、当前系统真实外部输入或调用路径能够触发的场景，或明确功能契约、协议规范、安全要求规定必须处理的场景；并且该场景必须带来实际工程问题。凭经验判断，默认不添加。不得仅凭未来异常推测添加，也不得虚构内部状态或违反现有契约构造触发情景。
+- 每个防御性分支必须用以 `DEFENSE` 开头的注释说明具体触发条件。不得使用“以防万一”“增强健壮性”等笼统理由；无法说明触发情景的代码应删除。
+- 防御性代码阻碍功能开发、修改或正常执行时，优先审查必要性。场景已不可能发生或已不属于当前系统职责时直接删除，不得为保留它增加额外实现。拿不准时默认删除。
+- 不得为未经证实的异常添加默认值、静默忽略、自动重试、通用异常捕获或兼容分支。错误处理必须具有明确触发条件及预期行为。
 
 ## Project Index Workflow
 

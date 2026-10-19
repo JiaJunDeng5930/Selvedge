@@ -11,21 +11,15 @@ export function boundary(operation, source) {
     list = { $: 'Con', head: tokens[index], tail: list };
   }
   const result = parseJson(run(operation, list));
-  if (result === null || typeof result !== 'object' || Array.isArray(result)) {
-    throw new TypeError('Invalid host model result envelope');
+  if (result.ok) return result.value;
+  const ErrorConstructor = result.code === 'TypeError' ? TypeError
+    : result.code === 'RangeError' ? RangeError
+    : result.code === 'SyntaxError' ? SyntaxError
+    : Error;
+  const error = new ErrorConstructor(result.error);
+  if (Object.hasOwn(result, 'code')
+    && !['TypeError', 'RangeError', 'SyntaxError', 'Error'].includes(result.code)) {
+    error.code = result.code;
   }
-  if (result.ok === true && Object.hasOwn(result, 'value')) return result.value;
-  if (result.ok === false && typeof result.error === 'string') {
-    const ErrorConstructor = result.code === 'TypeError' ? TypeError
-      : result.code === 'RangeError' ? RangeError
-      : result.code === 'SyntaxError' ? SyntaxError
-      : Error;
-    const error = new ErrorConstructor(result.error);
-    if (Object.hasOwn(result, 'code')
-      && !['TypeError', 'RangeError', 'SyntaxError', 'Error'].includes(result.code)) {
-      error.code = result.code;
-    }
-    throw error;
-  }
-  throw new TypeError('Invalid host model result envelope');
+  throw error;
 }

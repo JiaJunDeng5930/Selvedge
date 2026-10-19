@@ -21,6 +21,7 @@ export async function taskIdle(service, taskId = 0) {
     if (page.task.phase === 'idle' && page.task.operations.length === 0) return page;
     await delay(10);
   } while (Date.now() < deadline);
+  // DEFENSE: A service/provider regression can leave a real asynchronous task unsettled beyond the fixture deadline.
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);
 }
 
@@ -47,6 +48,7 @@ export async function responsesServer(t, respond, { measure, title = () => [{ ty
       const outputIndex = output.findIndex(item => item.type === 'message');
       if (outputIndex >= 0) response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', output_index: outputIndex, delta: '处理中 😀' })}\r\n\r\n`);
       response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\r\n\r\n`);
+    // DEFENSE: A malformed model HTTP request or a failing fixture assertion must be observable by the test and its HTTP client.
     })().catch(error => {
       failures.push(error);
       response.writeHead(500);

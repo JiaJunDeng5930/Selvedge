@@ -12,7 +12,7 @@ law native_start_retains_raw_source:
 law native_to_portable_preserves_source:
   @history:J.Json -> @+raw:J.Json -> @+cursor:Nat -> @+carry:String -> @+width:Nat -> @+window:Nat -> @+reserve:Nat ->
   {P.to_portable(M.State{M.NativeSource{history, raw}, cursor, carry, width, window, reserve}) ==
-    M.State{M.PortableSource{P.rendered(J.show(raw))}, cursor, carry, width, window, reserve} : M.State}
+    M.State{M.PortableSource{J.stringify(raw)}, cursor, carry, width, window, reserve} : M.State}
 
 law next_chunk_exact:
   @+readable:String -> @cursor:Nat -> @carry:String -> @+width:Nat -> @window:Nat -> @reserve:Nat ->
@@ -62,4 +62,4 @@ law unavailable_native_method_preserves_all_rebuild_material:
   @history:J.Json -> @+raw:J.Json -> @+cursor:Nat -> @+carry:String -> @+width:Nat -> @+window:Nat -> @+reserve:Nat ->
   {P.receive(M.State{M.NativeSource{history, raw}, cursor, carry, width, window, reserve},
     J.Object{[J.Field{"action", J.Text{"native_unavailable"}}]}) ==
-    M.Next{M.State{M.PortableSource{P.rendered(J.show(raw))}, cursor, carry, width, window, reserve}} : M.Step}
+    M.Next{M.State{M.PortableSource{J.stringify(raw)}, cursor, carry, width, window, reserve}} : M.Step}

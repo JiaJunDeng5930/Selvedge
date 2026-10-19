@@ -17,7 +17,7 @@ async function listening(server) {
 async function body(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 function json(response, value, status = 200) {
   response.writeHead(status, { 'content-type': 'application/json' });
@@ -55,6 +55,7 @@ export async function interactiveMarkdownFixture() {
       });
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
       response.flushHeaders();
+    // DEFENSE: Provider request parsing can fail; surface it in fixture status and fail the pending HTTP request.
     })().catch(error => { failures.push(String(error)); json(response, { error: String(error) }, 500); });
   });
   const endpoint = `${await listening(upstream)}/responses`;
@@ -77,6 +78,7 @@ export async function interactiveMarkdownFixture() {
   };
   let home = path.join(root, 'state');
   try { running = await open(home); }
+  // DEFENSE: Starting the real service can fail after the upstream listener and temporary state have been allocated.
   catch (error) {
     upstream.closeAllConnections();
     await new Promise(resolve => upstream.close(resolve));
@@ -88,6 +90,7 @@ export async function interactiveMarkdownFixture() {
     requests: requests.map(({ index, input, text, outputIndex, closed }) => ({ index, input, text, outputIndex, closed })), failures });
   function entry(index) {
     const request = requests[index];
+    // DEFENSE: The browser driver's HTTP controls can target a request closed by disconnect or restart.
     if (!request || request.closed) throw new Error(`No open model request ${index}`);
     return request;
   }
@@ -123,10 +126,12 @@ export async function interactiveMarkdownFixture() {
       if (request.url === '/restart') return json(response, await restart(input));
       if (request.url === '/disconnect') { running.disconnect(); return json(response, { ok: true }); }
       json(response, { error: 'unknown fixture control' }, 404);
+    // DEFENSE: A driver HTTP control can fail during service restart or target a request closed by disconnect.
     })().catch(error => json(response, { error: String(error) }, 500));
   });
   const controlAddress = await listening(control);
   async function close() {
+    // DEFENSE: SIGINT and SIGTERM can both arrive while the fixture's asynchronous shutdown is running.
     if (closed) return;
     closed = true;
     for (const peer of peers) peer.destroy();

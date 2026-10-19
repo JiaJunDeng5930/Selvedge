@@ -52,7 +52,7 @@ export class MarkdownFenceObserver {
       },
       end_token: () => {
         const entry = stack.pop();
-        if (entry?.fence) entry.fence.closed = true;
+        if (entry.fence) entry.fence.closed = true;
       },
       add_text: (_, value) => {
         const fence = stack.at(-1)?.fence;
@@ -74,9 +74,6 @@ export class MarkdownFenceObserver {
   }
   sync({ text, epoch, revision, ending }) {
     if (this.disposed) return;
-    if (typeof text !== 'string' || !['open', 'complete', 'interrupted'].includes(ending)) {
-      throw new TypeError('Invalid Markdown fence observation input');
-    }
     if (!this.buffer || epoch !== this.epoch || !text.startsWith(this.text)
         || this.ending !== 'open' && text !== this.text) this.reset(epoch);
     const suffix = text.slice(this.text.length);

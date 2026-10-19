@@ -42,12 +42,13 @@ test('bounded retention evicts stored documents and preserves unrelated storage'
   io.dispose();
 });
 
-test('corrupt physical JSON is removed and unavailable writes report failure', () => {
+test('corrupt physical JSON is rejected without deletion and unavailable writes report failure', () => {
   const storage = new Storage();
   const io = new InteractiveSnapshotStorage({ storage });
   storage.setItem(io.key(owner('bad')), '{');
-  expect(io.load(owner('bad'))).toBeNull();
-  expect(storage.getItem(io.key(owner('bad')))).toBeNull();
+  expect(() => io.load(owner('bad'))).toThrow(SyntaxError);
+  expect(storage.getItem(io.key(owner('bad')))).toBe('{');
+  storage.removeItem(io.key(owner('bad')));
   storage.setItem = () => { throw new DOMException('Denied', 'SecurityError'); };
   let result;
   io.save(owner('blocked'), 'definition', {}, (success, message) => { result = { success, message }; });

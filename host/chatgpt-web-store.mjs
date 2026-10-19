@@ -17,7 +17,7 @@ export function retainedRequest(record) {
 }
 
 function storedJson(text) {
-  return text ? boundary('web.decode', { observation: observeJson(text), text }) : null;
+  return text === null || text === undefined ? null : boundary('web.decode', { observation: observeJson(text), text });
 }
 
 // This database records external request receipts, not task lifecycle. A native
@@ -28,7 +28,8 @@ export class WebRequestStore {
     const filename = path.join(home, 'providers', 'chatgpt-web', 'requests.sqlite');
     if (!existsSync(filename)) return;
     const info = lstatSync(filename);
-    if (!info.isFile() || info.isSymbolicLink()) throw new Error('Invalid ChatGPT Web receipt database');
+    // DEFENSE: A local receipt path can be replaced by a symlink or directory; never open that object as the private database.
+    if (!info.isFile()) throw new Error('Invalid ChatGPT Web receipt database');
     const db = new DatabaseSync(filename);
     try {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
@@ -48,6 +49,7 @@ export class WebRequestStore {
     // cancellation to retarget a newly admitted successor.
     const filename = path.join(home, 'providers', 'chatgpt-web', 'requests.sqlite');
     if (!existsSync(filename)) return null;
+    // DEFENSE: Cancellation can encounter a receipt path replaced by a symlink or directory; reject it before SQLite follows it.
     if (!lstatSync(filename).isFile()) throw new Error('Invalid ChatGPT Web receipt database');
     const db = new DatabaseSync(filename);
     try {
@@ -73,11 +75,14 @@ export class WebRequestStore {
     let created = false;
     try {
       const info = await lstat(filename);
-      if (!info.isFile() || info.isSymbolicLink()) throw new Error('Invalid ChatGPT Web receipt database');
+      // DEFENSE: A persisted receipt path can be replaced by a symlink or directory; it cannot be admitted as a private SQLite file.
+      if (!info.isFile()) throw new Error('Invalid ChatGPT Web receipt database');
     } catch (error) {
+      // DEFENSE: Only an absent receipt file can be created; permission and wrong-file-type failures must propagate.
       if (error.code !== 'ENOENT') throw error;
       if (!create) return null;
       const file = await open(filename, 'ax', 0o600).catch(error => {
+        // DEFENSE: Concurrent model effects can both observe ENOENT; only the first creates the shared receipt database.
         if (error.code !== 'EEXIST') throw error;
         return null;
       });
@@ -103,6 +108,7 @@ export class WebRequestStore {
       db.exec('COMMIT');
       db.exec('PRAGMA journal_mode=WAL');
       return new WebRequestStore(db, metadata.identity);
+    // DEFENSE: Schema/metadata admission or transaction failure during open must release the SQLite handle before propagating.
     } catch (error) { db.close(); throw error; }
   }
 
@@ -121,6 +127,7 @@ export class WebRequestStore {
       const decision = boundary('web.store_prepare', { request, record: record ?? null,
         previous: this.latest(request.owner) ?? null, new_key: randomUUID(),
         body_observation: storedJson(record?.body) });
+      // DEFENSE: A prepared invocation with unresolved remote work must retain its original key instead of creating another request.
       if (decision.action === 'retained') throw retainedRequest(decision.record);
       if (decision.action === 'reuse') {
         this.db.prepare('UPDATE requests SET rejected=0 WHERE request_key=?').run(decision.record.request_key);
@@ -132,6 +139,7 @@ export class WebRequestStore {
       const selected = this.find(decision.record.request_key);
       this.db.exec('COMMIT');
       return selected;
+    // DEFENSE: Receipt insertion/admission can fail within BEGIN IMMEDIATE; roll back before another invocation uses this connection.
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 

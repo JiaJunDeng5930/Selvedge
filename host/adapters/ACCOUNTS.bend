@@ -942,8 +942,9 @@ def cache_error_fatal(fatal: Bool) -> J.Json:
   match fatal:
     case True{}: Model.failure("Cannot read the ChatGPT model cache")
     case False{}: Model.success(J.Null{})
+# DEFENSE: First discovery has no model-cache file; only ENOENT admits an empty cache, while other read failures remain errors.
 def cache_error(+source: J.Json) -> J.Json:
-  cache_error_fatal(truthy(J.get(source, "code")) && Bool.not(J.same(J.get(source, "code"), J.Text{"ENOENT"})))
+  cache_error_fatal(Bool.not(J.same(J.get(source, "code"), J.Text{"ENOENT"})))
 def token_expiration_decision(valid: Bool) -> J.Json:
   match valid:
     case False{}: Model.failure_code("RangeError", "Invalid time value")

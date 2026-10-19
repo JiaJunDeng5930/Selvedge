@@ -15,8 +15,10 @@ export function verifyProof({ cwd = root, entry } = {}) {
     cwd, encoding: 'utf8', maxBuffer: Infinity,
     env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
+  // DEFENSE: OS process limits or a missing compiler launcher can prevent the verification subprocess from starting.
   if (result.error) throw new Error(`Pure proof gate could not check ${entry}`, { cause: result.error });
-  const report = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const report = `${result.stdout}${result.stderr}`;
+  // DEFENSE: The compiler can report unsafe assumptions, holes or failed proofs; only the complete pure verdict authorizes production emission.
   if (result.status !== 0 || result.stdout.trim() !== 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.' || result.stderr.trim() !== '') {
     throw new Error(`Pure proof gate rejected ${entry} (status: ${result.status ?? 'none'}, signal: ${result.signal ?? 'none'}):\n${report.trim()}`);
   }
@@ -31,8 +33,10 @@ export function verifyNativeEntry({ cwd = root } = {}) {
     cwd, encoding: 'utf8', maxBuffer: Infinity,
     env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1', NO_COLOR: '1' },
   });
+  // DEFENSE: OS process limits or a missing compiler launcher can prevent the verification subprocess from starting.
   if (result.error) throw new Error('Native entry gate could not check MAIN.bend', { cause: result.error });
   const boundary = 'SOME PROOFS FAIL\nError: 3 defs rely on unsafe or foreign code:\n- Host.receive\n- serve\n- main';
+  // DEFENSE: The native entry can acquire a type error or additional unsafe assumptions beyond its three declared IO definitions.
   if (result.status !== 1 || result.stdout.trim() !== '' || result.stderr.trim() !== boundary) {
     throw new Error(`Native entry gate rejected MAIN.bend (status: ${result.status ?? 'none'}, signal: ${result.signal ?? 'none'}):\n${result.stdout}${result.stderr}`);
   }

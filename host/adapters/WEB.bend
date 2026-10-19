@@ -43,11 +43,7 @@ def has(value: J.Json, key: String) -> Bool:
   match value:
     case J.Object{fields}: present(fields, key)
     case _: False{}
-def shown_result(+value: Result<&2, &2, String, String>) -> String:
-  match value:
-    case Done{value}: value
-    case Fail{error}: ""
-def shown(value: J.Json) -> String: shown_result(J.show(value))
+def shown(value: J.Json) -> String: J.stringify(value)
 def unicode_text_scan(value: String, valid: Bool) -> Bool:
   match value:
     case SNil{}: valid
@@ -282,6 +278,7 @@ def source_shape_classified(operation: SourceShapeName, +source: J.Json) -> Bool
 def source_shape(operation: String, +source: J.Json) -> Bool:
   source_shape_classified(source_shape_discriminant(operation), source)
 
+# DEFENSE: Web operation sources include external HTTP, SSE and persisted receipt observations; reject malformed wire text, operation fields or retirement records.
 def source_valid(operation: String, +source: J.Json) -> Bool:
   J.is_object(source) && wire(source) && source_shape(operation, source) && retirement_optional(get(source, "record")) && retirement_optional(get(source, "previous")) && retirement_optional(get(source, "current"))
 
@@ -1148,10 +1145,12 @@ def commit_status(committed: Bool, +source: J.Json) -> J.Json:
     case False{}: Model.success(object(field("action", text("failure")) <> field("code", terminal_code(is_null(get(get(get(source, "resource"), "error"), "code")), get(source, "resource"))) <> Nil{}))
 def calculation_commit(+source: J.Json) -> J.Json:
   commit_status(eq(get(source, "resource"), "status", "completed") || eq(get(source, "resource"), "status", "requires_action"), source)
+# DEFENSE: A request body or deferred tool output can exceed the configured frame byte limit; report RangeError before network IO.
 def bounds_size(valid: Bool) -> J.Json:
   match valid:
     case True{}: Model.success(J.Null{})
-    case False{}: Model.failure_code("range_error", "ChatGPT Web request exceeds the configured limit")
+    case False{}: Model.failure_code("RangeError", "ChatGPT Web request exceeds the configured limit")
+# DEFENSE: A continuation can have no new user or tool input; reject it instead of sending an empty Web continuation.
 def bounds_input(present: Bool, +source: J.Json) -> J.Json:
   match present:
     case False{}: Model.failure("ChatGPT Web requires new input to continue")

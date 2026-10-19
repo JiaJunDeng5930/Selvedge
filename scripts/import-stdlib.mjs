@@ -40,16 +40,19 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', maxBuffer: Infinity });
-  if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`);
+  // DEFENSE: Rocq or opam can fail to start or reject the requested source/tool query; do not import their failed output.
+  if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message ?? result.stderr}`);
   return result.stdout.trim();
 }
 
 export function parseExport(output) {
   const entities = [...output.matchAll(/^"SELVEDGE_PROOF:((?:""|[^"])*)"(?:%bs)?$/gm)]
     .map(match => JSON.parse(match[1].replaceAll('""', '"')));
+  // DEFENSE: The on-disk or Rocq-exported certificate list can omit, reorder or replace the required named source entities.
   if (entities.length !== names.length || entities.some((entry, index) => entry[0] !== names[index])) {
     throw new Error('The exporter did not produce exactly the required named entities');
   }
+  // DEFENSE: Rocq output can report a source theorem with global assumptions; such a certificate is not admissible evidence.
   if ((output.match(/Closed under the global context/g) ?? []).length !== names.length) {
     throw new Error('The standard theorems must be closed under the global context');
   }
@@ -65,23 +68,28 @@ export function decoder({ constants = intrinsic, inductives = {
   'Corelib.Init.Logic.eq': 1,
 } } = {}) {
   let serial = 0;
-  const fresh = hint => `${hint.replaceAll("'", '_prime').replace(/[^a-zA-Z0-9_]/g, '_') || 'v'}_${serial++}`;
+  const fresh = hint => `${hint.replaceAll("'", '_prime').replace(/[^a-zA-Z0-9_]/g, '_')}_${serial++}`;
   function decode(node, scope = []) {
+    // DEFENSE: A certificate bundle read from disk can contain a node outside the quoted array syntax.
     if (!Array.isArray(node)) throw new Error('Malformed certificate node');
     const [tag, ...args] = node;
     if (tag === 'rel') {
+      // DEFENSE: A quoted certificate can reference a binder outside its de Bruijn scope.
       if (!Number.isSafeInteger(args[0]) || !scope[args[0]]) throw new Error('Unbound certificate variable');
       return scope[args[0]];
     }
     if (tag === 'sort') {
+      // DEFENSE: A quoted certificate can use a universe outside the translator's Type/Prop subset.
       if (!['Type', 'Prop'].includes(args[0])) throw new Error('Unsupported source universe');
       return { tag, kind: args[0] };
     }
     if (tag === 'const') {
+      // DEFENSE: A quoted certificate can reference a source constant without a declared Bend interpretation.
       if (!constants.has(args[0])) throw new Error(`Unmapped source constant: ${args[0]}`);
       return { tag, name: args[0] };
     }
     if (tag === 'ind' || tag === 'ctor') {
+      // DEFENSE: A quoted certificate can reference an unsupported inductive, mutual block or constructor index.
       if (!Object.hasOwn(inductives, args[0]) || args[1] !== 0 ||
           (tag === 'ctor' && (!Number.isInteger(args[2]) || args[2] < 0 || args[2] >= inductives[args[0]]))) {
         throw new Error('Unmapped source inductive');
@@ -96,6 +104,7 @@ export function decoder({ constants = intrinsic, inductives = {
       return { tag, variable, type: decode(args[1], scope), body: decode(args[2], [variable, ...scope]) };
     }
     if (tag === 'fix') {
+      // DEFENSE: A quoted fixpoint can use mutual recursion outside the translator's single structural recursor subset.
       if (args[0] !== 0 || args[1].length !== 1) throw new Error('Only a single structural recursor is supported');
       const [hint, type, body, argument] = args[1][0];
       const variable = { tag: 'var', name: fresh(hint) };
@@ -108,6 +117,7 @@ export function decoder({ constants = intrinsic, inductives = {
       });
       return { tag, value: decode(args[0], scope), branches };
     }
+    // DEFENSE: A quoted certificate can use an unimplemented term tag; translating it would invent proof meaning.
     throw new Error(`Unsupported certificate syntax: ${tag}`);
   }
   return decode;
@@ -178,9 +188,11 @@ function emit(node, recursive = new Map()) {
   if (node.tag === 'pi') return `@${node.variable.name}:${emit(node.type)} -> ${emit(node.body)}`;
   if (node.tag === 'lam') return `(${dataType(node.type) && occurrences(node.body, node.variable.name) > 1 ? '+' : ''}${node.variable.name} => ${emit(node.body, recursive)})`;
   if (node.tag === 'const' && names.includes(node.name)) return short(node.name);
+  // DEFENSE: A decoded source term can be outside the expression forms supported by this proof translator.
   if (node.tag !== 'app') throw new Error(`Cannot emit ${node.tag} as a Bend expression`);
   const { fn, args } = node;
   const e = args.map(arg => emit(arg, recursive));
+  // DEFENSE: A quoted unfolded iterator can differ from Corelib's required zero/successor structure.
   if (fn.tag === 'fix' && fn.argument === 0 && args.length === 1) {
     // Rocq sometimes delta-reduces Nat.iter inside an existing proof. Recognize
     // its exact structural body, not its local name or the desired conclusion.
@@ -230,6 +242,7 @@ function emit(node, recursive = new Map()) {
   }
   if (fn.tag === 'var' && recursive.has(fn.name)) return `${recursive.get(fn.name)}${e.join(', ')})`;
   if (fn.tag === 'var' || fn.tag === 'app' || fn.tag === 'lam') return `${emit(fn, recursive)}(${e.join(', ')})`;
+  // DEFENSE: A quoted application can reference a head without a declared Bend translation.
   throw new Error(`Unmapped certificate application: ${fn.name ?? fn.tag}`);
 }
 
@@ -254,15 +267,18 @@ function lowerInduction(name, parameters, node) {
   const isList = fn.name === names[0];
   if ((!isList && fn.name !== 'Corelib.Init.Datatypes.nat_ind') || args.length < (isList ? 5 : 4)) return null;
   const [predicate, base, step, list, ...applied] = isList ? args.slice(1) : args;
+  // DEFENSE: A quoted induction can capture non-parameter terms unsupported by the affine Bend specialization.
   if (list.tag !== 'var' || !parameters.some(p => p.variable.name === list.name) || applied.some(x => x.tag !== 'var')) {
     throw new Error('The induction environment is outside the certificate subset');
   }
   const item = { tag: 'var', name: 'imported_item' };
   const rest = { tag: 'var', name: 'imported_rest' };
   const goal = telescope(application(predicate, [rest]));
+  // DEFENSE: A quoted induction application can omit generalized arguments needed by the translated goal.
   if (goal.parameters.length !== applied.length) throw new Error('An induction application is not fully eta-expanded');
   let recursiveArguments = parameters.map(p => p.variable.name === list.name ? rest : p.variable);
   for (let i = 0; i < applied.length; i++) {
+    // DEFENSE: A quoted induction can generalize an argument absent from its declared parameter environment.
     if (!parameters.some(p => p.variable.name === applied[i].name)) throw new Error('A generalized induction argument is not a parameter');
     recursiveArguments = recursiveArguments.map(arg => substitute(arg, applied[i].name, goal.parameters[i].variable));
   }
@@ -283,6 +299,7 @@ function lowerBooleanCases(node, parameters) {
   const leaves = [];
   function flatten(term, bindings) {
     if (term.tag !== 'case') { leaves.push({ term, bindings }); return; }
+    // DEFENSE: A quoted Boolean case tree can use a scrutinee or branches outside the supported proof specialization.
     if (term.value.tag !== 'var' || bindings.has(term.value.name) ||
         !parameters.some(p => p.variable.name === term.value.name && p.type.tag === 'ind' &&
           p.type.name === 'Corelib.Init.Datatypes.bool') || term.branches.length !== 2 ||
@@ -322,12 +339,14 @@ function compileEntity([name, sourceType, sourceBody]) {
   });
   let code;
   if (method === 'list_ind' || method === 'nat_ind') {
+    // DEFENSE: A quoted upstream recursor can differ from the structural recursion and branch arities this translation implements.
     if (body.tag !== 'app' || body.fn.tag !== 'fix' || body.fn.argument !== 0 || body.args.length !== 1) {
       throw new Error('The imported list recursor has changed shape');
     }
     const fixed = body.fn;
     body = application(fixed.body, body.args);
     const isList = method === 'list_ind';
+    // DEFENSE: A quoted upstream recursor can differ from the structural recursion and branch arities this translation implements.
     if (body.tag !== 'case' || body.branches.length !== 2 || body.branches[0].variables.length !== 0 || body.branches[1].variables.length !== (isList ? 2 : 1)) {
       throw new Error('Unsupported recursor branches');
     }
@@ -340,6 +359,7 @@ function compileEntity([name, sourceType, sourceBody]) {
 }
 
 export function translate(entities) {
+  // DEFENSE: The on-disk or Rocq-exported certificate list can omit, reorder or replace the required named source entities.
   if (!Array.isArray(entities) || entities.length !== names.length || entities.some((entry, i) => entry[0] !== names[i])) {
     throw new Error('Unexpected certificate manifest');
   }
@@ -394,10 +414,12 @@ async function refresh() {
 
 export async function checkBundle() {
   const bundle = JSON.parse(await readFile(bundlePath, 'utf8'));
+  // DEFENSE: An edited or truncated proof bundle can fail its current format or quoted-entity digest.
   if (bundle.format !== 'rocq-template-certificates-2' || bundle.entitiesSha256 !== digest(JSON.stringify(bundle.entities))) {
     throw new Error('The pinned proof bundle has an invalid format or digest');
   }
   const expected = translate(bundle.entities);
+  // DEFENSE: An edited generated Bend certificate can differ from the pinned source proof term translation.
   if (await readFile(targetPath, 'utf8') !== expected) throw new Error('The Bend certificates differ from their pinned source proof terms');
 }
 
@@ -405,6 +427,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (process.argv.includes('--refresh')) await refresh();
   else if (process.argv.includes('--generate')) {
     const bundle = JSON.parse(await readFile(bundlePath, 'utf8'));
+    // DEFENSE: An edited or truncated proof bundle can fail its current format or quoted-entity digest.
     if (bundle.entitiesSha256 !== digest(JSON.stringify(bundle.entities))) throw new Error('Invalid source certificate digest');
     await writeFile(targetPath, translate(bundle.entities));
   }

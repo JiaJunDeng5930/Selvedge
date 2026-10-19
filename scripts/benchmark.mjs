@@ -52,6 +52,7 @@ for (const taskCount of sizes) {
     await journal.close();
     const databaseBytes = (await stat(filename)).size;
     let walBytes = 0;
+    // DEFENSE: SQLite can checkpoint and remove its WAL when the final journal connection closes.
     try { walBytes = (await stat(`${filename}-wal`)).size; }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     const replayStart = performance.now();

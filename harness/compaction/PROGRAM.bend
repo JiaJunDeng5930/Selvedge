@@ -2,16 +2,9 @@ import Base
 import ../../bendlib/json.bend as J
 import ./MODEL.bend as M
 
-def rendered(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{text}: text
-    case Fail{error}: ""
-
-# Only this conversion derives portable text. Native calls retain the raw JSON
-# until a real transport, capacity or capability fallback needs it.
 def portable_source(source: M.Source) -> M.Source:
   match source:
-    case M.NativeSource{history, raw}: M.PortableSource{rendered(J.show(raw))}
+    case M.NativeSource{history, raw}: M.PortableSource{J.stringify(raw)}
     case M.PortableSource{readable}: M.PortableSource{readable}
 
 def to_portable(state: M.State) -> M.State:
@@ -56,13 +49,8 @@ def with_width(state: M.State, width: Nat) -> M.State:
   M.State{source, cursor, carry, previous, window, reserve} = state
   M.State{source, cursor, carry, width, window, reserve}
 
-def shown_bytes(result: Result<&2, &2, String, String>, limit: Nat) -> Nat:
-  match result:
-    case Fail{message}: 1n+limit
-    case Done{text}: J.utf8_length(text)
-
-def plan_bytes(+state: M.State, limit: Nat) -> Nat:
-  shown_bytes(J.show(plan_json(state)), limit)
+def plan_bytes(+state: M.State) -> Nat:
+  J.utf8_length(J.stringify(plan_json(state)))
 
 def source_has_work(source: M.Source, width: Nat) -> Bool:
   match source:
@@ -74,7 +62,7 @@ def has_transport_work(state: M.State) -> Bool:
   source_has_work(source, width)
 
 def transport_fits(+state: M.State, +budget: Nat) -> Bool:
-  has_transport_work(state) && Nat.is_le(plan_bytes(state, budget), budget)
+  has_transport_work(state) && Nat.is_le(plan_bytes(state), budget)
 
 # A large note stays input data: move it in front of the unread source rather
 # than truncate it or send a frame that cannot cross the kernel boundary.
@@ -92,7 +80,7 @@ def fitted_width(+state: M.State, +budget: Nat) -> M.State:
   M.State{source, cursor, carry, width, window, reserve} = state
   # JSON escapes consume at most six UTF-8 bytes per Unicode character. Measure
   # the complete carry/prompt/metadata first, then spend only the remainder.
-  +base = plan_bytes(with_width(state, 0n), budget)
+  +base = plan_bytes(with_width(state, 0n))
   with_width(state, Nat.min(width, Nat.div(Nat.sub(budget, base), 6n)))
 
 def fit_portable_base(has_room: Bool, state: M.State, budget: Nat) -> M.State:
@@ -101,7 +89,7 @@ def fit_portable_base(has_room: Bool, state: M.State, budget: Nat) -> M.State:
     case False{}: fitted_width(rebase_note(state), budget)
 
 def fit_portable(+state: M.State, +budget: Nat) -> M.State:
-  fit_portable_base(Nat.is_le(Nat.add(plan_bytes(with_width(state, 0n), budget), 6n), budget), state, budget)
+  fit_portable_base(Nat.is_le(Nat.add(plan_bytes(with_width(state, 0n)), 6n), budget), state, budget)
 
 def native_transport_fits(fits: Bool, state: M.State, budget: Nat) -> M.State:
   match fits:

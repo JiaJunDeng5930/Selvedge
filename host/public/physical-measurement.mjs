@@ -1,22 +1,10 @@
-import { bendTag, decodeBendValue, observedNatNumber } from './bend-value.mjs';
+import { bendTag, decodeBendValue } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 
-function natural(value, name) {
-  return observedNatNumber(typeof value === 'bigint' ? Number(value) : value, name);
-}
-function extent(value, name) {
-  if (!Number.isFinite(value) || value < 0) throw new TypeError(`Invalid observed ${name}`);
-  return natural(Math.ceil(value), name);
-}
-function origin(value, name) {
-  if (!Number.isFinite(value)) throw new TypeError(`Invalid observed ${name}`);
-  return natural(Math.max(0, Math.floor(value)), name);
-}
 function contentBox(node, window) {
   const style = window.getComputedStyle(node);
   const pixels = property => {
     const value = Number.parseFloat(style.getPropertyValue(property));
-    if (!Number.isFinite(value) || value < 0) throw new Error(`Unavailable content ${property}`);
     return value;
   };
   const box = node.getBoundingClientRect();
@@ -57,12 +45,11 @@ function multilineContentHeight(owner, window) {
   const field = Array.from(owner.children).find(child =>
     child.localName === 'textarea' && child.hasAttribute('data-physical-field-content'));
   if (!field) return contentBox(owner, window).height;
-  const scrollHeight = extent(field.scrollHeight, 'multiline content scroll height');
+  const scrollHeight = Math.ceil(field.scrollHeight);
   const style = window.getComputedStyle(field);
   let padding = 0;
   for (const property of ['padding-top', 'padding-bottom']) {
     const value = Number.parseFloat(style.getPropertyValue(property));
-    if (!Number.isFinite(value) || value < 0) throw new Error(`Unavailable multiline content ${property}`);
     padding += value;
   }
   return Math.max(0, scrollHeight - padding);
@@ -74,9 +61,6 @@ function sizeSignature(node) {
 
 /** Observe compiled primitive documents in an isolated production renderer. */
 export function createPhysicalMeasurer({ surface, bend, onChange }) {
-  if (!surface?.ownerDocument || !bend?.probe_document || !bend?.probe_target_keys) {
-    throw new TypeError('Physical measurement requires a surface and compiled probe helpers');
-  }
   const document = surface.ownerDocument;
   const window = document.defaultView;
   let revision = 0;
@@ -88,8 +72,8 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
   const probes = new Map();
   const cancellation = () => new DOMException('Physical measurement cancelled', 'AbortError');
   function current(captured) {
+    // DEFENSE: Font/parser awaits can finish after a newer publication cancels this measurement batch.
     if (disposed || captured !== revision) throw cancellation();
-    if (!surface.isConnected || !container?.isConnected) throw new Error('Physical probe is detached');
   }
   async function wait(promise, captured) {
     const signal = controller.signal;
@@ -121,11 +105,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
     }
   }
   function ensureContainer() {
-    if (!surface.isConnected || !document.body?.isConnected || !window?.getComputedStyle) {
-      throw new Error('Physical measurement requires an attached document');
-    }
     const scope = surface.matches('.native-application') ? surface : surface.querySelector('.native-application') ?? surface;
-    if (container && !container.isConnected) destroyContainer();
     if (container) { container.className = scope.className; return; }
     container = document.createElement('div');
     container.className = scope.className;
@@ -148,7 +128,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
     });
   }
   function getProbe(request, width) {
-    const generation = natural(request.generation, 'request generation');
+    const generation = Number(request.generation);
     const identity = JSON.stringify([generation, request.key, width]);
     let probe = probes.get(identity);
     if (probe) return probe;
@@ -163,7 +143,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
       codeSource() {},
       changed: () => changed(probe),
     }, { isolated: true });
-    if (window.ResizeObserver) probe.observer = new window.ResizeObserver(() => changed(probe));
+    probe.observer = new window.ResizeObserver(() => changed(probe));
     probes.set(identity, probe);
     return probe;
   }
@@ -183,8 +163,7 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
     glyph.textContent = '0';
     container.appendChild(glyph);
     try {
-      const advance = extent(glyph.getBoundingClientRect().width, 'reference advance');
-      if (!advance) throw new Error('Unavailable positive reference advance');
+      const advance = Math.ceil(glyph.getBoundingClientRect().width);
       return advance;
     } finally { glyph.remove(); }
   }
@@ -195,30 +174,21 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
   }
   return {
     async measure(rawPlan) {
-      if (disposed) throw cancellation();
-      if (active) throw new Error('A physical measurement batch is already active');
       const plan = decodeBendValue(rawPlan);
-      if (bendTag(plan) !== 'Awaiting') throw new TypeError('Physical measurement requires an Awaiting plan');
-      const generation = natural(plan.generation, 'plan generation');
+      const generation = Number(plan.generation);
       const jobs = [plan.first, ...list(plan.remaining)];
       const captured = revision;
       active = true;
       try {
         pruneProbes(generation);
         ensureContainer();
-        if (!document.fonts?.ready) throw new Error('Document font readiness is unavailable');
         await wait(document.fonts.ready, captured);
         const measurements = []; const targets = [];
         for (const job of jobs) {
           current(captured);
-          const request = job?.request;
-          if (!request || typeof request.key !== 'string' || natural(request.generation, 'request generation') !== generation) {
-            throw new TypeError('Physical job does not belong to the plan generation');
-          }
+          const request = job.request;
           const purpose = request.purpose;
-          if (!['Natural', 'AtWidth'].includes(bendTag(purpose)) || !['Measure', 'TargetsOnly'].includes(bendTag(job.mode))) throw new TypeError('Invalid physical probe job');
-          const width = bendTag(purpose) === 'Natural' ? null : natural(purpose.width, 'requested width');
-          if (bendTag(job.mode) === 'TargetsOnly' && width === null) throw new TypeError('Native target measurement requires AtWidth');
+          const width = bendTag(purpose) === 'Natural' ? null : Number(purpose.width);
           const probe = getProbe(request, width);
           probe.baseline = null;
           probe.renderer.render(bend.probe_document(job));
@@ -234,20 +204,19 @@ export function createPhysicalMeasurer({ surface, bend, onChange }) {
           if (bendTag(job.mode) === 'Measure') {
             const minimum = withMarkdownScrollportMinimum(content, window, () => {
               imposeWidth(content, 'min-content');
-              return extent(contentBox(content, window).width, 'minimum width');
+              return Math.ceil(contentBox(content, window).width);
             });
             imposeWidth(content, 'max-content');
-            const preferred = extent(contentBox(content, window).width, 'preferred width');
+            const preferred = Math.ceil(contentBox(content, window).width);
             imposeWidth(content, width === null ? 'max-content' : width);
             measurements.push({ key: request.key, width, minimum_width: minimum, preferred_width: preferred,
-              content_height: extent(multilineContentHeight(content, window), 'content height'), reference_advance: referenceAdvance(content) });
+              content_height: Math.ceil(multilineContentHeight(content, window)), reference_advance: referenceAdvance(content) });
           }
           if (width !== null) {
             for (const target of list(bend.probe_target_keys(job))) {
-              if (typeof target !== 'string') throw new TypeError('Invalid canonical native target key');
               const box = probe.renderer.targetBounds(target, content);
-              targets.push({ owner_key: request.key, width, target, left: origin(box.left, 'target left'), top: origin(box.top, 'target top'),
-                target_width: extent(box.width, 'target width'), target_height: extent(box.height, 'target height') });
+              targets.push({ owner_key: request.key, width, target, left: Math.max(0, Math.floor(box.left)), top: Math.max(0, Math.floor(box.top)),
+                target_width: Math.ceil(box.width), target_height: Math.ceil(box.height) });
             }
           }
           probe.baseline = sizeSignature(content);

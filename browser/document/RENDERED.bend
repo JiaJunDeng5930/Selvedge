@@ -520,6 +520,7 @@ def receive(member: Categories.Membership<FrameReceipt, correlated_receipt()>) -
 
 def received(result: Maybe<&1, Categories.Membership<FrameReceipt, correlated_receipt()>>, previous: State) -> State:
   match result:
+    # DEFENSE: A native animation-frame observation may arrive after its display generation has been replaced.
     case None{}: previous
     case Some{member}: receive(member)
 
@@ -556,6 +557,7 @@ def violations_with(+surface: SurfaceTypes.Surface, +frame: Frame, expectations:
 
 def observed_with(correlated: Bool, current: Nat, surface: SurfaceTypes.Surface, +frame: Frame, previous: State, expectations: FrameExpectations) -> State:
   match correlated:
+    # DEFENSE: A queued frame observation for an older display cannot establish the current source exposure or focus.
     case False{}: previous
     case True{}: accepted(violations_with(surface, frame, expectations), current, frame)
 

@@ -6,16 +6,19 @@ import { parse } from 'acorn';
 export function javascriptModules(library) {
   const marker = '// Program\n// =======\n\n';
   const start = library.indexOf(marker);
+  // DEFENSE: Compiler output must retain the pinned program boundary before generated declarations can be separated from its runtime.
   if (start < 0) throw new Error('Joint JavaScript compilation requires the pinned program marker');
   const runtime = library.slice(0, start + marker.length);
   const program = library.slice(start + marker.length);
   const tree = parse(program, { ecmaVersion: 2024, sourceType: 'module' });
   const exported = tree.body.at(-1);
+  // DEFENSE: Compiler output without the pinned final export object cannot be split into independently loadable entries.
   if (exported?.type !== 'ExportDefaultDeclaration' || exported.declaration.type !== 'ObjectExpression') {
     throw new Error('Joint JavaScript compilation requires the pinned export object');
   }
   const exports = new Map();
   for (const property of exported.declaration.properties) {
+    // DEFENSE: Compiler output can contain an export shape or duplicate key outside the module splitter's supported emitter contract.
     if (property.type !== 'Property' || property.computed || property.kind !== 'init'
         || property.method || property.key.type !== 'Literal' || typeof property.key.value !== 'string'
         || exports.has(property.key.value)) {
@@ -30,10 +33,10 @@ export function javascriptModules(library) {
       : statement.type === 'VariableDeclaration' && statement.kind === 'const'
         && statement.declarations.every(value => value.id.type === 'Identifier')
         ? statement.declarations.map(value => value.id.name) : null;
+    // DEFENSE: Compiler output can contain a declaration shape the splitter cannot assign to an entry.
     if (!names) throw new Error(`Joint JavaScript compilation encountered an unsupported declaration: ${statement.type}`);
     const declaration = { statement, names, references: identifiers(statement) };
     for (const name of names) {
-      if (declarations.has(name)) throw new Error(`Joint JavaScript compilation encountered a duplicate declaration: ${name}`);
       declarations.set(name, declaration);
     }
     return declaration;
@@ -42,6 +45,7 @@ export function javascriptModules(library) {
   return definitions => {
     const selected = Object.entries(definitions).map(([original, qualified]) => {
       const expression = exports.get(qualified);
+      // DEFENSE: A requested Bend definition can be absent from the emitted export object.
       if (!expression) throw new Error(`Joint JavaScript compilation did not export: ${qualified}`);
       return { original, expression };
     });

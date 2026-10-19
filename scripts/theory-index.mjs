@@ -37,15 +37,18 @@ export async function checkTheoryIndex({ update = false } = {}) {
   const source = await readFile(readme, 'utf8');
   const first = source.indexOf(begin);
   const last = source.indexOf(end);
+  // DEFENSE: An edited theory README can remove, duplicate or reorder the generated inventory markers.
   if (first < 0 || last < first || source.indexOf(begin, first + begin.length) !== -1 || source.indexOf(end, last + end.length) !== -1) {
     throw new Error('Theory inventory must have exactly one ordered marker pair');
   }
   const expected = source.slice(0, first + begin.length) + '\n\n' + await inventory() + '\n\n' + source.slice(last);
   if (update) await writeFile(readme, expected);
+  // DEFENSE: Edited certificate exports can leave the documented checked inventory out of date.
   else if (source !== expected) throw new Error('Theory inventory is stale; run bun scripts/theory-index.mjs update');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // DEFENSE: A command-line caller can pass unsupported arguments; reject the invocation before running the build operation.
   if (!['check', 'update'].includes(process.argv[2] ?? 'check')) throw new Error('Usage: theory-index.mjs [check|update]');
   await checkTheoryIndex({ update: process.argv[2] === 'update' });
   console.log(`Theory inventory matches the quoted certificates (${fileURLToPath(readme)}).`);

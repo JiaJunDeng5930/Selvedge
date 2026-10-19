@@ -7,8 +7,10 @@ import { StringDecoder } from 'node:string_decoder';
 import { prepareSandbox } from './sandbox.mjs';
 
 export function killGroup(child, signal = 'SIGKILL') {
+  // DEFENSE: spawn emits an error without assigning a PID when its executable cannot start.
   if (!child.pid) return;
   try { process.kill(-child.pid, signal); }
+  // DEFENSE: The shell or its process group may exit before cancellation/exit cleanup sends its signal.
   catch (error) { if (error.code !== 'ESRCH') throw error; }
 }
 
@@ -29,7 +31,6 @@ export function capture(limit) {
 
 /** Bounded Unicode head/tail, independent of pipe chunk boundaries. */
 export function captureHeadTail(limit) {
-  if (!Number.isSafeInteger(limit) || limit < 1) throw new TypeError('Invalid output length');
   const headLimit = Math.ceil(limit / 2);
   const tailLimit = limit - headLimit;
   const decoder = new StringDecoder('utf8');
@@ -37,7 +38,6 @@ export function captureHeadTail(limit) {
   let tail = [];
   let characters = 0;
   let totalBytes = 0;
-  let ended = false;
   function retain(text) {
     const points = Array.from(text);
     characters += points.length;
@@ -47,11 +47,10 @@ export function captureHeadTail(limit) {
   }
   return {
     add(chunk) {
-      if (ended) throw new Error('Output capture is already closed');
       totalBytes += chunk.length;
       retain(decoder.write(chunk));
     },
-    end() { if (!ended) { retain(decoder.end()); ended = true; } },
+    end() { retain(decoder.end()); },
     result() {
       const omitted = Math.max(0, characters - limit);
       return { text: head.join('') + (omitted ? `\n… [${omitted} Unicode characters omitted] …\n` : '') + tail.join(''),
@@ -79,6 +78,7 @@ async function hashPrefix(file, length) {
   const buffer = Buffer.alloc(64 * 1024);
   for (let offset = 0; offset < length;) {
     const { bytesRead } = await file.read(buffer, 0, Math.min(buffer.length, length - offset), offset);
+    // DEFENSE: External truncation of an artifact during rehashing cannot yield a valid retained-prefix hash.
     if (!bytesRead) throw new Error('Output artifact was shortened during capture');
     hash.update(buffer.subarray(0, bytesRead));
     offset += bytesRead;
@@ -87,22 +87,22 @@ async function hashPrefix(file, length) {
 }
 
 /** Execute an already validated Bend Bash effect, draining both pipes concurrently. */
-export async function runBash(arguments_, limits, { signal, cwd = process.cwd(), artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } = {}) {
+export async function runBash(arguments_, limits, { signal, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot }) {
   signal?.throwIfAborted();
-  // Preserve malformed UTF-16 units so the native guard can reject the observed command.
+  // DEFENSE: A caller can supply malformed UTF-16; preserve its units so native admission can reject it.
   const observedArguments = typeof arguments_?.command === 'string' && !arguments_.command.isWellFormed()
     ? { ...arguments_, command: { utf16: Array.from({ length: arguments_.command.length },
       (_, index) => arguments_.command.charCodeAt(index)) } }
     : arguments_;
   const { timeout, maximum } = boundary('effect.bash_arguments', { arguments: observedArguments, limits,
-    options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
+    options: { artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
   const artifacts = [];
   let child;
   let launch;
   try {
-    if (execution) launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
+    launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
     if (artifactDirectory) {
-      boundary('effect.artifact_limit', { arguments: arguments_, limits, options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
+      boundary('effect.artifact_limit', { arguments: arguments_, limits, options: { artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } });
       await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
       const directory = await mkdtemp(path.join(artifactDirectory, 'bash-'));
       for (const stream of ['stdout', 'stderr']) {
@@ -111,13 +111,13 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       }
     }
     signal?.throwIfAborted();
-    child = spawn(launch?.file ?? '/bin/bash', [...(launch?.prefix ?? ['--noprofile', '--norc']), '-c', arguments_.command], {
-      cwd: launch?.cwd ?? cwd, env: launch?.env, detached: true,
-      stdio: ['ignore', 'pipe', 'pipe', ...(launch?.descriptors ?? [])],
+    child = spawn(launch.file, [...launch.prefix, '-c', arguments_.command], {
+      cwd: launch.cwd, env: launch.env, detached: true,
+      stdio: ['ignore', 'pipe', 'pipe', ...launch.descriptors],
     });
   } catch (error) {
-    await Promise.allSettled(artifacts.map(artifact => artifact.file.close()));
-    await launch?.cleanup();
+    // DEFENSE: File creation or sandbox/spawn preparation can fail after opening some artifact handles.
+    await Promise.all([...artifacts.map(artifact => artifact.file.close()), launch?.cleanup()]);
     throw error;
   }
   const stdout = captureHeadTail(maximum);
@@ -127,15 +127,18 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
   let closed = false;
   function stop(code, message) {
     reason ??= { code, message };
+    // DEFENSE: A cancellation event can race with the child's close callback; completed children need no new timer.
     if (closed) return;
     try { killGroup(child); }
+    // DEFENSE: OS signal failures are part of the command result rather than uncaught timer/event exceptions.
     catch (error) { reason = { code: 'process_cleanup_failed', message: error.message }; }
-    // A descendant that deliberately leaves the process group can retain a pipe.
+    // DEFENSE: A descendant that deliberately leaves the process group can retain a pipe.
     // Closing our handles bounds the wait; containment is an OS responsibility.
     forcedClose ??= setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); }, 2000);
   }
   const onAbort = () => stop('cancelled', 'The task was cancelled');
   signal?.addEventListener('abort', onAbort, { once: true });
+  // DEFENSE: Cancellation can occur between the initial abort check and listener registration.
   if (signal?.aborted) onAbort();
   const timer = setTimeout(() => stop('command_timed_out', `Command exceeded ${timeout} milliseconds`), timeout);
   async function drain(stream, output, artifact) {
@@ -154,7 +157,6 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
           }
         }
       }
-      output.end();
       if (artifact) {
         if (output.result().total_bytes > retained) {
           const complete = await completeUtf8Prefix(artifact.file, retained);
@@ -164,11 +166,13 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
         persisted = true;
       }
     } catch (error) {
+      // DEFENSE: Pipe reads and artifact writes/sync can fail; stop the process and report incomplete capture.
       stop('output_capture_failed', `Could not retain command output: ${error.message}`);
     } finally {
       output.end();
       if (artifact) {
         try { await artifact.file.close(); }
+        // DEFENSE: A failed artifact close must mark it unpersisted and report capture failure.
         catch (error) { persisted = false; stop('output_capture_failed', `Could not close command output: ${error.message}`); }
       }
     }
@@ -179,7 +183,7 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
   return new Promise(resolve => {
     child.once('error', error => { reason = { code: 'command_start_failed', message: error.message }; });
     child.once('exit', () => {
-      // Clean up ordinary background descendants even when the shell exits zero.
+      // DEFENSE: Commands can leave background descendants holding output pipes after the shell exits zero.
       try { killGroup(child); } catch (error) { reason ??= { code: 'process_cleanup_failed', message: error.message }; }
       forcedClose ??= setTimeout(() => { child.stdout.destroy(); child.stderr.destroy(); }, 2000);
     });
@@ -189,12 +193,13 @@ export async function runBash(arguments_, limits, { signal, cwd = process.cwd(),
       clearTimeout(forcedClose);
       signal?.removeEventListener('abort', onAbort);
       const [outArtifact, errArtifact] = await Promise.all(outputTasks);
-      try { await launch?.cleanup(); }
+      try { await launch.cleanup(); }
+      // DEFENSE: Scratch-directory or sandbox-descriptor cleanup can fail after command completion.
       catch (error) { reason ??= { code: 'sandbox_cleanup_failed', message: error.message }; }
       const out = stdout.result();
       const err = stderr.result();
       resolve(boundary('effect.process_result', { arguments: arguments_, limits,
-        options: { cwd, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot }, exitCode, exitSignal, out, err, outArtifact, errArtifact, reason }));
+        options: { artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot }, exitCode, exitSignal, out, err, outArtifact, errArtifact, reason }));
     });
   });
 }

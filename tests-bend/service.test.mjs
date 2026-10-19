@@ -27,6 +27,7 @@ test('the physical server issues a working cookie, delivers committed SSE and se
       { type: 'commit', namespace: running.service.journal.namespace, sequence: running.service.journal.sequence });
   } finally {
     controller.abort();
+    // DEFENSE: Aborting the live SSE read can reject iterator cleanup with AbortError.
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });
   }
   const cli = fileURLToPath(new URL('../host/cli.mjs', import.meta.url));

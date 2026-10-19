@@ -1,6 +1,7 @@
 import Base
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
+import ./MODEL.bend as Model
 import ./HTTP.bend as H
 
 def H.complete_correspondence():
@@ -73,7 +74,14 @@ def H.content_type_precedes_body():
   source => {==}
 
 def H.raw_body_and_current_shape_required():
-  source => {==}
+  source => body => parsed =>
+    Equal.cong(Result<&2, &2, String, J.Json>, Bool, (result => H.body_valid_result(result, source)),
+      Model.parsed_observation(H.parsed_source(source)), Done{body}, parsed)
+
+def H.invalid_body_parse_rejected():
+  source => reason => parsed =>
+    Equal.cong(Result<&2, &2, String, J.Json>, Bool, (result => H.body_valid_result(result, source)),
+      Model.parsed_observation(H.parsed_source(source)), Fail{reason}, parsed)
 
 def H.body_factory_admission():
   source => {==}
@@ -96,8 +104,22 @@ def H.admitted_connection_original_source():
 def H.admitted_upload_original_source():
   source => evidence => {==}
 
+def parsed_body_payload(-source: J.Json, +result: Result<&2, &2, String, J.Json>,
+  accepted: {H.body_valid_result(result, source) == True{} : Bool}) ->
+  {result == Done{H.parsed_body_result(source, result, accepted)} : Result<&2, &2, String, J.Json>}:
+  match result:
+    case Done{body}: {==}
+    case Fail{reason}: Categories.impossible(
+      {Fail{reason} == Done{H.parsed_body_result(source, Fail{reason}, accepted)} : Result<&2, &2, String, J.Json>}, accepted)
+
+def admitted_body_payload(-Request: J.Json -> Type, +source: J.Json, evidence: H.BodyRequest(Request, source)) ->
+  {Model.parsed_observation(H.parsed_source(source)) ==
+    Done{J.get(H.body_terminal(Request, Categories.Membership{source, evidence}), "body")} : Result<&2, &2, String, J.Json>}:
+  Categories.Intersection{prior, accepted} = evidence
+  parsed_body_payload(source, Model.parsed_observation(H.parsed_source(source)), accepted)
+
 def H.admitted_body_payload():
-  Request => source => evidence => {==}
+  Request => source => evidence => admitted_body_payload(Request, source, evidence)
 
 def H.admitted_body_original_source():
   Request => source => evidence => {==}
@@ -171,8 +193,7 @@ def project_body_content(-Request: J.Json -> Type, -source: J.Json, evidence: H.
   content
 
 def project_body_body(-Request: J.Json -> Type, -source: J.Json, evidence: H.BodyRequest(Request, source)) -> H.CurrentBody(source):
-  Categories.Intersection{Categories.Intersection{request, Categories.Intersection{route, content}}, body} = evidence
-  body
+  H.body_admission_evidence(Request, source, evidence)
 
 def H.admitted_local_open_evidence():
   source => evidence => project_local_open(source, evidence)

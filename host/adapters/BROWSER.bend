@@ -76,6 +76,7 @@ def navigation_checked(+source: J.Json,
     case True{}: Some{Categories.Membership{source, Categories.Intersection{observed, prior}}}
     case False{}: None{}
 
+# DEFENSE: Authored Markdown links can contain executable schemes, control characters or invalid URL observations; allow only admitted navigation targets.
 def navigation_protocol_admitted(admission: Maybe<&1, Categories.Membership<J.Json,
     (source => Categories.intersection(J.Json, protocol_category(), normalized_category(), source))>>) -> Maybe<&1, Categories.Membership<J.Json, navigation>>:
   match admission:

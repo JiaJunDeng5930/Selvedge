@@ -7,15 +7,7 @@ import * as oidc from 'openid-client';
 import { writeAtomic } from './files.mjs';
 import { modelsURL } from './chatgpt-contract.mjs';
 
-import { boundary as modelBoundary } from './public/model-boundary.mjs';
-
-function boundary(operation, source) {
-  try { return modelBoundary(operation, source); }
-  catch (error) {
-    if (error.code === 'RangeError') throw new RangeError(error.message);
-    throw error;
-  }
-}
+import { boundary } from './public/model-boundary.mjs';
 
 const contract = boundary('account.contract', {});
 const chatgptOAuthResource = contract.resource;
@@ -28,20 +20,21 @@ export function chatgptAccountIdentity(issuer, clientId, subject) {
 }
 
 function urlObservation(value) {
+  // DEFENSE: Configured endpoints and OpenID discovery metadata can contain invalid URLs; native admission rejects the null observation.
   try {
     const url = new URL(value);
     return Object.fromEntries(['href', 'protocol', 'origin', 'hostname', 'host', 'pathname', 'search', 'username', 'password', 'hash'].map(key => [key, url[key]]));
   } catch { return null; }
 }
 function dateObservation(value, numeric = false) {
-  const instant = numeric ? value : Date.parse(value);
-  if (!Number.isFinite(instant)) return null;
-  try {
-    const date = new Date(instant);
-    const epoch = date.getTime();
-    return { iso: date.toISOString(), epoch: String(epoch),
-      ordered_epoch: String(BigInt(epoch) + 8640000000000000n).padStart(17, '0') };
-  } catch { return null; }
+  // DEFENSE: OAuth fields and persisted credential records can supply a non-string timestamp; do not coerce an object into a date.
+  if (typeof value !== (numeric ? 'number' : 'string')) return null;
+  const date = new Date(numeric ? value : Date.parse(value));
+  const epoch = date.getTime();
+  // DEFENSE: Credential timestamps and token lifetimes come from disk or OAuth; invalid or out-of-range dates must fail native admission.
+  if (!Number.isFinite(epoch)) return null;
+  return { iso: date.toISOString(), epoch: String(epoch),
+    ordered_epoch: String(BigInt(epoch) + 8640000000000000n).padStart(17, '0') };
 }
 function credentialObservations(value) {
   return { value, identity: chatgptAccountIdentity(value?.issuer, value?.client_id, value?.subject),
@@ -52,13 +45,11 @@ function connectionObservations(value) {
     issuer: urlObservation(value?.issuer ?? defaultChatGPTAccount.issuer) } };
 }
 export function accountConfig(value = {}) {
-  try { return Object.freeze(boundary('account.connection', connectionObservations(value))); }
-  catch (error) { throw new TypeError(error.message); }
+  return Object.freeze(boundary('account.connection', connectionObservations(value)));
 }
 export function accountConnection(profile) {
   const connection = boundary('account.profile_connection', { profile });
-  try { return Object.freeze(boundary('account.connection', { profile, ...connectionObservations(connection) })); }
-  catch (error) { throw new TypeError(error.message); }
+  return Object.freeze(boundary('account.connection', { profile, ...connectionObservations(connection) }));
 }
 const locks = new Map();
 
@@ -69,8 +60,9 @@ function validateCredential(value) {
 async function readRecord(filename, optional = false) {
   let contents;
   try { contents = await readFile(filename, 'utf8'); }
+  // DEFENSE: First login has no host/registration record; only ENOENT for an optional record means absence.
   catch (error) { if (boundary('account.record_read_failure', { filename, optional, code: error.code })) return null; throw error; }
-  // Parser diagnostics can expose token-bearing file contents in durable errors.
+  // DEFENSE: Malformed token-bearing JSON can expose credentials in parser diagnostics; return the native sanitized failure.
   try { return JSON.parse(contents); }
   catch { return boundary('account.record_parse_failure', { filename, optional }); }
 }
@@ -81,17 +73,18 @@ function registration(value, issuer) {
 
 async function locked(filename, action) {
   const prior = locks.get(filename) ?? Promise.resolve();
-  const pending = prior.catch(() => {}).then(async () => {
+  // DEFENSE: A failed earlier login/refresh releases its place in the queue; a later explicit attempt must still acquire the lock.
+  const enter = async () => {
     await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
     const lock = new DatabaseSync(`${filename}.lock`, { timeout: 1000 });
     try {
       lock.exec('CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY); BEGIN EXCLUSIVE');
       return await action();
     } finally {
-      try { lock.exec('ROLLBACK'); } catch {}
       lock.close();
     }
-  });
+  };
+  const pending = prior.then(enter, enter);
   locks.set(filename, pending);
   try { return await pending; }
   finally { if (locks.get(filename) === pending) locks.delete(filename); }
@@ -113,6 +106,7 @@ function configuration(metadata, clientId, profile, signal) {
 }
 
 async function discovery(profile, signal) {
+  // DEFENSE: OpenID discovery can reject network, metadata or signing-configuration errors; SDK diagnostics must not enter durable task errors.
   try {
     const issuer = new URL(profile.issuer);
     const insecure = boundary('account.insecure', { profile, url: urlObservation(issuer.href) });
@@ -128,12 +122,13 @@ async function discovery(profile, signal) {
 }
 
 async function grant(action, signal) {
+  // DEFENSE: OAuth grants can fail HTTP or token-signature checks; expose the native sanitized failure instead of token-bearing SDK diagnostics.
   try { return await action(); }
   catch { signal?.throwIfAborted(); return boundary('account.grant_failure', {}); }
 }
 
 function tokenCredential(tokens, metadata, clientId, { previous, subject } = {}) {
-  const source = { tokens: Object.fromEntries(Object.entries(tokens ?? {}).filter(([, value]) => typeof value !== 'function')), metadata, clientId,
+  const source = { tokens: Object.fromEntries(Object.entries(tokens).filter(([, value]) => typeof value !== 'function')), metadata, clientId,
     ...(previous === undefined ? {} : { previous }),
     ...(subject === undefined ? {} : { subject }) };
   boundary('account.token', { ...source, phase: 'grant' });
@@ -223,19 +218,22 @@ export async function login(profile, home, { signal, onAuthorize = () => {} } = 
     const verifier = oidc.randomPKCECodeVerifier();
     let resolveCallback, rejectCallback;
     const callback = new Promise((resolve, reject) => { resolveCallback = resolve; rejectCallback = reject; });
-    // An abort may occur while the caller is showing the authorization URL.
+    // DEFENSE: Timeout can reject the callback while onAuthorize is still displaying the URL; attach a handler until the callback is awaited below.
     callback.catch(() => {});
     let redirectUri;
     let received = false;
     const server = http.createServer((request, response) => {
       let url;
+      // DEFENSE: The loopback HTTP listener also receives malformed request targets; native callback admission responds without accepting a grant.
       try { url = new URL(request.url, redirectUri); } catch { url = null; }
       const redirect = new URL(redirectUri);
       const decision = boundary('account.callback', { profile, home, redirectUri, request: { url: request.url, method: request.method, headers: { host: request.headers.host }, host: request.headers.host },
         url: url ? urlObservation(url.href) : null, redirect: urlObservation(redirect.href), received, state, registered,
         parameters: Object.fromEntries(['code', 'state', 'client_id', 'error'].map(key => [key, url ? url.searchParams.getAll(key) : []])) });
       if (decision.received) received = true;
+      // DEFENSE: Wrong-path, wrong-host and duplicate HTTP callbacks must not settle the pending OAuth grant.
       if (decision.action === 'ignore') { response.writeHead(decision.status, decision.headers); response.end(decision.body); return; }
+      // DEFENSE: An OAuth error or invalid callback parameters reject this login rather than exchanging an untrusted code.
       if (decision.action === 'reject') {
         response.writeHead(decision.status, decision.headers); response.end(decision.body);
         rejectCallback(new Error(decision.message)); return;
