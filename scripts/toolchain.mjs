@@ -6,9 +6,15 @@ export const expectedVersion = readFileSync(new URL('../bend-version', import.me
 const local = fileURLToPath(new URL('../.build/bend/bin/bend', import.meta.url));
 
 // The pinned verifier recursively compares finite lowered instruction terms.
-// Configure compiler children only; leave the host, tests and heap policy alone.
+// Full proof checking and shared-book emission have hit the 16 GiB cgroup limit.
+// Configure compiler children only. Keep generational collection and reduce
+// allocation growth/headroom without imposing a heap cap. Fixed factors cover
+// platforms/RAM sizes without the exponential growth policy.
 export function compilerEnvironment() {
-  return { ...process.env, BUN_JSC_maxPerThreadStackUsage: '14680064' };
+  return { ...process.env, BUN_JSC_maxPerThreadStackUsage: '14680064',
+    BUN_JSC_forceMiniVMMode: 'false', BUN_JSC_useConcurrentGC: 'false',
+    BUN_JSC_heapGrowthMaxIncrease: '0.2', BUN_JSC_smallHeapGrowthFactor: '1.2',
+    BUN_JSC_mediumHeapGrowthFactor: '1.2', BUN_JSC_largeHeapGrowthFactor: '1.2' };
 }
 
 export function compilerInvocation(executable, args) {

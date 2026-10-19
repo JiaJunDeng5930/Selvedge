@@ -25,9 +25,8 @@ export async function taskIdle(service, taskId = 0) {
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);
 }
 
-export async function responsesServer(t, respond, { measure, title = () => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"Name the task"}' }] }] } = {}) {
+export async function responsesServer(t, respond, { measure } = {}) {
   const requests = [];
-  const titleRequests = [];
   const failures = [];
   const server = http.createServer((request, response) => {
     void (async () => {
@@ -41,9 +40,9 @@ export async function responsesServer(t, respond, { measure, title = () => [{ ty
         return;
       }
       const naming = body.text?.format?.name === 'task_title';
-      const observed = naming ? titleRequests : requests;
-      observed.push(body);
-      const output = await (naming ? title : respond)(body, observed.length - 1, request);
+      if (!naming) requests.push(body);
+      const output = naming ? [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '{"title":"Name the task"}' }] }]
+        : await respond(body, requests.length - 1, request);
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       const outputIndex = output.findIndex(item => item.type === 'message');
       if (outputIndex >= 0) response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', output_index: outputIndex, delta: '处理中 😀' })}\r\n\r\n`);
@@ -63,7 +62,7 @@ export async function responsesServer(t, respond, { measure, title = () => [{ ty
     // NOTE: The pinned Bun runtime also stops the server in this call.
     server.closeAllConnections();
   });
-  return { endpoint: `http://127.0.0.1:${server.address().port}/responses`, requests, titleRequests, failures };
+  return { endpoint: `http://127.0.0.1:${server.address().port}/responses`, requests, failures };
 }
 
 export function shellQuote(value) {

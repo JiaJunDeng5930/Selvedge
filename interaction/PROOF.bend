@@ -1,5 +1,6 @@
 import ./INPUT.bend as U
 import Base
+import ../bendlib/categories.bend as Categories
 import ../bendlib/string-equality.bend as SafeText
 import ../bendlib/equality-proof.bend as TextProof
 import ../bendlib/json.bend as J
@@ -158,6 +159,10 @@ def Architecture.surface():
     input => program => session => services => runtime_input(input, program, session, services),
     SurfaceLaws.observed_content}
 
+def Contract.actual_control_observation(state, identity, label, prominence, input, availability):
+  InteractionTypes.State{application, services} = state
+  {==}
+
 def Contract.service_submit_obstruction(connected, blocked):
   match connected blocked:
     case False{} False{}: {==}
@@ -169,10 +174,6 @@ def Contract.service_action_obstruction(blocked):
   match blocked:
     case False{}: {==}
     case True{}: {==}
-
-def Contract.actual_control_observation(state, identity, label, prominence, input, availability):
-  InteractionTypes.State{application, services} = state
-  {==}
 
 def Contract.submission_service_requirements(access, transfers, editor):
   Contract.service_submit_obstruction(Services.connected(access), Services.blocks(editor, transfers))
@@ -186,3 +187,16 @@ def Contract.confirmation_service_requirement(access, transfers):
 def Contract.command_service_requirement(access, command): {==}
 
 def Contract.local_action_requires_no_connection(access): {==}
+
+def application_admission_checked(+input: E.Input, +application: E.Application, +services: Services.State,
+  available: Bool, observed: {Core.application_available(Core.ApplicationRequest{input, application, services}) == available : Bool}) ->
+  {Core.application_admitted(Categories.admit_checked(Core.ApplicationRequest, Core.application_available,
+      Core.ApplicationRequest{input, application, services}, available, observed), application, services) ==
+    Contract.application_admission_result(available, input, application, services) : InteractionTypes.Decision}:
+  match available:
+    case True{}: {==}
+    case False{}: {==}
+
+def Contract.actual_application_admission(input, application, services):
+  application_admission_checked(input, application, services,
+    Core.application_available(Core.ApplicationRequest{input, application, services}), {==})

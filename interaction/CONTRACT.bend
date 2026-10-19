@@ -1,5 +1,5 @@
-import ../bendlib/association-map.bend as Finite
 import Base
+import ../bendlib/association-map.bend as Finite
 import ../harness/MODEL.bend as M
 import ../harness/PROGRAM.bend as Program
 import ./MODEL.bend as ProductUI
@@ -11,6 +11,7 @@ import ./STATE.bend as Core
 import ./presentation/PROGRAM.bend as Interface
 import ./INPUT.bend as U
 import ./session/MODEL.bend as E
+import ./session/PROGRAM.bend as SessionProgram
 import ./conversation/MODEL.bend as Conversation
 import ./presentation/MODEL.bend as View
 import ./services/MODEL.bend as Services
@@ -91,6 +92,12 @@ type Requirements is Type:
       {Interface.content(ProductUI.observe(capacity, state)) == Core.observe(capacity, state) : InteractionTypes.Scene}
   }
 
+def application_admission_result(available: Bool, +input: E.Input, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
+  match available:
+    case True{}: Core.application_result(SessionProgram.step(input, application), Core.application_services(input, services))
+    case False{}: InteractionTypes.Decision{Core.from_application(application, services),
+      D.failure("interaction_refused", "Connect and finish pending file uploads before submitting"), Nil{}, Nil{}, Nil{}, False{}}
+
 law service_submit_obstruction:
   @+connected:Bool -> @+blocked:Bool ->
   {Core.obstruction_present(Core.submit_obstruction(connected, blocked)) == blocked || Bool.not(connected) : Bool}
@@ -119,6 +126,11 @@ law command_service_requirement:
 
 law local_action_requires_no_connection:
   @access:Services.Access -> {Core.command_offline(None{}, access) == False{} : Bool}
+
+law actual_application_admission:
+  @+input:E.Input -> @+application:E.Application -> @+services:Services.State ->
+  {Core.step(InteractionTypes.ApplicationInput{input}, Core.from_application(application, services)) ==
+    application_admission_result(Bool.not(Core.submission_blocked(services, input)), input, application, services) : InteractionTypes.Decision}
 
 law actual_control_observation:
   @+state:InteractionTypes.State -> @+identity:String -> @+label:String -> @+prominence:View.Prominence -> @+input:U.Input -> @availability:View.Availability ->

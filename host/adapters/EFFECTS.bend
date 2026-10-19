@@ -5,6 +5,11 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
 import ./MODEL.bend as Model
+import ../../harness/MODEL.bend as Harness
+import ../../harness/features/MODEL.bend as Features
+import ../../harness/transport/wire.bend as Wire
+import ../../harness/transport/schema.bend as Schema
+import ../../features/task_graph/CODEC.bend as GraphCodec
 
 type ResponseText is Data:
   Skipped{}
@@ -955,6 +960,141 @@ def request_task_text(+source: J.Json) -> J.Json:
   +effect = J.get(source, "effect")
   request_task_text_kind((String.eq(J.text(J.get(effect, "kind")), "board_text") || String.eq(J.text(J.get(effect, "kind")), "task_title")) && J.is_text(J.get(effect, "prompt")), effect)
 
+# The public catalog's actual command kinds select directory observations;
+# plans retain their coordinates while the host sees only observation inputs.
+type WorkspaceCommand is Data:
+  WorkspaceUnchanged{}
+  WorkspaceSettings{root_task: Bool, worktree: Bool}
+  WorkspaceProject{}
+  WorkspaceGraph{}
+
+type WorkspacePath is Data:
+  CommandWorkspace{}
+  TaskWorkspace{}
+  NodeWorkspace{index: Nat}
+
+type WorkspaceSelection is Data:
+  WorkspaceSelection{path: WorkspacePath, value: J.Json, resolve_project: Bool}
+
+type WorkspacePlan is Data:
+  WorkspacePlan{root_task: Bool, worktree: Bool, selections: +List<&2, WorkspaceSelection>}
+
+def workspace_feature_observation(kind: Features.WorkspaceObservationKind) -> WorkspaceCommand:
+  match kind:
+    case Features.WorkspaceUnobserved{}: WorkspaceUnchanged{}
+    case Features.WorkspaceTaskSettings{root_task, worktree}: WorkspaceSettings{root_task, worktree}
+    case Features.WorkspaceTaskGraph{}: WorkspaceGraph{}
+
+def workspace_command_kind(kind: Harness.CommandKind, +command: J.Json) -> WorkspaceCommand:
+  match kind:
+    case Harness.CreateCommand{}: WorkspaceSettings{True{}, False{}}
+    case Harness.ForkCommand{}: WorkspaceSettings{False{}, False{}}
+    case Harness.CreateProjectCommand{}: WorkspaceProject{}
+    case Harness.UpdateProjectCommand{}: WorkspaceProject{}
+    case Harness.FeatureKind{kind}: workspace_feature_observation(Features.workspace_observation(kind, command))
+    case _: WorkspaceUnchanged{}
+
+def workspace_command_spec(found: Maybe<&2, Harness.CommandSpec>, +command: J.Json) -> WorkspaceCommand:
+  match found:
+    # DEFENSE: Public commands reach observation before native admission; an unknown or missing op must not trigger filesystem reads.
+    case None{}: WorkspaceUnchanged{}
+    case Some{Harness.CommandSpec{name, description, kind, schema}}: workspace_command_kind(kind, command)
+
+def workspace_setting_path(path: WorkspacePath, selected: J.Json, resolve_project: Bool) -> +List<&2, WorkspaceSelection>:
+  match selected:
+    case J.Object{fields}: [WorkspaceSelection{path, J.Object{fields}, resolve_project}]
+    # DEFENSE: Public settings can be absent, null or nonobjects; leave their rejection to the declared native schema.
+    case _: Nil{}
+
+def workspace_new_node(+node: J.Json) -> Bool:
+  # DEFENSE: Public graph arrays can contain null or scalar nodes before native admission; these must not cause guidance reads.
+  J.is_object(node) && Bool.not(GraphCodec.present(node, "task_id"))
+
+def workspace_nodes_next(accepted: Bool, +node: J.Json, index: Nat, rest: WorkspacePlan) -> WorkspacePlan:
+  match accepted rest:
+    case False{} WorkspacePlan{root_task, worktree, selections}: WorkspacePlan{root_task, worktree, selections}
+    case True{} WorkspacePlan{root_task, worktree, selections}: WorkspacePlan{True{}, worktree, List.append(&2, WorkspaceSelection,
+      workspace_setting_path(NodeWorkspace{index}, J.get(node, "settings"), True{}), selections)}
+
+def workspace_nodes(nodes: +List<&2, J.Json>, +index: Nat) -> WorkspacePlan:
+  match nodes:
+    case Nil{}: WorkspacePlan{False{}, False{}, Nil{}}
+    case Con{+node, rest}: workspace_nodes_next(workspace_new_node(node), node, index, workspace_nodes(rest, Nat.add(index, 1n)))
+
+def workspace_command_classified(kind: WorkspaceCommand, +command: J.Json) -> WorkspacePlan:
+  match kind:
+    case WorkspaceUnchanged{}: WorkspacePlan{False{}, False{}, Nil{}}
+    case WorkspaceSettings{root_task, worktree}: WorkspacePlan{root_task, worktree,
+      workspace_setting_path(TaskWorkspace{}, J.get(command, "settings"), True{})}
+    case WorkspaceProject{}: WorkspacePlan{False{}, False{}, workspace_setting_path(CommandWorkspace{}, command, False{})}
+    case WorkspaceGraph{}: workspace_nodes(J.items(J.get(command, "nodes")), 0n)
+
+def workspace_command_plan(+command: J.Json) -> WorkspacePlan:
+  workspace_command_classified(workspace_command_spec(Wire.find_spec(Harness.commands(), J.text(J.get(command, "op"))), command), command)
+
+def workspace_selection_json(selection: WorkspaceSelection) -> J.Json:
+  WorkspaceSelection{path, value, resolve_project} = selection
+  J.Object{[field("value", value), field("resolve_project", J.Boolean{resolve_project})]}
+
+def workspace_plan_json(plan: WorkspacePlan) -> J.Json:
+  WorkspacePlan{root_task, worktree, selections} = plan
+  J.Object{[field("root_task", J.Boolean{root_task}), field("worktree", J.Boolean{worktree}),
+    field("selections", J.Array{Std.map(~WorkspaceSelection, ~J.Json, ~workspace_selection_json, selections)})]}
+
+def workspace_command(+source: J.Json) -> J.Json:
+  Model.success(workspace_plan_json(workspace_command_plan(J.get(source, "command"))))
+
+def workspace_settings_value(+source: J.Json) -> J.Json:
+  +selected = J.get(source, "value")
+  # DEFENSE: Public project_id values can be nonintegers before native admission; do not issue a Project read for those coordinates.
+  +resolve_project = J.boolean(J.get(source, "resolve_project")) && Bool.not(has(selected, "workspace")) && Model.safe_integer(J.get(selected, "project_id"))
+  J.Object{[field("project_id", Bool.pick(J.Json, resolve_project, J.get(selected, "project_id"), J.Null{})),
+    field("observe_workspace", J.Boolean{has(selected, "workspace")})]}
+
+def workspace_settings(+source: J.Json) -> J.Json:
+  # DEFENSE: A public caller must not forge the service-observed guidance snapshot later committed with its command.
+  type_outcome_value(Bool.not(has(J.get(source, "value"), "guidance")), workspace_settings_value(source),
+    "Root guidance is observed by the service, not supplied by a client")
+
+def workspace_with_field(+value: J.Json, +name: String, replacement: J.Json) -> J.Json:
+  J.Object{field(name, replacement) <> Schema.without_field(fields(value), name)}
+
+def workspace_observed_field(observed: Bool, +selected: J.Json, name: String, value: J.Json) -> J.Json:
+  match observed:
+    case False{}: selected
+    case True{}: workspace_with_field(selected, name, value)
+
+def workspace_observed_settings(selected: J.Json, +observation: J.Json) -> J.Json:
+  workspace_observed_field(has(observation, "guidance"),
+    workspace_observed_field(has(observation, "workspace"), selected, "workspace", J.get(observation, "workspace")),
+    "guidance", J.get(observation, "guidance"))
+
+def workspace_observed_nodes(index: Nat, nodes: +List<&2, J.Json>, value: J.Json) -> +List<&2, J.Json>:
+  match index nodes:
+    case 0n Con{node, rest}: workspace_with_field(node, "settings", value) <> rest
+    case 1n+p Con{node, rest}: node <> workspace_observed_nodes(p, rest, value)
+    case _ Nil{}: Nil{}
+
+def workspace_observed_path(path: WorkspacePath, value: J.Json, +command: J.Json) -> J.Json:
+  match path:
+    case CommandWorkspace{}: value
+    case TaskWorkspace{}: workspace_with_field(command, "settings", value)
+    case NodeWorkspace{index}: workspace_with_field(command, "nodes", J.Array{workspace_observed_nodes(index, J.items(J.get(command, "nodes")), value)})
+
+def workspace_observation_step(command: J.Json, pair: (WorkspaceSelection & J.Json)) -> J.Json:
+  (selection, observation) = pair
+  WorkspaceSelection{path, value, resolve_project} = selection
+  workspace_observed_path(path, workspace_observed_settings(value, observation), command)
+
+def workspace_observations_apply(plan: WorkspacePlan, observations: +List<&2, J.Json>, command: J.Json) -> J.Json:
+  WorkspacePlan{root_task, worktree, selections} = plan
+  List.foldl(~&1, ~(WorkspaceSelection & J.Json), ~J.Json, ~workspace_observation_step,
+    List.zip(&2, WorkspaceSelection, &2, J.Json, selections, observations), command)
+
+def workspace_command_observed(+source: J.Json) -> J.Json:
+  +command = J.get(source, "command")
+  Model.success(workspace_observations_apply(workspace_command_plan(command), J.items(J.get(source, "observations")), command))
+
 def workspace_admit(+value: J.Json) -> J.Json:
   type_outcome_value(J.is_object(value) && array(J.get(value, "roots")) && Nat.is_le(length(J.items(J.get(value, "roots"))), 32n) && allowed(fields(value), ["roots", "primary_root"]), value, "A workspace requires at most 32 roots and an optional primary_root")
 
@@ -1660,6 +1800,9 @@ def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 
 def meaning(+operation: String, +source: J.Json) -> J.Json:
   match operation:
+    case "effect.workspace_command": workspace_command(source)
+    case "effect.workspace_settings": workspace_settings(source)
+    case "effect.workspace_command_observed": workspace_command_observed(source)
     case "effect.worktree_locations": worktree_locations(source)
     case "effect.worktree_path": worktree_path_admission(source)
     case "effect.worktree_receipt": worktree_receipt(source)

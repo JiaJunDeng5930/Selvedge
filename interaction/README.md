@@ -25,5 +25,7 @@ observation, and `control` combines that reason with intrinsic availability.
 The service requirements bind submission and workspace retry to that editor's
 uploads and the connection, confirmation to the connection, and direct commands
 to their service dependency. Local actions require no connection.
-`actual_control_observation` binds the complete observed control to this same
-production observation.
+`actual_application_admission` binds every input to its complete accepted or
+refused decision: acceptance uses that same input and application, while refusal
+preserves state and emits no effects. `actual_control_observation` binds the
+complete observed control to the same production obstruction.

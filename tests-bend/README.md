@@ -47,29 +47,31 @@ SQLite reopen, WebSocket session teardown and the real Durable Object runtime.
 Grant permissions, generations and command classification belong to native
 constructions and their production proofs.
 
-The remote receipt probe also exercises account-authenticated Codex review and a
-subprocess that inspects its durable grant before writing. Independent Web text
+The remote receipt probe retries after its workspace guidance becomes unreadable,
+so receipt lookup must precede fresh filesystem observations. Account refresh and
+durable process authority have their own focused probes. Independent Web text
 requests retain a focused regression for effects without task history.
 
-Title settings retain one physical probe for independent Task/Agent prompt
-payloads, durable authority before HTTP dispatch and saved settings across SQLite
-reopen. Title lifecycle, entry preservation, cancellation and settings conflicts
-remain production proof obligations.
-
-Work probes exercise the HTTP creation path's Project workspace observation and
-the native tool transport's caller identity, command payloads and SQLite reopen
-without another model request. The combined Work/worktree command also exercises
-HTTP default-cwd observation and real Git dirty-file copying across reopen. Work
-membership, graph admission and ordinary Task independence remain production
-construction and proof obligations.
+Work probes exercise the HTTP creation path's current Project guidance and the
+combined Work/worktree command's default-cwd observation. The dedicated Git probe
+owns dirty-file copying and recovery. Native caller identity, Work and graph
+commands remain in the [native invocation construction](../harness/protocol/PROGRAM.bend)
+and [feature assembly evidence](../harness/features/laws.bend).
+[Title evidence](../features/titles/PROOF.bend) owns saved settings and generation;
+titles use the ordinary host model transport and journal, without another
+feature-specific HTTP/SQLite trace.
 
 Interactive Markdown keeps focused checks for parser completion notifications,
-buffered storage writes and failures, provider output coordinates, legal SSE
+buffered storage writes and failures, live sparse SSE coordinates, legal SSE
 frames crossing HTTP backpressure, and the reproduced V8 stack overflow on
 ordinary streamed output. The language's semantics remain production proof
 obligations. The real Chromium checks exercise streaming controls and IME,
-restoration, live graph display and action delivery through a controlled model
-HTTP peer. The standalone command builds the production libraries once:
+local-storage restoration, code scrolling, action delivery and removal of stale
+content from visible and inert measurement DOM through a controlled model HTTP
+peer. [Output origins](../harness/conversation/origin-contract.bend),
+[interactive actions and state](../interaction/interactive_markdown/CONTRACT.bend)
+and [live graph projections](../interaction/interactive_markdown/documents-contract.bend)
+remain production obligations. The standalone command builds the production libraries once:
 
 ```sh
 BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium bun run test:interactive-markdown
@@ -102,10 +104,17 @@ primitives against the original generated functions. These target the actual
 artifact-cache and intrinsic failures addressed by this change; they do not
 recompile hypothetical application extensions or replay model semantics.
 
-The fresh proof book feeds one official backend emission for eligible production
-entries. Standalone modules retain their own reachable generated declarations;
-complete source and tool identities plus output hashes guard reuse. Joint inputs
-conservatively share their invalidation scope. JavaScript compilation uses Bun;
+The JavaScript purity probe reproduces a runtime-transitive `@unsafe` declaration
+outside the verification entry's prefix. The compiler's upstream `book_promises`
+check rejects it before artifact reuse or emission.
+
+Kernel and browser entries share a fresh checked book; the official backend
+emits separate modules using its reachability and erasure rules. Their compiler
+exits before host and plugin entries compile in separate processes with their
+own imports and proof providers. This releases the full proof book and browser
+IR before host emission at the cost of repeating some shared compilation.
+Complete source and tool identities plus output hashes guard reuse. Shared-book
+inputs conservatively share their invalidation scope. JavaScript compilation uses Bun;
 native-entry checking uses the official release compiler. Neither has a scripted
 time or heap limit. The checker and compiler source remain pinned and unchanged.
 The suite uses temporary homes, loopback servers and subprocesses; no

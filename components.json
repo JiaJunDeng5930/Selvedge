@@ -251,6 +251,9 @@
         "ModelObservation",
         "DeliveryObservation",
         "Assessment",
+        "PreparationReady",
+        "DirectoryObservationRequired",
+        "PreparationBlocked",
         "Obstruction",
         "ProjectEdit",
         "CandidateObservation"

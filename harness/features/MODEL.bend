@@ -247,3 +247,20 @@ def root_environment(command: Command) -> Bool:
     case TaskGraphCommand{TaskGraph.Create{work, declaration}}: True{}
     case TaskGraphCommand{TaskGraph.Update{id, declaration}}: True{}
     case _: False{}
+
+# Stable host-observation categories keep feature cases inside the assembly.
+# Command names and kinds still come from each feature's public CODEC specs.
+type WorkspaceObservationKind is Data:
+  WorkspaceUnobserved{}
+  WorkspaceTaskSettings{root_task: Bool, worktree: Bool}
+  WorkspaceTaskGraph{}
+
+def workspace_observation(kind: CommandKind, +command: J.Json) -> WorkspaceObservationKind:
+  match kind:
+    case WorkKind{WorkCodec.Write{WorkCodec.CreateTaskKind{}}}:
+      WorkspaceTaskSettings{True{}, J.same(J.get(command, "create_worktree"), J.Boolean{True{}})}
+    case WorktreeKind{WorktreeCodec.Write{}}: WorkspaceTaskSettings{True{}, True{}}
+    case BoardKind{BoardCodec.Write{BoardCodec.SaveAgentKind{}}}: WorkspaceTaskSettings{False{}, False{}}
+    case TaskGraphKind{TaskGraphCodec.Write{TaskGraphCodec.CreateKind{}}}: WorkspaceTaskGraph{}
+    case TaskGraphKind{TaskGraphCodec.Write{TaskGraphCodec.UpdateKind{}}}: WorkspaceTaskGraph{}
+    case _: WorkspaceUnobserved{}

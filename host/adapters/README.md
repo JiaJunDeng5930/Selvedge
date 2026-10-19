@@ -61,3 +61,12 @@ the host reconstructs opaque objects from the native result coordinates.
 and network/file IO remain host observations and interpretation effects. The
 shared dispatcher exposes each domain's actual factory consumer and complete
 result correspondence to its executable meaning on the entire original source.
+
+`effect.workspace_command` constructs the directory-observation plan for public
+commands, including root births, graph-node settings and worktree preparation.
+`effect.workspace_settings` admits client-selected settings and chooses whether
+to resolve a Project or observe an explicit Workspace. The plan uses the
+public command catalog's actual command kinds and the graph codec's node
+classification. The host reports only directory and guidance observations;
+`effect.workspace_command_observed` consumes them at the plan's native coordinates
+and preserves the remaining command fields by construction.

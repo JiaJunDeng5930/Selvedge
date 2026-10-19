@@ -102,9 +102,13 @@ type AssessmentState is Data:
   NeedsDirectoryObservation{}
   Blocked{}
 
+type AssessmentResult is Data:
+  PreparationReady{}
+  DirectoryObservationRequired{}
+  PreparationBlocked{first: Obstruction, rest: +List<Obstruction>}
+
 type Assessment is Data:
-  Assessment{identity: ActionIdentity, requirements: +List<Obstruction>, state: AssessmentState,
-    refusal: Maybe<&2, Obstruction>}
+  Assessment{identity: ActionIdentity, result: AssessmentResult}
 
 # The original resource and all uncommitted input remain in the action observation.
 type ProjectEdit is Data:

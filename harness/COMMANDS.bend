@@ -95,11 +95,6 @@ def cancel_permitted(operation: Operation) -> Bool:
     case Cancel{task, action}: D.accepts_input(D.task_status(task))
     case _: False{}
 
-def summary_permitted(operation: Operation) -> Bool:
-  match operation:
-    case Summarize{task}: True{}
-    case _: False{}
-
 def checkpoint_permitted(operation: Operation) -> Bool:
   match operation:
     case Checkpoint{+task, text}:
@@ -266,9 +261,7 @@ def branched(found: Maybe<&2, D.Task>, count: Nat, messages: +List<String>, worl
 def checkpoint_ready(status: D.Status, phase: D.Phase, +task: D.Task, summary: Maybe<&2, String>) -> Operation:
   match status phase summary:
     case D.Archived{} _ _: Refuse{"task_archived", "An archived task cannot be changed"}
-    case D.Active{} D.Idle{} None{}:
-      require(summary_permitted, Summarize{task},
-        "task_busy", "Wait for in-flight operation results before summarizing the task")
+    case D.Active{} D.Idle{} None{}: Summarize{task}
     case _ D.Idle{} Some{+text}:
       require(checkpoint_permitted, Checkpoint{task, text},
         "invalid_summary", "A checkpoint requires a nonempty bounded summary, settled tool calls, and no in-flight operations")
