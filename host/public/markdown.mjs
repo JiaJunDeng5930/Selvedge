@@ -38,14 +38,13 @@ export class PacedText {
   }
   append(text) {
     if (this.done || this.stopped) return;
-    if (typeof text !== 'string') throw new TypeError('Markdown input must be text');
+    // DEFENSE: Streamed model output can exceed the 4 MiB Markdown display budget.
     if (this.target.length + text.length > 4 * 1024 * 1024) throw new RangeError('Markdown text exceeds the display limit');
     this.target += text;
     this.schedule();
   }
   finish() { this.done = true; this.schedule(); }
   whenCaughtUp(length = this.target.length) {
-    if (!Number.isSafeInteger(length) || length < 0 || length > this.target.length) throw new RangeError('Markdown prefix is outside the current input');
     if (this.visible >= length) return Promise.resolve(!this.stopped || this.finished === true);
     if (this.stopped) return Promise.resolve(false);
     return new Promise(resolve => this.prefixWaiters.add({ length, resolve }));
@@ -106,7 +105,10 @@ export function safeHref(value) {
     const url = new URL(value);
     observation = { parsed: true, href: url.href, scheme: url.protocol,
       username: url.username, password: url.password, hash: url.hash };
-  } catch {}
+  } catch (error) {
+    // DEFENSE: Markdown links may be relative, fragments or malformed URLs; Bend admits only its allowed navigation forms.
+    if (!(error instanceof TypeError)) throw error;
+  }
   return boundary('browser.link', { raw: value, observation });
 }
 
@@ -124,6 +126,7 @@ function copyMathMLStyle(source, result, document) {
   parsedStyle.cssText = source.getAttribute('style') ?? '';
   for (const property of FORMATTER_MATHML_STYLE_PROPERTIES) {
     const value = parsedStyle.getPropertyValue(property);
+    // DEFENSE: Formatter CSS derived from model math must not introduce resource URLs, indirection or executable CSS.
     if (value && !UNSAFE_FORMATTER_STYLE_VALUE.test(value)) result.style.setProperty(property, value);
   }
 }
@@ -134,6 +137,7 @@ function cleanFormatterFragment(source, document) {
   const allowed = source.nodeType === 1 && (mathml
     ? FORMATTER_MATHML_ELEMENTS.has(source.localName)
     : source.namespaceURI === HTML_NAMESPACE && source.localName === 'span');
+  // DEFENSE: Formatter HTML is derived from model text; discard elements outside the non-interactive MathML/span allowlist.
   if (!allowed) return document.createTextNode(source.textContent ?? '');
   const result = document.createElementNS(source.namespaceURI, source.localName);
   const attributes = mathml ? FORMATTER_MATHML_ATTRIBUTES : FORMATTER_HTML_ATTRIBUTES;
@@ -143,7 +147,9 @@ function cleanFormatterFragment(source, document) {
       result.setAttribute('xmlns', MATHML_NAMESPACE);
       continue;
     }
+    // DEFENSE: Namespaced formatter attributes must not bypass the non-interactive attribute allowlist.
     if (attribute.namespaceURI !== null) continue;
+    // DEFENSE: Formatting output must not install event handlers, links or attributes outside the permitted presentation vocabulary.
     if (attributes.has(attribute.name)) result.setAttribute(attribute.name, attribute.value);
   }
   if (mathml) copyMathMLStyle(source, result, document);
@@ -158,7 +164,7 @@ function resetFormatter() {
   const formatter = worker;
   worker = null;
   for (const job of [...jobs.values()]) job.settle(job.alive());
-  try { formatter?.terminate(); } catch { /* Formatting is optional. */ }
+  formatter?.terminate();
 }
 function decorate(node, kind, text, language, alive, signal, onChange) {
   // Account for the idle stage as well as worker work so owner completion
@@ -168,10 +174,12 @@ function decorate(node, kind, text, language, alive, signal, onChange) {
     let idleId = null;
     let jobId = null;
     let timer = null;
+    // DEFENSE: Safari does not expose requestIdleCallback; schedule optional formatting on a timer in that browser.
     const nativeIdle = typeof globalThis.requestIdleCallback === 'function';
+    const idle = nativeIdle ? globalThis.requestIdleCallback.bind(globalThis) : callback => setTimeout(callback, 0);
     const cancelIdle = () => {
       if (idleId === null) return;
-      if (nativeIdle) globalThis.cancelIdleCallback?.(idleId);
+      if (nativeIdle) globalThis.cancelIdleCallback(idleId);
       else clearTimeout(idleId);
       idleId = null;
     };
@@ -187,50 +195,51 @@ function decorate(node, kind, text, language, alive, signal, onChange) {
     const cancelled = () => settle(false);
     signal.addEventListener('abort', cancelled, { once: true });
     if (!alive() || signal.aborted) { settle(false); return; }
-    // Very large code/math stays selectable plain text, never a blocking job.
-    if (text.length > (kind === 'code' ? 24000 : 4000) || jobs.size >= 64 || typeof Worker === 'undefined') { settle(true); return; }
-    const idle = globalThis.requestIdleCallback ?? (callback => setTimeout(callback, 0));
+    // DEFENSE: Model-authored code/math may be large or numerous; cap worker work while retaining selectable source text.
+    if (text.length > (kind === 'code' ? 24000 : 4000) || jobs.size >= 64) { settle(true); return; }
     const run = () => {
       idleId = null;
       if (settled) return;
       if (!alive()) { settle(false); return; }
+      // DEFENSE: Other Markdown instances can fill the shared worker queue while this job waits for idle time.
       if (jobs.size >= 64) { settle(true); return; }
-      try {
-        if (!worker) {
-          worker = new Worker(new URL('./markdown-worker.mjs', import.meta.url), { type: 'module' });
-          worker.onmessage = ({ data }) => {
-            const job = jobs.get(data?.id);
-            if (!job) return;
-            try {
-              if (typeof data.markup === 'string' && data.markup.length <= 512 * 1024) job.apply(data.markup);
-            } catch { /* Plain text is the intentional formatter-failure fallback. */ }
-            finally { job.settle(job.alive()); }
-          };
-          worker.onerror = resetFormatter;
-        }
-        jobId = ++serial;
-        jobs.set(jobId, { alive, settle, apply: markup => {
-          if (!alive() || !node.isConnected) return;
-          const selection = node.ownerDocument.getSelection();
-          if (selection?.rangeCount && selection.getRangeAt(0).intersectsNode(node)) return;
-          // Only trusted formatter output is parsed, never raw model HTML. A
-          // second allowlist keeps formatter output a non-interactive fragment.
-          const parsed = new DOMParser().parseFromString(markup, 'text/html');
-          const children = [...parsed.body.childNodes].map(source => cleanFormatterFragment(source, node.ownerDocument));
-          const changed = node.dataset.decorated !== kind || node.childNodes.length !== children.length
-            || children.some((child, index) => !child.isEqualNode(node.childNodes[index]));
-          if (changed) {
-            node.replaceChildren(...children);
-            node.dataset.decorated = kind;
-            onChange?.();
+      if (!worker) {
+        worker = new Worker(new URL('./markdown-worker.mjs', import.meta.url), { type: 'module' });
+        worker.onmessage = ({ data }) => {
+          const job = jobs.get(data.id);
+          // DEFENSE: A worker reply can arrive after the owning parser is disposed or its timeout retires the job.
+          if (!job) return;
+          try {
+            // DEFENSE: Unsupported languages yield no markup; expanded math/highlight output is capped before DOM parsing.
+            if (data.markup !== undefined && data.markup.length <= 512 * 1024) job.apply(data.markup);
           }
-        } });
-        timer = setTimeout(resetFormatter, 5000);
-        worker.postMessage({ id: jobId, kind, text, language });
-      } catch { resetFormatter(); settle(alive()); }
+          finally { job.settle(job.alive()); }
+        };
+        // DEFENSE: Loading the formatter module or executing user-authored math can fail in the worker; retain source text.
+        worker.onerror = resetFormatter;
+      }
+      jobId = ++serial;
+      jobs.set(jobId, { alive, settle, apply: markup => {
+        if (!alive() || !node.isConnected) return;
+        const selection = node.ownerDocument.getSelection();
+        if (selection?.rangeCount && selection.getRangeAt(0).intersectsNode(node)) return;
+        // Only trusted formatter output is parsed, never raw model HTML. A
+        // second allowlist keeps formatter output a non-interactive fragment.
+        const parsed = new DOMParser().parseFromString(markup, 'text/html');
+        const children = [...parsed.body.childNodes].map(source => cleanFormatterFragment(source, node.ownerDocument));
+        const changed = node.dataset.decorated !== kind || node.childNodes.length !== children.length
+          || children.some((child, index) => !child.isEqualNode(node.childNodes[index]));
+        if (changed) {
+          node.replaceChildren(...children);
+          node.dataset.decorated = kind;
+          onChange?.();
+        }
+      } });
+      // DEFENSE: User-authored math/highlighting may stall the worker; retire it after the existing five-second budget.
+      timer = setTimeout(resetFormatter, 5000);
+      worker.postMessage({ id: jobId, kind, text, language });
     };
-    try { idleId = idle(run, { timeout: 500 }); }
-    catch { settle(alive()); }
+    idleId = idle(run, { timeout: 500 });
   });
 }
 
@@ -264,7 +273,6 @@ export class Markdown {
     const document = root.ownerDocument;
     const stack = [{ node: root, type: smd.DOCUMENT }];
     const close = (completed) => {
-      if (stack.length <= 1) return;
       const entry = stack.pop();
       delete entry.node.dataset.pending;
       if (stack.length === 1) { entry.node.dataset.stable = 'true'; this.stableBlocks++; }
@@ -305,7 +313,7 @@ export class Markdown {
           codeSources.set(node, { ordinal: identity, text: null });
           pre.append(node); block.append(toolbar, pre, ui); parent.append(block);
         } else {
-          node = document.createElement(tags.get(type) ?? 'span');
+          node = document.createElement(tags.get(type));
           if (type === smd.TABLE) {
             const scroll = document.createElement('div'); scroll.className = 'table-scroll'; parent.append(scroll); parent = scroll;
           }
@@ -333,6 +341,7 @@ export class Markdown {
         } else if (attr === smd.LANG) {
           node.dataset.language = value.split(/\s/)[0].slice(0, 40);
         } else if (attr === smd.CHECKED) node.checked = true;
+        // DEFENSE: Markdown list starts are arbitrary source text; only bounded decimal indices may become native start attributes.
         else if (attr === smd.START && /^\d{1,9}$/.test(value)) node.setAttribute('start', value);
       },
     };

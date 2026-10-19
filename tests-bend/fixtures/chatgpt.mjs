@@ -91,6 +91,7 @@ export async function chatgptFixture(t, respond) {
       requests.push(entry);
       request.resume();
       jsonResponse(response, { error: 'fixture rejection' }, 401);
+    // DEFENSE: OAuth/model HTTP parsing and fixture assertions can fail; retain the failure and close the waiting client.
     })().catch(error => { failures.push(error); response.destroy(error); });
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

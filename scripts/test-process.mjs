@@ -16,6 +16,7 @@ export function terminateTestProcessGroup(proc) {
   try {
     process.kill(-proc.pid, 'SIGKILL');
   } catch (error) {
+    // DEFENSE: The owned group may already have exited (ESRCH); report other kill failures and terminate a still-running direct child.
     if (error.code !== 'ESRCH') console.error(`Could not kill test process group ${proc.pid}: ${error.message}`);
     if (proc.exitCode === null) proc.kill('SIGKILL');
   }
@@ -39,6 +40,7 @@ export async function runTestProcess(label, command, { cwd, active = new Set(), 
     const [exitCode, out, err] = await Promise.all([exited, stdout, stderr]);
     return { exitCode, out, err, signal: proc.signalCode, pid: proc.pid };
   } finally {
+    // DEFENSE: Bun.spawn can fail before allocating the owned subprocess; only terminate a process that was created.
     if (proc) {
       terminateTestProcessGroup(proc);
       active.delete(proc);

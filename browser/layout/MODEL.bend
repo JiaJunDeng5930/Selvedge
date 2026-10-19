@@ -233,6 +233,7 @@ def measurement_guard(member: Bool, valid: Bool, +request: Content.Request, batc
 def measurement_valid_result(result: Bool, observation: Content.Observation, observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>) -> Result<&2, &2, String, Batch>:
   match result:
     case True{}: Done{Batch{observation <> observations, viewports}}
+    # DEFENSE: The physical receipt contract rejects duplicate or nonmatching measurement identities rather than overwriting an earlier observation.
     case False{}: Fail{"invalid or duplicate physical measurement"}
 
 def measurement_member_calculation(member: Bool, valid: Bool, +request: Content.Request, +observation: Content.Observation, +batch: Batch) -> Result<&2, &2, String, Batch>:
@@ -276,10 +277,12 @@ def measurement_valid(member: Categories.Membership<MeasurementCandidate, valid_
 def measurement_admission(result: Maybe<&1, Categories.Membership<MeasurementCandidate, valid_measurement()>>) -> Result<&2, &2, String, Batch>:
   match result:
     case Some{member}: measurement_valid(member)
+    # DEFENSE: The physical receipt protocol requires nonnegative numeric metrics, matching request identity and one observation per request.
     case None{}: Fail{"invalid or duplicate physical measurement"}
 
 def measurement_request(found: Maybe<&2, Content.Request>, +value: J.Json, batch: Batch) -> Result<&2, &2, String, Batch>:
   match found:
+    # DEFENSE: A physical receipt may name only a measurement job in its issued plan.
     case None{}: Fail{"unexpected physical measurement"}
     case Some{+request}:
       Content.Request{generation, key, content, purpose, roots, policies} = request
@@ -290,6 +293,7 @@ def measurement_request(found: Maybe<&2, Content.Request>, +value: J.Json, batch
 
 def measurement_purpose(parsed: Maybe<&2, Content.Purpose>, +value: J.Json, jobs: +List<PhysicalPlan.Job>, batch: Batch) -> Result<&2, &2, String, Batch>:
   match parsed:
+    # DEFENSE: Physical measurement width must be null for Natural or a nonnegative integer for AtWidth.
     case None{}: Fail{"invalid physical measurement width"}
     case Some{purpose}:
       measurement_request(find_job(jobs, J.text(J.get(value, "key")), purpose, PhysicalPlan.Measure{}), value, batch)
@@ -297,6 +301,7 @@ def measurement_purpose(parsed: Maybe<&2, Content.Purpose>, +value: J.Json, jobs
 def measurement_result(result: Bool, +value: J.Json, jobs: +List<PhysicalPlan.Job>, batch: Batch) -> Result<&2, &2, String, Batch>:
   match result:
     case True{}: measurement_purpose(purpose(J.get(value, "width")), value, jobs, batch)
+    # DEFENSE: The physical receipt protocol requires a textual key and an explicit measurement width.
     case False{}: Fail{"invalid physical measurement identity"}
 
 def measurement(value: J.Json, jobs: +List<PhysicalPlan.Job>, batch: Batch) -> Result<&2, &2, String, Batch>:
@@ -330,6 +335,7 @@ def target_present(query: Native.Query, values: +List<Content.NativeViewport>) -
 
 def target_found_result(result: Bool, +value: J.Json, generation: Nat, owner: String, purpose: Content.Purpose, target: Source.NativeTarget, observations: +List<Content.Observation>, viewports: +List<Content.NativeViewport>) -> Result<&2, &2, String, Batch>:
   match result:
+    # DEFENSE: Physical native-target receipts require nonnegative coordinates/sizes and one receipt per issued target.
     case False{}: Fail{"invalid or duplicate native target"}
     case True{}: Done{Batch{observations, Content.NativeViewport{generation, owner, purpose, target,
       Spatial.Box{number(J.get(value, "left")), number(J.get(value, "top")),
@@ -378,10 +384,12 @@ def decode_arrays(measurements_value: J.Json, targets_value: J.Json, +jobs: +Lis
   match measurements_value targets_value:
     case J.Array{measurement_values} J.Array{target_values}:
       targets(target_values, jobs, measurements(measurement_values, jobs, Done{Batch{Nil{}, Nil{}}}))
+    # DEFENSE: The physical receipt protocol requires separate measurements and targets arrays.
     case _ _: Fail{"physical receipts require measurements and targets arrays"}
 
 def decode_receipts_result(result: Bool, +value: J.Json, jobs: +List<PhysicalPlan.Job>) -> Result<&2, &2, String, Batch>:
   match result:
+    # DEFENSE: The physical receipt protocol rejects duplicate or unknown outer JSON fields.
     case False{}: Fail{"invalid physical receipt object"}
     case True{}: decode_arrays(J.get(value, "measurements"), J.get(value, "targets"), jobs)
 
@@ -444,6 +452,7 @@ def received(result: Result<&2, &2, String, Batch>, engine: Engine) -> Engine:
 
 def receive_current(current: Bool, receipts: +List<String>, +engine: Engine) -> Engine:
   match current:
+    # DEFENSE: A font/parser wait can finish after a new snapshot generation replaces the physical plan.
     case False{}: engine
     case True{}: received(decode_receipts(J.decode(receipts), plan_jobs(plan(engine))), engine)
 

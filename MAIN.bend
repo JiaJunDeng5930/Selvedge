@@ -8,11 +8,6 @@ import ./harness/transport/MODEL.bend as Interface
 def Host.receive(max_bytes: U32) -> IO(Result<&1, &1, U32 & String, Maybe<&2, +List<String>>>):
   import "./host/transport.c"
 
-def print_result(result: Result<&2, &2, String, String>) -> IO(Unit):
-  match result:
-    case Fail{error}: IO.die(Unit, 1, error)
-    case Done{text}: IO.print(text)
-
 # The only unchecked recursion is the lifetime of the external stdin stream.
 # It constructs no proofs. PROGRAM.transition itself always terminates.
 @unsafe def serve(packet: Maybe<&2, +List<String>>, world: M.World()) -> IO(Unit):
@@ -21,7 +16,7 @@ def print_result(result: Result<&2, &2, String, String>) -> IO(Unit):
     case Some{tokens}:
       +output = Frontend.packet(tokens, world)
       do IO<Unit>:
-        print_result(J.show(Interface.envelope(output)))
+        IO.print(J.stringify(Interface.envelope(output)))
         packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(D.frame_bytes()))
         serve(packet, Interface.state(output))
 

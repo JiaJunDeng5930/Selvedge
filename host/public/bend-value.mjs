@@ -6,14 +6,6 @@ export function bendTag(value) {
   return typeof value?.$ === 'string' ? value.$.slice(value.$.lastIndexOf('.') + 1) : undefined;
 }
 
-/** Validate observations against Bend's immediate Nat representation. */
-export function observedNatNumber(number, name) {
-  if (!Number.isSafeInteger(number) || number < 0 || number > 281474976710655) {
-    throw new TypeError(`Invalid ${name}`);
-  }
-  return number;
-}
-
 /** Transport compiler values without maintaining a domain schema. */
 export function encodeBendValue(value) {
   if (typeof value === 'bigint') return { $: '$bigint', value: value.toString() };
@@ -26,6 +18,7 @@ export function encodeBendValue(value) {
 
 export function decodeBendValue(value) {
   if (value !== null && typeof value === 'object' && value.$ === '$bigint') {
+    // DEFENSE: HTTP snapshots carry tagged integers; malformed tags must not be accepted as native compiler integers.
     if (Object.keys(value).length !== 2 || typeof value.value !== 'string' || !/^-?(0|[1-9][0-9]*)$/.test(value.value)) {
       throw new TypeError('Malformed Bend integer');
     }

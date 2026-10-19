@@ -94,9 +94,11 @@ def coordinate_source(items: +List<J.Json>, +limit: Nat) -> Bool:
     case Con{+item, +rest}:
       issued_identity(item) && Nat.is_lt(0n, number(item)) && Nat.is_lt(number(item), limit) && Bool.not(occupied(Finite.find(~Bool, coordinates(rest), number(item)))) && coordinate_source(rest, limit)
 
+# DEFENSE: A peer can send an unknown, duplicate or noncanonical numeric response id; only an outstanding issued identity owns a pending request.
 def correlation(entries: +List<Finite.Entry(Bool)>, +message: J.Json) -> Bool:
   issued_identity(J.get(message, "id")) && occupied(Finite.find(~Bool, entries, number(J.get(message, "id"))))
 
+# DEFENSE: A peer JSON-RPC response must contain exactly one of result and error; reject both-present and both-absent responses.
 def exclusive(+message: J.Json) -> Bool:
   Bool.not(J.same_bool(field_present(message, "result"), field_present(message, "error")))
 
@@ -118,6 +120,7 @@ def unchanged(+kind: String, +source: J.Json, payload: +List<J.Field>) -> J.Json
 def settle_rejection(+source: J.Json, +message: J.Json, authority: {correlation(pending(source), message) == True{} : Bool}, +error: String) -> J.Json:
   action("reject", retired(pending(source), number(J.get(message, "id"))), next(source), Con{J.Field{"id", J.get(message, "id")}, Con{J.Field{"error", J.Text{error}}, Nil{}}})
 
+# DEFENSE: A long-lived RPC connection can exhaust JavaScript safe request identities; reject allocation before an id loses exact representation.
 def request_identity(+available: Bool, +source: J.Json) -> J.Json:
   match available:
     case False{}: rejection(source, label(source) ++ " request identity exhausted")

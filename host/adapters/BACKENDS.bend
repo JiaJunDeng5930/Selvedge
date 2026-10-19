@@ -55,13 +55,8 @@ def default(+value: J.Json, fallback: J.Json) -> J.Json:
     case J.Null{}: fallback
     case _: value
 
-def rendered(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{+text}: text
-    case Fail{error}: ""
-
 def json_text(value: J.Json) -> String:
-  rendered(J.show(value))
+  J.stringify(value)
 
 def text(value: J.Json) -> Bool:
   Account.nonempty(value)
@@ -1153,9 +1148,7 @@ def profile_adaptive(+adaptive: J.Json, +profile: J.Json, source: J.Json) -> J.J
 def profile(+source: J.Json) -> J.Json:
   profile_adaptive(J.get(source, "adaptive"), profile_default(J.get(source, "profile")), source)
 
-def request_guard(+source: J.Json) -> J.Json:
-  Model.success(J.Null{})
-
+# DEFENSE: A task can retain a bound account after the user signs into another account; reject cross-account request reuse.
 def authorization_checked(invalid: Bool) -> J.Json:
   match invalid:
     case True{}: Model.failure("This task belongs to a different ChatGPT account; restore that account or create a new task")
@@ -1164,6 +1157,7 @@ def authorization_checked(invalid: Bool) -> J.Json:
 def authorization(+source: J.Json) -> J.Json:
   authorization_checked(Bool.not(String.is_empty(J.text(J.get(J.get(source, "profile"), "bound_account_id")))) && Bool.not(J.same(J.get(J.get(source, "profile"), "bound_account_id"), J.get(J.get(source, "authorization"), "account_id"))))
 
+# DEFENSE: A configured API-key environment variable may be unset or empty; fail before provider IO.
 def credentials_checked(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case True{}: Model.success(J.get(source, "key"))
@@ -1172,10 +1166,11 @@ def credentials_checked(valid: Bool, +source: J.Json) -> J.Json:
 def credentials(+source: J.Json) -> J.Json:
   credentials_checked(J.is_text(J.get(source, "key")) && Bool.not(String.is_empty(J.text(J.get(source, "key")))), source)
 
+# DEFENSE: Encoded user history or tool data can exceed frame_bytes; report RangeError before provider IO.
 def request_size_checked(valid: Bool) -> J.Json:
   match valid:
     case True{}: Model.success(J.Null{})
-    case False{}: Model.failure("Provider request exceeds the configured limit")
+    case False{}: Model.failure_code("RangeError", "Provider request exceeds the configured limit")
 
 def request_size(+source: J.Json) -> J.Json:
   request_size_checked(Model.nonnegative_le(J.get(J.get(source, "limits"), "frame_bytes"), "9007199254740991") && Model.nonnegative_le(J.get(source, "bytes"), display(J.get(J.get(source, "limits"), "frame_bytes"))))
@@ -1382,15 +1377,10 @@ def meaning_route_19(+accepted: Bool, +operation: String, +source: J.Json) -> J.
     case True{}: authorization(source)
     case False{}: meaning_route_20(String.eq(operation, "backend.credentials"), operation, source)
 
-def meaning_route_18(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
-  match accepted:
-    case True{}: request_guard(source)
-    case False{}: meaning_route_19(String.eq(operation, "backend.authorization"), operation, source)
-
 def meaning_route_17(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: stream_end(source)
-    case False{}: meaning_route_18(String.eq(operation, "backend.request_guard"), operation, source)
+    case False{}: meaning_route_19(String.eq(operation, "backend.authorization"), operation, source)
 
 def meaning_route_16(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:

@@ -294,7 +294,7 @@ def original_costs(entries: +List<J.Json>) -> +List<J.Json>:
 def entries_valid(entries: +List<J.Json>, +index: Nat) -> Bool:
   match entries:
     case Nil{}: True{}
-    case Con{+entry, rest}: J.same(J.get(entry, "index"), J.nat(index)) && Model.nonnegative_le(J.get(entry, "cost"), "9007199254740991") && array(J.get(entry, "own_fields")) && (J.boolean(J.get(J.get(entry, "text"), "truthy")) || J.same(J.get(entry, "cost"), J.nat(0n))) && entries_valid(rest, Nat.add(index, 1n))
+    case Con{+entry, rest}: J.same(J.get(entry, "index"), J.nat(index)) && Model.nonnegative_le(J.get(entry, "cost"), "9007199254740991") && (J.boolean(J.get(J.get(entry, "text"), "truthy")) || J.same(J.get(entry, "cost"), J.nat(0n))) && entries_valid(rest, Nat.add(index, 1n))
 
 def allocation_actions(entries: +List<J.Json>, allocations: +List<J.Json>) -> +List<J.Json>:
   match entries allocations:

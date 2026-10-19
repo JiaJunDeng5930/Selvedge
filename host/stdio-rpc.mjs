@@ -19,7 +19,7 @@ export class StdioRpc extends EventEmitter {
       label: this.label, name: this.name,
       state: {
         pending: [...this.#pending.keys()], nextId: this.#nextId,
-        failure: this.#failure === undefined ? null : { message: String(this.#failure?.message ?? this.#failure) },
+        failure: this.#failure === undefined ? null : { message: this.#failure.message },
         closing: this.#closing,
       },
       ...observation,
@@ -45,9 +45,10 @@ export class StdioRpc extends EventEmitter {
     this.#child.on('error', error => this.#fail(error));
     this.#child.stdin.on('error', error => this.#fail(error));
     this.closed = new Promise(resolve => {
-      this.#child.once('exit', () => { try { killGroup(this.#child); } catch {} });
+      this.#child.once('exit', () => killGroup(this.#child));
       this.#child.once('close', (code, signal) => {
         const decision = this.#decide('rpc.exit', { code, signal });
+        // DEFENSE: A plugin/MCP process can exit before pending replies arrive; reject those requests and withdraw its routes.
         if (decision.action === 'fail') this.#fail(new Error(decision.error));
         resolve();
       });
@@ -56,12 +57,13 @@ export class StdioRpc extends EventEmitter {
 
   #fail(error) {
     const decision = this.#decide('rpc.lifecycle', { event: 'failure' });
+    // DEFENSE: One process failure can raise stdin, child-error and close events; retire its requests only once.
     if (decision.action === 'ignore') return;
     const retiring = decision.retired.map(id => this.#pending.get(id));
     this.#failure = error;
     this.#apply(decision);
     for (const pending of retiring) pending.reject(error);
-    try { killGroup(this.#child); } catch {}
+    killGroup(this.#child);
     this.emit('unavailable', error);
   }
 
@@ -69,20 +71,23 @@ export class StdioRpc extends EventEmitter {
     // Serialization is an external observation and follows native availability
     // admission, preserving the original failure ordering.
     const preflight = this.#decide('rpc.write', { message: value, bytes: 0, queuedBytes: 0, frameLimit: this.limits.frame_bytes });
+    // DEFENSE: An earlier pipe/process error may have retired this connection before a queued callback attempts a write.
     if (preflight.action === 'external_failure') throw this.#failure;
     const text = stringifyJson(preflight.message);
-    let decision;
     try {
-      decision = this.#decide('rpc.write', {
+      this.#decide('rpc.write', {
         message: preflight.message, bytes: Buffer.byteLength(text),
         queuedBytes: this.#child.stdin.writableLength, frameLimit: this.limits.frame_bytes,
       });
     } catch (error) {
+      // DEFENSE: An external request payload can exceed the RPC frame budget; expose the transport's range rejection as RangeError.
       if (error.code === 'range') throw new RangeError(error.message);
       throw error;
     }
-    if (decision.action === 'external_failure') throw this.#failure;
-    this.#child.stdin.write(`${stringifyJson(decision.message)}\n`, error => { if (error) this.#fail(error); });
+    this.#child.stdin.write(`${text}\n`, error => {
+      // DEFENSE: The child can close stdin after the write was queued; fail pending requests instead of leaving them unresolved.
+      if (error) this.#fail(error);
+    });
   }
 
   notify(method, params) {
@@ -98,6 +103,7 @@ export class StdioRpc extends EventEmitter {
       this.#parts.push(piece);
       this.#bytes += piece.length;
       try { this.#decide('rpc.frame', { bytes: this.#bytes, frameLimit: this.limits.frame_bytes }); }
+      // DEFENSE: A peer can emit an oversized or unterminated line; stop reading before buffering beyond the frame budget.
       catch (error) { this.#fail(error); return; }
       if (newline < 0) return;
       try {
@@ -105,6 +111,7 @@ export class StdioRpc extends EventEmitter {
         this.#parts = [];
         this.#bytes = 0;
         this.#message(parseJson(text));
+      // DEFENSE: Peer stdout can contain malformed UTF-8, JSON or JSON-RPC; retire this transport rather than accept an uncorrelated result.
       } catch (error) { this.#fail(error); return; }
       offset = newline + 1;
     }
@@ -133,7 +140,9 @@ export class StdioRpc extends EventEmitter {
   request(method, params, { signal, timeoutMs = this.timeoutMs } = {}) {
     let decision;
     try { decision = this.#decide('rpc.request', { method, params, maxPending: this.maxPending, aborted: signal?.aborted ?? false }); }
+    // DEFENSE: Queue pressure, exhausted request identities or a closed process can reject a new RPC call; report it through the request promise.
     catch (error) { return Promise.reject(error); }
+    // DEFENSE: The task may have been cancelled or the process may have failed before this RPC starts.
     if (decision.action === 'abort') signal.throwIfAborted();
     if (decision.action === 'external_failure') return Promise.reject(this.#failure);
     const id = decision.id;
@@ -150,7 +159,9 @@ export class StdioRpc extends EventEmitter {
         if (retirement.action === 'ignore') return;
         const pending = this.#pending.get(retirement.id);
         this.#apply(retirement);
-        try { this.#write(retirement.message); } catch {}
+        try { this.#write(retirement.message); }
+        // DEFENSE: A full or failed pipe can prevent the cancellation notification; withdraw the connection and keep the request's cancellation/timeout result.
+        catch (error) { this.#fail(error); }
         pending.reject(retirement.externalReason ? signal.reason : new Error(retirement.error));
       };
       const cancel = () => retire('cancel');
@@ -158,11 +169,10 @@ export class StdioRpc extends EventEmitter {
       this.#pending.set(id, { resolve: finish(resolve), reject: finish(reject) });
       this.#apply(decision);
       signal?.addEventListener('abort', cancel, { once: true });
-      if (signal?.aborted) { cancel(); return; }
       try { this.#write(decision.message); }
+      // DEFENSE: A request larger than the frame/pipe budget must retire its allocated promise and reject the caller.
       catch (error) {
         const retirement = this.#decide('rpc.finish', { id });
-        if (retirement.action === 'ignore') return;
         const pending = this.#pending.get(retirement.id);
         this.#apply(retirement);
         pending.reject(error);
@@ -172,12 +182,14 @@ export class StdioRpc extends EventEmitter {
 
   async close() {
     const decision = this.#decide('rpc.lifecycle', { event: 'close' });
+    // DEFENSE: Initialization cleanup and service shutdown may both close the same transport.
     if (decision.action === 'ignore') return this.closed;
     const retiring = decision.retired.map(id => this.#pending.get(id));
     this.#closing = true;
     this.#apply(decision);
     for (const pending of retiring) pending.reject(new Error(decision.error));
-    try { killGroup(this.#child); } catch {}
+    killGroup(this.#child);
+    // DEFENSE: Descendants can retain inherited stdout/stderr after the parent exits; bound shutdown's wait for those pipes.
     const timer = setTimeout(() => { this.#child.stdout.destroy(); this.#child.stderr.destroy(); }, 2000);
     await this.closed;
     clearTimeout(timer);

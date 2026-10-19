@@ -264,6 +264,7 @@ def field_bound(+block: T.Block, +id: String, +raw: String) -> BlockDecision:
   T.Block{ +owner, +source, +syntax, +ending, +closed, +external, +locals, +sources, +views, +mounts, +feedback, +revision, +next, +edited, +restore_requested} = block
   edit_local(T.Block{owner, source, syntax, ending, closed, external, locals, sources, views, mounts, feedback, revision, next, edited, restore_requested}, find_local_alias(locals, id), raw)
 
+# DEFENSE: Native field edits can exceed 16384 scalars; preserve the previous buffer/value and issue the exact mounted-field rollback.
 def raw_within_limit(+fuel: Nat, +raw: String) -> Bool:
   match fuel raw:
     case _ SNil{}: True{}
@@ -508,6 +509,7 @@ def restore_accepted(+block: T.Block, +payload: J.Json) -> BlockDecision:
   T.Block{ +owner, +source, +syntax, +ending, +closed, +external, +locals, +sources, +views, +mounts, +feedback, +revision, +next, +edited, +restore_requested} = block
   restore_decoded(block, payload, Codec.decode_local_values(locals, payload))
 
+# DEFENSE: A delayed storage restore can arrive after edits or for stale ownership; admit only the current untouched block.
 def restore_admitted(+block: T.Block, +payload: J.Json, +allowed: Bool) -> BlockDecision:
   match allowed:
     case False{}: refuse(block)
@@ -624,6 +626,7 @@ def snapshot_saved(+block: T.Block, +payload: J.Json) -> T.Block & +List<T.Effec
   T.Block{+owner, +source, +syntax, +ending, +closed, +external, +locals, +sources, +views, +mounts, +feedback, +revision, +next, +edited, +restore_requested} = block
   (with_feedback(block, feedback_remove(feedback, "@storage")), [T.SaveSnapshot{owner, source, payload}])
 
+# DEFENSE: Authored local state can exceed the 262144-scalar snapshot limit; keep it in memory and omit the oversized storage write.
 def snapshot_admitted(+block: T.Block, +payload: J.Json, +allowed: Bool) -> T.Block & +List<T.Effect>:
   match allowed:
     case False{}: (snapshot_notice(block, "本地状态超过保存上限；当前输入仍保留，但尚未保存。"), Nil{})
@@ -675,6 +678,7 @@ def block_feedback(+block: T.Block) -> +List<T.Feedback>:
   T.Block{owner, source, syntax, ending, closed, external, locals, sources, views, mounts, feedback, revision, next, edited, restore_requested} = block
   feedback
 
+# DEFENSE: An authored command completion can arrive after its owner, mount or pending ticket changes; settle only the still-current correlation.
 def feedback_completed_checked(+current: Bool, +block: T.Block, +path: String, +ticket: Nat, +success: Bool, +message: String, +state: T.State) -> T.Decision:
   match current state:
     case False{} _: T.Decision{state, Nil{}}

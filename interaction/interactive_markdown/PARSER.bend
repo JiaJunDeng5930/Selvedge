@@ -321,6 +321,7 @@ def drain(+fuel: Nat, +ready: Bool, +syntax: T.Syntax) -> T.Syntax:
       +next = one_step(syntax)
       drain(f, pending(next), next)
 
+# DEFENSE: Streaming authored code can exceed the token/source limits; retain the accepted syntax and report the bounded parser failure.
 def append_admitted(+syntax: T.Syntax, +allowed: Bool, +text: String, +count: Nat) -> T.Syntax:
   T.Syntax{ +roots, +frames, +tail, +failed, +sealed, +accepted, +characters, +diagnostic} = syntax
   match failed allowed:

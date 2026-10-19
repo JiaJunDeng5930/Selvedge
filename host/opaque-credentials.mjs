@@ -1,11 +1,6 @@
 /** Interpret the native policy without exposing opaque credentials to the model. */
 export function interpretCredential(token, plan, duplicates) {
-  if (!plan || plan.operation !== 'base64url-bearer' ||
-      !Number.isSafeInteger(plan.minimum) || !Number.isSafeInteger(plan.maximum) ||
-      plan.minimum < 0 || plan.maximum < plan.minimum || typeof plan.alphabet !== 'string' ||
-      typeof plan.distinct !== 'boolean' || typeof plan.prefix !== 'string') {
-    throw new TypeError('Unsupported opaque credential plan');
-  }
+  // DEFENSE: Configured credentials can be missing, contain non-Bearer bytes, or repeat another connection's token.
   if (typeof token !== 'string' || token.length < plan.minimum || token.length > plan.maximum ||
       [...token].some(character => !plan.alphabet.includes(character)) ||
       (plan.distinct && duplicates?.has(token))) return null;

@@ -1,6 +1,6 @@
 import * as Bend from './generated/browser-model.mjs';
 import { boundary } from './model-boundary.mjs';
-import { bendValue, bendTag, decodeBendValue, encodeBendValue, observedNatNumber } from './bend-value.mjs';
+import { bendValue, bendTag, decodeBendValue, encodeBendValue } from './bend-value.mjs';
 import { Renderer, list } from './renderer.mjs';
 import { MarkdownFenceObserver } from './markdown-fences.mjs';
 import { scheduleDisplay, cancelDisplay } from './markdown.mjs';
@@ -32,7 +32,6 @@ function showJson(input) {
     case 'Text': return JSON.stringify(input.value);
     case 'Array': return `[${list(input.items).map(showJson).join(',')}]`;
     case 'Object': return `{${list(input.fields).map(field => `${JSON.stringify(field.name)}:${showJson(field.value)}`).join(',')}}`;
-    default: throw new TypeError('Expected Bend JSON');
   }
 }
 const root = document.getElementById('surface');
@@ -84,14 +83,18 @@ const renderer = new Renderer(root, {
       case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); break;
       case 'EditStructuredText': {
         let parsed = bendValue('None');
-        try { parsed = bendValue('Some', { value: json(JSON.parse(node.value)) }); } catch {}
+        try { parsed = bendValue('Some', { value: json(JSON.parse(node.value)) }); }
+        catch (error) {
+          // DEFENSE: A user can leave structured text as incomplete JSON while editing; Bend receives the raw draft and no parsed value.
+          if (!(error instanceof SyntaxError)) throw error;
+        }
         commit(Bend.edit_structured_text(binding.key, node.value, parsed, state));
         break;
       }
       case 'ConfirmText': commit(Bend.confirm_text(binding.key, event.key, bool(event.isComposing || composing || event.keyCode === 229), bool(event.ctrlKey), bool(event.altKey), bool(event.shiftKey), bool(event.metaKey), state)); break;
       case 'EditToggle': commit(Bend.edit_toggle(binding.key, bool(node.checked), state)); break;
       case 'SelectFiles':
-        for (const file of node.files ?? []) {
+        for (const file of node.files) {
           const handle = crypto.randomUUID(); files.set(handle, file);
           commit(Bend.attach(binding.key, bendValue('interaction/services/MODEL.SelectedFile', { handle, name: file.name, mime: file.type, bytes: file.size }), state));
         }
@@ -100,7 +103,6 @@ const renderer = new Renderer(root, {
       case 'DropCard': if (dragged) commit(Bend.place(dragged, binding.key, state)); dragged = null; break;
       case 'SelectDestination': if (node.value) { captureAnchor(binding.key, node); commit(Bend.place(binding.key, node.value, state)); } break;
       case 'PlaceCard': event.preventDefault(); captureAnchor(binding.key, node); commit(Bend.place(binding.key, binding.target, state)); break;
-      default: throw new TypeError(`Unknown document event ${binding.$}`);
     }
   },
   codeKey: (source, ordinal) => Bend.code_dom_key(source, ordinal),
@@ -132,24 +134,17 @@ function flushCodeObservations() {
     }
   }
 }
-function safeNumber(input, name) {
-  return observedNatNumber(Number(input), `observed ${name}`);
-}
-function measuredNat(input, name) {
-  return BigInt(observedNatNumber(input, `measured ${name}`));
-}
 function measurementSpec(spec) {
   let available_width;
   switch (bendTag(spec.available_width)) {
     case 'None': available_width = null; break;
-    case 'Some': available_width = safeNumber(spec.available_width.value, 'available_width'); break;
-    default: throw new TypeError('Invalid measurement available_width');
+    case 'Some': available_width = Number(spec.available_width.value); break;
   }
   return {
     key: spec.key, text: spec.text, reference_text: spec.reference_text,
-    fontFamily: spec.font_family, fontSize: safeNumber(spec.font_size, 'font_size'),
-    lineHeight: safeNumber(spec.line_height, 'line_height'),
-    fontWeight: safeNumber(spec.font_weight, 'font_weight'),
+    fontFamily: spec.font_family, fontSize: Number(spec.font_size),
+    lineHeight: Number(spec.line_height),
+    fontWeight: Number(spec.font_weight),
     whiteSpace: spec.white_space, overflowWrap: spec.overflow_wrap, wordBreak: spec.word_break,
     available_width,
   };
@@ -157,17 +152,16 @@ function measurementSpec(spec) {
 function measurementMetric(metric) {
   return bendValue('browser/appearance/TYPOGRAPHY.Metric', {
     key: metric.key,
-    minimum_width: measuredNat(metric.minimum_width, 'minimum_width'),
-    preferred_width: measuredNat(metric.preferred_width, 'preferred_width'),
-    constrained_height: measuredNat(metric.constrained_height, 'constrained_height'),
-    reference_advance: measuredNat(metric.reference_advance, 'reference_advance'),
+    minimum_width: BigInt(metric.minimum_width),
+    preferred_width: BigInt(metric.preferred_width),
+    constrained_height: BigInt(metric.constrained_height),
+    reference_advance: BigInt(metric.reference_advance),
   });
 }
 function render() {
   const effects = [];
   const scope = root.matches('.native-application') ? root : root.querySelector('.native-application') ?? root;
   if (scope !== textMeasurementScope) {
-    textMeasurer.dispose();
     textMeasurementScope = scope;
     textMeasurer = createTextMeasurer(scope);
   }
@@ -208,7 +202,6 @@ function render() {
       retryPendingFocus();
       break;
     }
-    default: throw new TypeError(`Unknown publication ${publication.$}`);
   }
   const pendingPublication = renderer.presentationPending;
   renderer.presentationPending = false;
@@ -219,15 +212,15 @@ function render() {
   root.dataset.renderStatus = Bend.render_status(state);
   root.dataset.renderViolations = JSON.stringify(encodeBendValue(list(Bend.render_violations(state))));
   schedulePhysical();
-  for (const effect of effects) Promise.resolve(execute(effect)).catch(error => console.error(error));
+  for (const effect of effects) void execute(effect);
 }
 function captureAnchor(key, node) {
   const box = node.getBoundingClientRect();
   const left = Math.round(box.left); const top = Math.round(box.top);
   const right = Math.round(box.right); const bottom = Math.round(box.bottom);
-  const origin = amount => bendValue(amount < 0 ? 'browser/layout/GEOMETRY.Backward' : 'browser/layout/GEOMETRY.Forward', { distance: measuredNat(Math.abs(amount), 'anchor origin') });
-  const width = measuredNat(Math.max(0, right - left), 'anchor width');
-  const height = measuredNat(Math.max(0, bottom - top), 'anchor height');
+  const origin = amount => bendValue(amount < 0 ? 'browser/layout/GEOMETRY.Backward' : 'browser/layout/GEOMETRY.Forward', { distance: BigInt(Math.abs(amount)) });
+  const width = BigInt(Math.max(0, right - left));
+  const height = BigInt(Math.max(0, bottom - top));
   commit(Bend.capture_anchor(key, origin(left), origin(top), width, height, state));
 }
 function geometrySignature() {
@@ -264,19 +257,24 @@ async function runPhysical() {
   physicalQueued = null;
   physicalActive = true;
   try {
-    // Streaming can supersede this generation; Bend receives the old ticket and decides acceptance.
-    const receipt = await physicalMeasurer.measure(batch.plan);
+    let receipt;
+    try { receipt = await physicalMeasurer.measure(batch.plan); }
+    catch (error) {
+      // DEFENSE: Awaited font/parser work can be cancelled by a newer publication; report only a still-owned failure.
+      if (!disposed && batch.revision === physicalRevision && error.name !== 'AbortError') {
+        commit(Bend.physical_measurement_failed(batch.ticket, String(error), state));
+      }
+      return;
+    }
+    // DEFENSE: A publication or page teardown can invalidate this batch while native measurements await fonts or Markdown.
     if (disposed || batch.revision !== physicalRevision) return;
     commit(Bend.physical_measured(batch.ticket, linked(tokenizeJsonValue(parseJson(receipt))), state));
-  } catch (error) {
-    if (!disposed && batch.revision === physicalRevision && error.name !== 'AbortError') {
-      commit(Bend.physical_measurement_failed(batch.ticket, String(error), state));
-    }
   } finally {
     physicalActive = false;
     schedulePhysical();
   }
 }
+
 function observedFocus() {
   nativeLinks();
   const node = document.activeElement;
@@ -297,6 +295,7 @@ function sameFocus(target, observed) {
   return target.identity === observed.value.identity && (bendTag(target) !== 'Content' || target.owner === observed.value.owner);
 }
 function applyFocus(physical) {
+  // DEFENSE: Focus effects can execute after a newer focus request has replaced their ticket.
   if (physical.ticket !== Bend.focus_ticket(state)) return;
   pendingFocus.push(physical);
   retryPendingFocus();
@@ -307,12 +306,13 @@ function retryPendingFocus() {
   try {
     while (pendingFocus.length) {
       const physical = pendingFocus[0];
+      // DEFENSE: Publication can replace focus ownership while older targets are still awaiting creation.
       if (physical.ticket !== Bend.focus_ticket(state)) { pendingFocus.shift(); continue; }
       const target = physical.target;
       const node = bendTag(target) === 'Product' ? renderer.target(target.identity)
         : nativeLinks().find(anchor => nativeContentOwner(anchor) === target.owner && anchor.dataset.nativeLinkKey === target.identity);
       if (!node) break;
-      // Keep effect order while publication prepares a missing target. A later
+      // DEFENSE: Keep effect order while publication prepares a missing target. A later
       // focus must not replace an earlier request that also exposes its target.
       focusAttemptRevision++;
       applyingFocus = true;
@@ -342,7 +342,7 @@ function commit(decision) {
   revision = Number(Bend.accepted_sequence(state));
   sourceFresh = Bend.source_fresh(state);
   render();
-  for (const effect of list(decision.effects)) Promise.resolve(execute(effect)).catch(error => console.error(error));
+  for (const effect of list(decision.effects)) void execute(effect);
 }
 function step(input) { commit(Bend.step(input, state)); }
 function native(input) { step(bendValue('browser/runtime/SEMANTICS.Native', { input })); }
@@ -351,6 +351,7 @@ function product(input) { platform(bendValue('browser/runtime/PLATFORM.ProductIn
 function observeClock() {
   if (disposed) return;
   const now = Math.floor(Date.now() / 1000);
+  // DEFENSE: The system clock can be set before 1970 or beyond the board protocol's unsigned 32-bit timestamp range.
   if (!Number.isSafeInteger(now) || now < 0 || now > 0xffff_ffff) {
     throw new RangeError('The clock is outside the native board timestamp range');
   }
@@ -368,14 +369,16 @@ function currentRequest(scope) {
   return !disposed && scope.controller === (connection ?? null) && !scope.controller?.signal.aborted;
 }
 function requestError(reason, scope) {
-  const error = reason instanceof Error ? reason : new Error(String(reason));
+  const error = reason;
   error.requestScope ??= scope;
   return error;
 }
 function requireCurrentRequest(scope) {
+  // DEFENSE: Authentication and watch reads may resume after a newer connection replaces their abort controller.
   if (!currentRequest(scope)) throw requestError(new DOMException('Request was superseded', 'AbortError'), scope);
 }
 function networkFailed(reason, scope = reason?.requestScope) {
+  // DEFENSE: Auth failure can be seen by both the HTTP request and its effect; an old/already-reported request must not disconnect the current session.
   if (!scope || !currentRequest(scope) || reason?.networkReported) return;
   const error = requestError(reason, scope);
   error.networkReported = true;
@@ -393,6 +396,7 @@ async function request(url, options = {}, scope = requestScope()) {
     if (scope.bound) requireCurrentRequest(scope);
     const body = await response.json();
     if (scope.bound) requireCurrentRequest(scope);
+    // DEFENSE: Authentication, command and filesystem endpoints can return non-success HTTP statuses.
     if (!response.ok) {
       const error = new Error(body.error?.message ?? body.error ?? `HTTP ${response.status}`);
       error.body = body;
@@ -400,8 +404,10 @@ async function request(url, options = {}, scope = requestScope()) {
     }
     return body;
   } catch (reason) {
+    // DEFENSE: Fetch, response JSON decoding or controller cancellation can fail before an HTTP request produces a usable result.
     const error = requestError(reason, scope);
     if (response) error.status ??= response.status;
+    // DEFENSE: Revoked browser authentication must disable external actions immediately.
     if (error.status === 401 || error.status === 403) networkFailed(error);
     throw error;
   }
@@ -410,7 +416,7 @@ function interactiveInput(input) {
   product(bendValue('interaction/MODEL.InterfaceInput', { input: bendValue('interaction/TYPES.Interactive', { input }) }));
 }
 function snapshot(body, expectedNamespace) {
-  commit(Bend.snapshot_environment(expectedNamespace, typeof body.namespace === 'string' ? body.namespace : '', BigInt(body.sequence), decodeBendValue(body.program), state));
+  commit(Bend.snapshot_environment(expectedNamespace, body.namespace, BigInt(body.sequence), decodeBendValue(body.program), state));
   streamFacts();
 }
 function post(url, body) { return request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body }); }
@@ -447,7 +453,7 @@ function observeInteractiveMarkdown(document) {
 function interactiveSettled(effect, success, message = '') {
   if (disposed) return;
   interactiveInput(bendValue('interaction/interactive_markdown/TYPES.EffectCompleted', {
-    owner: effect.owner, path: effect.path ?? '', ticket: effect.ticket ?? 0n, success, message,
+    owner: effect.owner, path: effect.path, ticket: effect.ticket, success, message,
   }));
 }
 function interactiveStorageFailed(effect, message) {
@@ -467,17 +473,28 @@ async function interactiveEffect(effect) {
       break;
     }
     case 'WriteClipboard':
-      try { await navigator.clipboard.writeText(effect.text); interactiveSettled(effect, true); }
-      catch (error) { interactiveSettled(effect, false, String(error)); }
+      try { await navigator.clipboard.writeText(effect.text); }
+      catch (error) {
+        // DEFENSE: Clipboard permission or document-focus policy can reject an interactive copy action.
+        if (error.name !== 'NotAllowedError') throw error;
+        interactiveSettled(effect, false, String(error));
+        break;
+      }
+      interactiveSettled(effect, true);
       break;
     case 'OpenUrl': window.open(effect.url, '_blank', 'noopener,noreferrer'); break;
     case 'LoadSnapshot': {
-      try {
-        const stored = interactiveStorage.load(effect.owner);
-        if (stored) interactiveInput(bendValue('interaction/interactive_markdown/TYPES.Restored', {
-          owner: effect.owner, definition: stored.definition, payload: json(stored.payload),
-        }));
-      } catch (error) { interactiveStorageFailed(effect, String(error)); }
+      let stored;
+      try { stored = interactiveStorage.load(effect.owner); }
+      catch (error) {
+        // DEFENSE: Browser storage can deny reads or contain malformed persisted JSON; expose that failure to this document.
+        if (!['SecurityError', 'SyntaxError'].includes(error.name)) throw error;
+        interactiveStorageFailed(effect, String(error));
+        break;
+      }
+      if (stored !== null) interactiveInput(bendValue('interaction/interactive_markdown/TYPES.Restored', {
+        owner: effect.owner, definition: stored.definition, payload: json(stored.payload),
+      }));
       break;
     }
     case 'SaveSnapshot':
@@ -486,38 +503,48 @@ async function interactiveEffect(effect) {
       break;
     case 'RemoveSnapshot':
       try { interactiveStorage.remove(effect.owner); }
-      catch (error) { interactiveStorageFailed(effect, String(error)); }
+      catch (error) {
+        // DEFENSE: Browser privacy policy can deny removing this document's stored snapshot.
+        if (error.name !== 'SecurityError') throw error;
+        interactiveStorageFailed(effect, String(error));
+      }
       break;
-    default: throw new TypeError(`Unknown interactive effect ${effect.$}`);
   }
 }
 async function execute(effect) {
   switch (bendTag(effect)) {
     case 'Command': {
+      let body;
       try {
-        const body = await post('/api/browser/command', `{"command":${showJson(effect.command)}}`);
-        commit(Bend.completed_environment(effect.ticket, body.namespace, BigInt(body.sequence), decodeBendValue(body.program), json(body.reply), state));
+        body = await post('/api/browser/command', `{"command":${showJson(effect.command)}}`);
       } catch (error) {
+        // DEFENSE: Commands can be rejected before submission, fail after commitment, or lose their HTTP response; retain that distinction.
         if (error.body?.error?.code === 'command_not_submitted') {
           commit(Bend.command_rejected(effect.ticket, error.body.error.message, state));
         } else if (error.body?.program && error.body?.reply) {
           const body = error.body;
           commit(Bend.completed_environment(effect.ticket, body.namespace, BigInt(body.sequence), decodeBendValue(body.program), json(body.reply), state));
         } else step(bendValue('browser/runtime/SEMANTICS.Failed', { ticket: effect.ticket, error: error.message }));
+        break;
       }
+      commit(Bend.completed_environment(effect.ticket, body.namespace, BigInt(body.sequence), decodeBendValue(body.program), json(body.reply), state));
       break;
     }
     case 'Service': await service(effect.effect); break;
     case 'Directories': {
       const workspace = { roots: list(effect.workspace.roots), primary_root: bendTag(effect.workspace.primary) === 'Some' ? effect.workspace.primary.value : null };
-      try { commit(Bend.directories_completed(effect.ticket, bool(true), json(await post('/api/browser/observation', JSON.stringify({ kind: 'directories', workspace }))), state)); }
-      catch (error) { commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state)); }
+      let body;
+      try { body = await post('/api/browser/observation', JSON.stringify({ kind: 'directories', workspace })); }
+      catch (error) {
+        // DEFENSE: Workspace discovery can fail at the HTTP/filesystem boundary; complete the pending observation with its error.
+        commit(Bend.directories_completed(effect.ticket, bool(false), json({ error: error.message }), state));
+        break;
+      }
+      commit(Bend.directories_completed(effect.ticket, bool(true), json(body), state));
       break;
     }
     case 'WorkspaceGit': {
-      let available = false;
-      try { available = (await post('/api/browser/observation', JSON.stringify({ kind: 'workspace-git', primary: effect.primary }))).available === true; }
-      catch { /* A failed observation does not establish Git eligibility. */ }
+      const available = (await post('/api/browser/observation', JSON.stringify({ kind: 'workspace-git', primary: effect.primary }))).available;
       commit(Bend.workspace_git_completed(effect.ticket, bool(available), state));
       break;
     }
@@ -533,7 +560,6 @@ async function execute(effect) {
     case 'InteractiveEffect': await interactiveEffect(effect.effect); break;
     case 'BrowserEffect': await browserEffect(effect.effect); break;
     case 'RenderingFailed': console.error('Bend browser failure', JSON.stringify(encodeBendValue(effect))); break;
-    default: throw new TypeError(`Unknown browser effect ${effect.$}`);
   }
 }
 async function service(effect) {
@@ -558,7 +584,7 @@ async function service(effect) {
         sequence: () => revision,
         snapshot: (body, initial) => {
           if (initial) {
-            commit(Bend.authenticated_snapshot(authentication.namespace, typeof body.namespace === 'string' ? body.namespace : '',
+            commit(Bend.authenticated_snapshot(authentication.namespace, body.namespace,
               BigInt(body.sequence), decodeBendValue(body.program), effect.ticket, state));
           } else snapshot(body, subscription.namespace);
         },
@@ -567,6 +593,7 @@ async function service(effect) {
         notice: streamNotice,
         publish: streamFacts,
       }).catch(error => {
+        // DEFENSE: Failed fetch/SSE decoding or an ended event stream must update the current connection's Bend service state.
         if (!currentRequest({ controller })) return;
         const scope = error.requestScope ?? (subscription ? { ...subscription, sequence: revision } : authentication);
         networkFailed(requestError(error, scope));
@@ -580,7 +607,7 @@ async function service(effect) {
       const timer = setTimeout(() => {
         feedbackTimers.delete(timer);
         if (!disposed) product(bendValue('interaction/MODEL.RetryConnection', { ticket: effect.ticket }));
-      }, safeNumber(effect.delay_ms, 'connection retry delay'));
+      }, Number(effect.delay_ms));
       feedbackTimers.add(timer);
       break;
     }
@@ -590,42 +617,53 @@ async function service(effect) {
     }
     case 'Upload': {
       const controller = new AbortController(); transfers.set(effect.ticket, controller);
+      const file = files.get(effect.file.handle);
+      let body;
       try {
-        const file = files.get(effect.file.handle);
-        if (!file) throw new Error('Selected file handle is unavailable');
-        const body = await request(`/api/board/attachments?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, signal: controller.signal });
-        product(bendValue('interaction/MODEL.Uploaded', { ticket: effect.ticket, result: result(true, bendValue('features/board/MODEL.Attachment', body.result)) }));
-        files.delete(effect.file.handle);
-      } catch (error) { product(bendValue('interaction/MODEL.Uploaded', { ticket: effect.ticket, result: result(false, error.message) })); }
-      finally { transfers.delete(effect.ticket); }
+        body = await request(`/api/board/attachments?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file, signal: controller.signal });
+      } catch (error) {
+        // DEFENSE: Upload fetches can fail or be cancelled; complete the transfer ticket with its reported failure.
+        product(bendValue('interaction/MODEL.Uploaded', { ticket: effect.ticket, result: result(false, error.message) }));
+        break;
+      } finally { transfers.delete(effect.ticket); }
+      product(bendValue('interaction/MODEL.Uploaded', { ticket: effect.ticket, result: result(true, bendValue('features/board/MODEL.Attachment', body.result)) }));
+      files.delete(effect.file.handle);
       break;
     }
     case 'CancelTransfer': transfers.get(effect.ticket)?.abort(); transfers.delete(effect.ticket); break;
     case 'ReadDirectories': {
-      try {
-        const body = await post('/api/browser/observation', JSON.stringify({ kind: 'browse-directories', path: effect.path }));
-        commit(Bend.directory_listed(effect.ticket, bool(true), json(body), state));
-      } catch (error) {
+      let body;
+      try { body = await post('/api/browser/observation', JSON.stringify({ kind: 'browse-directories', path: effect.path })); }
+      catch (error) {
+        // DEFENSE: Folder listing HTTP requests can fail; settle the pending picker with the observed error.
         commit(Bend.directory_listed(effect.ticket, bool(false), json({ error: error.message }), state));
+        break;
       }
+      commit(Bend.directory_listed(effect.ticket, bool(true), json(body), state));
       break;
     }
     case 'ReadAttachment': {
+      let resource;
       try {
         const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { credentials: 'same-origin' });
+        // DEFENSE: Attachment download endpoints can reject inaccessible or deleted files.
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const resource = URL.createObjectURL(await response.blob()); resources.add(resource);
-        product(bendValue('interaction/MODEL.AttachmentRead', { ticket: effect.ticket, result: result(true, resource) }));
-      } catch (error) { product(bendValue('interaction/MODEL.AttachmentRead', { ticket: effect.ticket, result: result(false, error.message) })); }
+        resource = URL.createObjectURL(await response.blob()); resources.add(resource);
+      } catch (error) {
+        // DEFENSE: Attachment fetch/blob decoding can fail; complete the preview ticket with its reported failure.
+        product(bendValue('interaction/MODEL.AttachmentRead', { ticket: effect.ticket, result: result(false, error.message) }));
+        break;
+      }
+      product(bendValue('interaction/MODEL.AttachmentRead', { ticket: effect.ticket, result: result(true, resource) }));
       break;
     }
     case 'DownloadAttachment': {
       const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { credentials: 'same-origin' });
+      // DEFENSE: Attachment download endpoints can reject inaccessible or deleted files.
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement('a'); link.href = url; link.download = effect.file.name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); break;
     }
-    default: throw new TypeError(`Unknown client service effect ${effect.$}`);
   }
 }
 const rect = node => { const r = node.getBoundingClientRect(); return bendValue('browser/controls/GEOMETRY.Rect', { left: r.left, top: r.top, right: r.right, bottom: r.bottom }); };
@@ -651,6 +689,7 @@ const focusIdentity = node => nativeAnchor(node)?.dataset.nativeLinkKey ?? owner
 const hasArea = bounds => bounds.right > bounds.left && bounds.bottom > bounds.top;
 function frameGeometry(node, bounds) {
   let painted = hasArea(bounds);
+  // DEFENSE: Browsers without checkVisibility still use the explicit ancestor/exposure geometry checks below.
   if (node.checkVisibility) painted &&= node.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
   const intersection = { left: Math.max(0, bounds.left), top: Math.max(0, bounds.top), right: Math.min(innerWidth, bounds.right), bottom: Math.min(innerHeight, bounds.bottom) };
   let scrollable = false;
@@ -718,7 +757,6 @@ async function browserEffect(effect) {
     if (renderedGeneration !== null) requestDisplayedFrame(renderedGeneration);
     return;
   }
-  if (bendTag(effect) !== 'PlatformEffect') throw new TypeError(`Unknown web effect ${effect.$}`);
   const physical = effect.effect;
   switch (bendTag(physical)) {
     case 'Focus': {
@@ -728,7 +766,11 @@ async function browserEffect(effect) {
       switch (bendTag(physical.effect)) {
         case 'WriteClipboard': {
           let success = false;
-          try { await navigator.clipboard.writeText(physical.effect.text); success = true; } catch { /* Completion preserves failure. */ }
+          try { await navigator.clipboard.writeText(physical.effect.text); success = true; }
+          catch (error) {
+            // DEFENSE: Clipboard permission or document-focus policy can reject writeText; complete the ticket with visible failure feedback.
+            if (error.name !== 'NotAllowedError') throw error;
+          }
           product(bendValue('interaction/MODEL.ClipboardCompleted', { identity: physical.block, ticket: physical.effect.ticket, success: bool(success) }));
           break;
         }
@@ -737,16 +779,14 @@ async function browserEffect(effect) {
           const timer = setTimeout(() => {
             feedbackTimers.delete(timer);
             if (!disposed) product(bendValue('interaction/MODEL.ClipboardFeedbackExpired', { identity: physical.block, ticket: physical.effect.ticket }));
-          }, safeNumber(physical.effect.delay_ms, 'clipboard feedback delay'));
+          }, Number(physical.effect.delay_ms));
           feedbackTimers.add(timer);
           break;
         }
-        default: throw new TypeError(`Unknown clipboard effect ${physical.effect.$}`);
       }
       break;
     }
     case 'ApplyReading': applyReading(physical); break;
-    default: throw new TypeError(`Unknown platform effect ${physical.$}`);
   }
 }
 function readingSurface(task, generation) {
@@ -797,7 +837,7 @@ function measureUserAnchor(surface) {
   if (!pending || pending.frame !== null) return;
   pending.frame = requestAnimationFrame(() => {
     pending.frame = null;
-    // Keyed nodes can survive a reader change; queued work keeps its original owner.
+    // DEFENSE: Keyed nodes can survive a reader change; queued work keeps its original owner.
     if (!surface.isConnected || !matchesReadingOwner(surface, pending.owner) || readingMeasurements.get(surface)?.identity !== pending.identity) {
       retireReadingMeasurement(surface, pending);
       return;
@@ -815,7 +855,9 @@ function beginUserScroll(surface, pointerId) {
   measureUserAnchor(surface);
 }
 function applyReading(physical) {
-  const surface = readingSurface(physical.task, physical.generation); if (!surface) return;
+  const surface = readingSurface(physical.task, physical.generation);
+  // DEFENSE: A queued reading effect may outlive the task's rendered conversation generation.
+  if (!surface) return;
   const effect = physical.effect;
   switch (bendTag(effect)) {
     case 'LeaveViewport':
@@ -849,7 +891,6 @@ function applyReading(physical) {
       const observed = anchor(surface); if (observed) readingInput(surface, bendValue('browser/reading/MODEL.AnchorObserved', { anchor: observed })); break;
     }
     case 'ReserveComposer': { const content = root.querySelector(`[data-reading-content][data-reading-task="${physical.task}"]`); if (content) content.style.setProperty('--reading-composer-reserve', `${effect.height}px`); break; }
-    default: throw new TypeError(`Unknown reading effect ${effect.$}`);
   }
 }
 function streamFacts() {
@@ -870,14 +911,12 @@ function streamNotice(notice) {
 
 function environmentInput() {
   const fontSize = getComputedStyle(document.documentElement).fontSize;
-  if (!/^(?:\d+(?:\.\d*)?|\.\d+)px$/.test(fontSize)) throw new TypeError(`Invalid observed root font size: ${fontSize}`);
   const pixels = Number(fontSize.slice(0, -2));
-  if (!Number.isFinite(pixels) || pixels <= 0) throw new TypeError('Invalid observed root font size');
-  const rootFontSizeMilli = safeNumber(Math.ceil(pixels * 1000), 'root_font_size_milli');
+  const rootFontSizeMilli = Math.ceil(pixels * 1000);
   return bendValue('browser/MODEL.EnvironmentObserved', { environment: bendValue('browser/appearance/DESIGN.Environment', {
     viewport: bendValue('browser/appearance/DESIGN.Viewport', {
-      width: BigInt(safeNumber(Math.floor(innerWidth), 'viewport width')),
-      height: BigInt(safeNumber(Math.floor(innerHeight), 'viewport height')),
+      width: BigInt(Math.floor(innerWidth)),
+      height: BigInt(Math.floor(innerHeight)),
     }),
     root_font_size_milli: BigInt(rootFontSizeMilli),
     system_dark: bool(matchMedia('(prefers-color-scheme: dark)').matches),
@@ -931,7 +970,6 @@ window.addEventListener('pagehide', () => {
   presentationMotion.dispose();
   physicalMeasurer.dispose();
   if (geometryFrame !== null) cancelAnimationFrame(geometryFrame);
-  textMeasurer.dispose();
   connection?.abort();
   for (const resource of resources) URL.revokeObjectURL(resource);
 });
@@ -945,9 +983,12 @@ const appearanceDecision = Bend.step(bendValue('browser/runtime/SEMANTICS.Native
 }), state);
 state = appearanceDecision.state;
 bootEffects.push(...list(appearanceDecision.effects));
-let storedModelPreference;
-try { storedModelPreference = JSON.parse(localStorage.getItem('selvedge-model-preference')); } catch {}
-if (storedModelPreference && typeof storedModelPreference.profile === 'string' && typeof storedModelPreference.reasoning === 'string') {
+const storedModelPreference = JSON.parse(localStorage.getItem('selvedge-model-preference'));
+if (storedModelPreference !== null) {
+  // DEFENSE: Persisted model preferences must have the current profile/reasoning format; malformed storage is rejected at startup.
+  if (typeof storedModelPreference.profile !== 'string' || typeof storedModelPreference.reasoning !== 'string') {
+    throw new TypeError('Invalid stored model preference');
+  }
   const input = bendValue('browser/runtime/SEMANTICS.Native', { input: bendValue('browser/MODEL.PlatformInput', { input: bendValue('browser/runtime/PLATFORM.ProductInput', { input: bendValue('interaction/MODEL.InterfaceInput', { input: bendValue('interaction/TYPES.ApplicationInput', { input: bendValue('interaction/session/MODEL.ModelPreferenceRestored', storedModelPreference) }) }) }) }) });
   const decision = Bend.step(input, state);
   state = decision.state;
@@ -961,7 +1002,7 @@ for (const input of [
   state = decision.state; bootEffects.push(...list(decision.effects));
 }
 render();
-for (const effect of bootEffects) Promise.resolve(execute(effect)).catch(error => console.error(error));
+for (const effect of bootEffects) void execute(effect);
 observeClock();
 clockTimer = setInterval(observeClock, 60_000);
 document.addEventListener('visibilitychange', clockVisibilityChanged);
@@ -969,7 +1010,7 @@ document.addEventListener('visibilitychange', retryPendingFocus);
 window.addEventListener('focus', retryPendingFocus);
 native(bendValue('browser/MODEL.Mount'));
 commit(Bend.connect(state));
-document.fonts.ready.then(environment).catch(error => console.error(error));
+void document.fonts.ready.then(environment);
 
 function editorEvent(node, event) {
   const key = node?.getAttribute?.('data-native-editor-key');
@@ -991,7 +1032,7 @@ root.addEventListener('keydown', event => {
 root.addEventListener('select', event => {
   const node = event.target;
   if (typeof node.selectionStart === 'number') editorEvent(node, bendValue('browser/editor/MODEL.SelectionChanged', { selection: bendValue('browser/controls/GEOMETRY.Selection', {
-    start: BigInt(node.selectionStart), end: BigInt(node.selectionEnd), direction: node.selectionDirection ?? 'none',
+    start: BigInt(node.selectionStart), end: BigInt(node.selectionEnd), direction: node.selectionDirection,
   }) }));
 }, true);
 let layoutFrame = null;
@@ -1054,8 +1095,8 @@ root.addEventListener('pointerdown', event => {
   if (!surface || surface.scrollHeight <= surface.clientHeight) return;
   const rect = surface.getBoundingClientRect();
   const style = getComputedStyle(surface);
-  const borderLeft = Number.parseFloat(style.borderLeftWidth) || 0;
-  const borderRight = Number.parseFloat(style.borderRightWidth) || 0;
+  const borderLeft = Number.parseFloat(style.borderLeftWidth);
+  const borderRight = Number.parseFloat(style.borderRightWidth);
   const contentLeft = rect.left + surface.clientLeft;
   const contentRight = contentLeft + surface.clientWidth;
   const inLeftGutter = event.clientX >= rect.left + borderLeft && event.clientX < contentLeft;

@@ -106,12 +106,14 @@ def live(decision: M.Decision()) -> M.Decision():
   tasks = D.state_tasks(task_state)
   C.Decision{world, reply, I.live_effects(effects, tasks)}
 
+# DEFENSE: The commit contract requires the candidate to preserve world invariants and effect authority; reject the complete candidate if admission fails.
 def validate(+decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
   validate_admitted(previous, Categories.admit_intersection(M.Decision(), state_safe, candidate => effect_authorized(previous, candidate), decision))
 
 def construct_checked(decision: M.Decision(), +previous: M.World()) -> Committed<previous>:
   validate(live(decision), previous)
 
+# DEFENSE: User/model content can make the complete serialized decision exceed frame_bytes; reject it before any state or effect commits.
 def envelope_fits(+previous: M.World(), text: String) -> Bool:
   Nat.is_le(J.utf8_length(text), U32.to_nat(frame_bytes(previous)))
 
@@ -162,6 +164,7 @@ def configuration_admitted(allowed: Bool, decision: M.Decision(), previous: M.Wo
     case True{}: decision
     case False{}: reject(previous, "configuration_violation", "The candidate changes execution settings outside the resolved configuration command")
 
+# DEFENSE: Only a resolved configuration command may change execution settings; reject a candidate that changes them through another input.
 def configuration_checked(input: M.Input, +decision: M.Decision(), +previous: M.World()) -> M.Decision():
   configuration_admitted(Commands.configuration_allowed(input, previous, decision), decision, previous)
 
@@ -183,6 +186,7 @@ def command(~schedule: Bool -> @+decision:M.Decision() -> M.Decision(), +request
 # A remote request and its command receipt form one native decision. Ordinary
 # command resolution, scheduling and configuration checks are reused unchanged.
 # The final finish rolls back both the command and receipt if either is invalid.
+# DEFENSE: A remote command reply can exceed the receipt retention limit; roll back its command and effects together.
 def remote_recorded(fits: Bool, request: Remote.Request, +decision: M.Decision(), previous: M.World()) -> M.Decision():
   match fits:
     case False{}: reject(previous, "remote_reply_limit", "The command reply exceeds remote receipt retention limits; no command or effect was committed")
@@ -223,6 +227,7 @@ def remote_prepared_mapped(required: Maybe<&2, Remote.Rights>, original: Remote.
     case None{}: Remote.Denied{"remote_command_forbidden", "Remote access cannot invoke this local management command"}
     case Some{rights}: RemoteProgram.authorize(rights, original, RemoteState.registry(world))
 
+# DEFENSE: Remote preparation may resolve a different operation; authorization must still match the authenticated original intent.
 def remote_prepared(same_operation: Bool, +request: Remote.Request, +request_command: M.Command, +world: M.World()) -> Remote.Authorization:
   match same_operation:
     case False{}: Remote.Denied{"remote_intent_mismatch", "The prepared remote command must retain the original operation"}

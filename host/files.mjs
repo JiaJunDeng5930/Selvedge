@@ -14,6 +14,7 @@ export async function writeAtomic(filename, value) {
     const parent = await open(directory, 'r');
     try { await parent.sync(); } finally { await parent.close(); }
   } finally {
+    // DEFENSE: A successful rename removes the temporary name; failed writes still need their temporary file removed.
     await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
   }
 }

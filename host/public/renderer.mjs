@@ -3,8 +3,7 @@ import { bendTag, bendValue } from './bend-value.mjs';
 
 export function list(value) {
   const result = [];
-  while (value?.$ === 'Con') { result.push(value.head); value = value.tail; }
-  if (value?.$ !== 'Nil') throw new TypeError('Expected a compiled Bend list');
+  while (value.$ === 'Con') { result.push(value.head); value = value.tail; }
   return result;
 }
 const svg = 'http://www.w3.org/2000/svg';
@@ -31,11 +30,9 @@ export class Renderer {
   }
   ownedTarget(key) {
     const node = this.target(key);
-    if (!node || !this.root.contains(node)) throw new Error(`Missing owned native target ${key}`);
     return node;
   }
   targetBounds(key, origin) {
-    if (!this.root.contains(origin)) throw new Error('Target origin is outside the renderer');
     const box = this.ownedTarget(key).getBoundingClientRect();
     const content = origin.getBoundingClientRect();
     return { left: box.left - content.left, top: box.top - content.top, width: box.width, height: box.height };
@@ -124,6 +121,7 @@ export class Renderer {
   synchronizeFields(updates) {
     for (const update of list(updates)) {
       const record = this.records.get(update.key);
+      // DEFENSE: A publication may remove a field before this generation's native synchronization effects are applied.
       if (!record || !this.root.contains(record.node)) continue;
       if (bendTag(update) === 'SetIdentity') {
         if (!this.isolated) this.fieldSession(record, bendValue('browser/runtime/native-fields.Rebind', { identity: update.identity }));
@@ -138,11 +136,12 @@ export class Renderer {
         if (record.node.checked !== update.checked) record.node.checked = update.checked;
         if (update.checked) { record.attributes.set('checked', 'true'); record.node.setAttribute('checked', ''); }
         else { record.attributes.delete('checked'); record.node.removeAttribute('checked'); }
-      } else throw new TypeError(`Unknown native field update ${update.$}`);
+      }
     }
   }
   rejectFieldBuffer(key, value) {
     const record = this.records.get(key);
+    // DEFENSE: Rejection feedback can arrive after its native field is removed; isolated measurement probes have no editable draft.
     if (this.isolated || !record || !this.root.contains(record.node)) return;
     record.attributes.set('value', value);
     this.fieldSession(record, bendValue('browser/runtime/native-fields.Reject', { value }));
@@ -212,10 +211,10 @@ export class Renderer {
       let node;
       if (bendTag(value) === 'Text') node = this.root.ownerDocument.createTextNode(value.value);
       else if (bendTag(value) === 'Markdown') { node = this.root.ownerDocument.createElement('div'); node.className = 'markdown'; }
-      else if (bendTag(value) === 'Element') {
+      else {
         const ns = value.tag === 'svg' ? svg : namespace;
         node = ns ? this.root.ownerDocument.createElementNS(ns, value.tag) : this.root.ownerDocument.createElement(value.tag);
-      } else throw new TypeError(`Unknown document node ${value.$}`);
+      }
       record = { node, kind, key };
       this.records.set(key, record);
     }
@@ -231,7 +230,7 @@ export class Renderer {
       else delete record.node.dataset.nativeContentOwner;
       const source = bendTag(value.source) === 'Some' ? value.source.value : null;
       const owner = source ? this.callbacks.codeKey(source, 0n) : null;
-      const complete = this.callbacks.markdownComplete?.(source) ?? true;
+      const complete = this.callbacks.markdownComplete(source);
       if (!record.markdown || record.owner !== owner || !value.value.startsWith(record.text)
           || record.markdown.buffer.done && (record.text !== value.value || !complete)) {
         record.markdown?.dispose();
@@ -261,7 +260,6 @@ export class Renderer {
     return record.node;
   }
   render(document, generation = null) {
-    if (this.disposed) throw new Error('Renderer is disposed');
     this.document = document;
     this.generation = generation;
     this.used = new Set(); this.deferred = [];
@@ -271,7 +269,8 @@ export class Renderer {
     for (let index = 0; index < this.deferred.length; index++) {
       const value = this.deferred[index];
       const target = this.target(value.target);
-      if (!target) continue; // Markdown anchors arrive incrementally.
+      // DEFENSE: Markdown parser pacing can leave a declared portal anchor unpublished during this render.
+      if (!target) continue;
       if (bendTag(value) === 'Portal') this.children(target, value.children, value.key, target.namespaceURI === svg ? svg : undefined);
       else {
         let record = this.records.get(value.key);

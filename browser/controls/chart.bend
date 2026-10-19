@@ -23,6 +23,7 @@ def parse_kind(name: String) -> Maybe<&2, ChartKind>:
   match name:
     case "line-chart": Some{Line{}}
     case "bar-chart": Some{Bar{}}
+    # DEFENSE: The public chart producer accepts only the line-chart and bar-chart kinds defined by the interactive declaration protocol.
     case _: None{}
 
 def decimal_valid(result: Result<&2, &2, String, String>) -> Bool:
@@ -44,6 +45,7 @@ def y_valid(value: J.Json) -> Bool:
 def row_checked(+source: J.Json, +x: J.Json, +y: J.Json, valid: Bool) -> Result<&2, &2, String, Row>:
   match y valid:
     case J.Number{number} True{}: Done{Row{source, x, number}}
+    # DEFENSE: Interactive chart rows come from user/model JSON; missing or nonnumeric axis fields must produce a diagnostic rather than a fabricated zero.
     case _ _: Fail{"Chart rows require a text or fixed-decimal x value and a fixed-decimal y value"}
 
 def read_row(+source: J.Json, +x_path: String, +y_path: String) -> Result<&2, &2, String, Row>:

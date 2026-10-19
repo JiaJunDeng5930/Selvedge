@@ -11,8 +11,7 @@ export const REMOTE_TICKET_TTL_MS = 30_000;
 export const REMOTE_PAIRING_TTL_MS = 5 * 60_000;
 
 const encoder = new TextEncoder();
-const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 export const isHostId = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 export const isRemoteToken = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
@@ -32,14 +31,16 @@ export class RemoteProtocolError extends Error {
 
 export function protocolError(message, code) { return new RemoteProtocolError(message, code); }
 
-function requireShape(value, required, optional = []) {
+function requireShape(value, required) {
+  // DEFENSE: Remote JSON may omit required fields, include unknown fields, or supply a scalar instead of an envelope.
   if (!plain(value) || required.some(key => !Object.hasOwn(value, key))
-      || Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))) {
+      || Object.keys(value).some(key => !required.includes(key))) {
     throw protocolError('Unexpected object fields');
   }
 }
 
 function requireValue(condition, message) {
+  // DEFENSE: Peer frames can contain unsupported versions, malformed ids, nonpositive epochs, duplicate grants, or oversized lists/labels; reject the caller's failed wire predicate.
   if (!condition) throw protocolError(message);
 }
 
@@ -56,6 +57,7 @@ export function validateControllerRequest(value) {
     requireValue(plain(value.params.command) && boundedString(value.params.command.op, 80), 'Invalid public command');
   } else if (['snapshot', 'subscribe', 'unsubscribe'].includes(value.method)) {
     requireShape(value.params, []);
+  // DEFENSE: A controller may request a method outside the four relay operations.
   } else throw protocolError('Unsupported remote method');
   return value;
 }
@@ -109,6 +111,7 @@ export function validateHostFrame(value) {
     case 'ping':
       requireShape(value, ['type']);
       break;
+    // DEFENSE: An authenticated host can send an unrecognized wire frame type.
     default: throw protocolError('Unsupported host frame');
   }
   return value;
@@ -147,6 +150,7 @@ export function validateRelayFrame(value) {
     case 'pong':
       requireShape(value, ['type']);
       break;
+    // DEFENSE: A relay can send an unrecognized wire frame type.
     default: throw protocolError('Unsupported relay frame');
   }
   return value;
@@ -165,21 +169,22 @@ export function validateControllerFrame(value) {
   return value;
 }
 
-export function parseRemoteFrame(data, validator = value => value) {
+export function parseRemoteFrame(data, validator) {
+  // DEFENSE: WebSocket peers can send binary frames or JSON larger than the transport budget.
   if (typeof data !== 'string') throw protocolError('Only JSON text frames are accepted');
   if (data.length > MAX_REMOTE_FRAME_BYTES || encoder.encode(data).byteLength > MAX_REMOTE_FRAME_BYTES) {
     throw protocolError('Frame exceeds remote limit', 'frame_too_large');
   }
   let value;
+  // DEFENSE: A text WebSocket frame may contain malformed JSON; reject the frame before dispatch.
   try { value = JSON.parse(data); } catch { throw protocolError('Invalid JSON frame'); }
   return validator(value);
 }
 
-export function encodeRemoteFrame(value, validator = item => item) {
-  validator(value);
-  let encoded;
-  try { encoded = JSON.stringify(value); } catch { throw protocolError('Frame cannot be encoded'); }
-  if (typeof encoded !== 'string' || encoded.length > MAX_REMOTE_FRAME_BYTES
+export function encodeRemoteFrame(value) {
+  const encoded = JSON.stringify(value);
+  // DEFENSE: A committed world snapshot or streamed observation can exceed the remote frame budget.
+  if (encoded.length > MAX_REMOTE_FRAME_BYTES
       || encoder.encode(encoded).byteLength > MAX_REMOTE_FRAME_BYTES) {
     throw protocolError('Frame exceeds remote limit', 'frame_too_large');
   }
@@ -188,9 +193,11 @@ export function encodeRemoteFrame(value, validator = item => item) {
 
 export function assertRelayUrl(value, { allowLoopback = false } = {}) {
   let url;
+  // DEFENSE: The relay origin comes from local configuration or the remote-init CLI and may be malformed.
   try { url = new URL(value); } catch { throw protocolError('Invalid relay URL'); }
   const local = allowLoopback && url.protocol === 'http:'
     && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+  // DEFENSE: A configured relay must not send host credentials to a plaintext or non-origin production endpoint.
   if ((!local && (url.protocol !== 'https:' || (url.port && url.port !== '443')))
       || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
     throw protocolError('Relay URL must be an HTTPS origin on TCP 443');

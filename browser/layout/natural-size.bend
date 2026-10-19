@@ -15,11 +15,13 @@ type Calculation is Data:
 def add_if_capacity(accepted: Bool, left: Nat, right: Nat) -> Maybe<&2, Nat>:
   match accepted:
     case True{}: Some{Nat.add(left, right)}
+    # DEFENSE: Nested user-authored layout demand can exceed the compiler immediate Nat capacity; reject the sum before overflowing.
     case False{}: None{}
 
 def value_if_capacity(accepted: Bool, value: Nat) -> Maybe<&2, Nat>:
   match accepted:
     case True{}: Some{value}
+    # DEFENSE: The layout arithmetic contract admits values only within its explicitly supplied physical capacity.
     case False{}: None{}
 
 def checked_value(+capacity: Nat, +value: Nat) -> Maybe<&2, Nat>:
@@ -34,6 +36,7 @@ def checked_add(+capacity: Nat, +left: Nat, +right: Nat) -> Maybe<&2, Nat>:
 def multiply_if_capacity(accepted: Bool, left: Nat, right: Nat) -> Maybe<&2, Nat>:
   match accepted:
     case True{}: Some{Nat.mul(left, right)}
+    # DEFENSE: Nested layout scaling can exceed immediate Nat capacity; reject the product before multiplication.
     case False{}: None{}
 
 def multiply_zero_with_capacity(zero: Bool, capacity: Nat, +left: Nat, +right: Nat) -> Maybe<&2, Nat>:
@@ -46,11 +49,13 @@ def checked_mul(+capacity: Nat, left: Nat, +right: Nat) -> Maybe<&2, Nat>:
 
 def quotient_if_zero(zero: Bool, numerator: Nat, denominator: Nat) -> Maybe<&2, Nat>:
   match zero:
+    # DEFENSE: The checked arithmetic contract returns no quotient for a zero denominator instead of executing division by zero.
     case True{}: None{}
     case False{}: Some{Nat.div(numerator, denominator)}
 
 def remainder_if_zero(zero: Bool, numerator: Nat, denominator: Nat) -> Maybe<&2, Nat>:
   match zero:
+    # DEFENSE: The checked arithmetic contract returns no remainder for a zero denominator instead of executing modulo zero.
     case True{}: None{}
     case False{}: Some{Nat.mod(numerator, denominator)}
 

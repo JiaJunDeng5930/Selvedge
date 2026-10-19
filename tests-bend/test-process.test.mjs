@@ -8,6 +8,7 @@ const cwd = fileURLToPath(new URL('../', import.meta.url));
 
 function running(pid) {
   try { process.kill(pid, 0); }
+  // DEFENSE: Process-group cleanup can finish before this liveness observation; ESRCH means the observed process exited.
   catch (error) { if (error.code === 'ESRCH') return false; throw error; }
   const state = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim();
   // An adopted zombie has exited and closed its descriptors; PID 1 owns its reap.

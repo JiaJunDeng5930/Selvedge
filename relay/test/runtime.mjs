@@ -32,5 +32,6 @@ export async function startRelay({ enrollmentToken = 'local-test-enrollment-secr
         name: hostId, webSockets: 'hibernate',
       }),
     };
+  // DEFENSE: workerd can fail during startup; dispose its owned processes before propagating the failure to the test.
   } catch (error) { await runtime.dispose(); throw error; }
 }

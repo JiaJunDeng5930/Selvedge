@@ -114,7 +114,7 @@ def frame_limit(limits: D.ExecutionLimits) -> Nat:
 def dispatch_compact(+progress: Bounded.State, +snapshot: D.History, +selected: D.Model, +reason: A.Reason,
   +scope: String, +target: A.Target, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
   +limit = frame_limit(D.state_limits(C.local(D.State, F.State(), world)))
-  +available = Nat.sub(limit, Codec.compact_metadata_bytes(D.task_id(task), State.ticket(world), selected, scope, target, limit))
+  +available = Nat.sub(limit, Codec.compact_metadata_bytes(D.task_id(task), State.ticket(world), selected, scope, target))
   +fitted = Rebuild.fit_transport(progress, available)
   commit_compact(Rebuild.transport_fits(fitted, available), fitted, snapshot, selected, reason, scope, target, task, entry, world)
 
@@ -230,11 +230,6 @@ def prepared_target(+target: Maybe<&2, A.Target>, +snapshot: D.History, +selecte
     case None{}: failed(task, entry, "The selected profile does not support compaction", State.registry(world))
     case Some{+target}: start(task, A.with_measurement(measured_snapshot(same_input(snapshot, selected, task), snapshot, selected, value), entry), snapshot, selected, reason, target, A.count_scope(value), A.count_tokens(value), world)
 
-def rendered_bytes(result: Result<&2, &2, String, String>, limit: Nat) -> Nat:
-  match result:
-    case Fail{message}: 1n+limit
-    case Done{text}: J.utf8_length(text)
-
 def measure_fits(fits: Bool, +history: D.History, +selected: D.Model, +scope: String, validating: Bool, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
   match fits:
     case False{}: portable_target(current_target(task, State.registry(world)), scope, task, entry, world)
@@ -245,7 +240,7 @@ def measure_fits(fits: Bool, +history: D.History, +selected: D.Model, +scope: St
 
 def measured_call(+history: D.History, +selected: D.Model, +scope: String, +validating: Bool, +task: D.Task, +entry: A.Entry, +world: M.World()) -> Change:
   +limit = frame_limit(D.state_limits(C.local(D.State, F.State(), world)))
-  +bytes = rendered_bytes(J.show(J.Object{[J.Field{"history", J.Array{Context.target_messages(Context.history_json(history), scope)}}, J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}}]}), limit)
+  +bytes = J.utf8_length(J.stringify(J.Object{[J.Field{"history", J.Array{Context.target_messages(Context.history_json(history), scope)}}, J.Field{"tools", J.Array{D.tools_json(T.task_tools(D.task_contract(task)))}}]}))
   measure_fits(Nat.is_le(bytes, limit), history, selected, scope, validating, task, entry, world)
 
 def ordinary_input(+snapshot: D.History, +selected: D.Model, +task: D.Task, +entry: A.Entry, +scope: String, +world: M.World()) -> Change:

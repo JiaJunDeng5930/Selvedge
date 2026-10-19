@@ -2,8 +2,6 @@ import { StdioRpc } from './stdio-rpc.mjs';
 import { stringifyJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
-export const validPluginName = name => boundary('plugin.valid_name', { name });
-
 /** Executable plugins are trusted local processes, not a security sandbox. */
 export class Plugin extends StdioRpc {
   #queue = [];
@@ -13,7 +11,6 @@ export class Plugin extends StdioRpc {
   #observer = new AbortController();
 
   constructor(name, config, limits, definition) {
-    if (!validPluginName(name)) throw new TypeError('Invalid plugin name');
     super(name, config, limits, { label: 'Plugin', timeoutMs: limits.plugin_timeout_ms });
     this.definition = definition;
     this.on('unavailable', () => {
@@ -27,6 +24,7 @@ export class Plugin extends StdioRpc {
     const request = boundary('plugin.initialize_request', { definition: this.definition,
       workspace: this.config.cwd, limits: this.limits });
     const manifest = await this.request('initialize', request);
+    // DEFENSE: A plugin can send initialize's reply and exit before its continuation resumes; do not publish its dead routes.
     if (!this.available) throw new Error(`Plugin ${this.name} became unavailable during initialization`);
     const admitted = boundary('plugin.manifest', { name: this.name, manifest,
       definition: this.definition, limits: this.limits });
@@ -38,7 +36,7 @@ export class Plugin extends StdioRpc {
   }
 
   matches(reference) {
-    return boundary('plugin.matches', { reference: reference ?? null, expected: this.reference ?? null });
+    return boundary('plugin.matches', { reference, expected: this.reference });
   }
 
   async before(effect, { signal } = {}) {
@@ -67,6 +65,7 @@ export class Plugin extends StdioRpc {
     const decision = boundary('plugin.enqueue', { stopping: this.#stopping,
       queue_count: this.#queue.length, queued_bytes: this.#queuedBytes, event, event_bytes: bytes,
       config: this.config, limits: this.limits, name: this.name });
+    // DEFENSE: A slow plugin can overflow its bounded observer queue; publish the native dropped-event diagnostic.
     if (decision.diagnostic) this.emit('diagnostic', decision.diagnostic);
     this.#queue.push(...decision.append);
     this.#queuedBytes = decision.next_queued_bytes;
@@ -75,6 +74,7 @@ export class Plugin extends StdioRpc {
   }
 
   #startPump() {
+    // DEFENSE: Enqueuing during an active observer request must not start a second delivery loop or restart one after shutdown.
     if (this.#pump || this.#stopping) return;
     this.#pump = Promise.resolve().then(() => this.#drain()).finally(() => {
       this.#pump = undefined;
@@ -87,7 +87,9 @@ export class Plugin extends StdioRpc {
       const { event, bytes } = this.#queue.shift();
       this.#queuedBytes -= bytes;
       try { await this.request('event', event, { signal: this.#observer.signal, timeoutMs: this.config.event_timeout_ms ?? this.limits.plugin_event_timeout_ms }); }
+      // DEFENSE: A plugin observer can time out, reject or lose its transport; delivery is explicitly best-effort, so diagnose the lost event without replay.
       catch (error) {
+        // DEFENSE: Closing intentionally aborts the observer; report delivery errors only while this plugin is still serving events.
         if (!this.#stopping) this.emit('diagnostic', { message: `Plugin ${this.name} observer failed: ${error.message}`,
           event_id: { sequence: event.sequence, ordinal: event.ordinal } });
       }

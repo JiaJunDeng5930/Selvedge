@@ -7,12 +7,12 @@ import { compileJavaScript } from '../scripts/compile-javascript.mjs';
 const repository = fileURLToPath(new URL('../', import.meta.url));
 
 export async function fixtureRequest(name, source, exports) {
-  if (!/^[a-z][a-z-]*$/.test(name)) throw new Error(`Invalid compiled fixture name: ${name}`);
   const directory = path.join(repository, '.build', `test-${name}`);
   await mkdir(directory, { recursive: true });
   const entry = path.join(directory, 'fixture.bend');
   const output = path.join(directory, 'fixture.mjs');
   let previous;
+  // DEFENSE: A named fixture has no previous entry on its first compilation.
   try { previous = await readFile(entry, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previous !== source) {
     const temporary = `${entry}.${process.pid}.${randomUUID()}.tmp`;

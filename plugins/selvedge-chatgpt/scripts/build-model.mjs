@@ -14,7 +14,11 @@ export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
 export async function buildModel() {
   const compiler = path.join(checkout, 'scripts/compile-javascript.mjs');
   try { await access(compiler); }
-  catch { throw new Error('Build the Selvedge plugin model in its source checkout before packaging'); }
+  // DEFENSE: An installed deployment package has no compiler checkout; compilation is available only from the source repository.
+  catch (error) {
+    if (error.code === 'ENOENT') throw new Error('Build the Selvedge plugin model in its source checkout before packaging');
+    throw error;
+  }
   const { compileJavaScript } = await import(pathToFileURL(compiler).href);
   const output = path.join(plugin, 'generated/model.mjs');
   const compiled = await compileJavaScript({ entry: path.join(plugin, 'MODEL.bend'),
@@ -31,7 +35,6 @@ export async function buildModel() {
   // Only the generated library import changes; token conversion and outer-envelope
   // handling use exactly the shared source implementation.
   const boundary = facade.replace("'./generated/host-model.mjs'", "'./model.mjs'");
-  if (boundary === facade) throw new Error('Shared host model facade import no longer matches the plugin packaging contract');
   await writeFile(path.join(plugin, 'generated/model-boundary.mjs'), boundary);
   const packagedAssets = Object.fromEntries(await Promise.all(assets.map(async name =>
     [name, hash(await readFile(path.join(plugin, 'generated', name)))])));
@@ -51,14 +54,17 @@ export async function requirePackagedModel() {
   try {
     provenance = JSON.parse(await readFile(path.join(generated, 'sources.json'), 'utf8'));
     for (const name of assets) {
+      // DEFENSE: Packaged assets can be missing, stale, or modified after generation; admit only the bytes recorded in the shipped manifest.
       if (hash(await readFile(path.join(generated, name))) !== provenance.assets?.[name]) {
         throw new Error(`Packaged plugin asset does not match its manifest: ${name}`);
       }
     }
     model = JSON.parse(await readFile(path.join(generated, 'model.mjs.json'), 'utf8'));
+    // DEFENSE: The output manifest and asset manifest may come from different builds after an interrupted copy.
     if (model.fingerprint !== provenance.modelFingerprint || model.outputSha256 !== provenance.assets['model.mjs']) {
       throw new Error('Packaged plugin model identity does not match its asset manifest');
     }
+  // DEFENSE: Missing/corrupt generated files prevent loading the plugin; identify the build step without attempting runtime compilation.
   } catch (error) {
     throw new Error(`Invalid packaged plugin model; run npm run build:model in the source checkout before packaging: ${error.message}`);
   }
@@ -66,6 +72,7 @@ export async function requirePackagedModel() {
   // An installed package has no source checkout. A checkout must also establish
   // that its shipped bytes still correspond to the current compiler and sources.
   try { await access(path.join(plugin, 'MODEL.bend')); }
+  // DEFENSE: Deployment packages intentionally omit MODEL.bend; only a missing entry skips source-checkout verification.
   catch (error) { if (error.code === 'ENOENT') return; throw error; }
   const compiler = path.join(checkout, 'scripts/compile-javascript.mjs');
   let currentCompiler;
@@ -80,25 +87,30 @@ export async function requirePackagedModel() {
       cwd: checkout, encoding: 'utf8', maxBuffer: Infinity,
       env: { ...process.env, NODE_OPTIONS: '' },
     });
+    // DEFENSE: The external Bun compiler-identity process can fail to spawn or fail its toolchain preparation.
     if (result.error || result.status !== 0 || result.stderr.trim()) {
       throw new Error(`Cannot verify the checkout compiler identity: ${result.error?.message ?? result.stderr.trim()}`);
     }
     currentCompiler = JSON.parse(result.stdout);
   }
+  // DEFENSE: A source checkout can retain generated artifacts from another toolchain, source root, or export set.
   if (JSON.stringify(model.compiler) !== JSON.stringify(currentCompiler)
       || model.sourceRoot !== checkout || model.exports?.run !== 'run' || Object.keys(model.exports).length !== 1
       || !Array.isArray(model.sources) || model.sources.length === 0) {
     throw new Error('Packaged plugin compiler identity is stale; run npm run build:model before packaging');
   }
   for (const source of model.sources) {
+    // DEFENSE: Editing any imported source invalidates previously shipped plugin code in this checkout.
     if (hash(await readFile(path.resolve(checkout, source.path))) !== source.sha256) {
       throw new Error(`Packaged plugin model source is stale: ${source.path}`);
     }
   }
   const fingerprint = hash(JSON.stringify({ entry: path.relative(checkout, path.join(plugin, 'MODEL.bend')),
     sourceRoot: checkout, exports: model.exports, compiler: model.compiler, sources: model.sources }));
+  // DEFENSE: A modified build manifest must not claim a fingerprint inconsistent with its actual inputs.
   if (fingerprint !== model.fingerprint) throw new Error('Packaged plugin model fingerprint does not match its inputs');
   for (const shared of [provenance.jsonTokens, provenance.boundary, provenance.opaqueCredentials]) {
+    // DEFENSE: Shared host boundary or credential code may have changed since the plugin assets were packaged.
     if (hash(await readFile(path.join(checkout, shared.source))) !== shared.sha256) {
       throw new Error(`Packaged plugin shared source is stale: ${shared.source}`);
     }

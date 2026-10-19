@@ -14,6 +14,7 @@ Definition binder (a : aname) := match binder_name a with
 
 Fixpoint encode (fuel : nat) (t : term) : string :=
   match fuel with
+  (* DEFENSE: A source-library proof term deeper than the quotation fuel cannot be completely exported; emit a rejected node instead of a partial certificate. *)
   | O => tag "unsupported" [quoted "export fuel exhausted"]
   | S n =>
     let enc := encode n in
@@ -32,6 +33,7 @@ Fixpoint encode (fuel : nat) (t : term) : string :=
         array (map (fun b => array [array (map binder (bcontext b)); enc (bbody b)]) branches)]
     | tFix defs idx => tag "fix" [string_of_nat idx;
         array (map (fun d => array [binder (dname d); enc (dtype d); enc (dbody d); string_of_nat (rarg d)]) defs)]
+    (* DEFENSE: Source-library terms can use MetaRocq constructors outside the declared certificate subset; the importer rejects this node. *)
     | _ => tag "unsupported" [quoted "term outside the certificate subset"]
     end
   end.
@@ -46,7 +48,9 @@ Definition export {A : Type} (value : A) : TemplateMonad unit :=
       out <- tmEval cbv ("SELVEDGE_PROOF:" ++ array
         [quoted (string_of_kername kn); encode 1024 (cst_type cb); encode 1024 body]) ;;
       tmPrint out
+    (* DEFENSE: An installed source library can expose an axiom without a body; it cannot be imported as proof evidence. *)
     | None => tmFail "A certificate must have a proof body"
     end
+  (* DEFENSE: Quotation must identify the source constant whose original body is imported, rather than admit an anonymous supplied proof. *)
   | _ => tmFail "Export expects a named standard-library entity"
   end.

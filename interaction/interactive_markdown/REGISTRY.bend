@@ -197,6 +197,7 @@ def literal_valid(+result: Result<&2, &2, String, J.Json>) -> Bool:
     case Done{value}: True{}
     case Fail{reason}: False{}
 
+# DEFENSE: Model-authored declarations can contain unknown attributes or nonliteral configuration; reject those declarations before creating local state or sources.
 def declaration_attributes(+tag: String, +attrs: +List<T.Attribute>) -> Bool:
   match attrs:
     case Nil{}: True{}

@@ -107,6 +107,7 @@ function compile([name, sourceType, sourceBody], entities) {
     if (!node || typeof node !== 'object') return node;
     if (Array.isArray(node)) return node.map(x => expand(x, stack));
     if (node.tag === 'const' && dependencies.has(node.name)) {
+      // DEFENSE: Quoted source definitions can introduce a cycle during dependency expansion.
       if (stack.includes(node.name)) throw new Error('Cyclic source proof dependency');
       return expand(decode(source.get(node.name)[2]), [...stack, node.name]);
     }
@@ -144,11 +145,14 @@ function compile([name, sourceType, sourceBody], entities) {
     if (node.tag === 'lam') {
       return `(${node.variable.name} => ${emit(node.body)})`;
     }
+    // DEFENSE: A decoded source term can be outside the expression forms supported by this proof translator.
     if (node.tag !== 'app') throw new Error(`Unsupported relation expression: ${node.tag}`);
     const { fn, args } = node;
     if (fn.tag === 'var' && recursion?.name === fn.name) {
+      // DEFENSE: A quoted relation recursion can omit captured arguments required by its specialized environment.
       if (args.length !== recursion.args.length) throw new Error('Partially applied relation recursion');
       for (let index = 0; index < args.length; index++) {
+        // DEFENSE: A quoted recursive call can change a captured relation argument, invalidating this affine specialization.
         if (!recursion.slots.has(index) && !equivalent(args[index], recursion.args[index])) {
           throw new Error(`${method}: a specialized relation recursion changes its captured argument ${index}`);
         }
@@ -173,6 +177,7 @@ function compile([name, sourceType, sourceBody], entities) {
     }
     if (fn.tag === 'ctor' && fn.name === preorder && e.length === 4) return `Preorder{${e[2]}, ${e[3]}}`;
     if (fn.tag === 'var' || fn.tag === 'lam' || fn.tag === 'app') return `${emit(fn)}(${e.join(', ')})`;
+    // DEFENSE: A quoted application can reference a head without a declared Bend translation.
     throw new Error(`Unmapped relation application: ${fn.name ?? fn.tag}`);
   }
 
@@ -182,10 +187,12 @@ function compile([name, sourceType, sourceBody], entities) {
   if (head.fn.tag === 'fix') {
     const fixed = head.fn;
     const signature = telescope(fixed.type);
+    // DEFENSE: A quoted relation eliminator can recurse on an argument other than its structural path.
     if (fixed.argument !== 2 || signature.parameters.length < 3 || head.args.length < 3) {
       throw new Error('Unsupported relation eliminator: expected structural recursion on a path');
     }
     const pathType = signature.parameters[2].type;
+    // DEFENSE: A quoted relation eliminator can consume a type other than the declared reflexive-transitive closure.
     if (pathType.tag !== 'app' || pathType.fn.tag !== 'ind' || pathType.fn.name !== closure || pathType.args.length !== 4) {
       throw new Error('A relation eliminator must consume the declared closure');
     }
@@ -193,19 +200,23 @@ function compile([name, sourceType, sourceBody], entities) {
     const parameterSlots = new Map();
     head.args.forEach((arg, index) => {
       if (arg.tag === 'var' && ordinary.some(p => p.variable.name === arg.name)) {
+        // DEFENSE: A quoted relation eliminator can bind the same recursion parameter in multiple slots.
         if (parameterSlots.has(arg.name)) throw new Error('Ambiguous relation recursion environment');
         slots.set(index, arg.name);
         parameterSlots.set(arg.name, index);
       }
     });
+    // DEFENSE: A quoted relation eliminator can omit an ordinary parameter from the recursive call environment.
     if (ordinary.some(p => !parameterSlots.has(p.variable.name))) throw new Error('Unthreaded relation recursion environment');
     recursion = { name: fixed.variable.name, args: head.args, slots, parameters: parameterSlots };
     body = reduce(application(fixed.body, head.args));
+    // DEFENSE: A quoted closure eliminator can change its scrutinee or Step/Refl/Trans branch arities.
     if (body.tag !== 'case' || body.value.tag !== 'var' || body.value.name !== head.args[2].name ||
         body.branches.length !== 3 || body.branches.some((branch, index) => branch.variables.length !== [2, 0, 4][index])) {
       throw new Error('Unsupported relation eliminator branches');
     }
     const [start, end] = head.args;
+    // DEFENSE: A quoted relation eliminator can use endpoints not bound as ordinary data parameters.
     if (start.tag !== 'var' || end.tag !== 'var' || !ordinary.some(p => p.variable.name === start.name && data(p.type)) ||
         !ordinary.some(p => p.variable.name === end.name && data(p.type))) throw new Error('Unbound relation endpoints');
     const [edge, endpoint] = body.branches[0].variables;
@@ -225,6 +236,7 @@ function compile([name, sourceType, sourceBody], entities) {
 }
 
 export function translateRelations(entities) {
+  // DEFENSE: The on-disk or Rocq-exported certificate list can omit, reorder or replace the required named source entities.
   if (!Array.isArray(entities) || entities.length !== relationNames.length || entities.some((entry, i) => entry[0] !== relationNames[i])) {
     throw new Error('Unexpected relation certificate manifest');
   }
@@ -233,7 +245,8 @@ export function translateRelations(entities) {
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', maxBuffer: Infinity });
-  if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message ?? result.stderr ?? result.stdout}`);
+  // DEFENSE: Rocq or opam can fail to start or reject the requested source/tool query; do not import their failed output.
+  if (result.error || result.status !== 0) throw new Error(`${command} failed: ${result.error?.message ?? result.stderr}`);
   return result.stdout.trim();
 }
 
@@ -243,6 +256,7 @@ async function refresh() {
     const output = run('rocq', ['c', '-o', path.join(temporary, 'ExportRelations.vo'), 'scripts/ExportRelations.v']);
     const entities = [...output.matchAll(/^"SELVEDGE_PROOF:((?:""|[^"])*)"(?:%bs)?$/gm)]
       .map(match => JSON.parse(match[1].replaceAll('""', '"')));
+    // DEFENSE: Rocq output can report a source theorem with global assumptions; such a certificate is not admissible evidence.
     if ((output.match(/Closed under the global context/g) ?? []).length !== relationNames.length) {
       throw new Error('Relation certificates must be closed under the global context');
     }
@@ -267,10 +281,12 @@ async function refresh() {
 
 export async function checkRelations() {
   const bundle = JSON.parse(await readFile(bundlePath, 'utf8'));
+  // DEFENSE: An edited relation bundle can change its format, quoted-entity digest or required source theorem application.
   if (bundle.format !== 'rocq-relation-certificates-1' || bundle.entitiesSha256 !== digest(JSON.stringify(bundle.entities)) ||
       bundle.applicationsSha256 !== digest(await readFile(path.join(root, 'scripts/ExportRelations.v')))) {
     throw new Error('The relation proof bundle has an invalid format, digest or theorem application');
   }
+  // DEFENSE: An edited generated relation certificate can differ from its pinned quoted proof terms.
   if (await readFile(targetPath, 'utf8') !== translateRelations(bundle.entities)) throw new Error('The relation certificates differ from their quoted proof terms');
 }
 
