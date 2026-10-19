@@ -162,6 +162,10 @@ def delivered_effect(effect: Platform.Effect, +surface: SurfaceTypes.Surface) ->
       [Model.PlatformEffect{Platform.ApplyReading{task, generation, effect}}]
     case Platform.Clipboard{block, effect}:
       [Model.PlatformEffect{Platform.Clipboard{block, effect}}]
+    case Platform.ObserveSkillCatalog{key, ticket, workspace_key, workspace}:
+      [Model.PlatformEffect{Platform.ObserveSkillCatalog{key, ticket, workspace_key, workspace}}]
+    case Platform.SetEditorSelection{key, selection}:
+      [Model.PlatformEffect{Platform.SetEditorSelection{key, selection}}]
 
 def delivered_effects(effects: +List<Platform.Effect>, +surface: SurfaceTypes.Surface) -> +List<Model.Effect>:
   match effects:

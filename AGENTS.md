@@ -102,7 +102,7 @@ This file is for coding agents working in this repository.
 |browser/appearance:{CONTRACT.bend,DESIGN.bend,FONT.bend,ICONS.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,TYPOGRAPHY.bend}
 |browser/controls:{BUTTONS.bend,CONTRACT.bend,CONTROLS.bend,GEOMETRY.bend,MODEL.bend,NAVIGATION.bend,PROGRAM.bend,PROOF.bend,README.md,SHELL.bend,SIDEBAR.bend,SURFACES.bend,authored-primitives.bend,authored-proof.bend,button-proof.bend,chart.bend,interactive-markdown.bend,navigation-proof.bend}
 |browser/document:{CONTRACT.bend,FRAME.bend,MODEL.bend,PROOF.bend,README.md,RENDERED.bend,SOURCE.bend,SPEC.bend,content-proof.bend,diagnostic-proof.bend,presentation-order.bend,presentation-proof.bend,render-contract.bend,render-proof.bend,source-contract.bend,source-proof.bend}
-|browser/editor:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
+|browser/editor:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md,skill-mention.bend,skill-view.bend}
 |browser/focus:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}
 |browser/layout:{ACTIVITY.bend,ADAPTATION.bend,CONTENT.bend,CONTRACT.bend,GEOMETRY.bend,HIERARCHY.bend,MODEL.bend,PROGRAM.bend,PROOF.bend,README.md,RENDERER.bend,SOURCE.bend,SPACE.bend,activity-contract.bend,activity-proof.bend,adaptation-proof.bend,allocation-contract.bend,allocation-proof.bend,enclosure.bend,field-dimensions.bend,geometry-contract.bend,geometry-proof.bend,measurement-contract.bend,measurement-proof.bend,measurement-requirements.bend,natural-size.bend,physical-content-measurement.bend,physical-native.bend,physical-plan.bend,physical-probe.bend,physical-space.bend,render-contract.bend,render-proof.bend,sizing-proof.bend}
 |browser/reading:{CONTRACT.bend,MODEL.bend,PROOF.bend,README.md}

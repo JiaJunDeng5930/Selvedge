@@ -7,7 +7,7 @@ import { scheduleDisplay, cancelDisplay } from './markdown.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
 import { observeConnection } from './connection.mjs';
-import { editorKeyboard } from './keyboard.mjs';
+import { editorKeyboard, keyObservation, scalarSelection, applyScalarSelection } from './keyboard.mjs';
 import { appearanceObservation, persistAppearance } from './appearance.mjs';
 import { createTextMeasurer } from './text-measurement.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
@@ -43,6 +43,7 @@ let connection;
 let revision = 0;
 let dragged = null;
 let renderQueued = false;
+let renderDepth = 0;
 let renderedGeneration = null;
 let displayedFrameRequest = null;
 let requestedFrameGeneration = null;
@@ -80,7 +81,7 @@ const renderer = new Renderer(root, {
   event(binding, event, node, composing) {
     switch (bendTag(binding)) {
       case 'Activate': event.preventDefault(); captureAnchor(binding.key, node); commit(Bend.activate(binding.key, state)); break;
-      case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); break;
+      case 'EditText': commit(Bend.edit_text(binding.key, node.value, state)); observeEditorSelection(node); break;
       case 'EditStructuredText': {
         let parsed = bendValue('None');
         try { parsed = bendValue('Some', { value: json(JSON.parse(node.value)) }); }
@@ -159,6 +160,10 @@ function measurementMetric(metric) {
   });
 }
 function render() {
+  renderDepth++;
+  try { renderPublication(); } finally { renderDepth--; }
+}
+function renderPublication() {
   const effects = [];
   const scope = root.matches('.native-application') ? root : root.querySelector('.native-application') ?? root;
   if (scope !== textMeasurementScope) {
@@ -786,6 +791,23 @@ async function browserEffect(effect) {
       }
       break;
     }
+    case 'ObserveSkillCatalog': {
+      const workspace = { roots: list(physical.workspace.roots), primary_root: bendTag(physical.workspace.primary) === 'Some' ? physical.workspace.primary.value : null };
+      let body;
+      try { body = await post('/api/browser/observation', JSON.stringify({ kind: 'skill-catalog', workspace })); }
+      catch (error) {
+        // DEFENSE: The authenticated directory observation can fail at the HTTP boundary; settle its ticket with visible feedback.
+        body = { ok: false, error: error.message };
+      }
+      commit(Bend.editor_catalog_completed(physical.key, physical.ticket, physical.workspace_key, json(body), state));
+      break;
+    }
+    case 'SetEditorSelection': {
+      const node = [...root.querySelectorAll('[data-native-editor-key]')].find(node => node.getAttribute('data-native-editor-key') === physical.key);
+      // DEFENSE: Navigation can remove a composer before a committed selection effect reaches its native element.
+      if (node) applyScalarSelection(node, physical.selection);
+      break;
+    }
     case 'ApplyReading': applyReading(physical); break;
   }
 }
@@ -1012,13 +1034,34 @@ native(bendValue('browser/MODEL.Mount'));
 commit(Bend.connect(state));
 void document.fonts.ready.then(environment);
 
-function editorEvent(node, event) {
+function editorEvent(node, event, deferDuringRender = false) {
   const key = node?.getAttribute?.('data-native-editor-key');
-  if (key) commit(Bend.editor_event(key, event, state));
+  if (!key) return;
+  // NOTE: Reparenting a focused editor emits blur inside insertBefore; finish publication before observing that focus change.
+  if (deferDuringRender && renderDepth > 0) queueMicrotask(() => {
+    if (!disposed) commit(Bend.editor_event(key, event, state));
+  });
+  else commit(Bend.editor_event(key, event, state));
+}
+function observeEditorSelection(node, eventKind = 'SelectionObserved', deferDuringRender = false) {
+  const key = node?.getAttribute?.('data-native-editor-key');
+  if (key && typeof node.selectionStart === 'number') editorEvent(node, bendValue('browser/editor/MODEL.' + eventKind, {
+    key, selection: scalarSelection(node),
+  }), deferDuringRender);
 }
 root.addEventListener('compositionstart', event => editorEvent(event.target, bendValue('browser/editor/MODEL.CompositionChanged', { composing: bool(true) })));
-root.addEventListener('compositionend', event => editorEvent(event.target, bendValue('browser/editor/MODEL.CompositionChanged', { composing: bool(false) })));
+root.addEventListener('compositionend', event => {
+  editorEvent(event.target, bendValue('browser/editor/MODEL.CompositionChanged', { composing: bool(false) }));
+  observeEditorSelection(event.target);
+});
+root.addEventListener('focusin', event => observeEditorSelection(event.target, 'FocusObserved', true));
+root.addEventListener('focusout', event => editorEvent(event.target, bendValue('browser/editor/MODEL.DismissMention'), true));
 root.addEventListener('keydown', event => {
+  const key = event.target.getAttribute?.('data-native-editor-key');
+  if (key) {
+    const result = Bend.editor_key_event(key, keyObservation(event), state);
+    if (result.handled) { event.preventDefault(); commit(result.decision); return; }
+  }
   if (event.key === 'Tab' || event.key === 'Escape') {
     if (renderedGeneration === null) return;
     const result = Bend.key_event(event.key, bool(event.shiftKey), renderedGeneration, frame(), state);
@@ -1026,15 +1069,15 @@ root.addEventListener('keydown', event => {
     commit(result.decision);
     return;
   }
-  if (event.target.hasAttribute('data-native-editor-key')) editorKeyboard(event,
+  if (key) editorKeyboard(event,
     observation => Bend.native_editor_key(observation), input => editorEvent(event.target, input));
 });
-root.addEventListener('select', event => {
-  const node = event.target;
-  if (typeof node.selectionStart === 'number') editorEvent(node, bendValue('browser/editor/MODEL.SelectionChanged', { selection: bendValue('browser/controls/GEOMETRY.Selection', {
-    start: BigInt(node.selectionStart), end: BigInt(node.selectionEnd), direction: node.selectionDirection,
-  }) }));
-}, true);
+root.addEventListener('select', event => observeEditorSelection(event.target), true);
+root.addEventListener('keyup', event => {
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) && !event.isComposing && event.keyCode !== 229) observeEditorSelection(event.target);
+});
+root.addEventListener('pointerup', event => observeEditorSelection(event.target));
+
 let layoutFrame = null;
 function observeReadingLayout() {
   if (layoutFrame !== null) return;

@@ -1,4 +1,5 @@
 import ./layout/natural-size.bend as NaturalSize
+import ./editor/skill-mention.bend as Mention
 import Base
 import ../harness/MODEL.bend as M
 import ../interaction/MODEL.bend as Product
@@ -204,31 +205,31 @@ def after_core_keeps_bookmarks(decision: InteractionTypes.Decision, platform: Pl
 
 def ime_entry_raw(+owner: U.Editor, +selection: Physical.Selection, +shift: Bool, +alt: Bool, +modified: Bool,
   +core: InteractionTypes.State, +platform: Platform.Platform,
-  editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor}) ->
+  +mentions: Mention.State, editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}, mentions} : Editor.Editor}) ->
   {Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core),
-      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}} : Platform.Decision}:
+      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions}), Nil{}} : Platform.Decision}:
   match core:
     case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           editor_result = Rules_editor_rules.composing_enter(owner, selection, shift, alt, modified,
             Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
-              Focus.permits_composer(scope), False{})
+              Focus.permits_composer(scope), False{}, mentions)
           local_result = Equal.trans(Editor.Decision,
             Editor.step(Platform.find_editor(editors, owner), Editor.Enter{shift, alt, modified},
               Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
-            Editor.step(Editor.Editor{owner, selection, True{}}, Editor.Enter{shift, alt, modified},
+            Editor.step(Editor.Editor{owner, selection, True{}, mentions}, Editor.Enter{shift, alt, modified},
               Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
-            Editor.Decision{Editor.Editor{owner, selection, True{}}, False{}},
+            Editor.Decision{Editor.Editor{owner, selection, True{}, mentions}, False{}},
             Equal.cong(Editor.Editor, Editor.Decision,
               (editor => Editor.step(editor, Editor.Enter{shift, alt, modified},
                 Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                   Focus.permits_composer(scope), False{})),
-              Platform.find_editor(editors, owner), Editor.Editor{owner, selection, True{}}, editor_observed),
+              Platform.find_editor(editors, owner), Editor.Editor{owner, selection, True{}, mentions}, editor_observed),
             editor_result)
           Equal.cong(Editor.Decision, Platform.Decision,
             (result => Platform.edit_result(result, owner, InteractionTypes.State{application, services},
@@ -236,7 +237,7 @@ def ime_entry_raw(+owner: U.Editor, +selection: Physical.Selection, +shift: Bool
             Editor.step(Platform.find_editor(editors, owner), Editor.Enter{shift, alt, modified},
               Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
                 Focus.permits_composer(scope), False{}),
-            Editor.Decision{Editor.Editor{owner, selection, True{}}, False{}}, local_result)
+            Editor.Decision{Editor.Editor{owner, selection, True{}, mentions}, False{}}, local_result)
 
 def both_true(first: Bool, second: Bool,
   first_true: {first == True{} : Bool}, second_true: {second == True{} : Bool}) ->
@@ -251,20 +252,20 @@ def ready_enter_key(modified: Bool) ->
 
 def ready_enter_editor(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool,
   +core: InteractionTypes.State, +platform: Platform.Platform,
-  editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor},
+  +mentions: Mention.State, editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}, mentions} : Editor.Editor},
   enabled: {Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) == True{} : Bool},
   permitted: {Focus.permits_composer(Rule.platform_scope(platform)) == True{} : Bool}) ->
   {Editor.step(Rule.platform_editors(platform, owner), Editor.Enter{False{}, False{}, modified},
     Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) &&
       Focus.permits_composer(Rule.platform_scope(platform)), False{}) ==
-    Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}} : Editor.Decision}:
+    Editor.Decision{Editor.Editor{owner, selection, False{}, mentions}, True{}} : Editor.Decision}:
   match core:
     case InteractionTypes.State{application, services}:
       match platform:
         case Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}:
           enabled_scope = both_true(Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity),
             Focus.permits_composer(scope), enabled, permitted)
-          selected_editor: Editor.Editor = Editor.Editor{owner, selection, False{}}
+          selected_editor: Editor.Editor = Editor.Editor{owner, selection, False{}, mentions}
           literal_enabled = Equal.cong(Bool, Editor.Decision,
             (value => Editor.step(selected_editor, Editor.Enter{False{}, False{}, modified}, value, False{})),
             Platform.editor_enabled(InteractionTypes.State{application, services}, owner, capacity) &&
@@ -296,7 +297,7 @@ def ready_enter_editor(+owner: U.Editor, +selection: Physical.Selection, +modifi
 
 def ready_enter_raw(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool, +core: InteractionTypes.State,
   +platform: Platform.Platform,
-  editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor},
+  +mentions: Mention.State, editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}, mentions} : Editor.Editor},
   enabled: {Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) == True{} : Bool},
   permitted: {Focus.permits_composer(Rule.platform_scope(platform)) == True{} : Bool}) ->
   {Model.platform_product(Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
@@ -313,19 +314,19 @@ def ready_enter_raw(+owner: U.Editor, +selection: Physical.Selection, +modified:
           selected_ok = ready_enter_editor(owner, selection, modified,
             InteractionTypes.State{application, services},
             Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope},
-            editor_observed, enabled, permitted)
+            mentions, editor_observed, enabled, permitted)
           decision_ok = Equal.cong(Editor.Decision, InteractionTypes.Decision,
             (result => Model.platform_product(Platform.edit_result(result, owner,
               InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}))),
-            selected, Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}}, selected_ok)
+            selected, Editor.Decision{Editor.Editor{owner, selection, False{}, mentions}, True{}}, selected_ok)
           Equal.trans(InteractionTypes.Decision,
             Model.platform_product(Platform.step_raw(Platform.EditorInput{owner,
               Editor.Enter{False{}, False{}, modified}},
               Platform.State{InteractionTypes.State{application, services},
                 Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope}})),
             Model.platform_product(Platform.edit_result(
-              Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}}, owner,
+              Editor.Decision{Editor.Editor{owner, selection, False{}, mentions}, True{}}, owner,
               InteractionTypes.State{application, services},
               Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
             Product.step(Product.SubmitComposer{capacity, owner}, InteractionTypes.State{application, services}),
@@ -338,7 +339,7 @@ def ready_enter_raw(+owner: U.Editor, +selection: Physical.Selection, +modified:
                 InteractionTypes.State{application, services},
                 Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
               Model.platform_product(Platform.edit_result(
-                Editor.Decision{Editor.Editor{owner, selection, False{}}, True{}}, owner,
+                Editor.Decision{Editor.Editor{owner, selection, False{}, mentions}, True{}}, owner,
                 InteractionTypes.State{application, services},
                 Platform.Platform{readers, editors, focused, ticket, reduced, capacity, scope})),
               Equal.cong(Editor.Decision, InteractionTypes.Decision,
@@ -354,7 +355,7 @@ def ready_enter_raw(+owner: U.Editor, +selection: Physical.Selection, +modified:
             after_core_preserves_decision(
               Product.step(Product.SubmitComposer{capacity, owner}, InteractionTypes.State{application, services}),
               Platform.Platform{readers,
-                Platform.save_editor(editors, owner, Editor.Editor{owner, selection, False{}}),
+                Platform.save_editor(editors, owner, Editor.Editor{owner, selection, False{}, mentions}),
                 focused, ticket, reduced, capacity, scope}))
 
 def and_false_right(value: Bool) -> {value && False{} == False{} : Bool}:
@@ -378,9 +379,9 @@ def enter_disabled(composing: Bool, shift: Bool, alt: Bool, modified: Bool, pend
 def enter_disabled_editor(editor: Editor.Editor, shift: Bool, alt: Bool, modified: Bool) ->
   {Editor.step(editor, Editor.Enter{shift, alt, modified}, False{}, False{}) ==
     Editor.Decision{editor, False{}} : Editor.Decision}:
-  Editor.Editor{owner, selection, composing} = editor
+  Editor.Editor{owner, selection, composing, +mentions} = editor
   Equal.cong(Bool, Editor.Decision,
-    (requested => Editor.Decision{Editor.Editor{owner, selection, composing}, requested}),
+    (requested => Editor.Decision{Editor.Editor{owner, selection, composing, mentions}, requested}),
     Physical.submit_key(composing, True{}, True{}, modified, shift, alt, False{}, False{}),
     False{},
     enter_disabled(composing, shift, alt, modified, False{}))
@@ -446,10 +447,10 @@ def synchronize_retained(+drafts: +List<U.Draft>, +editors: +List<Editor.Editor>
     case Nil{}:
       match evidence:
         case Unit{}: {==}
-    case Con{Editor.Editor{+owner, selection, composing}, rest}:
+    case Con{Editor.Editor{+owner, selection, composing, mentions}, rest}:
       match evidence:
         case (head, tail):
-          +editor: Editor.Editor = Editor.Editor{owner, selection, composing}
+          +editor: Editor.Editor = Editor.Editor{owner, selection, composing, mentions}
           head_equal = synchronize_retained_entry(E.find_draft(drafts, owner), editor, head)
           tail_equal = synchronize_retained(drafts, rest, tail)
           head_list = Equal.cong(Editor.Editor, +List<Editor.Editor>,
@@ -624,29 +625,29 @@ def reflow_same(+decision: Platform.Decision, +capacity: View.Capacity,
 
 def ime_entry(+owner: U.Editor, +selection: Physical.Selection, +shift: Bool, +alt: Bool, +modified: Bool,
   +core: InteractionTypes.State, +platform: Platform.Platform,
-  editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor}) ->
+  +mentions: Mention.State, editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}, mentions} : Editor.Editor}) ->
   {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, platform}) ==
     Platform.Decision{Platform.unchanged(core),
-      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}} : Platform.Decision}:
+      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions}), Nil{}} : Platform.Decision}:
   Equal.trans(Platform.Decision,
     Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, platform}),
     Platform.realized_decision(Platform.Decision{Platform.unchanged(core),
-      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}}),
+      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions}), Nil{}}),
     Platform.Decision{Platform.unchanged(core),
-      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}},
+      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions}), Nil{}},
     Equal.cong(Platform.Decision, Platform.Decision, Platform.realized_decision,
       Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},
     Platform.State{core, platform}),
       Platform.Decision{Platform.unchanged(core),
-      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}}, ime_entry_raw(owner, selection, shift, alt, modified, core, platform, editor_observed)),
+      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions}), Nil{}}, ime_entry_raw(owner, selection, shift, alt, modified, core, platform, mentions, editor_observed)),
     Rules_platform.realized_empty(Platform.unchanged(core),
-      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}})))
+      Rule.with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions})))
 
 def ready_enter(+owner: U.Editor, +selection: Physical.Selection, +modified: Bool, +core: InteractionTypes.State,
   +platform: Platform.Platform,
-  editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor},
+  +mentions: Mention.State, editor_observed: {Rule.platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}, mentions} : Editor.Editor},
   enabled: {Platform.editor_enabled(core, owner, Rule.platform_capacity(platform)) == True{} : Bool},
   permitted: {Focus.permits_composer(Rule.platform_scope(platform)) == True{} : Bool}) ->
   {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
@@ -660,7 +661,7 @@ def ready_enter(+owner: U.Editor, +selection: Physical.Selection, +modified: Boo
     Product.step(Product.SubmitComposer{Rule.platform_capacity(platform), owner}, core),
     Rules_platform.realized_preserves_product(Platform.step_raw(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},
     Platform.State{core, platform})),
-    ready_enter_raw(owner, selection, modified, core, platform, editor_observed, enabled, permitted))
+    ready_enter_raw(owner, selection, modified, core, platform, mentions, editor_observed, enabled, permitted))
 
 def modal_enter_decision(+owner: U.Editor, +shift: Bool, +alt: Bool, +modified: Bool,
   +identity: String, +initial: String, +restore: String, +occurrence: Maybe<&2, Nat>, +core: InteractionTypes.State, +platform: Platform.Platform) ->
@@ -819,10 +820,10 @@ def Rule.evidence():
             advance_preserves_bookmark(Std.iter(~Rule.Tape, ~Rule.advance, steps, initial)), evidence(initial))),
         count)(seed)},
     Rule.Editing{
-      owner => selection => shift => alt => modified => core => platform => editor_observed =>
-      ime_entry(owner, selection, shift, alt, modified, core, platform, editor_observed),
-      owner => selection => modified => core => platform => editor_observed => enabled => permitted =>
-      ready_enter(owner, selection, modified, core, platform, editor_observed, enabled, permitted),
+      owner => selection => shift => alt => modified => core => platform => mentions => editor_observed =>
+      ime_entry(owner, selection, shift, alt, modified, core, platform, mentions, editor_observed),
+      owner => selection => modified => core => platform => mentions => editor_observed => enabled => permitted =>
+      ready_enter(owner, selection, modified, core, platform, mentions, editor_observed, enabled, permitted),
       owner => shift => alt => modified => identity => initial => restore => +occurrence => core => platform =>
       Equal.cong(Platform.Decision, InteractionTypes.Decision, Model.platform_product,
         Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}},

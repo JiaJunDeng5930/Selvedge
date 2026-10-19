@@ -298,6 +298,11 @@ selected source's path and applicability, and omits explicitly configured skills
 from discovered catalogs. Shared directory listings are reused within an
 observation, while later requests scan again.
 
+The read-only browser `skill-catalog` observation uses `observeSkillCatalog` in
+`context-sources.mjs` with the selected canonical workspace. It reuses these
+definitions and file observations before any task exists; a failed configuration
+refresh or incomplete scan returns an observation error instead of a partial catalog.
+
 Skill frontmatter supplies `name` and `description`; only projected metadata
 enters history. The remaining body is not injected or tracked. Skill files use
 the same bounded, regular UTF-8 file observation as guidance files. Directory

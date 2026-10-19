@@ -65,3 +65,10 @@ and native Portal content retain their minima. The adapter restores each origina
 containment value and priority before measuring full preferred width, actual
 AtWidth height or targets, including when minimum observation throws. Visible
 Markdown layout and the allocated reading-width limits are unchanged.
+
+Skill suggestions are rendered by the compiled editor as a document overlay.
+The adapter forwards native selection and key observations, interprets catalog
+observations and restores committed selection effects. CSS anchors position the
+list against its textarea; focus-preserving pointer targets keep composition and
+keyboard ownership in that textarea. UTF-16 DOM offsets are converted to Bend
+Unicode scalar positions at this boundary.

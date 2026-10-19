@@ -81,6 +81,24 @@ async function mutableConfiguration(config, definitions, limits, options) {
   return contextConfiguration(value, definitions);
 }
 
+/** Observe the current metadata catalog independently of any task history. */
+export async function observeSkillCatalog(workspace, { home, config, limits, signal } = {}) {
+  const definitions = boundary('config.context_definitions', {}).filter(definition =>
+    definition.observer.type === 'home_skills' || definition.observer.type === 'workspace_skills'
+    || (definition.observer.type === 'config_files' && definition.observer.setting === 'skills'));
+  // NOTE: A first catalog has no accepted bindings on which the normal observer
+  // can report a failed config_files refresh. Resolve it before observing files.
+  const current = await mutableConfiguration(config, definitions, limits, { signal });
+  const observations = await observeContextSources({ definitions, bindings: [], settings: { workspace } },
+    { home, config: { ...config, ...current }, limits, signal });
+  const failed = observations.find(observation => observation.type === 'failure');
+  // DEFENSE: Incomplete or unreadable skill discovery must remain a visible
+  // catalog failure rather than publishing a partial list as a complete result.
+  if (failed) throw new Error(failed.message);
+  return observations.filter(observation => observation.type === 'present')
+    .map(observation => observation.snapshot.value.fields);
+}
+
 /** Interpret native source descriptors; only the native history operation admits changes. */
 export async function observeContextSources(effect, { home, config, limits, signal, onDiagnostic } = {}) {
   const installation = await realpath(home);

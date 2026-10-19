@@ -7,7 +7,7 @@ import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash } from './process.mjs';
 import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation, workspaceCommandPlan } from './project.mjs';
-import { observeContextSources } from './context-sources.mjs';
+import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
 import { observeBoardCommand } from './board-files.mjs';
@@ -601,6 +601,18 @@ export class Service extends EventEmitter {
       const primary = workspace.primary_root ?? workspace.roots[0];
       const guidance = primary ? await snapshotProject(primary, this.limits) : null;
       return { kind: 'directories', workspace, guidance };
+    }
+    if (observation.kind === 'skill-catalog' && Object.keys(observation).length === 2 && observation.workspace) {
+      try {
+        const workspace = await canonicalWorkspace(observation.workspace);
+        const skills = await observeSkillCatalog(workspace,
+          { home: this.home, config: this.declaredConfig, limits: this.limits });
+        return { kind: 'skill-catalog', ok: true, skills };
+      // DEFENSE: A selected workspace, configuration or discovered skill file
+      // can disappear or deny access while the user is opening the skill menu.
+      } catch (error) {
+        return { kind: 'skill-catalog', ok: false, error: error.message };
+      }
     }
     // DEFENSE: A client can send an unknown observation kind or fields outside its declared request variant.
     throw new TypeError('Unknown browser observation');

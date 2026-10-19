@@ -1,3 +1,4 @@
+import ../editor/skill-mention.bend as Mention
 import Base
 import ./CONTRACT.bend as Rule
 import ./PLATFORM.bend as Model
@@ -84,6 +85,12 @@ def effects_realized(+surface: SurfaceTypes.Surface, source: +List<Model.Effect>
     case Con{Model.Clipboard{+block, +effect}, +rest}:
       Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.Clipboard{block, effect} <> remaining),
         Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest))
+    case Con{Model.ObserveSkillCatalog{+key, +ticket, +workspace_key, +workspace}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.ObserveSkillCatalog{key, ticket, workspace_key, workspace} <> remaining),
+        Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest))
+    case Con{Model.SetEditorSelection{+key, +selection}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (remaining => Model.SetEditorSelection{key, selection} <> remaining),
+        Model.realized_effects(surface, rest), Rule.expected_effects(surface, rest), effects_realized(surface, rest))
 
 def deferred_realization(+source: +List<Model.Effect>, +surface: SurfaceTypes.Surface) ->
   {Model.deferred_realized_effects(source, (_ => surface)) == Rule.expected_effects(surface, source) : +List<Model.Effect>}:
@@ -101,6 +108,12 @@ def deferred_realization(+source: +List<Model.Effect>, +surface: SurfaceTypes.Su
         Model.deferred_realized_effects(rest, (_ => surface)), Rule.expected_effects(surface, rest), deferred_realization(rest, surface))
     case Con{Model.Clipboard{+block, +effect}, +rest}:
       Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.Clipboard{block, effect} <> tail),
+        Model.deferred_realized_effects(rest, (_ => surface)), Rule.expected_effects(surface, rest), deferred_realization(rest, surface))
+    case Con{Model.ObserveSkillCatalog{+key, +ticket, +workspace_key, +workspace}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.ObserveSkillCatalog{key, ticket, workspace_key, workspace} <> tail),
+        Model.deferred_realized_effects(rest, (_ => surface)), Rule.expected_effects(surface, rest), deferred_realization(rest, surface))
+    case Con{Model.SetEditorSelection{+key, +selection}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.SetEditorSelection{key, selection} <> tail),
         Model.deferred_realized_effects(rest, (_ => surface)), Rule.expected_effects(surface, rest), deferred_realization(rest, surface))
 
 def actual_decision_effects(decision: Model.Decision) ->
@@ -131,6 +144,8 @@ def Rule.realized_effects_are_external(surface, source):
     case Con{Model.Focus{ticket, Focus.Content{owner, identity}}, rest}: Rule.realized_effects_are_external(surface, rest)
     case Con{Model.ApplyReading{task, generation, effect}, rest}: Rule.realized_effects_are_external(surface, rest)
     case Con{Model.Clipboard{block, effect}, rest}: Rule.realized_effects_are_external(surface, rest)
+    case Con{Model.ObserveSkillCatalog{key, ticket, workspace_key, workspace}, rest}: Rule.realized_effects_are_external(surface, rest)
+    case Con{Model.SetEditorSelection{key, selection}, rest}: Rule.realized_effects_are_external(surface, rest)
 
 def realized_decision_external(decision: Model.Decision) ->
   {Rule.external_effects(Rule.effects(Model.realized_decision(decision))) == True{} : Bool}:
@@ -306,9 +321,9 @@ def submission_clear_policy(body: U.Body) ->
     case U.Compact{task, summary}: {==}
     case U.TaskGraph{graph, declaration, parsed, work}: {==}
 
-def clear_selection_policy(clear: Bool, +owner: U.Editor, +selection: Physical.Selection, +composing: Bool) ->
-  {Model.clear_selection(clear, Editor.Editor{owner, selection, composing}) ==
-    Bool.pick(Editor.Editor, clear, Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}, Editor.Editor{owner, selection, composing}) : Editor.Editor}:
+def clear_selection_policy(clear: Bool, +owner: U.Editor, +selection: Physical.Selection, +composing: Bool, +mentions: Mention.State) ->
+  {Model.clear_selection(clear, Editor.Editor{owner, selection, composing, mentions}) ==
+    Bool.pick(Editor.Editor, clear, Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}, Mention.clear(mentions)}, Editor.Editor{owner, selection, composing, mentions}) : Editor.Editor}:
   match clear:
     case False{}: {==}
     case True{}: {==}
@@ -320,22 +335,22 @@ def editor_commit_policy(found: Maybe<&2, U.Draft>, editor: Editor.Editor) ->
     case Some{U.Draft{revision, body, U.Editing{}, directory}} retained: {==}
     case Some{U.Draft{revision, body, U.Rejected{submitted, reason}, directory}} retained: {==}
     case Some{U.Draft{revision, body, U.WorkspaceRejected{submitted, reason}, directory}} retained: {==}
-    case Some{U.Draft{revision, +body, U.Accepted{submitted, result}, directory}} Editor.Editor{+owner, +selection, +composing}:
+    case Some{U.Draft{revision, +body, U.Accepted{submitted, result}, directory}} Editor.Editor{+owner, +selection, +composing, +mentions}:
       Equal.trans(Editor.Editor,
-        Model.clear_selection(Model.empty_message(body), Editor.Editor{owner, selection, composing}),
-        Bool.pick(Editor.Editor, Model.empty_message(body), Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}, Editor.Editor{owner, selection, composing}),
-        Bool.pick(Editor.Editor, Rule.required_submission_clear(body), Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}, Editor.Editor{owner, selection, composing}),
-        clear_selection_policy(Model.empty_message(body), owner, selection, composing),
+        Model.clear_selection(Model.empty_message(body), Editor.Editor{owner, selection, composing, mentions}),
+        Bool.pick(Editor.Editor, Model.empty_message(body), Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}, Mention.clear(mentions)}, Editor.Editor{owner, selection, composing, mentions}),
+        Bool.pick(Editor.Editor, Rule.required_submission_clear(body), Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}, Mention.clear(mentions)}, Editor.Editor{owner, selection, composing, mentions}),
+        clear_selection_policy(Model.empty_message(body), owner, selection, composing, mentions),
         Equal.cong(Bool, Editor.Editor,
-          (clear => Bool.pick(Editor.Editor, clear, Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}, Editor.Editor{owner, selection, composing})),
+          (clear => Bool.pick(Editor.Editor, clear, Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}, Mention.clear(mentions)}, Editor.Editor{owner, selection, composing, mentions})),
           Model.empty_message(body), Rule.required_submission_clear(body), submission_clear_policy(body)))
 
 def editor_list_policy(editors: +List<Editor.Editor>, +drafts: +List<U.Draft>) ->
   {Model.synchronize_drafts(drafts, editors) == Rule.required_editors(editors, drafts) : +List<Editor.Editor>}:
   match editors:
     case Nil{}: {==}
-    case Con{Editor.Editor{+owner, +selection, +composing}, +rest}:
-      +current: Editor.Editor = Editor.Editor{owner, selection, composing}
+    case Con{Editor.Editor{+owner, +selection, +composing, +mentions}, +rest}:
+      +current: Editor.Editor = Editor.Editor{owner, selection, composing, mentions}
       +actual: Editor.Editor = Model.synchronize_editor(E.find_draft(drafts, owner), current)
       +required: Editor.Editor = Rule.required_editor_reconciliation(E.find_draft(drafts, owner), current)
       Equal.trans(+List<Editor.Editor>, actual <> Model.synchronize_drafts(drafts, rest), required <> Model.synchronize_drafts(drafts, rest), required <> Rule.required_editors(rest, drafts),

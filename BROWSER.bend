@@ -1,4 +1,7 @@
 import ./browser/MODEL.bend as Web
+import ./browser/editor/skill-mention.bend as Mention
+import ./browser/editor/skill-view.bend as SkillView
+import ./interaction/INPUT.bend as UserInput
 import Base
 import ./browser/layout/GEOMETRY.bend as AnchorGeometry
 import ./browser/runtime/native-fields.bend as NativeFields
@@ -21,6 +24,46 @@ import ./interaction/interactive_markdown/SCENE.bend as InteractiveScene
 import ./interaction/IDENTITY.bend as Identity
 import ./bendlib/json.bend as J
 
+def native_editors(state: Browser.State) -> +List<Editor.Editor>:
+  Platform.editors(Platform.platform(Web.application(Legacy.web(Browser.legacy(state)))))
+
+def with_editor_overlays(editors: +List<Editor.Editor>, publication: Browser.Publication) -> Browser.Publication:
+  match publication:
+    case Browser.KeepPublished{fields}: Browser.KeepPublished{fields}
+    case Browser.Publish{generation, document, fields}: Browser.Publish{generation, SkillView.document(editors, document), fields}
+
+def activate_choice(choice: Maybe<&2, SkillView.Choice>, key: String, state: Browser.State) -> Browser.Decision:
+  match choice:
+    case None{}: Browser.activate(key, state)
+    case Some{SkillView.Choice{field, index}}: Browser.editor_event(field, Editor.AcceptMention{Some{index}}, state)
+
+def editor_catalog_completed(key: String, ticket: Nat, workspace: String, body: J.Json, state: Browser.State) -> Browser.Decision:
+  Browser.editor_event(key, Editor.CatalogObserved{ticket, workspace, body}, state)
+
+def choose_native_editor(same: Bool, editor: Editor.Editor, rest: Maybe<&2, Editor.Editor>) -> Maybe<&2, Editor.Editor>:
+  match same:
+    case True{}: Some{editor}
+    case False{}: rest
+
+def find_native_editor(editors: +List<Editor.Editor>, +key: String) -> Maybe<&2, Editor.Editor>:
+  match editors:
+    case Nil{}: None{}
+    case Con{+editor, rest}: choose_native_editor(String.eq(Mention.field(Editor.mentions(editor)), key), editor, find_native_editor(rest, key))
+
+def mention_key_found(found: Maybe<&2, Editor.Editor>, observation: Editor.KeyObservation) -> Editor.NativeKey:
+  match found:
+    case None{}: Editor.NativeKey{None{}, False{}}
+    case Some{editor}: Editor.native_mentions(observation, editor)
+
+def editor_key_decision(native: Editor.NativeKey, key: String, state: Browser.State) -> Browser.KeyResult:
+  Editor.NativeKey{event, handled} = native
+  match event:
+    case None{}: Browser.KeyResult{False{}, Browser.Decision{state, Nil{}}}
+    case Some{input}: Browser.KeyResult{handled, Browser.editor_event(key, input, state)}
+
+def editor_key_event(+key: String, observation: Editor.KeyObservation, +state: Browser.State) -> Browser.KeyResult:
+  editor_key_decision(mention_key_found(find_native_editor(native_editors(state), key), observation), key, state)
+
 # Pure browser entry. The host executes only Browser.Effect values.
 def empty() -> M.World(): Browser.empty()
 
@@ -30,9 +73,9 @@ def command_rejected(ticket: Nat, reason: String, state: Browser.State) -> Brows
 
 def step(input: Legacy.Input, state: Browser.State) -> Browser.Decision: Browser.step(input, state)
 
-def observe(state: Browser.State) -> CodeObservation.Document: Browser.observe(NaturalSize.limit(), state)
+def observe(+state: Browser.State) -> CodeObservation.Document: SkillView.document(native_editors(state), Browser.observe(NaturalSize.limit(), state))
 
-def activate(key: String, state: Browser.State) -> Browser.Decision: Browser.activate(key, state)
+def activate(+key: String, +state: Browser.State) -> Browser.Decision: activate_choice(SkillView.choice(native_editors(state), key), key, state)
 
 def edit_text(key: String, text: String, state: Browser.State) -> Browser.Decision: Browser.edit_text(key, text, state)
 
@@ -108,7 +151,7 @@ def probe_document(job: Plan.Job) -> CodeObservation.Document: Browser.probe_doc
 
 def probe_target_keys(job: Plan.Job) -> +List<String>: Browser.probe_target_keys(job)
 
-def publication(last_published: Nat, state: Browser.State) -> Browser.Publication: Browser.publication(NaturalSize.limit(), last_published, state)
+def publication(last_published: Nat, +state: Browser.State) -> Browser.Publication: with_editor_overlays(native_editors(state), Browser.publication(NaturalSize.limit(), last_published, state))
 
 def field_session_initial() -> NativeFields.Record: NativeFields.initial()
 

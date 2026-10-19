@@ -89,31 +89,49 @@ test('the native browser preserves IME confirmation and accepts ordinary long st
     if (pathname === '/result') {
       response.writeHead(204); response.end();
       report({ preserved: url.searchParams.get('preserved') === '1',
-        streamed: url.searchParams.get('streamed') === '1', error: url.searchParams.get('error') });
+        streamed: url.searchParams.get('streamed') === '1', unicode: url.searchParams.get('unicode') === '1',
+        linked: url.searchParams.get('linked') === '1', error: url.searchParams.get('error') });
       return;
     }
     if (pathname === '/') {
-      response.setHeader('content-type', 'text/html');
+      response.setHeader('content-type', 'text/html; charset=utf-8');
       response.end(`<!doctype html><textarea id="editor"></textarea><script type="module">
 import * as Bend from '/public/generated/browser-model.mjs';
-import {editorKeyboard} from '/public/keyboard.mjs';
+import {editorKeyboard,scalarSelection,applyScalarSelection} from '/public/keyboard.mjs';
 import {boundary} from '/public/model-boundary.mjs';
+import {Markdown} from '/public/markdown.mjs';
 const editor=document.getElementById('editor'); let submitted=0;
 editor.addEventListener('keydown', event=>editorKeyboard(event,Bend.native_editor_key,()=>submitted++));
 editor.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
 const confirmation=new KeyboardEvent('keydown',{key:'Enter',keyCode:229,isComposing:false,bubbles:true,cancelable:true});
 editor.dispatchEvent(confirmation);
-let streamed=false; let error='';
+editor.value='中😀@abc后'; editor.setSelectionRange(3,6);
+const selection=scalarSelection(editor);
+applyScalarSelection(editor,{start:5n,end:5n,direction:'none'});
+const unicode=selection.start===2n&&selection.end===5n&&editor.selectionStart===6&&document.activeElement===editor;
+let streamed=false; let linked=true; let error='';
 try {
+  const source='[$skill](/path/SKILL.md) [x](/path) [energy $x$](/math) $x$';
+  for (const split of [source.length,source.indexOf('(')]) {
+    const target=document.createElement('div'); document.body.append(target);
+    const markdown=new Markdown(target,{smooth:false});
+    markdown.append(source.slice(0,split)); await markdown.whenCaughtUp();
+    markdown.append(source.slice(split)); markdown.finish(); await markdown.whenSettled();
+    const links=[...target.querySelectorAll('a')];
+    linked=linked&&links.length===3&&links[0].textContent==='$skill'&&links[1].textContent==='x'
+      &&Boolean(links[2].querySelector('math'))&&target.querySelectorAll('math').length===2
+      &&!target.textContent.includes('/path');
+    markdown.dispose(); target.remove();
+  }
   const text='x'.repeat(16*1024);
   const entry=value=>({task_id:17,ticket:3,parts:[{output_index:5,text:value}]});
   const result=boundary('browser.stream_step',{state:[entry('prefix:')],
     notice:{type:'delta',task_id:17,ticket:3,output_index:5,text}});
   streamed=result.publish&&result.state[0].parts[0].text==='prefix:'+text;
-} catch (failure) {error=String(failure);}
+} catch (failure) {linked=false; error=String(failure);}
 fetch('/result?'+new URLSearchParams({
   preserved:Number(confirmation.keyCode===229&&submitted===0&&!confirmation.defaultPrevented),
-  streamed:Number(streamed),error}));
+  streamed:Number(streamed),unicode:Number(unicode),linked:Number(linked),error}));
 </script>`); return;
     }
     let filename;
@@ -151,6 +169,8 @@ fetch('/result?'+new URLSearchParams({
     ]);
     assert.equal(result.preserved, true, 'The native IME confirmation was intercepted as submission');
     assert.equal(result.streamed, true, result.error || 'The native browser rejected ordinary streamed output');
+    assert.equal(result.unicode, true, 'Native UTF-16 selection did not preserve Bend scalar positions');
+    assert.equal(result.linked, true, result.error || 'Dollar-prefixed links lost their label or consumed the destination as math');
   } catch (error) { assert.fail(`${error.stack ?? error}\nstdout:\n${stdout}\nstderr:\n${stderr}`); }
   finally { stopBrowser(); await browserClosed; }
 });

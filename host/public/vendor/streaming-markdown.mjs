@@ -284,11 +284,11 @@ function push_text(p, text) {
 /**
  * @param   {Parser} p
  * @returns {void  } */
-function end_token(p) {
+function end_token(p, completed = true) {
     console.assert(p.len > 0, "No nodes to end")
     p.len -= 1
     p.token = /** @type {Token} */ (p.tokens[p.len])
-    p.renderer.end_token(p.renderer.data)
+    p.renderer.end_token(p.renderer.data, completed)
 }
 
 /**
@@ -328,6 +328,15 @@ function start_equation(p, token, opener, openingNewline = false) {
 
 function equation_character(p, char) {
     const equation = p.equation
+    // A link destination terminates an unfinished equation in its label as literal source.
+    if (equation.prefix === "]" && char === "(" &&
+        p.token === EQUATION_INLINE && p.tokens[p.len - 1] === LINK) {
+        add_text(p)
+        p.equation = null
+        end_token(p, false)
+        p.pending = "]("
+        return
+    }
     if (equation.prefix !== "") {
         if (equation.prefix + char === equation.closer) {
             add_text(p)
@@ -339,6 +348,11 @@ function equation_character(p, char) {
         // A mismatched closer prefix becomes content before reconsidering char.
         equation.slashes = equation.prefix === "\\" ? equation.slashes + 1 : 0
         equation.prefix = ""
+    }
+    if (char === "]" && equation.slashes % 2 === 0 &&
+        p.token === EQUATION_INLINE && p.tokens[p.len - 1] === LINK) {
+        equation.prefix = "]"
+        return
     }
     if (equation.slashes % 2 === 0 && char === equation.closer[0]) {
         if (equation.closer.length === 1) {
@@ -1503,6 +1517,7 @@ export function parser_write(p, chunk) {
  * @template T
  * @callback Renderer_End_Token
  * @param   {T    } data
+ * @param   {boolean} [completed] False when an unfinished equation must retain its source.
  * @returns {void } */
 
 /**

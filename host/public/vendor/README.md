@@ -10,6 +10,10 @@ The streaming parser contains a local math delimiter patch: it retains paired
 delimiter identity across chunks, treats math contents literally, and reports
 opening metadata so unfinished equations can retain their source. The npm
 integrity records its upstream package; its file hash records the patched copy.
+When an unfinished inline equation reaches a link destination boundary, the
+parser closes it with `completed=false`; the DOM sink restores its literal
+source before parsing the destination. This keeps dollar-prefixed link labels
+readable while retaining completed equations in labels, including across chunks.
 Other copied files preserve their original bytes, including line endings and whitespace;
 only these copied sources/licenses are excluded from project whitespace checks.
 

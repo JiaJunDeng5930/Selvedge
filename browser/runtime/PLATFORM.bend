@@ -1,3 +1,9 @@
+import ../editor/skill-mention.bend as Mention
+import ../../interaction/services/CONTEXT.bend as Context
+import ../../harness/COMMANDS.bend as Commands
+import ../../harness/tasks/PROGRAM.bend as Tasks
+import ../../harness/DOMAIN.bend as D
+import ../../bendlib/json.bend as J
 import Base
 import ../../interaction/MODEL.bend as Product
 import ../../interaction/presentation/PROGRAM.bend as InterfaceView
@@ -94,6 +100,8 @@ type Effect is Data:
   Focus{ticket: Nat, target: Focus.Target}
   ScopeFocus{ticket: Nat, previous: Focus.Scope, current: Focus.Scope}
   Clipboard{block: Code.Identity, effect: Code.Effect}
+  ObserveSkillCatalog{key: String, ticket: Nat, workspace_key: String, workspace: D.Workspace}
+  SetEditorSelection{key: String, selection: Physical.Selection}
 
 type Decision is Data:
   Decision{product: InteractionTypes.Decision, platform: Platform, effects: +List<Effect>}
@@ -168,9 +176,9 @@ def choose_editor(same: Bool, editor: Editor.Editor, fallback: Editor.Editor) ->
 
 def find_editor(editors: +List<Editor.Editor>, +owner: U.Editor) -> Editor.Editor:
   match editors:
-    case Nil{}: Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}
-    case Con{Editor.Editor{+current, selection, composing}, rest}:
-      choose_editor(U.same_editor(current, owner), Editor.Editor{current, selection, composing}, find_editor(rest, owner))
+    case Nil{}: Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}, Mention.initial()}
+    case Con{Editor.Editor{+current, selection, composing, mentions}, rest}:
+      choose_editor(U.same_editor(current, owner), Editor.Editor{current, selection, composing, mentions}, find_editor(rest, owner))
 
 def replace_editor(same: Bool, old: Editor.Editor, rest: +List<Editor.Editor>, current: Editor.Editor, fallback: +List<Editor.Editor>) -> +List<Editor.Editor>:
   match same:
@@ -180,8 +188,8 @@ def replace_editor(same: Bool, old: Editor.Editor, rest: +List<Editor.Editor>, c
 def save_editor(editors: +List<Editor.Editor>, +owner: U.Editor, +current: Editor.Editor) -> +List<Editor.Editor>:
   match editors:
     case Nil{}: [current]
-    case Con{Editor.Editor{+key, selection, composing}, +rest}:
-      replace_editor(U.same_editor(key, owner), Editor.Editor{key, selection, composing}, rest, current, save_editor(rest, owner, current))
+    case Con{Editor.Editor{+key, selection, composing, mentions}, +rest}:
+      replace_editor(U.same_editor(key, owner), Editor.Editor{key, selection, composing, mentions}, rest, current, save_editor(rest, owner, current))
 
 def editor_enabled(core: InteractionTypes.State, owner: U.Editor, capacity: View.Capacity) -> Bool:
   InterfaceView.composer_enabled(capacity, owner, core)
@@ -271,8 +279,8 @@ def clear_selection(clear: Bool, editor: Editor.Editor) -> Editor.Editor:
   match clear:
     case False{}: editor
     case True{}:
-      Editor.Editor{owner, selection, composing} = editor
-      Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}}
+      Editor.Editor{owner, selection, composing, mentions} = editor
+      Editor.Editor{owner, Physical.Selection{0n, 0n, "none"}, False{}, Mention.clear(mentions)}
 
 def synchronize_editor(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Editor.Editor:
   match found:
@@ -282,8 +290,8 @@ def synchronize_editor(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Edit
 def synchronize_drafts(+drafts: +List<U.Draft>, editors: +List<Editor.Editor>) -> +List<Editor.Editor>:
   match editors:
     case Nil{}: Nil{}
-    case Con{Editor.Editor{+owner, selection, composing}, rest}:
-      synchronize_editor(E.find_draft(drafts, owner), Editor.Editor{owner, selection, composing}) <> synchronize_drafts(drafts, rest)
+    case Con{Editor.Editor{+owner, selection, composing, mentions}, rest}:
+      synchronize_editor(E.find_draft(drafts, owner), Editor.Editor{owner, selection, composing, mentions}) <> synchronize_drafts(drafts, rest)
 
 def synchronize_editors(editors: +List<Editor.Editor>, +application: E.Application) -> +List<Editor.Editor>:
   +observed_session_1 = E.session(application)
@@ -395,6 +403,125 @@ def observed_focus(platform: Platform, inside: Bool, identity: Focus.Target, cor
     case True{}: Decision{unchanged(core), Platform{readers, editors, identity, (ticket + 1n : Nat), reduced, capacity, scope}, Nil{}}
     case False{}: Decision{unchanged(core), Platform{readers, editors, focused, (ticket + 1n : Nat), reduced, capacity, scope}, [Focus{(ticket + 1n : Nat), Focus.Product{Focus.initial(scope)}}]}
 
+# Skill discovery observes the editor's actual workspace independently of history.
+def message_text(found: Maybe<&2, U.Draft>) -> String:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}, feedback, directory}}: text
+    case Some{U.Draft{revision, U.Message{task, U.Text{text}, delivery}, feedback, directory}}: text
+    case _: ""
+
+def editor_text(+owner: U.Editor, +core: InteractionTypes.State) -> String:
+  message_text(E.find_draft(E.drafts(E.session(Core.application(core))), owner))
+
+def preview_workspace(preview: Context.Preview) -> Maybe<&2, D.Workspace>:
+  match preview:
+    case Context.ProspectiveContext{origin, project, workspace, sandbox, approval, guidance}: Some{Context.selected_workspace(workspace)}
+    case _: None{}
+
+def context_workspace(context: D.TaskContext) -> Maybe<&2, D.Workspace>:
+  D.TaskContext{workspace, sandbox, approval, project} = context
+  Some{workspace}
+
+def task_workspace(found: Maybe<&2, D.Task>) -> Maybe<&2, D.Workspace>:
+  match found:
+    case None{}: None{}
+    case Some{task}: context_workspace(D.task_context(task))
+
+def draft_workspace(found: Maybe<&2, U.Draft>, world: M.World()) -> Maybe<&2, D.Workspace>:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory}}: preview_workspace(Context.preview(context, world))
+    case Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory}}: task_workspace(E.found_task(world, task))
+    case _: None{}
+
+def editor_workspace(owner: U.Editor, +core: InteractionTypes.State) -> Maybe<&2, D.Workspace>:
+  +application = Core.application(core)
+  draft_workspace(E.find_draft(E.drafts(E.session(application)), owner), E.program(application))
+
+def save_native(editor: Editor.Editor, +owner: U.Editor, core: InteractionTypes.State, platform: Platform, effects: +List<Effect>) -> Decision:
+  Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  Decision{unchanged(core), Platform{readers, save_editor(editors, owner, editor), focused, ticket, reduced, capacity, scope}, effects}
+
+def mention_request(needed: Bool, +workspace: D.Workspace, +editor: Editor.Editor, +owner: U.Editor, core: InteractionTypes.State, platform: Platform) -> Decision:
+  match needed:
+    case False{}: save_native(editor, owner, core, platform, Nil{})
+    case True{}:
+      +mentions = Mention.requested(Editor.mentions(editor))
+      save_native(Editor.with_mentions(mentions, editor), owner, core, platform,
+        [ObserveSkillCatalog{Mention.field(mentions), Mention.generation(mentions), Mention.workspace(mentions), workspace}])
+
+def observe_mention_workspace(workspace: Maybe<&2, D.Workspace>, +editor: Editor.Editor, +owner: U.Editor, core: InteractionTypes.State, platform: Platform) -> Decision:
+  match workspace:
+    case None{}: save_native(Editor.with_mentions(Mention.without_workspace(Editor.mentions(editor)), editor), owner, core, platform, Nil{})
+    case Some{+value}:
+      +signature = J.stringify(D.workspace_json(value))
+      +mentions = Mention.context(String.eq(signature, Mention.workspace(Editor.mentions(editor))), signature, Editor.mentions(editor))
+      mention_request(Mention.open(mentions) && Mention.unrequested(mentions), value, Editor.with_mentions(mentions, editor), owner, core, platform)
+
+def observe_native_editor(editor: Editor.Editor, +owner: U.Editor, +core: InteractionTypes.State, platform: Platform) -> Decision:
+  Editor.Editor{key, +selection, +composing, mentions} = editor
+  observe_mention_workspace(editor_workspace(owner, core),
+    Editor.Editor{key, selection, composing, Mention.observe(editor_text(owner, core), selection, composing, mentions)}, owner, core, platform)
+
+def native_editor_result(result: Editor.Decision, owner: U.Editor, core: InteractionTypes.State, platform: Platform) -> Decision:
+  Editor.Decision{editor, submit} = result
+  observe_native_editor(editor, owner, core, platform)
+
+def with_selection_effect(effect: Effect, decision: Decision) -> Decision:
+  Decision{product, next_platform, effects} = decision
+  Decision{product, next_platform, effect <> effects}
+
+def accept_mention_insert(insertion: Mention.Insertion, +editor: Editor.Editor, +owner: U.Editor, core: InteractionTypes.State, platform: Platform) -> Decision:
+  Mention.Insertion{text, +caret} = insertion
+  Editor.Editor{key, selection, composing, +mentions} = editor
+  Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
+  +range : Physical.Selection = Physical.Selection{caret, caret, "none"}
+  +next_editor : Editor.Editor = Editor.Editor{key, range, composing, Mention.dismiss(mentions)}
+  +decision : Decision = after_core(Product.step(Product.InterfaceInput{InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{owner, U.WriteMessage{U.Text{text}}}}}}, core),
+    Platform{readers, save_editor(editors, owner, next_editor), focused, ticket, reduced, capacity, scope})
+  with_selection_effect(SetEditorSelection{Mention.field(mentions), range}, decision)
+
+def accept_mention_found(found: Maybe<&2, Mention.Skill>, trigger: Maybe<&2, Mention.Trigger>, +editor: Editor.Editor, +owner: U.Editor, +core: InteractionTypes.State, platform: Platform) -> Decision:
+  match found trigger:
+    case Some{skill} Some{query}: accept_mention_insert(Mention.insert(editor_text(owner, core), query, skill), editor, owner, core, platform)
+    case _ _: save_native(editor, owner, core, platform, Nil{})
+
+def accept_current_mention(index: Maybe<&2, Nat>, +editor: Editor.Editor, +owner: U.Editor, +core: InteractionTypes.State, platform: Platform) -> Decision:
+  Editor.Editor{key, selection, composing, +mentions} = editor
+  +chosen = Mention.choose(J.natural_or(index, Mention.selected(mentions)), mentions)
+  accept_mention_found(Mention.active(chosen), Mention.trigger(chosen), Editor.Editor{key, selection, composing, mentions}, owner, core, platform)
+
+def mentions_match_workspace(workspace: Maybe<&2, D.Workspace>, mentions: Mention.State) -> Bool:
+  match workspace:
+    case None{}: False{}
+    case Some{value}: String.eq(J.stringify(D.workspace_json(value)), Mention.workspace(mentions))
+
+def accept_mention_if_current(current: Bool, index: Maybe<&2, Nat>, +editor: Editor.Editor, +owner: U.Editor, +core: InteractionTypes.State, platform: Platform) -> Decision:
+  match current:
+    case False{}: observe_native_editor(editor, owner, core, platform)
+    case True{}: accept_current_mention(index, editor, owner, core, platform)
+
+def accept_native_mention(index: Maybe<&2, Nat>, +editor: Editor.Editor, +owner: U.Editor, +core: InteractionTypes.State, platform: Platform) -> Decision:
+  accept_mention_if_current(mentions_match_workspace(editor_workspace(owner, core), Editor.mentions(editor)), index, editor, owner, core, platform)
+
+def receive_native_catalog(ticket: Nat, +workspace: String, body: J.Json, +editor: Editor.Editor, +owner: U.Editor, +core: InteractionTypes.State, platform: Platform) -> Decision:
+  +mentions = Editor.mentions(editor)
+  +current = Nat.is_eq(ticket, Mention.generation(mentions)) && String.eq(workspace, Mention.workspace(mentions)) &&
+    mentions_match_workspace(editor_workspace(owner, core), mentions)
+  observe_native_editor(Editor.with_mentions(Mention.receive(current, body, mentions), editor), owner, core, platform)
+
+def editor_dispatch_found(+event: Editor.EditorEvent, +owner: U.Editor, +core: InteractionTypes.State, +platform: Platform, +editor: Editor.Editor) -> Decision:
+  match event:
+    case Editor.MoveMention{backward}: save_native(Editor.with_mentions(Mention.move(backward, Editor.mentions(editor)), editor), owner, core, platform, Nil{})
+    case Editor.DismissMention{}: save_native(Editor.with_mentions(Mention.dismiss(Editor.mentions(editor)), editor), owner, core, platform, Nil{})
+    case Editor.AcceptMention{index}: accept_native_mention(index, editor, owner, core, platform)
+    case Editor.CatalogObserved{ticket, workspace, body}: receive_native_catalog(ticket, workspace, body, editor, owner, core, platform)
+    case Editor.Enter{shift, alt, modified}: edit_result(Editor.step(editor, event, editor_enabled(core, owner, capacity(platform)) && Focus.permits_composer(scope(platform)), False{}), owner, core, platform)
+    case other: native_editor_result(Editor.step(editor, other, False{}, False{}), owner, core, platform)
+
+def editor_dispatch(+event: Editor.EditorEvent, +owner: U.Editor, +core: InteractionTypes.State, +platform: Platform) -> Decision:
+  editor_dispatch_found(event, owner, core, platform, find_editor(editors(platform), owner))
+
+
 def dispatch(+state: State, +input: Input) -> Decision:
   State{+observed_state_1, platform} = state
   Platform{readers, +editors, +focused, +ticket, reduced, +capacity, +scope} = platform
@@ -403,7 +530,7 @@ def dispatch(+state: State, +input: Input) -> Decision:
     case ReadingInput{+task, +generation, event}:
       read(active_reader(Core.application(observed_state_1), task, generation), task, generation, event, observed_state_1, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
     case EditorInput{+owner, event}:
-      edit_result(Editor.step(find_editor(editors, owner), event, editor_enabled(observed_state_1, owner, capacity) && Focus.permits_composer(scope), False{}), owner, observed_state_1, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
+      editor_dispatch(event, owner, observed_state_1, Platform{readers, editors, focused, ticket, reduced, capacity, scope})
     case CapacityObserved{value}: after_core(unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, value, scope})
     case NavigationPointerObserved{owner}: Decision{unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Nil{}}
     case NavigationFocusObserved{owner}: Decision{unchanged(observed_state_1), Platform{readers, editors, focused, ticket, reduced, capacity, scope}, Nil{}}
@@ -444,6 +571,10 @@ def deferred_realized_effects(source: +List<Effect>, surface: Unit -> SurfaceTyp
       ApplyReading{task, generation, effect} <> deferred_realized_effects(rest, surface)
     case Con{Clipboard{block, effect}, rest}:
       Clipboard{block, effect} <> deferred_realized_effects(rest, surface)
+    case Con{ObserveSkillCatalog{key, ticket, workspace_key, workspace}, rest}:
+      ObserveSkillCatalog{key, ticket, workspace_key, workspace} <> deferred_realized_effects(rest, surface)
+    case Con{SetEditorSelection{key, selection}, rest}:
+      SetEditorSelection{key, selection} <> deferred_realized_effects(rest, surface)
 
 def realized_decision(decision: Decision) -> Decision:
   Decision{InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable},
