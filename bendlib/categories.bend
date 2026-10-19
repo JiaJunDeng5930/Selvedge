@@ -75,9 +75,6 @@ def construct_certified(-Request: Data, -Result: Data, producer: Request -> Resu
   +result = producer(request)
   Membership{Construction{request, result}, Intersection{{==}, evidence(request, accepted)}}
 
-type Implementation<-Operations: Type> is Type:
-  Implementation{specification: Operations, operations: Operations}
-
 def holds(-Value: Data, -predicate: Value -> Bool) -> Value -> Type:
   value => {predicate(value) == True{} : Bool}
 

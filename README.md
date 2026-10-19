@@ -47,11 +47,11 @@ phone interface is required by the host implementation.
 ## Read the program
 
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
-system. This is the callable operations and laws surface. `Execution`,
-`Application`, and `Display` pair explicit specification and
-operation bundles with evidence of their open semantic categories and pointwise
-agreement of every operation field. Categories are predicates over
-values; inclusion supplies a universally quantified implication, and intersection
+system. Its callable operations and laws express the intended behavior and must
+be reviewed against the engineering goal when that behavior changes. `Execution`,
+`Application`, and `Display` carry operation bundles with evidence of their open
+semantic categories, indexed by the operations clients actually call. Categories
+are predicates over values; inclusion supplies a universally quantified implication, and intersection
 requires both memberships of the same value. Syntax sum types describe the values
 clients can construct, rather than an inheritance tree of semantic categories.
 
@@ -162,6 +162,8 @@ check complements the proof gate, which still requires complete decisions,
 completion correlation and ordered effects. Component contracts and storage
 types quantify arbitrary clients and surrounding state; normal checks validate
 their actual production instances.
+The declared core import roots exclude concrete features and the assembled
+harness model; adding a suitable core helper does not require a second file list.
 These checks constrain source changes, not human reading time or whole-build time.
 
 The existing standard-library proof terms and their checked translation live in
@@ -233,8 +235,9 @@ the operating-system boundary; [bendlib/README.md](bendlib/README.md) locates su
 [The exploration record](docs/bend2-exploration.md) explains the findings and their
 limits. Decision reasons that are program requirements belong in Bend entities,
 executable specifications or public rules bound to actual production computations.
-Do not maintain another account in documentation of requirements already expressed
-there.
+Documentation explains their use, rationale and evidence limits and links to the
+owning definitions. Historical decisions describe their original scope; their
+recorded implementation choices do not impose requirements on later changes.
 
 [interaction/MODEL.bend](interaction/MODEL.bend) is the platform-independent interaction entry. Its typed
 presentation, form bindings, navigation and action availability are evaluated
@@ -269,11 +272,11 @@ with the pinned Bend 2.0.34 official `js_lib` backend: `KERNEL.bend` to
 `host/public/generated/browser-model.mjs`, and `HOST.bend` to
 `host/public/generated/host-model.mjs`. Before compilation or cache reuse, the
 full `.build/ui-verification.bend` entry includes root `PROOF.bend` and must pass
-the proof gate. Browser compilation uses `.build/ui-runtime.bend`, preserving
-the existing ordered imports and private providers with root `PROOF.bend`
+the proof gate. Browser compilation uses `.build/ui-runtime.bend`, with the
+ordered imports and private providers needed by its contracts and root `PROOF.bend`
 excluded, and explicitly adds `harness/approval/PROOF.bend` to discharge the
 approval contracts still present in the runtime closure. Its public source
-remains `BROWSER.bend`; the strict emitter checks remain unchanged.
+is `BROWSER.bend`; the strict emitter checks also apply to this entry.
 Eligible production JavaScript entries share a freshly checked book and one
 backend emission; each output retains its own declarations, export expressions
 and the original runtime as an independently loadable module. Entry-owned data

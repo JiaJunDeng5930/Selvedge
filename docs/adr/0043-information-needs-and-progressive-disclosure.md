@@ -61,6 +61,7 @@ cannot masquerade as an available interface.
 The complete production verification entry checked successfully in 154,968 ms
 with the pinned compiler and no diagnostic output. The former 60-second process
 budget therefore rejected a successful verification before it could finish. The
-default budget is now five minutes, retaining a finite bound and margin for local
-load. Exit status, complete proof-success output and empty diagnostic output remain
-mandatory; no proof requirement or compiler setting is relaxed.
+budget at that snapshot was raised to five minutes, retaining margin for local
+load without changing the proof verdict or compiler settings. Scripted proof,
+compilation and test-run limits have since been removed; the current build uses
+the runtimes' default resource management.

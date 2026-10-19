@@ -35,6 +35,6 @@ remain with their owners. This library does not require wrapping every Boolean
 branch or replacing already verified pure constructions.
 
 For context-bound results, follow `Construction`, `constructed_by` and `construct`
-in [categories.bend](categories.bend). Root operational packages additionally use
-`Implementation` to pair specification and operation bundles; their fieldwise
-faithfulness obligations belong to [MODEL.bend](../MODEL.bend).
+in [categories.bend](categories.bend). Root operational packages use `Membership`
+to bind their required properties directly to the callable operation fields in
+[MODEL.bend](../MODEL.bend).

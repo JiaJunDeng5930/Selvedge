@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requestJson } from './network.mjs';
 import { RemoteConnector } from './remote-connector.mjs';
-import { assertRelayUrl } from '../remote/protocol.mjs';
+import { assertRelayUrl, REMOTE_PAIRING_TTL_MS } from '../remote/protocol.mjs';
 
 const identityFormat = 'selvedge-remote-identity-1';
 const identityName = 'remote-identity.json';
@@ -179,7 +179,7 @@ export class RemoteControl {
   async pair() {
     await this.#enabled();
     const code = randomBytes(32).toString('base64url');
-    const expires_at = Date.now() + 5 * 60_000;
+    const expires_at = Date.now() + REMOTE_PAIRING_TTL_MS;
     this.#pending.clear();
     this.#pairingExpires = expires_at;
     await this.#connector.pair(code, expires_at);

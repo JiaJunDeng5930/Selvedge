@@ -51,9 +51,6 @@ def state_safe(decision: M.Decision()) -> Bool:
 def effect_authorized(previous: M.World(), decision: M.Decision()) -> Bool:
   I.decision(previous, decision)
 
-def valid_candidate(+previous: M.World(), +decision: M.Decision()) -> Bool:
-  Bool.and(state_safe(decision), effect_authorized(previous, decision))
-
 def state_safety() -> M.Decision() -> Type:
   Categories.holds(M.Decision(), state_safe)
 

@@ -325,8 +325,8 @@ async function jointBook(batch, seed, seen, Bend) {
     const previous = new Set(book.order);
     const done = book.order.length;
     await Bend.book_load(book, request.entry, namespace, ownSeen, undefined, batch.sourceRoot);
-    // Entry-local data have historically unqualified public constructor names.
-    // Keep their original independent compilation instead of changing their ABI.
+    // Entry-local constructor tags are public values consumed across modules.
+    // Qualifying them for batching would change the source program's values.
     if (book.order.slice(done).some(name => previous.has(name))
         || Object.entries(book.tlds).some(([name, value]) => name.startsWith(`${namespace}.`) && value.$ === 'ADT')) return null;
     const definitions = Object.fromEntries(Object.values(request.exports).map(name =>

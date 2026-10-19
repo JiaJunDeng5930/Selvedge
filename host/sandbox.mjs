@@ -39,12 +39,6 @@ function ancestors(root, includeSelf) {
   }
 }
 
-export function seatbeltProfile({ writableRoots, scratch, readOnlyPaths = [], readOnlyExceptions = [], networkAccess, readableRoots }) {
-  return boundary('effect.seatbelt', { writableRoots, scratch, readOnlyPaths, readOnlyExceptions, networkAccess, readableRoots,
-    protectedAncestors: readOnlyPaths.map(root => ancestors(root, true)),
-    readAncestors: readableRoots ? [...readableRoots, scratch].map(root => ancestors(root, false)) : [] });
-}
-
 export function seccompFilter(architecture, networkAccess) {
   const program = boundary('effect.seccomp', { architecture, networkAccess });
   const bytes = Buffer.alloc(program.length * 8);

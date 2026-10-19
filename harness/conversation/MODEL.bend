@@ -5,8 +5,8 @@ import ../protocol/COMMIT.bend as Commit
 import ../execution/PROGRAM.bend as Execution
 import ../../bendlib/stdlib.bend as Std
 
-# Independent finite-trace meaning. Complete receipts are newest first.
-# No implementation module is in this specification's dependency closure.
+# Finite traces apply the command and input requirements with the independent
+# bounded scheduling equations. Complete receipts are newest first.
 type Tape is Data:
   Tape{world: M.World(), pending: +List<M.Input>, receipts: +List<M.Decision()>}
 

@@ -54,14 +54,6 @@ def control(status: Status, request: Control) -> Maybe<&2, Status>:
     case Stopped{} Archive{}: Some{Archived{}}
     case _ _: None{}
 
-def retain_status(result: Maybe<&2, Status>, previous: Status) -> Status:
-  match result:
-    case Some{next}: next
-    case None{}: previous
-
-def control_total(+status: Status, request: Control) -> Status:
-  retain_status(control(status, request), status)
-
 def control_entry(result: Maybe<&2, Status>, name: String, rest: +List<J.Json>) -> +List<J.Json>:
   match result:
     case Some{next}: J.Text{name} <> rest

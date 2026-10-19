@@ -415,9 +415,6 @@ def within_shown_bytes_result(+rendered: Result<&2, &2, String, String>, +maximu
     case Done{text}: Nat.is_le(J.utf8_length(text), maximum)
     case Fail{reason}: False{}
 
-def within_shown_bytes(+value: J.Json, +maximum: Nat) -> Bool:
-  within_shown_bytes_result(J.show(value), maximum)
-
 def tool_names(+values: +List<J.Json>) -> +List<J.Json>:
   match values:
     case Nil{}: []
@@ -611,18 +608,11 @@ def definition_destructive(+value: J.Json) -> Bool:
   native_destructive(routed_kind(J.text(J.get(value, "remote")))) &&
     J.same(J.get(J.get(value, "annotations"), "destructiveHint"), J.Boolean{True{}})
 
-def definition_idempotent(+value: J.Json) -> Bool:
-  native_idempotent(routed_kind(J.text(J.get(value, "remote")))) &&
-    J.same(J.get(J.get(value, "annotations"), "idempotentHint"), J.Boolean{True{}})
-
 def ReadOnly() -> J.Json -> Type:
   Categories.holds(J.Json, value => definition_readonly(value))
 
 def Destructive() -> J.Json -> Type:
   Categories.holds(J.Json, value => definition_destructive(value))
-
-def Idempotent() -> J.Json -> Type:
-  Categories.holds(J.Json, value => definition_idempotent(value))
 
 def definition_capabilities(+value: J.Json) -> Bool:
   +tool = J.text(J.get(value, "remote"))

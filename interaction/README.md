@@ -22,6 +22,8 @@ the imports acyclic. The root [PROOF.bend](../PROOF.bend) assembles the producti
 application input. Its optional reason distinguishes connection from the owning
 editor's pending file uploads. Admission derives its blocked status from the same
 observation, and `control` combines that reason with intrinsic availability.
-`submission_obstruction_preserves_admission` retains the previous admission
-semantics for every application input; `actual_control_observation` binds the
-complete observed control to this production observation.
+The service requirements bind submission and workspace retry to that editor's
+uploads and the connection, confirmation to the connection, and direct commands
+to their service dependency. Local actions require no connection.
+`actual_control_observation` binds the complete observed control to this same
+production observation.

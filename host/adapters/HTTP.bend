@@ -611,9 +611,6 @@ def local_admission(+source: J.Json) -> J.Json:
 def connection_admission(+source: J.Json) -> J.Json:
   local_route(source)
 
-def connection_origin(+source: J.Json) -> J.Json:
-  local_route(source)
-
 def upload_size_admission(+source: J.Json) -> J.Json:
   upload_admission(source)
 
@@ -656,31 +653,6 @@ def content_admission(+source: J.Json) -> J.Json:
 
 def body_admission(+source: J.Json) -> J.Json:
   request_guard(source, member => content_request(LocalRequest, member, True{}), member => content_request(ConnectionRequest, member, True{}))
-
-def local_open_host_inclusion() -> Categories.Inclusion<J.Json, LocalRequest, OpenHost>:
-  Categories.intersection_first(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, LocalPath, LocalOrigin, candidate)), candidate)))
-
-def local_authority_origin_inclusion() -> Categories.Inclusion<J.Json, LocalRequest,
-  (candidate => Categories.intersection(J.Json, Authorization, (candidate => Categories.intersection(J.Json, LocalPath, LocalOrigin, candidate)), candidate))>:
-  Categories.intersection_second(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, LocalPath, LocalOrigin, candidate)), candidate)))
-
-def connection_open_host_inclusion() -> Categories.Inclusion<J.Json, ConnectionRequest, OpenHost>:
-  Categories.intersection_first(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, ConnectionPath, (candidate => Categories.intersection(J.Json, ConnectionMethod, ConnectionOrigin, candidate)), candidate)), candidate)))
-
-def connection_authority_method_origin_inclusion() -> Categories.Inclusion<J.Json, ConnectionRequest,
-  (candidate => Categories.intersection(J.Json, Authorization, (candidate => Categories.intersection(J.Json, ConnectionPath,
-    (candidate => Categories.intersection(J.Json, ConnectionMethod, ConnectionOrigin, candidate)), candidate)), candidate))>:
-  Categories.intersection_second(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, ConnectionPath, (candidate => Categories.intersection(J.Json, ConnectionMethod, ConnectionOrigin, candidate)), candidate)), candidate)))
-
-def upload_query_inclusion() -> Categories.Inclusion<J.Json, Upload, UploadQuery>:
-  Categories.intersection_first(J.Json, UploadQuery, UploadSize)
-
-def upload_size_inclusion() -> Categories.Inclusion<J.Json, Upload, UploadSize>:
-  Categories.intersection_second(J.Json, UploadQuery, UploadSize)
 
 def meaning_9(accepted: Bool, operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -740,15 +712,6 @@ def family(+operation: String) -> Model.Adapter(source => meaning(operation, sou
 
 def run(+operation: String, +source: J.Json) -> J.Json:
   Model.execute(source => meaning(operation, source), family(operation), source)
-
-def open_host_inclusion() -> Categories.Inclusion<J.Json, OpenHost, Host>:
-  Categories.intersection_second(J.Json, Open, Host)
-
-def local_host_inclusion() -> Categories.Inclusion<J.Json, LocalRequest, Host>:
-  Categories.inclusion_compose(J.Json, LocalRequest, OpenHost, Host, local_open_host_inclusion(), open_host_inclusion())
-
-def connection_host_inclusion() -> Categories.Inclusion<J.Json, ConnectionRequest, Host>:
-  Categories.inclusion_compose(J.Json, ConnectionRequest, OpenHost, Host, connection_open_host_inclusion(), open_host_inclusion())
 
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}

@@ -72,11 +72,9 @@ nodes. Its helpers do not depend on the assembled controls model, keeping the
 import closure acyclic. Complete constructor equations retain every caller
 coordinate and the same raw calculation.
 
-These construction boundaries do not hide every raw source constructor. Earlier
-check results and the current validation status are recorded in
-[the exploration notes](../../docs/bend2-exploration.md). The production provider
-adoption passed the formal check and the focused original construction fixtures.
-Physical browser layout, focus and interaction still require external evidence.
+These construction boundaries do not hide every raw source constructor.
+Physical browser layout, focus and interaction require external evidence beyond
+source construction proofs.
 
 `CONTRACT.AuthoredShellRequirements` binds navigation placement and the complete
 source styles of responsive toolbar and composer action groups. These groups use

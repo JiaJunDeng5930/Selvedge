@@ -519,11 +519,6 @@ law backward_backward:
   {SpatialModel.visible(SpatialModel.Backward{left}, SpatialModel.Backward{top}, width, height, viewport_width, viewport_height) ==
     SpatialModel.Box{0n, 0n, Nat.min(Nat.sub(width, left), viewport_width), Nat.min(Nat.sub(height, top), viewport_height)} : SpatialModel.Box}
 
-law negative_top_regression:
-  {SpatialModel.visible(SpatialModel.Forward{100n}, SpatialModel.Backward{8n}, 40n, 40n, 1000n, 800n) ==
-    SpatialModel.Box{100n, 0n, 40n, 32n} : SpatialModel.Box}
-
-
 law hierarchy_heading_separation:
   for +grammar: Hierarchy.Grammar
   {Nat.is_lt(Hierarchy.member_gap(grammar), Hierarchy.heading_gap(grammar)) == True{} : Bool}

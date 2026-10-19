@@ -1,7 +1,7 @@
 # ChatGPT Web backend
 
 `chatgpt-web` connects the ordinary Selvedge model interface to **ChatGPT Web API
-v1**. It is separate from the `chatgpt` OAuth/Codex provider and the `responses`
+v1**. It is separate from the official `chatgpt` sign-in provider and the `responses`
 API-key provider. Task creation, tools, approval reviews, board drafting,
 summarization, cancellation and branching still use their existing interfaces.
 

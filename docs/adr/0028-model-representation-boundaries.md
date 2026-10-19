@@ -34,12 +34,13 @@ For the remaining concrete layers, use the ordinary source ownership gate in
 literal owner paths. The gate resolves import aliases and checks construction and
 pattern matching outside those owners. It validates the declarations themselves
 and does not grant a blanket exemption to proof modules. This complements Bend's
-type checker; it does not introduce language-level sealing. The existing closed
-core import boundary remains unchanged.
+type checker; it does not introduce language-level sealing. The core import
+closure excludes concrete features and the assembled harness model; the check
+follows imports from the declared roots instead of enumerating every helper.
 
-Group existing locality, interaction and browser contract evidence by
-responsibility, retaining all mandatory obligations and production bindings. Public laws use whole-state
-quantification, observations and intended updates; representation-specific
+Group locality, interaction and browser contract evidence by
+responsibility and bind it to the production behavior each contract specifies.
+Public laws use whole-state quantification, observations and intended updates; representation-specific
 providers may open those states to establish the original complete equations.
 These providers remain explicit owners. Contract groups supply a reading boundary
 without a parallel property catalog or optional proof tier.

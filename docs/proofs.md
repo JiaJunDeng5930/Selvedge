@@ -2,7 +2,8 @@
 
 The root [MODEL.bend](../MODEL.bend) is the default model context. Its
 `Execution`, `Application`, and `Display` records carry operations and universal
-properties of those exact fields. `SystemModel` connects them through one hidden
+properties of those exact fields, with category evidence indexed directly by the
+callable operation records. `SystemModel` connects them through one hidden
 `World`, with nested packages hiding the other state and result carriers. Generic
 clients use operations, projections, observations, and proof fields; they cannot
 match an abstract state carrier as a concrete implementation constructor.
@@ -29,9 +30,11 @@ Task storage's production `update_state` specializes the abstract
 write operation. Its provider proves the complete required update and frame
 preservation for arbitrary surrounding state; client proofs use that storage
 operation instead of expanding its concrete task list reconstruction.
-Replacement equality remains a production proof obligation.
+These guarantees concern the specified update and unrelated state. A later
+replacement needs evidence for the behavior required
+by its clients; equality to an earlier implementation is not an additional goal.
 
-The locality, interaction and browser contracts group existing obligations by responsibility;
+The locality, interaction and browser contracts group specified properties by responsibility;
 their assembly still requires every group's evidence. Grouping is a reading
 boundary, not an optional proof tier. Public clauses quantify whole private
 states and use observations and intended updates. Representation-specific
@@ -92,4 +95,5 @@ Unsafe or foreign dependencies, missing evidence and unexpected reports fail
 both ordinary checks and cached builds. MAIN owns native external IO.
 [Browser PLATFORM.bend](../browser/runtime/PLATFORM.bend) defines the browser effect
 boundary. Pure model evidence does not establish the concrete platform
-interpreter's behavior; focused boundary and end-to-end checks cover those effects.
+interpreter's behavior; focused boundary and end-to-end checks exercise selected
+physical paths, with their scope recorded in [the test guide](../tests-bend/README.md).

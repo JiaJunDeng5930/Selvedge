@@ -9,9 +9,8 @@ not establish that a supplied result is the resolution of the original request
 in the current state. A result can retain that property while being paired with
 a different world, owner, task or operation.
 
-The existing universal calculation laws already describe complete decisions,
-including state, replies and effects. Those laws must remain the domain
-requirements. Their existence alone does not make a consumer of a separately
+The universal calculation laws describe complete decisions, including state,
+replies and effects. Their existence alone does not make a consumer of a separately
 supplied result and world require evidence that those arguments belong together.
 
 ## Decision
@@ -31,14 +30,13 @@ correspondence connect callers to that calculation rather than duplicating or
 weakening its requirements. Component assembly retains ordinary data commands
 and constructs and consumes their proof-bearing membership at interpretation.
 
-Root operational packages also pair an explicit specification bundle with the
-actual operation bundle. Pointwise faithfulness covers every field of
-`ExecutionOperations`, `ApplicationOperations` and `DisplayOperations`, including
-state, reply, effect and observation projections. Requiring those equations
-alongside the existing semantic categories prevents a package from satisfying
-one projection's requirement while exposing a mismatched operation elsewhere.
-The obligations and canonical bundles are defined in the root
-[MODEL.bend](../../MODEL.bend) and its production proof providers.
+An earlier root package paired a specification bundle with an operation bundle
+and equated every field. Production supplied the same bundle twice. That layer
+added equality obligations without an independent behavioral requirement, and
+has been removed. The root packages instead carry membership evidence indexed
+directly by their callable operations. The properties in
+[MODEL.bend](../../MODEL.bend) constrain state, reply, effect and observation
+behavior on those operations; production providers establish that evidence.
 
 ## Consequences and limits
 
