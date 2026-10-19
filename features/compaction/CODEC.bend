@@ -17,14 +17,9 @@ def compact_metadata_json(+id: Nat, +ticket: Nat, +model: D.Model, +scope: Strin
     J.Field{"method", J.Text{method}}, J.Field{"window_tokens", J.nat(window)},
     J.Field{"output_reserve_tokens", J.nat(reserve)}]}
 
-def rendered_bytes(result: Result<&2, &2, String, String>, limit: Nat) -> Nat:
-  match result:
-    case Fail{message}: 1n+limit
-    case Done{text}: J.utf8_length(text)
-
-def compact_metadata_bytes(+id: Nat, +ticket: Nat, +model: D.Model, +scope: String, +target: A.Target, limit: Nat) -> Nat:
+def compact_metadata_bytes(+id: Nat, +ticket: Nat, +model: D.Model, +scope: String, +target: A.Target) -> Nat:
   # Adding the nonempty object's final `,"plan":` field costs eight bytes.
-  Nat.add(8n, rendered_bytes(J.show(compact_metadata_json(id, ticket, model, scope, target)), limit))
+  Nat.add(8n, J.utf8_length(J.stringify(compact_metadata_json(id, ticket, model, scope, target))))
 
 def compact_with_metadata(metadata: J.Json, plan: J.Json) -> J.Json:
   match metadata:

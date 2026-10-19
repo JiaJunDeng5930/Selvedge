@@ -17,17 +17,24 @@ export function prepareCompilerSource() {
 }
 
 async function prepare() {
+  // DEFENSE: A developer can invoke this build script with Node even though compiler execution requires Bun.
   if (!process.versions.bun) throw new Error('Compiler preparation requires Bun');
+  // DEFENSE: Editing bend-version without the pinned compiler source identity would verify and emit with different toolchains.
   if (readFileSync(path.join(root, 'bend-version'), 'utf8').trim() !== sourceVersion) {
     throw new Error('Compiler source version must match bend-version');
   }
   const archivePath = path.join(root, '.build/javascript-compiler.tar.gz');
   let archive;
-  try { archive = await readFile(archivePath); } catch {}
+  // DEFENSE: A fresh checkout has no compiler source archive; other read failures must stop preparation.
+  try { archive = await readFile(archivePath); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  // DEFENSE: A missing or edited cached archive must be replaced with the pinned compiler source before execution.
   if (!archive || hash(archive) !== sourceHash) {
     const response = await fetch(`https://codeload.github.com/bendlang/bend/tar.gz/refs/tags/v${sourceVersion}`);
+    // DEFENSE: The compiler download endpoint can return an HTTP error instead of the source archive.
     if (!response.ok) throw new Error(`Compiler source download failed: HTTP ${response.status}`);
     archive = Buffer.from(await response.arrayBuffer());
+    // DEFENSE: The downloaded compiler archive can differ from the pinned source bytes; reject it before extraction.
     if (hash(archive) !== sourceHash) throw new Error('Compiler source checksum mismatch');
     await mkdir(path.dirname(archivePath), { recursive: true });
     const temporary = `${archivePath}.${randomUUID()}.tmp`;
@@ -37,6 +44,7 @@ async function prepare() {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-bend-compiler-'));
   try {
     const result = spawnSync('tar', ['-xzf', '-', '-C', directory, '--strip-components=1'], { input: archive, encoding: 'utf8', maxBuffer: Infinity });
+    // DEFENSE: The tar subprocess can fail to start or fail extracting the verified compiler archive.
     if (result.error || result.status !== 0) throw new Error(`Compiler extraction failed: ${result.error?.message ?? result.stderr}`);
     const compilerDirectory = path.join(directory, 'bend2');
     const adapter = createHash('sha256');
@@ -46,7 +54,6 @@ async function prepare() {
       adapter.update(name).update('\0').update(source).update('\0');
       if (name === 'main.ts') {
         const entry = source.lastIndexOf('if (import.meta.main)');
-        if (entry < 0) throw new Error('Unrecognized pinned compiler CLI entry');
         const api = source.slice(0, entry) + '\nexport { book_promises, cli_verdict };\n';
         await writeFile(path.join(compilerDirectory, 'api.ts'), api);
         adapter.update('api\0').update(api);

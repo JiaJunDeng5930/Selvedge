@@ -469,6 +469,7 @@ def directory_shape(value: J.Json, +names: +List<String>) -> Bool:
 def directory_entry_valid(valid: Bool, name: String, path: String) -> Result<&2, &2, String, Services.DirectoryEntry>:
   match valid:
     case True{}: Done{Services.DirectoryEntry{name, path}}
+    # DEFENSE: The directory-listing protocol requires named entries with absolute paths before they become selectable workspace roots.
     case False{}: Fail{"Invalid folder entry"}
 
 def directory_entry_fields(shape: Bool, name: J.Json, path: J.Json) -> Result<&2, &2, String, Services.DirectoryEntry>:
@@ -495,6 +496,7 @@ def directory_entries(values: +List<J.Json>) -> Result<&2, &2, String, +List<Ser
 def directory_parent_valid(valid: Bool, path: String, up: String, entries: +List<Services.DirectoryEntry>, truncated: Bool) -> Result<&2, &2, String, Services.DirectoryCatalog>:
   match valid:
     case True{}: Done{Services.DirectoryCatalog{path, Some{up}, entries, truncated}}
+    # DEFENSE: The directory-listing protocol permits only an absolute parent path.
     case False{}: Fail{"Invalid parent folder"}
 
 def directory_catalog_valid(valid: Bool, path: String, parent: J.Json, values: Result<&2, &2, String, +List<Services.DirectoryEntry>>,
@@ -511,12 +513,14 @@ def directory_catalog(+path: String, parent: J.Json, values: Result<&2, &2, Stri
 
 def directory_response_failure(shape: Bool, error: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
   match shape error:
+    # DEFENSE: A failed directory-listing response must retain its textual error in the current response format.
     case True{} J.Text{reason}: Fail{reason}
     case _ _: Fail{"Invalid folder listing failure"}
 
 def directory_response_success(shape: Bool, path: J.Json, entries: J.Json, truncated: J.Json, parent: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
   match shape path entries truncated:
     case True{} J.Text{path} J.Array{entries} J.Boolean{truncated}: directory_catalog(path, parent, directory_entries(entries), truncated)
+    # DEFENSE: A successful directory-listing response must carry the complete current catalog format.
     case _ _ _ _: Fail{"Invalid folder listing"}
 
 def directory_response_ok(ok: J.Json, +body: J.Json) -> Result<&2, &2, String, Services.DirectoryCatalog>:
@@ -624,6 +628,7 @@ def completion_receipt(completion: E.Completion, receipt: Maybe<&2, Receipt.Rece
 
 def completed(found: Maybe<&2, Pending>, received: Nat, supplied: M.World(), +reply: J.Json, +state: State) -> Decision:
   match found:
+    # DEFENSE: An HTTP command completion can arrive after its pending ticket has already been settled or retired.
     case None{}: Decision{state, Nil{}}
     case Some{Pending{+ticket, +completion, text, +origin, status}}:
       completion_receipt(completion, Receipt.from_reply(ticket, origin, reply), complete_ticket(ticket, received, supplied, reply, completion, state))
@@ -655,6 +660,7 @@ def failed_completion(ticket: Nat, error: String, state: State) -> Decision:
 
 def rejected_pending(found: Maybe<&2, Pending>, +reason: String, state: State) -> Decision:
   match found:
+    # DEFENSE: A rejection can arrive after its original pending command ticket has already been retired.
     case None{}: Decision{state, Nil{}}
     case Some{Pending{+ticket, +completion, command, +origin, status}}:
       completion_receipt(completion, Receipt.from_reply(ticket, origin, D.failure("command_not_submitted", reason)), settle_old(ticket, D.failure("command_not_submitted", reason), completion, state))

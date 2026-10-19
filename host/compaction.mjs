@@ -11,9 +11,11 @@ async function measured(session, prepared, limits, options, window_tokens) {
   let response;
   try { response = await requestProviderJSON(session, '/input_tokens', prepareProviderRequest(body), limits, options); }
   catch (error) {
+    // DEFENSE: A Responses endpoint can reject the optional input_tokens route; native admission permits a UTF-8 bound only for readable requests.
     const fallback = boundary('backend.compaction_meter_fallback', {
       status: error.status, code: error.provider_code, request, bytes, scope: session.scope,
     });
+    // DEFENSE: Authentication, network and non-route failures must not be hidden by a local token estimate.
     if (fallback.action !== 'local') throw error;
     return fallback;
   }
@@ -26,6 +28,7 @@ export async function observeModelRequest(effect, config, home, limits, options 
   const session = await providerSession(effect, config, home, options);
   if (effect.scope_only || effect.kind === 'context_scope') return { scope: session.scope, now: Date.now() };
   const scope = boundary('backend.compaction_scope_changed', { effect, scope: session.scope });
+  // DEFENSE: Credential/account rotation between selection and observation invalidates the old opaque context consumer.
   if (scope.scope_changed) return { ...scope, now: Date.now() };
   const request = boundary('backend.compaction_model_request', { effect, profile: session.profile });
   const settings = compactionSettings(config);
@@ -40,6 +43,7 @@ export async function observeModelRequest(effect, config, home, limits, options 
 export async function requestCompaction(effect, config, home, limits, options = {}) {
   const session = await providerSession(effect, config, home, options);
   const scope = boundary('backend.compaction_scope_changed', { effect, scope: session.scope });
+  // DEFENSE: Compaction cannot submit a previously selected opaque window after its credential/account consumer changes.
   if (scope.scope_changed) return scope;
   const call = boundary('backend.compaction_effect', { effect });
   const encoded = responseBody(call, session.profile);
@@ -55,9 +59,11 @@ export async function requestCompaction(effect, config, home, limits, options = 
     let response;
     try { response = await requestProviderJSON(session, '/compact', prepared, limits, options); }
     catch (error) {
+      // DEFENSE: A Responses endpoint may omit the native compact route; the native feature can then select portable rebuilding explicitly.
       const observation = boundary('backend.compaction_native_failure', {
         status: error.status, code: error.provider_code,
       });
+      // DEFENSE: Failures other than an admitted unsupported route remain compaction errors rather than requesting another method.
       if (observation.action !== 'native_unavailable') throw error;
       return observation;
     }

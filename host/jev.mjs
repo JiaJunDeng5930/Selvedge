@@ -5,19 +5,13 @@ import { readText } from './network.mjs';
 import { adaptivePolicy } from './reasoning-config.mjs';
 import { boundary, observeJson } from './public/model-boundary.mjs';
 
-export const evaluatorLimits = Object.freeze({ tool_output_tokens: 1000, recent_calls: 6, request_tokens: 28_000,
-  request_bytes: 2_100_000, response_bytes: 65_536, tokenizer: 'o200k_base' });
+const evaluatorToolOutputTokens = 1000;
+const evaluatorResponseBytes = 65_536;
 const tokenizerOptions = { disallowedSpecial: new Set() };
 const omittedMiddle = '\n[Tool output preview: middle omitted]\n';
 
 function evaluatorOperation(operation, source) {
-  try { return boundary(`evaluator.${operation}`, source); }
-  catch (error) {
-    if (error.code === 'TypeError') throw new TypeError(error.message);
-    if (error.code === 'RangeError') throw new RangeError(error.message);
-    if (error.code === 'Error') throw new Error(error.message);
-    throw error;
-  }
+  return boundary(`evaluator.${operation}`, source);
 }
 
 // This is a local tokenizer budget, not a claim about Jev's private tokenizer.
@@ -56,85 +50,51 @@ function preview(text, budget, originalCost, originalEncoded) {
         completion = { ...source, state, observation: { state, text: state.text, cost: outputTokens(state.text) } };
         state = evaluatorOperation('preview_step', completion);
         break;
-      default: throw new TypeError('Invalid evaluator preview plan');
     }
   }
   return { source, result: state, completion_kind: completionKind, completion };
 }
 
-function observedKind(value) {
-  if (value === null) return 'null';
-  if (typeof value === 'number' && !Number.isFinite(value)) return Number.isNaN(value) ? 'nan' : 'infinite';
-  return typeof value;
-}
-
 function budgetConstruction(outputs, maximum) {
-  // Observe the budget before touching outputs, retaining the original rejection
-  // order without attempting to serialize undefined or nonfinite numbers.
-  evaluatorOperation('budget_plan', { maximum: typeof maximum === 'number' && Number.isFinite(maximum) ? maximum : null, entries: [] });
-  const entries = Array.from({ length: outputs.length }, (_, index) => {
-    if (!(index in outputs)) return { index, absent: true, own_fields: [],
-      text: { own: false, truthy: false, type: 'absent', encoded: null }, cost: 0 };
-    const output = outputs[index];
+  const entries = outputs.map((output, index) => {
     const text = output.text;
-    return { index, own_fields: Reflect.ownKeys(Object(output)).map((name, field_index) => {
-      const descriptor = Object.getOwnPropertyDescriptor(output, name);
-      return { field_index, name: typeof name === 'symbol' ? { kind: 'symbol', description: JSON.stringify(name.description ?? null) } : { kind: 'string', encoded: JSON.stringify(name) },
-        present: true, enumerable: descriptor.enumerable, type: Object.hasOwn(descriptor, 'value') ? observedKind(descriptor.value) : 'accessor' };
-    }),
-      text: { own: Object.hasOwn(output, 'text'), truthy: Boolean(text), type: observedKind(text),
-        encoded: typeof text === 'string' ? JSON.stringify(text) : null }, cost: outputTokens(text) };
+    return { index, text: { truthy: Boolean(text), type: 'string', encoded: JSON.stringify(text) }, cost: outputTokens(text) };
   });
   const source = { maximum, entries };
   const allocation = evaluatorOperation('budget_plan', source);
   const previews = entries.map((entry, index) => {
     const planned = allocation[index];
-    if (entry.absent) return { index, original_cost: 0, budget: planned.budget, sent_tokens: 0,
-      result: { action: 'done', text_action: 'original', text: null } };
     const output = outputs[index];
     const observed = planned.action === 'original' ? { result: { action: 'done', text_action: 'original', text: null } }
       : preview(output.text, planned.budget, outputTokens(output.text), entry.text.encoded);
     const text = observed.result.text_action === 'original' ? output.text : observed.result.text;
     return { ...observed, index, original_cost: entries[index].cost, budget: planned.budget,
-      sent_tokens: outputTokens(text), selected_encoded: typeof text === 'string' ? JSON.stringify(text) : null,
+      sent_tokens: outputTokens(text), selected_encoded: JSON.stringify(text),
       selected_observation: observed.result.text_action === 'preview' ? observeJson(JSON.stringify(text)) : null };
   });
   const construction = { ...source, allocation, previews };
   const plan = evaluatorOperation('budget_finish', construction);
-  return { construction, plan, outputs: outputs.map((output, index) => ({ ...output,
-    text: plan[index].text_action === 'original' ? output.text : plan[index].text, preview: plan[index].preview })) };
-}
-
-export function budgetOutputs(outputs, maximum = evaluatorLimits.tool_output_tokens) {
-  return budgetConstruction(outputs, maximum).outputs;
+  return { construction, plan };
 }
 
 function contextConstruction(effect) {
   evaluatorOperation('context_select', { effect, phase: 'shape', observations: [] });
-  const observations = Array.isArray(effect.history) ? effect.history.map((item, history_index) => ({
+  const observations = effect.history.map((item, history_index) => ({
     history_index, content: item.content, text: stringifyJson(item.content) ?? '',
-  })) : [];
+  }));
   const source = { effect, observations };
   const selected = evaluatorOperation('context_select', source);
-  const budgeted = selected.recent_tool_calls.map(call => budgetConstruction(call.outputs, evaluatorLimits.tool_output_tokens));
+  const budgeted = selected.recent_tool_calls.map(call => budgetConstruction(call.outputs, evaluatorToolOutputTokens));
   const construction = { ...source, selected, budgeted: budgeted.map(value => ({ construction: value.construction, plan: value.plan })) };
   return { construction, context: evaluatorOperation('context_finish', construction) };
 }
 
-export function decisionContext(effect) {
-  return contextConstruction(effect).context;
-}
-
 export function decisionRequest(effect, evaluator) {
   const policy = adaptivePolicy(effect.model.adaptive_reasoning);
-  // Native policy admission precedes context work, as in the original API.
+  // Reject invalid adaptive policy before constructing evaluator context.
   evaluatorOperation('request', { effect, evaluator, policy, phase: 'policy', context: null });
   const { context, construction } = contextConstruction(effect);
   return evaluatorOperation('request', { effect, evaluator, policy, context, context_construction: construction });
-}
-
-export function validateDecision(reply, evaluator, policy) {
-  return evaluatorOperation('decision', { reply, evaluator, policy });
 }
 
 function retryPlan(source) {
@@ -154,6 +114,7 @@ function retryPlan(source) {
       break;
     }
   }
+  // DEFENSE: An evaluator retry can exceed its attempt/deadline budget or return an excessive Retry-After; the admitted plan must fail visibly.
   if (plan.action === 'fail') throw new Error(plan.error);
   return plan;
 }
@@ -185,6 +146,7 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
       response = await fetch(evaluator.endpoint, { method: 'POST', body, redirect: 'error', signal: deadline,
         headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${key}` } });
     } catch (error) {
+      // DEFENSE: Fetch can fail before evaluator response headers; only admitted connection failures receive the bounded same-provider retry.
       deadline.throwIfAborted();
       const plan = retryPlan({ ...original, phase: 'network', type_error: error instanceof TypeError });
       await delay(plan.milliseconds, undefined, { signal: deadline });
@@ -193,6 +155,7 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
     }
     const responseSource = { ...original, phase: 'response', ok: response.ok, status: response.status };
     const plan = retryPlan(responseSource);
+    // DEFENSE: Transient HTTP responses have unread bodies; cancel before an admitted retry delay, and surface permanent/exhausted failures.
     if (plan.action === 'cancel') {
       await response.body?.cancel();
       const source = { ...responseSource, phase: 'cancelled', plan };
@@ -202,12 +165,10 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
       attempt = next.next_attempt;
       continue;
     }
-    let text, observation;
-    try {
-      text = await readText(response.body, evaluatorLimits.response_bytes);
-      observation = observeJson(text);
-      if (observation.error) throw new SyntaxError(observation.error);
-    } catch { deadline.throwIfAborted(); throw new Error('Jev returned an invalid or oversized JSON response'); }
+    const text = await readText(response.body, evaluatorResponseBytes);
+    const observation = observeJson(text);
+    // DEFENSE: An evaluator can return malformed JSON; report a protocol failure without copying its body into task diagnostics.
+    if (observation.error) throw new Error('Jev returned an invalid JSON response');
     deadline.throwIfAborted();
     return evaluatorOperation('decision', { ...original, mode: 'parsed', text, observation });
   }

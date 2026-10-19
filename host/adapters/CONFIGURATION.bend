@@ -682,20 +682,6 @@ def config_auto_efforts(+source: J.Json, +efforts: +List<J.Json>) -> J.Json:
 def config_auto_preset(+source: J.Json) -> J.Json:
   config_guard(config_text_equal(config_get(J.get(source, "descriptor"), "slug"), "gpt-6-astra"), J.Object{Con{J.Field{"undefined", J.Boolean{True{}}}, Nil{}}},
     config_auto_efforts(source, config_unique_efforts(J.items(J.get(config_get(J.get(source, "descriptor"), "supported_reasoning_levels"), "items")), Nil{})))
-def config_admissible_head(+source: J.Json) -> Bool:
-  Bool.not(config_has_error(config_configuration_head(source)))
-def config_admissible_transport(+source: J.Json) -> Bool:
-  Bool.not(config_has_error(config_configuration_transport(source)))
-def config_admissible_extensions(+source: J.Json) -> Bool:
-  Bool.not(config_has_error(config_configuration_extensions(source)))
-# A complete configuration-stage source carries the three original observations.
-def config_admissible_configuration(+source: J.Json) -> Bool:
-  config_admissible_head(J.get(source, "head")) && config_admissible_transport(J.get(source, "transport")) &&
-    config_admissible_extensions(J.get(source, "extensions"))
-def config_valid_adaptive_policy(+source: J.Json) -> Bool:
-  config_effort_requirements(source) && config_lease_requirements(source)
-def config_valid_evaluator_entry(+source: J.Json) -> Bool:
-  config_endpoint_requirements(source) && config_timing_requirements(source)
 def config_meaning_route_7(accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: Model.success(config_auto_preset(source))

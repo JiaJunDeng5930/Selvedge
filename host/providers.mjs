@@ -27,13 +27,10 @@ export class ContextScopeChangedError extends Error {
   }
 }
 
-export function providerInput(history, profile = {}) {
-  return boundary('backend.input', { history, profile });
-}
-
 export function providerOutput(output, profile = {}, output_indices = []) {
   const arguments_observations = [];
   // Parsing supplies raw structural observations; admission belongs to Bend.
+  // DEFENSE: A provider can return a non-array output or a malformed function call; observe arguments only where a string is actually present.
   if (Array.isArray(output)) {
     output.forEach((item, index) => {
       if (typeof item?.arguments === 'string') {
@@ -56,6 +53,7 @@ export function prepareProviderRequest(request) {
 }
 
 function guardProviderRequest(prepared, limits) {
+  // DEFENSE: User history and external tool output can make the encoded provider request exceed the configured HTTP byte budget.
   boundary('backend.request_size', { bytes: prepared.bytes, limits });
 }
 
@@ -101,6 +99,7 @@ export async function requestProviderJSON(session, suffix, prepared, limits, { o
   let response = await requestHeaders(send, limits.model_retry, session.lifetime, onRetry);
   const observation = refreshed => ({ status: response.status, ok: response.ok,
     authorization: session.account, refreshed });
+  // DEFENSE: An account token can be rejected with HTTP 401; refresh once and surface a repeated rejection.
   if (boundary('backend.compaction_headers', observation(false)) === 'refresh') {
     await response.body?.cancel();
     await session.refresh();
@@ -108,11 +107,13 @@ export async function requestProviderJSON(session, suffix, prepared, limits, { o
   }
   const text = await readText(response.body, limits.frame_bytes);
   let value;
-  try { value = parseJson(text); }
-  catch (error) { if (response.ok) throw error; }
+  // DEFENSE: Failed HTTP responses can contain HTML or no body; only valid JSON contributes a provider error code.
+  if (response.ok || !observeJson(text).error) value = parseJson(text);
+  // DEFENSE: Non-success compaction HTTP responses must not be returned as successful JSON results.
   if (boundary('backend.compaction_headers', observation(true)) === 'read_error') {
     const failure = boundary('backend.http_failure', { status: response.status,
       code: value?.error?.code, output_started: false });
+    // DEFENSE: Only an explicit pre-output context_length_exceeded rejection authorizes native context recovery.
     if (failure.recoverable) throw new ContextLimitError();
     const error = new Error(failure.message);
     error.status = response.status;
@@ -133,6 +134,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const session = await providerSession(effect, config, home, { signal });
   const { profile, scope } = session;
   const consumer = boundary('backend.compaction_scope_changed', { effect, scope });
+  // DEFENSE: Credentials can rotate after context selection; old opaque context must not be dispatched to the new consumer.
   if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
   const prepared = prepareProviderRequest(responseBody(effect, profile));
   return requestProviderSSE(session, effect, prepared, limits, { onDelta, onRetry, onObservation });
@@ -144,10 +146,8 @@ export async function requestProviderSSE(session, effect, prepared, limits,
   { onDelta = () => {}, onRetry = () => {}, onObservation = () => {} } = {}) {
   const { profile, backend, scope, lifetime } = session;
   lifetime.throwIfAborted();
-  boundary('backend.request_guard', { effect, profile, limits });
   const { body } = prepared;
-  try { guardProviderRequest(prepared, limits); }
-  catch (error) { throw new RangeError(error.message); }
+  guardProviderRequest(prepared, limits);
   const headers = { ...session.headers, accept: 'text/event-stream' };
   const send = () => fetch(profile.endpoint, { method: 'POST', headers, body, signal: lifetime, redirect: 'error' });
   let response = await requestHeaders(send, limits.model_retry, lifetime, onRetry);
@@ -155,6 +155,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
     status: response.status, ok: response.ok, content_type: response.headers.get('content-type'),
     authorization: session.account, refreshed: false,
   });
+  // DEFENSE: Account-backed inference can receive HTTP 401 after token rejection; refresh exactly once before reading the final response.
   if (admission.action === 'refresh') {
     await response.body?.cancel();
     await session.refresh();
@@ -167,14 +168,16 @@ export async function requestProviderSSE(session, effect, prepared, limits,
   }
   if (admission.action === 'read_error') {
     const errorBody = await readText(response.body, limits.frame_bytes);
-    let upstream = null;
-    try { upstream = parseJson(errorBody); } catch {}
+    // DEFENSE: Proxies can return HTML/empty HTTP error bodies; absent JSON must not invent a context-limit recovery code.
+    const upstream = observeJson(errorBody).error ? null : parseJson(errorBody);
     admission = boundary('backend.http_failure', {
       status: response.status, code: upstream?.error?.code, output_started: false,
     });
   }
+  // DEFENSE: An HTTP failure or unsupported response content type cannot enter the model SSE parser.
   if (admission.action === 'failure') {
     if (admission.cancel) await response.body?.cancel();
+    // DEFENSE: An explicit context_length_exceeded rejection before output is the only HTTP failure eligible for compaction.
     if (admission.recoverable) throw new ContextLimitError();
     throw new Error(admission.message);
   }
@@ -192,10 +195,12 @@ export async function requestProviderSSE(session, effect, prepared, limits,
         return effect.kind === 'model' ? boundary('backend.compaction_bind_output', { items, scope }) : items;
       }
       case 'failure':
+        // DEFENSE: A provider failure event permits compaction only for context_length_exceeded before any exposed output.
         if (step.recoverable) throw new ContextLimitError();
         throw new Error(step.message);
     }
   }
+  // DEFENSE: A disconnected or truncated SSE stream may end without a terminal response; expose failure instead of returning partial output.
   throw new Error(boundary('backend.stream_end', { kind: backend.stream_kind, effect, state }).message);
 }
 

@@ -5,10 +5,13 @@ import { checkDesktop } from './import-desktop.mjs';
 const directory = new URL('../host/public/vendor/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', directory), 'utf8'));
 for (const dependency of manifest.packages) {
+  // DEFENSE: The vendored dependency manifest can omit package identity or its pinned npm integrity record.
   if (!dependency.package || !dependency.version || !dependency.integrity.startsWith('sha512-')) throw new Error('Invalid web dependency manifest');
   for (const file of dependency.files) {
+    // DEFENSE: A manifest-edited vendored filename can escape the local vendor directory.
     if (!/^[a-zA-Z0-9.-]+$/.test(file.file)) throw new Error('Invalid vendored file path');
     const hash = createHash('sha256').update(await readFile(new URL(file.file, directory))).digest('hex');
+    // DEFENSE: A shipped vendored source or license can differ from its recorded pinned hash.
     if (hash !== file.sha256) throw new Error(`Vendored web dependency differs from its recorded source: ${file.file}`);
   }
 }

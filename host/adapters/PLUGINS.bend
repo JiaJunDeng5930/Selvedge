@@ -410,14 +410,6 @@ def mcp_result(+source: J.Json) -> J.Json:
   +value = J.get(source, "result")
   mcp_result_guard_1(J.is_object(value), value)
 
-def within_shown_bytes_result(+rendered: Result<&2, &2, String, String>, +maximum: Nat) -> Bool:
-  match rendered:
-    case Done{text}: Nat.is_le(J.utf8_length(text), maximum)
-    case Fail{reason}: False{}
-
-def within_shown_bytes(+value: J.Json, +maximum: Nat) -> Bool:
-  within_shown_bytes_result(J.show(value), maximum)
-
 def tool_names(+values: +List<J.Json>) -> +List<J.Json>:
   match values:
     case Nil{}: []
@@ -431,17 +423,12 @@ def default_description(+value: J.Json, +fallback: String) -> J.Json:
     case J.Text{""}: J.Text{fallback}
     case other: other
 
-def catalog_rendered_size(+rendered: Result<&2, &2, String, String>) -> Nat:
-  match rendered:
-    case Fail{reason}: 0n
-    case Done{text}: J.utf8_length(text)
-
 def within_catalog_bytes(+values: +List<J.Json>, +maximum: Nat) -> Bool:
   match values:
     case Nil{}: True{}
     case Con{value, rest}:
-      +rendered = J.show(value)
-      within_shown_bytes_result(rendered, maximum) && within_catalog_bytes(rest, Nat.sub(maximum, catalog_rendered_size(rendered)))
+      +bytes = J.utf8_length(J.stringify(value))
+      Nat.is_le(bytes, maximum) && within_catalog_bytes(rest, Nat.sub(maximum, bytes))
 
 def mcp_tool(+name: String, +tool: J.Json) -> J.Json:
   J.Object{[J.Field{"name", J.Text{"mcp__" ++ normalize(name) ++ "__" ++ normalize(J.text(J.get(tool, "name")))}},
@@ -611,18 +598,11 @@ def definition_destructive(+value: J.Json) -> Bool:
   native_destructive(routed_kind(J.text(J.get(value, "remote")))) &&
     J.same(J.get(J.get(value, "annotations"), "destructiveHint"), J.Boolean{True{}})
 
-def definition_idempotent(+value: J.Json) -> Bool:
-  native_idempotent(routed_kind(J.text(J.get(value, "remote")))) &&
-    J.same(J.get(J.get(value, "annotations"), "idempotentHint"), J.Boolean{True{}})
-
 def ReadOnly() -> J.Json -> Type:
   Categories.holds(J.Json, value => definition_readonly(value))
 
 def Destructive() -> J.Json -> Type:
   Categories.holds(J.Json, value => definition_destructive(value))
-
-def Idempotent() -> J.Json -> Type:
-  Categories.holds(J.Json, value => definition_idempotent(value))
 
 def definition_capabilities(+value: J.Json) -> Bool:
   +tool = J.text(J.get(value, "remote"))
@@ -666,14 +646,9 @@ def response_value_guard_1(+guard: Bool, +reply: J.Json) -> J.Json:
 def response_value(+reply: J.Json) -> J.Json:
   response_value_guard_1(J.boolean(J.get(reply, "ok")), reply)
 
-def response_content_guard_1(+guard: Result<&2, &2, String, String>, +value: J.Json, +error: Bool) -> J.Json:
-  match guard:
-    case Fail{reason}: Model.failure(reason)
-    case Done{rendered}: Model.success(J.Object{[J.Field{"content", J.Array{[J.Object{[J.Field{"type", J.Text{"text"}}, J.Field{"text", J.Text{rendered}}]}]}},
-      J.Field{"structuredContent", value}, J.Field{"isError", J.Boolean{error}}]})
-
 def response_content(+value: J.Json, +error: Bool) -> J.Json:
-  response_content_guard_1(J.show(value), value, error)
+  Model.success(J.Object{[J.Field{"content", J.Array{[J.Object{[J.Field{"type", J.Text{"text"}}, J.Field{"text", J.Text{J.stringify(value)}}]}]}},
+    J.Field{"structuredContent", value}, J.Field{"isError", J.Boolean{error}}]})
 
 def receipt_reply_error_match_1(+scrutinee: J.Json) -> Bool:
   match scrutinee:

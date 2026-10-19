@@ -42,7 +42,11 @@ test('large SSE snapshots and later deltas remain connected through a commit', a
   assert.ok(eventWriter && Buffer.byteLength(large) > eventWriter.writableHighWaterMark,
     'the legal event fixture must exceed the real HTTP writer high-water mark');
   const iterator = events(response.body, fixture.running.service.limits.frame_bytes);
-  t.after(async () => { controller.abort(); await iterator.return().catch(() => {}); });
+  t.after(async () => {
+    controller.abort();
+    // DEFENSE: Aborting the live SSE reader can reject its pending iterator cleanup; unrelated cleanup failures must fail the test.
+    await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });
+  });
   const next = async () => {
     const result = await iterator.next();
     assert.equal(result.done, false, 'the authenticated event connection ended');
@@ -107,6 +111,7 @@ test('actual SSE sparse output indices remain the committed speech origins acros
     assert.deepEqual(first.streams, streamEnvelope.streams);
   } finally {
     controller.abort();
+    // DEFENSE: Aborting the live SSE read can reject iterator cleanup with AbortError.
     await iterator.return().catch(error => { if (error.name !== 'AbortError') throw error; });
   }
   fixture.finish(0, { output: [

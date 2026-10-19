@@ -36,13 +36,14 @@ construction boundary makes the current face determine that policy.
 
 ## Boundaries
 
-The executable category predicates and production obligations own the requirements;
+The executable category predicates state the properties checked for production;
 this ADR records why the construction and evidence boundaries were chosen.
 The runtime recovery retry button has a separate activation and remount protocol
 and remains outside the regular authored action family.
 
 Declared-name retention does not prove a nonempty accessible name. Authored
 geometry policy and centering do not prove arbitrary content fitting or final
-browser pixel geometry. Compiler client and mutation checks belong to
-[the evidence map](../../tests-bend/README.md); physical browser behavior requires
-its own evidence.
+browser pixel geometry. The compiler-client and mutation results for this change
+are recorded in [the exploration record](../bend2-exploration.md); current test
+responsibilities are in [the evidence map](../../tests-bend/README.md). Physical
+browser behavior requires its own evidence.

@@ -18,17 +18,18 @@ of the proof contract. Bend's [law and qualified-definition syntax](https://gith
 binds evidence through module declarations, rather than proof filenames.
 
 Keep independently consumed evidence separate where importing the complete
-concept provider would introduce an import cycle. Four existing providers retain
-that role: `browser/model-proof.bend`, `browser/runtime/platform-proof.bend`,
+concept provider would introduce an import cycle. At consolidation, examples
+included `browser/model-proof.bend`, `browser/runtime/platform-proof.bend`,
 `browser/document/presentation-proof.bend`, and `harness/protocol/commit-proof.bend`.
 These exceptions follow real cross-concept dependencies rather than property size.
 
 A short file can still express a stable public interface or an independent
 semantic boundary. Do not merge files mechanically by line count. Concept entries,
-executable contracts and import ownership remain authoritative; documentation
-does not duplicate their property catalog. The two-level concept directory limit
-and the representation boundaries in [ADR 0028](0028-model-representation-boundaries.md)
-and [ADR 0029](0029-shallow-concept-directories.md) remain in force. Moved paths
+executable contracts and import ownership locate the behavior and evidence;
+documentation explains their purpose without duplicating their property catalog.
+[ADR 0028](0028-model-representation-boundaries.md) and
+[ADR 0029](0029-shallow-concept-directories.md) explain the representation and
+directory boundaries used by this consolidation. Moved paths
 have no forwarding modules or compatibility layer.
 
 ## Tradeoffs and evidence boundaries

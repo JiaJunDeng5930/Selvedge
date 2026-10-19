@@ -43,19 +43,23 @@ def capture_failure(page, fixture, artifacts, errors, failure):
             (artifacts / 'interactive-storage.json').write_text(stored.json_value())
         finally:
             stored.dispose()
+    # DEFENSE: A failed renderer or detached browser can reject storage inspection; retain that capture error beside the original test failure.
     except Exception as error:
         capture_errors.append('interactive storage: ' + str(error))
     try:
         (artifacts / 'fixture-status.json').write_text(json.dumps(fixture.call('/status'), indent=2))
+    # DEFENSE: A service failure can make its diagnostic HTTP endpoint unavailable; preserve the original browser-test failure.
     except Exception as error:
         capture_errors.append('fixture status: ' + str(error))
     try:
         page.screenshot(path=str(artifacts / 'failure.png'), full_page=True, timeout=5000)
+    # DEFENSE: A crashed or disconnected Chromium renderer cannot produce a screenshot; record that diagnostic failure.
     except Exception as error:
         capture_errors.append('screenshot: ' + str(error))
     else:
         try:
             (artifacts / 'failure.html').write_text(page.content())
+        # DEFENSE: Chromium can disconnect after a screenshot but before HTML capture; record the missing diagnostic.
         except Exception as error:
             capture_errors.append('page content: ' + str(error))
     if capture_errors:
@@ -65,6 +69,7 @@ def capture_failure(page, fixture, artifacts, errors, failure):
 class Fixture:
     def __init__(self):
         bun = os.environ.get('BUN_BIN') or shutil.which('bun')
+        # DEFENSE: A developer machine can lack the Bun executable needed by the real service fixture.
         if not bun:
             raise RuntimeError('Bun is required; set BUN_BIN to the installed binary')
         self.log = tempfile.TemporaryFile(mode='w+')
@@ -72,15 +77,18 @@ class Fixture:
         try:
             self.proc = subprocess.Popen([bun, 'tests-bend/fixtures/interactive-markdown.mjs'], cwd=ROOT,
                                          stdout=subprocess.PIPE, stderr=self.log, text=True)
+            # DEFENSE: A failed or stalled service subprocess may never publish its loopback address.
             if not select.select([self.proc.stdout], [], [], 30)[0]:
                 raise RuntimeError('Production fixture did not start within 30 seconds')
             line = self.proc.stdout.readline()
+            # DEFENSE: A service startup failure closes stdout before publishing the fixture address.
             if not line:
                 self.log.seek(0)
                 raise RuntimeError('Production fixture failed to start: ' + self.log.read())
             self.info = json.loads(line)
             self.address = self.info['address']
             self.control = self.info['control']
+        # DEFENSE: Process creation, startup parsing or user cancellation can interrupt construction after the log or subprocess was allocated.
         except BaseException:
             self.close()
             raise
@@ -91,6 +99,7 @@ class Fixture:
                           headers={'content-type': 'application/json'})
         with urlopen(request, timeout=30) as response:
             result = json.load(response)
+        # DEFENSE: The control HTTP peer reports failed restart/request operations as an explicit JSON error.
         if 'error' in result:
             raise AssertionError(result)
         return result
@@ -109,6 +118,7 @@ class Fixture:
                 if marker in json.dumps(request['input'], ensure_ascii=False):
                     return request['index']
             time.sleep(.05)
+        # DEFENSE: A service/provider regression can prevent the expected HTTP model request within the fixture deadline.
         raise AssertionError('No actual provider request for ' + marker)
 
     def emit(self, index, text):
@@ -124,13 +134,16 @@ class Fixture:
             if value['task']['phase'] == 'idle' and not value['task']['operations']:
                 return value
             time.sleep(.05)
+        # DEFENSE: A service/provider regression can leave the task unsettled beyond the fixture deadline.
         raise AssertionError('Task did not become idle: ' + str(task))
 
     def close(self):
+        # DEFENSE: Construction can fail before spawning, or the subprocess can already have exited during a test failure.
         if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=10)
+            # DEFENSE: A failed service shutdown may ignore SIGTERM; kill the owned fixture after its shutdown deadline.
             except subprocess.TimeoutExpired:
                 self.proc.kill()
                 self.proc.wait()
@@ -146,12 +159,10 @@ def navigate_task_id(page, task_id):
     identity = page.wait_for_function('''id => {
       for(const button of document.querySelectorAll('button[data-native-key]')) {
         if(button.closest('[inert]'))continue;
-        try {
-          const key=JSON.parse(button.dataset.nativeKey), owner=key[1];
-          if(key[0]==='part' && key[2]==='task/'+id && owner?.[0]==='entity'
-              && owner[2]==='task' && owner[3]===String(id))
-            return button.dataset.nativeKey;
-        } catch {}
+        const key=JSON.parse(button.dataset.nativeKey), owner=key[1];
+        if(key[0]==='part' && key[2]==='task/'+id && owner[0]==='entity'
+            && owner[2]==='task' && owner[3]===String(id))
+          return button.dataset.nativeKey;
       }
       return false;
     }''', arg=task_id, timeout=15000)
@@ -184,12 +195,13 @@ def no_document_marker(page, marker):
 def saved_values(page, ui_id, expected):
     page.wait_for_function('''({ui,expected}) => Object.entries(localStorage).some(([key,raw])=>{
       if(!key.startsWith('selvedge-interactive-v1/'))return false;
+      // DEFENSE: User-editable localStorage can contain malformed JSON under the current namespace; ignore only the malformed entry.
       try {
         const snapshot=JSON.parse(raw);
         if(!snapshot.definition.includes('<ui id="'+ui+'"'))return false;
         const values=Object.fromEntries(snapshot.payload.locals.map(local=>[local.id,local.value]));
         return Object.entries(expected).every(([name,value])=>values[name]===value);
-      }catch{return false;}
+      }catch(error){if(error instanceof SyntaxError)return false;throw error;}
     })''', arg={'ui': ui_id, 'expected': expected})
 
 
@@ -342,6 +354,7 @@ def action_boundaries(page, fixture):
     fixture.idle(task)
     navigate_task_id(page, task)
     composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+    expect(composer).to_have_attribute('data-object-owner', f'message-draft/{task}')
     composer.click()
     composer.fill('Preserve this user draft')
     before = len(fixture.call('/status')['requests'])
@@ -524,7 +537,7 @@ def side_conversation_boundaries(page, fixture, artifacts):
     navigate_task_id(page, parent)
     held_commands = []
     def hold_side_creation(route):
-        if route.request.post_data_json.get('command', {}).get('op') == 'open_side_conversation':
+        if route.request.post_data_json['command']['op'] == 'open_side_conversation':
             held_commands.append(route)
         else:
             route.continue_()
@@ -560,6 +573,7 @@ def main():
     parser.add_argument('--chromium', default=os.environ.get('CHROMIUM_BIN') or shutil.which('chromium'))
     parser.add_argument('--artifacts', default=str(ROOT / '.workpad/interactive-browser-results'))
     args = parser.parse_args()
+    # DEFENSE: A developer machine can lack Chromium, which this physical browser regression requires.
     if not args.chromium:
         raise RuntimeError('Chromium is required; set CHROMIUM_BIN')
     artifacts = Path(args.artifacts)
@@ -593,6 +607,7 @@ def main():
                 assert not errors, errors
                 assert not fixture.call('/status')['failures'], fixture.call('/status')['failures']
                 print(json.dumps({'result': 'passed', 'mode': args.mode, 'chromium': browser.version}))
+            # DEFENSE: Browser/service failures and user cancellation must save available diagnostics before rethrowing the original failure.
             except BaseException as failure:
                 capture_failure(page, fixture, artifacts, errors, failure)
                 raise

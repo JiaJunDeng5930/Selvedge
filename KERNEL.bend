@@ -16,5 +16,5 @@ def state(output: Interface.Output) -> M.World():
 def envelope(output: Interface.Output) -> J.Json:
   Interface.envelope(output)
 
-def show(value: J.Json) -> Result<&2, &2, String, String>:
-  J.show(value)
+def show(value: J.Json) -> String:
+  J.stringify(value)

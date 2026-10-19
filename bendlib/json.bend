@@ -1,6 +1,7 @@
 import Base
 import ./string-equality.bend as SafeText
 import ./stdlib.bend as Std
+import ./categories.bend as Categories
 
 type Json is Data:
   Null{}
@@ -36,7 +37,6 @@ def same(left: Json, right: Json) -> Bool:
     case Object{Nil{}} Object{Nil{}}: True{}
     case Object{Con{Field{left_name, left_value}, left_rest}} Object{Con{Field{right_name, right_value}, right_rest}}:
       same_text(left_name, right_name) && same(left_value, right_value) && same(Object{left_rest}, Object{right_rest})
-    case _ _: False{}
     case _ _: False{}
 
 # Objects with unique keys compare independently of field order. Array order
@@ -89,6 +89,7 @@ type StackItem is Data:
   ArrayStart{}
   ObjectStart{}
 
+# DEFENSE: A token packet may close an array without a matching array opener; reject its framing.
 def close_array(stack: +List<StackItem>, acc: +List<Json>) -> Result<&2, &2, String, +List<StackItem>>:
   match stack:
     case Con{Value{value}, rest}:
@@ -98,6 +99,7 @@ def close_array(stack: +List<StackItem>, acc: +List<Json>) -> Result<&2, &2, Str
     case _:
       Fail{"invalid array framing"}
 
+# DEFENSE: Object tokens may omit a string key or matching opener; reject the packet instead of inventing fields.
 def close_object(stack: +List<StackItem>, acc: +List<Field>) -> Result<&2, &2, String, +List<StackItem>>:
   match stack:
     case Con{Value{value}, Con{Value{Text{key}}, rest}}:
@@ -107,6 +109,7 @@ def close_object(stack: +List<StackItem>, acc: +List<Field>) -> Result<&2, &2, S
     case _:
       Fail{"invalid object framing"}
 
+# DEFENSE: The native token ABI admits only the listed tags; reject an unknown tag before constructing JSON.
 def push(token: String, stack: +List<StackItem>) -> Result<&2, &2, String, +List<StackItem>>:
   match token:
     case SCon{'s', text}:
@@ -130,6 +133,7 @@ def push(token: String, stack: +List<StackItem>) -> Result<&2, &2, String, +List
     case _:
       Fail{"unknown JSON token"}
 
+# DEFENSE: A packet may end with unmatched containers, no value, or multiple values; require exactly one completed value.
 def decode_go(tokens: +List<String>, stack: Result<&2, &2, String, +List<StackItem>>) -> Result<&2, &2, String, Json>:
   match tokens stack:
     case Nil{} Done{Con{Value{value}, Nil{}}}:
@@ -339,8 +343,8 @@ def join(left: Result<&2, &2, String, String>, right: Result<&2, &2, String, Str
 def surround(left: String, middle: Result<&2, &2, String, String>, right: String) -> Result<&2, &2, String, String>:
   join(Done{left}, join(middle, Done{right}))
 
-# Fuel bounds container depth and list traversal, not string length. Exhaustion
-# is an error: the transport must never emit a partial value as a valid reply.
+# DEFENSE: Explicit render budgets can be exhausted by deeply nested or long
+# user/model values; return an error instead of emitting a partial JSON reply.
 
 def render(fuel: Nat, job: Render) -> Result<&2, &2, String, String>:
   match fuel job:
@@ -369,6 +373,132 @@ def render(fuel: Nat, job: Render) -> Result<&2, &2, String, String>:
 
 def show(+value: Json) -> Result<&2, &2, String, String>:
   render(required(One{value}), One{value})
+
+# The witness retains the text produced by the bounded renderer itself.
+def Completed(-result: Result<&2, &2, String, String>) -> Type:
+  Sigma<&2, &1, String, (text => {result == Done{text} : Result<&2, &2, String, String>})>
+
+# Equality elimination closes the impossible exhausted-budget branches.
+
+def exhausted(+job: Render,
+  enough: {Nat.is_ge(0n, required(job)) == True{} : Bool}) ->
+  Completed(render(0n, job)):
+  match job:
+    case One{Null{}}: Categories.impossible(Completed(render(0n, One{Null{}})), enough)
+    case One{Boolean{value}}: Categories.impossible(Completed(render(0n, One{Boolean{value}})), enough)
+    case One{Number{lexeme}}: Categories.impossible(Completed(render(0n, One{Number{lexeme}})), enough)
+    case One{Text{value}}: Categories.impossible(Completed(render(0n, One{Text{value}})), enough)
+    case One{Array{items}}: Categories.impossible(Completed(render(0n, One{Array{items}})), enough)
+    case One{Object{fields}}: Categories.impossible(Completed(render(0n, One{Object{fields}})), enough)
+    case Elements{Nil{}, first}: Categories.impossible(Completed(render(0n, Elements{Nil{}, first})), enough)
+    case Elements{Con{head, tail}, first}:
+      Categories.impossible(Completed(render(0n, Elements{Con{head, tail}, first})), enough)
+    case Fields{Nil{}, first}: Categories.impossible(Completed(render(0n, Fields{Nil{}, first})), enough)
+    case Fields{Con{Field{key, value}, tail}, first}:
+      Categories.impossible(Completed(render(0n, Fields{Con{Field{key, value}, tail}, first})), enough)
+
+# Base supplies both maximum bounds. This local bridge passes an enclosing
+# render budget through such a bound without re-proving the maximum theorems.
+
+def budget_lower_bound(+budget: Nat, +ceiling: Nat, +lower: Nat,
+  fits: {Nat.is_ge(budget, ceiling) == True{} : Bool},
+  bound: {Nat.is_ge(ceiling, lower) == True{} : Bool}) ->
+  {Nat.is_ge(budget, lower) == True{} : Bool}:
+  match budget ceiling lower:
+    case 0n _ 0n: {==}
+    case 1n+rest _ 0n: {==}
+    case _ 0n 1n+rest:
+      Categories.impossible({Nat.is_ge(budget, 1n+rest) == True{} : Bool}, bound)
+    case 0n 1n+rest 1n+lower_rest:
+      Categories.impossible({Nat.is_ge(0n, 1n+lower_rest) == True{} : Bool}, fits)
+    case 1n+budget_rest 1n+ceiling_rest 1n+lower_rest:
+      budget_lower_bound(budget_rest, ceiling_rest, lower_rest, fits, bound)
+
+def joined(+left: Result<&2, &2, String, String>, +right: Result<&2, &2, String, String>,
+  left_done: Completed(left), right_done: Completed(right)) ->
+  Completed(join(left, right)):
+  (+a, left_equal) = left_done
+  (+b, right_equal) = right_done
+  (a ++ b, Equal.trans(Result<&2, &2, String, String>,
+    join(left, right), join(Done{a}, right), Done{a ++ b},
+    Equal.cong(Result<&2, &2, String, String>, Result<&2, &2, String, String>,
+      (result => join(result, right)), left, Done{a}, left_equal),
+    Equal.cong(Result<&2, &2, String, String>, Result<&2, &2, String, String>,
+      (result => join(Done{a}, result)), right, Done{b}, right_equal)))
+
+def surrounded(+left: String, +middle: Result<&2, &2, String, String>, +right: String,
+  middle_done: Completed(middle)) -> Completed(surround(left, middle, right)):
+  joined(Done{left}, join(middle, Done{right}), (left, {==}),
+    joined(middle, Done{right}, middle_done, (right, {==})))
+
+def sufficient(+fuel: Nat, +job: Render,
+  enough: {Nat.is_ge(fuel, required(job)) == True{} : Bool}) ->
+  Completed(render(fuel, job)):
+  match fuel:
+    case 0n: exhausted(job, enough)
+    case 1n+remaining:
+      match job:
+        case One{Null{}}: ("null", {==})
+        case One{Boolean{value}}: (show_bool(value), {==})
+        case One{Number{lexeme}}: (lexeme, {==})
+        case One{Text{value}}: (quote(value), {==})
+        case One{Array{items}}:
+          surrounded("[", render(remaining, Elements{items, True{}}), "]",
+            sufficient(remaining, Elements{items, True{}}, enough))
+        case One{Object{fields}}:
+          surrounded("{", render(remaining, Fields{fields, True{}}), "}",
+            sufficient(remaining, Fields{fields, True{}}, enough))
+        case Elements{Nil{}, first}: ("", {==})
+        case Elements{Con{head, tail}, first}:
+          +fits = enough
+          +head_job: Render = One{head}
+          +tail_job: Render = Elements{tail, False{}}
+          +head_budget = required(head_job)
+          +tail_budget = required(tail_job)
+          surrounded(comma(first), join(render(remaining, head_job), render(remaining, tail_job)), "",
+            joined(render(remaining, head_job), render(remaining, tail_job),
+              sufficient(remaining, head_job, budget_lower_bound(remaining, Nat.max(head_budget, tail_budget), head_budget,
+                fits, Nat.max_ge_l(head_budget, tail_budget))),
+              sufficient(remaining, tail_job, budget_lower_bound(remaining, Nat.max(head_budget, tail_budget), tail_budget,
+                fits, Nat.max_ge_r(head_budget, tail_budget)))))
+        case Fields{Nil{}, first}: ("", {==})
+        case Fields{Con{Field{key, value}, tail}, first}:
+          +fits = enough
+          +head_job: Render = One{value}
+          +tail_job: Render = Fields{tail, False{}}
+          +head_budget = required(head_job)
+          +tail_budget = required(tail_job)
+          surrounded(comma(first) ++ quote(key) ++ ":",
+            join(render(remaining, head_job), render(remaining, tail_job)), "",
+            joined(render(remaining, head_job), render(remaining, tail_job),
+              sufficient(remaining, head_job, budget_lower_bound(remaining, Nat.max(head_budget, tail_budget), head_budget,
+                fits, Nat.max_ge_l(head_budget, tail_budget))),
+              sufficient(remaining, tail_job, budget_lower_bound(remaining, Nat.max(head_budget, tail_budget), tail_budget,
+                fits, Nat.max_ge_r(head_budget, tail_budget)))))
+
+def render_complete(+job: Render) -> Completed(render(required(job), job)):
+  sufficient(required(job), job, Nat.ge_refl(required(job)))
+
+def show_complete(+value: Json) -> Completed(show(value)):
+  render_complete(One{value})
+
+# Total JSON serialization projects the existing renderer's completion witness.
+# Callers that do not impose a budget cannot encounter rendering exhaustion.
+def completed_text(-result: Result<&2, &2, String, String>, completion: Completed(result)) -> String:
+  (text, evidence) = completion
+  text
+
+def completed_text_correct(-result: Result<&2, &2, String, String>, completion: Completed(result)) ->
+  {result == Done{completed_text(result, completion)} : Result<&2, &2, String, String>}:
+  (text, evidence) = completion
+  evidence
+
+def stringify(+value: Json) -> String:
+  completed_text(show(value), show_complete(value))
+
+def stringify_complete(+value: Json) ->
+  {show(value) == Done{stringify(value)} : Result<&2, &2, String, String>}:
+  completed_text_correct(show(value), show_complete(value))
 
 def char_width(ascii: Bool, two: Bool, three: Bool) -> Nat:
   match ascii two three:

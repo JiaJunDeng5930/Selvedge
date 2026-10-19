@@ -45,6 +45,7 @@ def host_value_valid(value: J.Json) -> Bool:
 def host_valid(+source: J.Json) -> Bool:
   flag(source, "address_present") && host_value_valid(J.get(source, "expected_host")) && J.same(header(source, "host"), J.get(source, "expected_host"))
 
+# DEFENSE: A local HTTP request can supply an unrelated Host header; reject it before URL parsing or authorization.
 def host_plan(valid: Bool) -> J.Json:
   match valid:
     case False{}: rejection("400", "host", "Invalid local host")
@@ -119,9 +120,11 @@ def classify_asset(asset: Bool, +source: J.Json) -> J.Json:
 def classify_calculation(+source: J.Json) -> J.Json:
   classify_asset(String.eq(J.text(J.get(source, "method")), "GET") && flag(source, "asset"), source)
 
+# DEFENSE: A browser can send a cross-origin request to the local server; require an absent Origin or the actual local address.
 def local_origin_valid(+source: J.Json) -> Bool:
   Bool.not(nonempty(header(source, "origin"))) || J.same(header(source, "origin"), J.get(source, "address"))
 
+# DEFENSE: Connection credentials are not browser/query credentials; reject browser Origins and query parameters on connection endpoints.
 def connection_origin_valid(+source: J.Json) -> Bool:
   Bool.not(nonempty(header(source, "origin"))) && J.same(J.get(source, "search"), J.Text{""})
 
@@ -205,6 +208,7 @@ def trim_zero(+text: String) -> String:
     case SCon{Chr{48}, rest}: trim_zero(rest)
     case _: text
 
+# DEFENSE: An upload may advertise an invalid or oversized Content-Length; reject it before reading attachment bytes.
 def attachment_length_shape(length: J.Json) -> Bool:
   match length:
     case J.Null{}: True{}
@@ -214,6 +218,7 @@ def attachment_length_shape(length: J.Json) -> Bool:
 def attachment_length_valid(+source: J.Json) -> Bool:
   attachment_length_shape(header(source, "content-length"))
 
+# DEFENSE: JSON endpoints can receive non-JSON request bodies; reject their media type before parsing.
 def content_type_valid(+source: J.Json) -> Bool:
   starts(J.text(J.get(source, "content_type")), "application/json")
 
@@ -268,14 +273,6 @@ def body_observation_result(result: Result<&2, &2, String, J.Json>) -> Bool:
 
 def parsed_source(+source: J.Json) -> J.Json:
   J.Object{[J.Field{"text", J.get(source, "text")}, J.Field{"observation", J.get(source, "parsed_observation")}]}
-
-def parsed_body_result(result: Result<&2, &2, String, J.Json>) -> J.Json:
-  match result:
-    case Done{body}: body
-    case Fail{error}: J.Null{}
-
-def parsed_body(+source: J.Json) -> J.Json:
-  parsed_body_result(Model.parsed_observation(parsed_source(source)))
 
 def body_text_observed(text: J.Json) -> Bool:
   match text:
@@ -340,8 +337,24 @@ def body_target(+source: J.Json) -> String:
   +remote = remote_body_target(source)
   body_target_remote(String.eq(remote, ""), remote, source)
 
+# DEFENSE: Request text or its host parsing observation can be malformed; reject
+# a failed parse before checking the route's body shape or extracting its value.
+def body_valid_result(result: Result<&2, &2, String, J.Json>, +source: J.Json) -> Bool:
+  match result:
+    case Fail{error}: False{}
+    case Done{body}: body_observation_valid(source) && body_shape(body_target(source), body)
+
 def body_valid(+source: J.Json) -> Bool:
-  body_observation_valid(source) && body_shape(body_target(source), parsed_body(source))
+  body_valid_result(Model.parsed_observation(parsed_source(source)), source)
+
+def parsed_body_result(-source: J.Json, result: Result<&2, &2, String, J.Json>,
+  accepted: {body_valid_result(result, source) == True{} : Bool}) -> J.Json:
+  match result:
+    case Done{body}: body
+    case Fail{error}: Categories.impossible(J.Json, accepted)
+
+def parsed_body(+source: J.Json, accepted: {body_valid(source) == True{} : Bool}) -> J.Json:
+  parsed_body_result(source, Model.parsed_observation(parsed_source(source)), accepted)
 
 def body_error(refresh: Bool) -> J.Json:
   match refresh:
@@ -611,9 +624,6 @@ def local_admission(+source: J.Json) -> J.Json:
 def connection_admission(+source: J.Json) -> J.Json:
   local_route(source)
 
-def connection_origin(+source: J.Json) -> J.Json:
-  local_route(source)
-
 def upload_size_admission(+source: J.Json) -> J.Json:
   upload_admission(source)
 
@@ -621,9 +631,13 @@ def content_terminal(-Request: J.Json -> Type, member: Categories.Membership<J.J
   +source = Categories.value(J.Json, ContentRequest(Request), member)
   action(body_target(source))
 
+def body_admission_evidence(-Request: J.Json -> Type, -source: J.Json, evidence: BodyRequest(Request, source)) -> CurrentBody(source):
+  Categories.Intersection{prior, accepted} = evidence
+  accepted
+
 def body_terminal(-Request: J.Json -> Type, member: Categories.Membership<J.Json, BodyRequest(Request)>) -> J.Json:
-  +source = Categories.value(J.Json, BodyRequest(Request), member)
-  J.Object{[J.Field{"action", J.Text{body_target(source)}}, J.Field{"body", parsed_body(source)}]}
+  Categories.Membership{+source, evidence} = member
+  J.Object{[J.Field{"action", J.Text{body_target(source)}}, J.Field{"body", parsed_body(source, body_admission_evidence(Request, source, evidence))}]}
 
 def body_checked(-Request: J.Json -> Type, +source: J.Json, prior: ContentRequest(Request, source), valid: Bool,
   observed: {body_valid(source) == valid : Bool}) -> J.Json:
@@ -656,31 +670,6 @@ def content_admission(+source: J.Json) -> J.Json:
 
 def body_admission(+source: J.Json) -> J.Json:
   request_guard(source, member => content_request(LocalRequest, member, True{}), member => content_request(ConnectionRequest, member, True{}))
-
-def local_open_host_inclusion() -> Categories.Inclusion<J.Json, LocalRequest, OpenHost>:
-  Categories.intersection_first(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, LocalPath, LocalOrigin, candidate)), candidate)))
-
-def local_authority_origin_inclusion() -> Categories.Inclusion<J.Json, LocalRequest,
-  (candidate => Categories.intersection(J.Json, Authorization, (candidate => Categories.intersection(J.Json, LocalPath, LocalOrigin, candidate)), candidate))>:
-  Categories.intersection_second(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, LocalPath, LocalOrigin, candidate)), candidate)))
-
-def connection_open_host_inclusion() -> Categories.Inclusion<J.Json, ConnectionRequest, OpenHost>:
-  Categories.intersection_first(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, ConnectionPath, (candidate => Categories.intersection(J.Json, ConnectionMethod, ConnectionOrigin, candidate)), candidate)), candidate)))
-
-def connection_authority_method_origin_inclusion() -> Categories.Inclusion<J.Json, ConnectionRequest,
-  (candidate => Categories.intersection(J.Json, Authorization, (candidate => Categories.intersection(J.Json, ConnectionPath,
-    (candidate => Categories.intersection(J.Json, ConnectionMethod, ConnectionOrigin, candidate)), candidate)), candidate))>:
-  Categories.intersection_second(J.Json, OpenHost, (candidate => Categories.intersection(J.Json, Authorization,
-    (candidate => Categories.intersection(J.Json, ConnectionPath, (candidate => Categories.intersection(J.Json, ConnectionMethod, ConnectionOrigin, candidate)), candidate)), candidate)))
-
-def upload_query_inclusion() -> Categories.Inclusion<J.Json, Upload, UploadQuery>:
-  Categories.intersection_first(J.Json, UploadQuery, UploadSize)
-
-def upload_size_inclusion() -> Categories.Inclusion<J.Json, Upload, UploadSize>:
-  Categories.intersection_second(J.Json, UploadQuery, UploadSize)
 
 def meaning_9(accepted: Bool, operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -740,15 +729,6 @@ def family(+operation: String) -> Model.Adapter(source => meaning(operation, sou
 
 def run(+operation: String, +source: J.Json) -> J.Json:
   Model.execute(source => meaning(operation, source), family(operation), source)
-
-def open_host_inclusion() -> Categories.Inclusion<J.Json, OpenHost, Host>:
-  Categories.intersection_second(J.Json, Open, Host)
-
-def local_host_inclusion() -> Categories.Inclusion<J.Json, LocalRequest, Host>:
-  Categories.inclusion_compose(J.Json, LocalRequest, OpenHost, Host, local_open_host_inclusion(), open_host_inclusion())
-
-def connection_host_inclusion() -> Categories.Inclusion<J.Json, ConnectionRequest, Host>:
-  Categories.inclusion_compose(J.Json, ConnectionRequest, OpenHost, Host, connection_open_host_inclusion(), open_host_inclusion())
 
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}
@@ -832,8 +812,14 @@ law content_type_precedes_body:
   {content_admission(source) == request_guard(source, member => content_request(LocalRequest, member, False{}), member => content_request(ConnectionRequest, member, False{})) : J.Json}
 
 law raw_body_and_current_shape_required:
-  @source:J.Json ->
-  {body_valid(source) == (body_observation_valid(source) && body_shape(body_target(source), parsed_body(source))) : Bool}
+  @+source:J.Json -> @+body:J.Json ->
+  @parsed:{Model.parsed_observation(parsed_source(source)) == Done{body} : Result<&2, &2, String, J.Json>} ->
+  {body_valid(source) == (body_observation_valid(source) && body_shape(body_target(source), body)) : Bool}
+
+law invalid_body_parse_rejected:
+  @+source:J.Json -> @reason:String ->
+  @parsed:{Model.parsed_observation(parsed_source(source)) == Fail{reason} : Result<&2, &2, String, J.Json>} ->
+  {body_valid(source) == False{} : Bool}
 
 law body_factory_admission:
   @source:J.Json ->
@@ -853,7 +839,8 @@ law admitted_upload_original_source:
 
 law admitted_body_payload:
   @-Request:(J.Json -> Type) -> @source:J.Json -> @evidence:BodyRequest(Request, source) ->
-  {J.get(body_terminal(Request, Categories.Membership{source, evidence}), "body") == parsed_body(source) : J.Json}
+  {Model.parsed_observation(parsed_source(source)) ==
+    Done{J.get(body_terminal(Request, Categories.Membership{source, evidence}), "body")} : Result<&2, &2, String, J.Json>}
 
 law admitted_body_original_source:
   @-Request:(J.Json -> Type) -> @source:J.Json -> @evidence:BodyRequest(Request, source) ->

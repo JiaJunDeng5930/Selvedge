@@ -3,7 +3,7 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ./MODEL.bend as Model
 
-# UTF-16 units preserve the browser's existing text budget, including astral text.
+# Text budgets use UTF-16 units, counting astral characters as two units.
 def character_units(basic: Bool) -> Nat:
   match basic:
     case True{}: 1n
@@ -55,9 +55,6 @@ def raw_category() -> J.Json -> Type: Categories.holds(J.Json, (source => raw_va
 def protocol_category() -> J.Json -> Type: Categories.holds(J.Json, (source => protocol_allowed(source)))
 def normalized_category() -> J.Json -> Type: Categories.holds(J.Json, (source => normalized_target(source)))
 
-def link_policy(+source: J.Json) -> Bool:
-  raw_valid(source) && protocol_allowed(source) && normalized_target(source)
-
 def navigation(source: J.Json) -> Type:
   Categories.intersection(J.Json, raw_category(), (value => Categories.intersection(J.Json, protocol_category(), normalized_category(), value)), source)
 
@@ -79,6 +76,7 @@ def navigation_checked(+source: J.Json,
     case True{}: Some{Categories.Membership{source, Categories.Intersection{observed, prior}}}
     case False{}: None{}
 
+# DEFENSE: Authored Markdown links can contain executable schemes, control characters or invalid URL observations; allow only admitted navigation targets.
 def navigation_protocol_admitted(admission: Maybe<&1, Categories.Membership<J.Json,
     (source => Categories.intersection(J.Json, protocol_category(), normalized_category(), source))>>) -> Maybe<&1, Categories.Membership<J.Json, navigation>>:
   match admission:
@@ -377,30 +375,6 @@ def stream_event_owned_policy(+bounded: Bool, valid: Bool, +state: +List<J.Json>
 def stream_event_policy(+bounded: Bool, state: +List<J.Json>, +notice: J.Json) -> J.Json:
   stream_event_owned_policy(bounded, stream_notice_valid(notice), state, notice)
 
-def update_entry(+entry: J.Json, +notice: J.Json) -> Maybe<&2, J.Json>:
-  update_entry_policy(True{}, entry, notice)
-
-def stream_update_found(found: Bool, +entry: J.Json, rest: +List<J.Json>, notice: J.Json, tail: (+List<J.Json> & Bool)) -> (+List<J.Json> & Bool):
-  stream_update_found_policy(True{}, found, entry, rest, notice, tail)
-
-def stream_update(entries: +List<J.Json>, +notice: J.Json) -> (+List<J.Json> & Bool):
-  stream_update_policy(True{}, entries, notice)
-
-def stream_delta(valid: Bool, +state: +List<J.Json>, notice: J.Json) -> J.Json:
-  stream_delta_policy(True{}, valid, state, notice)
-
-def stream_end(ended: Bool, +state: +List<J.Json>, +notice: J.Json) -> J.Json:
-  stream_end_policy(True{}, ended, state, notice)
-
-def stream_start(start: Bool, +kind: String, +state: +List<J.Json>, +notice: J.Json) -> J.Json:
-  stream_start_policy(True{}, start, kind, state, notice)
-
-def stream_event_kind(+kind: String, state: +List<J.Json>, +notice: J.Json) -> J.Json:
-  stream_event_kind_policy(True{}, kind, state, notice)
-
-def stream_event_owned(valid: Bool, +state: +List<J.Json>, +notice: J.Json) -> J.Json:
-  stream_event_owned_policy(True{}, valid, state, notice)
-
 def stream_event(state: +List<J.Json>, +notice: J.Json) -> J.Json:
   stream_event_policy(True{}, state, notice)
 
@@ -483,15 +457,6 @@ law removal_owned:
 law removal_unrelated:
   @entry:J.Json -> @rest:+List<J.Json> -> @notice:J.Json ->
     {stream_remove_found(False{}, entry, rest, stream_remove(rest, notice)) == entry <> stream_remove(rest, notice) : +List<J.Json>}
-
-law update_unrelated:
-  @entry:J.Json -> @rest:+List<J.Json> -> @notice:J.Json ->
-    {stream_update_found(False{}, entry, rest, notice, stream_update(rest, notice)) ==
-      preserve_updated_tail(entry, stream_update(rest, notice)) : (+List<J.Json> & Bool)}
-
-law end_removal:
-  @state:+List<J.Json> -> @notice:J.Json ->
-    {stream_end(True{}, state, notice) == result(stream_remove(state, notice), True{}) : J.Json}
 
 law limit_correspondence:
   @parts:+List<J.Json> -> @found:Maybe<&2, String> -> @text:String ->

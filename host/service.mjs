@@ -45,6 +45,7 @@ export class Service extends EventEmitter {
   #streams = [];
 
   static async open({ home, config, cwd = process.cwd(), journalOptions, remoteOptions } = {}) {
+    // DEFENSE: The process sandbox supports only the Linux and macOS implementations; refuse other OS launches.
     if (!['linux', 'darwin'].includes(process.platform)) throw new Error('Selvedge supports Linux and macOS only');
     const service = new Service();
     Object.assign(service, { home, config, declaredConfig: config, cwd: await realpath(cwd) });
@@ -82,7 +83,8 @@ export class Service extends EventEmitter {
         });
         client.on('toolsChanged', () => service.#refreshCatalog(name, true));
       }));
-      const extensions = Object.entries(config.plugins ?? {});
+      const extensions = Object.entries(config.plugins);
+      // DEFENSE: User configuration can exceed the kernel's published plugin-count budget.
       if (extensions.length > service.description.plugins.max_plugins) throw new RangeError('Plugin count exceeds the native limit');
       await Promise.all(extensions.map(async ([name, settings]) => {
         const client = new Plugin(name, { ...settings, cwd: settings.cwd ?? service.cwd }, service.limits, service.description.plugins);
@@ -93,6 +95,7 @@ export class Service extends EventEmitter {
         client.on('unavailable', error => {
           service.notify({ type: 'diagnostic', message: `Plugin ${name} is unavailable: ${error.message}` });
           service.#catalogTail = service.#catalogTail.then(async () => {
+            // DEFENSE: An unavailable-plugin callback may be queued when service shutdown or a journal failure begins.
             if (service.#closing || service.#failure) return;
             service.#pluginCatalog.delete(name);
             await service.#configure();
@@ -101,12 +104,15 @@ export class Service extends EventEmitter {
       }));
       await service.#configure();
       const recovery = await service.journal.execute({ kind: 'recover' });
+      // DEFENSE: Recovery resends pending model effects; their combined payload can exceed the complete-decision budget and leave recovery uncommitted.
       if (!recovery.reply.ok) throw new Error(`Recovery rejected: ${recovery.reply.error.message}`);
       await service.#reconcileWorktrees();
       const grants = await service.command({ op: 'configure_chatgpt_connections', connections: connectionGrants(config.chatgpt_plugin) });
+      // DEFENSE: Saved connection grants can refer to projects removed from the current journal; startup must report native configuration rejection.
       if (!grants.reply.ok) throw new Error(`ChatGPT connection configuration rejected: ${grants.reply.error.message}`);
       service.remote = await RemoteControl.open(service, remoteOptions);
       return service;
+    // DEFENSE: Account, filesystem or subprocess initialization can fail after the journal and clients opened; release those acquired resources.
     } catch (error) {
       await service.close();
       throw error;
@@ -116,22 +122,21 @@ export class Service extends EventEmitter {
   notify(event) {
     event = { ...event, namespace: this.journal.namespace };
     this.#streams = boundary('browser.host_stream_step', { state: this.#streams, notice: event }).state;
-    for (const observer of this.listeners('notice')) {
-      try { observer(event); } catch { /* An observer cannot roll back a commit. */ }
-    }
+    for (const observer of this.listeners('notice')) observer(event);
   }
 
   #fatal(error) {
+    // DEFENSE: Several active operations can observe the same journal/Worker failure while shutdown is already in progress.
     if (this.#failure || this.#closing) return;
     this.#failure = error;
     this.notify({ type: 'fatal', message: error.message });
     for (const active of this.#running.values()) active.controller.abort(error);
-    this.journal?.kernel.abort(error);
+    this.journal.kernel.abort(error);
   }
 
   #configuration({ project = this.project, instructions = this.instructions } = {}) {
     // Configuration order, not process initialization speed, defines the chain.
-    const extensions = Object.keys(this.config.plugins ?? {}).flatMap(name => this.#pluginCatalog.has(name) ? [this.#pluginCatalog.get(name)] : []);
+    const extensions = Object.keys(this.config.plugins).flatMap(name => this.#pluginCatalog.has(name) ? [this.#pluginCatalog.get(name)] : []);
     return { kind: 'configure', profiles: profileCatalog(this.config),
       tools: [...this.#catalog.values(), ...extensions.map(extension => extension.tools)].flat(),
       plugins: extensions.map(extension => extension.descriptor), max_fork: this.config.max_fork, max_descendants: this.config.max_descendants,
@@ -140,26 +145,33 @@ export class Service extends EventEmitter {
 
   async #configure() {
     const decision = await this.journal.execute(this.#configuration());
+    // DEFENSE: Independently supplied MCP/plugin catalogs can conflict or exceed native configuration limits.
     if (!decision.reply.ok) throw new Error(`Catalog rejected: ${decision.reply.error.message}`);
     const compaction = await this.journal.execute({ kind: 'compaction_configure', policy: compactionSettings(this.config), now: Date.now() });
+    // DEFENSE: Account-advertised context windows can make configured compaction budgets invalid or too large for a complete decision.
     if (!compaction.reply.ok) throw new Error(`Compaction configuration rejected: ${compaction.reply.error.message}`);
   }
 
   #refreshCatalog(name, discover) {
     this.#catalogTail = this.#catalogTail.then(async () => {
+      // DEFENSE: A queued subprocess catalog refresh can outlive service shutdown or a fatal journal failure.
       if (this.#closing || this.#failure) return;
       if (discover) {
         try { this.#catalog.set(name, await this.#servers.get(name).discover()); }
+        // DEFENSE: MCP rediscovery can time out, return malformed tools or lose its process; withdraw that live catalog and diagnose the failure.
         catch (error) { this.#catalog.delete(name); this.notify({ type: 'diagnostic', message: `MCP ${name}: ${error.message}` }); }
       } else this.#catalog.delete(name);
+      // DEFENSE: Shutdown can start while MCP rediscovery awaits the subprocess.
       if (!this.#closing) await this.#configure();
     }).catch(error => this.#fatal(error));
   }
 
   #dispatch(effect, sequence, firstOrdinal = 0) {
+    // DEFENSE: A commit observer can reach later effects after an earlier effect made the service fatal or started shutdown.
     if (this.#closing || this.#failure) return;
     if (effect.kind === 'reset_model_session') {
       try { WebRequestStore.resetExisting(this.home, effect.task_id); }
+      // DEFENSE: Resetting persisted Web receipts can fail in SQLite; the committed reset cannot be silently skipped.
       catch (error) { this.#fatal(error); }
       return;
     }
@@ -167,6 +179,7 @@ export class Service extends EventEmitter {
       effect.events.forEach(({ recipients, ...event }, index) => {
         for (const reference of recipients) {
           const client = this.#plugins.get(reference.name);
+          // DEFENSE: A frozen task can still name a plugin removed from current configuration or whose process has exited.
           if (client?.matches(reference)) client.enqueue({ sequence, ordinal: firstOrdinal + index, ...event });
           else this.notify({ type: 'diagnostic', message: `Plugin ${reference.name} notification route is unavailable`, event_id: { sequence, ordinal: firstOrdinal + index } });
         }
@@ -183,6 +196,7 @@ export class Service extends EventEmitter {
     }
     if (effect.kind === 'cancel_ticket') {
       const active = this.#running.get(`${effect.task_id}:${effect.ticket}`);
+      // DEFENSE: The physical operation may already have completed when its native cancellation is dispatched.
       if (active && ['model', 'approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
       active?.controller.abort(new Error('Operation or model request cancelled'));
       return;
@@ -190,7 +204,9 @@ export class Service extends EventEmitter {
     if (effect.kind === 'continue') {
       this.#continuation ??= setImmediate(() => {
         this.#continuation = undefined;
+        // DEFENSE: Shutdown or a concurrent external failure can retire this scheduled callback before it runs.
         if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'continue' }).then(result => {
+          // DEFENSE: Advancing pending work can produce an output-limit rejection; report it instead of silently dropping scheduling.
           if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
         }).catch(error => this.#fatal(error));
       });
@@ -202,33 +218,39 @@ export class Service extends EventEmitter {
       // only a clock observation, including after suspension or a delayed wake.
       this.#compactionTimer = setTimeout(() => {
         this.#compactionTimer = undefined;
+        // DEFENSE: A clock callback queued before shutdown must not submit another journal input afterward.
         if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'compaction_clock', now: Date.now() })
-          .then(result => { if (!result.reply.ok) throw new Error(`Clock observation rejected: ${result.reply.error.message}`); })
+          .then(result => {
+            // DEFENSE: Clock-triggered compaction can exceed the complete-decision budget; surface the native rejection.
+            if (!result.reply.ok) throw new Error(`Clock observation rejected: ${result.reply.error.message}`);
+          })
           .catch(error => this.#fatal(error));
       }, Math.min(2_147_483_647, Math.max(0, effect.deadline - Date.now())));
-      this.#compactionTimer.unref?.();
+      this.#compactionTimer.unref();
       return;
     }
     if (effect.kind === 'compaction_cancel') {
+      // DEFENSE: The compaction's physical request can already have finished before its cancellation effect is dispatched.
       this.#running.get(`${effect.task_id}:${effect.ticket}`)?.controller.abort(new Error('Compaction cancelled'));
       return;
     }
     if (effect.kind === 'chatgpt_cancel') {
+      // DEFENSE: A ChatGPT subprocess can already have exited when the native cancellation arrives.
       this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
       return;
     }
-    if (!['worktree_create', 'worktree_archive', 'observe_context', 'model', 'context_scope', 'context_measure', 'context_compaction', 'reasoning', 'tool', 'hook', 'after_hook', 'approval', 'board_text', 'task_title', 'chatgpt_exec'].includes(effect.kind)) { this.#fatal(new Error(`Unknown effect ${effect.kind}`)); return; }
     const key = effect.kind.startsWith('worktree_') ? `${effect.kind}:${effect.task_id}` : effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
       effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
-    if (this.#running.has(key)) { this.#fatal(new Error('The kernel repeated an in-flight effect identity')); return; }
     const controller = new AbortController();
     const active = { task: effect.task_id, effect, controller };
     this.#running.set(key, active);
+    // DEFENSE: Journal settlement or an external interpreter can fail after dispatch; retire the service rather than execute further uncommitted work.
     active.promise = this.#perform(effect, controller.signal).catch(error => this.#fatal(error)).finally(() => this.#running.delete(key));
   }
 
   #cancelProvider(task) {
     const promise = cancelModelTask(task, this.config, this.home, this.limits)
+      // DEFENSE: The provider can reject or lose a remote Stop request; keep local cancellation and report its unconfirmed remote outcome.
       .catch(error => this.notify({ type: 'diagnostic', message: `Remote cancellation was not confirmed: ${error.message}` }))
       .finally(() => this.#providerCancellations.delete(promise));
     this.#providerCancellations.add(promise);
@@ -239,22 +261,26 @@ export class Service extends EventEmitter {
       if (effect.kind === 'worktree_archive') {
         // NOTE: An archived borrower can still be finishing subprocess cancellation.
         const running = [...this.#running.values()].filter(active => !active.effect.kind.startsWith('worktree_'));
-        const resources = await Promise.all(running.map(active => this.#worktree(active.task)));
-        await Promise.allSettled(running.filter((active, index) => active.task === effect.task_id || resources[index]?.root === effect.root)
+        const resources = await Promise.all(running.map(active => active.task === undefined ? undefined : this.#worktree(active.task)));
+        await Promise.all(running.filter((active, index) => active.task === effect.task_id || resources[index]?.root === effect.root)
           .map(active => active.promise));
       }
       const completion = await (effect.kind === 'worktree_create' ? createManagedWorktree : archiveManagedWorktree)(effect,
         { home: this.home, limits: this.limits, signal });
+      // DEFENSE: A filesystem operation may finish after service shutdown; leave its physical receipt for recovery rather than submit a late input.
       if (!this.#closing && !this.#failure) {
         const failed = boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
           message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
         let result;
         try { result = await this.journal.execute(completion); }
+        // DEFENSE: Observed checkout metadata can exceed the input-frame budget; settle failure while retaining the physical checkout.
         catch (error) {
-          if (!(error instanceof RangeError || error instanceof TypeError)) throw error;
+          if (!(error instanceof RangeError)) throw error;
           result = await this.journal.execute(failed);
         }
-        if (!result.reply.ok && result.reply.error?.code === 'output_limit') result = await this.journal.execute(failed);
+        // DEFENSE: A checkout completion may fit the input while its full resulting decision exceeds the output budget.
+        if (!result.reply.ok && result.reply.error.code === 'output_limit') result = await this.journal.execute(failed);
+        // DEFENSE: The reduced failure itself can be rejected by the output budget; do not leave a rejected settlement unreported.
         if (!result.reply.ok) throw new Error(`Managed worktree settlement rejected: ${result.reply.error.message}`);
       }
       return;
@@ -298,55 +324,61 @@ export class Service extends EventEmitter {
         input = boundary('effect.completion', { effect, result: items });
       } else if (effect.kind === 'hook') {
         const client = this.#plugins.get(effect.plugin.name);
+        // DEFENSE: A saved task can retain a required plugin whose configured process was removed on restart.
         if (!client) throw new Error('Required plugin route is unavailable');
         const outcome = await client.before(effect, { signal });
         input = boundary('effect.completion', { effect, result: outcome });
       } else if (effect.kind === 'after_hook') {
         const client = this.#plugins.get(effect.plugin.name);
+        // DEFENSE: A saved after-hook can refer to a plugin removed from current configuration.
         if (!client) throw new Error('Required plugin route is unavailable');
         const outcome = await client.after(effect, { signal });
         input = boundary('effect.completion', { effect, result: outcome });
       } else {
         let result;
-        if (effect.tool.source?.kind === 'native' && effect.tool.source.program?.kind === 'Process') {
-          if (!effect.execution) throw new Error('A Bash effect requires a committed task execution plan');
+        if (effect.tool.source.kind === 'native') {
           result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
             managedWorktreeRoot: await this.#managedWorktreeRoot(effect.task_id),
             readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
-        } else if (effect.tool.source?.kind === 'native') {
-          throw new Error('The kernel requested an invalid external native capability');
-        } else if (effect.tool.source?.plugin) {
+        } else if (effect.tool.source.plugin) {
           const client = this.#plugins.get(effect.tool.source.plugin.name);
+          // DEFENSE: A frozen plugin tool contract can outlive that plugin's configured process.
           if (!client) throw new Error('Plugin tool route is unavailable');
           result = await client.call(effect, { signal });
-        } else if (effect.tool.source && typeof effect.tool.source === 'object') {
+        } else {
           const client = this.#servers.get(effect.tool.source.server);
+          // DEFENSE: A frozen MCP tool contract can name a server removed from configuration on restart.
           if (!client) throw new Error('MCP route is unavailable');
           result = await client.call(effect.tool.source.name, effect.call.arguments, { signal });
-        } else throw new Error('The kernel requested an unknown external tool');
+        }
         input = boundary('effect.completion', { effect, result });
       }
+    // DEFENSE: Filesystem/process/provider/plugin operations can fail or be cancelled; settle the committed effect with its typed error input.
     } catch (error) {
       input = this.#failureInput(effect, error.message, error instanceof ContextLimitError);
     }
     signal.removeEventListener('abort', cancelPreview);
+    // DEFENSE: Shutdown can abort an operation while its external failure/success continuation is resuming.
     if (this.#closing || this.#failure) return;
     let result;
     try { result = await this.journal.execute(input); }
     catch (error) {
-      // A synchronous encoder rejection precedes any kernel mutation. A large
-      // external result must settle as an error instead of stranding its ticket.
-      if (!(error instanceof RangeError || error instanceof TypeError)) throw error;
+      // DEFENSE: An external result can exceed the frame limit before the kernel runs; settle that live ticket as a bounded error.
+      if (!(error instanceof RangeError)) throw error;
       result = await this.journal.execute(this.#failureInput(effect, 'External result cannot fit the input contract'));
     }
-    if (!result.reply.ok && result.reply.error?.code === 'output_limit') {
+    // DEFENSE: A result can fit the input frame but exceed the budget of its complete resulting decision.
+    if (!result.reply.ok && result.reply.error.code === 'output_limit') {
       result = await this.journal.execute(this.#failureInput(effect, 'External result cannot fit the complete decision'));
     }
+    // DEFENSE: Even the reduced failure completion can exceed a full world's output budget; surface the rejected settlement.
     if (!result.reply.ok) throw new Error(`Effect settlement rejected: ${result.reply.error.message}`);
     if (effect.kind === 'model') {
+      // DEFENSE: Cancellation may occur while model completion is committing; do not record stale cache activity after the request was aborted.
       if (observation && !signal.aborted) {
         const activity = await this.journal.execute({ kind: 'compaction_activity', task_id: effect.task_id,
           source_length: effect.source_length, now: observation.now, scope: observation.scope });
+        // DEFENSE: A provider scope/clock observation can be rejected by native admission or the complete-decision budget.
         if (!activity.reply.ok) throw new Error(`Cache observation rejected: ${activity.reply.error.message}`);
       }
       this.notify({ type: 'stream_end', task_id: effect.task_id, ticket: effect.ticket, sequence: result.sequence });
@@ -354,11 +386,11 @@ export class Service extends EventEmitter {
   }
 
   #failureInput(effect, message, context_limit = false) {
-    return boundary('effect.failure', { effect, message: String(message || 'External execution failed').toWellFormed(), context_limit });
+    // DEFENSE: External diagnostic text can contain lone UTF-16 surrogates; normalize it for the scalar-string kernel ABI.
+    return boundary('effect.failure', { effect, message: message.toWellFormed(), context_limit });
   }
 
   async #worktree(taskId) {
-    if (!Number.isSafeInteger(taskId) || taskId < 0) return undefined;
     const result = await this.journal.execute({ kind: 'command', command: { op: 'read_worktree', task_id: taskId } });
     if (!result.reply.ok) return undefined;
     return result.reply.result;
@@ -371,22 +403,26 @@ export class Service extends EventEmitter {
 
   async #reconcileWorktrees() {
     const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
+    // DEFENSE: A persisted collection of managed checkouts can exceed the query reply's frame budget.
     if (!result.reply.ok) throw new Error(`Managed worktree recovery query rejected: ${result.reply.error.message}`);
     for (const entry of result.reply.result.worktrees) {
       if (!['creating', 'creating_archived', 'archiving'].includes(entry.status)) continue;
       const completion = await reconcileManagedWorktree(entry, { home: this.home, limits: this.limits });
       const settled = await this.journal.execute(completion);
+      // DEFENSE: Recovered filesystem metadata must still pass native completion admission and complete-decision limits.
       if (!settled.reply.ok) throw new Error(`Managed worktree recovery rejected: ${settled.reply.error.message}`);
     }
   }
 
   async command(command) {
+    // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
     if (hasRootTaskCreation(command)) {
       // Keep each root's observed defaults adjacent to its command even when
       // catalog refreshes and other root births arrive concurrently.
       const next = this.#catalogTail.then(() => this.#createRoot(command));
+      // DEFENSE: A failed filesystem observation rejects this command's returned promise; it must not prevent later commands from reaching their own admission.
       this.#catalogTail = next.catch(() => {});
       return next;
     }
@@ -395,11 +431,13 @@ export class Service extends EventEmitter {
 
   /** Remote intent, authorization and receipt share the ordinary native commit. */
   remoteCommand(controller_id, grant_epoch, request) {
+    // DEFENSE: Authenticated remote JSON-RPC commands can omit their params or required command/receipt fields; preserve absence for native rejection.
     const intent = structuredClone(request?.command);
     const envelope = { controller_id, grant_epoch, request_id: request?.request_id, intent };
     const submit = () => this.#remoteSubmit(envelope);
     if (hasRootTaskCreation(intent)) {
       const next = this.#catalogTail.then(submit);
+      // DEFENSE: One rejected remote command is reported by its returned promise and must not poison the shared configuration queue.
       this.#catalogTail = next.catch(() => {});
       return next;
     }
@@ -407,9 +445,11 @@ export class Service extends EventEmitter {
   }
 
   async #remoteSubmit(envelope) {
+    // DEFENSE: A queued remote request can outlive service shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     const probe = await this.journal.execute({ kind: 'remote_probe', ...envelope });
+    // DEFENSE: The remote owner can revoke a grant or a client can send invalid receipt coordinates; do no filesystem work for a rejected intent.
     if (!probe.reply.ok) return { sequence: probe.sequence, reply: probe.reply };
     if (probe.reply.result?.replayed) return { sequence: probe.sequence, reply: probe.reply.result.reply };
     let command;
@@ -425,7 +465,9 @@ export class Service extends EventEmitter {
         } };
         configuration = this.#configuration(rootFacts);
       }
+    // DEFENSE: A remote command can name unreadable files or unavailable workspaces; distinguish observation failure from an already committed command.
     } catch (cause) { throw new CommandNotSubmitted(cause); }
+    // DEFENSE: Shutdown or a journal failure can occur during the awaited filesystem observations.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     const result = await this.journal.execute({ kind: 'remote_command', ...envelope, command,
@@ -435,6 +477,7 @@ export class Service extends EventEmitter {
   }
 
   remoteCheck(controller_id, grant_epoch) {
+    // DEFENSE: A relay authorization check can arrive after local shutdown or a journal failure.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
     return this.journal.execute({ kind: 'remote_check', controller_id, grant_epoch });
@@ -454,6 +497,7 @@ export class Service extends EventEmitter {
           settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
       }
       const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
+      // DEFENSE: A requested worktree workspace may not be a Git repository with a commit to check out.
       if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
     }
     return observed;
@@ -461,6 +505,7 @@ export class Service extends EventEmitter {
 
   async #createRoot(command) {
     try {
+      // DEFENSE: Root creation can wait behind catalog refresh while shutdown or another operation fails.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Service is stopping');
       const instructions = { configured: this.config.instructions,
@@ -470,8 +515,10 @@ export class Service extends EventEmitter {
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }
+      // DEFENSE: External catalog/configuration rejection must not publish this root's unaccepted observed defaults to later requests.
       catch (error) { Object.assign(this, previous); throw error; }
       return this.journal.execute({ kind: 'command', command: observed });
+    // DEFENSE: Unreadable guidance or invalid workspace observations occur before command submission; return that distinct outcome to the caller.
     } catch (cause) { throw new CommandNotSubmitted(cause); }
   }
 
@@ -479,7 +526,9 @@ export class Service extends EventEmitter {
     const boardObserved = await observeBoardCommand(command, this.home);
     let observed;
     try { observed = await observeWorkspaceCommand(boardObserved, this.limits); }
+    // DEFENSE: Workspace paths supplied in a public command can be inaccessible or invalid before the native command is submitted.
     catch (cause) { throw new CommandNotSubmitted(cause); }
+    // DEFENSE: Shutdown or a fatal operation can occur while command filesystem observations are awaited.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     return this.journal.execute({ kind: 'command', command: observed });
@@ -487,22 +536,26 @@ export class Service extends EventEmitter {
 
   refreshAccounts() {
     const next = this.#catalogTail.then(async () => {
+      // DEFENSE: A queued account refresh can begin after shutdown or a fatal journal failure.
       if (this.#closing || this.#failure) throw new Error('Service is unavailable');
       const discovered = await withAccountModels(this.declaredConfig, this.home, { force: true });
+      // DEFENSE: Account discovery awaits the network and may finish after the service has stopped.
       if (this.#closing || this.#failure) throw new Error('Service is unavailable');
       const previous = this.config;
       this.config = discovered.config;
       try { await this.#configure(); }
+      // DEFENSE: A newly discovered external catalog can fail native configuration; restore the last accepted host configuration.
       catch (error) { this.config = previous; throw error; }
       this.accounts = discovered.accounts;
       return { accounts: this.accounts, profiles: profileCatalog(this.config) };
     });
-    // A failed external catalog refresh does not kill a healthy native world.
+    // DEFENSE: The refresh caller receives network/catalog failures; later queued commands must still run against the prior accepted configuration.
     this.#catalogTail = next.catch(() => {});
     return next;
   }
 
   browserSnapshot() {
+    // DEFENSE: A browser/relay request may reach snapshot delivery after shutdown or a fatal journal failure.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
     return { namespace: this.journal.namespace, sequence: this.journal.sequence, program: this.journal.program };
@@ -518,9 +571,12 @@ export class Service extends EventEmitter {
   }
 
   async browserObservation(observation) {
+    // DEFENSE: Browser requests already in flight can reach this method after the service stops.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
+    // DEFENSE: Authenticated HTTP clients can submit JSON null, arrays or scalars instead of an observation request.
     if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
+    // DEFENSE: Browser observation requests are external JSON; each admitted variant requires its declared fields and types.
     if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
       return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
     }
@@ -536,6 +592,7 @@ export class Service extends EventEmitter {
           location = workspace.primary_root;
         }
         return await browseDirectories(location, this.limits.frame_bytes);
+      // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
       } catch (error) {
         return { ok: false, error: error.message };
       }
@@ -546,24 +603,30 @@ export class Service extends EventEmitter {
       const guidance = primary ? await snapshotProject(primary, this.limits) : null;
       return { kind: 'directories', workspace, guidance };
     }
+    // DEFENSE: A client can send an unknown observation kind or fields outside its declared request variant.
     throw new TypeError('Unknown browser observation');
   }
 
   close() {
+    // DEFENSE: Fatal notices, OS signals and failed startup can request shutdown concurrently; all receive the same completion.
     this.#closePromise ??= this.#close();
     return this.#closePromise;
   }
 
   async #close() {
     this.#closing = true;
-    await this.remote?.close();
+    // DEFENSE: Network/process cleanup can fail; finish releasing all resources, then report every failed close to the caller.
+    const settled = await Promise.allSettled([this.remote?.close()]);
     if (this.#continuation) clearImmediate(this.#continuation);
     if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));
-    await Promise.allSettled([...this.#running.values()].map(active => active.promise));
-    await Promise.allSettled([...this.#providerCancellations]);
-    await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close()));
-    await this.#catalogTail;
-    await this.journal?.close();
+    settled.push(...await Promise.allSettled([...this.#running.values()].map(active => active.promise)));
+    settled.push(...await Promise.allSettled([...this.#providerCancellations]));
+    settled.push(...await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close())));
+    settled.push(...await Promise.allSettled([this.#catalogTail]));
+    settled.push(...await Promise.allSettled([this.journal?.close()]));
+    const errors = settled.filter(result => result.status === 'rejected').map(result => result.reason);
+    // DEFENSE: A denied process-group kill or failed SQLite/network close must remain visible after the rest of shutdown finishes.
+    if (errors.length) throw new AggregateError(errors, 'Service shutdown failed');
   }
 }

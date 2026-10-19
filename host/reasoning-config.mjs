@@ -29,6 +29,7 @@ export function configurationObserver() {
   }
   function execute(operation, source) {
     const plan = boundary(operation, source);
+    // DEFENSE: Configuration files can contain invalid evaluator URLs, credentials or effort policies; native rejection materializes a diagnostic without exposing opaque env values.
     if (Object.hasOwn(plan, 'error')) {
       const message = plan.error.map(part => Object.hasOwn(part, 'ref') ? originals[part.ref] : part.literal).join('');
       throw plan.code === 'Error' ? new Error(message) : new TypeError(message);

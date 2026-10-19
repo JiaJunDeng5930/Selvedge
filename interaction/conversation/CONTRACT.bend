@@ -22,20 +22,15 @@ def timeline_decisions(value: Actual.Timeline) -> +List<Actual.DecisionRequest>:
   Actual.Timeline{task, generation, groups, operations, decisions, reading, latest} = value
   decisions
 
-def expected_serialized_parameter(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{text}: text
-    case Fail{reason}: "Serialization failed: " ++ reason
-
 def expected_parameter(value: J.Json) -> String:
   match value:
     case J.Text{text}: text
-    case other: expected_serialized_parameter(J.show(other))
+    case other: J.stringify(other)
 
 def RenderedParameter(-value: J.Json) -> Type:
   Sigma<&2, &1, String, (text =>
     {J.show(value) == Done{text} : Result<&2, &2, String, String>} &
-    {InterfaceView.approval_serialized(J.show(value)) == text : String})>
+    {J.stringify(value) == text : String})>
 
 def expected_argument_label(name: String) -> String:
   OperationParameters.label(name)
@@ -112,7 +107,7 @@ type Requirements is Type:
               SurfaceTypes.ReadOnly{reviewer_name(reviewer)}, Nil{}}])}] : +List<SurfaceTypes.Node>},
     approval_detail: @+task:Nat -> @+operation:Nat -> @+call:D.Call -> @+reviewer:D.ApprovalReviewer -> @+outcome:D.ApprovalOutcome ->
       {Actual.audit_detail(D.ApprovalRecord{task, operation, call, reviewer, outcome}) ==
-        Actual.json_detail(J.show(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome}))) : String},
+        J.stringify(Tasks.message_json(D.ApprovalRecord{task, operation, call, reviewer, outcome})) : String},
     audit_classification: @+message:D.Message -> @+index:Nat -> @+tail:+List<Actual.Group> -> @is_audit:{audit_message(message) == True{} : Bool} ->
       {Actual.prepend(message, index, tail) == Actual.prepend_audit(index, Actual.audit_failed(message), message, tail) : +List<Actual.Group>},
     disclosure: @+group:Nat -> @seen:Nat -> @+choice:Bool -> @+attention:Maybe<&2, Nat> -> @+rest:+List<E.Disclosure> ->

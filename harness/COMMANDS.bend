@@ -280,6 +280,7 @@ def open_side(found: Maybe<&2, D.Task>, message: String, +world: M.World()) -> O
       require(operation => side_open_permitted(world, operation), OpenSideConversation{parent, message},
         "side_unavailable", "A side conversation requires a non-archived parent and available descendant capacity")
 
+# DEFENSE: An independently growing side history can exceed the configured serialization budget; refuse without advancing its return cursor.
 def side_return_encoded(encoded: Result<&2, &2, String, String>, side: D.Task, parent: D.Task, after: Nat, through: Nat) -> Operation:
   match encoded:
     case Fail{reason}: Refuse{"output_limit", "The complete side conversation transcript exceeds the encoding bound"}

@@ -1,9 +1,6 @@
 /** Lossless JSON at the shared value boundary. Numeric lexemes survive the Bend round trip. */
 export class JsonNumber {
   constructor(source) {
-    if (typeof source !== 'string' || !/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(source)) {
-      throw new TypeError('Invalid JSON number');
-    }
     this.source = source;
     Object.freeze(this);
   }
@@ -23,7 +20,6 @@ export function parseJson(text) {
 /** Observe raw JSON tokens before object decoding can collapse duplicate keys. */
 export function observeJson(text) {
   try {
-    if (typeof text !== 'string') throw new TypeError('Expected JSON text');
     JSON.parse(text);
     const tokens = [];
     const number = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
@@ -53,13 +49,14 @@ export function observeJson(text) {
       } else {
         number.lastIndex = index;
         const match = number.exec(text);
-        if (!match) throw new SyntaxError('Invalid JSON token');
         tokens.push(`n${match[0]}`);
         index = number.lastIndex;
       }
     }
     return { text, tokens };
   } catch (error) {
+    // DEFENSE: HTTP, RPC and persisted JSON text can be syntactically invalid; report that parse failure to Bend.
+    if (!(error instanceof SyntaxError)) throw error;
     return { text, error: error.message, error_name: error.name };
   }
 }
@@ -67,6 +64,7 @@ export function observeJson(text) {
 export function stringifyJson(value) {
   return JSON.stringify(value, (_key, item) => {
     if (typeof item === 'bigint') return JSON.rawJSON(item.toString());
+    // DEFENSE: Native numerical observations such as resource usage can be non-finite; JSON must not silently turn them into null.
     if (typeof item === 'number' && !Number.isFinite(item)) throw new TypeError('Non-finite JSON number');
     return item;
   });
@@ -75,10 +73,12 @@ export function stringifyJson(value) {
 /** Emit the tagged value tokens consumed by Bend JSON. */
 export function emitJsonTokens(value, emit) {
   function token(text) {
+    // DEFENSE: External JSON strings may contain lone UTF-16 surrogates, which the Bend scalar-string ABI cannot encode.
     if (!text.isWellFormed()) throw new TypeError('JSON strings must contain Unicode scalar values');
     emit(text);
   }
   function visit(item, depth) {
+    // DEFENSE: External JSON containers beyond the token decoder's 256-container limit must be rejected before recursive encoding.
     if (depth > 256) throw new RangeError('JSON nesting exceeds 256 containers');
     if (item === null) return token('z');
     if (item instanceof JsonNumber) return token(`n${item.source}`);
@@ -86,6 +86,7 @@ export function emitJsonTokens(value, emit) {
     if (typeof item === 'string') return token(`s${item}`);
     if (typeof item === 'boolean') return token(item ? 't' : 'f');
     if (typeof item === 'number') {
+      // DEFENSE: Non-finite native numbers have no JSON number token and must not enter the shared ABI.
       if (!Number.isFinite(item)) throw new TypeError('Non-finite JSON number');
       return token(`n${Object.is(item, -0) ? '-0' : item}`);
     }
@@ -94,6 +95,7 @@ export function emitJsonTokens(value, emit) {
       for (const element of item) visit(element, depth + 1);
       return token(']');
     }
+    // DEFENSE: Host boundary inputs can contain native objects/functions; only JSON objects have a token representation.
     if (typeof item !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(item))) {
       throw new TypeError('Expected a JSON value');
     }

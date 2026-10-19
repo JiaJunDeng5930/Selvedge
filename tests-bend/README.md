@@ -17,6 +17,13 @@ semantic requirements, component refinement and unrelated-state preservation.
 Tests do not recompile hypothetical application extensions or repeat semantic
 traces through HTTP and SQLite.
 
+The source gate checks core entries' actual transitive dependencies against
+application and feature ownership, private representation access, and production
+proof coverage. Independent helpers need no duplicate import whitelist. The UI
+gate checks public law providers and their load order; construction evidence may
+live with the code that produces it, and a requirements type needs no extra law
+solely because of its name.
+
 The small physical suite targets failure mechanisms that the model cannot rule
 out: SQLite failing after a kernel transition, execution before durable authority,
 subprocess pipe pressure and process-tree cleanup, filesystem links and content

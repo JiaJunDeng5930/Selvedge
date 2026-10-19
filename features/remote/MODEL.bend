@@ -153,13 +153,8 @@ def grant_capacity(controller: String, +state: State) -> Bool:
 def identifier_valid(+text: String) -> Bool:
   Bool.not(Text.string_equal(text, "")) && Nat.is_le(J.utf8_length(text), 128n)
 
-def rendered_valid(value: Result<&2, &2, String, String>) -> Bool:
-  match value:
-    case Fail{reason}: False{}
-    case Done{text}: Nat.is_le(J.utf8_length(text), 65536n)
-
 def intent_valid(value: J.Json) -> Bool:
-  rendered_valid(J.show(value))
+  Nat.is_le(J.utf8_length(J.stringify(value)), 65536n)
 
 def payload_valid(value: J.Json) -> Bool:
   intent_valid(value)

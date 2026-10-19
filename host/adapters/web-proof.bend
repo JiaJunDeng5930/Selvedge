@@ -492,10 +492,6 @@ def route_0_dispatch(selected: Bool, +operation: String, +source: J.Json) ->
     case True{}: Web.messages_correspondence()(source)
     case False{}: route_1_dispatch(String.eq(operation, "web.tools"), operation, source)
 
-def legacy_dispatch(+operation: String, +source: J.Json) ->
-    {Web.route_0(String.eq(operation, "web.messages"), operation, source) == Web.meaning_route_0(String.eq(operation, "web.messages"), operation, source) : J.Json}:
-  route_0_dispatch(String.eq(operation, "web.messages"), operation, source)
-
 def Web.reset_session_correspondence():
   source => {==}
 def Web.reset_write_scope():
@@ -507,7 +503,7 @@ def reset_dispatch(selected: Bool, +operation: String, +source: J.Json) ->
   {Web.route_reset(selected, operation, source) == Web.meaning_route_reset(selected, operation, source) : J.Json}:
   match selected:
     case True{}: Web.reset_session_correspondence()(source)
-    case False{}: legacy_dispatch(operation, source)
+    case False{}: route_0_dispatch(String.eq(operation, "web.messages"), operation, source)
 
 def complete_dispatch(+operation: String, +source: J.Json) ->
   {Web.run(operation, source) == Web.meaning(operation, source) : J.Json}:

@@ -43,6 +43,7 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
   try {
     response = await fetchEvents(`/api/events?after=${sequence()}`, signal);
     if (!subscribed()) return;
+    // DEFENSE: The SSE endpoint can return an HTTP rejection or a bodyless response instead of an event stream.
     if (!response.ok || !response.body) {
       const error = new Error(`Event connection: HTTP ${response.status}`);
       error.status = response.status;
@@ -87,6 +88,7 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
       if (!subscribed()) return;
       if (received === flushSignal) { flushStreams(); continue; }
       reading = null;
+      // DEFENSE: The service can stop or close its SSE response; report disconnection so Bend owns recovery.
       if (received.done) { flushStreams(); throw new Error('Event connection ended'); }
       frames.write(decoder.decode(received.value, { stream: true }));
     }
@@ -96,8 +98,11 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
   } finally {
     clearFlush();
     if (reader) {
-      await reader.cancel().catch(() => {});
+      await reader.cancel().catch(error => {
+        // DEFENSE: Cancelling an already failed fetch stream rejects with its network TypeError or AbortError.
+        if (!(error instanceof TypeError) && error.name !== 'AbortError') throw error;
+      });
       reader.releaseLock();
-    } else await response?.body?.cancel().catch(() => {});
+    } else await response?.body?.cancel();
   }
 }

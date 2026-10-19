@@ -25,12 +25,6 @@ def o4(k0: String, v0: J.Json, k1: String, v1: J.Json, k2: String, v2: J.Json, k
 def o5(k0: String, v0: J.Json, k1: String, v1: J.Json, k2: String, v2: J.Json, k3: String, v3: J.Json, k4: String, v4: J.Json) -> J.Json:
   J.Object{Con{J.Field{k0, v0}, Con{J.Field{k1, v1}, Con{J.Field{k2, v2}, Con{J.Field{k3, v3}, Con{J.Field{k4, v4}, Nil{}}}}}}}
 
-def o6(k0: String, v0: J.Json, k1: String, v1: J.Json, k2: String, v2: J.Json, k3: String, v3: J.Json, k4: String, v4: J.Json, k5: String, v5: J.Json) -> J.Json:
-  J.Object{Con{J.Field{k0, v0}, Con{J.Field{k1, v1}, Con{J.Field{k2, v2}, Con{J.Field{k3, v3}, Con{J.Field{k4, v4}, Con{J.Field{k5, v5}, Nil{}}}}}}}}
-
-def o7(k0: String, v0: J.Json, k1: String, v1: J.Json, k2: String, v2: J.Json, k3: String, v3: J.Json, k4: String, v4: J.Json, k5: String, v5: J.Json, k6: String, v6: J.Json) -> J.Json:
-  J.Object{Con{J.Field{k0, v0}, Con{J.Field{k1, v1}, Con{J.Field{k2, v2}, Con{J.Field{k3, v3}, Con{J.Field{k4, v4}, Con{J.Field{k5, v5}, Con{J.Field{k6, v6}, Nil{}}}}}}}}}
-
 def o8(k0: String, v0: J.Json, k1: String, v1: J.Json, k2: String, v2: J.Json, k3: String, v3: J.Json, k4: String, v4: J.Json, k5: String, v5: J.Json, k6: String, v6: J.Json, k7: String, v7: J.Json) -> J.Json:
   J.Object{Con{J.Field{k0, v0}, Con{J.Field{k1, v1}, Con{J.Field{k2, v2}, Con{J.Field{k3, v3}, Con{J.Field{k4, v4}, Con{J.Field{k5, v5}, Con{J.Field{k6, v6}, Con{J.Field{k7, v7}, Nil{}}}}}}}}}}
 
@@ -300,7 +294,7 @@ def original_costs(entries: +List<J.Json>) -> +List<J.Json>:
 def entries_valid(entries: +List<J.Json>, +index: Nat) -> Bool:
   match entries:
     case Nil{}: True{}
-    case Con{+entry, rest}: J.same(J.get(entry, "index"), J.nat(index)) && Model.nonnegative_le(J.get(entry, "cost"), "9007199254740991") && array(J.get(entry, "own_fields")) && (J.boolean(J.get(J.get(entry, "text"), "truthy")) || J.same(J.get(entry, "cost"), J.nat(0n))) && entries_valid(rest, Nat.add(index, 1n))
+    case Con{+entry, rest}: J.same(J.get(entry, "index"), J.nat(index)) && Model.nonnegative_le(J.get(entry, "cost"), "9007199254740991") && (J.boolean(J.get(J.get(entry, "text"), "truthy")) || J.same(J.get(entry, "cost"), J.nat(0n))) && entries_valid(rest, Nat.add(index, 1n))
 
 def allocation_actions(entries: +List<J.Json>, allocations: +List<J.Json>) -> +List<J.Json>:
   match entries allocations:

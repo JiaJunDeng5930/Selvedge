@@ -9,9 +9,12 @@ const sha = value => createHash('sha256').update(value).digest('hex');
 const names = ['desktop-tokens.css'];
 const tokenHeader = version => `/* Codex Desktop ${version}: unchanged root/theme rules; no global element or Markdown rules. */\n@layer selvedge, properties, theme, base, components, utilities;\n`;
 
-function demand(condition, message) { if (!condition) throw new Error(message); }
+function demand(condition, message) {
+  // DEFENSE: The supplied ASAR archive, source manifest or CLI arguments can violate the specific version, range, path or digest requirement named by the caller.
+  if (!condition) throw new Error(message);
+}
 function digest(value, expected, label) {
-  demand(/^[a-f0-9]{64}$/.test(expected ?? ''), `Invalid desktop source digest: ${label}`);
+  demand(/^[a-f0-9]{64}$/.test(expected), `Invalid desktop source digest: ${label}`);
   demand(sha(value) === expected, `Desktop source mismatch: ${label}`);
 }
 

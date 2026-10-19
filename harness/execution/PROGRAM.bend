@@ -55,6 +55,7 @@ def context(+task: D.Task) -> J.Json:
 def model(+task: D.Task, world: M.World()) -> Action:
   Model{task}
 
+# DEFENSE: Model calls and hook rewrites supply untrusted arguments; enforce the frozen tool schema and process approval constraints before dispatch.
 def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json, caller: Nat) -> Bool:
   match source:
     case D.Extension{plugin, remote}: Schema.valid(schema, arguments)
@@ -72,6 +73,7 @@ def external_review(needed: Bool, tool: D.Tool, call: D.Call, remaining: +List<D
 type ExternalCapacityRequest is Data:
   ExternalCapacityRequest{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task}
 
+# DEFENSE: A task can issue tools faster than they complete; enforce the in-flight operation limit before allocating another operation.
 def external_capacity_accepts(request: ExternalCapacityRequest) -> Bool:
   ExternalCapacityRequest{+tool, +call, +remaining, +task} = request
   Nat.is_lt(List.length(&2, D.Operation(), D.task_operations(task)), D.operation_limit())
@@ -98,6 +100,7 @@ def external_capacity(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>
 type InternalCapacityRequest is Data:
   InternalCapacityRequest{builtin: Native.Body, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
 
+# DEFENSE: Internal tools with after-hooks retain pending result operations; enforce the same capacity before accepting another one.
 def internal_capacity_accepts(request: InternalCapacityRequest) -> Bool:
   InternalCapacityRequest{+builtin, +call, +remaining, +task, +world} = request
   Nat.is_eq(List.length(&2, D.PluginRef, Hooks.after(Hooks.plugins(D.task_contract(task)))), 0n) || Nat.is_lt(List.length(&2, D.Operation(), D.task_operations(task)), D.operation_limit())
@@ -121,15 +124,17 @@ def internal_capacity(+builtin: Native.Body, +call: D.Call, +remaining: +List<D.
   +request = {InternalCapacityRequest{builtin, call, remaining, task, world} : InternalCapacityRequest}
   internal_capacity_admitted(Categories.admit(InternalCapacityRequest, internal_capacity_accepts, request), request)
 
-def classified(execution: D.Execution, source: D.Source, tool: D.Tool, +call: D.Call,
+def classified(source: D.Source, tool: D.Tool, +call: D.Call,
   remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> Action:
-  match execution source:
-    case D.ExternalMutation{} _:
+  match source:
+    case D.Harness{Native.Process{}}:
       external_capacity(tool, call, remaining, task)
-    case D.InternalOperation{} D.Harness{builtin}:
+    case D.Harness{builtin}:
       internal_capacity(builtin, call, remaining, task, world)
-    case _ _:
-      Failure{"internal_error", "Invalid internal tool classification", call, remaining, task}
+    case D.Mcp{server, remote}:
+      external_capacity(tool, call, remaining, task)
+    case D.Extension{plugin, remote}:
+      external_capacity(tool, call, remaining, task)
 
 type ValidatedRequest is Data:
   ValidatedRequest{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
@@ -145,7 +150,7 @@ def validated_category() -> ValidatedRequest -> Type:
 def validated_accepted(member: Categories.Membership<ValidatedRequest, validated_category()>) -> Action:
   Categories.Membership{request, evidence} = member
   ValidatedRequest{+tool, +call, +remaining, +task, +world} = request
-  classified(D.execution(D.tool_source(tool)), D.tool_source(tool), tool, call, remaining, task, world)
+  classified(D.tool_source(tool), tool, call, remaining, task, world)
 
 def validated_admitted(admission: Maybe<&1, Categories.Membership<ValidatedRequest, validated_category()>>, request: ValidatedRequest) -> Action:
   match admission:
@@ -161,6 +166,7 @@ def validated(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task:
 type AvailableRequest is Data:
   AvailableRequest{tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()}
 
+# DEFENSE: A frozen task route can outlive removal or replacement of its live provider; do not dispatch an unavailable route.
 def available_accepts(request: AvailableRequest) -> Bool:
   AvailableRequest{+tool, +call, +remaining, +task, +world} = request
   T.available(catalog(world), tool)

@@ -47,4 +47,5 @@ again at the service boundary; arbitrary local paths cannot substitute for uploa
 Use `bun host/cli.mjs describe` for the live API fields. The authoritative board
 command definitions are in [CODEC.bend](../features/board/CODEC.bend).
 
-`bun run test` runs the proof/host boundary suite.
+`bun run check` checks the production proofs and build boundaries;
+`bun run test` runs the focused runtime and host integration suite.

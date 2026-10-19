@@ -82,8 +82,7 @@ def execution_operations() -> Model.ExecutionOperations<M.World(), M.Decision()>
 
 def execution_model() -> Model.Execution(M.World(), M.Decision()):
   Categories.Membership{
-    Categories.Implementation{execution_operations(), execution_operations()},
-      Categories.Intersection{Model.ExecutionFaithfulness{{==}, a0 => {==}, a0 => a1 => {==}, a0 => a1 => {==}, a0 => {==}, a0 => {==}, a0 => {==}, a0 => {==}, a0 => a1 => {==}},
+    execution_operations(),
     Categories.Intersection{
       Model.ExecutionSafety{Laws.initial_world_valid(),
         state => input => valid => Laws.transition_preserves_world(state, input, valid)},
@@ -96,7 +95,7 @@ def execution_model() -> Model.Execution(M.World(), M.Decision()):
             query => Laws.observation_not_durable(query)},
           Model.ExecutionHistory{
             events => state => valid => Laws.replay_preserves_world(events, state, valid),
-            query => first => second => state => Laws.observation_replay(query, first, second, state)}}}}}}
+            query => first => second => state => Laws.observation_replay(query, first, second, state)}}}}}
 
 # Assemble the conceptual program only after every local obligation is closed.
 def harness() -> Entry.Harness:

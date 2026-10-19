@@ -9,7 +9,6 @@ const contextDefinitions = boundary('config.context_definitions', {});
 
 async function snapshotGuidance(directory, kind, limits, options) {
   const definition = contextDefinitions.find(definition => definition.kind === kind);
-  if (!definition?.observer.policy) throw new Error('The kernel did not declare a guidance discovery policy');
   for (const filename of definition.observer.policy.files) {
     const snapshot = await snapshotContextFile(path.join(directory, filename), limits, options);
     if (snapshot !== null) return snapshot;
@@ -20,17 +19,20 @@ async function snapshotGuidance(directory, kind, limits, options) {
 export async function snapshotContextFile(filename, limits, { signal } = {}) {
   signal?.throwIfAborted();
   const maximum = limits.project_context_bytes;
-  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('The kernel did not declare a project-context bound');
+  // DEFENSE: Configured skill paths and discovered guidance paths must fit the native source identity limit.
   if (Buffer.byteLength(filename) > 4096) throw new Error('Instruction path exceeds the model boundary');
   let file;
   try { file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW); }
   catch (error) {
+    // DEFENSE: Guidance files are optional and may be deleted between discovery and open.
     if (error.code === 'ENOENT') return null;
     throw error;
   }
   try {
     const before = await file.stat();
+    // DEFENSE: User-selected source paths can name devices/directories instead of regular text files.
     if (!before.isFile()) throw new Error('The path must resolve to a regular file');
+    // DEFENSE: User-authored guidance and skill files can exceed the kernel's context byte budget.
     if (before.size > maximum) throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
     const buffer = Buffer.alloc(Math.min(before.size + 1, maximum + 1));
     let length = 0;
@@ -41,12 +43,15 @@ export async function snapshotContextFile(filename, limits, { signal } = {}) {
       length += bytesRead;
     }
     const after = await file.stat();
+    // DEFENSE: Editors can replace or modify source bytes while an observation is reading them.
     if (length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
       throw new Error('File changed while being read; read it again');
     }
     const bytes = buffer.subarray(0, length);
+    // DEFENSE: Guidance and skill files are externally editable; their content contract excludes NUL and invalid UTF-8.
     if (bytes.includes(0)) throw new Error('File contains NUL bytes; use a binary-aware tool');
     let instructions;
+    // DEFENSE: TextDecoder rejects invalid UTF-8 in external instruction files rather than replacing bytes.
     try { instructions = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
     catch { throw new Error('File is not valid UTF-8'); }
     return { path: filename, revision: createHash('sha256').update(bytes).digest('hex'), content: instructions };
@@ -69,6 +74,7 @@ export async function snapshotGlobalInstructions(home, limits, options) {
  * selection and fork inheritance remain in the native command resolver.
  */
 export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
+  // DEFENSE: Public commands reach observation before native command admission, so invalid shapes pass through for rejection.
   if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
   const settingCommand = ['create', 'create_work_task', 'create_worktree_task', 'fork', 'save_board_agent'].includes(command.op);
   const projectCommand = ['create_project', 'update_project'].includes(command.op);
@@ -92,6 +98,7 @@ function graphCommand(command) {
 }
 
 function newGraphNode(node) {
+  // DEFENSE: Graph nodes come from public commands before native admission; only shaped new nodes require file observations.
   return node !== null && typeof node === 'object' && !Array.isArray(node) && node.task_id === undefined;
 }
 
@@ -101,7 +108,9 @@ export function hasRootTaskCreation(command) {
 }
 
 async function observeWorkspaceSettings(selected, limits, projectWorkspace) {
+  // DEFENSE: Settings in public commands may be absent or malformed; native admission owns their rejection.
   if (!selected || typeof selected !== 'object' || Array.isArray(selected)) return selected;
+  // DEFENSE: A public caller must not forge a service-observed guidance snapshot.
   if (selected.guidance !== undefined) throw new TypeError('Root guidance is observed by the service, not supplied by a client');
   if (selected.workspace === undefined && projectWorkspace && Number.isSafeInteger(selected.project_id)) {
     const workspace = await projectWorkspace(selected.project_id);

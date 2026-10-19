@@ -10,6 +10,7 @@ export class EventFrames {
     this.pending += chunk;
     let separator;
     while ((separator = /\r?\n\r?\n/.exec(this.pending))) {
+      // DEFENSE: A network SSE frame can exceed the 4 MiB retained-input limit before its delimiter arrives.
       if (separator.index > this.limit) throw new RangeError('Event frame is too large');
       const frame = this.pending.slice(0, separator.index);
       this.pending = this.pending.slice(separator.index + separator[0].length);
@@ -17,6 +18,7 @@ export class EventFrames {
         .map(line => line.slice(5).replace(/^ /, '')).join('\n');
       if (data) this.consume(JSON.parse(data));
     }
+    // DEFENSE: An SSE peer may keep sending data without a delimiter; cap the retained unfinished frame.
     if (this.pending.length > this.limit) throw new RangeError('Event frame is too large');
   }
 }

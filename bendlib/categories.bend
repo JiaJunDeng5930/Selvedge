@@ -1,4 +1,14 @@
 import Base
+import ./stdlib.bend as Std
+
+def false_goal(P: Type, value: Bool) -> Type:
+  match value:
+    case False{}: Unit
+    case True{}: P
+
+def impossible(P: Type, evidence: {False{} == True{} : Bool}) -> P:
+  Std.transport(Bool, False{}, (value => false_goal(P, value)), Unit{}, True{},
+    Equal.sym(Bool, False{}, True{}, evidence))
 
 # Predicates remain open function values; inclusion supplies the implication.
 type Inclusion<-Value: Type, -A: Value -> Type, -B: Value -> Type> is Type:
@@ -74,9 +84,6 @@ def construct(-Request: Data, -Result: Data, producer: Request -> Result, +reque
 def construct_certified(-Request: Data, -Result: Data, producer: Request -> Result, -premise: Request -> Type, -category: Construction<Request, Result> -> Type, evidence: @-request:Request -> premise(request) -> category(Construction{request, producer(request)}), +request: Request, accepted: premise(request)) -> Membership<Construction<Request, Result>, (value => intersection(Construction<Request, Result>, constructed_by(Request, Result, producer), category, value))>:
   +result = producer(request)
   Membership{Construction{request, result}, Intersection{{==}, evidence(request, accepted)}}
-
-type Implementation<-Operations: Type> is Type:
-  Implementation{specification: Operations, operations: Operations}
 
 def holds(-Value: Data, -predicate: Value -> Bool) -> Value -> Type:
   value => {predicate(value) == True{} : Bool}

@@ -93,6 +93,7 @@ test('real Git preserves dirty source data, suppresses project programs and reco
   assert.equal(failed.ok, false, JSON.stringify(failed));
   let retained = true;
   try { await lstat(reserved); }
+  // DEFENSE: Cancelled Git checkout may remove its partial directory before this observation; only ENOENT proves cleanup.
   catch (error) { if (error.code !== 'ENOENT') throw error; retained = false; }
   assert.equal(failed.root, retained ? reserved : null);
   assert.equal(await readFile(path.join(primary, 'tracked.txt'), 'utf8'), 'dirty tracked 世界');

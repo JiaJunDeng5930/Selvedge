@@ -228,8 +228,6 @@ def credential_content(+source: J.Json) -> Bool:
     date_valid(J.get(value, "expires_at"), J.get(dates, "expires_at")) && date_valid(J.get(value, "last_refresh"), J.get(dates, "last_refresh")) &&
     (J.same(J.get(value, "earliest_refresh_at"), J.Null{}) || date_valid(J.get(value, "earliest_refresh_at"), J.get(dates, "earliest_refresh_at"))) &&
     nullable(J.get(value, "name")) && nullable(J.get(value, "email"))
-def credential_context(+source: J.Json) -> Bool:
-  credential_binding(source) && credential_content(source)
 def credential_requirements(+source: J.Json) -> Bool:
   credential_format(source) && credential_content(source)
 def credential_admitted(member: Maybe<&1, Categories.Membership<J.Json, (source => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => credential_binding(candidate))), Categories.holds(J.Json, (candidate => credential_requirements(candidate))), source))>>) -> J.Json:
@@ -239,11 +237,6 @@ def credential_admitted(member: Maybe<&1, Categories.Membership<J.Json, (source 
 
 def credential(source: J.Json) -> J.Json:
   credential_admitted(Categories.admit_intersection(J.Json, (candidate => credential_binding(candidate)), (candidate => credential_requirements(candidate)), source))
-def registration_decision(valid: Bool, value: J.Json) -> J.Json:
-  match valid:
-    case True{}: Model.success(value)
-    case False{}: Model.failure("Invalid ChatGPT client registration; sign in again")
-
 def registration_shape(source: J.Json) -> Bool:
   +value = J.get(source, "value")
   J.is_object(value) && J.same(J.get(value, "format"), J.Text{"selvedge-chatgpt-registration-1"}) && Nat.is_eq(List.length(&2, J.Field, fields(value)), 4n) && client(J.get(value, "client_id")) && has(value, "subject") && nullable(J.get(value, "subject"))
@@ -949,8 +942,9 @@ def cache_error_fatal(fatal: Bool) -> J.Json:
   match fatal:
     case True{}: Model.failure("Cannot read the ChatGPT model cache")
     case False{}: Model.success(J.Null{})
+# DEFENSE: First discovery has no model-cache file; only ENOENT admits an empty cache, while other read failures remain errors.
 def cache_error(+source: J.Json) -> J.Json:
-  cache_error_fatal(truthy(J.get(source, "code")) && Bool.not(J.same(J.get(source, "code"), J.Text{"ENOENT"})))
+  cache_error_fatal(Bool.not(J.same(J.get(source, "code"), J.Text{"ENOENT"})))
 def token_expiration_decision(valid: Bool) -> J.Json:
   match valid:
     case False{}: Model.failure_code("RangeError", "Invalid time value")

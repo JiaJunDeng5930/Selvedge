@@ -42,16 +42,20 @@ export async function requestHeaders(send, policy, signal, onRetry) {
     let error;
     let errorPresent = false;
     try { response = await send(); }
+    // DEFENSE: Fetch can reject before headers on connection failure or cancellation; the native policy admits only bounded pre-stream retries.
     catch (observed) { error = observed; errorPresent = true; }
     const step = boundary('backend.retry', retryObservation(policy, attempt, response, error, errorPresent, signal));
     if (step.cancel) await response.body?.cancel();
     switch (step.action) {
       case 'stop': return response;
+      // DEFENSE: Cancellation while fetching must terminate this request before any retry delay.
       case 'abort': signal.throwIfAborted(); break;
+      // DEFENSE: Permanent errors, exhausted attempts and excessive Retry-After must surface as request failures.
       case 'fail':
         if (step.cause) throw new Error(step.message, { cause: error });
         throw new Error(step.message);
       case 'retry':
+        // DEFENSE: Only observed connection failures and the committed transient HTTP status policy can reach an abortable retry.
         onRetry(step.notice);
         await delay(step.delay_ms, undefined, { signal });
         break;

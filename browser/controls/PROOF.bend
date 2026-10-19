@@ -849,7 +849,6 @@ def Rule.dialog_spatial_evidence():
           widget, Appearance.widget_field_style(widget, entry, typography))),
         Controls.widget_for(entry, field, value), Controls.ToggleInput{}, toggle),
     +typography => {==},
-    {==},
     +card => +field => +entry => +value => choices => {==},
     {==}}
 

@@ -37,8 +37,8 @@ the same width budget; content measurement determines the remaining activity's
 minimum. Property values stay intact while their supporting descriptions can
 wrap at word boundaries.
 
-Executable definitions and laws remain authoritative in `interaction/experience`,
-the interaction assembly and browser appearance/control concepts.
+Executable definitions and laws in `interaction/experience`, the interaction
+assembly and browser appearance/control concepts express these relationships.
 
 The message factory exposes measurement capacity as an explicit argument. Its
 complete style correspondence holds for every capacity, and its production caller

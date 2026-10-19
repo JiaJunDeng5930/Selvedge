@@ -25,8 +25,9 @@ async function currentSources(entry) {
   const active = new Set();
   async function visit(filename) {
     const file = await realpath(filename);
-    if (active.has(file)) throw new Error('Import cycle');
-    if (files.has(file)) return;
+    // DEFENSE: A source import cycle cannot supply a reusable cache closure; the compiler reports it.
+    if (active.has(file)) return false;
+    if (files.has(file)) return true;
     active.add(file);
     const bytes = await readFile(file);
     files.set(file, hash(bytes));
@@ -35,22 +36,27 @@ async function currentSources(entry) {
       if (!text || text.startsWith('#')) continue;
       if (!/^import(\s|$)/.test(text)) break;
       const match = /^import\s+(\S+)(?:\s+as\s+([A-Za-z_]\w*))?\s*(?:#.*)?$/.exec(text);
-      if (!match) throw new Error('Unsupported import');
+      // DEFENSE: Compiler-supported import syntax outside this scanner must be compiled afresh.
+      if (!match) return false;
       if (match[1] === 'Base' && !match[2]) {
         // Base belongs to the checksum-verified compiler archive, bound by compiler identity.
       } else if (match[2] && /^(?:\.\/|(?:\.\.\/)*)(?:[A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/.test(match[1])) {
-        await visit(path.resolve(path.dirname(file), match[1]));
+        if (!await visit(path.resolve(path.dirname(file), match[1]))) return false;
       } else {
-        throw new Error('Unsupported import');
+        // DEFENSE: Hub imports are resolved by the compiler rather than guessed by the cache scanner.
+        return false;
       }
     }
     active.delete(file);
+    return true;
   }
   try {
-    for (const filename of Array.isArray(entry) ? entry : [entry]) await visit(filename);
+    for (const filename of Array.isArray(entry) ? entry : [entry]) if (!await visit(filename)) return null;
     return [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
       .map(([file, sha256]) => ({ path: path.relative(root, file), sha256 }));
-  } catch {
+  } catch (error) {
+    // DEFENSE: An imported file deleted between builds invalidates the cache; permission and I/O errors propagate.
+    if (error.code !== 'ENOENT') throw error;
     return null;
   }
 }
@@ -71,39 +77,63 @@ async function compilationIdentity(request, sources) {
 }
 
 async function cachedCompilation(request, expectedPrefix) {
+  let previous;
   try {
-    const previous = JSON.parse(await readFile(`${request.output}.json`, 'utf8'));
-    if (expectedPrefix !== undefined && previous.checkedPrefix !== expectedPrefix) return null;
-    const inputs = compilationInputs(request, previous);
-    const sources = await currentSources(inputs);
-    if (!sources) return null;
-    const identity = await compilationIdentity({ ...request, compilerIdentity: await javascriptCompilerIdentity() }, sources);
-    if (previous.reusable === true && previous.fingerprint === identity.fingerprint
-        && ['sourceRoot', 'compiler', 'sources', 'exports'].every(key => JSON.stringify(previous[key]) === JSON.stringify(identity[key]))
-        && hash(await readFile(request.output)) === previous.outputSha256) {
-      return { output: request.output, fingerprint: identity.fingerprint, cached: true };
-    }
-  } catch {}
+    previous = JSON.parse(await readFile(`${request.output}.json`, 'utf8'));
+  } catch (error) {
+    // DEFENSE: Initial builds and interrupted manifest writes have no reusable cache; other read errors propagate.
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+    return null;
+  }
+  // DEFENSE: Cache files are editable disk inputs; a scalar JSON value cannot describe a compilation.
+  if (!previous || typeof previous !== 'object' || Array.isArray(previous)) return null;
+  // DEFENSE: A cached artifact checked under another prefix cannot establish this batch's checked identity.
+  if (expectedPrefix !== undefined && previous.checkedPrefix !== expectedPrefix) return null;
+  const inputs = compilationInputs(request, previous);
+  // DEFENSE: Invalid cached prefix or joint-entry paths cannot establish this artifact's input closure.
+  if (!inputs) return null;
+  const sources = await currentSources(inputs);
+  // DEFENSE: Deleted or scanner-unsupported source imports require compilation instead of cache reuse.
+  if (!sources) return null;
+  const identity = await compilationIdentity({ ...request, compilerIdentity: await javascriptCompilerIdentity() }, sources);
+  // DEFENSE: Changed source, compiler, export or manifest identity must force fresh emission instead of reusing stale code.
+  if (previous.reusable === true && previous.fingerprint === identity.fingerprint
+      && ['sourceRoot', 'compiler', 'sources', 'exports'].every(key => JSON.stringify(previous[key]) === JSON.stringify(identity[key]))) {
+    let output;
+    // DEFENSE: Cache cleanup may remove an output independently of its manifest.
+    try { output = await readFile(request.output); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; return null; }
+    // DEFENSE: A truncated or edited generated module must be rebuilt even when its manifest still matches.
+    if (hash(output) === previous.outputSha256) return { output: request.output, fingerprint: identity.fingerprint, cached: true };
+  }
   return null;
 }
 
 function compilationInputs(request, { checkedPrefix, jointEntries } = {}) {
   const inputs = [request.entry];
-  if (checkedPrefix !== undefined) inputs.push(prefixPath(request.sourceRoot, checkedPrefix));
+  if (checkedPrefix !== undefined) {
+    const prefix = prefixPath(request.sourceRoot, checkedPrefix);
+    // DEFENSE: A cached checked prefix outside the source root cannot authorize reuse.
+    if (!prefix) return null;
+    inputs.push(prefix);
+  }
   if (jointEntries !== undefined) {
+    // DEFENSE: Editable cache metadata must describe a nonempty distinct batch checked under its prefix.
     if (checkedPrefix === undefined || !Array.isArray(jointEntries) || !jointEntries.length
-        || new Set(jointEntries).size !== jointEntries.length) throw new Error('Invalid joint compilation entries');
+        || new Set(jointEntries).size !== jointEntries.length) return null;
     const entries = jointEntries.map(entry => prefixPath(request.sourceRoot, entry));
-    if (!entries.includes(request.entry)) throw new Error('Joint compilation entries omit their own entry');
+    // DEFENSE: Damaged joint metadata must neither escape the source root nor omit the artifact's own input.
+    if (entries.includes(null) || !entries.includes(request.entry)) return null;
     inputs.push(...entries);
   }
   return inputs;
 }
 
 function prefixPath(sourceRoot, relative) {
+  // DEFENSE: Editable cache paths must stay within the declared source root and name Bend files.
   if (typeof relative !== 'string' || !relative.endsWith('.bend') || path.isAbsolute(relative)
       || relative.split(/[\\/]/).includes('..') || relative.includes('\0')) {
-    throw new Error('Invalid checked compilation prefix');
+    return null;
   }
   return path.resolve(sourceRoot, relative);
 }
@@ -112,6 +142,7 @@ function prefixPath(sourceRoot, relative) {
 export function compileJavaScript(request) {
   // Compiler jobs share the verified extraction and can exceed the machine's RAM.
   const result = compilationQueue.then(() => compileIsolated(request));
+  // DEFENSE: A failed compile rejects its caller without poisoning later independent fixture compilations.
   compilationQueue = result.catch(() => {});
   return result;
 }
@@ -120,21 +151,13 @@ export function compileJavaScript(request) {
 // seeded into its entries; changed source roots still compile independently.
 export function compileJavaScriptBatch({ prefix, requests, verify = false }) {
   const result = compilationQueue.then(() => compileBatch(prefix, requests, verify));
+  // DEFENSE: A failed batch rejects its caller without poisoning later independent compilations.
   compilationQueue = result.catch(() => {});
   return result;
 }
 
 async function normalizedRequest({ entry, exports: publicExports, output, sourceRoot = root }) {
-  if (typeof entry !== 'string' || typeof output !== 'string' || typeof sourceRoot !== 'string' || !publicExports || Array.isArray(publicExports)) {
-    throw new Error('JavaScript compilation requires entry, exports, output, and a source root');
-  }
   const entries = Object.entries(publicExports).sort(([a], [b]) => a.localeCompare(b));
-  if (entries.length === 0) throw new Error('JavaScript compilation requires at least one export');
-  for (const [name, definition] of entries) {
-    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) || name === 'default' || typeof definition !== 'string' || !definition) {
-      throw new Error(`Invalid JavaScript compiler export: ${name}`);
-    }
-  }
   const [canonicalEntry, canonicalSourceRoot] = await Promise.all([
     realpath(path.resolve(root, entry)), realpath(path.resolve(root, sourceRoot)),
   ]);
@@ -142,20 +165,14 @@ async function normalizedRequest({ entry, exports: publicExports, output, source
 }
 
 async function compileBatch(prefix, requests, verify) {
-  if (typeof prefix !== 'string' || !Array.isArray(requests) || !requests.length) throw new Error('A compilation batch requires a prefix and entries');
   const provider = await prepareCompilerSource();
   const configurations = await Promise.all(requests.map(normalizedRequest));
   const sourceRoot = configurations[0].sourceRoot;
   const canonicalPrefix = await realpath(path.resolve(root, prefix));
   const relativePrefix = path.relative(sourceRoot, canonicalPrefix);
-  if (configurations.some(request => request.sourceRoot !== sourceRoot || request.entry === canonicalPrefix)
-      || prefixPath(sourceRoot, relativePrefix) !== canonicalPrefix) throw new Error('A compilation batch requires one source root and a separate prefix');
-  if (new Set(configurations.map(request => request.output)).size !== configurations.length) throw new Error('Compilation outputs must be distinct');
   const inputs = await currentSources([canonicalPrefix, ...configurations.map(request => request.entry)]);
+  // DEFENSE: Source imports outside the local scanner subset cannot establish a checked shared-prefix cache identity.
   if (!inputs) throw new Error('A compilation batch requires discoverable local sources');
-  if (configurations.some(request => inputs.some(source => path.resolve(root, source.path) === request.output))) {
-    throw new Error('JavaScript output cannot overwrite a batch input');
-  }
   const results = await Promise.all(configurations.map(request => cachedCompilation(request, relativePrefix)));
   const pending = configurations.filter((_, index) => !results[index]);
   if (!pending.length && !verify) return results;
@@ -166,7 +183,7 @@ async function compileBatch(prefix, requests, verify) {
     await writeFile(requestFile, JSON.stringify({ prefix: canonicalPrefix, sourceRoot, requests: pending, response, verify, provider, compilerIdentity: await javascriptCompilerIdentity() }));
     await runBatchProcess(requestFile, verify);
     const emitted = JSON.parse(await readFile(response, 'utf8'));
-    if (!Array.isArray(emitted) || emitted.length !== pending.length) throw new Error('Incomplete JavaScript batch response');
+    // DEFENSE: Source files can change while the compiler or proof gate is running; never publish an artifact under the earlier source identity.
     if (JSON.stringify(await currentSources([canonicalPrefix, ...configurations.map(request => request.entry)])) !== JSON.stringify(inputs)) {
       throw new Error('Compilation batch inputs changed; retry with stable sources');
     }
@@ -194,6 +211,7 @@ async function runBatchProcess(requestFile, verify) {
       if (!prefixChecked) {
         proofReport += text;
         if (proofReport.includes('Compilation prefix checked (')) {
+          // DEFENSE: The compiler can emit an unsafe or failed proof verdict before its completion marker.
           if (proofReport.slice(0, proofReport.indexOf('Compilation prefix checked (')) !== 'ALL PROOFS CHECK\nUse --verdict for mathematical validity.\n') {
             stop(new Error('Pure proof gate emitted an unexpected verdict'));
           } else { prefixChecked = true; }
@@ -205,6 +223,7 @@ async function runBatchProcess(requestFile, verify) {
     });
     child.on('error', error => { failure ??= error; });
     child.on('close', (status, signal) => {
+      // DEFENSE: Spawn errors, failed or signalled compiles, missing proof verdicts and compiler diagnostics must fail this batch.
       if (failure) reject(failure);
       else if (status !== 0 || !prefixChecked || diagnostic.trim()) reject(new Error(`JavaScript batch compilation failed (status: ${status}, signal: ${signal}): ${diagnostic.trim()}`));
       else resolve();
@@ -227,6 +246,7 @@ async function compileIsolated(options) {
       cwd: root, encoding: 'utf8', maxBuffer: Infinity,
       env: { ...compilerEnvironment(), BUN_JSC_miniVMHeapGrowthFactor: '1.1', BEND_NO_TELEMETRY: '1' },
     });
+    // DEFENSE: The compiler subprocess can fail to start, exit unsuccessfully or be terminated before returning an artifact.
     if (result.error || result.status !== 0) {
       const diagnostic = result.error?.message || result.stderr.trim() || result.stdout.trim() || 'No compiler diagnostic was emitted';
       throw new Error(`JavaScript compilation failed (status: ${result.status ?? 'none'}, signal: ${result.signal ?? 'none'}): ${diagnostic}`);
@@ -248,11 +268,14 @@ async function emit(requestPath) {
     // Shared constructors need the same source namespace across independently compiled entries.
     await Bend.book_load(book, request.entry, '', seen, undefined, request.sourceRoot);
     Bend.book_valid(book, 0);
+    // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
     if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
     const result = await emitBook(request, book, seen, before, Bend, Comp);
     await writeFile(request.response, JSON.stringify(result));
   } catch (error) {
-    throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : error?.stack ?? String(error));
+    // DEFENSE: The upstream compiler throws tagged Bend errors rather than JavaScript Error objects.
+    if (error?.$ === 'Err') throw new Error(Bend.err_show(error));
+    throw error;
   }
 }
 
@@ -263,6 +286,7 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
   const roots = [...new Set(generated ? Object.values(generated.definitions) : exports.map(([, definition]) => definition))];
   for (const definition of roots) {
     const value = book.tlds[definition];
+    // DEFENSE: A requested export read from Bend source can be absent, a promise, unsafe or effectful instead of a pure implementation.
     if (value?.$ !== 'Def' || value.v === null || value.i !== undefined || value.b === true || value.x !== 0 || Comp.io_base(book, value.T) !== null) {
       throw new Error(`JavaScript compilation requires a pure implemented definition: ${definition}`);
     }
@@ -271,11 +295,13 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
   const identity = await compilationIdentity(request, sources);
   const { fingerprint } = identity;
   const reusable = before !== null && JSON.stringify(before) === JSON.stringify(sources);
+  // DEFENSE: Source files can change while the compiler or proof gate is running; never publish an artifact under the earlier source identity.
   if (before !== null && !reusable) {
     throw new Error('JavaScript compiler input closure changed during compilation; retry with stable sources');
   }
   const library = generated?.library ?? Comp.js_lib({ ...book, order: roots }, true);
   // The pinned emitter adds this registration check only for reachable foreign effects.
+  // DEFENSE: A reachable generated function can retain a foreign effect despite the pure export contract.
   if (library.includes('throw new Error("bend: no effect registers "')) throw new Error('JavaScript compilation refuses reachable foreign effects');
   const { source: optimized, intrinsics } = optimizeJavaScript(library, {
     sourceHashes: new Map([...sources.map(source => [path.resolve(root, source.path), source.sha256]),
@@ -284,16 +310,17 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
   });
   const marker = 'export default {\n';
   const index = optimized.lastIndexOf(marker);
+  // DEFENSE: Compiler output without the pinned export object cannot be given the requested JavaScript facade.
   if (index < 0) throw new Error('JavaScript compiler did not produce an export object');
   const facade = exports.map(([name, definition], i) => `const $0public${i} = $0exports[${JSON.stringify(definition)}];\nexport { $0public${i} as ${name} };`).join('\n');
   const defaultExport = exports.map(([name], i) => `${JSON.stringify(name)}: $0public${i}`).join(', ');
   const result = `// Bend ${sourceVersion}; compiler source SHA256 ${sourceHash}\n// Source and compiler fingerprint: ${fingerprint}\n`
     + optimized.slice(0, index) + optimized.slice(index).replace(marker, 'const $0exports = {\n')
     + `\n${facade}\nexport default { ${defaultExport} };\n`;
+  // DEFENSE: Source files can change while the compiler or proof gate is running; never publish an artifact under the earlier source identity.
   if (reusable && JSON.stringify(await currentSources(inputs)) !== JSON.stringify(before)) {
     throw new Error('JavaScript compiler inputs changed during compilation; retry with stable sources');
   }
-  if (sources.some(source => path.resolve(root, source.path) === request.output)) throw new Error('JavaScript output cannot overwrite a compiler input');
   await mkdir(path.dirname(request.output), { recursive: true });
   const temporary = `${request.output}.${process.pid}.tmp`;
   try {
@@ -325,8 +352,7 @@ async function jointBook(batch, seed, seen, Bend) {
     const previous = new Set(book.order);
     const done = book.order.length;
     await Bend.book_load(book, request.entry, namespace, ownSeen, undefined, batch.sourceRoot);
-    // Entry-local data have historically unqualified public constructor names.
-    // Keep their original independent compilation instead of changing their ABI.
+    // DEFENSE: Entry-local constructors and colliding definitions require independent emission; qualifying their tags would change public values consumed across modules.
     if (book.order.slice(done).some(name => previous.has(name))
         || Object.entries(book.tlds).some(([name, value]) => name.startsWith(`${namespace}.`) && value.$ === 'ADT')) return null;
     const definitions = Object.fromEntries(Object.values(request.exports).map(name =>
@@ -334,6 +360,7 @@ async function jointBook(batch, seed, seen, Bend) {
     entries.push({ request: { ...request, compilerIdentity: batch.compilerIdentity }, definitions });
   }
   Bend.book_valid(book, seed.order.length);
+  // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
   if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
   return { book, seen: ownSeen, entries };
 }
@@ -344,6 +371,7 @@ async function emitBatch(requestPath) {
   const Comp = await import(pathToFileURL(path.join(batch.provider.directory, `comp.${batch.provider.extension}`)).href);
   try {
     const beforePrefix = await currentSources(batch.prefix);
+    // DEFENSE: Source imports outside the local scanner subset cannot establish a checked shared-prefix cache identity.
     if (!beforePrefix) throw new Error('A compilation prefix requires discoverable local sources');
     const prefixHashes = new Map(beforePrefix.map(source => [source.path, source.sha256]));
     const seed = Bend.book_nil(), seen = new Map();
@@ -351,11 +379,14 @@ async function emitBatch(requestPath) {
     const namespace = path.relative(batch.sourceRoot, batch.prefix).slice(0, -5).split(path.sep).join('/');
     await Bend.book_load(seed, batch.prefix, namespace, seen, undefined, batch.sourceRoot);
     Bend.book_valid(seed, 0);
+    // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
     if (seed.hols !== 0) throw new Error('JavaScript compilation refuses an incomplete prefix');
     if (batch.verify) {
       const { cli_verdict } = await import(pathToFileURL(path.join(batch.provider.directory, `api.${batch.provider.extension}`)).href);
+      // DEFENSE: The compiler can report unsafe assumptions, holes or failed proofs; only the complete pure verdict authorizes production emission.
       if (cli_verdict(seed, false) !== 0) throw new Error('Pure proof gate rejected the compilation prefix');
     }
+    // DEFENSE: Source files can change while the compiler or proof gate is running; never publish an artifact under the earlier source identity.
     if (JSON.stringify(await currentSources(batch.prefix)) !== JSON.stringify(beforePrefix)) {
       throw new Error('Proof prefix changed during checking; retry with stable sources');
     }
@@ -367,6 +398,7 @@ async function emitBatch(requestPath) {
     if (joint) {
       const jointEntries = [...new Set(batch.requests.map(request => path.relative(batch.sourceRoot, request.entry)))];
       const before = beforeJoint;
+      // DEFENSE: Source files can change while the compiler or proof gate is running; never publish an artifact under the earlier source identity.
       if (!before || before.some(source => prefixHashes.has(source.path) && prefixHashes.get(source.path) !== source.sha256)
           || beforePrefix.some(source => !before.some(current => current.path === source.path && current.sha256 === source.sha256))) {
         throw new Error('Compilation prefix changed after checking; retry with stable sources');
@@ -374,6 +406,7 @@ async function emitBatch(requestPath) {
       const roots = [...new Set(joint.entries.flatMap(entry => Object.values(entry.definitions)))];
       for (const definition of roots) {
         const value = joint.book.tlds[definition];
+        // DEFENSE: A requested export read from Bend source can be absent, a promise, unsafe or effectful instead of a pure implementation.
         if (value?.$ !== 'Def' || value.v === null || value.i !== undefined || value.b === true || value.x !== 0 || Comp.io_base(joint.book, value.T) !== null) {
           throw new Error(`JavaScript compilation requires a pure implemented definition: ${definition}`);
         }
@@ -381,6 +414,7 @@ async function emitBatch(requestPath) {
       console.log(`Joint JavaScript entry checking (${((performance.now() - jointStarted) / 1000).toFixed(2)}s).`);
       const emissionStarted = performance.now();
       const library = Comp.js_lib({ ...joint.book, order: roots }, true);
+      // DEFENSE: A reachable generated function can retain a foreign effect despite the pure export contract.
       if (library.includes('throw new Error("bend: no effect registers "')) throw new Error('JavaScript compilation refuses reachable foreign effects');
       console.log(`Joint JavaScript code generation (${((performance.now() - emissionStarted) / 1000).toFixed(2)}s; ${batch.requests.length} entries).`);
       const project = javascriptModules(library);
@@ -399,6 +433,7 @@ async function emitBatch(requestPath) {
       const request = { ...configuration, compilerIdentity: batch.compilerIdentity };
       const started = performance.now();
       const before = await currentSources([batch.prefix, request.entry]);
+      // DEFENSE: Source files can change while the compiler or proof gate is running; never publish an artifact under the earlier source identity.
       if (!before || before.some(source => prefixHashes.has(source.path) && prefixHashes.get(source.path) !== source.sha256)
           || beforePrefix.some(source => !before.some(current => current.path === source.path && current.sha256 === source.sha256))) {
         throw new Error('Compilation prefix changed after checking; retry with stable sources');
@@ -406,18 +441,22 @@ async function emitBatch(requestPath) {
       const book = seedBook(Bend, seed), ownSeen = new Map(seen);
       await Bend.book_load(book, request.entry, '', ownSeen, undefined, request.sourceRoot);
       Bend.book_valid(book, seed.order.length);
+      // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
       if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
       results.push(await emitBook(request, book, ownSeen, before, Bend, Comp, checkedPrefix));
       console.log(`Shared-prefix JavaScript compilation: ${path.relative(root, request.output)} (${((performance.now() - started) / 1000).toFixed(2)}s).`);
     }
     await writeFile(batch.response, JSON.stringify(results));
   } catch (error) {
-    throw new Error(error?.$ === 'Err' ? Bend.err_show(error) : error?.stack ?? String(error));
+    // DEFENSE: The upstream compiler throws tagged Bend errors rather than JavaScript Error objects.
+    if (error?.$ === 'Err') throw new Error(Bend.err_show(error));
+    throw error;
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
+    // DEFENSE: A command-line caller can pass unsupported arguments; reject the invocation before running the build operation.
     if (!['--emit', '--emit-batch'].includes(process.argv[2]) || !process.argv[3]) throw new Error('Use compileJavaScript({ entry, exports, output }) from this module');
     if (process.argv[2] === '--emit-batch') await emitBatch(process.argv[3]);
     else await emit(process.argv[3]);

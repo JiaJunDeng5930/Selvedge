@@ -39,18 +39,18 @@ evidence; the global proof entry imports all production providers. Preserve
 independent evidence when its clients require an earlier dependency boundary.
 
 [Bend's law and qualified-definition syntax](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md)
-binds evidence to a module's law declaration. Moving a provider must preserve
-that identity, its full proposition and its consumers. File organization does
-not make any required evidence optional.
+binds evidence to a module's law declaration. A provider move that only changes
+organization preserves that identity, proposition and its consumers. File
+organization does not make any required evidence optional.
 
 ## Tradeoffs and evidence boundaries
 
 The additional public entries make import intent explicit, while cohesive
 contracts and proof units reduce navigation between isolated properties. Moving
 private helpers requires updating their actual consumers and preserving proof
-dependency order. Executable definitions and contracts remain authoritative;
-documentation supplies reading directions and reasons rather than another
-property catalog.
+dependency order. Executable definitions and contracts express the behavior
+being checked; documentation supplies reading directions and reasons rather than
+another property catalog.
 
 Source ownership checks and compiler proof checks establish their respective
 boundaries. They do not establish the behavior of concrete browser effects or

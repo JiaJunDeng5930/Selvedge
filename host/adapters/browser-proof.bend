@@ -67,12 +67,6 @@ def Browser.removal_owned():
 def Browser.removal_unrelated():
   entry => rest => notice => {==}
 
-def Browser.update_unrelated():
-  entry => rest => notice => {==}
-
-def Browser.end_removal():
-  state => notice => {==}
-
 def Browser.limit_correspondence():
   parts => found => text => {==}
 

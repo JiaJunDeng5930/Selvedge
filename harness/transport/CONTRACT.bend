@@ -33,7 +33,7 @@ def required_escape(text: String) -> String:
 # The witness is an actual successful result of the production renderer.
 
 def Completed(-result: Result<&2, &2, String, String>) -> Type:
-  Sigma<&2, &1, String, (text => {result == Done{text} : Result<&2, &2, String, String>})>
+  J.Completed(result)
 
 type JsonRenderRequirements is Type:
   JsonRenderRequirements{

@@ -10,6 +10,7 @@ try {
   const close = async () => { await server.close(); process.exitCode = 0; };
   process.once('SIGINT', close);
   process.once('SIGTERM', close);
+// DEFENSE: Invalid local credentials or a failed stdio connection prevent MCP startup; report failure to the launching client.
 } catch (error) {
   console.error(`Selvedge MCP: ${error.message}`);
   process.exitCode = 1;

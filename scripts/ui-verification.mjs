@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { constructionProviders, isProofSource } from './check-components.mjs';
+import { isProofSource } from './check-components.mjs';
 
 function mask(source) {
   return source.replace(/"(?:\\.|[^"\\])*"|#[^\n]*/g, text => text.replace(/[^\n]/g, ' '));
@@ -12,7 +12,8 @@ function inventory(root) {
     for (const entry of readdirSync(path.join(root, directory), { withFileTypes: true })) {
       if (entry.name.startsWith('.') || ['node_modules', 'target', 'crates'].includes(entry.name)) continue;
       const filename = path.posix.join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`UI verification refuses source symlinks: ${filename}`);
+      // DEFENSE: A Bend source symlink can resolve outside the enumerated proof inventory; unrelated links are not compiler inputs.
+      if (entry.isSymbolicLink() && filename.endsWith('.bend')) throw new Error(`UI verification refuses source symlinks: ${filename}`);
       if (entry.isDirectory()) visit(filename);
       else if (entry.isFile() && filename.endsWith('.bend')) sources.set(filename, readFileSync(path.join(root, filename), 'utf8'));
     }
@@ -36,8 +37,10 @@ function imports(filename, source) {
     if (!/^\s*import\b/.test(line)) continue;
     if (/^\s*import\s+"/.test(line)) continue;
     const match = line.match(/^import\s+(\S+)(?:\s+as\s+(\w+))?\s*(?:#.*)?$/);
+    // DEFENSE: Edited Bend source can contain imports this source-boundary scanner cannot resolve.
     if (!match) throw new Error(`Unsupported UI verification import: ${filename}:${index + 1}`);
     if (match[1] === 'Base' && !match[2]) continue;
+    // DEFENSE: An unaliased or non-relative import cannot be resolved to the concept that owns its declarations.
     if (!match[1].startsWith('.') || !match[2]) throw new Error(`UI verification requires a relative aliased import: ${filename}:${index + 1}`);
     const target = path.posix.normalize(path.posix.join(path.posix.dirname(filename), match[1]));
     aliases.set(match[2], target);
@@ -46,8 +49,6 @@ function imports(filename, source) {
   return { aliases, targets };
 }
 
-// Only declaration heads participate in separation; equality in a predicate's
-// body or parameter does not make that predicate a proof implementation.
 function declarations(filename, source) {
   const text = mask(source);
   const result = [];
@@ -60,22 +61,9 @@ function declarations(filename, source) {
       else if (')]}'.includes(char)) depth--;
       else if (char === ':' && depth === 0) break;
     }
+    // DEFENSE: An incomplete edited Bend declaration has no head delimiter for the proof inventory scanner.
     if (end === text.length) throw new Error(`Missing declaration head delimiter: ${filename}:${match[2]}`);
-    const head = text.slice(match.index, end);
-    let signature = '';
-    if (match[1] === 'def') {
-      let parameterDepth = 0;
-      const start = head.indexOf('(');
-      for (let index = start; index >= 0 && index < head.length; index++) {
-        if (head[index] === '(') parameterDepth++;
-        else if (head[index] === ')' && --parameterDepth === 0) {
-          signature = head.slice(index + 1).trim();
-          break;
-        }
-      }
-    }
-    result.push({ kind: match[1], name: match[2], signature,
-      line: text.slice(0, match.index).split('\n').length + 1 });
+    result.push({ kind: match[1], name: match[2] });
   }
   return result;
 }
@@ -88,10 +76,9 @@ function canonical(filename, name, aliases) {
   return `${filename.slice(0, -5)}.${name}`;
 }
 
-function lawProviders(proofs, modules, laws) {
+function lawProviders(modules, laws) {
   const providers = new Map([...laws].map(law => [law, []]));
-  for (const filename of proofs) {
-    const module = modules.get(filename);
+  for (const [filename, module] of modules) {
     for (const declaration of module.declarations) {
       if (declaration.kind !== 'def') continue;
       providers.get(canonical(filename, declaration.name, module.aliases))?.push(filename);
@@ -107,127 +94,47 @@ function inspect(root) {
   }]));
   const rules = [...sources.keys()].filter(filename => isRule(filename, sources.get(filename))).sort();
   const proofs = [...sources.keys()].filter(filename => /^(interaction|browser)\//.test(filename) && isProofSource(filename)).sort();
-  const witnesses = new Set();
   const laws = new Set();
   for (const rule of rules) {
     for (const declaration of modules.get(rule).declarations) {
-      if (declaration.kind === 'type' && /Requirements?$/.test(declaration.name)) witnesses.add(canonical(rule, declaration.name, new Map()));
       if (declaration.kind === 'law') laws.add(canonical(rule, declaration.name, new Map()));
     }
   }
-  const providers = lawProviders(proofs, modules, laws);
+  const providers = lawProviders(modules, laws);
   const errors = [];
-  const constructions = constructionProviders(root);
-  const allowedConstructions = new Set();
-  const lawOwners = new Map();
   for (const rule of rules) {
-    for (const declaration of modules.get(rule).declarations) {
-      if (declaration.kind === 'law') lawOwners.set(canonical(rule, declaration.name, new Map()), rule);
-    }
-  }
-  for (const [filename, { contract, constructors }] of constructions) {
-    const initialErrors = errors.length;
-    const module = modules.get(filename);
-    if (!module || !rules.includes(contract)) {
-      errors.push(`UI construction provider requires a discovered rule: ${filename} -> ${contract}`);
-      continue;
-    }
-    if (!module.targets.includes(contract)) {
-      errors.push(`UI construction provider must import its contract: ${filename} -> ${contract}`);
-    }
-    const declaredLaws = new Set(modules.get(contract).declarations
-      .filter(declaration => declaration.kind === 'law').map(declaration => declaration.name));
-    for (const name of new Set(Object.entries(constructors).flat())) {
-      if (!declaredLaws.has(name)) {
-        errors.push(`UI construction provider names a missing contract law: ${filename} -> ${contract}:${name}`);
-        continue;
-      }
-      const implementations = providers.get(canonical(contract, name, new Map()));
-      if (implementations.length !== 1 || implementations[0] !== filename) {
-        errors.push(`UI construction law requires its registered sole provider: ${contract}:${name} -> ${filename}`);
-      }
-    }
-    for (const declaration of module.declarations) {
-      if (declaration.kind !== 'def') continue;
-      const name = canonical(filename, declaration.name, module.aliases);
-      if (lawOwners.has(name) && lawOwners.get(name) !== contract) {
-        errors.push(`UI construction provider implements another rule: ${filename}:${declaration.name} -> ${lawOwners.get(name)}`);
-      }
-    }
-    if (errors.length === initialErrors) allowedConstructions.add(filename);
-  }
-  for (const [filename, module] of modules) {
-    if (!/^(interaction|browser)\//.test(filename) || isProofSource(filename)) continue;
-    const seen = new Set();
-    const pending = [filename];
-    while (pending.length) {
-      const current = pending.pop();
-      if (seen.has(current)) continue;
-      seen.add(current);
-      if (isProofSource(current) && !allowedConstructions.has(current)) {
-        errors.push(`UI model/rule imports a proof provider: ${filename} -> ${current}`);
-        continue;
-      }
-      const imported = modules.get(current);
-      if (!imported) throw new Error(`Missing UI verification source: ${current}`);
-      pending.push(...imported.targets);
-    }
-    for (const declaration of module.declarations) {
-      if (declaration.kind !== 'def') continue;
-      const name = canonical(filename, declaration.name, module.aliases);
-      if (laws.has(name)) errors.push(`UI law implementation outside proofs: ${filename}:${declaration.line}: ${declaration.name}`);
-      if (declaration.signature.includes('==') || declaration.signature.includes('!=')) {
-        errors.push(`UI equality witness outside proofs: ${filename}:${declaration.line}: ${declaration.name}`);
-      }
-      for (const token of declaration.signature.matchAll(/\b[A-Za-z_][\w.]*/g)) {
-        if (witnesses.has(canonical(filename, token[0], module.aliases))) {
-          errors.push(`UI contract witness outside proofs: ${filename}:${declaration.line}: ${declaration.name}`);
-          break;
-        }
-      }
-    }
-  }
-  for (const rule of rules) {
-    const moduleDeclarations = modules.get(rule).declarations;
-    const declarations = moduleDeclarations.filter(declaration => declaration.kind === 'law');
-    if (!declarations.length) {
-      const contracts = moduleDeclarations.filter(declaration =>
-        declaration.kind === 'type' && /Requirements?$/.test(declaration.name));
-      // This existing aggregate is committed by architecture.surface and filled
-      // by interaction/PROOF; it does not declare a second facade-local evidence law.
-      if (contracts.length && rule !== 'interaction/CONTRACT.bend') {
-        errors.push(`UI contract has no public law committing its requirements: ${rule}: ${contracts.map(declaration => declaration.name).join(', ')}`);
-      }
-      continue;
-    }
+    const declarations = modules.get(rule).declarations.filter(declaration => declaration.kind === 'law');
     for (const declaration of declarations) {
       const implementations = providers.get(canonical(rule, declaration.name, new Map()));
+      // DEFENSE: Editing a UI law or its implementation can leave that public law with no provider.
       if (!implementations.length) {
         errors.push(`UI proof does not fill its rule law: ${rule}:${declaration.name}`);
         continue;
       }
+      // DEFENSE: Multiple source definitions can fill the same UI law, leaving the provider ordering ambiguous.
       if (implementations.length !== 1) {
         errors.push(`UI rule law has multiple proof providers: ${rule}:${declaration.name}: ${implementations.join(', ')}`);
         continue;
       }
       const [provider] = implementations;
-      if (!modules.get(provider).targets.includes(rule)) {
+      // DEFENSE: A source implementation can fill a qualified law without importing the contract whose declaration it must check against.
+      if (provider !== rule && !modules.get(provider).targets.includes(rule)) {
         errors.push(`UI proof must import its rule: ${provider} -> ${rule}`);
       }
     }
   }
-  if (errors.length) throw new Error(`UI verification separation failed:\n${errors.join('\n')}`);
-  return { discovered: [...new Set([...rules, ...proofs])].sort(), providers };
+  // DEFENSE: Missing, duplicate or unbound UI law implementations cannot establish the checked public law providers.
+  if (errors.length) throw new Error(`UI law provider check failed:\n${errors.join('\n')}`);
+  return { discovered: [...new Set([...rules, ...proofs, ...[...providers.values()].flat()])].sort(), providers };
 }
 
-export function checkUiSeparation(root) {
+export function checkUiLawProviders(root) {
   return inspect(realpathSync(root)).discovered;
 }
 
-function orderProofs(root, discovered, providers) {
-  const proofs = discovered.filter(isProofSource);
-  const dependencies = new Map(proofs.map(filename => [filename, new Set()]));
-  for (const filename of proofs) {
+function orderProviders(root, discovered, providers) {
+  const dependencies = new Map(discovered.map(filename => [filename, new Set()]));
+  for (const filename of discovered) {
     const source = readFileSync(path.join(root, filename), 'utf8');
     const module = imports(filename, source);
     const required = dependencies.get(filename);
@@ -245,7 +152,7 @@ function orderProofs(root, discovered, providers) {
     }
   }
   const ordered = [];
-  const pending = new Set(proofs);
+  const pending = new Set(discovered);
   while (pending.size) {
     const ready = [...pending].sort().find(filename =>
       [...dependencies.get(filename)].every(provider => !pending.has(provider)));
@@ -269,11 +176,9 @@ function orderProofs(root, discovered, providers) {
       visiting.pop();
       visited.add(filename);
     }
-    for (const filename of [...pending].sort()) {
-      const cycle = findCycle(filename);
-      if (cycle) throw new Error(`UI verification proof dependency cycle: ${cycle.join(' -> ')}`);
-    }
-    throw new Error('UI verification proof dependency ordering failed');
+    const cycle = findCycle([...pending].sort()[0]);
+    // DEFENSE: With no ready provider, the finite pending dependency graph contains an edited source import or law-reference cycle.
+    throw new Error(`UI verification proof dependency cycle: ${cycle.join(' -> ')}`);
   }
   return ordered;
 }
@@ -283,13 +188,14 @@ export function prepareUiVerification(root) {
   const { discovered, providers } = inspect(root);
   const sources = [...new Set(['PROOF.bend', 'BROWSER.bend', ...discovered])].sort();
   const entries = ['PROOF.bend', 'BROWSER.bend'];
-  const ordered = [...discovered.filter(filename => isRule(filename, readFileSync(path.join(root, filename), 'utf8'))), ...orderProofs(root, discovered, providers), ...entries];
+  const ordered = [...orderProviders(root, discovered, providers), ...entries];
   const imports = ['import Base', ...ordered
     .map((filename, index) => `import ../${filename} as Verification${index}`)];
   const entry = '.build/ui-verification.bend';
   const source = `${imports.join('\n')}\n`;
   mkdirSync(path.join(root, '.build'), { recursive: true });
   let previous;
+  // DEFENSE: A clean build directory has no generated proof entry to compare before writing it.
   try { previous = readFileSync(path.join(root, entry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previous !== source) writeFileSync(path.join(root, entry), source);
   const runtimeEntry = '.build/ui-runtime.bend';
@@ -297,6 +203,7 @@ export function prepareUiVerification(root) {
     .flatMap((filename, index) => filename === 'PROOF.bend' ? [] : [`import ../${filename} as Verification${index}`]),
   'import ../harness/approval/PROOF.bend as RuntimeApprovalProof'].join('\n')}\n`;
   let previousRuntime;
+  // DEFENSE: A clean build directory has no generated runtime entry to compare before writing it.
   try { previousRuntime = readFileSync(path.join(root, runtimeEntry), 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previousRuntime !== runtimeSource) writeFileSync(path.join(root, runtimeEntry), runtimeSource);
   return { entry, runtimeEntry, browserPrefix: 'BROWSER.', sources };

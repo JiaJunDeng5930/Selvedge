@@ -27,6 +27,7 @@ export async function runTests() {
     const normal = passes.length === 1 && failures.length === 1 && runs.length === 1
       && Number(passes[0][1]) === Number(runs[0][1]) && Number(failures[0][1]) === 0
       && Number(runs[0][1]) > 0 && Number(runs[0][2]) > 0;
+    // DEFENSE: The test child can be cancelled, fail, or exit without Bun's complete successful footer; an exit code alone is insufficient.
     if (interrupted || result.exitCode !== 0 || result.signal || !normal) {
       throw new Error(`Physical regression suite failed: exit=${result.exitCode}, signal=${result.signal ?? 'none'}, normalFooter=${normal}`);
     }

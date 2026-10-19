@@ -30,7 +30,6 @@ def Rule.backward_forward(left, top, width, height, viewport_width, viewport_hei
 
 def Rule.backward_backward(left, top, width, height, viewport_width, viewport_height): {==}
 
-def Rule.negative_top_regression(): {==}
 
 def profile_edges(+profile: E.Profile) ->
   {(Nat.min(1n, E.inline(E.area(profile))), Nat.min(1n, E.block(E.area(profile)))) == (E.inline_presence(profile), E.block_presence(profile)) : (Nat & Nat)}:

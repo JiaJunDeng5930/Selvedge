@@ -1,18 +1,10 @@
 import { createHash } from 'node:crypto';
 import { stringifyJson } from './codec.mjs';
 import { emitJsonTokens } from './public/json-tokens.mjs';
-import { boundary as modelBoundary, observeJson } from './public/model-boundary.mjs';
+import { boundary, observeJson } from './public/model-boundary.mjs';
 import { readText, sseEvents, requestJson } from './network.mjs';
 import { prepareModelRequest, requestHeaders } from './model-request.mjs';
 import { WebRequestStore, retainedRequest } from './chatgpt-web-store.mjs';
-
-function boundary(operation, source) {
-  try { return modelBoundary(operation, source); }
-  catch (error) {
-    if (error.code === 'range_error') throw new RangeError(error.message, { cause: error });
-    throw error;
-  }
-}
 
 const digest = value => createHash('sha256').update(stringifyJson(value)).digest('hex');
 const requestOwner = effect => boundary('web.owner', { effect });
@@ -31,6 +23,7 @@ function failure(code, record, status) {
 
 function credential(profile) {
   const token = process.env[profile.api_key_env];
+  // DEFENSE: The configured API token environment variable can be unset; never dispatch an unauthenticated retained request.
   if (!token) throw new Error(`Set ${profile.api_key_env} to use this provider`);
   return { token, binding: digest([profile.endpoint, token]) };
 }
@@ -41,8 +34,9 @@ function validateResource(value, body, model, tools) {
 }
 
 async function exchange(record, body, model, tools, token, store, limits, lifetime, { onSnapshot, onRetry }, index) {
+  // A newly prepared receipt has no response yet; the native exchange selects fetching before cached-response decoding.
   const start = boundary('web.exchange_start', { record, body, model, tools, index,
-    response_observation: observeJson(record.response) });
+    response_observation: record.response === null ? null : observeJson(record.response) });
   if (start.action === 'cached') return start.resource;
   const send = async () => {
     const response = await fetch(record.endpoint, { method: 'POST', redirect: 'error', signal: lifetime,
@@ -54,21 +48,25 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
       boundary('web.headers', { version: response.headers.get('x-web-protocol'), content_type: 'text/event-stream' });
       return response;
     } catch (error) {
+      // DEFENSE: A receipt write or protocol-header rejection leaves an unread HTTP body; cancel it before propagating the failure.
       await response.body?.cancel();
       throw error;
     }
   };
   const response = await requestHeaders(send, limits.model_retry, lifetime, onRetry);
+  // DEFENSE: HTTP rejection may carry HTML or an empty proxy error body; only admitted JSON supplies an optional provider error code.
   if (!response.ok) {
-    let value;
-    try { value = nativeJson(await readText(response.body, limits.frame_bytes)); } catch {}
     if (boundary('web.http', { record, status: response.status }).reject) store.reject(record);
+    const text = await readText(response.body, limits.frame_bytes);
+    const observation = observeJson(text);
+    const value = observation.error ? undefined : boundary('web.decode', { observation, text });
     throw failure(value?.error?.code, record, response.status);
   }
   let contentType;
   try {
     contentType = boundary('web.headers', { version: response.headers.get('x-web-protocol'),
       content_type: response.headers.get('content-type') });
+  // DEFENSE: A mismatched protocol or unsupported content type must release the unread response before failing this observer.
   } catch (error) { await response.body?.cancel(); throw error; }
   let terminal;
   if (contentType === 'json') {
@@ -89,12 +87,15 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
       if (action.action === 'stop') break;
       if (action.action === 'snapshot') onSnapshot(action.text, action.index);
       else if (action.action === 'terminal') { terminal = action.resource; break; }
+      // DEFENSE: A provider failure event retains the request identity and cannot be accepted as a completed response.
       else if (action.action === 'failure') throw failure(action.code, record);
     }
   }
+  // DEFENSE: A disconnected stream or nonterminal resource leaves remote work unresolved; retain its original key instead of posting again.
   if (boundary('web.exchange_result', { resource: terminal, record, body, model, tools, index }).retained) throw retainedRequest(record);
   store.identify(record, terminal.id);
   const commit = boundary('web.commit', { resource: terminal, record, body, model, tools });
+  // DEFENSE: An admitted terminal response can report provider failure; preserve its receipt rather than returning output as success.
   if (commit.action === 'failure') throw failure(commit.code, record);
   store.finish(record, terminal);
   return terminal;
@@ -151,9 +152,8 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
     }) });
     return output;
   } catch (error) {
+    // DEFENSE: Failure after the durable request was prepared can leave unknown remote work; expose the retained key without upstream secrets.
     if (boundary('web.catch', { record: active ?? null, error: { request_key: error.requestKey } }).retained) {
-      // Keep upstream diagnostics and authorization out of durable task errors.
-      // The receipt database holds the original body and any admitted ID.
       const retained = retainedRequest(active);
       retained.cause = error;
       throw retained;
@@ -167,33 +167,36 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
 export async function chatgptWebRequestAction(key, action, config, home, limits, { signal, confirm = false, timeout } = {}) {
   boundary('web.recovery_shape', { key, action, confirm });
   const store = await WebRequestStore.open(home, { create: false });
+  // DEFENSE: Recovery accepts a user-supplied key even when no provider request has ever created the receipt database.
   if (!store) throw new Error('No ChatGPT Web request receipts');
   try {
     const record = store.find(key);
+    // DEFENSE: A user-supplied recovery key may not name any retained request in this service home.
     if (!record) throw new Error('Unknown ChatGPT Web request key');
     const profile = config.profiles[record.profile];
     boundary('web.recovery_connection', { key, action, confirm, record, profile });
     const { token, binding } = credential(profile);
     const recovery = boundary('web.recovery', { key, action, confirm, record, profile, binding });
     if (recovery.retire) store.retire(record);
+    // DEFENSE: Recovery cannot send a remote control request before the provider has supplied a response ID.
     if (recovery.retained) throw retainedRequest(record);
     const url = `${record.endpoint}/${encodeURIComponent(record.response_id)}${recovery.method === 'GET' ? '' : `/${action}`}`;
     const response = await requestJson(url, { method: recovery.method,
       body: recovery.method === 'GET' ? undefined : recovery.body,
       headers: { authorization: `Bearer ${token}` }, signal, timeout: timeout ?? profile.timeout_ms, maximum: limits.frame_bytes });
     const value = response.ok ? nativeJson(response.text) : response.value;
+    // DEFENSE: An HTTP failure from the recovery endpoint leaves the retained request available for explicit later action.
     if (!response.ok) throw failure(value?.error?.code, record, response.status);
     return boundary('web.recovery_result', { key, action, confirm, record, profile, binding, value });
   } finally { store.close(); }
 }
 
-export function cancelChatGPTWeb(task, config, home, limits) {
-  try {
-    const selected = boundary('web.cancel_owner', { task });
-    const record = WebRequestStore.retireExisting(home, selected.owner, selected.ticket);
-    const action = boundary('web.cancellation', { task, record: record ?? null });
-    if (action === 'none') return Promise.resolve();
-    if (action === 'retained') return Promise.reject(retainedRequest(record));
-    return chatgptWebRequestAction(record.request_key, 'cancel', config, home, limits, { timeout: 5000 });
-  } catch (error) { return Promise.reject(error); }
+export async function cancelChatGPTWeb(task, config, home, limits) {
+  const selected = boundary('web.cancel_owner', { task });
+  const record = WebRequestStore.retireExisting(home, selected.owner, selected.ticket);
+  const action = boundary('web.cancellation', { task, record: record ?? null });
+  if (action === 'none') return;
+  // DEFENSE: A cancelled request without an admitted remote response ID remains retained; it cannot target the provider's stop endpoint.
+  if (action === 'retained') throw retainedRequest(record);
+  return chatgptWebRequestAction(record.request_key, 'cancel', config, home, limits, { timeout: 5000 });
 }

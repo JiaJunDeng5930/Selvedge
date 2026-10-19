@@ -26,7 +26,10 @@ const pair = ctor(data + 'prod', 0, K, V, key, value);
 const nil = ctor(data + 'list', 0, application({ tag: 'ind', name: data + 'prod' }, [K, V]));
 const cons = ctor(data + 'list', 1, application({ tag: 'ind', name: data + 'prod' }, [K, V]), pair, rest);
 const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
-function requireShape(condition, message) { if (!condition) throw new Error(`Association-map certificate: ${message}`); }
+function requireShape(condition, message) {
+  // DEFENSE: Disk/Rocq proof terms can change constructor, recursion or reflection-premise shapes; reject the caller's specific unsupported shape.
+  if (!condition) throw new Error(`Association-map certificate: ${message}`);
+}
 function alpha(node, bound = []) {
   if (!node || typeof node !== 'object') return node;
   if (Array.isArray(node)) return node.map(value => alpha(value, bound));
@@ -125,6 +128,7 @@ function emit(node) {
     requireShape(args.length === 1 && same(args[0], query), 'induction hypothesis applied at a different key');
     return 'induction';
   }
+  // DEFENSE: A quoted association-map proof can reach a leaf outside the translator's declared source subset.
   throw new Error(`Association-map certificate: unsupported leaf ${JSON.stringify(node)}`);
 }
 
@@ -269,7 +273,8 @@ def removal_absence(~V: Data, entries: +List<Entry(V)>, +query: Nat) ->
 
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', maxBuffer: Infinity });
-  if (result.error || result.status !== 0) throw new Error(`${command}: ${result.error?.message ?? result.stderr ?? result.stdout}`);
+  // DEFENSE: Rocq or opam can fail to start or reject the requested source/tool query; do not import their failed output.
+  if (result.error || result.status !== 0) throw new Error(`${command}: ${result.error?.message ?? result.stderr}`);
   return result.stdout.trim();
 }
 async function refresh() {

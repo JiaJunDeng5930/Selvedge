@@ -121,6 +121,7 @@ def command_constraints(kind: M.CommandKind, +body: J.Json) -> Bool:
     case M.FeatureKind{kind}: FeatureCodec.valid(kind, body)
     case _: True{}
 
+# DEFENSE: CLI, HTTP and plugin commands can carry missing, mistyped or extra fields; admit only the command schema and its owner constraints.
 def command_payload(+schema: J.Json, +kind: M.CommandKind, +body: J.Json) -> Bool:
   Schema.valid(schema, body) && command_constraints(kind, body)
 
@@ -778,6 +779,7 @@ def decode_kind(kind: String, +body: J.Json) -> Result<&2, &2, String, M.Input>:
     case "continue": Done{M.Continue{}}
     case other: feature_completion(FeatureCodec.completion(other, body))
 
+# DEFENSE: Native packets originate at process and journal boundaries; malformed input kinds or payloads must fail before transition.
 def decode(+body: J.Json) -> Result<&2, &2, String, M.Input>:
   decode_kind(J.text(J.get(body, "kind")), body)
 

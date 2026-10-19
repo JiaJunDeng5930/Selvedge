@@ -23,9 +23,10 @@ context events, including the introduction and amendments needed to interpret
 each tracked source, while ordinary conversation can use the committed compacted
 window.
 
-Use a new current journal format, `selvedge-bend-journal-6`, for the combined
-tracked-context, task-graph and compaction commit semantics. Earlier formats are
-rejected explicitly; no replay adapter or migration is introduced.
+This integration introduced `selvedge-bend-journal-6` for the combined
+tracked-context, task-graph and compaction commit semantics. It rejected earlier
+formats without a replay adapter or migration. The current format is documented
+in the root README and defined by the journal implementation.
 
 ## Consequences
 

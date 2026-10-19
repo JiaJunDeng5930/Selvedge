@@ -1207,13 +1207,8 @@ def agent_editor(+application: Application, id: Maybe<&2, Nat>) -> Decision:
     case None{}: new_agent(first_profile(Board.profiles(program)), application)
     case Some{id}: board_agent(Board.registry(program), id, application)
 
-def task_graph_editor_text(text: Result<&2, &2, String, String>, graph: Maybe<&2, Nat>, declaration: J.Json, +application: Application) -> Decision:
-  match text:
-    case Fail{reason}: refuse(application, reason)
-    case Done{text}: open_editor(U.TaskGraph{graph, text, Some{declaration}, active_work(session(application))}, application)
-
-def task_graph_editor_declaration(graph: Maybe<&2, Nat>, +declaration: J.Json, application: Application) -> Decision:
-  task_graph_editor_text(J.show(declaration), graph, declaration, application)
+def task_graph_editor_declaration(graph: Maybe<&2, Nat>, +declaration: J.Json, +application: Application) -> Decision:
+  open_editor(U.TaskGraph{graph, J.stringify(declaration), Some{declaration}, active_work(session(application))}, application)
 
 def task_graph_editor_available(available: Bool, result: J.Json, graph: Nat, application: Application) -> Decision:
   match available:

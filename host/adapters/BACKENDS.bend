@@ -55,13 +55,8 @@ def default(+value: J.Json, fallback: J.Json) -> J.Json:
     case J.Null{}: fallback
     case _: value
 
-def rendered(result: Result<&2, &2, String, String>) -> String:
-  match result:
-    case Done{+text}: text
-    case Fail{error}: ""
-
 def json_text(value: J.Json) -> String:
-  rendered(J.show(value))
+  J.stringify(value)
 
 def text(value: J.Json) -> Bool:
   Account.nonempty(value)
@@ -237,84 +232,12 @@ def construct(+request: Request) -> Categories.Membership<Observation, descripto
   +backend = produce(request)
   Categories.Membership{Observation{request, backend}, construction_evidence(request)}
 
-def responses_member(request: Request) -> Categories.Membership<Observation, descriptor_category>:
-  construct(request)
-
 def descriptor_value(observation: Observation) -> J.Json:
   Observation{request, backend} = observation
   backend
 
 def response_value(request: Request) -> J.Json:
   descriptor_value(Categories.value(Observation, descriptor_category, construct(request)))
-
-def project_descriptor_capabilities(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_capabilities(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  capabilities
-
-def descriptor_capabilities_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_capabilities>:
-  Categories.Inclusion{project_descriptor_capabilities}
-
-def project_descriptor_identity(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_identity(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  Categories.Intersection{identity_evidence, bindings} = bindings
-  identity_evidence
-
-def descriptor_identity_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_identity>:
-  Categories.Inclusion{project_descriptor_identity}
-
-def project_descriptor_auth(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_auth(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  Categories.Intersection{identity_evidence, bindings} = bindings
-  Categories.Intersection{auth_evidence, bindings} = bindings
-  auth_evidence
-
-def descriptor_auth_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_auth>:
-  Categories.Inclusion{project_descriptor_auth}
-
-def project_descriptor_transport(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_transport(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  Categories.Intersection{identity_evidence, bindings} = bindings
-  Categories.Intersection{auth_evidence, bindings} = bindings
-  Categories.Intersection{transport_evidence, bindings} = bindings
-  transport_evidence
-
-def descriptor_transport_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_transport>:
-  Categories.Inclusion{project_descriptor_transport}
-
-def project_descriptor_endpoint(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_endpoint(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  Categories.Intersection{identity_evidence, bindings} = bindings
-  Categories.Intersection{auth_evidence, bindings} = bindings
-  Categories.Intersection{transport_evidence, bindings} = bindings
-  Categories.Intersection{endpoint_evidence, bindings} = bindings
-  endpoint_evidence
-
-def descriptor_endpoint_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_endpoint>:
-  Categories.Inclusion{project_descriptor_endpoint}
-
-def project_descriptor_credential(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_credential(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  Categories.Intersection{identity_evidence, bindings} = bindings
-  Categories.Intersection{auth_evidence, bindings} = bindings
-  Categories.Intersection{transport_evidence, bindings} = bindings
-  Categories.Intersection{endpoint_evidence, bindings} = bindings
-  Categories.Intersection{credential_evidence, bindings} = bindings
-  credential_evidence
-
-def descriptor_credential_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_credential>:
-  Categories.Inclusion{project_descriptor_credential}
-
-def project_descriptor_stream_kind(-observation: Observation, evidence: descriptor_category(observation)) -> descriptor_stream_kind(observation):
-  Categories.Intersection{capabilities, bindings} = evidence
-  Categories.Intersection{identity_evidence, bindings} = bindings
-  Categories.Intersection{auth_evidence, bindings} = bindings
-  Categories.Intersection{transport_evidence, bindings} = bindings
-  Categories.Intersection{endpoint_evidence, bindings} = bindings
-  Categories.Intersection{credential_evidence, bindings} = bindings
-  bindings
-
-def descriptor_stream_kind_inclusion() -> Categories.Inclusion<Observation, descriptor_category, descriptor_stream_kind>:
-  Categories.Inclusion{project_descriptor_stream_kind}
 
 def echo_backend() -> J.Json:
   put(put(responses_family("echo", "", "", False{}, "none", "echo", "responses"), "protocol", J.Text{"echo"}), "tools", J.Boolean{False{}})
@@ -1246,9 +1169,7 @@ def profile_adaptive(+adaptive: J.Json, +profile: J.Json, source: J.Json) -> J.J
 def profile(+source: J.Json) -> J.Json:
   profile_adaptive(J.get(source, "adaptive"), profile_default(J.get(source, "profile")), source)
 
-def request_guard(+source: J.Json) -> J.Json:
-  Model.success(J.Null{})
-
+# DEFENSE: A task can retain a bound account after the user signs into another account; reject cross-account request reuse.
 def authorization_checked(invalid: Bool) -> J.Json:
   match invalid:
     case True{}: Model.failure("This task belongs to a different ChatGPT account; restore that account or create a new task")
@@ -1257,6 +1178,7 @@ def authorization_checked(invalid: Bool) -> J.Json:
 def authorization(+source: J.Json) -> J.Json:
   authorization_checked(Bool.not(String.is_empty(J.text(J.get(J.get(source, "profile"), "bound_account_id")))) && Bool.not(J.same(J.get(J.get(source, "profile"), "bound_account_id"), J.get(J.get(source, "authorization"), "account_id"))))
 
+# DEFENSE: A configured API-key environment variable may be unset or empty; fail before provider IO.
 def credentials_checked(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case True{}: Model.success(J.get(source, "key"))
@@ -1265,10 +1187,11 @@ def credentials_checked(valid: Bool, +source: J.Json) -> J.Json:
 def credentials(+source: J.Json) -> J.Json:
   credentials_checked(J.is_text(J.get(source, "key")) && Bool.not(String.is_empty(J.text(J.get(source, "key")))), source)
 
+# DEFENSE: Encoded user history or tool data can exceed frame_bytes; report RangeError before provider IO.
 def request_size_checked(valid: Bool) -> J.Json:
   match valid:
     case True{}: Model.success(J.Null{})
-    case False{}: Model.failure("Provider request exceeds the configured limit")
+    case False{}: Model.failure_code("RangeError", "Provider request exceeds the configured limit")
 
 def request_size(+source: J.Json) -> J.Json:
   request_size_checked(Model.nonnegative_le(J.get(J.get(source, "limits"), "frame_bytes"), "9007199254740991") && Model.nonnegative_le(J.get(source, "bytes"), display(J.get(J.get(source, "limits"), "frame_bytes"))))
@@ -1475,15 +1398,10 @@ def meaning_route_19(+accepted: Bool, +operation: String, +source: J.Json) -> J.
     case True{}: authorization(source)
     case False{}: meaning_route_20(String.eq(operation, "backend.credentials"), operation, source)
 
-def meaning_route_18(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
-  match accepted:
-    case True{}: request_guard(source)
-    case False{}: meaning_route_19(String.eq(operation, "backend.authorization"), operation, source)
-
 def meaning_route_17(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: stream_end(source)
-    case False{}: meaning_route_18(String.eq(operation, "backend.request_guard"), operation, source)
+    case False{}: meaning_route_19(String.eq(operation, "backend.authorization"), operation, source)
 
 def meaning_route_16(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
@@ -1605,12 +1523,6 @@ def family(+operation: String) -> Model.Adapter(source => meaning(operation, sou
 
 def run(+operation: String, +source: J.Json) -> J.Json:
   Model.execute(source => meaning(operation, source), family(operation), source)
-
-def responses_conversation_protocol() -> Categories.Inclusion<J.Json, responses_capabilities, (value => Categories.intersection(J.Json, conversation, protocol, value))>:
-  Categories.intersection_first(J.Json, (value => Categories.intersection(J.Json, conversation, protocol, value)), (value => Categories.intersection(J.Json, tool_capable, independent_text, value)))
-
-def responses_tools_independent() -> Categories.Inclusion<J.Json, responses_capabilities, (value => Categories.intersection(J.Json, tool_capable, independent_text, value))>:
-  Categories.intersection_second(J.Json, (value => Categories.intersection(J.Json, conversation, protocol, value)), (value => Categories.intersection(J.Json, tool_capable, independent_text, value)))
 
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}

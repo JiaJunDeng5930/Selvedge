@@ -34,7 +34,6 @@ async function publicAssets(directory, prefix = '') {
 
 // NOTE: Request paths select fixed resources; they never become filesystem paths.
 const assets = await publicAssets(new URL('./public/', import.meta.url));
-if (!assets.has('/index.html')) throw new Error('Browser index.html is missing');
 assets.set('/', assets.get('/index.html'));
 
 export async function startServer(options) {
@@ -46,6 +45,7 @@ export async function startServer(options) {
   let closing;
   let address;
   const server = http.createServer({ maxHeaderSize: service.limits.header_bytes }, (request, response) => {
+    // DEFENSE: Requests can fail UTF-8/JSON admission, authentication or external filesystem/service work; return the declared HTTP failure before headers, otherwise close the partial response.
     route(request, response).catch(error => {
       if (response.headersSent) response.destroy();
       else if (error instanceof CommandNotSubmitted) json(response, 400,
@@ -65,17 +65,19 @@ export async function startServer(options) {
   }
 
   function authorized(request) {
-    // NOTE: Explicit Authorization must stand on its own; browser cookies cannot
-    // hide a stale or invalid credential supplied by another client.
+    // DEFENSE: A request can contain an invalid explicit Authorization plus a valid browser cookie; the explicit credential must stand on its own.
     const authorization = request.headers.authorization;
     const credential = authorization !== undefined ? authorization : sessionCookie(request.headers.cookie);
+    // DEFENSE: An unauthenticated request may omit both Authorization and the session cookie.
     if (typeof credential !== 'string') return false;
     const supplied = Buffer.from(credential);
     const expected = Buffer.from(authorization !== undefined ? `Bearer ${token}` : token);
+    // DEFENSE: Attackers can supply arbitrary credential lengths; timingSafeEqual requires equal-size buffers.
     return supplied.length === expected.length && timingSafeEqual(supplied, expected);
   }
 
   function sessionCookie(header) {
+    // DEFENSE: Non-browser requests can have no Cookie header.
     if (typeof header !== 'string') return null;
     let session = null;
     for (const part of header.split(';')) {
@@ -83,8 +85,10 @@ export async function startServer(options) {
       const separator = cookie.indexOf('=');
       const name = separator < 0 ? cookie : cookie.slice(0, separator);
       if (name.trim() !== 'selvedge-session') continue;
+      // DEFENSE: Forged Cookie headers can repeat, omit '=' from, or add whitespace to the session field; reject ambiguous credentials.
       if (name !== 'selvedge-session' || separator < 0 || session !== null) return null;
       const value = cookie.slice(separator + 1);
+      // DEFENSE: An edited browser cookie can contain a value other than the server's 32-byte hexadecimal session token.
       if (!/^[0-9a-f]{64}$/.test(value)) return null;
       session = value;
     }
@@ -92,7 +96,9 @@ export async function startServer(options) {
   }
 
   function writeSseFrame(response, frame) {
+    // DEFENSE: A client can disconnect while a committed notice or heartbeat is being delivered.
     if (response.destroyed || response.writableEnded) return;
+    // DEFENSE: A slow SSE client can accumulate queued frames; disconnect it when retained bytes exceed the published budget.
     if (response.writableLength + Buffer.byteLength(frame) > service.limits.frame_bytes) {
       response.destroy();
       return;
@@ -289,14 +295,16 @@ export async function startServer(options) {
         case 'health':
           json(response, 200, { ok: true, result: { sequence: service.journal.sequence } });
           return;
-        default: throw new TypeError('Invalid native HTTP action');
       }
     }
   }
 
   service.on('notice', event => {
     for (const client of clients) sendEvent(client, event);
-    if (event.type === 'fatal') setImmediate(() => close().catch(() => {}));
+    // DEFENSE: A fatal journal/Worker failure requires server shutdown; report filesystem/listener cleanup errors rather than dropping them.
+    if (event.type === 'fatal') setImmediate(() => close().catch(error => {
+      service.notify({ type: 'diagnostic', message: `Server shutdown failed: ${error.message}` });
+    }));
   });
   const heartbeat = setInterval(() => {
     for (const client of clients) writeSseFrame(client, ': keepalive\n\n');
@@ -307,12 +315,15 @@ export async function startServer(options) {
     closing ??= (async () => {
       clearInterval(heartbeat);
       for (const client of clients) client.end();
+      // DEFENSE: Startup can fail before listen succeeds; ERR_SERVER_NOT_RUNNING then means there is no listener to close.
       const stopped = new Promise((resolve, reject) => server.close(error => error && error.code !== 'ERR_SERVER_NOT_RUNNING' ? reject(error) : resolve()));
       server.closeAllConnections();
       await Promise.all([stopped, service.close()]);
       try {
         const saved = JSON.parse(await readFile(filename, 'utf8'));
+        // DEFENSE: Another server can start after service.close releases the journal lock; do not unlink its new discovery record.
         if (saved.token === token) await unlink(filename);
+      // DEFENSE: Failed startup may not have written server.json, or external cleanup may already have removed it.
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
     })();
     return closing;
@@ -327,5 +338,6 @@ export async function startServer(options) {
     address = `http://${endpoint.family === 'IPv6' ? `[${endpoint.address}]` : endpoint.address}:${endpoint.port}`;
     await writeAtomic(filename, { format: 'selvedge-local-server-1', address, token, pid: process.pid });
     return { service, server, address, token, close, url: `${address}/` };
+  // DEFENSE: Listen/write failures after Service.open must stop the acquired service and listener.
   } catch (error) { await close(); throw error; }
 }
