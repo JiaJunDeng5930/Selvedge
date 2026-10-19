@@ -835,8 +835,9 @@ def host_registration_check(valid: Bool, value: J.Json) -> J.Json:
     case True{}: Model.success(J.get(value, "ext_agent_host_id"))
 def host_registration(source: J.Json) -> J.Json:
   +value = J.get(source, "value")
+  +host_id = J.text(J.get(value, "ext_agent_host_id"))
   host_registration_check(J.is_object(value) && J.same(J.get(value, "format"), J.Text{"selvedge-chatgpt-host-1"}) &&
-    Nat.is_eq(List.length(&2, J.Field, fields(value)), 2n) && nonempty(J.get(value, "ext_agent_host_id")) && uuid_chars(String.to_lower(J.text(J.get(value, "ext_agent_host_id"))), 0n), value)
+    Nat.is_eq(List.length(&2, J.Field, fields(value)), 2n) && String.starts_with(host_id, "urn:uuid:") && uuid_chars(String.to_lower(String.drop(host_id, 9n)), 0n), value)
 def host_registration_record(source: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"format", J.Text{"selvedge-chatgpt-host-1"}}, Con{J.Field{"ext_agent_host_id", J.get(source, "ext_agent_host_id")}, Nil{}}}})
 def auth_parameters(+source: J.Json) -> J.Json:

@@ -43,6 +43,7 @@ export async function chatgptFixture(t) {
         oauthRequests.push(entry);
         const query = url.searchParams;
         assert.equal(query.get('code_challenge_method'), 'S256');
+        assert.match(query.get('ext_agent_host_id'), /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         const first = query.get('client_id') === 'dynamic_agent_client';
         if (!first) assert.equal(query.get('client_id'), clientId);
         const callback = new URL(query.get('redirect_uri'));

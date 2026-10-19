@@ -197,7 +197,7 @@ async function hostIdentity(home) {
     const saved = await readRecord(filename, true);
     const existing = boundary('account.host_saved', { home, filename, saved, value: saved });
     if (existing !== null) return existing;
-    const ext_agent_host_id = randomUUID();
+    const ext_agent_host_id = `urn:uuid:${randomUUID()}`;
     await writeAtomic(filename, boundary('account.host_registration_record', { home, filename, saved, ext_agent_host_id }));
     return ext_agent_host_id;
   });

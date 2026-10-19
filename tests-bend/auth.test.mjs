@@ -26,6 +26,9 @@ test('loopback login persists private credentials and rejects an untrusted signi
   const attempts = upstream.oauthRequests.filter(request => request.url.startsWith('/authorize?'));
   assert.deepEqual(attempts.map(request => new URL(request.url, upstream.address).searchParams.get('client_id')),
     ['dynamic_agent_client', 'fixture-issued-client']);
+  const hostId = JSON.parse(await readFile(path.join(upstream.directory, 'auth/chatgpt-host.json'), 'utf8')).ext_agent_host_id;
+  assert.deepEqual(attempts.map(request => new URL(request.url, upstream.address).searchParams.get('ext_agent_host_id')),
+    [hostId, hostId]);
   assert.equal(grants(upstream).length, 2);
   assert.deepEqual(upstream.failures, []);
 });

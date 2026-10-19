@@ -32,6 +32,13 @@ credentials so a failed exchange can reuse its issued client without accepting a
 unverified identity. Serialize refresh and replace credentials atomically to avoid
 rotation races. Reject the former credential format rather than maintain two formats.
 
+Use the documented `urn:uuid:` form for the installation's UUID host identifier.
+The authorization service rejects a bare UUID with `invalid_authorize_request`
+for `ext_agent_host_id`; the official [host identifier contract](https://developers.openai.com/siwc/token-sharing-open-source#a-client-vs-an-agent-host)
+requires the URI form. Keep it stable across sign-ins. Codex's built-in sign-in
+uses its own registered client and scopes, so substituting its client ID would
+change the application's authorization contract.
+
 Use public Responses inference and bounded text summaries because the official
 contract does not establish the former Codex compaction operation. Preserve complete
 response items and encrypted reasoning in history; text summaries do not claim
