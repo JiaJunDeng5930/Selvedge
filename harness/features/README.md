@@ -60,3 +60,7 @@ The assembled state coordinates are Board, ChatGPT, Task graph, Compaction,
 Worktree, Remote and Work, followed by the identity remainder. Every storage
 boundary preserves the unrelated coordinates, including Work ownership during
 Remote administration and worktree completion.
+
+`workspace_observation` projects public command kinds into stable directory
+observation categories for the host adapters. Feature command cases remain in
+this assembly; external consumers interpret only the returned categories.

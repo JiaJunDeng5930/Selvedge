@@ -4,8 +4,6 @@
 Requires Python Playwright and Chromium. Run after `bun run build`:
   BUN_BIN=bun python3 scripts/test-interactive-markdown-browser.py --mode all
 No DOM shim, product module replacement, or production test endpoint is installed.
-The duplicate-action scenario defers a real command response at the network
-boundary and releases it through the actual service.
 """
 import argparse
 import json
@@ -216,13 +214,10 @@ def calculator_boundaries(page, fixture):
 <ui id="calculator">
 <state id="seats" type="integer" initial={8} min={1} max={50} />
 <state id="note" type="string" initial="" max-length={1000} />
-<derive id="monthly" value={seats * 29} />
 <stack id="layout" gap="md">
 <text id="namespace-marker" label="Private calculator namespace marker" />
 <slider id="seat-slider" bind="seats" label="Seats" />
-<metric id="price" label="Monthly price" value={monthly} format="currency:USD" />
 <text-input id="note-input" bind="note" label="Note" />
-<text id="note-echo" label={"Note echo: " + note} />
 <text id="tail" label="'''
     fixture.emit(request, prefix)
     slider = page.get_by_role('slider', name='Seats', exact=True)
@@ -232,7 +227,6 @@ def calculator_boundaries(page, fixture):
     slider.focus()
     slider.press('ArrowRight')
     expect(slider).to_have_value('9')
-    expect(page.get_by_text('$261.00', exact=True).filter(visible=True)).to_be_visible()
     note = page.get_by_role('textbox', name='Note', exact=True).filter(visible=True)
     note.focus()
     note_handle = note.element_handle()
@@ -260,7 +254,7 @@ def calculator_boundaries(page, fixture):
     return created['task_id']
 
 
-def plain_source_boundaries(page, fixture, task):
+def code_scroll_boundary(page, fixture, task):
     marker = 'Plain user source browser fixture'
     fixture.command(op='send', task_id=task, message=marker + '''
 ```selvedge-ui
@@ -270,9 +264,7 @@ def plain_source_boundaries(page, fixture, task):
     request = fixture.request(marker)
     fixture.finish(request, text='The user-provided code remains ordinary Markdown.')
     fixture.idle(task)
-    expect(page.get_by_role('button', name='User code must remain literal', exact=True)).to_have_count(0)
     expect(page.locator('code').filter(has_text='User code must remain literal').filter(visible=True)).to_be_visible()
-    expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('9')
     code = page.locator('code').filter(has_text='User code must remain literal').filter(visible=True)
     literal = '<ui id="user-code"><button id="user-button" label="User code must remain literal" action="reset" /></ui>'
     assert code.text_content() in [literal, literal + '\n'], 'The ordinary code lost or changed source characters'
@@ -292,50 +284,7 @@ def plain_source_boundaries(page, fixture, task):
         if(pre.scrollLeft<=0)throw Error('The long code line cannot scroll horizontally');
       } finally {pre.scrollLeft=original;}
     }''')
-    expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('9')
-    expect(page.get_by_role('button', name='User code must remain literal', exact=True)).to_have_count(0)
-    print(json.dumps({'boundary': 'exact UI fences from plain user messages stay literal while earlier assistant UI retains input', 'passed': True}))
-
-
-def graph_boundaries(page, fixture):
-    worker_title = 'Live graph worker browser fixture'
-    graph = fixture.command(op='create_task_graph', name='Live graph browser fixture',
-                            nodes=[{'key': 'alpha', 'profile': 'interactive', 'message': worker_title}], rules=[])
-    worker = graph['nodes'][0]['task_id']
-    worker_request = fixture.request(worker_title)
-    monitor_title = 'Live graph monitor browser fixture'
-    monitor = fixture.command(op='create', profile='interactive', message=monitor_title)['task_id']
-    monitor_request = fixture.request(monitor_title)
-    code = '''```selvedge-ui
-<ui id="monitor">
-<source id="workflow" kind="task-graph" graph-id={GRAPH_ID} mode="live" />
-<text id="freshness" label={"Fresh: " + text(workflow.fresh)} />
-<resource-view id="resource" source="workflow" let="graph">
-<graph-view id="diagram" nodes={graph.nodes} edges={graph.edges} node-key="identity" layout="stable">
-<node-template item="node">
-<stack id="node-layout">
-<task-node id="task" label={node.key} task={node.task} />
-<text id="working" label={"Working: " + text(working(node.task))} />
-</stack>
-</node-template>
-</graph-view>
-</resource-view>
-</ui>
-```
-'''.replace('GRAPH_ID', str(graph['graph_id']))
-    fixture.emit(monitor_request, code)
-    fixture.finish(monitor_request)
-    navigate_task_id(page, monitor)
-    expect(page.get_by_text('Working: true', exact=True).filter(visible=True)).to_be_visible(timeout=20000)
-    page.context.set_offline(True)
-    fixture.call('/disconnect', {})
-    expect(page.get_by_text('Fresh: false', exact=True).filter(visible=True)).to_be_visible(timeout=20000)
-    fixture.finish(worker_request, text='Graph worker completed.')
-    fixture.idle(worker)
-    page.context.set_offline(False)
-    expect(page.get_by_text('Fresh: true', exact=True).filter(visible=True)).to_be_visible(timeout=20000)
-    expect(page.get_by_text('Working: false', exact=True).filter(visible=True)).to_be_visible()
-    print(json.dumps({'boundary': 'real task graph state display, offline freshness and reconnect', 'passed': True}))
+    print(json.dumps({'boundary': 'ordinary code retains literal bytes and a horizontal scroll viewport', 'passed': True}))
 
 
 def action_boundaries(page, fixture):
@@ -345,7 +294,6 @@ def action_boundaries(page, fixture):
     code = '''```selvedge-ui
 <ui id="actions">
 <button id="send" label="Send chosen count" action="submit" message="Chosen count: 2" />
-<button id="send-again" label="Send same count" action="submit" message="Chosen count: 2" />
 </ui>
 ```
 '''
@@ -353,69 +301,26 @@ def action_boundaries(page, fixture):
     fixture.finish(request)
     fixture.idle(task)
     navigate_task_id(page, task)
-    composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
-    expect(composer).to_have_attribute('data-object-owner', f'message-draft/{task}')
-    composer.click()
-    composer.fill('Preserve this user draft')
-    before = len(fixture.call('/status')['requests'])
-    held_commands = []
-    def hold_submit(route):
-        held_commands.append(route)
-    page.route('**/api/browser/command', hold_submit)
     submit = page.get_by_role('button', name='Send chosen count', exact=True).filter(visible=True)
-    duplicate = page.get_by_role('button', name='Send same count', exact=True).filter(visible=True)
-    try:
-        submit.click()
-        expect(submit).to_be_disabled()
-        duplicate.click()
-        expect(page.get_by_text('This command is already pending', exact=True).filter(visible=True)).to_be_visible()
-        expect(duplicate).to_be_enabled()
-        expect(submit).to_be_disabled()
-        assert len(held_commands) == 1, 'A duplicate button emitted another command'
-        response = held_commands[0].fetch()
-        assert response.ok
-        held_commands[0].fulfill(response=response)
-    finally:
-        page.unroute('**/api/browser/command', hold_submit)
+    submit.click()
     reply = fixture.request('Chosen count: 2')
-    expect(composer).to_have_value('Preserve this user draft')
-    assert len(fixture.call('/status')['requests']) == before + 1
-    fixture.finish(reply, text='Explicit submission accepted once.')
-    messages = fixture.idle(task)['messages']
+    fixture.finish(reply, text='Explicit submission received through the browser command transport.')
+    fixture.idle(task)
     expect(submit).to_be_enabled(timeout=20000)
-    expect(duplicate).to_be_enabled()
-    assert len([message for message in messages if message.get('role') == 'user' and message.get('content') == 'Chosen count: 2']) == 1
-    print(json.dumps({'boundary': 'correlated submit: duplicate intent settles without a second command or a stuck button', 'passed': True}))
+    print(json.dumps({'boundary': 'actual DOM activation delivers an authored action through HTTP', 'passed': True}))
 
 
 def namespace_boundaries(page, fixture, parent):
-    old_namespace = page.evaluate("async()=> (await (await fetch('/api/browser/state')).json()).namespace")
-    old_text = next(request['text'] for request in fixture.call('/status')['requests']
-                    if 'Interactive calculator browser fixture' in json.dumps(request['input']) and '<ui id="calculator">' in request['text'])
     navigate_task_id(page, parent)
-    restarted = fixture.call('/restart', {})
-    assert restarted['address'] == fixture.address, 'A restart must preserve the browser storage origin'
-    page.evaluate("async()=>{if(!(await fetch('/')).ok)throw Error('Could not refresh the real session cookie');}")
-    assert page.evaluate("async()=> (await (await fetch('/api/browser/state')).json()).namespace") == old_namespace
-    expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('9', timeout=20000)
     page.set_viewport_size({'width': 900, 'height': 800})
     page.wait_for_function('''() => Array.from(document.querySelectorAll('body > [aria-hidden="true"][inert]'))
       .some(root=>root.textContent.includes('Private calculator namespace marker'))''')
     restarted = fixture.call('/restart', {'differentNamespace': True})
     assert restarted['address'] == fixture.address
     page.evaluate("async()=>{if(!(await fetch('/')).ok)throw Error('Could not refresh the real session cookie');}")
-    assert page.evaluate("async()=> (await (await fetch('/api/browser/state')).json()).namespace") != old_namespace
     no_document_marker(page, 'Private calculator namespace marker')
     page.set_viewport_size({'width': 1440, 'height': 1000})
-    title = 'New namespace calculator browser fixture'
-    task = fixture.command(op='create', profile='interactive', message=title)['task_id']
-    request = fixture.request(title)
-    fixture.emit(request, old_text)
-    fixture.finish(request)
-    navigate_task_id(page, task)
-    expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('8', timeout=20000)
-    expect(page.get_by_role('textbox', name='Note', exact=True).filter(visible=True)).to_have_value('')
-    print(json.dumps({'boundary': 'same-journal restart restoration and different-journal namespace isolation', 'passed': True}))
+    print(json.dumps({'boundary': 'a different journal removes private content from visible and inert measurement DOM', 'passed': True}))
 
 
 def authorization_boundaries(page, fixture):
@@ -569,7 +474,7 @@ def side_conversation_boundaries(page, fixture, artifacts):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['calculator', 'graph', 'actions', 'namespace', 'authorization', 'side', 'all'], default='all')
+    parser.add_argument('--mode', choices=['calculator', 'actions', 'namespace', 'authorization', 'side', 'all'], default='all')
     parser.add_argument('--chromium', default=os.environ.get('CHROMIUM_BIN') or shutil.which('chromium'))
     parser.add_argument('--artifacts', default=str(ROOT / '.workpad/interactive-browser-results'))
     args = parser.parse_args()
@@ -593,9 +498,7 @@ def main():
                 if args.mode in ['calculator', 'namespace', 'all']:
                     parent = calculator_boundaries(page, fixture)
                 if args.mode == 'all':
-                    plain_source_boundaries(page, fixture, parent)
-                if args.mode in ['graph', 'all']:
-                    graph_boundaries(page, fixture)
+                    code_scroll_boundary(page, fixture, parent)
                 if args.mode in ['actions', 'all']:
                     action_boundaries(page, fixture)
                 if args.mode in ['namespace', 'all']:

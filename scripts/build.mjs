@@ -8,7 +8,7 @@ import { checkBundle } from './import-stdlib.mjs';
 import { checkRelations } from './import-relations.mjs';
 import { checkMaps } from './import-maps.mjs';
 import { checkComponents, bendSources, entrySources } from './check-components.mjs';
-import { compileJavaScriptBatch } from './compile-javascript.mjs';
+import { compileJavaScript, compileJavaScriptBatch } from './compile-javascript.mjs';
 import { prepareUiVerification } from './ui-verification.mjs';
 import { buildModel } from '../plugins/selvedge-chatgpt/scripts/build-model.mjs';
 
@@ -28,6 +28,18 @@ async function entryRequest(entry, output, { publicSource = entry, namespacePref
   // DEFENSE: An edited public entry can remove every wrapper and would otherwise produce an empty runtime interface.
   if (!names.length) throw new Error(`No public Bend wrappers in ${publicSource}`);
   return { entry, exports: Object.fromEntries(names.map(name => [name, `${namespacePrefix}${name}`])), output, sourceRoot: root };
+}
+
+async function productionInputs(verification) {
+  const sources = await bendSources(root);
+  const hash = createHash('sha256');
+  // Generated verification/runtime entries are hidden from bendSources. Bind
+  // their assembly and the ownership policy along with all production sources.
+  for (const name of [...sources, verification.entry, verification.runtimeEntry, 'components.json'].sort()) {
+    const bytes = await readFile(path.join(root, name));
+    hash.update(JSON.stringify([name, bytes.length])).update('\0').update(bytes).update('\0');
+  }
+  return { sources, fingerprint: hash.digest('hex') };
 }
 
 async function nativeIdentity(bend, compileArguments) {
@@ -62,6 +74,7 @@ export async function build({ native = false, force = false } = {}) {
   await checkRelations();
   await checkMaps();
   const verification = prepareUiVerification(root);
+  const inputs = await productionInputs(verification);
 
   const hostOutput = 'host/public/generated/host-model.mjs';
   const requests = [
@@ -73,26 +86,38 @@ export async function build({ native = false, force = false } = {}) {
     { entry: 'plugins/selvedge-chatgpt/MODEL.bend', exports: { run: 'run' }, output: 'plugins/selvedge-chatgpt/generated/model.mjs', sourceRoot: root },
   ];
   if (force) for (const request of requests) await rm(path.resolve(root, `${request.output}.json`), { force: true });
-  const [kernel, browser, host] = await timed('Production JavaScript compilation', () => compileJavaScriptBatch({ prefix: verification.entry, requests, verify: true }));
+  const [kernel, browser, host] = await timed('Production JavaScript compilation', async () => {
+    const [kernel, browser] = await compileJavaScriptBatch({
+      prefix: verification.entry, requests: requests.slice(0, 2), verify: true,
+    });
+    // The shared compiler exits before host/plugin emission, releasing the full
+    // proof book and browser IR instead of retaining them across every backend.
+    const host = await compileJavaScript(requests[2]);
+    await compileJavaScript(requests[3]);
+    return [kernel, browser, host];
+  });
   console.log(`Bend JavaScript kernel ${kernel.cached ? 'is current' : 'built'} (${kernel.fingerprint.slice(0, 12)}).`);
   console.log(`Bend JavaScript browser ${browser.cached ? 'is current' : 'built'} (${browser.fingerprint.slice(0, 12)}).`);
   console.log(`Bend JavaScript host ${host.cached ? 'is current' : 'built'} (${host.fingerprint.slice(0, 12)}).`);
   await timed('Plugin JavaScript compilation', () => buildModel());
 
-  const inputs = await bendSources(root);
+  // DEFENSE: Source or assembly edits between the checked batch and isolated host/plugin compilation must not publish one build identity for different inputs.
+  if ((await productionInputs(verification)).fingerprint !== inputs.fingerprint) {
+    throw new Error('Production sources changed between proof checking and JavaScript emission; retry with stable sources');
+  }
   const backend = 'bend-javascript';
   const kernelManifest = JSON.parse(await readFile(`${kernel.output}.json`, 'utf8'));
   const javascriptCompiler = kernelManifest.compiler;
   const hash = createHash('sha256').update(`Bend ${expectedVersion}\0${backend}\0`)
     .update(JSON.stringify(javascriptCompiler)).update('\0').update(kernel.fingerprint).update('\0').update(browser.fingerprint).update('\0').update(host.fingerprint).update('\0');
-  for (const name of inputs) hash.update(name).update('\0').update(await readFile(path.join(root, name))).update('\0');
+  hash.update(inputs.fingerprint);
   const fingerprint = hash.digest('hex');
   const directory = path.join(root, '.build');
   await mkdir(directory, { recursive: true });
   // Publish build identity only after all production libraries have compiled successfully.
   await writeFile(path.join(directory, 'kernel.json'), JSON.stringify({
     compiler: expectedVersion, fingerprint, backend, javascriptCompiler,
-    sources: inputs, models: { kernel: kernel.fingerprint, browser: browser.fingerprint, host: host.fingerprint },
+    sources: inputs.sources, models: { kernel: kernel.fingerprint, browser: browser.fingerprint, host: host.fingerprint },
   }, null, 2) + '\n');
 
   if (native) {

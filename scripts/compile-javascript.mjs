@@ -1,18 +1,17 @@
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile, rename, rm, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { prepareCompilerSource, sourceVersion, sourceHash } from './compiler-source.mjs';
 import { optimizeJavaScript } from './optimize-javascript.mjs';
-import { javascriptModules } from './javascript-modules.mjs';
 import { compilerEnvironment, compilerInvocation } from './toolchain.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const driver = fileURLToPath(import.meta.url);
 const optimizer = fileURLToPath(new URL('./optimize-javascript.mjs', import.meta.url));
-const modules = fileURLToPath(new URL('./javascript-modules.mjs', import.meta.url));
 const parser = fileURLToPath(new URL(import.meta.resolve('acorn'), import.meta.url));
 let compilerIdentity;
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -23,13 +22,15 @@ let compilationQueue = Promise.resolve();
 async function currentSources(entry) {
   const files = new Map();
   const active = new Set();
-  async function visit(filename) {
-    const file = await realpath(filename);
+  // Synchronous snapshots avoid the GC thrashing reproduced by per-file async
+  // callbacks while the complete checked proof book remains resident.
+  function visit(filename) {
+    const file = realpathSync(filename);
     // DEFENSE: A source import cycle cannot supply a reusable cache closure; the compiler reports it.
     if (active.has(file)) return false;
     if (files.has(file)) return true;
     active.add(file);
-    const bytes = await readFile(file);
+    const bytes = readFileSync(file);
     files.set(file, hash(bytes));
     for (const line of bytes.toString('utf8').split('\n')) {
       const text = line.trim();
@@ -41,7 +42,7 @@ async function currentSources(entry) {
       if (match[1] === 'Base' && !match[2]) {
         // Base belongs to the checksum-verified compiler archive, bound by compiler identity.
       } else if (match[2] && /^(?:\.\/|(?:\.\.\/)*)(?:[A-Za-z_][\w-]*\/)*[A-Za-z_][\w-]*\.bend$/.test(match[1])) {
-        if (!await visit(path.resolve(path.dirname(file), match[1]))) return false;
+        if (!visit(path.resolve(path.dirname(file), match[1]))) return false;
       } else {
         // DEFENSE: Hub imports are resolved by the compiler rather than guessed by the cache scanner.
         return false;
@@ -51,7 +52,7 @@ async function currentSources(entry) {
     return true;
   }
   try {
-    for (const filename of Array.isArray(entry) ? entry : [entry]) if (!await visit(filename)) return null;
+    for (const filename of Array.isArray(entry) ? entry : [entry]) if (!visit(filename)) return null;
     return [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
       .map(([file, sha256]) => ({ path: path.relative(root, file), sha256 }));
   } catch (error) {
@@ -65,7 +66,6 @@ export function javascriptCompilerIdentity() {
   return compilerIdentity ??= (async () => ({
     ...(await prepareCompilerSource()).identity,
     driverSha256: hash(await readFile(driver)),
-    modulesSha256: hash(await readFile(modules)),
     optimizerSha256: hash(await readFile(optimizer)), parserSha256: hash(await readFile(parser)),
   }))();
 }
@@ -267,15 +267,26 @@ async function emit(requestPath) {
     const seen = new Map();
     // Shared constructors need the same source namespace across independently compiled entries.
     await Bend.book_load(book, request.entry, '', seen, undefined, request.sourceRoot);
-    Bend.book_valid(book, 0);
-    // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
-    if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
+    await checkPureRuntimeBook(book, 0, Bend, request.provider);
     const result = await emitBook(request, book, seen, before, Bend, Comp);
     await writeFile(request.response, JSON.stringify(result));
   } catch (error) {
     // DEFENSE: The upstream compiler throws tagged Bend errors rather than JavaScript Error objects.
     if (error?.$ === 'Err') throw new Error(Bend.err_show(error));
     throw error;
+  }
+}
+
+async function checkPureRuntimeBook(book, offset, Bend, provider) {
+  Bend.book_valid(book, offset);
+  // DEFENSE: An edited runtime entry can introduce an unfilled law or TODO outside the verified prefix; incomplete books cannot authorize emission.
+  if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
+  // Use the compiler's dependency graph, including types and constructor fields.
+  const { book_promises } = await import(pathToFileURL(path.join(provider.directory, `api.${provider.extension}`)).href);
+  const promises = book_promises(book);
+  // DEFENSE: A reproduced runtime-entry dependency marked @unsafe passed book_valid outside the checked prefix; reject its transitive promise before emission.
+  if (promises.length) {
+    throw new Error(`JavaScript compilation refuses unchecked or foreign definitions: ${promises.join(', ')}`);
   }
 }
 
@@ -291,7 +302,7 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
       throw new Error(`JavaScript compilation requires a pure implemented definition: ${definition}`);
     }
   }
-  const sources = await Promise.all([...seen.keys()].filter(file => file !== Bend.BASE_BEND).sort().map(async file => ({ path: path.relative(root, file), sha256: hash(await readFile(file)) })));
+  const sources = [...seen.keys()].filter(file => file !== Bend.BASE_BEND).sort().map(file => ({ path: path.relative(root, file), sha256: hash(readFileSync(file)) }));
   const identity = await compilationIdentity(request, sources);
   const { fingerprint } = identity;
   const reusable = before !== null && JSON.stringify(before) === JSON.stringify(sources);
@@ -299,20 +310,20 @@ async function emitBook(request, book, seen, before, Bend, Comp, checkedPrefix, 
   if (before !== null && !reusable) {
     throw new Error('JavaScript compiler input closure changed during compilation; retry with stable sources');
   }
-  const library = generated?.library ?? Comp.js_lib({ ...book, order: roots }, true);
+  const library = Comp.js_lib({ ...book, order: roots }, true);
   // The pinned emitter adds this registration check only for reachable foreign effects.
   // DEFENSE: A reachable generated function can retain a foreign effect despite the pure export contract.
   if (library.includes('throw new Error("bend: no effect registers "')) throw new Error('JavaScript compilation refuses reachable foreign effects');
   const { source: optimized, intrinsics } = optimizeJavaScript(library, {
     sourceHashes: new Map([...sources.map(source => [path.resolve(root, source.path), source.sha256]),
-      [Bend.BASE_BEND, hash(await readFile(Bend.BASE_BEND))]]),
+      [Bend.BASE_BEND, hash(readFileSync(Bend.BASE_BEND))]]),
     sourceRoot: request.sourceRoot, basePath: Bend.BASE_BEND,
   });
   const marker = 'export default {\n';
   const index = optimized.lastIndexOf(marker);
   // DEFENSE: Compiler output without the pinned export object cannot be given the requested JavaScript facade.
   if (index < 0) throw new Error('JavaScript compiler did not produce an export object');
-  const facade = exports.map(([name, definition], i) => `const $0public${i} = $0exports[${JSON.stringify(definition)}];\nexport { $0public${i} as ${name} };`).join('\n');
+  const facade = exports.map(([name, definition], i) => `const $0public${i} = $0exports[${JSON.stringify(generated?.definitions[definition] ?? definition)}];\nexport { $0public${i} as ${name} };`).join('\n');
   const defaultExport = exports.map(([name], i) => `${JSON.stringify(name)}: $0public${i}`).join(', ');
   const result = `// Bend ${sourceVersion}; compiler source SHA256 ${sourceHash}\n// Source and compiler fingerprint: ${fingerprint}\n`
     + optimized.slice(0, index) + optimized.slice(index).replace(marker, 'const $0exports = {\n')
@@ -359,9 +370,7 @@ async function jointBook(batch, seed, seen, Bend) {
       [name, namespace && book.tlds[`${namespace}.${name}`] ? `${namespace}.${name}` : name]));
     entries.push({ request: { ...request, compilerIdentity: batch.compilerIdentity }, definitions });
   }
-  Bend.book_valid(book, seed.order.length);
-  // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
-  if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
+  await checkPureRuntimeBook(book, seed.order.length, Bend, batch.provider);
   return { book, seen: ownSeen, entries };
 }
 
@@ -403,28 +412,16 @@ async function emitBatch(requestPath) {
           || beforePrefix.some(source => !before.some(current => current.path === source.path && current.sha256 === source.sha256))) {
         throw new Error('Compilation prefix changed after checking; retry with stable sources');
       }
-      const roots = [...new Set(joint.entries.flatMap(entry => Object.values(entry.definitions)))];
-      for (const definition of roots) {
-        const value = joint.book.tlds[definition];
-        // DEFENSE: A requested export read from Bend source can be absent, a promise, unsafe or effectful instead of a pure implementation.
-        if (value?.$ !== 'Def' || value.v === null || value.i !== undefined || value.b === true || value.x !== 0 || Comp.io_base(joint.book, value.T) !== null) {
-          throw new Error(`JavaScript compilation requires a pure implemented definition: ${definition}`);
-        }
-      }
       console.log(`Joint JavaScript entry checking (${((performance.now() - jointStarted) / 1000).toFixed(2)}s).`);
-      const emissionStarted = performance.now();
-      const library = Comp.js_lib({ ...joint.book, order: roots }, true);
-      // DEFENSE: A reachable generated function can retain a foreign effect despite the pure export contract.
-      if (library.includes('throw new Error("bend: no effect registers "')) throw new Error('JavaScript compilation refuses reachable foreign effects');
-      console.log(`Joint JavaScript code generation (${((performance.now() - emissionStarted) / 1000).toFixed(2)}s; ${batch.requests.length} entries).`);
-      const project = javascriptModules(library);
       const results = [];
       for (const { request, definitions } of joint.entries) {
-        const source = project(definitions);
+        const started = performance.now();
+        // The official backend constructs one closed module from its own roots.
+        // Emitting the union retained too much compiler IR at once and hit OOM.
         results.push(await emitBook(request, joint.book, joint.seen, before, Bend, Comp, checkedPrefix,
-          { definitions, library: source, jointEntries }));
+          { definitions, jointEntries }));
+        console.log(`Shared-book JavaScript emission: ${path.relative(root, request.output)} (${((performance.now() - started) / 1000).toFixed(2)}s).`);
       }
-      console.log(`Joint JavaScript modules written (${((performance.now() - jointStarted) / 1000).toFixed(2)}s).`);
       await writeFile(batch.response, JSON.stringify(results));
       return;
     }
@@ -440,9 +437,7 @@ async function emitBatch(requestPath) {
       }
       const book = seedBook(Bend, seed), ownSeen = new Map(seen);
       await Bend.book_load(book, request.entry, '', ownSeen, undefined, request.sourceRoot);
-      Bend.book_valid(book, seed.order.length);
-      // DEFENSE: Edited Bend inputs can contain holes; the generated runtime must not treat incomplete definitions as checked code.
-      if (book.hols !== 0) throw new Error('JavaScript compilation refuses incomplete Bend definitions');
+      await checkPureRuntimeBook(book, seed.order.length, Bend, batch.provider);
       results.push(await emitBook(request, book, ownSeen, before, Bend, Comp, checkedPrefix));
       console.log(`Shared-prefix JavaScript compilation: ${path.relative(root, request.output)} (${((performance.now() - started) / 1000).toFixed(2)}s).`);
     }

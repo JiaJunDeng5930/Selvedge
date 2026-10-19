@@ -73,52 +73,33 @@ export async function snapshotGlobalInstructions(home, limits, options) {
  * Observe only directories explicitly selected by the user. Project default
  * selection and fork inheritance remain in the native command resolver.
  */
+export function workspaceCommandPlan(command) {
+  return boundary('effect.workspace_command', { command });
+}
+
 export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
-  // DEFENSE: Public commands reach observation before native command admission, so invalid shapes pass through for rejection.
-  if (command === null || typeof command !== 'object' || Array.isArray(command)) return command;
-  const settingCommand = ['create', 'create_work_task', 'create_worktree_task', 'fork', 'save_board_agent'].includes(command.op);
-  const projectCommand = ['create_project', 'update_project'].includes(command.op);
-  if (graphCommand(command) && Array.isArray(command.nodes)) {
-    const nodes = await Promise.all(command.nodes.map(async node => {
-      if (!newGraphNode(node)) return node;
-      const settings = await observeWorkspaceSettings(node.settings, limits, projectWorkspace);
-      return settings === node.settings ? node : { ...node, settings };
-    }));
-    return { ...command, nodes };
-  }
-  if (settingCommand) {
-    const settings = await observeWorkspaceSettings(command.settings, limits, projectWorkspace);
-    return settings === command.settings ? command : { ...command, settings };
-  }
-  return projectCommand ? observeWorkspaceSettings(command, limits) : command;
-}
-
-function graphCommand(command) {
-  return ['create_task_graph', 'update_task_graph'].includes(command.op);
-}
-
-function newGraphNode(node) {
-  // DEFENSE: Graph nodes come from public commands before native admission; only shaped new nodes require file observations.
-  return node !== null && typeof node === 'object' && !Array.isArray(node) && node.task_id === undefined;
+  command = structuredClone(command);
+  const plan = workspaceCommandPlan(command);
+  const observations = await Promise.all(plan.selections.map(selection =>
+    observeWorkspaceSettings(selection.value, limits,
+      selection.resolve_project ? projectWorkspace : undefined)));
+  return boundary('effect.workspace_command_observed', { command, observations });
 }
 
 export function hasRootTaskCreation(command) {
-  return ['create', 'create_work_task', 'create_worktree_task'].includes(command?.op) || (command !== null && typeof command === 'object' &&
-    graphCommand(command) && Array.isArray(command.nodes) && command.nodes.some(newGraphNode));
+  return workspaceCommandPlan(command).root_task;
 }
 
 async function observeWorkspaceSettings(selected, limits, projectWorkspace) {
-  // DEFENSE: Settings in public commands may be absent or malformed; native admission owns their rejection.
-  if (!selected || typeof selected !== 'object' || Array.isArray(selected)) return selected;
-  // DEFENSE: A public caller must not forge a service-observed guidance snapshot.
-  if (selected.guidance !== undefined) throw new TypeError('Root guidance is observed by the service, not supplied by a client');
-  if (selected.workspace === undefined && projectWorkspace && Number.isSafeInteger(selected.project_id)) {
-    const workspace = await projectWorkspace(selected.project_id);
-    if (workspace !== undefined) selected = { ...selected, workspace };
-  }
-  if (selected.workspace === undefined) return selected;
+  const plan = boundary('effect.workspace_settings', { value: selected, resolve_project: Boolean(projectWorkspace) });
+  if (plan.project_id !== null) {
+    const workspace = await projectWorkspace(plan.project_id);
+    // DEFENSE: A public project ID can name a deleted or unavailable Project; preserve it for native command rejection.
+    if (workspace === undefined) return {};
+    selected = { ...selected, workspace };
+  } else if (!plan.observe_workspace) return {};
   const canonical = await canonicalWorkspace(selected.workspace);
-  const observed = { ...selected, workspace: { roots: canonical.roots } };
+  const observed = { workspace: { roots: canonical.roots } };
   if (canonical.primary_root !== null) {
     observed.workspace.primary_root = canonical.primary_root;
     observed.guidance = await snapshotProject(canonical.primary_root, limits);

@@ -1222,38 +1222,45 @@ def can_prepare(body: U.Body, pending: Bool, world: World.World()) -> Bool:
 
 def resolved_assessment(operation: Commands.Operation, identity: M.ActionIdentity, editor: U.Editor) -> M.Assessment:
   match operation:
-    case Commands.Refuse{code, reason}: M.Assessment{identity, Nil{}, M.Blocked{}, Some{M.Obstruction{root_object(editor), None{}, code, reason}}}
-    case _: M.Assessment{identity, Nil{}, M.Ready{}, None{}}
+    case Commands.Refuse{code, reason}: M.Assessment{identity, M.PreparationBlocked{M.Obstruction{root_object(editor), None{}, code, reason}, Nil{}}}
+    case _: M.Assessment{identity, M.PreparationReady{}}
 
 def prepared_assessment(workspace: Maybe<&2, D.Workspace>, +body: U.Body, revision: Nat, now: U32, world: World.World()) -> M.Assessment:
   match workspace:
-    case Some{workspace}: M.Assessment{M.ActionIdentity{U.owner(body), revision}, Nil{}, M.NeedsDirectoryObservation{}, None{}}
+    case Some{workspace}: M.Assessment{M.ActionIdentity{U.owner(body), revision}, M.DirectoryObservationRequired{}}
     case None{}: resolved_assessment(Commands.resolve(U.command(body, now), world), M.ActionIdentity{U.owner(body), revision}, U.owner(body))
 
 def assessed_requirements(requirements: +List<M.Obstruction>, +body: U.Body, revision: Nat, now: U32, world: World.World()) -> M.Assessment:
   match requirements:
     case Nil{}: prepared_assessment(U.required_workspace(body), body, revision, now, world)
-    case Con{first, rest}: M.Assessment{M.ActionIdentity{U.owner(body), revision}, first <> rest, M.Blocked{}, None{}}
+    case Con{first, rest}: M.Assessment{M.ActionIdentity{U.owner(body), revision}, M.PreparationBlocked{first, rest}}
 
 def assess(+body: U.Body, revision: Nat, pending: Bool, now: U32, +world: World.World()) -> M.Assessment:
   assessed_requirements(requirements(body, pending, world), body, revision, now, world)
 
 def assessment_identity(assessment: M.Assessment) -> M.ActionIdentity:
-  M.Assessment{identity, requirements, state, refusal} = assessment
+  M.Assessment{identity, result} = assessment
   identity
 
-def assessment_state(assessment: M.Assessment) -> M.AssessmentState:
-  M.Assessment{identity, requirements, state, refusal} = assessment
-  state
+def assessment_result_state(result: M.AssessmentResult) -> M.AssessmentState:
+  match result:
+    case M.PreparationReady{}: M.Ready{}
+    case M.DirectoryObservationRequired{}: M.NeedsDirectoryObservation{}
+    case M.PreparationBlocked{first, rest}: M.Blocked{}
 
-def refusal_obstructions(refusal: Maybe<&2, M.Obstruction>) -> +List<M.Obstruction>:
-  match refusal:
-    case None{}: Nil{}
-    case Some{obstruction}: [obstruction]
+def assessment_state(assessment: M.Assessment) -> M.AssessmentState:
+  M.Assessment{identity, result} = assessment
+  assessment_result_state(result)
+
+def assessment_result_obstructions(result: M.AssessmentResult) -> +List<M.Obstruction>:
+  match result:
+    case M.PreparationReady{}: Nil{}
+    case M.DirectoryObservationRequired{}: Nil{}
+    case M.PreparationBlocked{first, rest}: first <> rest
 
 def assessment_obstructions(assessment: M.Assessment) -> +List<M.Obstruction>:
-  M.Assessment{identity, requirements, state, refusal} = assessment
-  List.append(&2, M.Obstruction, requirements, refusal_obstructions(refusal))
+  M.Assessment{identity, result} = assessment
+  assessment_result_obstructions(result)
 
 def obstruction_target(obstruction: M.Obstruction) -> M.Object:
   M.Obstruction{target, field, code, message} = obstruction
@@ -1367,10 +1374,18 @@ def restriction_obstructions(+assessment: M.Assessment, reason: String) -> +List
   List.append(&2, M.Obstruction, assessment_obstructions(assessment),
     [M.Obstruction{root_object(identity_editor(assessment_identity(assessment))), None{}, "control_unavailable", reason}])
 
+def restrict_assessment_result(result: M.AssessmentResult, obstruction: M.Obstruction) -> M.AssessmentResult:
+  match result:
+    case M.PreparationReady{}: M.PreparationBlocked{obstruction, Nil{}}
+    case M.DirectoryObservationRequired{}: M.PreparationBlocked{obstruction, Nil{}}
+    case M.PreparationBlocked{first, rest}: M.PreparationBlocked{first, List.append(&2, M.Obstruction, rest, [obstruction])}
+
 # A final control refusal is an observed service obstruction. Earlier causes,
 # including backend refusal, survive in the same ordered observation list.
-def restricted(+assessment: M.Assessment, reason: String) -> M.Assessment:
-  M.Assessment{assessment_identity(assessment), restriction_obstructions(assessment, reason), M.Blocked{}, None{}}
+def restricted(assessment: M.Assessment, reason: String) -> M.Assessment:
+  M.Assessment{+identity, result} = assessment
+  M.Assessment{identity, restrict_assessment_result(result,
+    M.Obstruction{root_object(identity_editor(identity)), None{}, "control_unavailable", reason})}
 
 def project_edit(+draft: U.Draft, +pending: Bool, now: U32, +world: World.World()) -> M.ProjectEdit:
   U.Draft{+revision, +body, feedback, entry} = draft

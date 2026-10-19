@@ -57,9 +57,10 @@ phone interface is required by the host implementation.
 Start with the root [MODEL.bend](MODEL.bend) for the operational model of the
 system. Its callable operations and laws express the intended behavior and must
 be reviewed against the engineering goal when that behavior changes. `Execution`,
-`Application`, and `Display` carry operation bundles with evidence of their open
-semantic categories, indexed by the operations clients actually call. Categories
-are predicates over values; inclusion supplies a universally quantified implication, and intersection
+`Application`, and `Display` each contain one callable operation bundle with
+evidence indexed by its actual fields. Execution refinement relates the complete
+decision to its independent command meaning. Categories are predicates over
+values; inclusion supplies a universally quantified implication, and intersection
 requires both memberships of the same value. Syntax sum types describe the values
 clients can construct, rather than an inheritance tree of semantic categories.
 
@@ -285,11 +286,20 @@ ordered imports and private providers needed by its contracts and root `PROOF.be
 excluded, and explicitly adds `harness/approval/PROOF.bend` to discharge the
 approval contracts still present in the runtime closure. Its public source
 is `BROWSER.bend`; the strict emitter checks also apply to this entry.
-Eligible production JavaScript entries share a freshly checked book and one
-backend emission; each output retains its own declarations, export expressions
-and the original runtime as an independently loadable module. Entry-owned data
-constructors or conflicting definitions retain independent compilation. Artifact
-identities bind the complete participating source closures and toolchain bytes.
+Kernel and browser entries share a freshly checked book; the official backend
+emits each module from its own roots using its reachability and erasure rules.
+That compiler process exits before host and plugin entries compile separately
+with their own imports and proof providers. Process isolation releases the proof
+book and browser IR before the next backend, repeating some shared compilation.
+Compiler children retain generational garbage collection with lower allocation
+growth and synchronous marking to reduce headroom around temporary proof terms.
+Source snapshots use synchronous reads to avoid repeated collection while the
+full proof book remains resident.
+Entry-owned data constructors or conflicting definitions retain independent
+compilation. Artifact identities bind the complete participating source closures
+and toolchain bytes.
+The build also binds one source snapshot across proof checking and the isolated
+emissions, including generated assembly entries and the component policy.
 The complete pure proof gate runs before cache reuse as well as rebuilding.
 `bun run verify` runs those checks, the complete focused physical suite and the
 tracked-file index, sharing one production build. JavaScript compilation uses Bun

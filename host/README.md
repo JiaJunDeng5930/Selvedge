@@ -3,6 +3,11 @@
 The compiled Bend kernel owns authoritative task state. `../KERNEL.bend` is compiled
 with the pinned compiler's official `js_lib` backend into
 `.build/kernel-model.mjs`; `kernel-worker.mjs` executes it in a Bun Worker.
+Kernel and browser entries share a freshly checked book and emit separate
+modules. Their compiler process exits before host and plugin entries compile
+in separate processes with their own imports and proof providers. This releases
+the full proof book and browser IR before host emission, while repeating some
+shared compilation work.
 The host accepts authenticated public commands, interprets committed effects,
 and sends their results back as inputs. It commits an input and its decision to
 SQLite before publishing replies, world snapshots or starting effects. A failed

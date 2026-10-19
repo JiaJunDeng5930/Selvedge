@@ -116,6 +116,12 @@ def permission_draft_source_meaning(origin: Context.Origin, sandbox: Context.San
     case Context.ProjectForParent{+task, id} Context.ChosenSandbox{value} Context.InheritedApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ ("task/" ++ Nat.show(task))
     case Context.ProjectForParent{+task, id} Context.ChosenSandbox{value} Context.ChosenApproval{policy}: "sandbox/" ++ "custom" ++ ";approval/" ++ "custom"
 
+def assessment_result_observation(result: M.AssessmentResult) -> (M.AssessmentState & +List<M.Obstruction>):
+  match result:
+    case M.PreparationReady{}: (M.Ready{}, Nil{})
+    case M.DirectoryObservationRequired{}: (M.NeedsDirectoryObservation{}, Nil{})
+    case M.PreparationBlocked{first, rest}: (M.Blocked{}, first <> rest)
+
 type SharedRequirements is Type:
   SharedRequirements{
     project_lookup: @editor:U.Editor -> @+selected:Maybe<&2, Nat> -> @world:World.World() -> {P.project_property(editor, selected, world) == M.ProjectObservation{editor, selected, P.selected_project(selected, world)} : M.Property},
@@ -169,13 +175,12 @@ type SharedRequirements is Type:
     requirements: @+body:U.Body -> @pending:Bool -> @+world:World.World() -> {P.requirements(body, pending, world) == List.append(&2, M.Obstruction, P.failed_requirement(Bool.not(pending), M.Obstruction{P.root_object(U.owner(body)), None{}, "pending", "Wait for the current submission"}), List.append(&2, M.Obstruction, P.failed_requirement(U.valid_origin(body), P.obstruction(U.owner(body), Forms.ContextOrigin{}, "invalid_origin", "Choose a valid task context")), List.append(&2, M.Obstruction, P.context_requirements(body, world), List.append(&2, M.Obstruction, P.record_requirements(body, world), P.body_requirements(body, world))))) : +List<M.Obstruction>},
     can_prepare: @body:U.Body -> @pending:Bool -> @world:World.World() -> {P.can_prepare(body, pending, world) == P.requirements_empty(P.requirements(body, pending, world)) : Bool},
     assessment: @+body:U.Body -> @revision:Nat -> @pending:Bool -> @now:U32 -> @+world:World.World() -> {P.assess(body, revision, pending, now, world) == P.assessed_requirements(P.requirements(body, pending, world), body, revision, now, world) : M.Assessment},
-    blocked_retains: @+first:M.Obstruction -> @+rest:+List<M.Obstruction> -> @body:U.Body -> @revision:Nat -> @now:U32 -> @world:World.World() -> {P.assessed_requirements(first <> rest, body, revision, now, world) == M.Assessment{M.ActionIdentity{U.owner(body), revision}, first <> rest, M.Blocked{}, None{}} : M.Assessment},
-    directory_next: @workspace:D.Workspace -> @body:U.Body -> @revision:Nat -> @now:U32 -> @world:World.World() -> {P.prepared_assessment(Some{workspace}, body, revision, now, world) == M.Assessment{M.ActionIdentity{U.owner(body), revision}, Nil{}, M.NeedsDirectoryObservation{}, None{}} : M.Assessment},
+    blocked_retains: @+first:M.Obstruction -> @+rest:+List<M.Obstruction> -> @body:U.Body -> @revision:Nat -> @now:U32 -> @world:World.World() -> {P.assessed_requirements(first <> rest, body, revision, now, world) == M.Assessment{M.ActionIdentity{U.owner(body), revision}, M.PreparationBlocked{first, rest}} : M.Assessment},
+    directory_next: @workspace:D.Workspace -> @body:U.Body -> @revision:Nat -> @now:U32 -> @world:World.World() -> {P.prepared_assessment(Some{workspace}, body, revision, now, world) == M.Assessment{M.ActionIdentity{U.owner(body), revision}, M.DirectoryObservationRequired{}} : M.Assessment},
     actual_resolution: @+body:U.Body -> @+revision:Nat -> @now:U32 -> @world:World.World() -> {P.prepared_assessment(None{}, body, revision, now, world) == P.resolved_assessment(Commands.resolve(U.command(body, now), world), M.ActionIdentity{U.owner(body), revision}, U.owner(body)) : M.Assessment},
-    actual_refusal: @+code:String -> @+reason:String -> @+identity:M.ActionIdentity -> @editor:U.Editor -> {P.resolved_assessment(Commands.Refuse{code, reason}, identity, editor) == M.Assessment{identity, Nil{}, M.Blocked{}, Some{M.Obstruction{P.root_object(editor), None{}, code, reason}}} : M.Assessment},
-    assessment_identity: @+identity:M.ActionIdentity -> @+requirements:+List<M.Obstruction> -> @+state:M.AssessmentState -> @+refusal:Maybe<&2, M.Obstruction> -> {P.assessment_identity(M.Assessment{identity, requirements, state, refusal}) == identity : M.ActionIdentity},
-    assessment_state: @+identity:M.ActionIdentity -> @+requirements:+List<M.Obstruction> -> @+state:M.AssessmentState -> @+refusal:Maybe<&2, M.Obstruction> -> {P.assessment_state(M.Assessment{identity, requirements, state, refusal}) == state : M.AssessmentState},
-    assessment_obstructions: @+identity:M.ActionIdentity -> @+requirements:+List<M.Obstruction> -> @+state:M.AssessmentState -> @+refusal:Maybe<&2, M.Obstruction> -> {P.assessment_obstructions(M.Assessment{identity, requirements, state, refusal}) == List.append(&2, M.Obstruction, requirements, P.refusal_obstructions(refusal)) : +List<M.Obstruction>},
+    actual_refusal: @+code:String -> @+reason:String -> @+identity:M.ActionIdentity -> @editor:U.Editor -> {P.resolved_assessment(Commands.Refuse{code, reason}, identity, editor) == M.Assessment{identity, M.PreparationBlocked{M.Obstruction{P.root_object(editor), None{}, code, reason}, Nil{}}} : M.Assessment},
+    assessment_identity: @+identity:M.ActionIdentity -> @result:M.AssessmentResult -> {P.assessment_identity(M.Assessment{identity, result}) == identity : M.ActionIdentity},
+    assessment_observation: @+identity:M.ActionIdentity -> @+result:M.AssessmentResult -> {(P.assessment_state(M.Assessment{identity, result}), P.assessment_obstructions(M.Assessment{identity, result})) == assessment_result_observation(result) : (M.AssessmentState & +List<M.Obstruction>)},
     assessment_reason: @+assessment:M.Assessment -> {P.assessment_reason(assessment) == P.first_reason(P.assessment_obstructions(assessment)) : String},
     assessment_field: @+assessment:M.Assessment -> {P.assessment_field(assessment) == P.first_field(P.assessment_obstructions(assessment)) : Maybe<&2, M.Subject>},
     assessment_ready: @+assessment:M.Assessment -> {P.assessment_ready(assessment) == P.state_ready(P.assessment_state(assessment)) : Bool},

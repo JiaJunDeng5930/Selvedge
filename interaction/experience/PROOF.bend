@@ -1,5 +1,4 @@
 import Base
-import ../../bendlib/stdlib.bend as Std
 import ../../harness/features/MODEL.bend as F
 import ../../harness/tasks/PROGRAM.bend as Tasks
 import ../../harness/MODEL.bend as World
@@ -155,7 +154,31 @@ def property_help_equation(+property: M.Property) ->
 
 def restricted_obstructions_equation(+assessment: M.Assessment, +reason: String) ->
   {P.assessment_obstructions(P.restricted(assessment, reason)) == P.restriction_obstructions(assessment, reason) : +List<M.Obstruction>}:
-  Std.app_nil_r(M.Obstruction, P.restriction_obstructions(assessment, reason))
+  M.Assessment{identity, result} = assessment
+  match result:
+    case M.PreparationReady{}: {==}
+    case M.DirectoryObservationRequired{}: {==}
+    case M.PreparationBlocked{first, rest}: {==}
+
+def restricted_identity_equation(+assessment: M.Assessment, reason: String) ->
+  {P.assessment_identity(P.restricted(assessment, reason)) == P.assessment_identity(assessment) : M.ActionIdentity}:
+  M.Assessment{identity, result} = assessment
+  {==}
+
+def restricted_state_equation(assessment: M.Assessment, reason: String) ->
+  {P.assessment_state(P.restricted(assessment, reason)) == M.Blocked{} : M.AssessmentState}:
+  M.Assessment{identity, result} = assessment
+  match result:
+    case M.PreparationReady{}: {==}
+    case M.DirectoryObservationRequired{}: {==}
+    case M.PreparationBlocked{first, rest}: {==}
+
+def assessment_observation_equation(+identity: M.ActionIdentity, +result: M.AssessmentResult) ->
+  {(P.assessment_state(M.Assessment{identity, result}), P.assessment_obstructions(M.Assessment{identity, result})) == Rule.assessment_result_observation(result) : (M.AssessmentState & +List<M.Obstruction>)}:
+  match result:
+    case M.PreparationReady{}: {==}
+    case M.DirectoryObservationRequired{}: {==}
+    case M.PreparationBlocked{first, rest}: {==}
 
 def restricted_reason_equation(+assessment: M.Assessment, +reason: String) ->
   {P.assessment_reason(P.restricted(assessment, reason)) == P.first_reason(P.restriction_obstructions(assessment, reason)) : String}:
@@ -237,9 +260,8 @@ def shared_evidence() -> Rule.SharedRequirements:
     workspace => body => revision => now => world => {==},
     +body => +revision => now => world => {==},
     +code => +reason => +identity => editor => {==},
-    +identity => +requirements => +state => +refusal => {==},
-    +identity => +requirements => +state => +refusal => {==},
-    +identity => +requirements => +state => +refusal => {==},
+    +identity => result => {==},
+    assessment_observation_equation,
     +assessment => {==},
     +assessment => {==},
     +assessment => {==},
@@ -271,9 +293,9 @@ def shared_evidence() -> Rule.SharedRequirements:
     +target => +field => +code => +message => {==},
     +target => +field => +code => +message => {==},
     +target => +field => +code => +message => {==},
-    +assessment => reason => {==},
+    restricted_identity_equation,
     +assessment => +reason => restricted_obstructions_equation(assessment, reason),
-    assessment => reason => {==},
+    restricted_state_equation,
     +assessment => +reason => restricted_reason_equation(assessment, reason),
     +assessment => +reason => {==}}
 

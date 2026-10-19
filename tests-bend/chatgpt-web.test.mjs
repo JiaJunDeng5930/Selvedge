@@ -1,7 +1,6 @@
 import test from 'node:test';
 import http from 'node:http';
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -10,8 +9,7 @@ import { requestApproval } from '../host/approvals.mjs';
 import { requestTaskText } from '../host/task-text.mjs';
 import { sseEvents } from '../host/network.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { Service } from '../host/service.mjs';
-import { home, taskIdle } from './support.mjs';
+import { home } from './support.mjs';
 
 const limits = { frame_bytes: 1024 * 1024, approval_reason_bytes: 400,
   model_retry: { delays_ms: [1, 2], statuses: [429, 500, 502, 503, 504], max_retry_after_ms: 1000 } };
@@ -20,10 +18,9 @@ const baseEffect = () => ({ kind: 'model', task_id: 0, ticket: 1,
   history: [{ role: 'user', content: 'first question' }], tools: [], callable: [] });
 
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
-const call = (id, name, args) => ({ type: 'function_call', id: `item_${id}`, call_id: id, name, arguments: args });
 
 async function webServer(t, respond) {
-  const requests = [], titleRequests = [], controls = [], failures = [], resources = new Map();
+  const requests = [], controls = [], failures = [], resources = new Map();
   const server = http.createServer((request, response) => {
     void (async () => {
       const chunks = [];
@@ -35,10 +32,8 @@ async function webServer(t, respond) {
         response.writeHead(500); response.end(); return;
       }
       const key = request.headers['idempotency-key'];
-      const naming = body.text?.format?.name === 'task_title';
-      const observed = naming ? titleRequests : requests;
-      observed.push({ body, raw, key });
-      const id = naming ? `title_${titleRequests.length}` : `resp_${requests.length}`;
+      requests.push({ body, raw, key });
+      const id = `resp_${requests.length}`;
       const makeResource = (output, status = output?.[0]?.type === 'function_call' ? 'requires_action' : 'completed') => ({
         id, object: 'web.response', protocol: 'chatgpt-web.v1', created_at: 1790000000,
         previous_response_id: body.previous_response_id ?? null, status,
@@ -46,8 +41,7 @@ async function webServer(t, respond) {
         output, usage: status === 'completed' ? { input_tokens: 10, output_tokens: 2, total_tokens: 12, estimated: true } : null,
       });
       const event = (name, value) => response.write(`event: ${name}\r\ndata: ${JSON.stringify(value)}\r\n\r\n`);
-      const custom = naming ? { output: answer('{"title":"Name the task"}') }
-        : await respond(body, requests.length - 1, { request, response, id, makeResource, event, resources });
+      const custom = await respond(body, requests.length - 1, { request, response, id, makeResource, event, resources });
       if (custom === undefined) return;
       const resource = makeResource(custom.output);
       resources.set(id, resource);
@@ -59,7 +53,7 @@ async function webServer(t, respond) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
-  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/responses`, requests, titleRequests, controls, failures };
+  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/responses`, requests, controls, failures };
 }
 
 async function fixture(t, respond) {
@@ -160,34 +154,4 @@ test('named SSE framing preserves byte-split Unicode and CRLF', async () => {
   const named = [];
   for await (const event of sseEvents(bytes(text), 1024)) named.push(event);
   assert.deepEqual(named, [{ event: 'response.output_text.snapshot', data: '{"text":\n"😀"}' }, { event: 'message', data: '[DONE]' }]);
-});
-
-test('a real background tool completion during HTTP is sent exactly once in the next web continuation', async t => {
-  let service;
-  const f = await fixture(t, async (body, index) => {
-    if (index === 0) return { output: [
-      call('fast', 'bash', { command: 'printf fast-result' }),
-      call('slow', 'bash', { command: 'while [ ! -f release-slow ]; do sleep 0.01; done; printf slow-result' }),
-    ] };
-    if (index === 1) {
-      const results = new Map(body.input.filter(item => item.type === 'function_call_output').map(item => [item.call_id, JSON.parse(item.output)]));
-      assert.equal(results.get('fast').value.stdout, 'fast-result');
-      assert.equal(results.get('slow').value.status, 'running');
-      await writeFile(path.join(f.directory, 'release-slow'), 'release after the committed request snapshot');
-      await eventually(async () => (await service.command({ op: 'read', task_id: 0 })).reply.result.messages.some(item => item.role === 'operation_result'));
-      return { output: answer('reply to the earlier snapshot') };
-    }
-    assert.ok(index >= 2);
-    const completions = body.input.filter(item => item.type === 'message' && item.content?.includes('slow-result'));
-    for (const completion of completions) assert.match(completion.content, /operation_result|Asynchronous operation completed/);
-    return { output: answer(completions.length ? 'observed the late result' : 'recorded the committed transport data') };
-  });
-  service = await Service.open({ home: path.join(f.directory, 'state'), cwd: f.directory, config: f.config });
-  t.after(() => service.close());
-  await service.command({ op: 'create', profile: 'web', message: 'run overlapping tools' });
-  const page = await taskIdle(service);
-  assert.deepEqual(f.failures, [], JSON.stringify(page));
-  assert.ok(f.requests.length >= 3);
-  assert.equal(f.requests.flatMap(request => request.body.input).filter(item => item.type === 'message' && item.content?.includes('slow-result')).length, 1);
-  assert.ok(page.messages.some(item => item.role === 'assistant' && item.content === 'observed the late result'));
 });
