@@ -39,8 +39,9 @@ def seed(fixture, workspace):
         fixture.finish(request, text=text + '\n\nThe nearby sentence preserves the original discussion.')
         page = fixture.idle(created['task_id'])
         index = next(index for index, message in enumerate(page['messages'])
-                     if message.get('role') == 'model_context' and message['content']['type'] == 'message'
-                     and message['content']['role'] == 'assistant' and message['content']['content'][0]['text'].startswith(text))
+                     if message.get('role') == 'model_context' and message['content']['type'] == 'provider_receipt'
+                     and message['content']['item']['role'] == 'assistant'
+                     and message['content']['item']['content'][0]['text'].startswith(text))
         sources.append({'task_id': created['task_id'], 'title': page['task']['title'], 'message_index': index})
     target = sources[0]
     later = 'Continue this conversation with a long later response.'
@@ -90,8 +91,8 @@ def main():
                 for source in sources:
                     name = source['title'] + ' · 消息 #' + str(source['message_index'] + 1)
                     expect(page.get_by_role('button', name=name, exact=True).filter(visible=True)).to_be_visible()
-                page.get_by_label('项目', exact=True).filter(visible=True).select_option(label='Search Alpha Project')
-                page.get_by_label('Work', exact=True).filter(visible=True).select_option(label='Search First Work')
+                page.get_by_role('combobox', name='项目', exact=True).filter(visible=True).select_option(label='Search Alpha Project')
+                page.get_by_role('combobox', name='Work', exact=True).filter(visible=True).select_option(label='Search First Work')
                 search(page)
                 name = target['title'] + ' · 消息 #' + str(target['message_index'] + 1)
                 result = page.get_by_role('button', name=name, exact=True).filter(visible=True)

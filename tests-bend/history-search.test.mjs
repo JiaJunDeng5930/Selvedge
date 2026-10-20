@@ -19,12 +19,12 @@ async function until(observe, description) {
 test('HTTP and native agent search retain scoped original message locations across a restart', async t => {
   const fixture = await interactiveMarkdownFixture();
   t.after(() => fixture.close());
-  const raw = async command => {
+  const raw = async (command, status = 200) => {
     const response = await fetch(`${fixture.running.address}/api/commands`, {
       method: 'POST', headers: { authorization: `Bearer ${fixture.running.token}`, 'content-type': 'application/json' },
       body: JSON.stringify(command),
     });
-    assert.equal(response.status, 200);
+    assert.equal(response.status, status);
     return response.json();
   };
   const command = async input => {
@@ -52,9 +52,10 @@ test('HTTP and native agent search retain scoped original message locations acro
   const readable = item => {
     if (item.role === 'user') return { role: 'user', text: item.content };
     assert.equal(item.role, 'model_context');
-    assert.equal(item.content.type, 'message');
-    assert.equal(item.content.role, 'assistant');
-    return { role: 'assistant', text: item.content.content.map(part => part.text).join('') };
+    assert.equal(item.content.type, 'provider_receipt');
+    assert.equal(item.content.item.type, 'message');
+    assert.equal(item.content.item.role, 'assistant');
+    return { role: 'assistant', text: item.content.item.content.map(part => part.text).join('') };
   };
   const create = async (label, project_id, work_id) => {
     const message = `${label} user context before. 星河 NeEdLe user match. Context after.`;
@@ -63,8 +64,8 @@ test('HTTP and native agent search retain scoped original message locations acro
     const assistant = `${label} assistant context before. 星河 nEeDlE assistant match. Context after.`;
     const page = await complete(task_id, message, assistant);
     for (const [message_index, item] of page.messages.entries()) {
-      if (item.content === message || (item.role === 'model_context' && item.content.type === 'message'
-          && item.content.content[0].text === assistant)) {
+      if (item.content === message || (item.role === 'model_context' && item.content.type === 'provider_receipt'
+          && item.content.item.type === 'message' && item.content.item.content[0].text === assistant)) {
         records.push({ task_id, message_index, ...readable(item), wire_role: item.role, project_id, work_id });
       }
     }
@@ -113,7 +114,7 @@ test('HTTP and native agent search retain scoped original message locations acro
   assert.deepEqual(identify([...pageOne.hits, ...pageTwo.hits]), rows(expected));
   assert.equal(pageTwo.next_after, null);
   for (const input of [{ query: ' \n ' }, { project_id: 999999 }, { work_id: 999999 }]) {
-    const rejected = await raw({ op: 'search_history', query: 'needle', ...input });
+    const rejected = await raw({ op: 'search_history', query: 'needle', ...input }, 400);
     assert.equal(rejected.ok, false, JSON.stringify(rejected));
   }
 
@@ -136,7 +137,8 @@ test('HTTP and native agent search retain scoped original message locations acro
   const output = continuation.input.input.find(item => item.type === 'function_call_output' && item.call_id === 'search-original-history');
   const result = JSON.parse(output.output);
   assert.equal(result.is_error, false, JSON.stringify(result));
-  assert.deepEqual(result.value, intersection, 'The UI command and agent tool return the same search result');
+  assert.equal(result.value.ok, true, JSON.stringify(result.value));
+  assert.deepEqual(result.value.result, intersection, 'The UI command and agent tool return the same search result');
   fixture.finish(continuation.index, { text: 'Located the earlier conversation.' });
   await taskIdle(fixture.running.service, agent);
   assert.deepEqual(fixture.failures, []);
