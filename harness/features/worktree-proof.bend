@@ -62,7 +62,7 @@ def start(
 def start_backend(
   ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   +backend: W.Backend, +profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
   {Actual.start_backend(~actual_spawn, backend, profile, reasoning, message, selection, world) == Spec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world) : M.Decision()}:

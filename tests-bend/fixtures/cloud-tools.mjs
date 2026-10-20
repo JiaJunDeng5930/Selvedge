@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { Transform } from 'node:stream';
-import { StringDecoder } from 'node:string_decoder';
 
 const [tool, ...source] = process.argv.slice(2);
 const arguments_ = source.map(value => value.replaceAll('/workspace/selvedge/', `${process.env.SELVEDGE_CLOUD_TEST_REMOTE}/`));
@@ -22,27 +21,28 @@ if (tool === 'git') {
   file = '/bin/bash';
   options = ['-c', arguments_.slice(index).join(' ')];
 }
-// Keep a fixture's remote filesystem isolated while preserving paths in SSH JSON requests and observations.
+// Keep remote paths isolated without decoding SSH's binary byte streams.
 function substitute(from, to) {
-  const decoder = new StringDecoder('utf8');
-  let pending = '';
+  const needle = Buffer.from(from);
+  const replacement = Buffer.from(to);
+  let pending = Buffer.alloc(0);
   return new Transform({
     transform(chunk, encoding, callback) {
-      pending += decoder.write(chunk);
-      let output = '';
+      pending = Buffer.concat([pending, chunk]);
       let index;
-      while ((index = pending.indexOf(from)) >= 0) {
-        output += pending.slice(0, index) + to;
-        pending = pending.slice(index + from.length);
+      while ((index = pending.indexOf(needle)) >= 0) {
+        this.push(pending.subarray(0, index));
+        this.push(replacement);
+        pending = pending.subarray(index + needle.length);
       }
-      let retained = Math.min(from.length - 1, pending.length);
-      while (retained && !pending.endsWith(from.slice(0, retained))) retained--;
+      let retained = Math.min(needle.length - 1, pending.length);
+      while (retained && !pending.subarray(pending.length - retained).equals(needle.subarray(0, retained))) retained--;
       // JSON-lines peers wait for each newline; retain only an actual partial path prefix.
-      this.push(output + pending.slice(0, pending.length - retained));
-      pending = pending.slice(pending.length - retained);
+      this.push(pending.subarray(0, pending.length - retained));
+      pending = pending.subarray(pending.length - retained);
       callback();
     },
-    flush(callback) { this.push((pending + decoder.end()).replaceAll(from, to)); callback(); },
+    flush(callback) { this.push(pending); callback(); },
   });
 }
 const child = spawn(file, options, { stdio: tool === 'ssh' ? ['pipe', 'pipe', 'pipe'] : 'inherit' });

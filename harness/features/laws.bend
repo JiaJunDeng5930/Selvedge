@@ -42,7 +42,7 @@ import ../../features/worktree/MODEL.bend as WorktreeRegistry
 def workspace_start_meaning(
   ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   +backend: WorktreeRegistry.Backend, +work: Maybe<&2, Nat>, +profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
   {Actual.workspace_membership(work, world, WorktreeExec.start_backend(~actual_spawn, backend, profile, reasoning, message, selection, world)) ==
