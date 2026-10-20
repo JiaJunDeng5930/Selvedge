@@ -1,0 +1,63 @@
+import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
+
+const plugin = fileURLToPath(new URL('../', import.meta.url));
+const checkout = path.resolve(plugin, '../..');
+const hash = value => createHash('sha256').update(value).digest('hex');
+const assets = ['host-model.mjs', 'host-runtime.js', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
+export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
+
+/** Runtime packages contain the actual extracted definitions and no compiler dependency. */
+export async function buildModel() {
+  const compiler = path.join(checkout, 'scripts/build.mjs');
+  try { await access(compiler); }
+  // DEFENSE: Installed packages omit the Rocq source checkout and cannot compile it.
+  catch (error) {
+    if (error.code === 'ENOENT') throw new Error('Build the Selvedge plugin model in its source checkout before packaging');
+    throw error;
+  }
+  const { build } = await import(pathToFileURL(compiler).href);
+  await build({ selected: ['host'] });
+  const generated = path.join(plugin, 'generated');
+  await mkdir(generated, { recursive: true });
+  const sources = {
+    'host-model.mjs': '.build/host-model.mjs',
+    'host-runtime.js': '.build/host-runtime.js',
+    'json-tokens.mjs': 'host/public/json-tokens.mjs',
+    'model-boundary.mjs': 'host/public/model-boundary.mjs',
+    'opaque-credentials.mjs': 'host/opaque-credentials.mjs',
+  };
+  const provenance = {};
+  for (const [name, source] of Object.entries(sources)) {
+    const original = await readFile(path.join(checkout, source));
+    const packaged = name === 'model-boundary.mjs'
+      ? Buffer.from(original.toString().replace("'./generated/host-model.mjs'", "'./host-model.mjs'")) : original;
+    await writeFile(path.join(generated, name), packaged);
+    provenance[name] = { source, sourceSha256: hash(original), sha256: hash(packaged) };
+  }
+  await writeFile(path.join(generated, 'sources.json'), `${JSON.stringify({ format: 'selvedge-rocq-plugin-1', assets: provenance }, null, 2)}\n`);
+  return requirePackagedModel();
+}
+
+export async function requirePackagedModel() {
+  const generated = path.join(plugin, 'generated');
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(path.join(generated, 'sources.json'), 'utf8'));
+    if (manifest.format !== 'selvedge-rocq-plugin-1') throw new Error('Unknown extracted model manifest format');
+    for (const name of assets) {
+      // DEFENSE: Partial or modified package copies must fail before loading executable assets.
+      if (hash(await readFile(path.join(generated, name))) !== manifest.assets?.[name]?.sha256) {
+        throw new Error(`Packaged plugin asset does not match its manifest: ${name}`);
+      }
+    }
+  // DEFENSE: Deployment can omit generated assets; fail with the required source-build command.
+  } catch (error) {
+    throw new Error(`Invalid packaged plugin model; run npm run build:model in the source checkout before packaging: ${error.message}`);
+  }
+  return manifest;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await buildModel();
