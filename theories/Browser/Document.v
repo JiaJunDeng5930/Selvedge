@@ -308,7 +308,7 @@ Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene)
             match field "file_action" source with
             | Some file_action => [EventBinding ChooseFiles file_action] | None => [] end ++
             match role, field "dismiss_action" source with
-            | Dialog, Some dismiss_action => [EventBinding Dismiss dismiss_action] | _, _ => [] end
+            | Dialog, Some dismiss_action | Aside, Some dismiss_action => [EventBinding Dismiss dismiss_action] | _, _ => [] end
           end)
         (match role with
          | Text => [TextNode value]
@@ -342,7 +342,16 @@ Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene)
           | other => other end
       | Aside => match control with
           | Element key tag attrs styles events children metadata =>
-            Element key tag attrs (styles ++ [Property "min-block-size" "0"; Property "overflow" "auto"]) events children metadata
+            let styles:=List.app styles [Property "min-block-size" "0"; Property "overflow" "auto"] in
+            match mode with
+            | Simultaneous => Element key tag attrs
+                (styles ++ [Property "min-inline-size" (rem_length main_columns)]) events children metadata
+            | Sequential => Element key "dialog" (Property "open" "true" :: attrs)
+                (styles ++ [Property "position" "fixed"; Property "inset" (rem_length workspace_padding);
+                 Property "inline-size" "auto"; Property "block-size" "auto"; Property "margin" "0";
+                 Property "max-inline-size" "none"; Property "max-block-size" "none";
+                 Property "box-sizing" "border-box"; Property "padding" (rem_length workspace_padding)]) events children metadata
+            end
           | other => other end
       | _ => control end
     end
@@ -370,10 +379,20 @@ Fixpoint node_json (value : node) : json :=
 Definition workspace_allocation (font_pixels : nat) :=
   Allocation (navigation_columns * font_pixels) (main_columns * font_pixels) O
     ((2 * workspace_padding + workspace_gap) * font_pixels).
+Fixpoint has_aside (value:scene) : bool :=
+ match value with
+ | GraphicScene _ _ _ => false
+ | Scene role _ _ _ _ _ _ _ _ _ children =>
+   match role with Aside => true | _ => existsb has_aside children end
+ end.
+Definition scene_allocation font_pixels scene :=
+ let requirements:=workspace_allocation font_pixels in
+ Allocation (navigation_minimum requirements) (content_minimum requirements)
+   (if has_aside scene then (main_columns + workspace_gap) * font_pixels else O)
+   (gap_width requirements).
 Definition document (viewport font_pixels : nat) (system_dark : bool) (source : json) : json :=
-  let mode := allocate viewport (workspace_allocation font_pixels) in
   match decode_scene source with
-  | Some scene => success (JObject [("title", JString "Selvedge");
+  | Some scene => let mode:=allocate viewport (scene_allocation font_pixels scene) in success (JObject [("title", JString "Selvedge");
       ("root", node_json (render_scene mode system_dark scene))])
   | None => failure "TypeError" "Browser scene has an invalid kind or children"
   end.
