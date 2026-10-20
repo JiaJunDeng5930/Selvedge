@@ -24,8 +24,6 @@ import ./evaluator-proof.bend as EvaluatorProof
 import ./http-proof.bend as HttpProof
 import ./AUDIO.bend as Audio
 import ./audio-proof.bend as AudioProof
-import ./CODEX_AUDIO_ACCOUNT.bend as CodexAudioAccount
-import ./codex-audio-account-proof.bend as CodexAudioAccountProof
 
 def http_route_correspondence(+accepted: Bool, +operation: String, +source: J.Json) ->
   {Program.http_route(accepted, operation, source) == Program.meaning_http_route(accepted, operation, source) : J.Json}:
@@ -107,15 +105,9 @@ def audio_route_correspondence(+accepted: Bool, +operation: String, +source: J.J
     case True{}: AudioProof.production_correspondence(operation, source)
     case False{}: backend_route_correspondence(String.starts_with(operation, "backend."), operation, source)
 
-def codex_audio_account_route_correspondence(+accepted: Bool, +operation: String, +source: J.Json) ->
-  {Program.codex_audio_account_route(accepted, operation, source) == Program.meaning_codex_audio_account_route(accepted, operation, source) : J.Json}:
-  match accepted:
-    case True{}: CodexAudioAccountProof.production_correspondence(operation, source)
-    case False{}: audio_route_correspondence(String.starts_with(operation, "audio."), operation, source)
-
 def complete_correspondence_at(+operation: String, +source: J.Json) ->
   {Program.run(operation, source) == Program.meaning(operation, source) : J.Json}:
-  codex_audio_account_route_correspondence(String.starts_with(operation, "codex_audio_account."), operation, source)
+  audio_route_correspondence(String.starts_with(operation, "audio."), operation, source)
 
 def Program.complete_correspondence():
   operation => source => complete_correspondence_at(operation, source)

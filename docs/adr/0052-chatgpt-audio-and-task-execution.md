@@ -45,22 +45,20 @@ independent of the task's model profile. An identity login or another provider's
 model credential is not an audio capability.
 
 The public third-party Sign in with ChatGPT flow supports Responses and
-explicitly excludes audio input and transcription. A real transcription probe
-with that grant returned HTTP 403. Keep its inference authorization separate
-from the audio authority.
+explicitly excludes audio input and transcription. Keep its inference
+authorization separate from the audio grant.
 
-Reuse the official Codex authentication component in a Selvedge-owned home for
-audio login, credential storage and refresh. Its public account RPC supplies
-short-lived authorization to the Host in memory. This component owns no Selvedge
-Task and receives no execution commands. Keep the deprecated token-export RPC
-behind one adapter; an unsupported component reports an explicit error. Native
-capability admission requires this ChatGPT audio authority rather than the
-presence of a public SiwC credential.
+Use Codex's ChatGPT OAuth login parameters directly in Selvedge. Reuse the Host's
+OAuth client, PKCE callback, credential persistence and refresh implementation for
+both grants. The audio grant has its own client identity and upstream account
+identity; the public inference grant retains its existing resource and scope.
+The Host supplies audio requests with its own short-lived authorization rather
+than exporting another program's credentials. Native capability admission
+requires the audio grant rather than the presence of a public SiwC credential.
 
-The component's public realtime RPC still routes incoming delegations into its
-own execution even with `clientManagedHandoffs` enabled; that option suppresses
-automatic output forwarding. Keep control transport separate so one accepted
-request cannot execute in both Codex and Selvedge.
+Authentication is part of Selvedge's account lifecycle. Requiring a separately
+installed executable and an account RPC solely to obtain authorization adds
+installation and protocol dependencies without providing task execution value.
 
 ## Consequences
 
@@ -72,10 +70,9 @@ Restart recovery restores committed text and task inputs. It does not open a
 microphone, restore an old media call or resubmit a delegated input as new work.
 Raw audio and account secrets stay outside the input journal.
 
-Audio requires an installed official Codex component. Its authentication protocol
-and the upstream audio service are external dependencies. Explicit voice login
-keeps opening an authorization page tied to a user action while ordinary
-capability discovery remains read-only.
+Audio login and media use OpenAI's OAuth and audio services directly. Explicit
+voice login keeps opening an authorization page tied to a user action while
+ordinary capability discovery remains read-only.
 
 Production proofs cover native admission, history updates and task decisions.
 Physical checks cover the account service, media lifetime, protocol delivery and

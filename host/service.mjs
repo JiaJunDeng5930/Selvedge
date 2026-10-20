@@ -674,8 +674,8 @@ export class Service extends EventEmitter {
   async #audioEvent(event) {
     // NOTE: The local account authority constructs this event; the upstream sideband decoder cannot produce it.
     if (event.type === 'account_changed') {
-      this.notify({ type: 'account_changed' });
-      this.emit('audio', { type: 'account_changed' });
+      this.notify(event);
+      this.emit('audio', event);
       return;
     }
     const session = this.#audioSessions.get(event.session_id);

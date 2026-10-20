@@ -530,11 +530,10 @@ branch results and fresh task identities.
 ## Speech input and voice conversations
 
 Choose **Sign in for voice** to authorize the composer's dictation and live voice
-controls. Install the official Codex CLI and make `codex` available on `PATH`, or
-set `SELVEDGE_CODEX_BIN` to its executable. Selvedge uses its authentication
-component with a dedicated home to manage this authorization. The public
-Sign in with ChatGPT connection used for Responses has a separate permission
-scope and does not enable audio.
+controls. Selvedge opens ChatGPT's authorization page and manages this login,
+credential storage and refresh itself. It follows Codex's ChatGPT OAuth flow and
+calls the audio services directly. The public Sign in with ChatGPT connection
+used for Responses has a separate permission scope and does not enable audio.
 
 Select the ChatGPT audio connection independently of the Task's model profile.
 The browser requests microphone access when recording starts; serve remote

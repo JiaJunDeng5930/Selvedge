@@ -15,5 +15,5 @@ def transcript_does_not_delegate(+turn: J.Json) ->
   {==}
 
 def unavailable_capability_rejects() ->
-  {Audio.capability(J.Null{}) == Model.failure_code("audio_invalid_request", "Official ChatGPT audio sign-in is required") : J.Json}:
+  {Audio.capability(J.Null{}) == Model.failure_code("audio_invalid_request", "ChatGPT audio sign-in is required") : J.Json}:
   {==}

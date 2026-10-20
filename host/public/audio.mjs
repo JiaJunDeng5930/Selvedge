@@ -19,9 +19,8 @@ export class AudioRuntime {
     try {
       const body = await this.request(this.url('/api/audio/capabilities'));
       this.observe('Capabilities', { connections: body.connections });
-      const unavailable = body.unavailable?.map(item => `${item.label}: ${item.error}`).join('\n');
-      if (unavailable || body.connections.length === 0) this.observe('CapabilitiesFailed', {
-        reason: unavailable || 'Use Sign in for voice to authorize ChatGPT dictation and voice.',
+      if (body.connections.length === 0) this.observe('CapabilitiesFailed', {
+        reason: 'Use Sign in for voice to authorize ChatGPT dictation and voice.',
       });
     } catch (error) {
       // DEFENSE: The authenticated capabilities request may fail after account removal or a network disconnect.
@@ -36,9 +35,11 @@ export class AudioRuntime {
     if (pending) this.loginWindow?.close();
     this.loginWindow = null;
   }
-  accountChanged() {
+  accountChanged(error) {
     this.closeLogin();
-    this.observe('Refresh');
+    // DEFENSE: A rejected OAuth callback reports its error here; a capabilities refresh would clear that failure notice.
+    if (error) this.observe('CapabilitiesFailed', { reason: error });
+    else this.observe('Refresh');
   }
   focus() {
     if (!this.loginWindow) return;
@@ -212,7 +213,7 @@ export class AudioRuntime {
           this.fail(entry, error); return;
         }
         if (message.type === 'ready') { entry.controlReady = true; this.ready(entry); }
-        else if (message.type === 'account_changed') this.accountChanged();
+        else if (message.type === 'account_changed') this.accountChanged(message.error);
         else if (message.type === 'error') this.fail(entry, new Error(message.message ?? 'Voice control connection failed'));
         else if (message.type === 'stopped') {
           this.observe('Ended', { ticket: entry.ticket, reason: message.reason ?? '' });

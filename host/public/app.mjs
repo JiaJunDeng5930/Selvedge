@@ -954,7 +954,7 @@ function streamFacts() {
   commit(Bend.streams(json({ kind: 'streams', namespace: storeNamespace, streams: facts }), state));
 }
 function streamNotice(notice) {
-  if (notice.type === 'account_changed') { audio.accountChanged(); return false; }
+  if (notice.type === 'account_changed') { audio.accountChanged(notice.error); return false; }
   if (!Bend.stream_notice_owned(json(notice), state)) return false;
   const source = { state: [...streams.values()].map(entry => ({ namespace: entry.namespace, task_id: entry.task, ticket: entry.ticket,
     parts: [...entry.parts].map(([output_index, text]) => ({ output_index, text })) })), notice };

@@ -3,7 +3,6 @@ import ../../bendlib/json.bend as J
 import ../../harness/conversation/PROGRAM.bend as Conversation
 import ./MODEL.bend as Model
 import ./ACCOUNTS.bend as Accounts
-import ./CODEX_AUDIO_ACCOUNT.bend as CodexAudioAccount
 
 def object(fields: +List<J.Field>) -> J.Json:
   J.Object{fields}
@@ -40,14 +39,14 @@ def contract() -> J.Json:
     Con{J.Field{"event_max_bytes", J.Number{"2097152"}}, Con{J.Field{"context_chunk_bytes", J.Number{"500"}}, Nil{}}}}}}}}}}}))
 
 def authorized_audio(+source: J.Json) -> Bool:
-  J.boolean(J.get(source, "authorized")) && J.same(J.get(source, "source"), J.Text{"codex_audio"})
+  J.boolean(J.get(source, "authorized")) && J.same(J.get(source, "source"), J.Text{"chatgpt_audio"})
 def eligible(+source: J.Json) -> Bool:
   authorized_audio(source) && text(J.get(source, "id"))
 def capability_value(+source: J.Json) -> J.Json:
   object([J.Field{"id", J.get(source, "id")}, J.Field{"label", J.Text{"ChatGPT"}},
-    J.Field{"source", J.Text{"codex_audio"}}, J.Field{"asr", J.Boolean{True{}}}, J.Field{"voice", J.Boolean{True{}}}])
+    J.Field{"source", J.Text{"chatgpt_audio"}}, J.Field{"asr", J.Boolean{True{}}}, J.Field{"voice", J.Boolean{True{}}}])
 def capability(+source: J.Json) -> J.Json:
-  admit(eligible(source), capability_value(source), "Official ChatGPT audio sign-in is required")
+  admit(eligible(source), capability_value(source), "ChatGPT audio sign-in is required")
 def capability_kept(keep: Bool, source: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match keep:
     case True{}: Con{capability_value(source), rest}
@@ -57,7 +56,7 @@ def capability_connections(items: +List<J.Json>) -> +List<J.Json>:
     case Nil{}: Nil{}
     case Con{+head, rest}: capability_kept(eligible(head), head, capability_connections(rest))
 def capabilities(+source: J.Json) -> J.Json:
-  admit(is_array(J.get(source, "connections")), J.Array{capability_connections(J.items(J.get(source, "connections")))}, "Audio account discovery requires official component observations")
+  admit(is_array(J.get(source, "connections")), J.Array{capability_connections(J.items(J.get(source, "connections")))}, "Audio account discovery requires ChatGPT account observations")
 
 def request_connection(+source: J.Json) -> Bool:
   text(J.get(source, "connection")) && authorized_audio(source)
@@ -277,9 +276,18 @@ def transcript_tail(+source: J.Json) -> J.Json:
     J.Text{transcript_remaining(J.text(J.get(source, "pending")), J.text(J.get(source, "completed")))},
     "Voice transcript completion requires its accumulated partial text")
 
+# URL parsing is the browser observation; admission keeps credentials and
+# navigation restricted to ChatGPT's authorization endpoint.
+def login_target(+source: J.Json) -> J.Json:
+  admit(text(J.get(source, "url")) && J.same(J.get(source, "protocol"), J.Text{"https:"}) &&
+    J.same(J.get(source, "hostname"), J.Text{"auth.openai.com"}) && J.same(J.get(source, "pathname"), J.Text{"/oauth/authorize"}) &&
+    J.same(J.get(source, "username"), J.Text{""}) && J.same(J.get(source, "password"), J.Text{""}) &&
+    (J.same(J.get(source, "port"), J.Text{""}) || J.same(J.get(source, "port"), J.Text{"443"})),
+    object([J.Field{"url", J.get(source, "url")}]), "Invalid ChatGPT authorization URL")
+
 def meaning_route_14(accepted: Bool, +operation: String, source: J.Json) -> J.Json:
   match accepted:
-    case True{}: CodexAudioAccount.login_target_meaning(source)
+    case True{}: login_target(source)
     case False{}: Model.failure("Unknown audio operation")
 def meaning_route_13(accepted: Bool, +operation: String, source: J.Json) -> J.Json:
   match accepted:

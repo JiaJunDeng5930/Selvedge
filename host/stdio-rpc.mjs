@@ -33,11 +33,9 @@ export class StdioRpc extends EventEmitter {
 
   get available() { return this.#decide('rpc.available'); }
 
-  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128, decodeMessage = message => message, decodeResult = value => value } = {}) {
+  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128 } = {}) {
     super();
     Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending });
-    this.decodeMessage = decodeMessage;
-    this.decodeResult = decodeResult;
     this.stderr = capture(limits.tool_output_bytes);
     this.#child = spawn(config.command, config.args ?? [], {
       cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
@@ -121,7 +119,7 @@ export class StdioRpc extends EventEmitter {
   }
 
   #message(message) {
-    const decision = this.#decide('rpc.message', { message: this.decodeMessage(message) });
+    const decision = this.#decide('rpc.message', { message });
     const execute = {
       ignore: () => {},
       notify: () => this.emit('notification', decision.message),
@@ -129,7 +127,7 @@ export class StdioRpc extends EventEmitter {
       resolve: () => {
         const pending = this.#pending.get(decision.id);
         this.#apply(decision);
-        pending.resolve(this.decodeResult(decision.value, message));
+        pending.resolve(decision.value);
       },
       reject: () => {
         const pending = this.#pending.get(decision.id);

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
-import { createCodexAudioAccount } from './codex-audio-account.mjs';
+import { createAudioAccount } from './chatgpt-account.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 const contract = () => boundary('audio.contract', {});
@@ -41,13 +41,12 @@ function authHeaders(authorization) {
 }
 
 /** Audio credentials stay in this host interpreter; callers receive only connection identities and SDP. */
-export function createChatGPTAudio({ home, command, fetchImpl = fetch,
-  WebSocketImpl = WebSocket, authorityFactory = createCodexAudioAccount, onEvent = async () => {} }) {
+export function createChatGPTAudio({ home, fetchImpl = fetch,
+  WebSocketImpl = WebSocket, authorityFactory = createAudioAccount, onEvent = async () => {} }) {
   const sessions = new Map();
   const operations = new Map();
   let closed = false, closing;
-  const authority = authorityFactory({ home, command,
-    onChange: () => onEvent({ type: 'account_changed' }) });
+  const authority = authorityFactory({ home, onChange: onEvent });
 
   function track(id, signal, action) {
     if (closed) return Promise.reject(new Error('Audio host is closed'));
@@ -73,15 +72,8 @@ export function createChatGPTAudio({ home, command, fetchImpl = fetch,
   async function capabilities({ signal } = {}) {
     const limits = contract();
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.request_timeout_ms)].filter(Boolean));
-    let rows, unavailable = [];
-    try { rows = await authority.connections({ signal: lifetime }); }
-    catch (error) {
-      lifetime.throwIfAborted();
-      // DEFENSE: The official authentication component can be missing or fail its public RPC; report this as unavailable instead of advertising audio from an unrelated grant.
-      unavailable = [{ label: 'ChatGPT', error: error.message }];
-      rows = [];
-    }
-    return { connections: boundary('audio.capabilities', { connections: rows }), unavailable,
+    const rows = await authority.connections({ signal: lifetime });
+    return { connections: boundary('audio.capabilities', { connections: rows }),
       asr_max_bytes: limits.asr_max_bytes, connect_timeout_ms: limits.connect_timeout_ms };
   }
 
