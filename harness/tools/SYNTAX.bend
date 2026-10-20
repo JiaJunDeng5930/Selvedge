@@ -33,6 +33,7 @@ type Query is Data:
 
 type Body is Data:
   Observe{query: Query}
+  Discover{}
   Create{profile: Text, reasoning: Text, message: Text, settings: Settings}
   Feature{operation: String, schema: J.Json}
   Send{task: Natural, message: Text}
@@ -192,6 +193,7 @@ def query_json(value: Query) -> J.Json:
 
 def json(value: Body) -> J.Json:
   match value:
+    case Discover{}: J.Object{[J.Field{"kind", J.Text{"Discover"}}]}
     case Observe{query}: J.Object{[J.Field{"kind", J.Text{"Observe"}}, J.Field{"query", query_json(query)}]}
     case Create{profile, reasoning, message, settings}: J.Object{[J.Field{"kind", J.Text{"Create"}}, J.Field{"profile", text_json(profile)}, J.Field{"reasoning", text_json(reasoning)}, J.Field{"message", text_json(message)}, J.Field{"settings", settings_json(settings)}]}
     case Feature{operation, schema}: J.Object{[J.Field{"kind", J.Text{"Feature"}}, J.Field{"operation", J.Text{operation}}, J.Field{"schema", schema}]}

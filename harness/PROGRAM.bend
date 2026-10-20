@@ -358,6 +358,8 @@ def commit_invoked_fork(built: Commands.Children, call: D.Call, remaining: +List
 
 def realize_invocation(operation: Protocol.Invocation, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
   match operation:
+    case Protocol.DefinitionResult{value}:
+      finish_internal(D.task_id(task), call, remaining, respond(world, value))
     case Protocol.Internal{operation}:
       finish_internal(D.task_id(task), call, remaining, realize_calculation(operation, world))
     case Protocol.Branch{count, messages, selection}:

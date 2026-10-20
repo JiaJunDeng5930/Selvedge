@@ -1,6 +1,7 @@
 import ./search/PROOF.bend as SearchProof
 import ./conversation/speech-proof.bend as SpeechProof
 import Base
+import ./tools/discovery-proof.bend as DiscoveryProof
 import ./tasks/PROOF.bend as TaskProof
 import ./features/PROOF.bend as FrameProof
 import ../bendlib/component.bend as C
