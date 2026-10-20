@@ -49,6 +49,7 @@ let renderedGeneration = null;
 let displayedFrameRequest = null;
 let requestedFrameGeneration = null;
 let pendingFocus = [];
+let pendingHistoryLocation = null;
 let drainingFocus = false;
 let applyingFocus = false;
 let focusAttemptRevision = 0;
@@ -214,6 +215,7 @@ function renderPublication() {
   renderer.synchronizeFields(publication.fields);
   renderer.presentationPending = pendingPublication;
   presentationMotion.refresh();
+  retryPendingHistoryLocation();
   root.dataset.renderInspection = JSON.stringify(encodeBendValue(Bend.render_inspection(state)));
   root.dataset.renderStatus = Bend.render_status(state);
   root.dataset.renderViolations = JSON.stringify(encodeBendValue(list(Bend.render_violations(state))));
@@ -909,7 +911,33 @@ function beginUserScroll(surface, pointerId) {
   readingInput(surface, bendValue('browser/reading/MODEL.BeginUserScroll'));
   measureUserAnchor(surface);
 }
+function retryPendingHistoryLocation() {
+  const physical = pendingHistoryLocation;
+  if (!physical) return;
+  // DEFENSE: Navigation can replace the conversation while its message awaits publication.
+  if (!Bend.history_location_owned(physical.task, physical.generation, state)) { pendingHistoryLocation = null; return; }
+  if (Bend.display_pending(state)) return;
+  const surface = readingSurface(physical.task, physical.generation);
+  const node = surface?.querySelector(`[data-message-index="${physical.effect.message_index}"]`);
+  if (!node) return;
+  pendingHistoryLocation = null;
+  const pending = currentReadingMeasurement(surface);
+  if (pending) {
+    if (pending.frame !== null) cancelAnimationFrame(pending.frame);
+    retireReadingMeasurement(surface, pending);
+  }
+  markReadingCorrection(surface);
+  surface.scrollTo({ top: surface.scrollTop + node.getBoundingClientRect().top - surface.getBoundingClientRect().top, behavior: 'instant' });
+  readingInput(surface, bendValue('browser/reading/MODEL.AnchorObserved', { anchor: bendValue('browser/controls/GEOMETRY.Anchor', {
+    identity: node.dataset.readingKey, offset: node.getBoundingClientRect().top - surface.getBoundingClientRect().top,
+  }) }));
+}
 function applyReading(physical) {
+  if (bendTag(physical.effect) === 'LocateMessage') {
+    pendingHistoryLocation = physical;
+    retryPendingHistoryLocation();
+    return;
+  }
   const surface = readingSurface(physical.task, physical.generation);
   // DEFENSE: A queued reading effect may outlive the task's rendered conversation generation.
   if (!surface) return;

@@ -184,6 +184,10 @@ def interactive(+meaning: SurfaceTypes.Meaning) ->
       {==}
     case SurfaceTypes.SearchChoices{+query}:
       {==}
+    case SurfaceTypes.HistorySearchQuery{+query}:
+      {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, +query, choices_0}:
+      {==}
     case SurfaceTypes.BoardSearch{+filter}:
       {==}
     case SurfaceTypes.ReceiveFile{+editor, +enabled}:
@@ -304,6 +308,8 @@ def required_enabled(+meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.InteractiveRegion{identity, source_visible}: interactive(SurfaceTypes.InteractiveRegion{identity, source_visible})
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: interactive(SurfaceTypes.Edit{editor, field, entry, value, choices})
     case SurfaceTypes.SearchChoices{query}: interactive(SurfaceTypes.SearchChoices{query})
+    case SurfaceTypes.HistorySearchQuery{query}: interactive(SurfaceTypes.HistorySearchQuery{query})
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: interactive(SurfaceTypes.HistorySearchScope{scope_0, query, choices_0})
     case SurfaceTypes.EnterDirectory{editor, text}: interactive(SurfaceTypes.EnterDirectory{editor, text})
 
 def persistent(+role: SurfaceTypes.Role) ->
@@ -740,6 +746,8 @@ def read_only(+found: Maybe<&2, SurfaceTypes.Node>) ->
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Activate{meaning_input, meaning_availability}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{meaning_editor, meaning_field, meaning_entry, meaning_value, meaning_choices}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.SearchChoices{meaning_query}, children}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchQuery{meaning_query}, children}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchScope{scope_0, meaning_query, choices_0}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReceiveFile{meaning_editor, meaning_enabled}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.EnterDirectory{meaning_editor, meaning_text}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.BoardProfile{meaning_automatic, meaning_selected, meaning_choices, meaning_enabled}, children}}: {==}
@@ -872,6 +880,8 @@ def content_tabs(+meaning: SurfaceTypes.Meaning, +entries: +List<Rendered.Native
     case SurfaceTypes.Activate{meaning_input, meaning_availability}: {==}
     case SurfaceTypes.Edit{meaning_editor, meaning_field, meaning_entry, meaning_value, meaning_choices}: {==}
     case SurfaceTypes.SearchChoices{meaning_query}: {==}
+    case SurfaceTypes.HistorySearchQuery{meaning_query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, meaning_query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{meaning_editor, meaning_enabled}: {==}
     case SurfaceTypes.EnterDirectory{meaning_editor, meaning_text}: {==}
     case SurfaceTypes.BoardProfile{meaning_automatic, meaning_selected, meaning_choices, meaning_enabled}: {==}

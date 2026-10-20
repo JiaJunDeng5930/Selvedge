@@ -10,6 +10,9 @@ import ./runtime/PLATFORM.bend as Platform
 import ../interaction/presentation/PROGRAM.bend as InterfaceView
 import ../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../interaction/TYPES.bend as InteractionTypes
+import ../interaction/STATE.bend as Core
+
+def Rule.history_message_location(task, message_index, application): {==}
 
 def Rule.resolved_scope_focus(ticket, previous, current, surface): {==}
 
@@ -142,10 +145,11 @@ def deferred_effect_delivery(+source: +List<Platform.Effect>, +surface: SurfaceT
 
 def Rule.production_commit_complete(decision, generation, environment, font):
   Platform.Decision{+product, +platform, +source} = decision
-  InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable} = product
+  InteractionTypes.Decision{+core, reply, runtime, +interaction, services, durable} = product
   +application: Platform.State = Platform.next(Platform.Decision{product, platform, source})
   Equal.cong(+List<Model.Effect>, Model.Decision,
-    (result => Model.Decision{Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)}, product, result}),
+    (result => Model.Decision{Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)}, product,
+      List.append(&2, Model.Effect, result, Model.history_location_effects(interaction, Core.application(core)))}),
     Model.deferred_platform_effects(source, (_ => Model.observed_surface(Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, font}))),
     Rule.delivered_effects(source, Model.observed_surface(Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, font})),
     deferred_effect_delivery(source, Model.observed_surface(Model.State{application, generation, Rendered.AwaitingFrame{generation}, environment, font})))

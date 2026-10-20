@@ -304,6 +304,7 @@ def attention_policy(effects: +List<E.Effect>) ->
   match effects:
     case Nil{}: {==}
     case Con{E.Attend{target}, rest}: {==}
+    case Con{E.LocateHistoryMessage{task, message_index}, rest}: attention_policy(rest)
     case Con{E.RequestCommand{command, completion}, rest}: attention_policy(rest)
     case Con{E.ContentEffect{identity, effect}, rest}: attention_policy(rest)
     case Con{E.ObserveWorkspaceGit{ticket, primary}, rest}: attention_policy(rest)
@@ -323,6 +324,7 @@ def explicit_effect_policy(effects: +List<E.Effect>, +ticket: Nat) ->
     case Con{E.ContentEffect{identity, effect}, rest}:
       Equal.cong(+List<Platform.Effect>, +List<Platform.Effect>, (tail => Platform.Clipboard{identity, effect} <> tail),
         Platform.focus_effects(rest, ticket), Rule.required_explicit_effects(rest, ticket), explicit_effect_policy(rest, ticket))
+    case Con{E.LocateHistoryMessage{task, message_index}, rest}: explicit_effect_policy(rest, ticket)
     case Con{E.RequestCommand{command, completion}, rest}: explicit_effect_policy(rest, ticket)
     case Con{E.ObserveWorkspaceGit{observed_ticket, primary}, rest}: explicit_effect_policy(rest, ticket)
     case Con{E.ObserveDirectories{observed_ticket, entered}, rest}: explicit_effect_policy(rest, ticket)
@@ -338,6 +340,7 @@ def content_effect_policy(effects: +List<E.Effect>) ->
     case Con{E.ContentEffect{identity, effect}, rest}:
       Equal.cong(+List<Platform.Effect>, +List<Platform.Effect>, (tail => Platform.Clipboard{identity, effect} <> tail),
         Platform.content_effects(rest), Rule.required_content_effects(rest), content_effect_policy(rest))
+    case Con{E.LocateHistoryMessage{task, message_index}, rest}: content_effect_policy(rest)
     case Con{E.RequestCommand{command, completion}, rest}: content_effect_policy(rest)
     case Con{E.ObserveWorkspaceGit{ticket, primary}, rest}: content_effect_policy(rest)
     case Con{E.ObserveDirectories{ticket, entered}, rest}: content_effect_policy(rest)
@@ -421,6 +424,7 @@ def route_layout_policy(+route: U.Route, +readers: +List<Finite.Entry(E.Reader)>
     case U.TaskBoard{}: {==}
     case U.AgentCollection{}: {==}
     case U.TaskGraphs{}: {==}
+    case U.HistorySearch{search}: {==}
 
 def tasks_layout_policy(+tasks: +List<Nat>, +readers: +List<Finite.Entry(E.Reader)>, +bookmarks: +List<Finite.Entry(Reading.Bookmark)>) ->
   {Platform.layout_tasks(tasks, readers, bookmarks) == Rule.required_tasks_layout(tasks, readers, bookmarks) : +List<Platform.Effect>}:
@@ -530,6 +534,8 @@ def focusability_policy(meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.Edit{value_editor, value_field, Forms.DirectoryCollection{}, value_value, value_choices}: {==}
     case SurfaceTypes.Edit{value_editor, value_field, Forms.FileCollection{}, value_value, value_choices}: {==}
     case SurfaceTypes.SearchChoices{value_query}: {==}
+    case SurfaceTypes.HistorySearchQuery{value_query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, value_query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{value_editor, value_enabled}: {==}
     case SurfaceTypes.EnterDirectory{value_editor, value_text}: {==}
     case SurfaceTypes.BoardProfile{value_automatic, value_selected, value_choices, value_enabled}: {==}
@@ -583,6 +589,8 @@ def content_owner_policy(found: Maybe<&2, SurfaceTypes.Node>) ->
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Activate{meaning_input, meaning_availability}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{meaning_editor, meaning_field, meaning_entry, meaning_value, meaning_choices}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.SearchChoices{meaning_query}, children}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchQuery{meaning_query}, children}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchScope{scope_0, meaning_query, choices_0}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReceiveFile{meaning_editor, meaning_enabled}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.EnterDirectory{meaning_editor, meaning_text}, children}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.BoardProfile{meaning_automatic, meaning_selected, meaning_choices, meaning_enabled}, children}}: {==}

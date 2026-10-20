@@ -45,6 +45,7 @@ type Icon is Data:
   Folder{}
   Tag{}
   Clock{}
+  Magnifier{}
   User{}
   Bot{}
   Status{stage: Board.Stage}
@@ -500,6 +501,7 @@ def route_icon(route: UserInput.Route) -> Icon:
     case UserInput.TaskBoard{}: Columns{}
     case UserInput.AgentCollection{}: Agents{}
     case UserInput.TaskGraphs{}: Columns{}
+    case UserInput.HistorySearch{search}: Magnifier{}
 
 def panel_purpose(panel: UserInput.Panel, expanded: Bool) -> Purpose:
   match panel:
@@ -550,6 +552,8 @@ def action_purpose(+key: UIIdentity.Key, action: UserInput.Action, selection: Se
     case UserInput.RenameWork{work}: EditItem{}
     case UserInput.RetryWorktreeArchive{task}: NamedAction{}
     case UserInput.Navigate{route}: NavigateTo{route_icon(route)}
+    case UserInput.SubmitHistorySearch{after}: NamedAction{}
+    case UserInput.OpenHistoryMessage{task, message_index}: NavigateTo{Conversation{}}
     case UserInput.BeginTask{None{}}: CreateItem{}
     case UserInput.BeginTask{Some{project}}: ProjectTaskCreation{}
     case UserInput.EditProject{None{}}: CreateItem{}
@@ -916,6 +920,7 @@ def work_role_geometry(work: Bool, role: SurfaceTypes.Role, fallback: Geometry) 
 
 def global_navigation_icon(input: InteractionTypes.Input) -> Maybe<&2, Icon>:
   match input:
+    case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.HistorySearch{search}}}}}: Some{Magnifier{}}
     case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.Start{}}}}}: Some{Home{}}
     case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.TaskBoard{}}}}}: Some{Columns{}}
     case InteractionTypes.ApplicationInput{Experience.UserInput{UserInput.Activate{UserInput.Navigate{UserInput.ProjectCollection{}}}}}: Some{Folder{}}
@@ -1377,6 +1382,8 @@ def represent_plain(key: UIIdentity.Key, +meaning: SurfaceTypes.Meaning, +label:
     case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: NoControl{}
     case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: NoControl{}
     case SurfaceTypes.Edit{editor, field, +entry, value, choices}: make_input(meaning, label, widget_for(entry, field, value), field_availability(entry))
+    case SurfaceTypes.HistorySearchQuery{query}: make_input(meaning, label, SearchInput{}, View.Available{})
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: make_input(meaning, label, SelectInput{}, View.Available{})
     case SurfaceTypes.SearchChoices{query}: make_input(meaning, label, SearchInput{}, View.Available{})
     case SurfaceTypes.DirectoryBrowserLocation{value}: make_input(meaning, label, DirectoryChooser{TextFace{label}}, View.Available{})
     case SurfaceTypes.ReceiveFile{editor, enabled}: make_input(meaning, label, FileChooser{IconTextFace{Paperclip{}, label}}, InterfaceView.availability(enabled))

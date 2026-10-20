@@ -250,6 +250,7 @@ def search_field_style(+typography: T.Presentation) -> Design.Style:
 
 def field_style(meaning: SurfaceTypes.Meaning, +typography: T.Presentation) -> Design.Style:
   match meaning:
+    case SurfaceTypes.HistorySearchQuery{query}: search_field_style(typography)
     case SurfaceTypes.BoardSearch{filter}: search_field_style(typography)
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, "checkbox", attrs, binding, children}}: toggle_field(typography)
     case SurfaceTypes.Edit{editor, +field, +entry, +value, choices}:

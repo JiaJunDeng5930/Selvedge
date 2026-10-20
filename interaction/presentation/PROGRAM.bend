@@ -4,6 +4,7 @@ import ../experience/MODEL.bend as Experience
 import ../experience/ACTIVITY.bend as Activity
 import ./INFORMATION.bend as Information
 import Base
+import ../search/MODEL.bend as Search
 import ../../bendlib/string-equality.bend as SafeText
 import ../submission/FIELDS.bend as OperationParameters
 import ../IDENTITY.bend as Identity
@@ -205,6 +206,7 @@ def same_route(left: U.Route, right: U.Route) -> Bool:
     case U.TaskBoard{} U.TaskBoard{}: True{}
     case U.AgentCollection{} U.AgentCollection{}: True{}
     case U.TaskGraphs{} U.TaskGraphs{}: True{}
+    case U.HistorySearch{left} U.HistorySearch{right}: True{}
     case _ _: False{}
 
 def is_start_route(route: U.Route) -> Bool:
@@ -1640,6 +1642,73 @@ def creation_page(+input: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +st
   world = E.program(observed_application)
   List.append(&2, SurfaceTypes.Node, creation_introduction_nodes(View.creation_introduction(input, world), parent, state), page_composer(input, parent, parent, state, Composition.BodyPosition{}))
 
+
+def history_text(+parent: Identity.Key, +name: String, label: String, text: String) -> SurfaceTypes.Node:
+  SurfaceTypes.Node{Identity.Part{parent, name}, name, label, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{text}, Nil{}}
+
+def history_context(present: Bool, parent: Identity.Key, name: String, +label: String, text: String) -> +List<SurfaceTypes.Node>:
+  match present:
+    case False{}: Nil{}
+    case True{}: [history_text(parent, name, label, label ++ "：" ++ text)]
+
+def history_hit(+value: J.Json, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
+  +task = J.get(value, "task")
+  +id = J.natural_or(J.natural(J.get(task, "id")), 0n)
+  +index = J.natural_or(J.natural(J.get(value, "message_index")), 0n)
+  +identity = "history-hit/" ++ Nat.show(id) ++ "/" ++ Nat.show(index)
+  +owner: Identity.Key = Identity.Part{parent, identity}
+  +before = J.text(J.get(value, "before"))
+  +after = J.text(J.get(value, "after"))
+  region(parent, identity, "Search result", SurfaceTypes.Card{},
+    declared(owner, View.control("open", J.text(J.get(task, "title")) ++ " · 消息 #" ++ Nat.show((index + 1n : Nat)), U.OpenHistoryMessage{id, index}), state) <>
+    history_text(owner, "role", "Role", J.text(J.get(value, "role"))) <>
+    List.append(&2, SurfaceTypes.Node,
+      history_context(Bool.not(String.eq(before, "")), owner, "before", "上一条", before),
+      history_text(owner, "snippet", "命中消息", J.text(J.get(value, "snippet"))) <>
+      history_context(Bool.not(String.eq(after, "")), owner, "after", "下一条", after)))
+
+def history_hits(values: +List<J.Json>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{first, rest}: history_hit(first, parent, state) <> history_hits(rest, parent, state)
+
+def history_next(found: Maybe<&2, Nat>, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match found:
+    case None{}: Nil{}
+    case Some{after}: [declared(parent, View.control("history/more", "更多结果", U.SubmitHistorySearch{after}), state)]
+
+def history_previous(after: Nat, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match after:
+    case 0n: Nil{}
+    case n: [declared(parent, View.control("history/previous", "上一页", U.SubmitHistorySearch{Nat.sub(n, 20n)}), state)]
+
+def history_result_content(empty: Bool, +result: J.Json, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match empty:
+    case True{}: [history_text(parent, "history-empty", "搜索结果", "没有找到匹配的消息。")]
+    case False{}: List.append(&2, SurfaceTypes.Node, history_hits(J.items(J.get(result, "hits")), parent, state),
+      List.append(&2, SurfaceTypes.Node, history_previous(J.natural_or(J.natural(J.get(result, "after")), 0n), parent, state), history_next(J.natural(J.get(result, "next_after")), parent, state)))
+
+def history_reply(ok: Bool, +reply: J.Json, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match ok:
+    case False{}: [history_text(parent, "history-error", "搜索失败", J.text(J.get(J.get(reply, "error"), "message")))]
+    case True{}:
+      +result = J.get(reply, "result")
+      history_result_content(Nat.is_eq(List.length(&2, J.Json, J.items(J.get(result, "hits"))), 0n), result, parent, state)
+
+def history_results(result: Maybe<&2, J.Json>, +parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match result:
+    case None{}: [history_text(parent, "history-prompt", "搜索说明", "输入关键词，选择项目或 Work，然后搜索对话。")]
+    case Some{+reply}: history_reply(J.boolean(J.get(reply, "ok")), reply, parent, state)
+
+def history_search_page(+search: Search.State, projects: +List<Search.Choice>, works: +List<Search.Choice>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "搜索对话", SurfaceTypes.Heading{}, Nil{})]),
+   page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{},
+     [SurfaceTypes.Node{Identity.Part{parent, "history/query"}, "history/query", "关键词", SurfaceTypes.Field{}, SurfaceTypes.HistorySearchQuery{Search.keyword(search)}, Nil{}},
+      SurfaceTypes.Node{Identity.Part{parent, "history/project"}, "history/project", "项目", SurfaceTypes.Field{}, SurfaceTypes.HistorySearchScope{True{}, Search.selected(Search.project(search)), Search.Choice{"", "全部"} <> projects}, Nil{}},
+      SurfaceTypes.Node{Identity.Part{parent, "history/work"}, "history/work", "Work", SurfaceTypes.Field{}, SurfaceTypes.HistorySearchScope{False{}, Search.selected(Search.work(search)), Search.Choice{"", "全部"} <> works}, Nil{}},
+      declared(parent, View.control("history/submit", "搜索", U.SubmitHistorySearch{0n}), state)]),
+   page_region(parent, Composition.ProjectEntries{}, Composition.BodyPosition{}, history_results(Search.result(search), parent, state))]
+
 def page_contents(view: V.Page, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
     case V.StartPage{input}: creation_page(input, parent, state)
@@ -1662,6 +1731,7 @@ def page_contents(view: V.Page, +parent: Identity.Key, +state: InteractionTypes.
       [page_region(parent, Composition.CollectionTitle{}, Composition.HeadingPosition{}, [region(parent, "heading", "Task graphs", SurfaceTypes.Heading{}, Nil{})]),
        page_region(parent, Composition.CollectionActions{}, Composition.HeadingPosition{}, [declared(parent, create, state)]),
        page_region(parent, Composition.TaskGraphEntries{}, Composition.BodyPosition{}, task_graphs(values, parent, state))]
+    case V.HistorySearchPage{search, projects, works}: history_search_page(search, projects, works, parent, state)
     case V.MissingObject{message}:
       [page_region(parent, Composition.UnavailableMessage{}, Composition.BodyPosition{}, [SurfaceTypes.Node{Identity.Part{parent, "missing"}, "missing", "Unavailable", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{message}, Nil{}}])]
 
@@ -3210,6 +3280,9 @@ def bind(meaning: SurfaceTypes.Meaning, gesture: SurfaceTypes.Gesture) -> Maybe<
     case SurfaceTypes.Choice{kind, classification, selected, description, input, availability} SurfaceTypes.Press{}: when_available(available(availability), input)
     case SurfaceTypes.Edit{+editor, +field, OperationParameters.DisplayOnly{}, +value, choices} SurfaceTypes.Change{+next}: None{}
     case SurfaceTypes.Edit{+editor, +field, entry, +value, choices} SurfaceTypes.Change{+next}: Some{InteractionTypes.EditField{editor, field, next}}
+    case SurfaceTypes.HistorySearchQuery{query} SurfaceTypes.Press{}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SubmitHistorySearch{0n}}}}}
+    case SurfaceTypes.HistorySearchQuery{query} SurfaceTypes.Search{next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.WriteHistoryQuery{next}}}}
+    case SurfaceTypes.HistorySearchScope{project, value, choices} SurfaceTypes.Change{OperationParameters.Text{next}}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.ChooseHistoryScope{project, next}}}}
     case SurfaceTypes.SearchChoices{query} SurfaceTypes.Search{+next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
     case SurfaceTypes.BoardSearch{+filter} SurfaceTypes.Search{+next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
     case SurfaceTypes.ReceiveFile{+editor, +enabled} SurfaceTypes.Attach{file}: when_available(enabled, InteractionTypes.ServiceInput{Services.AddFile{editor, file}})
@@ -3387,6 +3460,8 @@ def focusable(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.Edit{editor, field, OperationParameters.FileCollection{}, value, choices}: False{}
     case SurfaceTypes.Edit{editor, field, OperationParameters.DirectoryCollection{}, value, choices}: False{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
+    case SurfaceTypes.HistorySearchQuery{query}: True{}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
     case SurfaceTypes.BoardSearch{filter}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: enabled

@@ -163,6 +163,8 @@ def required_native_value(meaning: SurfaceTypes.Meaning) -> String:
     case SurfaceTypes.InteractiveNode{IM.ExpandedNode{identity, occurrence, tag, attributes, IM.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: required_local_value(tag, raw, canonical)
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: required_edit_value(field, value)
     case SurfaceTypes.BoardSearch{B.Filter{view, search, status, priority, date, assignee, creator, project, label}}: search
+    case SurfaceTypes.HistorySearchQuery{query}: query
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: value
     case SurfaceTypes.SearchChoices{query}: query
     case SurfaceTypes.EnterDirectory{editor, text}: text
     case SurfaceTypes.DirectoryBrowserLocation{value}: value
@@ -1904,6 +1906,8 @@ def required_field_binding(original: SurfaceTypes.Meaning, current: SurfaceTypes
     case SurfaceTypes.Edit{editor, field, entry, value, choices} SurfaceTypes.Edit{other, new_field, new_entry, new_value, new_choices}: U.same_editor(editor, other)
     case SurfaceTypes.EnterDirectory{editor, text} SurfaceTypes.EnterDirectory{other, new_text}: U.same_editor(editor, other)
     case SurfaceTypes.ReceiveFile{editor, enabled} SurfaceTypes.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
+    case SurfaceTypes.HistorySearchQuery{query} SurfaceTypes.HistorySearchQuery{new_query}: True{}
+    case SurfaceTypes.HistorySearchScope{+project, value, choices} SurfaceTypes.HistorySearchScope{+new_project, new_value, new_choices}: (project && new_project) || (Bool.not(project) && Bool.not(new_project))
     case SurfaceTypes.SearchChoices{query} SurfaceTypes.SearchChoices{new_query}: True{}
     case SurfaceTypes.BoardSearch{filter} SurfaceTypes.BoardSearch{new_filter}: True{}
     case SurfaceTypes.DirectoryBrowserLocation{value} SurfaceTypes.DirectoryBrowserLocation{new_value}: True{}

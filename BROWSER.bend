@@ -127,6 +127,9 @@ def measurements(observation: F.Observation, state: Browser.State) -> Browser.De
 
 def focus_ticket(state: Browser.State) -> Nat: Browser.focus_ticket(state)
 
+def history_location_owned(task: Nat, generation: Nat, state: Browser.State) -> Bool:
+  Web.history_location_owned(task, generation, Legacy.web(Browser.legacy(state)))
+
 def active_scope(state: Browser.State) -> Focus.Scope: Browser.active_scope(state)
 
 def displayed_generation(state: Browser.State) -> Nat: Browser.displayed_generation(state)

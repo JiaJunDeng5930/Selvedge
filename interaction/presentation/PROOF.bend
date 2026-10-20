@@ -254,6 +254,8 @@ def compact_overview_action_role(+role: SurfaceTypes.Role, +action: U.Action, +a
     case U.CreateWork{}: {==}
     case U.RenameWork{p0}: {==}
     case U.Navigate{p0}: {==}
+    case U.SubmitHistorySearch{p0}: {==}
+    case U.OpenHistoryMessage{p0, p1}: {==}
     case U.SelectProject{p0}: {==}
     case U.ToggleProjectGroup{p0}: {==}
     case U.BeginTask{p0}: {==}
@@ -296,6 +298,8 @@ def compact_overview_user_input_role(+role: SurfaceTypes.Role, +input: U.Input, 
     case U.SetDisclosure{p0, p1, p2, p3}: {==}
     case U.SetNavigation{p0}: {==}
     case U.SearchChoices{p0}: {==}
+    case U.WriteHistoryQuery{p0}: {==}
+    case U.ChooseHistoryScope{p0, p1}: {==}
     case U.FilterBoard{p0}: {==}
 
 def compact_overview_session_input_role(+role: SurfaceTypes.Role, +input: E.Input, +availability: V.Availability) ->
@@ -376,6 +380,8 @@ def Rule.compact_overview_action_roles_preserve_other_commands(role, meaning):
     case SurfaceTypes.Activate{p0, p1}: compact_overview_input_role(role, p0, p1)
     case SurfaceTypes.Edit{p0, p1, p2, p3, p4}: {==}
     case SurfaceTypes.SearchChoices{p0}: {==}
+    case SurfaceTypes.HistorySearchQuery{p0}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, p0, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{p0, p1}: {==}
     case SurfaceTypes.EnterDirectory{p0, p1}: {==}
     case SurfaceTypes.BoardProfile{p0, p1, p2, p3}: {==}
@@ -535,6 +541,8 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.ContentInput{p0, p1}}: {==}
     case InteractionTypes.ApplicationInput{E.PreviewObserved{p0}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.Navigate{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SubmitHistorySearch{p0}}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.OpenHistoryMessage{p0, p1}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SelectWork{p0}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.CreateWork{}}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.RenameWork{p0}}}}: {==}
@@ -570,6 +578,8 @@ def supporting_submission_agreement(+support: Experience.Support, +property: Exp
     case InteractionTypes.ApplicationInput{E.UserInput{U.SetDisclosure{p0, p1, p2, p3}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.SetNavigation{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.WriteHistoryQuery{p0}}}: {==}
+    case InteractionTypes.ApplicationInput{E.UserInput{U.ChooseHistoryScope{p0, p1}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.TogglePropertySource{p0}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.EnterDecision{p0, p1}}}: {==}
     case InteractionTypes.ApplicationInput{E.UserInput{U.LeaveDecision{p0}}}: {==}
@@ -810,3 +820,8 @@ def Rule.side_window_adapts_to_available_details_space(task):
 def Rule.side_window_closes_without_returning_content(task, trigger): {==}
 def Rule.side_window_uses_its_task_and_explicit_return_control(task, session, world): {==}
 def Rule.side_conversation_has_its_own_reading_and_composer_context(id, title, status, context, task, generation, groups, live, decisions, reading, latest, previews, input, details, actions, parent, state): {==}
+
+def Rule.history_keyword_binding_edits_the_shared_form(query, next): {==}
+def Rule.history_scope_binding_retains_the_filter_dimension(project, value, choices, next): {==}
+
+def Rule.history_keyword_confirmation_submits_the_same_query(query): {==}

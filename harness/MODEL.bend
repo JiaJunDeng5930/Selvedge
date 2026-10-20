@@ -23,6 +23,7 @@ def Effect() -> Data:
 
 type Query is Data:
   Read{task_id: Nat, after: Nat, limit: Nat}
+  Search{query: String, project: Maybe<&2, Nat>, work: Maybe<&2, Nat>, after: Nat, limit: Nat}
   ListTasks{}
   Describe{}
   ListProjects{}
@@ -65,6 +66,7 @@ type CommandKind is Data:
   ReturnSideConversationCommand{}
   CompactCommand{}
   ReadCommand{}
+  SearchHistoryCommand{}
   ListCommand{}
   DescribeCommand{}
   CreateProjectCommand{}
@@ -138,6 +140,12 @@ def commands() -> +List<CommandSpec>:
    CommandSpec{"read", "Read a bounded history page without advancing the task.", ReadCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"after", D.integer_schema("History offset", 0, 4294967295)},
        J.Field{"limit", D.integer_schema("Page size; defaults to 100", 1, 100)}], [J.Text{"task_id"}])},
+   CommandSpec{"search_history", "Search committed conversation text across tasks, optionally restricted to a project or Work. Read an original message with read after=message_index (0-based).", SearchHistoryCommand{},
+     D.command_schema([J.Field{"query", D.string_schema("Literal keyword or phrase; 1..240 characters; ASCII case-insensitive")},
+       J.Field{"project_id", D.integer_schema("Optional project identity", 0, 4294967295)},
+       J.Field{"work_id", D.integer_schema("Optional Work identity", 0, 4294967295)},
+       J.Field{"after", D.integer_schema("Result offset; defaults to 0", 0, 4294967295)},
+       J.Field{"limit", D.integer_schema("Page size; defaults to 20", 1, 50)}], [J.Text{"query"}])},
    CommandSpec{"list", "Read task summaries and the currently available model profiles and tools.", ListCommand{},
      D.command_schema(Nil{}, Nil{})},
    CommandSpec{"describe", "Read this executable command vocabulary and the effect-boundary limits.", DescribeCommand{},

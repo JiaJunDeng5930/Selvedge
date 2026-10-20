@@ -16,6 +16,10 @@ import ./document/presentation-order.bend as Order
 import ./document/MODEL.bend as CodeObservation
 import ../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../interaction/TYPES.bend as InteractionTypes
+import ../interaction/STATE.bend as Core
+import ../interaction/session/MODEL.bend as E
+import ../interaction/INPUT.bend as U
+import ./reading/MODEL.bend as Reading
 
 type State is Data:
   State{application: Platform.State, generation: Nat, realization: Rendered.State,
@@ -157,12 +161,33 @@ def effects(decision: Decision) -> +List<Effect>:
 
 # Physical allocation owns capacity admission and frame measurement requests.
 
+def history_location_effects(effects: +List<E.Effect>, +application: E.Application) -> +List<Effect>:
+  match effects:
+    case Nil{}: Nil{}
+    case Con{E.LocateHistoryMessage{+task, message_index}, rest}:
+      PlatformEffect{Platform.ApplyReading{task, E.reader_generation(E.reader(E.readers(E.session(application)), task)), Reading.LocateMessage{message_index}}} <>
+        history_location_effects(rest, application)
+    case Con{other, rest}: history_location_effects(rest, application)
+
+def history_location_owned_route(route: U.Route, task: Nat) -> Bool:
+  match route:
+    case U.Conversation{current}: Nat.is_eq(current, task)
+    case _: False{}
+
+def history_location_owned(+task: Nat, generation: Nat, state: State) -> Bool:
+  +session = E.session(Core.application(Platform.core(application(state))))
+  Bool.and(history_location_owned_route(E.route(session), task), Nat.is_eq(E.reader_generation(E.reader(E.readers(session), task)), generation))
+
+def product_history_location_effects(product: InteractionTypes.Decision) -> +List<Effect>:
+  InteractionTypes.Decision{core, reply, runtime, interaction, service, durable} = product
+  history_location_effects(interaction, Core.application(core))
+
 def production_commit(decision: Platform.Decision, +generation: Nat, environment: Design.Environment,
   font: F.State) -> Decision:
   Platform.Decision{+product, +platform, +effects} = decision
   +application = Platform.next(Platform.Decision{product, platform, effects})
   Decision{State{application, generation, Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)},
-    product, deferred_platform_effects(effects, (_ => Order.ordered_surface(surface(application))))}
+    product, List.append(&2, Effect, deferred_platform_effects(effects, (_ => Order.ordered_surface(surface(application)))), product_history_location_effects(product))}
 
 def production_platform_input(input: Platform.Input, application: Platform.State) -> Platform.Input:
   match input:

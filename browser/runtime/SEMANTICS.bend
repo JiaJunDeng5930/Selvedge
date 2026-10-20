@@ -727,6 +727,8 @@ def field_text(editor: U.Editor, field: Forms.Field, entry: Forms.Entry, value: 
 def gesture_text(meaning: SurfaceTypes.Meaning, text: String, state: State) -> Maybe<&2, SurfaceTypes.Gesture>:
   match meaning:
     case SurfaceTypes.InteractiveNode{node}: Some{SurfaceTypes.Change{Forms.Text{text}}}
+    case SurfaceTypes.HistorySearchQuery{query}: Some{SurfaceTypes.Search{text}}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: Some{SurfaceTypes.Change{Forms.Text{text}}}
     case SurfaceTypes.SearchChoices{query}: Some{SurfaceTypes.Search{text}}
     case SurfaceTypes.EnterDirectory{editor, current}: Some{SurfaceTypes.Directory{text}}
     case SurfaceTypes.DirectoryBrowserLocation{value}: Some{SurfaceTypes.Directory{text}}
@@ -764,6 +766,7 @@ def confirmation_key(keyboard: String, composing: Bool, control: Bool, alt: Bool
 
 def confirm_source(found: Maybe<&2, SurfaceTypes.Node>) -> Maybe<&2, SurfaceTypes.Gesture>:
   match found:
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchQuery{query}, children}}: Some{SurfaceTypes.Press{}}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.DirectoryBrowserLocation{value}, children}}: Some{SurfaceTypes.ConfirmDirectory{}}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.EnterDirectory{editor, text}, children}}: Some{SurfaceTypes.ConfirmDirectory{}}
     case _: None{}

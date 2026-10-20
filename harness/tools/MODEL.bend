@@ -61,6 +61,8 @@ def query_bindings(query: Native.Query) -> Bindings:
   match query:
     case Native.Read{task, after, limit}:
       join(natural_binding(task), join(natural_binding(after), natural_binding(limit)))
+    case Native.Search{query, project, work, after, limit}:
+      join(text_binding(query), join(natural_binding(project), join(natural_binding(work), join(natural_binding(after), natural_binding(limit)))))
     case Native.Project{project}: natural_binding(project)
     case _: empty_bindings()
 
@@ -237,6 +239,12 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
       Native.TextArgument{"message", "Initial nonempty user request", True{}, ""}, Native.SettingsArgument{"settings", False{}}}}),
   List.append(&2, D.Tool, catalog_entry(Request{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
     Native.Fork{Native.RequiredNumber{"child_count", "Number of children", 1, U32.from_nat(max_fork)}, Native.TextsArgument{"messages", "Initial child message", False{}}, Native.SettingsArgument{"settings", False{}}}}),
+    List.append(&2, D.Tool, catalog_entry(Request{"search_history", "Search user and assistant messages across tasks by a literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Returns bounded snippets and 0-based message_index; use read_task with after=message_index to read the original message.",
+      Native.Observe{Native.Search{Native.TextArgument{"query", "Literal keyword or phrase, 1..240 characters", True{}, ""},
+        Native.OptionalNumber{"project_id", "Optional project identity", 0, 4294967295, Native.ConstantDefault{0n}},
+        Native.OptionalNumber{"work_id", "Optional Work identity", 0, 4294967295, Native.ConstantDefault{0n}},
+        Native.OptionalNumber{"after", "Result offset", 0, 4294967295, Native.ConstantDefault{0n}},
+        Native.OptionalNumber{"limit", "Maximum results", 1, 50, Native.ConstantDefault{20n}}}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
     Native.Observe{Native.Read{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.OptionalNumber{"after", "Exclusive history offset", 0, 4294967295, Native.ConstantDefault{0n}}, Native.OptionalNumber{"limit", "Maximum messages", 1, 100, Native.ConstantDefault{100n}}}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
@@ -250,4 +258,4 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
     List.append(&2, D.Tool, catalog_entry(Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
       Native.ProcessWrite{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))))
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}}))))))))))

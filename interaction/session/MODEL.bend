@@ -2,6 +2,7 @@ import ../interactive_markdown/DOCUMENTS.bend as Documents
 import ../interactive_markdown/TYPES.bend as Interactive
 import ../experience/PROGRAM.bend as UX
 import Base
+import ../search/MODEL.bend as Search
 import ../../features/titles/MODEL.bend as Titles
 import ../../features/titles/STATE.bend as TitleState
 import ../../harness/tasks/PROGRAM.bend as Tasks
@@ -84,6 +85,7 @@ type Completion is Data:
   InteractiveCompletion{owner: Interactive.Owner, path: String, ticket: Nat}
 
 type Effect is Data:
+  LocateHistoryMessage{task: Nat, message_index: Nat}
   RequestCommand{command: M.Command, completion: Completion}
   ContentEffect{identity: Content.Identity, effect: Content.Effect}
   ObserveDirectories{ticket: Nat, entered: D.Workspace}
@@ -2058,6 +2060,38 @@ def open_requested_panel(panel: U.Panel, trigger: String, +application: Applicat
     case U.PropertySource{+origin}: open_source_checked(source_origin_owned(layers(session(application)), origin), origin, trigger, application)
     case other: open_panel(other, trigger, application)
 
+# The form retains one bounded query page; publication only observes this result.
+def edit_history_search_at(current: U.Route, +change: Search.Edit, +application: Application) -> Decision:
+  match current:
+    case U.HistorySearch{search}:
+      Application{program, session} = application
+      local(program, with_route(U.HistorySearch{Search.edit(change, search)}, session), Nil{})
+    case _: unchanged(application)
+
+def edit_history_search(change: Search.Edit, +application: Application) -> Decision:
+  edit_history_search_at(route(session(application)), change, application)
+
+def submit_history_search_at(current: U.Route, +after: Nat, +application: Application) -> Decision:
+  match current:
+    case U.HistorySearch{search}:
+      Application{+program, session} = application
+      local(program, with_route(U.HistorySearch{Search.submit(after, search, program)}, session), Nil{})
+    case _: unchanged(application)
+
+def submit_history_search(after: Nat, +application: Application) -> Decision:
+  submit_history_search_at(route(session(application)), after, application)
+
+def positioned_history_message(+task: Nat, +message_index: Nat, +reply: J.Json, +runtime: +List<M.Effect()>, +effects: +List<Effect>, +durable: Bool, positioned: Decision) -> Decision:
+  Decision{application, ignored, other_runtime, other_effects, other_durable} = positioned
+  Decision{application, reply, runtime, List.append(&2, Effect, effects, [LocateHistoryMessage{task, message_index}]), durable}
+
+def locate_history_message(+task: Nat, +message_index: Nat, decision: Decision) -> Decision:
+  Decision{application, reply, runtime, effects, durable} = decision
+  positioned_history_message(task, message_index, reply, runtime, effects, durable, read(task, U.ReadHistory{}, application))
+
+def open_history_message(+task: Nat, message_index: Nat, application: Application) -> Decision:
+  locate_history_message(task, message_index, visit(U.Conversation{task}, application))
+
 def activate_selected(action: U.Action, +application: Application) -> Decision:
   match action:
     case U.SelectWork{work}: observe_scope_workspace(select_work(work, application))
@@ -2066,6 +2100,8 @@ def activate_selected(action: U.Action, +application: Application) -> Decision:
     case U.SelectProject{project}: observe_workspace_git(begin_task(project, application))
     case U.ToggleProjectGroup{project}: toggle_project(project, application)
     case U.Navigate{route}: visit(route, application)
+    case U.SubmitHistorySearch{after}: submit_history_search(after, application)
+    case U.OpenHistoryMessage{task, message_index}: open_history_message(task, message_index, application)
     case U.BeginTask{+project}: observe_workspace_git(begin_task(project, application))
     case U.EditProject{+project}: project_editor(project, application)
     case U.NewCard{stage}: new_card(stage, application)
@@ -2365,6 +2401,8 @@ def user(input: U.Input, application: Application) -> Decision:
       +target = navigation_focus(expanded)
       local(program, Session{route, drafts, readers, layers, target, advance_navigation_selection(set_navigation(expanded, previous)), filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, [Attend{target}])
     case U.SearchChoices{query}: search_choices(query, application)
+    case U.WriteHistoryQuery{query}: edit_history_search(Search.Write{query}, application)
+    case U.ChooseHistoryScope{project, value}: edit_history_search(Search.Choose{project, value}, application)
     case U.FilterBoard{filter}:
       Application{program, Session{route, drafts, readers, layers, attention, navigation, previous, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}} = application
       local(program, Session{route, drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}, Nil{})

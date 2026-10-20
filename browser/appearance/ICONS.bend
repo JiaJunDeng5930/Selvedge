@@ -28,6 +28,7 @@ def symbol(icon: Controls.Icon) -> Symbol:
     case Controls.Tag{}: Symbol{"M3 3h7l7 7-7 7-7-7ZM7 7h.01", Source.StrokedDrawing{14n}}
     case Controls.User{}: Symbol{"M13 6a3 3 0 1 1-6 0a3 3 0 1 1 6 0M4 17v-2a6 6 0 0 1 12 0v2", Source.StrokedDrawing{14n}}
     case Controls.Bot{}: Symbol{"M6 6h8a3 3 0 0 1 3 3v6H3V9a3 3 0 0 1 3-3ZM10 6V3M7 10h.01M13 10h.01M7 13h6", Source.StrokedDrawing{14n}}
+    case Controls.Magnifier{}: Symbol{"M14 8a6 6 0 1 1-12 0 6 6 0 0 1 12 0Zm-1.5 4.5L18 18", Source.StrokedDrawing{14n}}
     case Controls.Clock{}: Symbol{"M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0ZM10 5v5l3 2", Source.StrokedDrawing{14n}}
     case Controls.Status{stage}: Symbol{status_path(stage), Source.StrokedDrawing{14n}}
     case Controls.Priority{priority}: Symbol{priority_path(priority), Source.StrokedDrawing{14n}}

@@ -105,6 +105,9 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
       M.ReturnSideConversation{Protocol.number(body, "task_id", 0n)}
     case M.ReadCommand{}:
       M.Observe{M.Read{Protocol.number(body, "task_id", 0n), Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 100n)}}
+    case M.SearchHistoryCommand{}:
+      M.Observe{M.Search{J.text(J.get(body, "query")), J.natural(J.get(body, "project_id")), J.natural(J.get(body, "work_id")),
+        Protocol.number(body, "after", 0n), Protocol.number(body, "limit", 20n)}}
     case M.ListCommand{}: M.Observe{M.ListTasks{}}
     case M.CompactCommand{}: M.Compact{Protocol.number(body, "task_id", 0n), J.optional_text(J.get(body, "summary"))}
     case M.DescribeCommand{}: M.Observe{M.Describe{}}

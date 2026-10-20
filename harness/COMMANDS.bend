@@ -1,6 +1,8 @@
 import ./features/idle.bend as IdleCreation
 import ./conversation/speech.bend as Speech
 import Base
+import ./search/MODEL.bend as SearchModel
+import ./search/PROGRAM.bend as Search
 import ../features/titles/STATE.bend as Titles
 import ../features/compaction/SPEC.bend as Compaction
 import ../bendlib/categories.bend as Categories
@@ -818,9 +820,35 @@ def listing_environment(+world: M.World(), environment_value: D.Environment) -> 
 def listing(+world: M.World()) -> J.Json:
   listing_environment(world, D.state_environment(C.local(D.State, F.State(), world)))
 
+def search_sources(tasks: +List<D.Task>, +world: M.World()) -> +List<SearchModel.Source>:
+  match tasks:
+    case Nil{}: Nil{}
+    case Con{+task, rest}:
+      SearchModel.Source{task, task_work_summary(task, world), WorkState.task_work(task, world)} <> search_sources(rest, world)
+
+def search_project_exists(project: Maybe<&2, Nat>, world: M.World()) -> Bool:
+  match project:
+    case None{}: True{}
+    case Some{id}: Bool.not(Projects.missing(Projects.find(Projects.registry(F.State(), world), id)))
+
+def search_work_exists(work: Maybe<&2, Nat>, world: M.World()) -> Bool:
+  match work:
+    case None{}: True{}
+    case Some{id}: WorkState.exists(id, world)
+
+def search_scoped(project_exists: Bool, work_exists: Bool, query: String, project: Maybe<&2, Nat>, work: Maybe<&2, Nat>, after: Nat, limit: Nat, +world: M.World()) -> J.Json:
+  match project_exists work_exists:
+    case False{} _: D.failure("project_not_found", "The project does not exist")
+    case True{} False{}: D.failure("work_not_found", "The Work does not exist")
+    case True{} True{}: Search.execute(search_sources(entries(world), world), query, project, work, after, limit)
+
+def search_history(query: String, +project: Maybe<&2, Nat>, +work: Maybe<&2, Nat>, after: Nat, limit: Nat, +world: M.World()) -> J.Json:
+  search_scoped(search_project_exists(project, world), search_work_exists(work, world), query, project, work, after, limit, world)
+
 def query(query: M.Query, +world: M.World()) -> J.Json:
   match query:
     case M.Read{id, after, limit}: page(T.find(entries(world), id), after, limit, world)
+    case M.Search{query, project, work, after, limit}: search_history(query, project, work, after, limit, world)
     case M.ListTasks{}: listing(world)
     case M.Describe{}: D.success(M.description())
     case M.ListProjects{}: D.success(J.Array{Projects.summaries(Projects.entries(Projects.registry(F.State(), world)), entries(world))})

@@ -55,6 +55,10 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{[J.Field{"op", J.Text{"return_side_conversation"}}, J.Field{"task_id", J.nat(id)}]}
     case M.Observe{M.Read{id, after, limit}}:
       J.Object{[J.Field{"op", J.Text{"read"}}, J.Field{"task_id", J.nat(id)}, J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]}
+    case M.Observe{M.Search{query, project, work, after, limit}}:
+      J.Object{optional_field("project_id", J.optional_nat(project), optional_field("work_id", J.optional_nat(work),
+        [J.Field{"op", J.Text{"search_history"}}, J.Field{"query", J.Text{query}},
+         J.Field{"after", J.nat(after)}, J.Field{"limit", J.nat(limit)}]))}
     case M.Observe{M.ListTasks{}}: J.Object{[J.Field{"op", J.Text{"list"}}]}
     case M.Observe{M.Describe{}}: J.Object{[J.Field{"op", J.Text{"describe"}}]}
     case M.Observe{M.ListProjects{}}: J.Object{[J.Field{"op", J.Text{"list_projects"}}]}

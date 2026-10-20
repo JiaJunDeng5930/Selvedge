@@ -50,6 +50,8 @@ def layer_region_agreement(+meaning: Surface.Meaning) ->
     case Surface.InteractiveView{event, command, label, enabled}: {==}
     case Surface.Activate{input, availability}: {==}
     case Surface.Edit{editor, field, entry, value, choices}: {==}
+    case Surface.HistorySearchQuery{query}: {==}
+    case Surface.HistorySearchScope{project, value, choices}: {==}
     case Surface.SearchChoices{query}: {==}
     case Surface.ReceiveFile{editor, enabled}: {==}
     case Surface.EnterDirectory{editor, text}: {==}

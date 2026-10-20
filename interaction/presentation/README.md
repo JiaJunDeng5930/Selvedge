@@ -9,7 +9,7 @@ Work forms retain the same identity. Work overview uses ordinary modal layers
 and actual Task summaries; selecting a card uses the same Work navigation.
 
 `workspace_navigation` keeps the desktop rail and tabs. Narrow capacity instead
-uses `GlobalNavigation` on the existing panel stack; its six destinations keep
+uses `GlobalNavigation` on the existing panel stack; its global destinations keep
 their authoritative inputs. `compact_navigation` moves the unique header into
 the expanded Task tree's modal scope, so its launchers remain usable. Closing
 returns that same header to the base. Global menu and overview layers can cover

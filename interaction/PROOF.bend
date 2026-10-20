@@ -1,3 +1,4 @@
+import ./search/PROOF.bend as HistorySearchProof
 import ./speech/PROOF.bend as SpeechProof
 import ./speech/MODEL.bend as Speech
 import ./INPUT.bend as U

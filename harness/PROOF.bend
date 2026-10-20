@@ -1,3 +1,4 @@
+import ./search/PROOF.bend as SearchProof
 import ./conversation/speech-proof.bend as SpeechProof
 import Base
 import ./tasks/PROOF.bend as TaskProof

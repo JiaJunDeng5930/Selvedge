@@ -408,6 +408,9 @@ def native_query(query: Native.Query, +arguments: J.Json, +caller: Nat) -> M.Que
   match query:
     case Native.Read{target, after, limit}:
       M.Read{Native.number(target, arguments, caller), Native.number(after, arguments, caller), Native.number(limit, arguments, caller)}
+    case Native.Search{query, project, work, after, limit}:
+      M.Search{Native.text(query, arguments), Native.optional_number(project, arguments, caller), Native.optional_number(work, arguments, caller),
+        Native.number(after, arguments, caller), Native.number(limit, arguments, caller)}
     case Native.Tasks{}: M.ListTasks{}
     case Native.Describe{}: M.Describe{}
     case Native.Projects{}: M.ListProjects{}

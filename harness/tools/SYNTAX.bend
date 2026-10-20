@@ -25,6 +25,7 @@ type Settings is Data:
 
 type Query is Data:
   Read{task: Natural, after: Natural, limit: Natural}
+  Search{query: Text, project: Natural, work: Natural, after: Natural, limit: Natural}
   Tasks{}
   Describe{}
   Projects{}
@@ -63,6 +64,11 @@ def number(term: Natural, +args: J.Json, caller: Nat) -> Nat:
     case OptionalNumber{key, description, minimum, maximum, fallback}:
       J.natural_or(J.natural(J.get(args, key)), default_number(fallback, caller))
 
+def optional_number(term: Natural, +args: J.Json, caller: Nat) -> Maybe<&2, Nat>:
+  match term:
+    case OptionalNumber{key, description, minimum, maximum, fallback}: J.natural(J.get(args, key))
+    case other: Some{number(other, args, caller)}
+
 def bounded_number(value: Maybe<&2, U32>, minimum: U32, maximum: U32) -> Bool:
   match value:
     case None{}: False{}
@@ -80,6 +86,7 @@ def natural_defaults_valid(term: Natural) -> Bool:
 def query_defaults_valid(query: Query) -> Bool:
   match query:
     case Read{task, after, limit}: natural_defaults_valid(task) && natural_defaults_valid(after) && natural_defaults_valid(limit)
+    case Search{query, project, work, after, limit}: natural_defaults_valid(project) && natural_defaults_valid(work) && natural_defaults_valid(after) && natural_defaults_valid(limit)
     case Project{project}: natural_defaults_valid(project)
     case _: True{}
 
@@ -109,6 +116,7 @@ def natural_caller_valid(term: Natural, +args: J.Json, caller: Nat) -> Bool:
 def query_caller_valid(query: Query, +args: J.Json, +caller: Nat) -> Bool:
   match query:
     case Read{task, after, limit}: natural_caller_valid(task, args, caller) && natural_caller_valid(after, args, caller) && natural_caller_valid(limit, args, caller)
+    case Search{query, project, work, after, limit}: natural_caller_valid(project, args, caller) && natural_caller_valid(work, args, caller) && natural_caller_valid(after, args, caller) && natural_caller_valid(limit, args, caller)
     case Project{project}: natural_caller_valid(project, args, caller)
     case _: True{}
 
@@ -176,6 +184,7 @@ def settings_json(value: Settings) -> J.Json:
 def query_json(value: Query) -> J.Json:
   match value:
     case Read{task, after, limit}: J.Object{[J.Field{"kind", J.Text{"Read"}}, J.Field{"task", number_json(task)}, J.Field{"after", number_json(after)}, J.Field{"limit", number_json(limit)}]}
+    case Search{query, project, work, after, limit}: J.Object{[J.Field{"kind", J.Text{"Search"}}, J.Field{"query", text_json(query)}, J.Field{"project", number_json(project)}, J.Field{"work", number_json(work)}, J.Field{"after", number_json(after)}, J.Field{"limit", number_json(limit)}]}
     case Tasks{}: J.Object{[J.Field{"kind", J.Text{"Tasks"}}]}
     case Describe{}: J.Object{[J.Field{"kind", J.Text{"Describe"}}]}
     case Projects{}: J.Object{[J.Field{"kind", J.Text{"Projects"}}]}
