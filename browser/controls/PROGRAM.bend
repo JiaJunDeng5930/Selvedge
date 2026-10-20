@@ -494,6 +494,7 @@ def submit_purpose(editor: UserInput.Editor) -> Purpose:
 
 def route_icon(route: UserInput.Route) -> Icon:
   match route:
+    case UserInput.SharedUI{work, task}: Columns{}
     case UserInput.Start{}: Plus{}
     case UserInput.Conversation{task}: Conversation{}
     case UserInput.ProjectHome{project}: Folder{}

@@ -30,7 +30,9 @@ proof files bind those requirements to the actual operations.
 
 The public operations are `MODEL.initial`, `MODEL.step`, `MODEL.observe`,
 `MODEL.source_requests`, and `MODEL.eligible_fence`. `DOCUMENTS` owns the outer
-Markdown origin, parser observation and interrupted-output lifecycle. A core
+Markdown origin, parser observation and interrupted-output lifecycle. Its `shared`
+entry admits a complete raw definition under a generic shared owner in the same
+core; the application assembly supplies Work identity and current source. A core
 `Owner` is supplied by that layer; it never derives identity from source text or
 DOM position. Each event is checked against the current expanded node and mount
 occurrence before local state or an external effect can change.

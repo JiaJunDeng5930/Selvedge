@@ -71,6 +71,11 @@ combined Work/worktree command's default-cwd observation. The dedicated Git prob
 owns dirty-file copying and recovery. Native caller identity, Work and graph
 commands remain in the [native invocation construction](../harness/protocol/PROGRAM.bend)
 and [feature assembly evidence](../harness/features/laws.bend).
+The shared Work UI probe drives real model tool calls to catch errors in implicit
+Work selection, patch result delivery and durable source storage across journal
+reopen, using another Task and a derived Task against the same persisted UI. It
+also guards against the reproduced generated-JavaScript stack overflow on a legal
+3000-line source replacement.
 [Title evidence](../features/titles/PROOF.bend) owns saved settings and generation;
 titles use the ordinary host model transport and journal, without another
 feature-specific HTTP/SQLite trace.

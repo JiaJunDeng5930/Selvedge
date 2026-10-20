@@ -73,8 +73,9 @@ def graph_ids(graphs: +List<Finite.Entry(Nat)>, +work: Nat) -> +List<J.Json>:
     case Con{(graph, owner), rest}:
       include_id(Nat.is_eq(owner, work), graph, graph_ids(rest, work))
 
-def detail(+id: Nat, work: W.Work, +world: M.World()) -> J.Json:
+def detail(+id: Nat, +work: W.Work, +world: M.World()) -> J.Json:
   J.Object{[J.Field{"work_id", J.nat(id)}, J.Field{"name", J.Text{W.name(work)}},
+    J.Field{"ui_source", J.Text{W.ui_source(work)}}, J.Field{"ui_revision", J.nat(W.ui_revision(work))},
     J.Field{"task_ids", J.Array{task_ids(D.state_tasks(C.local(D.State, F.State(), world)), id, world)}},
     J.Field{"graph_ids", J.Array{graph_ids(W.graphs(registry(world)), id)}}]}
 
@@ -88,9 +89,36 @@ def found_detail(found: Maybe<&2, W.Work>, id: Nat, world: M.World()) -> J.Json:
     case None{}: D.failure("work_not_found", "The Work does not exist")
     case Some{work}: D.success(detail(id, work, world))
 
+
+def ui_found(found: Maybe<&2, W.Work>, id: Nat) -> J.Json:
+  match found:
+    case None{}: D.failure("work_not_found", "The Work does not exist.")
+    case Some{work}: D.success(W.ui_json(id, work))
+
+def ui_owner(owner: Maybe<&2, Nat>, +world: M.World()) -> J.Json:
+  match owner:
+    case None{}: D.failure("no_work", "This Task does not belong to a Work.")
+    case Some{+id}: ui_found(W.find(registry(world), id), id)
+
+def ui_query(caller: Maybe<&2, Nat>, +world: M.World()) -> J.Json:
+  match caller:
+    case None{}: D.failure("task_call_required", "Read the shared UI through a Task tool call.")
+    case Some{task}: ui_owner(task_owner(task, world), world)
+
+def ui_patch_owner(owner: Maybe<&2, Nat>, patch: String, revision: Nat, world: M.World()) -> W.Resolution:
+  match owner:
+    case None{}: W.Refuse{"no_work", "This Task does not belong to a Work."}
+    case Some{+id}: W.patch_found(W.find(registry(world), id), id, patch, revision)
+
+def ui_patch(caller: Maybe<&2, Nat>, patch: String, revision: Nat, +world: M.World()) -> W.Resolution:
+  match caller:
+    case None{}: W.Refuse{"task_call_required", "Edit the shared UI through a Task tool call."}
+    case Some{task}: ui_patch_owner(task_owner(task, world), patch, revision, world)
+
 def query(query: W.Query, +world: M.World()) -> J.Json:
   match query:
     case W.ListWorks{}: D.success(J.Object{[J.Field{"works", J.Array{details(W.works(registry(world)), world)}}]})
+    case W.ReadUI{caller}: ui_query(caller, world)
     case W.ReadWork{+id}: found_detail(W.find(registry(world), id), id, world)
 
 def root_lineage(lineage: +List<Nat>) -> Bool:

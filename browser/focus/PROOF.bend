@@ -423,6 +423,7 @@ def route_layout_policy(+route: U.Route, +readers: +List<Finite.Entry(E.Reader)>
     case U.ProjectCollection{}: {==}
     case U.TaskBoard{}: {==}
     case U.AgentCollection{}: {==}
+    case U.SharedUI{work, task}: {==}
     case U.TaskGraphs{}: {==}
     case U.HistorySearch{search}: {==}
 

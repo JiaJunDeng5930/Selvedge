@@ -26,3 +26,12 @@ decision. Worktree rejection leaves the original world and emits no effects.
 It also derives query Task IDs
 from each Task's identity and lineage. This module has no Task execution or host
 effects.
+
+Each Work also owns persistent UI source and a revision. The `read_work_ui` and
+`apply_work_ui_patch` tools infer ownership from the calling Task and its lineage.
+A Task outside a Work receives an explicit error. Patches target the single virtual
+file `work-ui.dsl`; an expected revision prevents one Task from overwriting another
+Task's intervening edit. The source uses the existing `selvedge-ui` language without
+a Markdown fence, and invalid DSL remains available for inspection and repair.
+`ui-patch.bend` parses exact-context patches; `SharedUI` in the contract binds UI
+writes, revision changes, Work identity and unrelated ownership to production.

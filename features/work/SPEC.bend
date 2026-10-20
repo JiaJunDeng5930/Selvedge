@@ -24,3 +24,6 @@ def meaning(change: W.Change, +state: W.State) -> C.Decision<W.State, Unit>:
     case W.Retitle{+id, +work}:
       W.State{works, roots, graphs, previous_next} = state
       C.Decision{W.State{store(works, id, work), roots, graphs, previous_next}, D.success(W.work_json(id, work)), Nil{}}
+    case W.UpdateUI{+id, +work}:
+      W.State{works, roots, graphs, previous_next} = state
+      C.Decision{W.State{store(works, id, work), roots, graphs, previous_next}, D.success(W.ui_json(id, work)), Nil{}}

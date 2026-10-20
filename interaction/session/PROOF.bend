@@ -12,8 +12,10 @@ import ../submission/FIELDS.bend as Forms
 import ../../bendlib/categories.bend as Categories
 import ../../harness/INVARIANTS.bend as I
 import ../../features/board/MODEL.bend as B
+import ../../features/work/MODEL.bend as Work
 import ../../features/board/STATE.bend as Board
 import ../../harness/MODEL.bend as M
+import ../../harness/features/work-state.bend as WorkState
 import ../../harness/PROGRAM.bend as Program
 import ../../bendlib/association-map.bend as Finite
 import ../../bendlib/component.bend as C
@@ -684,6 +686,116 @@ def captured_ready_complete(+ready: Bool, +task: Nat, +owner: Interactive.Owner,
       +command: M.Command = U.message_command(U.Send{}, task, message)
       captured_request_complete(Commands.resolve(command, E.program(application)), command, owner, path, ticket, application)
 
+def shared_document_owner_complete(+found: Maybe<&2, Documents.Document>, +owner: Interactive.Owner) ->
+  {Documents.shared_owner_found(found, owner) == Rule.shared_document_owner(found, owner) : Bool}:
+  match found:
+    case None{}: {==}
+    case Some{Documents.Document{+source, text, +epoch, revision, ending, observed, +fences, +active}}:
+      Equal.cong(Bool, Bool, accepted => active && accepted,
+        Documents.owner_matches(fences, source, epoch, owner), DocumentDomain.fence_owned(source, epoch, owner, fences),
+        DocumentRequirement.fence_owner_meaning(fences, source, epoch, owner))
+
+def shared_owner_complete(+owner: Interactive.Owner, +work: Nat, +state: Documents.State) ->
+  {Documents.shared_owner(owner, E.shared_ui_owner(work), state) == Rule.shared_owns(owner, work, state) : Bool}:
+  +source: Content.Source = Content.SharedDocument{Documents.namespace(state), "work/" ++ Nat.show(work)}
+  +key: String = Content.source_key(source)
+  +documents: +List<Documents.Document> = Documents.documents(state)
+  Equal.trans(Bool, Documents.shared_owner(owner, E.shared_ui_owner(work), state),
+    Rule.shared_document_owner(Documents.find(documents, key), owner), Rule.shared_owns(owner, work, state),
+    shared_document_owner_complete(Documents.find(documents, key), owner),
+    Equal.cong(Maybe<&2, Documents.Document>, Bool, found => Rule.shared_document_owner(found, owner),
+      Documents.find(documents, key), DocumentDomain.document_lookup(key, documents),
+      DocumentRequirement.lookup_meaning(documents, key)))
+
+def task_in_work_complete(+current: Maybe<&2, Nat>, +work: Nat) ->
+  {E.same_work(Some{work}, current) == Rule.task_in_work(current, work) : Bool}:
+  match current:
+    case None{}: {==}
+    case Some{value}: {==}
+
+def selected_work_task_complete(+selected: Maybe<&2, Nat>, +work: Nat, +world: M.World()) ->
+  {E.shared_action_task(selected, work, world) == Rule.selected_work_task(selected, work, world) : Maybe<&2, Nat>}:
+  match selected:
+    case None{}: {==}
+    case Some{+task}:
+      Equal.cong(Bool, Maybe<&2, Nat>, owned => Bool.pick(Maybe<&2, Nat>, owned, Some{task}, None{}),
+        E.same_work(Some{work}, WorkState.task_owner(task, world)), Rule.task_in_work(WorkState.task_owner(task, world), work),
+        task_in_work_complete(WorkState.task_owner(task, world), work))
+
+def shared_action_choice_complete(+owned: Bool, +owner: Interactive.Owner, +work: Nat, +selected: Maybe<&2, Nat>, +application: E.Application) ->
+  {E.shared_action_owner(owned, owner, work, selected, application) == Rule.shared_action_choice(owned, work, selected, Rule.document_action_task(owner, application), E.program(application)) : Maybe<&2, Nat>}:
+  match owned:
+    case True{}: selected_work_task_complete(selected, work, E.program(application))
+    case False{}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+
+def shared_action_route_complete(+work: Nat, +selected: Maybe<&2, Nat>, +owner: Interactive.Owner, +application: E.Application) ->
+  {E.interactive_action_route(U.SharedUI{work, selected}, owner, application) == Rule.action_task_at(U.SharedUI{work, selected}, owner, application) : Maybe<&2, Nat>}:
+  +documents: Documents.State = E.interactive_data(E.session(application))
+  +owned: Bool = Documents.shared_owner(owner, E.shared_ui_owner(work), documents)
+  Equal.trans(Maybe<&2, Nat>, E.interactive_action_route(U.SharedUI{work, selected}, owner, application),
+    Rule.shared_action_choice(owned, work, selected, Rule.document_action_task(owner, application), E.program(application)),
+    Rule.action_task_at(U.SharedUI{work, selected}, owner, application),
+    shared_action_choice_complete(owned, owner, work, selected, application),
+    Equal.cong(Bool, Maybe<&2, Nat>, accepted => Rule.shared_action_choice(accepted, work, selected, Rule.document_action_task(owner, application), E.program(application)),
+      owned, Rule.shared_owns(owner, work, documents), shared_owner_complete(owner, work, documents)))
+
+def action_route_complete(+route: U.Route, +owner: Interactive.Owner, +application: E.Application) ->
+  {E.interactive_action_route(route, owner, application) == Rule.action_task_at(route, owner, application) : Maybe<&2, Nat>}:
+  match route:
+    case U.SharedUI{work, selected}: shared_action_route_complete(work, selected, owner, application)
+    case U.Start{}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.Conversation{task}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.ProjectHome{project}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.ProjectCollection{}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.TaskBoard{}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.AgentCollection{}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.TaskGraphs{}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+    case U.HistorySearch{search}: DocumentRequirement.current_task_owner_meaning(owner, E.interactive_data(E.session(application)))
+
+def Rule.interactive_action_owner(owner, application):
+  action_route_complete(E.route(E.session(application)), owner, application)
+
+def fill_composer_empty_complete(+found: Maybe<&2, U.Draft>) ->
+  {E.interactive_draft_empty(found) == Rule.fill_composer_empty(found) : Bool}:
+  match found:
+    case None{}: {==}
+    case Some{U.Draft{revision, U.WorkName{work, name}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.Message{task, U.Text{text, images}, delivery}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.Project{project, name, workspace, create_worktree}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.Card{card, version, value, assist, profile, keep_open}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.Agent{agent, version, name, profile, reasoning, instructions, context, concurrency}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.Fork{task, count, messages, context}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.Compact{task, summary}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.TaskGraph{graph, declaration, parsed, work}, feedback, entry}}: {==}
+    case Some{U.Draft{revision, U.TitlePrompts{version, prompts}, feedback, entry}}: {==}
+
+def captured_fill_empty_complete(+empty: Bool, +task: Nat, +message: String, +application: E.Application) ->
+  {E.interactive_fill_empty(empty, task, message, application) == Rule.captured_fill_empty(empty, task, message, application) : E.Decision}:
+  match empty:
+    case False{}: {==}
+    case True{}: {==}
+
+def captured_fill_owner_complete(+task: Maybe<&2, Nat>, +message: String, +application: E.Application) ->
+  {E.interactive_fill_owned(task, message, application) == Rule.captured_fill_owner(task, message, application) : E.Decision}:
+  match task:
+    case None{}: {==}
+    case Some{+id}:
+      +found: Maybe<&2, U.Draft> = E.find_draft(E.drafts(E.session(application)), U.MessageEditor{id})
+      Equal.trans(E.Decision, E.interactive_fill_owned(Some{id}, message, application),
+        Rule.captured_fill_empty(E.interactive_draft_empty(found), id, message, application),
+        Rule.captured_fill_owner(Some{id}, message, application),
+        captured_fill_empty_complete(E.interactive_draft_empty(found), id, message, application),
+        Equal.cong(Bool, E.Decision, empty => Rule.captured_fill_empty(empty, id, message, application),
+          E.interactive_draft_empty(found), Rule.fill_composer_empty(found), fill_composer_empty_complete(found)))
+
+def Rule.interactive_fill(owner, path, message, application):
+  Equal.trans(E.Decision, E.interpret_interactive_effect(Interactive.FillDraft{owner, path, message}, application),
+    E.interactive_fill_owned(Rule.action_task(owner, application), message, application), Rule.captured_fill(owner, message, application),
+    Equal.cong(Maybe<&2, Nat>, E.Decision, task => E.interactive_fill_owned(task, message, application),
+      E.interactive_action_task(owner, application), Rule.action_task(owner, application), Rule.interactive_action_owner(owner, application)),
+    captured_fill_owner_complete(Rule.action_task(owner, application), message, application))
+
 def captured_owner_complete(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) ->
   {E.interactive_send_owned(task, owner, path, ticket, message, application) == Rule.captured_send_owner(task, owner, path, ticket, message, application) : E.Decision}:
   match task:
@@ -692,7 +804,11 @@ def captured_owner_complete(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +p
       captured_ready_complete(E.submission_ready(E.pending(E.session(application)), E.program(application), U.Draft{0n, U.Message{id, U.initial_text(message), U.Send{}}, U.Editing{}, ""}), id, owner, path, ticket, message, application)
 
 def Rule.interactive_send(owner, path, ticket, message, application):
-  captured_owner_complete(Documents.current_owning_task(owner, E.interactive_data(E.session(application))), owner, path, ticket, message, application)
+  Equal.trans(E.Decision, E.interpret_interactive_effect(Interactive.SendMessage{owner, path, ticket, message}, application),
+    E.interactive_send_owned(Rule.action_task(owner, application), owner, path, ticket, message, application), Rule.captured_send(owner, path, ticket, message, application),
+    Equal.cong(Maybe<&2, Nat>, E.Decision, task => E.interactive_send_owned(task, owner, path, ticket, message, application),
+      E.interactive_action_task(owner, application), Rule.action_task(owner, application), Rule.interactive_action_owner(owner, application)),
+    captured_owner_complete(Rule.action_task(owner, application), owner, path, ticket, message, application))
 
 def work_creation_refinement(current: Bool, +result: J.Json, +application: E.Application) ->
   {E.complete_work_creation(current, result, application) == Rule.work_creation_spec(current, result, application) : E.Decision}:
@@ -1045,5 +1161,27 @@ def Rule.side_return_is_explicit(task): {==}
 def Rule.visible_tasks_include_side_windows_and_the_original_route(route, layers, session):
   E.Session{old, drafts, readers, previous, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, preference, manual, git, interactive} = session
   {==}
-def Rule.interactive_documents_follow_visible_tasks(application): {==}
+def shared_work_document_complete(+found: Maybe<&2, Work.Work>, +work: Nat, +previous: E.Decision) ->
+  {E.shared_ui_found(found, work, previous) == Rule.required_work_document(found, work, previous) : E.Decision}:
+  match found:
+    case None{}: {==}
+    case Some{value}: {==}
+
+def shared_documents_route_complete(+route: U.Route, +previous: E.Decision) ->
+  {E.shared_ui_route(route, previous) == Rule.required_shared_documents(route, previous) : E.Decision}:
+  match route:
+    case U.SharedUI{work, task}:
+      shared_work_document_complete(Work.find(WorkState.registry(E.program(E.decision_application(previous))), work), work, previous)
+    case U.Start{}: {==}
+    case U.Conversation{task}: {==}
+    case U.ProjectHome{project}: {==}
+    case U.ProjectCollection{}: {==}
+    case U.TaskBoard{}: {==}
+    case U.AgentCollection{}: {==}
+    case U.TaskGraphs{}: {==}
+    case U.HistorySearch{search}: {==}
+
+def Rule.interactive_documents_follow_visible_tasks(application):
+  +tasks: E.Decision = E.interactive_result(Documents.reconcile_visible(E.visible_tasks(E.session(application)), E.previews(E.session(application)), E.program(application), E.interactive_data(E.session(application))), application)
+  shared_documents_route_complete(E.route(E.session(E.decision_application(tasks))), tasks)
 def Rule.captured_interactive_send_remains_literal(task, message, now): {==}

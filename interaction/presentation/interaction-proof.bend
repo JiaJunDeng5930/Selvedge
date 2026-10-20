@@ -337,6 +337,7 @@ def page_sequence(+page: V.Page, +parent: Identity.Key, +state: InteractionTypes
     case V.ProjectsPage{projects, create}: {==}
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
+    case V.SharedUIPage{work, name, source}: {==}
     case V.TaskGraphsPage{graphs, create}: {==}
     case V.HistorySearchPage{search, projects, works}: {==}
     case V.MissingObject{message}: {==}
@@ -362,6 +363,7 @@ def page_only_regions(+page: V.Page, +parent: Identity.Key, +state: InteractionT
     case V.ProjectsPage{projects, create}: {==}
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
+    case V.SharedUIPage{work, name, source}: {==}
     case V.TaskGraphsPage{graphs, create}: {==}
     case V.HistorySearchPage{search, projects, works}: {==}
     case V.MissingObject{message}: {==}
@@ -441,6 +443,7 @@ def page_payload(+page: V.Page, +state: InteractionTypes.State) ->
     case V.ProjectsPage{projects, create}: {==}
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
+    case V.SharedUIPage{work, name, source}: {==}
     case V.TaskGraphsPage{graphs, create}: {==}
     case V.HistorySearchPage{search, projects, works}: {==}
     case V.MissingObject{message}: {==}
@@ -723,6 +726,7 @@ def structure_evidence(recipe: Composition.Recipe)
     case Composition.Recipe{measure, heading, Composition.ProjectRows{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.StageColumns{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.AgentRows{}, composer, decisions, latest}: {==}
+    case Composition.Recipe{measure, heading, Composition.SharedInterfaceBody{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.TaskGraphRows{}, composer, decisions, latest}: {==}
     case Composition.Recipe{measure, heading, Composition.UnavailableNotice{}, composer, decisions, latest}: {==}
 
@@ -1149,6 +1153,7 @@ def fence_message_source_complete(+viewer: Nat, +id: Nat, +message: D.Message, +
 def fence_output_key_complete(+source: Code.Source, +fallback: Identity.Key) ->
   {Model.output_key(source, fallback) == Rule.expected_output_key(source, fallback) : Identity.Key}:
   match source:
+    case Code.SharedDocument{namespace, owner}: {==}
     case Code.Message{task, message}: {==}
     case Code.StreamingPart{task, operation, part}: {==}
     case Code.Generated{namespace, viewer, origin, complete}: {==}

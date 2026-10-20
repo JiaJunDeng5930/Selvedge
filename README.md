@@ -55,6 +55,11 @@ inputs, tables, charts and live task graphs update without another model call;
 ordinary Markdown uses the existing parser. The [design](interaction/interactive_markdown/DESIGN.md)
 describes the streaming, ownership, state, persistence and publication contracts.
 
+Each Work also has a persistent **共享 UI** page above its Task list. It uses the
+same DSL and controls as interactive replies. Tasks in that Work can inspect its
+source with `read_work_ui` and edit `work-ui.dsl` with revision-checked
+`apply_work_ui_patch` calls; both tools infer the Work from the calling Task.
+
 The independent [ChatGPT plugin](plugins/selvedge-chatgpt/README.md) exposes
 explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection grants
 apply across conversations, and local operations run in the selected project's

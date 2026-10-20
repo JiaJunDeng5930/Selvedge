@@ -2,6 +2,7 @@ import Base
 import ../../bendlib/categories.bend as Categories
 
 type Page is Data:
+  SharedInterface{}
   Creation{composer: Bool}
   Conversation{composer: Bool, approvals: Bool, return_latest: Bool}
   ProjectOverview{}
@@ -22,6 +23,7 @@ type Heading is Data:
   PageHeading{}
 
 type Body is Data:
+  SharedInterfaceBody{}
   CenteredCreation{}
   ChronologicalReading{}
   ProjectSections{}
@@ -49,6 +51,8 @@ type Recipe is Data:
     decisions: Decisions, latest: Latest}
 
 type Region is Data:
+  SharedTitle{}
+  SharedContent{}
   ConversationTitle{}
   TaskActions{}
   TimelineContent{}
@@ -81,6 +85,8 @@ type Position is Data:
 
 def region_name(region: Region) -> String:
   match region:
+    case SharedTitle{}: "shared-ui-title"
+    case SharedContent{}: "shared-ui-content"
     case ConversationTitle{}: "conversation-title"
     case TaskActions{}: "task-actions"
     case TimelineContent{}: "timeline-content"
@@ -124,6 +130,7 @@ def latest(present: Bool) -> Latest:
     case False{}: NoLatest{}
 
 type OverviewContent is Data:
+  SharedInterfaceContent{}
   Sections{}
   Rows{}
   Agents{}
@@ -165,6 +172,7 @@ def recipe_latest(value: Recipe) -> Latest:
 
 def overview_body(content: OverviewContent) -> Body:
   match content:
+    case SharedInterfaceContent{}: SharedInterfaceBody{}
     case Sections{}: ProjectSections{}
     case Rows{}: ProjectRows{}
     case Agents{}: AgentRows{}
@@ -378,6 +386,7 @@ def unavailable_reading_inclusion() -> Categories.Inclusion<Recipe, AuthoredFor(
 
 def page_intent(page: Page) -> Intent:
   match page:
+    case SharedInterface{}: Overview{SharedInterfaceContent{}}
     case Creation{composer}: Centered{composer}
     case Conversation{composer, approvals, return_latest}: Chronological{composer, approvals, return_latest}
     case ProjectOverview{}: Overview{Sections{}}
@@ -426,6 +435,8 @@ def structure(recipe: Recipe) -> Structure:
       Structure{[BoardTitle{}, BoardControls{}], [BoardStages{}], Nil{}}
     case Recipe{measure, heading, AgentRows{}, composer, decisions, latest}:
       Structure{[CollectionTitle{}, CollectionActions{}], [AgentEntries{}], Nil{}}
+    case Recipe{measure, heading, SharedInterfaceBody{}, composer, decisions, latest}:
+      Structure{[SharedTitle{}], [SharedContent{}], Nil{}}
     case Recipe{measure, heading, TaskGraphRows{}, composer, decisions, latest}:
       Structure{[CollectionTitle{}, CollectionActions{}], [TaskGraphEntries{}], Nil{}}
     case Recipe{measure, heading, UnavailableNotice{}, composer, decisions, latest}:

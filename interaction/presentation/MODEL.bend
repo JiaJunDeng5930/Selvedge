@@ -129,6 +129,7 @@ type TaskGraphScene is Data:
   TaskGraphScene{id: Nat, value: G.Graph, nodes: +List<TaskGraphNode>, edit: ControlDeclaration, remove: ControlDeclaration}
 
 type Page is Data:
+  SharedUIPage{work: Nat, name: String, source: String}
   StartPage{composer: Maybe<&2, ComposerScene>}
   TaskPage{task: TaskScene}
   ProjectPage{project: ProjectScene}

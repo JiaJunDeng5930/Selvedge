@@ -159,11 +159,12 @@ def same_ending(+left: UI.Ending, +right: UI.Ending) -> Bool:
 def prefix(+prefix: String, +text: String) -> Bool:
   String.starts_with(text, prefix)
 
-def source_viewer(+source: Code.Source) -> Nat:
+def source_viewer(+source: Code.Source) -> Maybe<&2, Nat>:
   match source:
-    case Code.Generated{+namespace, +viewer, +origin, +complete}: viewer
-    case Code.Message{+task, +message}: task
-    case Code.StreamingPart{+task, +operation, +part}: task
+    case Code.SharedDocument{+namespace, +owner}: None{}
+    case Code.Generated{+namespace, +viewer, +origin, +complete}: Some{viewer}
+    case Code.Message{+task, +message}: Some{task}
+    case Code.StreamingPart{+task, +operation, +part}: Some{task}
 
 def interactive_source(+source: Code.Source) -> Bool:
   match source:
@@ -173,6 +174,7 @@ def interactive_source(+source: Code.Source) -> Bool:
 # A retained fence is authoritative only inside its current journal namespace.
 def source_scope(+source: Code.Source, +store: String) -> Bool:
   match source:
+    case Code.SharedDocument{+namespace, +owner}: Live.valid_namespace(namespace) && String.eq(namespace, store)
     case Code.Generated{+namespace, +viewer, D.OutputOrigin{+producer, +operation, +part, D.InteractiveV1{}}, +complete}:
       Live.valid_namespace(namespace) && String.eq(namespace, store)
     case _: False{}
@@ -187,6 +189,7 @@ def owner(+source: Code.Source, +ordinal: Nat, +epoch: Nat) -> UI.Owner:
 
 def external_source(+source: Code.Source) -> Bool:
   match source:
+    case Code.SharedDocument{+namespace, +owner}: True{}
     case Code.Generated{+namespace, +viewer, D.OutputOrigin{+producer, +operation, +part, +mode}, True{}}: Nat.is_eq(viewer, producer)
     case _: False{}
 
@@ -528,24 +531,31 @@ def prune_one(+present: Bool, +document: Document, +state: State) -> Decision:
       +effects: +List<Effect> = result_effects(decision_14)
       Decision{with_documents(without(documents(next), document_key(document)), forget_retained(document_key(document), next)), List.append(&2, Effect, [ForgetMarkdown{document_key(document)}], effects)}
 
+def source_present(+viewer: Maybe<&2, Nat>, +world: M.World()) -> Bool:
+  match viewer:
+    case None{}: True{}
+    case Some{task}: task_present(Tasks.find(Commands.entries(world), task))
+
 def prune(+values: +List<Document>, +world: M.World(), +state: State) -> Decision:
   match values:
     case Nil{}: Decision{state, Nil{}}
     case Con{+document, +rest}:
       Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active} = document
-      +decision_15: Decision = prune_one(task_present(Tasks.find(Commands.entries(world), source_viewer(source))), document, state)
+      +decision_15: Decision = prune_one(source_present(source_viewer(source), world), document, state)
       +next: State = result_state(decision_15)
       +effects: +List<Effect> = result_effects(decision_15)
       append_result(effects, prune(rest, world, next))
 
 def source_operation(+source: Code.Source) -> Nat:
   match source:
+    case Code.SharedDocument{+namespace, +owner}: 0n
     case Code.Generated{+namespace, +viewer, D.OutputOrigin{+producer, +operation, +part, +mode}, +complete}: operation
     case Code.StreamingPart{+task, +operation, +part}: operation
     case Code.Message{+task, +message}: message
 
 def source_part(+source: Code.Source) -> Nat:
   match source:
+    case Code.SharedDocument{+namespace, +owner}: 0n
     case Code.Generated{+namespace, +viewer, D.OutputOrigin{+producer, +operation, +part, +mode}, +complete}: part
     case Code.StreamingPart{+task, +operation, +part}: part
     case Code.Message{+task, +message}: 0n
@@ -646,28 +656,43 @@ def retained_session_limit() -> Nat:
 def retained_archive_bytes() -> Nat:
   4194304n
 
+def optional_count_for(+counts: +List<Discarded>, +viewer: Maybe<&2, Nat>) -> Nat:
+  match viewer:
+    case None{}: 0n
+    case Some{task}: count_for(counts, task)
+
+def increment_optional_count(+counts: +List<Discarded>, +viewer: Maybe<&2, Nat>) -> +List<Discarded>:
+  match viewer:
+    case None{}: counts
+    case Some{task}: increment_count(counts, task)
+
 def bound_live(+values: +List<Document>, +counts: +List<Discarded>, +total: Nat, +state: State) -> Decision:
   match values:
     case Nil{}: Decision{state, Nil{}}
     case Con{+document, +rest}:
       Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active} = document
       +already_archived: Bool = entry_archived(retained_entries(retention(state)), document_key(document))
-      +admitted: Bool = Bool.not(already_archived) && Nat.is_lt(total, retained_session_limit()) && Nat.is_lt(count_for(counts, source_viewer(source)), retained_task_limit())
+      +admitted: Bool = Bool.not(already_archived) && Nat.is_lt(total, retained_session_limit()) && Nat.is_lt(optional_count_for(counts, source_viewer(source)), retained_task_limit())
       +result: Decision = live_retention_allowed(already_archived || admitted, document, state)
       append_result(result_effects(result), bound_live(rest,
-        Bool.pick(+List<Discarded>, admitted, increment_count(counts, source_viewer(source)), counts),
+        Bool.pick(+List<Discarded>, admitted, increment_optional_count(counts, source_viewer(source)), counts),
         Bool.pick(Nat, admitted, 1n+total, total), result_state(result)))
 
 def archive_discarded(+result: Decision, +task: Nat) -> Decision:
   Decision{+state, +effects} = result
   Decision{increment_discarded(task, state), effects}
 
+def archive_optional_discarded(+result: Decision, +viewer: Maybe<&2, Nat>) -> Decision:
+  match viewer:
+    case None{}: result
+    case Some{task}: archive_discarded(result, task)
+
 def bound_archive_one(+admitted: Bool, +document: Document, +state: State) -> Decision:
   match admitted:
     case True{}: Decision{state, Nil{}}
     case False{}:
       Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active} = document
-      archive_discarded(discard_found(Some{document}, state), source_viewer(source))
+      archive_optional_discarded(discard_found(Some{document}, state), source_viewer(source))
 
 def archive_documents(+values: +List<Document>, +entries: +List<RetainedEntry>) -> +List<Document>:
   match values:
@@ -715,10 +740,15 @@ def present_nat(+values: +List<Nat>, +value: Nat) -> Bool:
 def add_viewer(+values: +List<Nat>, +value: Nat) -> +List<Nat>:
   Bool.pick(+List<Nat>, present_nat(values, value), values, value <> values)
 
+def add_optional_viewer(+viewers: +List<Nat>, +viewer: Maybe<&2, Nat>) -> +List<Nat>:
+  match viewer:
+    case None{}: viewers
+    case Some{task}: add_viewer(viewers, task)
+
 def document_viewers(+values: +List<Document>, +viewers: +List<Nat>) -> +List<Nat>:
   match values:
     case Nil{}: viewers
-    case Con{Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active}, +rest}: document_viewers(rest, add_viewer(viewers, source_viewer(source)))
+    case Con{Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active}, +rest}: document_viewers(rest, add_optional_viewer(viewers, source_viewer(source)))
 
 def preview_viewers(+values: +List<Live.Output>, +viewers: +List<Nat>) -> +List<Nat>:
   match values:
@@ -749,11 +779,16 @@ def viewer_matches(+viewer: Maybe<&2, Nat>, +task: Nat) -> Bool:
     case None{}: False{}
     case Some{+current}: Nat.is_eq(current, task)
 
+def same_viewer(+left: Maybe<&2, Nat>, +right: Maybe<&2, Nat>) -> Bool:
+  match left right:
+    case Some{a} Some{b}: Nat.is_eq(a, b)
+    case _ _: False{}
+
 def exposed_documents(+values: +List<Document>, +viewer: Maybe<&2, Nat>, +entries: +List<RetainedEntry>) -> +List<Document>:
   match values:
     case Nil{}: Nil{}
     case Con{Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active}, +rest}:
-      Document{source, text, epoch, revision, ending, observed_prefix, fences, viewer_matches(viewer, source_viewer(source)) && Bool.not(entry_archived(entries, Code.source_key(source)))} <> exposed_documents(rest, viewer, entries)
+      Document{source, text, epoch, revision, ending, observed_prefix, fences, same_viewer(viewer, source_viewer(source)) && Bool.not(entry_archived(entries, Code.source_key(source)))} <> exposed_documents(rest, viewer, entries)
 
 def reconcile_exposed(+viewer: Maybe<&2, Nat>, +world: M.World(), +state: State) -> Decision:
   refresh(world, with_documents(exposed_documents(documents(state), viewer, retained_entries(retention(state))), state))
@@ -775,11 +810,16 @@ def reconcile(+viewer: Maybe<&2, Nat>, +previews: +List<Live.Output>, +world: M.
   +retained: Decision = prune(documents(state), world, state)
   append_result(result_effects(retained), reconcile_available(viewer, previews, world, result_state(retained)))
 
+def viewer_exposed(+viewers: +List<Nat>, +viewer: Maybe<&2, Nat>) -> Bool:
+  match viewer:
+    case None{}: False{}
+    case Some{task}: present_nat(viewers, task)
+
 def exposed_visible_documents(values: +List<Document>, +viewers: +List<Nat>, +entries: +List<RetainedEntry>) -> +List<Document>:
   match values:
     case Nil{}: Nil{}
     case Con{Document{+source, text, epoch, revision, ending, observed_prefix, fences, active}, rest}:
-      Document{source, text, epoch, revision, ending, observed_prefix, fences, present_nat(viewers, source_viewer(source)) && Bool.not(entry_archived(entries, Code.source_key(source)))} <> exposed_visible_documents(rest, viewers, entries)
+      Document{source, text, epoch, revision, ending, observed_prefix, fences, viewer_exposed(viewers, source_viewer(source)) && Bool.not(entry_archived(entries, Code.source_key(source)))} <> exposed_visible_documents(rest, viewers, entries)
 
 def expose_visible(+viewers: +List<Nat>, +world: M.World(), +state: State) -> Decision:
   refresh(world, with_documents(exposed_visible_documents(documents(state), viewers, retained_entries(retention(state))), state))
@@ -951,7 +991,7 @@ def retained_values(+values: +List<Document>, +viewer: Nat, +entries: +List<Reta
     case Nil{}: Nil{}
     case Con{+document, +rest}:
       Document{+source, +text, +epoch, +revision, +ending, +observed_prefix, +fences, +active} = document
-      retained_part(Nat.is_eq(source_viewer(source), viewer) && entry_dormant(entries, document_key(document)), document, entries, retained_values(rest, viewer, entries))
+      retained_part(viewer_matches(source_viewer(source), viewer) && entry_dormant(entries, document_key(document)), document, entries, retained_values(rest, viewer, entries))
 
 def dormant_documents(+values: +List<Document>, +entries: +List<RetainedEntry>) -> +List<Document>:
   match values:
@@ -994,9 +1034,9 @@ def toggle_source(+identity: Code.Identity, +state: State) -> State:
   toggle_found(find(documents(state), Code.source_key(source)), ordinal, state)
 
 
-def task_if_owned(+owned: Bool, +task: Nat, +fallback: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
+def task_if_owned(+owned: Bool, +task: Maybe<&2, Nat>, +fallback: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   match owned:
-    case True{}: Some{task}
+    case True{}: task
     case False{}: fallback
 
 def owning_task(+store: String, +values: +List<Document>, +expected: UI.Owner) -> Maybe<&2, Nat>:
@@ -1024,3 +1064,49 @@ def found_source(found: Maybe<&2, Document>) -> Bool:
 
 def source_known(+source: Code.Source, +state: State) -> Bool:
   found_source(find(documents(state), Code.source_key(source)))
+
+
+
+
+
+
+# Shared definitions have no Markdown transport. The declaration and its complete
+# fence are admitted together, then use the same parser, reducer and source refresh.
+def publish_shared(+document: Document, +world: M.World(), +state: State) -> Decision:
+  Document{+source, +text, +epoch, +revision, +ending, +observed, +fences, +active} = document
+  +registered: State = with_documents(save(documents(state), document), state)
+  +result: Decision = input(UI.SourceChanged{owner(source, 0n, epoch), text, True{}, UI.Complete{}, external(document, registered)}, registered)
+  append_result(result_effects(result), refresh(world, result_state(result)))
+
+def replace_shared(+source: Code.Source, +text: String, +revision: Nat, +world: M.World(), +state: State) -> Decision:
+  State{+namespace, +sequence, +fresh, +allowed, +display_ready, +documents, +core, +next_epoch, +retention} = state
+  publish_shared(Document{source, text, next_epoch, revision, UI.Complete{}, String.length(text), [Fence{0n, True{}, text, True{}, False{}}], True{}}, world,
+    State{namespace, sequence, fresh, allowed, display_ready, documents, core, 1n+next_epoch, retention})
+
+def shared_unchanged(+same: Bool, +previous: Document, +source: Code.Source, +text: String, +revision: Nat, +world: M.World(), +state: State) -> Decision:
+  match same:
+    case True{}: publish_shared(reactivate(previous), world, state)
+    case False{}:
+      +removed: Decision = remove_old(previous, state)
+      append_result(result_effects(removed), replace_shared(source, text, revision, world, result_state(removed)))
+
+def shared_existing(+found: Maybe<&2, Document>, +source: Code.Source, +text: String, +revision: Nat, +world: M.World(), +state: State) -> Decision:
+  match found:
+    case None{}: replace_shared(source, text, revision, world, state)
+    case Some{+previous}:
+      Document{+old_source, +old_text, +epoch, +old_revision, +ending, +observed, +fences, +active} = previous
+      shared_unchanged(SafeText.string_equal(old_text, text), previous, source, text, revision, world, state)
+
+def shared(+owner: String, +text: String, +revision: Nat, +world: M.World(), +state: State) -> Decision:
+  +source: Code.Source = Code.SharedDocument{namespace(state), owner}
+  shared_existing(find(documents(state), Code.source_key(source)), source, text, revision, world, state)
+
+def shared_owner_found(+found: Maybe<&2, Document>, +expected: UI.Owner) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{Document{+source, text, +epoch, revision, ending, observed, +fences, active}}:
+      active && owner_matches(fences, source, epoch, expected)
+
+def shared_owner(+expected: UI.Owner, +owner: String, +state: State) -> Bool:
+  +source: Code.Source = Code.SharedDocument{namespace(state), owner}
+  shared_owner_found(find(documents(state), Code.source_key(source)), expected)

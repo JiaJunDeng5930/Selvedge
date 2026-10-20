@@ -442,16 +442,16 @@ def native_feature_permitted(command: M.Command, caller: D.Task, world: M.World(
 
 # DEFENSE: Model-selected feature arguments may name a replaced schema or exceed caller workspace authority; reject before resolving the native command.
 def feature_invocation_accepts(request: FeatureInvocation) -> Bool:
-  FeatureInvocation{operation, F.CommandSpec{+name, description, +kind, +schema}, frozen_schema, +arguments, caller, world} = request
+  FeatureInvocation{operation, F.CommandSpec{+name, description, +kind, +schema}, frozen_schema, +arguments, +caller, world} = request
   +body = Schema.command_body(name, arguments)
   String.eq(operation, name) && J.same(schema, frozen_schema) && Schema.valid(Schema.command_arguments(schema), arguments) &&
     Schema.valid(schema, body) && FeatureCodec.valid(kind, body) &&
-    native_feature_permitted(FeatureCodec.construct(kind, body), caller, world)
+    native_feature_permitted(FeatureCodec.bind_caller(FeatureCodec.construct(kind, body), D.task_id(caller)), caller, world)
 
 def feature_invocation_accepted(member: Categories.Membership<FeatureInvocation, Categories.holds(FeatureInvocation, feature_invocation_accepts)>) -> Invocation:
   Categories.Membership{request, evidence} = member
   FeatureInvocation{operation, F.CommandSpec{name, description, kind, schema}, frozen_schema, arguments, caller, world} = request
-  Internal{Commands.resolve(FeatureCodec.construct(kind, Schema.command_body(name, arguments)), world)}
+  Internal{Commands.resolve(FeatureCodec.bind_caller(FeatureCodec.construct(kind, Schema.command_body(name, arguments)), D.task_id(caller)), world)}
 
 def feature_invocation_admitted(admission: Maybe<&1, Categories.Membership<FeatureInvocation, Categories.holds(FeatureInvocation, feature_invocation_accepts)>>) -> Invocation:
   match admission:

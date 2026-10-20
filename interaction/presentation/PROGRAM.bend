@@ -199,6 +199,7 @@ def project_entries(entries: +List<V.ProjectEntry>, +parent: Identity.Key, +stat
 
 def same_route(left: U.Route, right: U.Route) -> Bool:
   match left right:
+    case U.SharedUI{work, task} U.SharedUI{other, other_task}: Nat.is_eq(work, other)
     case U.Start{} U.Start{}: True{}
     case U.Conversation{left} U.Conversation{right}: Nat.is_eq(left, right)
     case U.ProjectHome{left} U.ProjectHome{right}: Nat.is_eq(left, right)
@@ -296,6 +297,13 @@ def work_settings(work: Maybe<&2, Nat>, state: InteractionTypes.State) -> +List<
     case None{}: Nil{}
     case Some{+id}: [declared(Identity.Place{"/navigation"}, View.control("work/rename/" ++ Nat.show(id), "Rename Work", U.RenameWork{id}), state)]
 
+def shared_ui_navigation(+work: Maybe<&2, Nat>, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match work:
+    case None{}: Nil{}
+    case Some{work}:
+      +current: E.Session = E.session(Core.application(state))
+      [selected_declaration(E.route(current), Identity.Place{"/navigation"}, View.control("work/shared-ui", "共享 UI", U.Navigate{U.SharedUI{work, E.selected_shared_task(E.route(current))}}), state)]
+
 def navigation(view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTypes.Node:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = view
   +observed_application = Core.application(state)
@@ -305,7 +313,7 @@ def navigation(view: V.Navigation, +state: InteractionTypes.State) -> SurfaceTyp
   +header: SurfaceTypes.Node = SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Task tree", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
     List.append(&2, SurfaceTypes.Node, [declared(Identity.Place{"/navigation"}, toggle, state)], work_settings(E.active_work(observed_session), state))}
   SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Task tree", SurfaceTypes.Navigation{}, SurfaceTypes.Region{}, header <>
-    navigation_contents(expanded, route, create, destinations, projects, tasks, state)}
+    List.append(&2, SurfaceTypes.Node, shared_ui_navigation(E.active_work(observed_session), state), navigation_contents(expanded, route, create, destinations, projects, tasks, state))}
 
 # The compact header moves with the modal tree so its three real launchers stay
 # in the active scope. Its native identities occur exactly once in either form.
@@ -315,7 +323,7 @@ def compact_navigation(view: V.Navigation, header: SurfaceTypes.Node, +state: In
   SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Task tree", SurfaceTypes.Navigation{}, SurfaceTypes.Region{},
     header <> SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Task tree", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
       work_settings(E.active_work(current), state)} <>
-      navigation_contents(expanded, E.route(current), create, destinations, projects, tasks, state)}
+      List.append(&2, SurfaceTypes.Node, shared_ui_navigation(E.active_work(current), state), navigation_contents(expanded, E.route(current), create, destinations, projects, tasks, state))}
 
 def observed_field(found: Maybe<&2, U.Draft>, field: OperationParameters.Field, world: M.World()) -> OperationParameters.Observed:
   match found:
@@ -1730,8 +1738,47 @@ def history_search_page(+search: Search.State, projects: +List<Search.Choice>, w
       declared(parent, View.control("history/submit", "搜索", U.SubmitHistorySearch{0n}), state)]),
    page_region(parent, Composition.ProjectEntries{}, Composition.BodyPosition{}, history_results(Search.result(search), parent, state))]
 
+def shared_ui_literal(lines: +List<String>) -> String:
+  match lines:
+    case Nil{}: ""
+    case Con{line, rest}: "    " ++ line ++ "\n" ++ shared_ui_literal(rest)
+
+def shared_ui_source(+visible: Bool, +source: String, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match visible:
+    case False{}: Nil{}
+    case True{}: [SurfaceTypes.Node{Identity.Part{parent, "source"}, "shared-ui/source", "DSL 源码", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{shared_ui_literal(String.split(source, '\n'))}, Nil{}}]
+
+def shared_ui_regions(+values: +List<InteractiveDocuments.BlockScene>, +source: String, +current: E.Session) -> +List<SurfaceTypes.Node>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{InteractiveDocuments.BlockScene{+identity, scene}, rest}:
+      +key: Identity.Key = Identity.Part{Code.ui_identity(identity), "shared"}
+      +visible: Bool = E.interactive_source_visible(identity, current)
+      SurfaceTypes.Node{key, "shared-ui/region", "交互内容", SurfaceTypes.Content{}, SurfaceTypes.Region{},
+        product_action(key, "source-disclosure", source_disclosure_label(visible), InteractionTypes.ApplicationInput{E.ToggleInteractiveSource{identity}}, True{}) <>
+        List.append(&2, SurfaceTypes.Node, InteractiveScene.nodes(scene), shared_ui_source(visible, source, key))} <>
+        shared_ui_regions(rest, source, current)
+
+def shared_ui_empty(+source: String, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match source:
+    case "": [SurfaceTypes.Node{Identity.Part{parent, "empty"}, "shared-ui/empty", "共享 UI 尚未创建", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"让此 Work 中的 Task 创建共享 UI。各 Task 的更新都会显示在这里。"}, Nil{}}]
+    case _: Nil{}
+
+def shared_ui_content(+source: String, work: Nat, parent: Identity.Key, +current: E.Session) -> +List<SurfaceTypes.Node>:
+  match source:
+    case "": shared_ui_empty("", parent)
+    case other: shared_ui_regions(E.interactive_scenes(E.shared_ui_source(work, current), current), other, current)
+
+def shared_ui_page(+work: Nat, +name: String, +source: String, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +current: E.Session = E.session(Core.application(state))
+  [page_region(parent, Composition.SharedTitle{}, Composition.HeadingPosition{},
+     [region(parent, "heading", "共享 UI", SurfaceTypes.Heading{}, Nil{}), SurfaceTypes.Node{Identity.Part{parent, "work-name"}, "shared-ui/work-name", "Work", SurfaceTypes.Content{}, SurfaceTypes.Fact{name}, Nil{}}]),
+   page_region(parent, Composition.SharedContent{}, Composition.BodyPosition{},
+     shared_ui_content(source, work, parent, current))]
+
 def page_contents(view: V.Page, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match view:
+    case V.SharedUIPage{work, name, source}: shared_ui_page(work, name, source, parent, state)
     case V.StartPage{input}: creation_page(input, parent, state)
     case V.TaskPage{value}: task_page(value, parent, state)
     case V.ProjectPage{value}: project_page(value, parent, state)
