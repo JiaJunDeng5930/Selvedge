@@ -12,8 +12,11 @@ import ../bendlib/json.bend as J
 def World() -> Data:
   C.Frame<D.State, F.State()>
 
-def initial() -> World():
-  C.Frame{D.initial_state(List.append(&2, D.Tool, Tools.catalog(4n), F.native_catalog(D.task_settings_schema()))), F.initial()}
+def initial_requests() -> +List<Tools.Request>:
+  List.append(&2, Tools.Request, Tools.requests(4n), F.native_requests(D.task_settings_schema()))
+
+def initial(requests: +List<Tools.Request>) -> World():
+  C.Frame{D.initial_state(Tools.catalog_requests(requests)), F.initial()}
 
 def Effect() -> Data:
   Effects.Effect<F.Effect>

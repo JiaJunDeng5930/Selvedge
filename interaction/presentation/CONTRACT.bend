@@ -1,3 +1,4 @@
+import ../speech/MODEL.bend as Speech
 import ../submission/field-options.bend as FieldOptions
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
@@ -1293,13 +1294,28 @@ def expected_composer_attachments(+editor: U.Editor, +parent: Identity.Key, +sta
       Model.attachment_nodes(Model.editor_attachments(editor, state), editor, parent),
       Model.transfer_nodes(Services.transfers(services), editor, parent, connected))
 
+def required_task_environment_nodes(editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.NewTaskEditor{work}: [Model.field_node(Forms.FieldScene{Forms.TaskEnvironment{}, "Task environment", Forms.Choice{}}, U.NewTaskEditor{work}, parent, state, Nil{})]
+    case _: Nil{}
+
+law task_environment_control_belongs_to_new_task:
+  @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+  {Model.task_environment_nodes(editor, parent, state) == required_task_environment_nodes(editor, parent, state) : +List<SurfaceTypes.Node>}
+
+law cloud_task_voice_waits_for_creation:
+  @+editor:U.Editor -> @+revision:Nat -> @+parent:Identity.Key -> @+speech:Speech.State ->
+  {Model.speech_activity_for_editor(True{}, Speech.Idle{}, editor, revision, parent, speech) ==
+    Model.speech_control(parent, "dictate", "Dictate", Speech.BeginDictation{editor, revision}, Speech.can_begin(speech, False{})) <>
+      Model.speech_notice("Create the cloud task before starting voice", "cloud-voice", parent) : +List<SurfaceTypes.Node>}
+
 def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> Maybe<&2, +List<SurfaceTypes.Node>>:
   match view:
     case None{}: None{}
     case Some{V.ComposerScene{+identity, +revision, message, phase, creation_context, execution_controls, context, +assessment, +submit, feedback, +pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       Some{Model.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
-        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.speech_controls(identity, revision, key, state), expected_composer_attachments(identity, Identity.Part{key, "attachments"}, state)),
+        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.task_environment_nodes(identity, key, state), List.append(&2, SurfaceTypes.Node, Model.speech_controls(identity, revision, key, state), expected_composer_attachments(identity, Identity.Part{key, "attachments"}, state))),
           List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), Model.action_feedback_nodes(identity, feedback, key)), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}
 
 def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -1362,6 +1378,8 @@ type CompositionRequirements is Type:
     workspace_description: @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {collection_instruction(Model.field_children(Forms.WorkspaceDirectories{}, editor, parent, state)) ==
         expected_collection_instruction(Model.workspace_observed(Model.field_value(state, editor, Forms.WorkspaceDirectories{}))) : Maybe<&2, SurfaceTypes.Meaning>},
+    task_environment_component: @+editor:U.Editor -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
+      {Model.task_environment_nodes(editor, parent, state) == required_task_environment_nodes(editor, parent, state) : +List<SurfaceTypes.Node>},
     composer_enclosure: @view:Maybe<&2, V.ComposerScene> -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
       {composer_enclosure_children(Model.composer(view, parent, state)) == expected_composer_enclosure_children(view, parent, state) : Maybe<&2, +List<SurfaceTypes.Node>>},
     structure_order: @recipe:Composition.Recipe ->
@@ -1379,18 +1397,18 @@ type CompositionRequirements is Type:
           Model.page_composer(input, parent, parent, Core.from_application(E.from_program(world, session), services), Composition.BodyPosition{})) : +List<SurfaceTypes.Node>},
     context_admission: @+declaration:V.ControlDeclaration -> @+rest:+List<V.ControlDeclaration> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.controls(declaration <> rest, parent, state) == Model.declared(parent, declaration, state) <> Model.controls(rest, parent, state) : +List<SurfaceTypes.Node>},
-    composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    composer_context: @+message:U.Text -> @+profile:String -> @reasoning:String -> @+context:Context.Configuration -> @+scene:V.EditorScene -> @+world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
         [View.scoped_model_control(profile, reasoning, world, work),
          V.ComposerControl{UX.permissions_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>},
     model_label: @fallback:String -> {View.profile_label(None{}, fallback) == "Choose model" : String},
-    creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    creation_phase: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @scene:V.EditorScene -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>},
     conversation_phase: @+task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_phase(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Some{V.Conversation{task}} : Maybe<&2, V.ComposerPhase>},
     conversation_has_no_creation_context: @task:Nat -> @message:U.Text -> @delivery:U.Delivery -> @scene:V.EditorScene -> @world:M.World() ->
       {composer_creation_controls(View.composer_scene(U.Message{task, message, delivery}, scene, world)) == Nil{} : +List<V.ComposerControl>},
-    creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    creation_context_controls: @message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration -> @scene:V.EditorScene -> @+world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
         [V.ComposerControl{UX.project_property(U.NewTaskEditor{work}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
          V.ComposerControl{UX.workspace_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}
@@ -1416,16 +1434,16 @@ type DirectoryEntryRequirements is Type:
       {U.edit_draft(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, path}, world) == U.edited_body(U.apply_edit(U.EditWorkspace{Context.AddRoot{path}}, body, world), revision, "") : Result<&2, &2, String, U.Draft>},
     unconfirmed: @+draft:U.Draft -> @+world:M.World() -> @denied:{U.can_confirm_directory(draft) == False{} : Bool} ->
       {U.edit_draft(U.ConfirmDirectory{}, draft, world) == Done{draft} : Result<&2, &2, String, U.Draft>},
-    model_entry: @revision:Nat -> @+text:U.Text -> @old_profile:String -> @old_reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+profile:String -> @+reasoning:String -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    model_entry: @revision:Nat -> @+text:U.Text -> @old_profile:String -> @old_reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+profile:String -> @+reasoning:String -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {U.edit_draft(U.ChooseModel{profile, reasoning}, U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, create_worktree, work}, feedback, entry}, world) == Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, context, create_worktree, work}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
-    project_entry: @revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    project_entry: @revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {U.edit_draft(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.Draft{revision, U.NewTask{text, profile, reasoning, context, create_worktree, work}, feedback, entry}, world) ==
         Done{U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), U.origin_worktree(origin, world), work}, U.Editing{}, entry}} : Result<&2, &2, String, U.Draft>},
     empty_entry: @revision:Nat -> @body:U.Body -> @feedback:U.Feedback -> @+world:M.World() -> @+session:E.Session ->
       {E.edit_existing(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, ""}, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
     unsupported_entry: @revision:Nat -> @+body:U.Body -> @feedback:U.Feedback -> @+entry:String -> @+world:M.World() -> @+session:E.Session -> @unsupported:{U.workspace_capable(body) == False{} : Bool} ->
       {E.edit_existing(U.ConfirmDirectory{}, U.Draft{revision, body, feedback, entry}, world, session) == E.unchanged(E.from_program(world, session)) : E.Decision},
-    selected_project_entry: @+revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @+world:M.World() -> @+session:E.Session -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    selected_project_entry: @+revision:Nat -> @+text:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @feedback:U.Feedback -> @+entry:String -> @+origin:Context.Origin -> @+world:M.World() -> @+session:E.Session -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {E.begin_existing(Some{U.Draft{revision, U.NewTask{text, profile, reasoning, context, create_worktree, work}, feedback, entry}}, origin, E.from_program(world, session)) ==
         E.navigate_with_attention(U.Start{}, "composer/" ++ U.editor_key(U.NewTaskEditor{work}), E.from_program(world, E.with_draft(session, U.Draft{(revision + 1n : Nat), U.NewTask{text, profile, reasoning, Context.edit(context, Context.ChooseOrigin{origin}), U.origin_worktree(origin, world), work}, U.Editing{}, entry}))) : E.Decision},
     production_noop: @+draft:U.Draft -> @+world:M.World() -> @+session:E.Session -> @denied:{U.can_confirm_directory(draft) == False{} : Bool} ->
@@ -1611,7 +1629,7 @@ law task_tree_presentation_evidence:
 
 type ProjectInteractionRequirements is Type:
   ProjectInteractionRequirements{
-    switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+    switch_preserves_input: @+origin:Context.Origin -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @world:M.World() -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {U.apply_edit(U.ConfigureContext{Context.ChooseOrigin{origin}}, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, create_worktree, work}, world) ==
         Done{U.NewTask{message, profile, reasoning, Context.Configuration{origin, workspace, sandbox, approval}, U.origin_worktree(origin, world), work}} : Result<&2, &2, String, U.Body>},
     select_reuses_draft: @+project:Maybe<&2, Nat> -> @+application:E.Application ->
@@ -1715,7 +1733,7 @@ type ProjectInteractionRequirements is Type:
     populated_project_collection: @+first:V.ProjectScene -> @+rest:+List<V.ProjectScene> -> @+parent: Identity.Key -> @+state:InteractionTypes.State ->
       {Model.project_collection_entries(Con{first, rest}, parent, state) ==
     Model.projects(Con{first, rest}, parent, state) : +List<SurfaceTypes.Node>},
-    select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> -> @+create_worktree:Bool ->
+    select_focus_and_input: @+session:E.Session -> @+project:Maybe<&2, Nat> -> @+world:M.World() -> @+revision:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+old:Context.Origin -> @+workspace:Maybe<&2, D.Workspace> -> @+sandbox:Maybe<&2, D.Sandbox> -> @+approval:Maybe<&2, Context.ApprovalChoice> -> @+feedback:U.Feedback -> @+directory_entry:String -> @+rest:+List<U.Draft> -> @+create_worktree:U.TaskWorkspace ->
       @valid_manual:{E.creation_model_chosen(E.active_work(session), E.manual_model(session)) && E.permitted_preference(D.find_profile(Board.profiles(world), profile), reasoning) == True{} : Bool} ->
       @observed_drafts:{E.drafts(session) == U.Draft{revision, U.NewTask{message, profile, reasoning, Context.Configuration{old, workspace, sandbox, approval}, create_worktree, E.active_work(session)}, feedback, directory_entry} <> rest : +List<U.Draft>} ->
        {E.activate_selected(U.SelectProject{project}, E.from_program(world, session)) ==
@@ -2002,7 +2020,7 @@ law new_task_model_permission:
   for reasoning: String
   for context: Context.Configuration
   for work: Maybe<&2, Nat>
-  for create_worktree: Bool
+  for create_worktree: U.TaskWorkspace
   for world: M.World()
   {U.model_permitted(U.NewTask{message, profile, reasoning, context, create_worktree, work}, world) == U.selected_model_permitted(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning) : Bool}
 
@@ -2232,7 +2250,7 @@ type BoundaryRequirements is Type:
       {U.project_command(Some{project}, name, D.workspace_json(workspace), D.project_json(guidance), False{}) ==
         M.UpdateProject{project, Some{name}, D.workspace_json(workspace), D.project_json(guidance), J.Boolean{False{}}} : M.Command},
     task_prepared: @+text:U.Text -> @profile:String -> @reasoning:String ->
-      @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
+      @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 -> @+work:Maybe<&2, Nat> -> @+create_worktree:U.TaskWorkspace ->
       {U.prepared_command(U.NewTask{text, profile, reasoning, config, create_worktree, work}, observation, now) ==
         U.create_task(work, create_worktree, profile, reasoning, U.content(text), Context.observed_settings(config, observation)) : M.Command},
     settings_observations: @+config:Context.Configuration -> @+workspace:D.Workspace ->
@@ -2256,17 +2274,17 @@ law boundary_evidence:
 law creating_worktree_has_visible_feedback:
   @message:String -> @+parent:Identity.Key ->
   {Model.worktree_feedback_status("creating", message, parent) ==
-    [Model.worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)] : +List<SurfaceTypes.Node>}
+    [Model.worktree_fact("worktree/status", "Workspace", "Creating workspace…", parent)] : +List<SurfaceTypes.Node>}
 
 law failed_worktree_has_visible_diagnostic:
   @+message:String -> @parent:Identity.Key ->
   {Model.worktree_feedback_status("create_failed", message, parent) ==
-    Model.worktree_diagnostic("Worktree creation failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
+    Model.worktree_diagnostic("Workspace creation failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
 
 law failed_worktree_archive_has_visible_diagnostic:
   @+message:String -> @parent:Identity.Key ->
   {Model.worktree_feedback_status("archive_failed", message, parent) ==
-    Model.worktree_diagnostic("Worktree archive failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
+    Model.worktree_diagnostic("Workspace archive failed: " ++ message, parent) : +List<SurfaceTypes.Node>}
 
 law committed_permission_summary_agreement:
   @task:Nat -> @preview:Context.Preview -> @+parent:Identity.Key -> @+state:InteractionTypes.State ->
@@ -3029,7 +3047,7 @@ law workspace_worktree_choice_retains_its_creation_scope:
 law available_worktree_choice_edits_the_requested_creation_scope:
   @work:Maybe<&2, Nat> -> @parent:Identity.Key -> @state:InteractionTypes.State ->
   {Model.workspace_worktree_available(True{}, U.NewTaskEditor{work}, parent, state) ==
-    [Model.field_node(Forms.FieldScene{Forms.CreateWorktree{}, "Create worktree", Forms.Choice{}}, U.NewTaskEditor{work}, parent, state, Nil{})] : +List<SurfaceTypes.Node>}
+    [Model.field_node(Forms.FieldScene{Forms.TaskEnvironment{}, "Task environment", Forms.Choice{}}, U.NewTaskEditor{work}, parent, state, Nil{})] : +List<SurfaceTypes.Node>}
 
 law unavailable_worktree_choice_has_no_control:
   @editor:U.Editor -> @parent:Identity.Key -> @state:InteractionTypes.State ->

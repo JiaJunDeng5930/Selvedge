@@ -1479,6 +1479,7 @@ def finite_choice(+field: Forms.Field, +value: Forms.Observed) ->
     case Forms.WorkName{}: ordinary_choice(value)
     case Forms.ProjectName{}: ordinary_choice(value)
     case Forms.CreateWorktree{}: ordinary_choice(value)
+    case Forms.TaskEnvironment{}: ordinary_choice(value)
     case Forms.WorkspaceDirectories{}: ordinary_choice(value)
     case Forms.WorkspacePrimary{}: ordinary_choice(value)
     case Forms.ContextOrigin{}: ordinary_choice(value)
@@ -1712,16 +1713,6 @@ def Rule.chart_public_single_zero(kind, label):
     case Chart.Line{}: {==}
     case Chart.Bar{}: {==}
 
-def Rule.chart_public_single_negative(kind, label):
-  match kind:
-    case Chart.Line{}: {==}
-    case Chart.Bar{}: {==}
-
-def Rule.chart_public_numeric_signed_pair(kind):
-  match kind:
-    case Chart.Line{}: {==}
-    case Chart.Bar{}: {==}
-
 def Rule.chart_public_numeric_zero(kind):
   match kind:
     case Chart.Line{}: {==}
@@ -1823,6 +1814,193 @@ def chart_coordinate_subtraction(+value: String, +magnitude: String, +center: St
       (product => {Chart.offset_result(center, False{}, product) == Done{coordinate} : Result<&2, &2, String, String>}),
       offset, Decimal.arithmetic("*", ratio, span), scaled),
     Decimal.arithmetic("/", value, magnitude), divided)
+
+# Check fixed-decimal steps separately so later witnesses consume literal strings,
+# rather than re-evaluating earlier arithmetic through each character projection.
+def chart_negative_unit_ratio() ->
+  {Decimal.arithmetic("/", "-1", "1") == Done{"-1"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_negative_vertical_scale() ->
+  {Decimal.arithmetic("*", "-1", "90") == Done{"-90"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_negative_vertical_offset() ->
+  {Decimal.arithmetic("-", "120", "-90") == Done{"210"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_negative_horizontal_ratio() ->
+  {Decimal.arithmetic("/", "-2", "2") == Done{"-1"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_positive_horizontal_ratio() ->
+  {Decimal.arithmetic("/", "2", "2") == Done{"1"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_positive_unit_ratio() ->
+  {Decimal.arithmetic("/", "1", "1") == Done{"1"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_negative_horizontal_scale() ->
+  {Decimal.arithmetic("*", "-1", "200") == Done{"-200"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_positive_horizontal_scale() ->
+  {Decimal.arithmetic("*", "1", "200") == Done{"200"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_positive_vertical_scale() ->
+  {Decimal.arithmetic("*", "1", "90") == Done{"90"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_negative_horizontal_offset() ->
+  {Decimal.arithmetic("+", "240", "-200") == Done{"40"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_positive_horizontal_offset() ->
+  {Decimal.arithmetic("+", "240", "200") == Done{"440"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_positive_vertical_offset() ->
+  {Decimal.arithmetic("-", "120", "90") == Done{"30"} : Result<&2, &2, String, String>}:
+  {==}
+
+def chart_negative_ordinate() ->
+  {Chart.numeric_coordinate("-1", "1", "120", "90", False{}) == Done{"210"} : Result<&2, &2, String, String>}:
+  chart_coordinate_subtraction("-1", "1", "120", "90", "-1", "-90", "210",
+    chart_negative_unit_ratio(), chart_negative_vertical_scale(), chart_negative_vertical_offset())
+
+def chart_positive_ordinate() ->
+  {Chart.numeric_coordinate("1", "1", "120", "90", False{}) == Done{"30"} : Result<&2, &2, String, String>}:
+  chart_coordinate_subtraction("1", "1", "120", "90", "1", "90", "30",
+    chart_positive_unit_ratio(), chart_positive_vertical_scale(), chart_positive_vertical_offset())
+
+def chart_numeric_abscissa(+value: String, +magnitude: String, +index: Nat, +count: Nat,
+  +ratio: String, +delta: String, +coordinate: String,
+  divided: {Decimal.arithmetic("/", value, magnitude) == Done{ratio} : Result<&2, &2, String, String>},
+  scaled: {Decimal.arithmetic("*", ratio, "200") == Done{delta} : Result<&2, &2, String, String>},
+  offset: {Decimal.arithmetic("+", "240", delta) == Done{coordinate} : Result<&2, &2, String, String>}) ->
+  {Chart.x_coordinate(J.Number{value}, magnitude, index, count) == Done{coordinate} : Result<&2, &2, String, String>}:
+  chart_coordinate_addition(value, magnitude, "240", "200", ratio, delta, coordinate, divided, scaled, offset)
+
+def chart_point_values(+source: J.Json, +horizontal: J.Json, +vertical: String,
+  +xm: String, +ym: String, +index: Nat, +count: Nat, +x: String, +y: String,
+  x_value: {Chart.x_coordinate(horizontal, xm, index, count) == Done{x} : Result<&2, &2, String, String>},
+  y_value: {Chart.numeric_coordinate(vertical, ym, "120", "90", False{}) == Done{y} : Result<&2, &2, String, String>}) ->
+  {Chart.point(Chart.Row{source, horizontal, vertical}, xm, ym, index, count) ==
+    Done{Chart.Point{Chart.Row{source, horizontal, vertical}, x, y}} : Result<&2, &2, String, Chart.Point>}:
+  Std.transport(Result<&2, &2, String, String>, Done{x},
+    (left => {Chart.point_result(Chart.Row{source, horizontal, vertical}, left,
+      Chart.numeric_coordinate(vertical, ym, "120", "90", False{})) ==
+        Done{Chart.Point{Chart.Row{source, horizontal, vertical}, x, y}} : Result<&2, &2, String, Chart.Point>}),
+    Std.transport(Result<&2, &2, String, String>, Done{y},
+      (top => {Chart.point_result(Chart.Row{source, horizontal, vertical}, Done{x}, top) ==
+        Done{Chart.Point{Chart.Row{source, horizontal, vertical}, x, y}} : Result<&2, &2, String, Chart.Point>}),
+      {==}, Chart.numeric_coordinate(vertical, ym, "120", "90", False{}), y_value),
+    Chart.x_coordinate(horizontal, xm, index, count), x_value)
+
+def chart_points_values(+row: Chart.Row, +rows: +List<Chart.Row>, +xm: String, +ym: String,
+  +index: Nat, +count: Nat, +point: Chart.Point, +points: +List<Chart.Point>,
+  first: {Chart.point(row, xm, ym, index, count) == Done{point} : Result<&2, &2, String, Chart.Point>},
+  rest: {Chart.points(rows, xm, ym, 1n+index, count) == Done{points} : Result<&2, &2, String, +List<Chart.Point>>}) ->
+  {Chart.points(row <> rows, xm, ym, index, count) == Done{point <> points} : Result<&2, &2, String, +List<Chart.Point>>}:
+  Std.transport(Result<&2, &2, String, Chart.Point>, Done{point},
+    (head => {Chart.prepend_point(head, Chart.points(rows, xm, ym, 1n+index, count)) ==
+      Done{point <> points} : Result<&2, &2, String, +List<Chart.Point>>}),
+    Std.transport(Result<&2, &2, String, +List<Chart.Point>>, Done{points},
+      (tail => {Chart.prepend_point(Done{point}, tail) == Done{point <> points} : Result<&2, &2, String, +List<Chart.Point>>}),
+      {==}, Chart.points(rows, xm, ym, 1n+index, count), rest),
+    Chart.point(row, xm, ym, index, count), first)
+
+def chart_admitted_values(+kind: Chart.ChartKind, +rows: +List<Chart.Row>, +total: Nat,
+  +xm: String, +ym: String, +points: +List<Chart.Point>,
+  x_domain: {Chart.magnitude(rows, True{}, "0.000001") == Done{xm} : Result<&2, &2, String, String>},
+  y_domain: {Chart.magnitude(rows, False{}, "0.000001") == Done{ym} : Result<&2, &2, String, String>},
+  projected: {Chart.points(rows, xm, ym, 0n, List.length(&2, Chart.Row, rows)) == Done{points} : Result<&2, &2, String, +List<Chart.Point>>}) ->
+  {Chart.admitted_rows(kind, total, Done{rows}) == Done{Chart.Values{kind, points, total, xm, ym}} : Result<&2, &2, String, Chart.Values>}:
+  Std.transport(Result<&2, &2, String, String>, Done{xm},
+    (x => {Chart.domains(kind, rows, total, x, Chart.magnitude(rows, False{}, "0.000001")) ==
+      Done{Chart.Values{kind, points, total, xm, ym}} : Result<&2, &2, String, Chart.Values>}),
+    Std.transport(Result<&2, &2, String, String>, Done{ym},
+      (y => {Chart.domains(kind, rows, total, Done{xm}, y) ==
+        Done{Chart.Values{kind, points, total, xm, ym}} : Result<&2, &2, String, Chart.Values>}),
+      Equal.cong(Result<&2, &2, String, +List<Chart.Point>>, Result<&2, &2, String, Chart.Values>,
+        (found => Chart.values(kind, total, xm, ym, found)),
+        Chart.points(rows, xm, ym, 0n, List.length(&2, Chart.Row, rows)), Done{points}, projected),
+      Chart.magnitude(rows, False{}, "0.000001"), y_domain),
+    Chart.magnitude(rows, True{}, "0.000001"), x_domain)
+
+def chart_raw_rows(+kind: Chart.ChartKind, +rows: +List<J.Json>) ->
+  {Chart.read(Rule.chart_raw_request(kind, rows, "x", "y")) ==
+    Chart.admitted_rows(kind, List.length(&2, J.Json, rows), Chart.read_rows(512n, rows, "x", "y")) : Result<&2, &2, String, Chart.Values>}:
+  match kind:
+    case Chart.Line{}: {==}
+    case Chart.Bar{}: {==}
+
+def chart_public_read_values(+kind: Chart.ChartKind, +source: +List<J.Json>, +rows: +List<Chart.Row>,
+  +total: Nat, +xm: String, +ym: String, +points: +List<Chart.Point>,
+  counted: {List.length(&2, J.Json, source) == total : Nat},
+  selected: {Chart.read_rows(512n, source, "x", "y") == Done{rows} : Result<&2, &2, String, +List<Chart.Row>>},
+  x_domain: {Chart.magnitude(rows, True{}, "0.000001") == Done{xm} : Result<&2, &2, String, String>},
+  y_domain: {Chart.magnitude(rows, False{}, "0.000001") == Done{ym} : Result<&2, &2, String, String>},
+  projected: {Chart.points(rows, xm, ym, 0n, List.length(&2, Chart.Row, rows)) == Done{points} : Result<&2, &2, String, +List<Chart.Point>>}) ->
+  {Chart.read(Rule.chart_raw_request(kind, source, "x", "y")) ==
+    Done{Chart.Values{kind, points, total, xm, ym}} : Result<&2, &2, String, Chart.Values>}:
+  Equal.trans(Result<&2, &2, String, Chart.Values>, Chart.read(Rule.chart_raw_request(kind, source, "x", "y")),
+    Chart.admitted_rows(kind, List.length(&2, J.Json, source), Chart.read_rows(512n, source, "x", "y")),
+    Done{Chart.Values{kind, points, total, xm, ym}}, chart_raw_rows(kind, source),
+    Std.transport(Nat, total,
+      (count => {Chart.admitted_rows(kind, count, Chart.read_rows(512n, source, "x", "y")) ==
+        Done{Chart.Values{kind, points, total, xm, ym}} : Result<&2, &2, String, Chart.Values>}),
+      Std.transport(Result<&2, &2, String, +List<Chart.Row>>, Done{rows},
+        (found => {Chart.admitted_rows(kind, total, found) ==
+          Done{Chart.Values{kind, points, total, xm, ym}} : Result<&2, &2, String, Chart.Values>}),
+        chart_admitted_values(kind, rows, total, xm, ym, points, x_domain, y_domain, projected),
+        Chart.read_rows(512n, source, "x", "y"), selected),
+      List.length(&2, J.Json, source), counted))
+
+def chart_single_negative_points(+label: String) ->
+  {Chart.points([Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}],
+    "0.000001", "1", 0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}])) ==
+    Done{[Chart.Point{Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}, "40", "210"}]} : Result<&2, &2, String, +List<Chart.Point>>}:
+  chart_points_values(Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}, Nil{},
+    "0.000001", "1", 0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}]),
+    Chart.Point{Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}, "40", "210"}, Nil{},
+    chart_point_values(Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1", "0.000001", "1", 0n,
+      List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}]),
+      "40", "210", {==}, chart_negative_ordinate()), {==})
+
+def Rule.chart_public_single_negative(kind, label):
+  chart_public_read_values(kind, [Rule.chart_raw_row(J.Text{label}, J.Number{"-1"})],
+    [Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}], 1n, "0.000001", "1",
+    [Chart.Point{Chart.Row{Rule.chart_raw_row(J.Text{label}, J.Number{"-1"}), J.Text{label}, "-1"}, "40", "210"}],
+    {==}, {==}, {==}, {==}, chart_single_negative_points(label))
+
+def chart_signed_pair_points() ->
+  {Chart.points([Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}],
+    "2", "1", 0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}])) ==
+    Done{[Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, "40", "210"}, Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}, "440", "30"}]} : Result<&2, &2, String, +List<Chart.Point>>}:
+  chart_points_values(Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, [Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}],
+    "2", "1", 0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}]),
+    Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, "40", "210"}, [Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}, "440", "30"}],
+    chart_point_values(Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1", "2", "1", 0n,
+      List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}]), "40", "210",
+      chart_numeric_abscissa("-2", "2", 0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}]), "-1", "-200", "40",
+        chart_negative_horizontal_ratio(), chart_negative_horizontal_scale(), chart_negative_horizontal_offset()),
+      chart_negative_ordinate()),
+    chart_points_values(Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}, Nil{},
+      "2", "1", 1n+0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}]),
+      Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}, "440", "30"}, Nil{},
+      chart_point_values(Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1", "2", "1", 1n+0n,
+        List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}]), "440", "30",
+        chart_numeric_abscissa("2", "2", 1n+0n, List.length(&2, Chart.Row, [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}]), "1", "200", "440",
+          chart_positive_horizontal_ratio(), chart_positive_horizontal_scale(), chart_positive_horizontal_offset()),
+        chart_positive_ordinate()), {==}))
+
+def Rule.chart_public_numeric_signed_pair(kind):
+  chart_public_read_values(kind, [Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"})],
+    [Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}], 2n, "2", "1",
+    [Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"-2"}, J.Number{"-1"}), J.Number{"-2"}, "-1"}, "40", "210"}, Chart.Point{Chart.Row{Rule.chart_raw_row(J.Number{"2"}, J.Number{"1"}), J.Number{"2"}, "1"}, "440", "30"}], {==}, {==}, {==}, {==}, chart_signed_pair_points())
 
 def Rule.chart_categorical_x(text, magnitude, index, count): {==}
 

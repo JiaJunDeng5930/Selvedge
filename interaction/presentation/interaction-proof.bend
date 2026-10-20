@@ -739,14 +739,14 @@ def current_composer_context(+identity: U.Editor, revision: Nat, message: U.Text
     case Some{preview}: {==}
 
 def composer_has_context(+message: U.Text, +profile: String, reasoning: String, +context: Context.Configuration,
-  scene: V.EditorScene, +world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: Bool) ->
+  scene: V.EditorScene, +world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: U.TaskWorkspace) ->
   {Rule.composer_footer(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
     [View.scoped_model_control(profile, reasoning, world, work),
          V.ComposerControl{UX.permissions_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}), View.context_control("composer/permissions/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_permissions(Context.DraftExecution{Context.preview(context, world)}, Board.profiles(world)), U.PermissionsConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
-def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: Bool) ->
+def creation_phase(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: U.TaskWorkspace) ->
   {Rule.composer_phase(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) == Some{V.Creation{}} : Maybe<&2, V.ComposerPhase>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
@@ -761,7 +761,7 @@ def conversation_context_empty(scene: V.EditorScene, task: Nat, message: U.Text,
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}
 
-def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: Bool) ->
+def creation_controls(scene: V.EditorScene, message: U.Text, profile: String, reasoning: String, +context: Context.Configuration, +world: M.World(), +work: Maybe<&2, Nat>, +create_worktree: U.TaskWorkspace) ->
   {Rule.composer_creation_controls(View.composer_scene(U.NewTask{message, profile, reasoning, context, create_worktree, work}, scene, world)) ==
     [V.ComposerControl{UX.project_property(U.NewTaskEditor{work}, View.observation_project(Context.DraftExecution{Context.preview(context, world)}), world), View.context_control("composer/project", View.project_choice_label(View.creation_selected_project(Some{Context.preview(context, world)}, world)), U.ProjectPicker{})},
          V.ComposerControl{UX.workspace_property(U.NewTaskEditor{work}, Context.DraftExecution{Context.preview(context, world)}, world), View.context_control("composer/workspace/" ++ U.editor_key(U.NewTaskEditor{work}), View.observation_workspace(Context.DraftExecution{Context.preview(context, world)}), U.WorkspaceConfiguration{U.NewTaskEditor{work}})}] : +List<V.ComposerControl>}:
@@ -787,11 +787,7 @@ def collapsed_navigation_agreement(beside: Bool) ->
     case False{}: {==}
 
 def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
-  match creation_context execution_controls:
-    case Nil{} Nil{}: {==}
-    case Nil{} Con{first, rest}: {==}
-    case Con{first, rest} Nil{}: {==}
-    case Con{first, rest} Con{other, tail}: {==}
+  {==}
 
 def Rule.composer_tree_agreement(view, parent, state):
   match view:
@@ -799,12 +795,26 @@ def Rule.composer_tree_agreement(view, parent, state):
     case Some{V.ComposerScene{+identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending}}:
       Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state)
 
+def Rule.task_environment_control_belongs_to_new_task(editor, parent, state):
+  match editor:
+    case U.NewWorkGraphEditor{work}: {==}
+    case U.WorkEditor{work}: {==}
+    case U.NewTaskEditor{work}: {==}
+    case U.MessageEditor{task}: {==}
+    case U.ProjectEditor{project}: {==}
+    case U.CardEditor{card}: {==}
+    case U.AgentEditor{agent}: {==}
+    case U.ForkEditor{task}: {==}
+    case U.CompactEditor{task}: {==}
+    case U.TaskGraphEditor{graph}: {==}
+    case U.TitlePromptEditor{}: {==}
+
+def Rule.cloud_task_voice_waits_for_creation(editor, revision, parent, speech): {==}
+
 def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
-  match creation_context execution_controls:
-    case Nil{} Nil{}: {==}
-    case Nil{} Con{first, rest}: {==}
-    case Con{first, rest} Nil{}: {==}
-    case Con{first, rest} Con{other, tail}: {==}
+  match creation_context:
+    case Nil{}: {==}
+    case Con{first, rest}: {==}
 
 def Rule.composer_enclosure_agreement(view, parent, state):
   match view:
@@ -857,6 +867,7 @@ def Rule.composition_evidence():
     +id => attention => +expanded => summary => audit => expand => collapse => +task => +parent => +state => {==},
     view => parent => state => Rule.composer_tree_agreement(view, parent, state),
     editor => parent => state => workspace_description_agreement(Model.workspace_observed(Model.field_value(state, editor, Forms.WorkspaceDirectories{})), editor, parent, state),
+    editor => parent => state => Rule.task_environment_control_belongs_to_new_task(editor, parent, state),
     view => parent => state => Rule.composer_enclosure_agreement(view, parent, state),
     recipe => structure_evidence(recipe),
     +context => +world => {==},

@@ -30,12 +30,12 @@ def skipped_owner(owner: Nat, value: W.Worktree, +rest: Maybe<&2, Finite.Entry(W
   {State.choose_effective(False{}, owner, value, rest) == rest : Maybe<&2, Finite.Entry(W.Worktree)>}:
   {==}
 
-def borrowed_root(+primary: String, source: String, +root: String, status: W.Status, message: String, target: String) ->
-  {State.borrowed_candidate(primary, W.Worktree{source, Some{root}, status, message, target}) == State.path_inside(root, primary) : Bool}:
+def borrowed_root(backend: W.Backend, +primary: String, source: String, +root: String, status: W.Status, message: String, target: String) ->
+  {State.borrowed_candidate(primary, W.Worktree{source, Some{root}, status, message, target, backend}) == State.path_inside(root, primary) : Bool}:
   {==}
 
-def borrowed_missing_root(primary: String, source: String, status: W.Status, message: String, target: String) ->
-  {State.borrowed_candidate(primary, W.Worktree{source, None{}, status, message, target}) == False{} : Bool}:
+def borrowed_missing_root(backend: W.Backend, primary: String, source: String, status: W.Status, message: String, target: String) ->
+  {State.borrowed_candidate(primary, W.Worktree{source, None{}, status, message, target, backend}) == False{} : Bool}:
   {==}
 
 def chosen_inside(+selected: Bool, +owner: Nat, +value: W.Worktree, +rest: Maybe<&2, Finite.Entry(W.Worktree)>, +primary: String,
@@ -46,8 +46,8 @@ def chosen_inside(+selected: Bool, +owner: Nat, +value: W.Worktree, +rest: Maybe
     case False{}: induction
     case True{}:
       match value:
-        case W.Worktree{source, None{}, status, message, target}: Logic.impossible({False{} == True{} : Bool}, observed)
-        case W.Worktree{source, Some{root}, status, message, target}: observed
+        case W.Worktree{source, None{}, status, message, target, backend}: Logic.impossible({False{} == True{} : Bool}, observed)
+        case W.Worktree{source, Some{root}, status, message, target, backend}: observed
 
 def inherited_inside(+entries: +List<Finite.Entry(W.Worktree)>, +primary: String) ->
   {Contract.inherited_inside(primary, State.find_effective(entries, primary)) == True{} : Bool}:
@@ -74,8 +74,8 @@ def live_root_user(+status: D.Status, +owner: Nat, +root: String, +task: D.Task,
         (Bool.not(Nat.is_eq(owner, D.task_id(task))) && State.any_root_inside(Workspace.roots(Workspace.workspace(D.contract_context(D.task_contract(task)))), root)) : Bool},
         Equal.sym(Bool, True{}, False{}, live))
 
-def archive_root(source: String, +root: String, status: W.Status, message: String, primary: String, +owner: Nat, +world: M.World()) ->
-  {State.archive_available(Some{W.Worktree{source, Some{root}, status, message, primary}}, owner, world) ==
+def archive_root(backend: W.Backend, source: String, +root: String, status: W.Status, message: String, primary: String, +owner: Nat, +world: M.World()) ->
+  {State.archive_available(Some{W.Worktree{source, Some{root}, status, message, primary, backend}}, owner, world) ==
     Bool.not(State.uses_root(owner, root, D.state_tasks(C.local(D.State, F.State(), world)))) : Bool}:
   {==}
 
@@ -89,18 +89,18 @@ def blocked_root(+owner: Nat, +root: String, +world: M.World(),
   Equal.cong(Bool, Bool, value => Bool.not(value),
     State.uses_root(owner, root, D.state_tasks(C.local(D.State, F.State(), world))), True{}, blocked)
 
-def workspace_ready(roots: +List<String>, source: String, root: String, message: String, primary: String) ->
-  {State.workspace_resource_available(roots, W.Worktree{source, Some{root}, W.Ready{}, message, primary}) == True{} : Bool}:
+def workspace_ready(backend: W.Backend, roots: +List<String>, source: String, root: String, message: String, primary: String) ->
+  {State.workspace_resource_available(roots, W.Worktree{source, Some{root}, W.Ready{}, message, primary, backend}) == True{} : Bool}:
   {==}
 
-def workspace_protected(+roots: +List<String>, source: String, +root: String, +status: W.Status, message: String, primary: String,
+def workspace_protected(backend: W.Backend, +roots: +List<String>, source: String, +root: String, +status: W.Status, message: String, primary: String,
   nonready: {Contract.ready_worktree_status(status) == False{} : Bool}) ->
-  {State.workspace_resource_available(roots, W.Worktree{source, Some{root}, status, message, primary}) == Bool.not(State.any_root_inside(roots, root)) : Bool}:
+  {State.workspace_resource_available(roots, W.Worktree{source, Some{root}, status, message, primary, backend}) == Bool.not(State.any_root_inside(roots, root)) : Bool}:
   match status:
     case W.Creating{}: {==}
     case W.CreatingArchived{}: {==}
     case W.Ready{}:
-      Logic.impossible({State.workspace_resource_available(roots, W.Worktree{source, Some{root}, W.Ready{}, message, primary}) == Bool.not(State.any_root_inside(roots, root)) : Bool},
+      Logic.impossible({State.workspace_resource_available(roots, W.Worktree{source, Some{root}, W.Ready{}, message, primary, backend}) == Bool.not(State.any_root_inside(roots, root)) : Bool},
         Equal.sym(Bool, True{}, False{}, nonready))
     case W.CreateFailed{}: {==}
     case W.Archiving{}: {==}

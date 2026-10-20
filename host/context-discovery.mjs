@@ -8,13 +8,19 @@ export function isContextDiscovery(observer) {
 }
 
 /** Interpret the kernel's bounded directory-discovery plan for one observation. */
-export function createContextDiscovery({ home, settings, signal }) {
+export function createContextDiscovery({ home, settings, signal, filesystem = { lstat, opendir, realpath }, candidates = [], maximum }) {
+  const { lstat, opendir, realpath } = filesystem;
   const roots = settings.workspace.roots;
   const primary = settings.workspace.primary_root;
   const trees = new Map();
+  const prefetched = new Map();
 
   async function directory(filename) {
     signal?.throwIfAborted();
+    if (filesystem.prefetchDirectory) {
+      if (!prefetched.has(filename)) prefetched.set(filename, filesystem.prefetchDirectory(filename, { candidates, maximum }));
+      await prefetched.get(filename);
+    }
     const stat = await lstat(filename);
     // DEFENSE: External directory replacement or links must not make discovery traverse outside canonical roots.
     if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(filename) !== filename) {

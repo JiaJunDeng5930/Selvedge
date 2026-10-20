@@ -138,3 +138,12 @@ def workspace_available(workspace: D.Workspace, world: M.World()) -> Bool:
 
 def archive_allowed(id: Nat, world: M.World()) -> Bool:
   WorktreeState.archive_allowed(id, world)
+
+def bound_workspace_selection(selection: Result<&2, &2, String, Workspace.Selection>, world: M.World()) -> Result<&2, &2, String, Workspace.Selection>:
+  WorktreeState.bound_selection(selection, world)
+
+def cloud_task(id: Nat, world: M.World()) -> Bool:
+  WorktreeState.cloud_task(id, world)
+
+def cloud_options_allowed(id: Nat, options: J.Json, world: M.World()) -> Bool:
+  WorktreeState.cloud_options_allowed(id, options, world)

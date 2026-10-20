@@ -426,7 +426,7 @@ law transition_admitted:
 # Safety is closed under every admitted input and every finite execution trace.
 
 law initial_world_valid:
-  {I.world(M.initial()) == True{} : Bool}
+  {I.world(M.initial(M.initial_requests())) == True{} : Bool}
 
 law transition_preserves_world:
   for world: M.World()

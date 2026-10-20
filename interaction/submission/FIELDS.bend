@@ -21,6 +21,7 @@ type Field is Data:
   MessageText{}
   ProjectName{}
   CreateWorktree{}
+  TaskEnvironment{}
   WorkspaceDirectories{}
   WorkspacePrimary{}
   ContextOrigin{}
@@ -138,7 +139,7 @@ def structure(body: U.Body) -> +List<Section>:
   match body:
     case U.WorkName{work, name}: [Section{"Work", [FieldScene{WorkName{}, "Name", SingleLine{}}]}]
     case U.NewTask{message, profile, reasoning, context, create_worktree, work}:
-      [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution(), Section{"Workspace", [FieldScene{CreateWorktree{}, "Create worktree", Choice{}}]}]
+      [Section{"Message", [FieldScene{MessageText{}, "Task", Multiline{}}]}, model(), execution(), Section{"Workspace", [FieldScene{TaskEnvironment{}, "Task environment", Choice{}}]}]
     case U.Message{task, message, delivery}:
       [Section{"Message", [FieldScene{MessageText{}, "Message", Multiline{}}, FieldScene{DeliveryIntent{}, "Send as", Choice{}}]}, model(), Section{"Permissions", [FieldScene{SandboxMode{}, "Filesystem access", Choice{}}, FieldScene{NetworkAccess{}, "Network access", Choice{}}, FieldScene{ApprovalPolicy{}, "Approval policy", Choice{}}, FieldScene{ApprovalReviewer{}, "Reviewing model", Choice{}}]}]
     case U.Project{id, name, workspace, create_worktree}:
@@ -160,6 +161,13 @@ def structure(body: U.Body) -> +List<Section>:
     case U.TitlePrompts{revision, prompts}:
       [Section{"标题生成", [FieldScene{TaskTitlePrompt{}, "Task 看板标题提示词", Multiline{}}, FieldScene{AgentTitlePrompt{}, "Agent 会话标题提示词", Multiline{}}]}]
 
+def task_environment_edit(value: String) -> Maybe<&2, U.Edit>:
+  match value:
+    case "current": Some{U.ChooseTaskWorkspace{U.CurrentWorkspace{}}}
+    case "local": Some{U.ChooseTaskWorkspace{U.LocalWorktree{}}}
+    case "tencent_cvm": Some{U.ChooseTaskWorkspace{U.CloudWorkspace{}}}
+    case _: None{}
+
 def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
   match field value:
     case WorkName{} Text{text}: Some{U.NameWork{text}}
@@ -168,6 +176,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case ContinueCapture{} Toggle{enabled}: Some{U.KeepCaptureOpen{enabled}}
     case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text, Nil{}}}}
     case CreateWorktree{} Toggle{enabled}: Some{U.ChooseWorktree{enabled}}
+    case TaskEnvironment{} Text{value}: task_environment_edit(value)
     case ProjectName{} Text{text}: Some{U.NameProject{text}}
     case WorkspaceDirectories{} WorkspaceChange{Context.AddRoot{path}}: Some{U.EditWorkspace{Context.AddRoot{path}}}
     case WorkspaceDirectories{} WorkspaceChange{Context.RemoveRoot{path}}: Some{U.EditWorkspace{Context.RemoveRoot{path}}}
@@ -204,6 +213,7 @@ def key(field: Field) -> String:
     case MessageText{}: "message-text"
     case ProjectName{}: "project-name"
     case CreateWorktree{}: "create-worktree"
+    case TaskEnvironment{}: "task-environment"
     case WorkspaceDirectories{}: "workspace-directories"
     case WorkspacePrimary{}: "workspace-primary"
     case ContextOrigin{}: "context-origin"
@@ -266,8 +276,8 @@ def choice_field_by_key_classified(value: ChoiceFieldByKeyName) -> Maybe<&2, Fie
     case ChoiceFieldByKeyNameWorkspacePrimary{}: Some{WorkspacePrimary{}}
     case ChoiceFieldByKeyNameOther{}: None{}
 
-def choice_field_by_key(value: String) -> Maybe<&2, Field>:
-  choice_field_by_key_classified(choice_field_by_key_discriminant(value))
+def choice_field_by_key(+value: String) -> Maybe<&2, Field>:
+  Bool.pick(Maybe<&2, Field>, String.eq(value, "task-environment"), Some{TaskEnvironment{}}, choice_field_by_key_classified(choice_field_by_key_discriminant(value)))
 
 def field_present(fields: +List<FieldScene>, +wanted: Field) -> Bool:
   match fields:
@@ -324,9 +334,9 @@ def context_value(field: Field, config: Context.Configuration, +profile: String,
     case ApprovalReviewer{}: ContextValue{Context.preview(config, world), reviewers_for(profile, world)}
     case _: NotApplicable{}
 
-def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, create_worktree: Bool, world: M.World()) -> Observed:
+def new_task_value(field: Field, message: U.Text, profile: String, reasoning: String, config: Context.Configuration, create_worktree: U.TaskWorkspace, world: M.World()) -> Observed:
   match field:
-    case CreateWorktree{}: ToggleValue{create_worktree}
+    case TaskEnvironment{}: TextValue{U.task_workspace_name(create_worktree)}
     case MessageText{}: TextValue{U.text(message)}
     case ModelProfile{}: ModelValue{profile, reasoning}
     case ReasoningEffort{}: ModelValue{profile, reasoning}

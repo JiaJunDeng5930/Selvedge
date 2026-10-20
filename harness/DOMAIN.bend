@@ -724,6 +724,7 @@ def ContextObservation() -> Data:
 
 type HistoryContext is Data:
   ContextChange{change: Context.Change}
+  EnvironmentNotice{text: String}
   TaskSettings{context: TaskContext, profile: String, reasoning: String}
   ReasoningConfiguration{effort: String}
   SideConversation{owner: Nat, parent: Nat, start: Nat}
@@ -1347,6 +1348,7 @@ def context_json(context: HistoryContext) -> J.Json:
       J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"side_return_cursor"}},
         J.Field{"owner_task", J.nat(owner)}, J.Field{"through", J.nat(through)}]}
     case ContextChange{change}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"context_change"}}, J.Field{"change", Context.change_json(change)}]}
+    case EnvironmentNotice{text}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"environment_notice"}}, J.Field{"content", J.Text{text}}]}
     case TaskSettings{context, profile, reasoning}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"settings"}}, J.Field{"content", task_context_json(context)}, J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}]}
     case ReasoningConfiguration{effort}: J.Object{[J.Field{"role", J.Text{"task_context"}}, J.Field{"type", J.Text{"reasoning_configuration"}}, J.Field{"effort", J.Text{effort}}]}
 

@@ -40,3 +40,8 @@ def retry_archive(+id: Nat, +world: M.World()) -> M.Decision():
 def start(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), profile: D.Profile, reasoning: String, message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   Workspace.Selection{context, guidance} = selection
   State.initialize(D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spawn(profile, reasoning, message, selection, world))
+
+def start_backend(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  +backend: W.Backend, profile: D.Profile, reasoning: String, message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+  Workspace.Selection{context, guidance} = selection
+  State.initialize_backend(backend, D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spawn(profile, reasoning, message, selection, world))

@@ -35,7 +35,7 @@ def any_root_inside(roots: +List<String>, +managed: String) -> Bool:
 
 def borrowed_candidate(primary: String, value: W.Worktree) -> Bool:
   match value:
-    case W.Worktree{source, Some{root}, status, message, target}: path_inside(root, primary)
+    case W.Worktree{source, Some{root}, status, message, target, backend}: path_inside(root, primary)
     case _: False{}
 
 def choose_effective(selected: Bool, owner: Nat, value: W.Worktree, rest: Maybe<&2, Finite.Entry(W.Worktree)>) -> Maybe<&2, Finite.Entry(W.Worktree)>:
@@ -66,8 +66,8 @@ def effective(+id: Nat, +world: M.World()) -> Maybe<&2, Finite.Entry(W.Worktree)
 
 def workspace_resource_available(roots: +List<String>, value: W.Worktree) -> Bool:
   match value:
-    case W.Worktree{source, Some{root}, W.Ready{}, message, primary}: True{}
-    case W.Worktree{source, Some{root}, status, message, primary}: Bool.not(any_root_inside(roots, root))
+    case W.Worktree{source, Some{root}, W.Ready{}, message, primary, backend}: True{}
+    case W.Worktree{source, Some{root}, status, message, primary, backend}: Bool.not(any_root_inside(roots, root))
     case _: True{}
 
 def workspace_entries_available(+roots: +List<String>, entries: +List<Finite.Entry(W.Worktree)>) -> Bool:
@@ -93,7 +93,7 @@ def root_unused(owner: Nat, root: String, world: M.World()) -> Bool:
 
 def archive_available(found: Maybe<&2, W.Worktree>, owner: Nat, world: M.World()) -> Bool:
   match found:
-    case Some{W.Worktree{source, Some{root}, status, message, primary}}: root_unused(owner, root, world)
+    case Some{W.Worktree{source, Some{root}, status, message, primary, backend}}: root_unused(owner, root, world)
     case _: True{}
 
 def archive_allowed(+id: Nat, +world: M.World()) -> Bool:
@@ -119,7 +119,7 @@ def pending(id: Nat, +world: M.World()) -> Bool:
 
 def execution_available(found: Maybe<&2, W.Worktree>) -> Bool:
   match found:
-    case Some{W.Worktree{source, root, W.CreateFailed{}, message, primary}}: False{}
+    case Some{W.Worktree{source, root, W.CreateFailed{}, message, primary, backend}}: False{}
     case _: True{}
 
 def execution_allowed(id: Nat, world: M.World()) -> Bool:
@@ -133,7 +133,7 @@ def control_allowed(+request: D.Control, +id: Nat, +world: M.World()) -> Bool:
 
 def retry_found(found: Maybe<&2, W.Worktree>, owner: Maybe<&2, D.Task>) -> Bool:
   match found owner:
-    case Some{W.Worktree{source, Some{root}, W.ArchiveFailed{}, message, primary}} Some{task}: archived(D.task_status(task))
+    case Some{W.Worktree{source, Some{root}, W.ArchiveFailed{}, message, primary, backend}} Some{task}: archived(D.task_status(task))
     case _ _: False{}
 
 def retry_allowed(+id: Nat, +world: M.World()) -> Bool:
@@ -162,7 +162,7 @@ def status_task(status: W.Status, +task: D.Task) -> Bool:
 
 def entry_valid(value: W.Worktree, owner: Maybe<&2, D.Task>) -> Bool:
   match value owner:
-    case W.Worktree{source, root, status, message, primary} Some{task}:
+    case W.Worktree{source, root, status, message, primary, backend} Some{task}:
       Workspace.valid_path(source) && root_valid(root) && status_task(status, task)
     case _ _: False{}
 
@@ -174,10 +174,10 @@ def entries_valid(entries: +List<Finite.Entry(W.Worktree)>, +world: M.World()) -
 def valid(+world: M.World()) -> Bool:
   entries_valid(W.entries(registry(world)), world)
 
-def retained_entry(previous: W.Worktree, next: Maybe<&2, W.Worktree>) -> Bool:
+def retained_entry(+previous: W.Worktree, next: Maybe<&2, W.Worktree>) -> Bool:
   match next:
     case None{}: False{}
-    case Some{candidate}: String.eq(W.source_root(previous), W.source_root(candidate))
+    case Some{+candidate}: String.eq(W.source_root(previous), W.source_root(candidate)) && W.same_backend(W.backend(previous), W.backend(candidate))
 
 def retained_entries(entries: +List<Finite.Entry(W.Worktree)>, +candidate: W.State) -> Bool:
   match entries:
@@ -214,22 +214,22 @@ def correlated(+completion: W.Completion, +world: M.World()) -> Maybe<&2, O.Reso
     case W.Created{+id, ok, root, workspace, guidance, message}: correlate(completion_current(W.lookup(id, registry(world)), True{}), completion)
     case W.ArchivedResult{+id, ok, root, message}: correlate(completion_current(W.lookup(id, registry(world)), False{}), completion)
 
-def create_effect(found: Maybe<&2, W.Worktree>, +source: String, workspace: D.Workspace) -> Bool:
+def create_effect(found: Maybe<&2, W.Worktree>, +backend: W.Backend, +source: String, workspace: D.Workspace) -> Bool:
   match found:
-    case Some{+value}: creation_status(W.status(value)) && String.eq(source, W.source_root(value)) &&
+    case Some{+value}: creation_status(W.status(value)) && W.same_backend(backend, W.backend(value)) && String.eq(source, W.source_root(value)) &&
       String.eq(source, D.selected_workspace(D.TaskContext{workspace, D.Sandbox{D.WorkspaceWrite{}, False{}}, D.AskForApproval{}, None{}}))
     case _: False{}
 
-def archive_effect(found: Maybe<&2, W.Worktree>, source: String, root: String) -> Bool:
+def archive_effect(found: Maybe<&2, W.Worktree>, backend: W.Backend, source: String, root: String) -> Bool:
   match found:
-    case Some{W.Worktree{expected_source, Some{expected_root}, W.Archiving{}, message, primary}}:
-      String.eq(source, expected_source) && String.eq(root, expected_root)
+    case Some{W.Worktree{expected_source, Some{expected_root}, W.Archiving{}, message, primary, expected_backend}}:
+      W.same_backend(backend, expected_backend) && String.eq(source, expected_source) && String.eq(root, expected_root)
     case _: False{}
 
 def effect_valid(effect: W.Effect, +state: W.State) -> Bool:
   match effect:
-    case W.CreateTree{+id, source, workspace}: create_effect(W.lookup(id, state), source, workspace)
-    case W.ArchiveTree{+id, source, root}: archive_effect(W.lookup(id, state), source, root)
+    case W.CreateTree{+id, source, workspace, backend}: create_effect(W.lookup(id, state), backend, source, workspace)
+    case W.ArchiveTree{+id, source, root, backend}: archive_effect(W.lookup(id, state), backend, source, root)
 
 # Only the pending task's workspace coordinate can finish initialization.
 # All other creation-contract fields are still checked by the core comparator.
@@ -261,8 +261,8 @@ def initialization_selected(allowed: Bool, primary: String) -> Maybe<&2, String>
 
 def initialization_target(before: Maybe<&2, W.Worktree>, after: Maybe<&2, W.Worktree>) -> Maybe<&2, String>:
   match before after:
-    case Some{W.Worktree{source, None{}, W.Creating{}, message, previous}} Some{W.Worktree{next_source, Some{+root}, W.Ready{}, next_message, +primary}}:
-      initialization_selected(String.eq(source, next_source) && Workspace.valid_path(primary) &&
+    case Some{W.Worktree{source, None{}, W.Creating{}, message, previous, backend}} Some{W.Worktree{next_source, Some{+root}, W.Ready{}, next_message, +primary, next_backend}}:
+      initialization_selected(String.eq(source, next_source) && W.same_backend(backend, next_backend) && Workspace.valid_path(primary) &&
         (String.eq(primary, root) || String.starts_with(primary, root ++ "/")), primary)
     case _ _: None{}
 
@@ -287,6 +287,16 @@ def accepted(world: M.World(), effects: +List<M.Effect()>) -> M.Decision():
 def saved(+id: Nat, value: W.Worktree, +world: M.World(), effects: +List<M.Effect()>) -> M.Decision():
   accepted(store(W.put(id, value, registry(world)), world), effects)
 
+def environment_notice(backend: W.Backend, task: D.Task) -> D.Task:
+  match backend:
+    case W.Local{}: task
+    case W.TencentCvm{}: D.append_context(D.EnvironmentNotice{"Bash runs in the task cloud environment with Full Access. MCP tools may return paths on the local host; these paths are not necessarily available in the cloud environment."}, task)
+
+def initialize_environment(backend: W.Backend, found: Maybe<&2, D.Task>, world: M.World()) -> M.World():
+  match found:
+    case None{}: world
+    case Some{task}: replace_task(environment_notice(backend, D.with_status(D.Frozen{}, task)), world)
+
 def initialized_task(found: Maybe<&2, D.Task>, world: M.World()) -> M.World():
   match found:
     case None{}: world
@@ -297,12 +307,15 @@ def primary_text(workspace: D.Workspace) -> String:
     case D.Workspace{roots, None{}}: ""
     case D.Workspace{roots, Some{primary}}: primary
 
-def initialize(+id: Nat, +workspace: D.Workspace, decision: M.Decision()) -> M.Decision():
+def initialize_backend(+backend: W.Backend, +id: Nat, +workspace: D.Workspace, decision: M.Decision()) -> M.Decision():
   C.Decision{+world, reply, effects} = decision
   +source = primary_text(workspace)
-  +next = initialized_task(task(id, world), world)
-  C.Decision{store(W.put(id, W.Worktree{source, None{}, W.Creating{}, "", ""}, registry(next)), next), reply,
-    List.append(&2, M.Effect(), effects, [Effects.FeatureEffect{F.WorktreeEffect{W.CreateTree{id, source, workspace}}}])}
+  +next = initialize_environment(backend, task(id, world), world)
+  C.Decision{store(W.put(id, W.Worktree{source, None{}, W.Creating{}, "", "", backend}, registry(next)), next), reply,
+    List.append(&2, M.Effect(), effects, [Effects.FeatureEffect{F.WorktreeEffect{W.CreateTree{id, source, workspace, backend}}}])}
+
+def initialize(id: Nat, workspace: D.Workspace, decision: M.Decision()) -> M.Decision():
+  initialize_backend(W.Local{}, id, workspace, decision)
 
 def workspace_selected(expected: D.Workspace, actual: D.Workspace) -> Bool:
   D.Workspace{roots, primary} = expected
@@ -324,19 +337,19 @@ def completed_task(+primary: String, guidance: D.ProjectContext, +task: D.Task) 
 def failure_task(message: String, task: D.Task) -> D.Task:
   D.with_phase(D.Idle{}, D.with_status(D.Stopped{}, D.append_message(D.FailureMessage{message}, task)))
 
-def archive_current(available: Bool, +id: Nat, +source: String, +root: String, primary: String, world: M.World()) -> M.Decision():
+def archive_current(available: Bool, +backend: W.Backend, +id: Nat, +source: String, +root: String, primary: String, world: M.World()) -> M.Decision():
   match available:
     case False{}:
-      saved(id, W.Worktree{source, Some{root}, W.ArchiveFailed{}, "Worktree is still used by another task. Archive shared tasks before retrying.", primary}, world, Nil{})
+      saved(id, W.Worktree{source, Some{root}, W.ArchiveFailed{}, "Worktree is still used by another task. Archive shared tasks before retrying.", primary, backend}, world, Nil{})
     case True{}:
-      saved(id, W.Worktree{source, Some{root}, W.Archiving{}, "", primary}, world,
-        [Effects.FeatureEffect{F.WorktreeEffect{W.ArchiveTree{id, source, root}}}])
+      saved(id, W.Worktree{source, Some{root}, W.Archiving{}, "", primary, backend}, world,
+        [Effects.FeatureEffect{F.WorktreeEffect{W.ArchiveTree{id, source, root, backend}}}])
 
 def archive_started(+id: Nat, value: W.Worktree, +world: M.World()) -> M.Decision():
   match value:
-    case W.Worktree{source, None{}, status, message, primary}: accepted(world, Nil{})
-    case W.Worktree{+source, Some{+root}, status, message, primary}:
-      archive_current(root_unused(id, root, world), id, source, root, primary, world)
+    case W.Worktree{source, None{}, status, message, primary, backend}: accepted(world, Nil{})
+    case W.Worktree{+source, Some{+root}, status, message, primary, backend}:
+      archive_current(root_unused(id, root, world), backend, id, source, root, primary, world)
 
 def archive_merge(reply: J.Json, before: +List<M.Effect()>, result: M.Decision()) -> M.Decision():
   C.Decision{world, ignored, effects} = result
@@ -350,8 +363,8 @@ def archive_eligible(allowed: Bool, id: Nat, value: W.Worktree, world: M.World()
 def archive_value(+id: Nat, found: Maybe<&2, W.Worktree>, +world: M.World()) -> M.Decision():
   match found:
     case None{}: accepted(world, Nil{})
-    case Some{W.Worktree{source, root, W.Creating{}, message, primary}}:
-      saved(id, W.Worktree{source, root, W.CreatingArchived{}, message, primary}, world, Nil{})
+    case Some{W.Worktree{source, root, W.Creating{}, message, primary, backend}}:
+      saved(id, W.Worktree{source, root, W.CreatingArchived{}, message, primary, backend}, world, Nil{})
     case Some{+value}: archive_eligible(W.archivable(W.status(value)), id, value, world)
 
 def archive_found(+id: Nat, found: Maybe<&2, W.Worktree>, decision: M.Decision()) -> M.Decision():
@@ -365,10 +378,10 @@ def archived_decision(+id: Nat, +decision: M.Decision()) -> M.Decision():
 def archive_failed_created(+id: Nat, +failed: W.Worktree, +world: M.World()) -> M.Decision():
   archive_value(id, Some{failed}, store(W.put(id, failed, registry(world)), world))
 
-def failed_for_status(was_archived: Bool, +id: Nat, value: W.Worktree, root: Maybe<&2, String>, +message: String, task: D.Task, +world: M.World()) -> M.Decision():
+def failed_for_status(was_archived: Bool, +id: Nat, +value: W.Worktree, root: Maybe<&2, String>, +message: String, task: D.Task, +world: M.World()) -> M.Decision():
   match was_archived:
-    case False{}: saved(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, ""}, replace_task(failure_task(message, task), world), Nil{})
-    case True{}: archive_failed_created(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, ""}, world)
+    case False{}: saved(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, "", W.backend(value)}, replace_task(failure_task(message, task), world), Nil{})
+    case True{}: archive_failed_created(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, "", W.backend(value)}, world)
 
 def create_failed_found(found: Maybe<&2, D.Task>, +id: Nat, +value: W.Worktree, root: Maybe<&2, String>, +message: String, +world: M.World()) -> M.Decision():
   match found:
@@ -381,9 +394,9 @@ def create_failed(+id: Nat, value: W.Worktree, root: Maybe<&2, String>, message:
 def created_for_status(was_archived: Bool, +id: Nat, +value: W.Worktree, +root: String, +workspace: D.Workspace,
   guidance: D.ProjectContext, +task: D.Task, +world: M.World()) -> M.Decision():
   match was_archived:
-    case True{}: archive_started(id, W.Worktree{W.source_root(value), Some{root}, W.Ready{}, "", primary_text(workspace)}, world)
+    case True{}: archive_started(id, W.Worktree{W.source_root(value), Some{root}, W.Ready{}, "", primary_text(workspace), W.backend(value)}, world)
     case False{}:
-      saved(id, W.Worktree{W.source_root(value), Some{root}, W.Ready{}, "", primary_text(workspace)}, replace_task(completed_task(primary_text(workspace), guidance, task), world), Nil{})
+      saved(id, W.Worktree{W.source_root(value), Some{root}, W.Ready{}, "", primary_text(workspace), W.backend(value)}, replace_task(completed_task(primary_text(workspace), guidance, task), world), Nil{})
 
 def created_success_found(found: Maybe<&2, D.Task>, +id: Nat, +value: W.Worktree, +root: String, +workspace: D.Workspace, guidance: D.ProjectContext, +world: M.World()) -> M.Decision():
   match found:
@@ -412,5 +425,41 @@ def created_result(+id: Nat, +value: W.Worktree, ok: Bool, root: Maybe<&2, Strin
 
 def archive_result(+id: Nat, +value: W.Worktree, ok: Bool, root: String, message: String, world: M.World()) -> M.Decision():
   match ok:
-    case True{}: saved(id, W.Worktree{W.source_root(value), Some{root}, W.Archived{}, "", W.target_primary(value)}, world, Nil{})
+    case True{}: saved(id, W.Worktree{W.source_root(value), Some{root}, W.Archived{}, "", W.target_primary(value), W.backend(value)}, world, Nil{})
     case False{}: saved(id, W.with_status(W.ArchiveFailed{}, message, value), world, Nil{})
+
+def cloud_selection(selection: Workspace.Selection) -> Workspace.Selection:
+  Workspace.Selection{D.TaskContext{workspace, sandbox, approval, project}, guidance} = selection
+  Workspace.Selection{D.TaskContext{workspace, D.Sandbox{D.WorkspaceWrite{}, True{}}, D.FullAccess{}, project}, guidance}
+
+def primary_workspace(workspace: D.Workspace) -> D.Workspace:
+  match workspace:
+    case D.Workspace{roots, None{}}: D.Workspace{Nil{}, None{}}
+    case D.Workspace{roots, Some{+primary}}: D.Workspace{[primary], Some{primary}}
+
+def primary_selection(selection: Workspace.Selection) -> Workspace.Selection:
+  Workspace.Selection{D.TaskContext{workspace, sandbox, approval, project}, guidance} = selection
+  Workspace.Selection{D.TaskContext{primary_workspace(workspace), sandbox, approval, project}, guidance}
+
+def backend_selection(backend: W.Backend, selection: Workspace.Selection) -> Workspace.Selection:
+  match backend:
+    case W.Local{}: selection
+    case W.TencentCvm{}: cloud_selection(primary_selection(selection))
+
+def cloud_entry(found: Maybe<&2, Finite.Entry(W.Worktree)>) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{(owner, value)}: W.cloud(W.backend(value))
+
+def cloud_task(id: Nat, world: M.World()) -> Bool:
+  cloud_entry(effective(id, world))
+
+def bound_selection(selection: Result<&2, &2, String, Workspace.Selection>, +world: M.World()) -> Result<&2, &2, String, Workspace.Selection>:
+  match selection:
+    case Fail{reason}: Fail{reason}
+    case Done{+selection}: Done{Bool.pick(Workspace.Selection,
+      cloud_entry(find_effective(W.entries(registry(world)), selection_primary(selection))), cloud_selection(selection), selection)}
+
+def cloud_options_allowed(id: Nat, +options: J.Json, world: M.World()) -> Bool:
+  Bool.not(cloud_task(id, world)) ||
+    (Workspace.absent(J.get(options, "workspace")) && Workspace.absent(J.get(options, "project_id")))

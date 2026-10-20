@@ -25,6 +25,7 @@ type Operation is Data:
   ConfigureTitles{prompts: Title.Prompts}
   RemoteChange{change: Remote.Change}
   StartWorktree{profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
+  StartWorkspace{backend: Worktree.Backend, work: Maybe<&2, Nat>, profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
   RetryWorktreeArchive{task_id: Nat}
   ChatGPTChange{change: ChatGPT.Change}
   BoardChange{change: Resolution.Change}

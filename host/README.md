@@ -158,9 +158,19 @@ its committed plan; `service.cwd` is not a process permission or task directory.
 Keep the service home separate from writable projects: it is read-only inside a
 restricted Bash process, even when a workspace includes its ancestor.
 
-`worktrees.mjs` interprets committed Git worktree effects and observes their
-filesystem receipts on restart. The owning [feature](../features/worktree/README.md)
-and harness assembly govern task initialization and resource association.
+`task-workspaces.mjs` dispatches committed workspace creation, recycling and
+recovery to the backend recorded by the native task resource. Local operations
+reuse `worktrees.mjs`; `cloud-environments.mjs` supplies the execution and
+filesystem binding, and `tencent-cvm.mjs` implements the CVM spot instance API.
+The owning [feature](../features/worktree/README.md) and harness assembly govern
+task initialization, permissions and resource association. Cloud receipts retain
+the instance identity and creation token before repository setup; failure logs
+survive instance destruction. Recovery uses those receipts to reconcile or
+recycle interrupted operations. See [ADR 0054](../docs/adr/0054-cloud-task-workspaces.md)
+for the boundary decisions.
+
+`worktrees.mjs` interprets local Git effects and observes their filesystem receipts
+on restart.
 Creation rejects a service home inside the source Git repository before copying
 files, preventing private service state from entering a checkout.
 Sandbox launches admit a writable exception only for the task's committed managed
@@ -215,7 +225,7 @@ artifact metadata; filesystem loss or external deletion remains possible.
 The journal stores canonical task-local workspace observations. Reopening checks
 the stored format and integrity, then validates complete committed decisions by
 replaying them through the current kernel without executing their effects.
-The current format, `selvedge-bend-journal-7`, binds each journal to one persisted
+The current format, `selvedge-bend-journal-8`, binds each journal to one persisted
 random data namespace, independently of its URL or browser credentials.
 Replay returns every complete decision for validation; it transfers the final
 world snapshot once after all rows pass, rather than cloning each intermediate

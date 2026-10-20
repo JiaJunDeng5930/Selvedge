@@ -202,8 +202,44 @@ def worktree_archive_available(allowed: Bool, resolution: Resolution) -> Resolut
     case True{}: resolution
     case False{}: Refuse{"worktree_in_use", "This worktree is shared by other tasks. Archive those tasks before archiving its owner."}
 
+def workspace_work_exists(work: Maybe<&2, Nat>, world: M.World()) -> Bool:
+  match work:
+    case None{}: True{}
+    case Some{id}: WorkState.exists(id, world)
+
+def project_primary_matches(found: Maybe<&2, D.Project>, primary: String) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{D.Project{name, workspace, guidance, create_worktree}}:
+      String.eq(primary, WorktreeState.primary_text(workspace))
+
+def workspace_project_matches(project: Maybe<&2, Nat>, primary: String, registry: D.Projects) -> Bool:
+  match project:
+    case None{}: True{}
+    case Some{id}: project_primary_matches(Projects.find(registry, id), primary)
+
+def workspace_start(allowed: Bool, +backend: Worktree.Backend, work: Maybe<&2, Nat>, start: Start, world: M.World()) -> Resolution:
+  match allowed:
+    case False{}: Refuse{"work_not_found", "The Work does not exist"}
+    case True{}:
+      match start:
+        case Start{profile, reasoning, message, +selection}:
+          Workspace.Selection{+context, guidance} = selection
+          Bool.pick(Resolution,
+            Bool.not(Worktree.cloud(backend)) || workspace_project_matches(Workspace.project_id(context),
+              D.selected_workspace(context), Projects.registry(F.State(), world)),
+            Bool.pick(Resolution, D.nonempty(WorktreeState.selection_primary(selection)),
+              Accept{O.StartWorkspace{backend, work, profile, reasoning, message, WorktreeState.backend_selection(backend, selection)}},
+              Refuse{"workspace_requires_git", "A managed task workspace requires a primary Git workspace"}),
+            Refuse{"invalid_settings", "A cloud task must use its Project primary workspace"})
+        case StartRefused{code, reason}: Refuse{code, reason}
+        case InvalidStart{}: Refuse{"invalid_workspace_start", "Workspace creation must resolve through ordinary task creation"}
+
 def worktree(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: Worktree.Command, +world: M.World()) -> Resolution:
   match command:
+    case Worktree.CreateWorkspace{backend, profile, reasoning, message, settings, +work}:
+      workspace_start(workspace_work_exists(work, world), backend, work,
+        start(profile, reasoning, message, settings, world), world)
     case Worktree.Create{profile, reasoning, message, settings}: worktree_start(start(profile, reasoning, message, settings, world))
     case Worktree.RetryArchive{+id}: worktree_archive_available(WorktreeState.archive_allowed(id, world), worktree_retry(WorktreeState.retry_allowed(id, world), id))
 

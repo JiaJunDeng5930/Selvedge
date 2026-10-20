@@ -24,6 +24,7 @@
     "gpt-tokenizer": "4.0.0",
     "impit": "0.14.6",
     "openid-client": "6.8.8",
+    "tencentcloud-sdk-nodejs-cvm": "4.1.316",
     "ws": "8.22.0"
   },
   "packageManager": "bun@1.4.2",

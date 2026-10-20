@@ -428,15 +428,17 @@ type ContextValidName is Data:
   ContextValidNameReasoningConfiguration{}
   ContextValidNameSideConversation{}
   ContextValidNameSideReturnCursor{}
+  ContextValidNameEnvironmentNotice{}
   ContextValidNameOther{}
 
 def context_valid_discriminant(+value: String) -> ContextValidName:
+  Bool.pick(ContextValidName, String.eq(value, "environment_notice"), ContextValidNameEnvironmentNotice{},
   Bool.pick(ContextValidName, String.eq(value, "context_change"), ContextValidNameContextChange{},
     Bool.pick(ContextValidName, String.eq(value, "settings"), ContextValidNameSettings{},
     Bool.pick(ContextValidName, String.eq(value, "reasoning_configuration"), ContextValidNameReasoningConfiguration{},
     Bool.pick(ContextValidName, String.eq(value, "side_conversation"), ContextValidNameSideConversation{},
     Bool.pick(ContextValidName, String.eq(value, "side_return_cursor"), ContextValidNameSideReturnCursor{},
-    ContextValidNameOther{})))))
+    ContextValidNameOther{}))))))
 
 def context_valid_classified(kind: ContextValidName, +message: J.Json) -> Bool:
   match kind:
@@ -448,6 +450,7 @@ def context_valid_classified(kind: ContextValidName, +message: J.Json) -> Bool:
         context_natural(J.natural(J.get(message, "start")))
     case ContextValidNameSideReturnCursor{}:
       context_natural(J.natural(J.get(message, "owner_task"))) && context_natural(J.natural(J.get(message, "through")))
+    case ContextValidNameEnvironmentNotice{}: text(J.get(message, "content"))
     case ContextValidNameOther{}: False{}
 
 def context_valid(kind: String, +message: J.Json) -> Bool:
@@ -512,6 +515,7 @@ type ContextItemKindName is Data:
   ContextItemKindNameReasoningConfiguration{}
   ContextItemKindNameSideConversation{}
   ContextItemKindNameSideReturnCursor{}
+  ContextItemKindNameEnvironmentNotice{}
   ContextItemKindNameOther{}
 
 def side_conversation_text(+message: J.Json) -> String:
@@ -521,11 +525,12 @@ def side_conversation_text(+message: J.Json) -> String:
     " to inspect its committed conversation and current status. read_task also accepts any other task ID, after (exclusive cursor, default 0), and limit (1..100). Parent lifecycle changes arrive as tracked context; active plus idle does not imply success. Closing the side window sends nothing to the parent. Only the user's explicit return action appends new side content to the parent. This is runtime context, not part of the content to return. This context belongs to its named task; inheriting this record in another task does not make that task a side conversation."
 
 def context_item_kind_discriminant(+value: String) -> ContextItemKindName:
+  Bool.pick(ContextItemKindName, String.eq(value, "environment_notice"), ContextItemKindNameEnvironmentNotice{},
   Bool.pick(ContextItemKindName, String.eq(value, "context_change"), ContextItemKindNameContextChange{},
     Bool.pick(ContextItemKindName, String.eq(value, "reasoning_configuration"), ContextItemKindNameReasoningConfiguration{},
     Bool.pick(ContextItemKindName, String.eq(value, "side_conversation"), ContextItemKindNameSideConversation{},
     Bool.pick(ContextItemKindName, String.eq(value, "side_return_cursor"), ContextItemKindNameSideReturnCursor{},
-    ContextItemKindNameOther{}))))
+    ContextItemKindNameOther{})))))
 
 def context_item_kind_classified(kind: ContextItemKindName, +message: J.Json, profile: J.Json) -> J.Json:
   match kind:
@@ -533,6 +538,7 @@ def context_item_kind_classified(kind: ContextItemKindName, +message: J.Json, pr
     case ContextItemKindNameReasoningConfiguration{}: choose(account(profile), history_developer(J.Text{"Committed reasoning effort for subsequent responses: " ++ J.text(J.get(message, "effort"))}), Model.success(J.Array{[J.Object{[J.Field{"type", J.Text{"configuration_update"}}, J.Field{"reasoning", J.Object{[J.Field{"effort", J.get(message, "effort")}]}}]}]}))
     case ContextItemKindNameSideConversation{}: history_developer(J.Text{side_conversation_text(message)})
     case ContextItemKindNameSideReturnCursor{}: Model.success(J.Array{Nil{}})
+    case ContextItemKindNameEnvironmentNotice{}: history_developer(J.get(message, "content"))
     case ContextItemKindNameOther{}: history_data(message)
 
 def context_item_kind(kind: String, +message: J.Json, profile: J.Json) -> J.Json:

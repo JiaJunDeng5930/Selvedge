@@ -37,6 +37,30 @@ import ../../bendlib/component.bend as C
 
 # Task creation is an actual interaction boundary. Its complete-decision proof
 # is an explicit premise; no callback silently substitutes for that premise.
+import ../../features/worktree/MODEL.bend as WorktreeRegistry
+
+def workspace_start_meaning(
+  ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
+    {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
+  +backend: WorktreeRegistry.Backend, +work: Maybe<&2, Nat>, +profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
+  {Actual.workspace_membership(work, world, WorktreeExec.start_backend(~actual_spawn, backend, profile, reasoning, message, selection, world)) ==
+    Spec.workspace_membership(work, world, WorktreeSpec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world)) : M.Decision()}:
+  match work:
+    case None{}: WorktreeProof.start_backend(~actual_spawn, ~spec_spawn, ~creation, backend, profile, reasoning, message, selection, world)
+    case Some{+work}:
+      +task = D.state_next_task(C.local(D.State, F.State(), world))
+      Equal.trans(M.Decision(),
+        WorkState.born(work, task, world, WorktreeExec.start_backend(~actual_spawn, backend, profile, reasoning, message, selection, world)),
+        WorkState.born(work, task, world, WorktreeSpec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world)),
+        Spec.work_created(work, task, world, WorktreeSpec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world)),
+        Equal.cong(M.Decision(), M.Decision(), value => WorkState.born(work, task, world, value),
+          WorktreeExec.start_backend(~actual_spawn, backend, profile, reasoning, message, selection, world),
+          WorktreeSpec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world),
+          WorktreeProof.start_backend(~actual_spawn, ~spec_spawn, ~creation, backend, profile, reasoning, message, selection, world)),
+        WorkAssemblyProof.created(work, task, world, WorktreeSpec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world)))
+
 def meaning(
   ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
@@ -70,6 +94,7 @@ def meaning(
     case O.ConfigureTitles{prompts}: Titles.configuration(prompts, world)
     case O.RemoteChange{change}: {==}
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeProof.start(~actual_spawn, ~spec_spawn, ~creation, profile, reasoning, message, selection, world)
+    case O.StartWorkspace{backend, work, profile, reasoning, message, selection}: workspace_start_meaning(~actual_spawn, ~spec_spawn, ~creation, backend, work, profile, reasoning, message, selection, world)
     case O.RetryWorktreeArchive{id}: WorktreeProof.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTProof.assembled(change, world)
     case O.BoardChange{change}: Boundary.change_meaning(change, world)
@@ -95,7 +120,7 @@ def event(event: O.ResolvedEvent, world: M.World()) ->
     case O.BoardTextResult{id, card, outcome, retitle}: Boundary.completion_meaning(id, card, outcome, retitle, world)
 
 def features() -> Architecture.Features:
-  Architecture.Features{Titles.boundary(), Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, source => root => message => primary => {==}, source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary(), WorkProof.boundary(), StorageProof.work_storage()}
+  Architecture.Features{Titles.boundary(), Remote.boundary(), Boundary.board_boundary(), ChatGPT.boundary(), TaskGraphProof.boundary(), StorageProof.task_graph_storage(), CompactionProof.boundary(), StorageProof.worktree_storage(), WorktreeRegistryProof.boundary(), Architecture.WorktreeInitialization{WorktreeProof.completed_contract, WorktreeProof.normalization_contract, backend => source => root => message => primary => {==}, backend => source => message => {==}, WorktreeProof.failed_status}, WorktreeSharingProof.boundary(), WorkProof.boundary(), StorageProof.work_storage()}
 
 def react(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision(),
   ~required_send: Nat -> String -> @+world:M.World() -> M.Decision(),

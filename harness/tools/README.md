@@ -6,8 +6,10 @@ input schema and checks the actual descriptor before constructing typed membersh
 in the intersection of correspondence and admissibility. Correspondence binds
 the declaration, arguments, capability and execution; admissibility requires
 nonempty names and descriptions and a supported schema.
-The default task, process and image tools are definitions in `catalog`.
-The feature assembly appends its own constructed tools from its command specifications.
+The default task, process and image tools are declared in `requests`.
+`catalog_requests` applies checked construction to those declarations; `catalog`
+composes both operations. The feature assembly derives the same Request
+representation from its command specifications.
 
 [discovery.bend](discovery.bend) observes external definitions in the caller's
 frozen task catalog. `discover_tools` searches names and descriptions, or accepts

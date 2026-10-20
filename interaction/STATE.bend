@@ -301,8 +301,9 @@ def insert_speech_admitted(found: Maybe<&2, String>, accepted: Bool, editor: U.E
 
 def speech_new_command(body: U.Body) -> J.Json:
   match body:
+    case U.NewTask{message, profile, reasoning, context, U.CloudWorkspace{}, work}: J.Null{}
     case U.NewTask{message, profile, reasoning, context, create_worktree, work}:
-      CommandCodec.command_json(M.CreateIdle{profile, reasoning, Context.settings(context), work, create_worktree})
+      CommandCodec.command_json(M.CreateIdle{profile, reasoning, Context.settings(context), work, U.task_worktree(create_worktree)})
     case _: J.Null{}
 
 def insert_speech_text(found: Maybe<&2, String>, current: Nat, target: Speech.Target, text: String, +append: Bool, +application: E.Application, services: Services.State) -> InteractionTypes.Decision:
@@ -311,6 +312,8 @@ def insert_speech_text(found: Maybe<&2, String>, current: Nat, target: Speech.Ta
 
 def speech_begin_new_found(found: Maybe<&2, U.Draft>, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match found:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, U.CloudWorkspace{}, work}, feedback, directory_entry}}:
+      application_result(E.refuse(application, "Create the cloud task before starting voice"), services)
     case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, +work}, feedback, directory_entry}}:
       service_result(Services.step(Services.SpeechInput{Speech.BeginNewVoice{U.NewTaskEditor{work}, speech_new_command(U.NewTask{message, profile, reasoning, context, create_worktree, work})}}, services), application)
     case _: application_result(E.refuse(application, "Open a new task composer to start voice"), services)
