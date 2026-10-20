@@ -79,9 +79,24 @@ async function dependencies(files, recursive = false) {
   return graph;
 }
 
+// Module checks and extraction have separate limits because their memory profiles differ.
+function limitConcurrency(limit) {
+  let active = 0;
+  const queue = [];
+  return async action => {
+    if (active >= limit) await new Promise(resolve => queue.push(resolve));
+    else active++;
+    try { return await action(); }
+    finally {
+      const resume = queue.shift();
+      if (resume) resume(); else active--;
+    }
+  };
+}
+
 export async function build(options = {}) {
   const { modules = [], check = false } = options;
-  const selected = options.selected ?? (modules.length ? [] : productionTargets);
+  const selected = [...new Set(options.selected ?? (modules.length ? [] : productionTargets))];
   const allModules = !modules.length && (check || options.selected === undefined);
   const moduleFiles = modules.map(name => {
     if (!/^[A-Za-z_][A-Za-z_0-9']*(?:\.[A-Za-z_][A-Za-z_0-9']*)*$/.test(name)) throw new Error(`Invalid Rocq module: ${name}`);
@@ -126,17 +141,7 @@ export async function build(options = {}) {
     ? (await sourceFiles()).filter(file => !file.startsWith('theories/Derive/'))
     : (await Promise.all(roots.map(async file => await exists(file) ? file : null))).filter(Boolean);
   let graph = await dependencies(await graphInputs(), !allModules);
-  let activeCompilers = 0;
-  const compilerQueue = [];
-  async function checkModule(filename) {
-    if (activeCompilers >= 2) await new Promise(resolve => compilerQueue.push(resolve));
-    else activeCompilers++;
-    try { await run('rocq', ['c', ...flags, filename]); }
-    finally {
-      const resume = compilerQueue.shift();
-      if (resume) resume(); else activeCompilers--;
-    }
-  }
+  const withModuleSlot = limitConcurrency(4);
   async function compile(filename) {
     if (pending.has(filename)) return pending.get(filename);
     const promise = (async () => {
@@ -147,7 +152,7 @@ export async function build(options = {}) {
       const actual = await fingerprint(artifact);
       // DEFENSE: A direct rocq compilation followed by restoring the source can leave a different .vo behind the cached source key.
       if (state[filename] !== key || actual === null || state[`artifact:${artifact}`] !== actual) {
-        await checkModule(filename);
+        await withModuleSlot(() => run('rocq', ['c', ...flags, filename]));
         compiled++;
       }
       next[filename] = key;
@@ -189,8 +194,8 @@ export async function build(options = {}) {
 
   await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
 
-  // Extraction and JS linking run one target at a time to bound concurrent memory use.
-  for (const name of selected) {
+  const withTargetSlot = limitConcurrency(2);
+  await Promise.all(selected.map(name => withTargetSlot(async () => {
     const target = targets[name];
     const filename = `theories/${target.module.replaceAll('.', '/')}.v`;
     const runtime = name === 'commands' ? await readFile(path.join(root, 'runtime/commands_runtime.ml'), 'utf8')
@@ -210,7 +215,7 @@ export async function build(options = {}) {
       }
       next[`target:${name}`] = key;
       next[`target:${name}:artifacts`] = actual;
-      continue;
+      return;
     }
     const directory = `.build/extracted/${name}`;
     await mkdir(path.join(root, directory), { recursive: true });
@@ -231,7 +236,7 @@ export async function build(options = {}) {
     await run('js_of_ocaml', ['--target-env', 'browser', '-o', `.build/${name}-runtime.js`, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
     const exports = name === 'kernel'
       ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\n'
-      : `export const ${target.exported} = runtime.${name === 'commands' ? 'decode' : 'call'};\n`;
+      : `export const ${target.exported} = runtime.${name === 'commands' ? 'decode' : 'call'};\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
     await writeChanged(output, `import './${name}-runtime.js';\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`);
     if (['host','browser','interaction'].includes(name)) {
       const publicDirectory = 'host/public/generated';
@@ -241,7 +246,7 @@ export async function build(options = {}) {
     next[`target:${name}`] = key;
     next[`target:${name}:artifacts`] = await Promise.all([fingerprint(output), fingerprint(runtimeOutput)]);
     console.log(`extracted ${name}`);
-  }
+  })));
   await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
   console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
 }

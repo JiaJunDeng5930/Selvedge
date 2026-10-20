@@ -43,6 +43,15 @@ interpretation and executable boundary checks. External malformed input is
 rejected by admission functions; dependent internal data does not remove that
 runtime responsibility.
 
+Repeatedly rendering and reparsing complete internal host values made the
+execution boundary a significant feedback cost. For already parsed values, use
+one generic converter into ordinary OCaml JSON constructors, compiled against
+the same extracted JSON type, and invoke the same extracted domain entry. This
+avoids a private JavaScript constructor ABI and a second business implementation.
+Raw text admission continues through the Gallina parser. The converter and the
+JavaScript standard-library operations it uses remain trusted foreign code;
+this optimization does not extend the kernel's guarantees to them.
+
 A real JavaScript extraction probe found that retaining Peano naturals made
 ordinary escaped Unicode scalar decoding overflow the stack. Use the mature
 arbitrary-precision natural-number extraction and Zarith JavaScript runtime

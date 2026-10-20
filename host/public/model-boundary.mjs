@@ -1,5 +1,5 @@
-import { call } from './generated/host-model.mjs';
-import { parseJson, stringifyJson } from './json-tokens.mjs';
+import { call, callStructured } from './generated/host-model.mjs';
+import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 
 function result(text) {
   const envelope = parseJson(text);
@@ -11,7 +11,12 @@ function result(text) {
   throw error;
 }
 
-/** JSON text is the only representation shared with the extracted OCaml program. */
+// Canonicalize through the shared JSON codec before constructing the same domain JSON type.
+function numberText(value) {
+  if (value instanceof JsonNumber) return value.source;
+  if (typeof value === 'number') return JSON.stringify(value);
+  return undefined;
+}
 const cachedOperations = new Set(['config.configuration_head', 'config.context_transport']);
 const lastResults = new Map();
 
@@ -20,7 +25,9 @@ export function invoke(entry, operation, source) {
   const cacheable = entry === call && cachedOperations.has(operation);
   const previous = cacheable ? lastResults.get(operation) : undefined;
   // Only complete immutable input/output text is retained; callers receive a fresh parsed value.
-  const output = previous && previous.input === input ? previous.output : entry(operation, input);
+  const output = previous && previous.input === input ? previous.output
+    : entry === call ? callStructured(operation, parseJson(input), numberText)
+    : entry(operation, input);
   const value = result(output);
   if (cacheable && (!previous || previous.input !== input)) lastResults.set(operation, { input, output });
   return value;

@@ -35,9 +35,12 @@ claim that the OCaml or JavaScript compilation pipeline is verified.
 
 Standard Rocq extraction and js_of_ocaml are trusted translation steps. Numeric
 extraction mappings and their JavaScript runtime support are part of that trust
-boundary. Domain JSON parse/render functions are extracted from Gallina; foreign
-glue converts bytes and invokes those functions. Exact-number and Unicode
-execution probes exercise the resulting artifact rather than a second
+boundary. Domain JSON parse/render functions are extracted from Gallina.
+Internal parsed host values can instead enter through a generic converter into
+the same extracted OCaml JSON type and domain entry. The converter, its
+JavaScript standard-library operations and the compilation pipeline remain
+trusted; raw text admission still uses the Gallina parser. Exact-number and
+Unicode execution probes exercise the resulting artifact rather than a second
 implementation of its intended behavior.
 
 Bun Workers, SQLite, HTTP, process execution, browser DOM and remote providers
