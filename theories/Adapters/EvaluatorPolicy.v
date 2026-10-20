@@ -1,11 +1,12 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json TextJson JsonObjects.
 From Selvedge.Adapters Require Import Common EvaluatorBudget EvaluatorContext RetryAfter.
+From Selvedge.Kernel Require Import ReasoningProtocol.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition lease_values := ["1";"2";"5";"10"].
+Definition lease_values := map Selvedge.Foundation.Numbers.show_natural ReasoningProtocol.lease_generations.
 Definition lease_number value := JNumber (text value).
 Definition effort_description effort :=
  if String.eqb effort "none" then "The next step is already determined; no reasoning is needed."
