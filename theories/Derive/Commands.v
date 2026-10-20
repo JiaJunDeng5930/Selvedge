@@ -93,7 +93,12 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
    line "Theorem encode_declared_wire : forall value, encode value = JObject ((""op"", JString (command_name (declared_command value))) :: declared_payload value).";
    line "Proof. intros []; reflexivity. Qed.";
    line "Theorem encode_declared_keys : forall value, (match encode value with JObject values => source_keys values | _ => [] end) = ""op"" :: declared_names (command_fields (declared_command value)).";
-   line "Proof. intros []; reflexivity. Qed."].
+   line "Proof. intros []; reflexivity. Qed.";
+   line "Ltac command_payload_case handler := match goal with"] ++
+  map (fun command => line (concat ["| [payload : "; command_name command;
+    "_payload |- _] => handler "; command_name command; "_schema "; command_name command;
+    "_to_fields "; command_name command; "_from_fields Cmd_"; command_name command; " payload"])) commands ++
+  [line "end."].
 
 Fixpoint emit_chunks (chunks : list String.string) : TemplateMonad unit :=
   match chunks with

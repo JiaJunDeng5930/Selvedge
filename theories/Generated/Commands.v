@@ -1974,3 +1974,155 @@ Proof. intros []; reflexivity. Qed.
 Theorem encode_declared_keys : forall value, (match encode value with JObject values => source_keys values | _ => [] end) = "op" :: declared_names (command_fields (declared_command value)).
 
 Proof. intros []; reflexivity. Qed.
+
+Ltac command_payload_case handler := match goal with
+
+| [payload : configure_task_execution_payload |- _] => handler configure_task_execution_schema configure_task_execution_to_fields configure_task_execution_from_fields Cmd_configure_task_execution payload
+
+| [payload : create_payload |- _] => handler create_schema create_to_fields create_from_fields Cmd_create payload
+
+| [payload : create_idle_payload |- _] => handler create_idle_schema create_idle_to_fields create_idle_from_fields Cmd_create_idle payload
+
+| [payload : send_payload |- _] => handler send_schema send_to_fields send_from_fields Cmd_send payload
+
+| [payload : steer_payload |- _] => handler steer_schema steer_to_fields steer_from_fields Cmd_steer payload
+
+| [payload : cancel_operation_payload |- _] => handler cancel_operation_schema cancel_operation_to_fields cancel_operation_from_fields Cmd_cancel_operation payload
+
+| [payload : freeze_payload |- _] => handler freeze_schema freeze_to_fields freeze_from_fields Cmd_freeze payload
+
+| [payload : unfreeze_payload |- _] => handler unfreeze_schema unfreeze_to_fields unfreeze_from_fields Cmd_unfreeze payload
+
+| [payload : stop_payload |- _] => handler stop_schema stop_to_fields stop_from_fields Cmd_stop payload
+
+| [payload : interrupt_payload |- _] => handler interrupt_schema interrupt_to_fields interrupt_from_fields Cmd_interrupt payload
+
+| [payload : archive_payload |- _] => handler archive_schema archive_to_fields archive_from_fields Cmd_archive payload
+
+| [payload : fork_payload |- _] => handler fork_schema fork_to_fields fork_from_fields Cmd_fork payload
+
+| [payload : open_side_conversation_payload |- _] => handler open_side_conversation_schema open_side_conversation_to_fields open_side_conversation_from_fields Cmd_open_side_conversation payload
+
+| [payload : return_side_conversation_payload |- _] => handler return_side_conversation_schema return_side_conversation_to_fields return_side_conversation_from_fields Cmd_return_side_conversation payload
+
+| [payload : compact_payload |- _] => handler compact_schema compact_to_fields compact_from_fields Cmd_compact payload
+
+| [payload : read_payload |- _] => handler read_schema read_to_fields read_from_fields Cmd_read payload
+
+| [payload : search_history_payload |- _] => handler search_history_schema search_history_to_fields search_history_from_fields Cmd_search_history payload
+
+| [payload : list_payload |- _] => handler list_schema list_to_fields list_from_fields Cmd_list payload
+
+| [payload : describe_payload |- _] => handler describe_schema describe_to_fields describe_from_fields Cmd_describe payload
+
+| [payload : create_project_payload |- _] => handler create_project_schema create_project_to_fields create_project_from_fields Cmd_create_project payload
+
+| [payload : update_project_payload |- _] => handler update_project_schema update_project_to_fields update_project_from_fields Cmd_update_project payload
+
+| [payload : delete_project_payload |- _] => handler delete_project_schema delete_project_to_fields delete_project_from_fields Cmd_delete_project payload
+
+| [payload : list_projects_payload |- _] => handler list_projects_schema list_projects_to_fields list_projects_from_fields Cmd_list_projects payload
+
+| [payload : read_project_payload |- _] => handler read_project_schema read_project_to_fields read_project_from_fields Cmd_read_project payload
+
+| [payload : review_approval_payload |- _] => handler review_approval_schema review_approval_to_fields review_approval_from_fields Cmd_review_approval payload
+
+| [payload : record_speech_transcript_payload |- _] => handler record_speech_transcript_schema record_speech_transcript_to_fields record_speech_transcript_from_fields Cmd_record_speech_transcript payload
+
+| [payload : accept_speech_delegation_payload |- _] => handler accept_speech_delegation_schema accept_speech_delegation_to_fields accept_speech_delegation_from_fields Cmd_accept_speech_delegation payload
+
+| [payload : create_card_payload |- _] => handler create_card_schema create_card_to_fields create_card_from_fields Cmd_create_card payload
+
+| [payload : update_card_payload |- _] => handler update_card_schema update_card_to_fields update_card_from_fields Cmd_update_card payload
+
+| [payload : move_card_payload |- _] => handler move_card_schema move_card_to_fields move_card_from_fields Cmd_move_card payload
+
+| [payload : archive_card_payload |- _] => handler archive_card_schema archive_card_to_fields archive_card_from_fields Cmd_archive_card payload
+
+| [payload : restore_card_payload |- _] => handler restore_card_schema restore_card_to_fields restore_card_from_fields Cmd_restore_card payload
+
+| [payload : delete_card_payload |- _] => handler delete_card_schema delete_card_to_fields delete_card_from_fields Cmd_delete_card payload
+
+| [payload : run_card_payload |- _] => handler run_card_schema run_card_to_fields run_card_from_fields Cmd_run_card payload
+
+| [payload : link_card_payload |- _] => handler link_card_schema link_card_to_fields link_card_from_fields Cmd_link_card payload
+
+| [payload : regenerate_card_title_payload |- _] => handler regenerate_card_title_schema regenerate_card_title_to_fields regenerate_card_title_from_fields Cmd_regenerate_card_title payload
+
+| [payload : pin_card_payload |- _] => handler pin_card_schema pin_card_to_fields pin_card_from_fields Cmd_pin_card payload
+
+| [payload : board_settings_payload |- _] => handler board_settings_schema board_settings_to_fields board_settings_from_fields Cmd_board_settings payload
+
+| [payload : save_board_agent_payload |- _] => handler save_board_agent_schema save_board_agent_to_fields save_board_agent_from_fields Cmd_save_board_agent payload
+
+| [payload : delete_board_agent_payload |- _] => handler delete_board_agent_schema delete_board_agent_to_fields delete_board_agent_from_fields Cmd_delete_board_agent payload
+
+| [payload : list_cards_payload |- _] => handler list_cards_schema list_cards_to_fields list_cards_from_fields Cmd_list_cards payload
+
+| [payload : read_card_payload |- _] => handler read_card_schema read_card_to_fields read_card_from_fields Cmd_read_card payload
+
+| [payload : list_board_agents_payload |- _] => handler list_board_agents_schema list_board_agents_to_fields list_board_agents_from_fields Cmd_list_board_agents payload
+
+| [payload : configure_chatgpt_connections_payload |- _] => handler configure_chatgpt_connections_schema configure_chatgpt_connections_to_fields configure_chatgpt_connections_from_fields Cmd_configure_chatgpt_connections payload
+
+| [payload : chatgpt_exec_payload |- _] => handler chatgpt_exec_schema chatgpt_exec_to_fields chatgpt_exec_from_fields Cmd_chatgpt_exec payload
+
+| [payload : chatgpt_cancel_payload |- _] => handler chatgpt_cancel_schema chatgpt_cancel_to_fields chatgpt_cancel_from_fields Cmd_chatgpt_cancel payload
+
+| [payload : chatgpt_forget_payload |- _] => handler chatgpt_forget_schema chatgpt_forget_to_fields chatgpt_forget_from_fields Cmd_chatgpt_forget payload
+
+| [payload : chatgpt_projects_payload |- _] => handler chatgpt_projects_schema chatgpt_projects_to_fields chatgpt_projects_from_fields Cmd_chatgpt_projects payload
+
+| [payload : chatgpt_project_payload |- _] => handler chatgpt_project_schema chatgpt_project_to_fields chatgpt_project_from_fields Cmd_chatgpt_project payload
+
+| [payload : chatgpt_operation_payload |- _] => handler chatgpt_operation_schema chatgpt_operation_to_fields chatgpt_operation_from_fields Cmd_chatgpt_operation payload
+
+| [payload : chatgpt_operations_payload |- _] => handler chatgpt_operations_schema chatgpt_operations_to_fields chatgpt_operations_from_fields Cmd_chatgpt_operations payload
+
+| [payload : remote_enable_payload |- _] => handler remote_enable_schema remote_enable_to_fields remote_enable_from_fields Cmd_remote_enable payload
+
+| [payload : remote_disable_payload |- _] => handler remote_disable_schema remote_disable_to_fields remote_disable_from_fields Cmd_remote_disable payload
+
+| [payload : remote_grant_payload |- _] => handler remote_grant_schema remote_grant_to_fields remote_grant_from_fields Cmd_remote_grant payload
+
+| [payload : remote_revoke_payload |- _] => handler remote_revoke_schema remote_revoke_to_fields remote_revoke_from_fields Cmd_remote_revoke payload
+
+| [payload : remote_status_payload |- _] => handler remote_status_schema remote_status_to_fields remote_status_from_fields Cmd_remote_status payload
+
+| [payload : create_task_graph_payload |- _] => handler create_task_graph_schema create_task_graph_to_fields create_task_graph_from_fields Cmd_create_task_graph payload
+
+| [payload : update_task_graph_payload |- _] => handler update_task_graph_schema update_task_graph_to_fields update_task_graph_from_fields Cmd_update_task_graph payload
+
+| [payload : delete_task_graph_payload |- _] => handler delete_task_graph_schema delete_task_graph_to_fields delete_task_graph_from_fields Cmd_delete_task_graph payload
+
+| [payload : list_task_graphs_payload |- _] => handler list_task_graphs_schema list_task_graphs_to_fields list_task_graphs_from_fields Cmd_list_task_graphs payload
+
+| [payload : read_task_graph_payload |- _] => handler read_task_graph_schema read_task_graph_to_fields read_task_graph_from_fields Cmd_read_task_graph payload
+
+| [payload : read_title_settings_payload |- _] => handler read_title_settings_schema read_title_settings_to_fields read_title_settings_from_fields Cmd_read_title_settings payload
+
+| [payload : configure_title_settings_payload |- _] => handler configure_title_settings_schema configure_title_settings_to_fields configure_title_settings_from_fields Cmd_configure_title_settings payload
+
+| [payload : create_work_payload |- _] => handler create_work_schema create_work_to_fields create_work_from_fields Cmd_create_work payload
+
+| [payload : rename_work_payload |- _] => handler rename_work_schema rename_work_to_fields rename_work_from_fields Cmd_rename_work payload
+
+| [payload : create_work_task_payload |- _] => handler create_work_task_schema create_work_task_to_fields create_work_task_from_fields Cmd_create_work_task payload
+
+| [payload : list_works_payload |- _] => handler list_works_schema list_works_to_fields list_works_from_fields Cmd_list_works payload
+
+| [payload : read_work_payload |- _] => handler read_work_schema read_work_to_fields read_work_from_fields Cmd_read_work payload
+
+| [payload : read_work_ui_payload |- _] => handler read_work_ui_schema read_work_ui_to_fields read_work_ui_from_fields Cmd_read_work_ui payload
+
+| [payload : apply_work_ui_patch_payload |- _] => handler apply_work_ui_patch_schema apply_work_ui_patch_to_fields apply_work_ui_patch_from_fields Cmd_apply_work_ui_patch payload
+
+| [payload : create_worktree_task_payload |- _] => handler create_worktree_task_schema create_worktree_task_to_fields create_worktree_task_from_fields Cmd_create_worktree_task payload
+
+| [payload : list_worktrees_payload |- _] => handler list_worktrees_schema list_worktrees_to_fields list_worktrees_from_fields Cmd_list_worktrees payload
+
+| [payload : read_worktree_payload |- _] => handler read_worktree_schema read_worktree_to_fields read_worktree_from_fields Cmd_read_worktree payload
+
+| [payload : retry_worktree_archive_payload |- _] => handler retry_worktree_archive_schema retry_worktree_archive_to_fields retry_worktree_archive_from_fields Cmd_retry_worktree_archive payload
+
+end.

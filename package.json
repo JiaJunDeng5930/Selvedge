@@ -18,7 +18,7 @@
     "openid-client": "6.8.8",
     "ws": "8.22.0"
   },
-  "devDependencies": { "jose": "6.2.12" },
+  "devDependencies": { "@modelcontextprotocol/sdk": "1.31.0", "jose": "6.2.12" },
   "packageManager": "bun@1.4.2",
   "workspaces": ["plugins/selvedge-chatgpt", "relay"]
 }
