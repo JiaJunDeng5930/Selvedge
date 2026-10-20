@@ -1,0 +1,22 @@
+/* Geometry is supplied by the owning allocated RichText policy. */
+.physical-markdown { font-family: var(--rich-body-font); font-size: var(--rich-body-size); line-height: var(--rich-body-line); font-weight: var(--rich-body-weight); white-space: normal; overflow-wrap: anywhere; }
+.physical-markdown .markdown :where(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, pre, table, hr, figure, details) { margin: 0; padding: 0; border: 0; }
+.physical-markdown .markdown h1 { font-family: var(--rich-title-font); font-size: var(--rich-title-size); line-height: var(--rich-title-line); font-weight: var(--rich-title-weight); }
+.physical-markdown .markdown h2 { font-family: var(--rich-section-font); font-size: var(--rich-section-size); line-height: var(--rich-section-line); font-weight: var(--rich-section-weight); }
+.physical-markdown .markdown h3 { font-family: var(--rich-body-strong-font); font-size: var(--rich-body-strong-size); line-height: var(--rich-body-strong-line); font-weight: var(--rich-body-strong-weight); }
+.physical-markdown .markdown :where(strong, b, th) { font-weight: var(--rich-strong-weight); }
+.physical-markdown .markdown :where(h4, h5, h6) { font-family: var(--rich-support-font); font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
+.physical-markdown .markdown :where(ul, ol) { padding-inline-start: var(--physical-list-indent); }
+.physical-markdown .markdown li { margin: 0; padding: 0; }
+.physical-markdown .markdown .code-block { box-sizing: border-box; margin: 0; padding-inline: var(--physical-code-padding-inline); padding-block: var(--physical-code-padding-block); color: var(--physical-code-color); background: var(--physical-code-background); border: var(--physical-code-border-width) solid var(--physical-code-border-color); border-radius: var(--physical-code-border-radius); box-shadow: var(--physical-code-box-shadow, none); overflow: hidden; }
+.physical-markdown .markdown .code-toolbar { position: sticky; top: 0; height: var(--physical-toolbar-height); min-height: 0; margin: 0; padding: 0; border: 0; font-family: var(--rich-support-font); font-size: var(--rich-support-size); line-height: var(--rich-support-line); font-weight: var(--rich-support-weight); }
+.physical-markdown .markdown :where(pre, code) { font-family: var(--rich-code-font); font-size: var(--rich-code-size); line-height: var(--rich-code-line); font-weight: var(--rich-code-weight); white-space: var(--physical-code-white-space); overflow-wrap: var(--physical-code-overflow-wrap); word-break: normal; }
+.physical-markdown .markdown pre { margin: 0; padding: 0; border: 0; overflow-x: auto; }
+.physical-markdown .markdown .code-toolbar + pre { margin-block-start: var(--physical-code-gap); }
+.physical-markdown .markdown pre code { margin: 0; padding: 0; border: 0; }
+.physical-markdown .markdown blockquote { margin-inline: 0; padding: 0; border: 0; }
+.physical-markdown .markdown .table-scroll { overflow-x: auto; }
+.physical-markdown .markdown table { border-collapse: collapse; }
+.physical-markdown .markdown :where(th, td) { padding: 0; border: 0; }
+.physical-markdown .markdown img { max-width: 100%; height: auto; }
+.physical-markdown .markdown :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, .code-block, .table-scroll, hr, figure, details) + :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, .code-block, .table-scroll, hr, figure, details) { margin-block-start: var(--physical-block-gap); }
