@@ -16,3 +16,7 @@ Extract Constant Z.of_nat => "(fun n -> n)".
 Extract Constant Z.to_nat => "(fun n -> Big_int_Z.max_big_int Big_int_Z.zero_big_int n)".
 Extract Constant Nat.div => "(fun n d -> if Big_int_Z.sign_big_int d = 0 then Big_int_Z.zero_big_int else Big_int_Z.div_big_int n d)".
 Extract Constant Nat.modulo => "(fun n d -> if Big_int_Z.sign_big_int d = 0 then n else Big_int_Z.mod_big_int n d)".
+
+(* Gallina substring clips both bounds to the available byte string. Clip exact
+   natural indices before converting these representable native bounds. *)
+Extract Constant String.substring => "(fun start count text -> let length = String.length text in if Big_int_Z.ge_big_int start (Big_int_Z.big_int_of_int length) then String.empty else let offset = Big_int_Z.int_of_big_int start in let available = length - offset in let clipped = Big_int_Z.min_big_int count (Big_int_Z.big_int_of_int available) in String.sub text offset (Big_int_Z.int_of_big_int clipped))".
