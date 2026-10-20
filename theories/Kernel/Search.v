@@ -4,6 +4,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Observatio
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Definition default_limit : N := 20.
 Definition lower_ascii (c : ascii) := let n := nat_of_ascii c in
  if (Nat.leb 65 n && Nat.leb n 90) then ascii_of_nat (n+32) else c.
 (* Reconstruct once after folding, so long admitted transcripts do not require

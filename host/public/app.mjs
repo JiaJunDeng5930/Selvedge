@@ -352,7 +352,8 @@ async function authenticate(effect) {
     // DEFENSE: Superseded fetches report AbortError after a newer connection owns the browser.
     if (controller.signal.aborted || connection !== controller) return;
     sourceFresh = false;
-    dispatch(ready ? { type: 'disconnected', ticket: effect.ticket, error: error.message }
+    const revoked = error.status === 401 || error.status === 403;
+    dispatch(ready || revoked ? { type: 'disconnected', ticket: effect.ticket, error: error.message, revoked }
       : { type: 'authenticated', ticket: effect.ticket, ok: false, error: error.message });
   }
 }

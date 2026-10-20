@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Kernel Require Import Images.
 From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
@@ -11,7 +12,8 @@ Definition decode_attachment j :=
   path <- string_field "path" j ;;
   bytes <- (match field "bytes" j with Some(JString s) | Some(JNumber s) => parse_natural s | _ => None end) ;;
   if String.eqb id "" then None else Some(Attachment id name mime path bytes).
-Definition passive_image a := existsb (String.eqb(asset_mime a)) ["image/png";"image/jpeg";"image/gif";"image/webp"].
+Definition passive_mime mime := existsb (String.eqb mime) Images.mime_types.
+Definition passive_image a := passive_mime(asset_mime a).
 Record selected_file := SelectedFile { file_handle:string; file_name:string; file_mime:string; file_bytes:N }.
 Definition encode_file f := JObject [("handle",JString(file_handle f));("name",JString(file_name f));("mime",JString(file_mime f));("bytes",number(file_bytes f))].
 Definition decode_file j := h <- string_field "handle" j ;; n <- string_field "name" j ;; m <- string_field "mime" j ;; b <- natural_field "bytes" j ;; Some(SelectedFile h n m b).

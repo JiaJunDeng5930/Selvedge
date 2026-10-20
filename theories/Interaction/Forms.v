@@ -15,13 +15,13 @@ Definition bool_input name caption := FormField(Field name KBool)caption "" "che
 Definition natural_input name caption := FormField(Field name KNatural)caption "" "number".
 Definition json_input name caption := FormField(Field name KJson)caption "" "json".
 Definition context_fields :=
- [optional_input "project_id" "Project" KNatural "project";
-  optional_input "primary_root" "Workspace directory" KText "directory";
-  FormField(Field "roots"(KArray KText))"Workspace roots" "Additional directories available to this task." "lines";
+ [optional_input "project_id" "Defaults from" KNatural "project";
+  optional_input "primary_root" "Primary directory" KText "directory";
+  FormField(Field "roots"(KArray KText))"Working directories" "Additional directories available to this task." "lines";
   optional_input "sandbox" "Filesystem access" (KEnum "workspace-write" ["read-only"])"select";
   optional_input "network_access" "Network access" KBool "checkbox";
   optional_input "approval" "Approval policy" (KEnum "ask-for-approval" ["full-access";"approval-for-me"])"select";
-  optional_input "reviewer_profile" "Approval reviewer" KText "profile"].
+  optional_input "reviewer_profile" "Reviewing model" KText "profile"].
 Definition permission_fields := filter(fun f=>existsb(String.eqb(field_name(specification f)))["sandbox";"network_access";"approval";"reviewer_profile"])context_fields.
 Definition concrete_permission_fields := map(fun f=>let spec:=specification f in
  match field_kind spec with KOptional k=>if String.eqb(field_name spec)"reviewer_profile"then f else FormField(Schema.Field(field_name spec)k)(label f)""(widget f)|_=>f end)permission_fields.
@@ -29,22 +29,22 @@ Definition model_fields := [FormField(Field "profile" KText)"Model" "The model u
   text_input "reasoning" "Reasoning effort"].
 Definition form_fields (e:editor) : list form_field :=
   match e with
-  | NewTask _=>[multiline "message" "Task"]++model_fields++context_fields++[bool_input "create_worktree" "Create managed worktree"]
+  | NewTask _=>[multiline "message" "Task"]++model_fields++context_fields++[bool_input "create_worktree" "Create worktree"]
   | Message _=>[multiline "message" "Message";select_input "delivery" "Send as" "send"["steer"]]++model_fields++concrete_permission_fields
-  | Project _=>[text_input "name" "Name";optional_input "primary_root" "Workspace directory" KText "directory";
-      FormField(Field "roots"(KArray KText))"Workspace roots" "Project directories." "lines";
-      bool_input "create_worktree" "Create managed worktrees by default"]
+  | Project _=>[text_input "name" "Name";optional_input "primary_root" "Primary directory" KText "directory";
+      FormField(Field "roots"(KArray KText))"Working directories" "Project directories." "lines";
+      bool_input "create_worktree" "Create worktree for new tasks"]
   | Card _=>[text_input "title" "Title";multiline "description" "Description";
-      select_input "status" "Status"(Domain.stage_name Domain.Backlog)(map Domain.stage_name(tl Domain.stages));
+      select_input "status" "Stage"(Domain.stage_name Domain.Backlog)(map Domain.stage_name(tl Domain.stages));
       select_input "priority" "Priority"(Domain.priority_name Domain.NoPriority)(map Domain.priority_name(tl Domain.priorities));
-      text_input "assignee" "Agent";text_input "project" "Project";
+      text_input "assignee" "Assignee";text_input "project" "Project";
       FormField(Field "labels"(KArray KText))"Labels" "One label per line." "lines";
       natural_input "revision" "Revision";bool_input "assisted" "Assist with title and description";
-      text_input "draft_profile" "Assistance model";bool_input "keep_open" "Keep capture open"]
+      text_input "draft_profile" "Assistance model";bool_input "keep_open" "Create another after saving"]
   | Agent _=>[text_input "name" "Name";multiline "instructions" "Instructions";
       natural_input "concurrency" "Concurrent tasks";natural_input "revision" "Revision"]++model_fields++context_fields
-  | Fork _=>[natural_input "child_count" "Branches";FormField(Field "messages"(KArray KText))"Branch requests" "One request per branch." "lines"]++context_fields
-  | Compact _=>[optional_input "summary" "Summary" KText "textarea"]
+  | Fork _=>[natural_input "child_count" "Number of tasks";FormField(Field "messages"(KArray KText))"Initial messages" "One request per branch." "lines"]++context_fields
+  | Compact _=>[optional_input "summary" "Summary override" KText "textarea"]
   | TaskGraph _ _=>[json_input "declaration" "Declaration"]
   | WorkName _=>[text_input "name" "Name"]
   | TitlePrompts=>[natural_input "revision" "Revision";multiline "task_prompt" "Task 看板标题提示词";multiline "agent_prompt" "Agent 会话标题提示词"]

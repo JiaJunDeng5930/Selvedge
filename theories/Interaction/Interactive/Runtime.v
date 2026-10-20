@@ -172,7 +172,9 @@ Definition reduce (visible:owner->bool) input b environment :=
    | ValueChanged event_id value=>field_edit event_id value b environment
    | ActionClicked event_id=>clicked event_id b environment
    | ViewChanged event_id command=>view_changed event_id command b environment
-   | Continue _=>(parse_turn b,[],false)
+   | Continue _=>
+     (* DEFENSE: A queued parser continuation can outlive a source update that consumed its remaining input. *)
+     if Syntax.pending b.(syntax) then (parse_turn b,[],b.(State.edited)) else (b,[],false)
    | ExternalChanged _ allowed=>(State.with_external allowed b,[],false)
    | SourceDisclosure _=>let open:=match State.view_at "@source"false b with SourceView value=>negb value|_=>true end in
      (State.set_view "@source"(SourceView open)b,[],false)
@@ -187,9 +189,14 @@ Definition reduce (visible:owner->bool) input b environment :=
 Definition step_visible (visible:owner->bool) input state environment :=
  match input with
  | SourceChanged who source closed ending external=>
-   match source_update who source closed ending external(by_key who state.(blocks))with
+   let previous:=by_key who state.(blocks) in
+   match source_update who source closed ending external previous with
    | None=>Decision state []
-   | Some b=>let '(b,output):=finish visible b environment false []in Decision(State(save_block b state.(blocks)))output end
+   | Some b=>
+     (* Completion can make earlier local edits saveable without another field event. *)
+     let persist:=b.(State.edited) && match previous with
+       | Some old=>negb(N.eqb old.(revision) b.(revision)) | None=>true end in
+     let '(b,output):=finish visible b environment persist []in Decision(State(save_block b state.(blocks)))output end
  | Remove who=>Decision(State(filter(fun b=>negb(same_owner who b.(block_owner)))state.(blocks)))[]
  | EnvironmentChanged=>
    let result:=fold_right(fun b result=>let '(b,output):=finish visible b environment false []in

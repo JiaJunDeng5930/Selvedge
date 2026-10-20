@@ -56,7 +56,7 @@ Inductive service_input :=
 | RestoreModelPreference(raw:string) | StorageProblem(message:string) | DismissStorageProblem
 | WorkspaceGitCompleted(ticket:N)(outcome:sum string bool)
 | OpenSettings | CloseSettings | Connect | Authenticated(ticket:N)(outcome:sum string unit)
-| Disconnected(ticket:N)(reason:string) | RetryConnection(ticket:N) | ChooseAppearance(value:appearance)
+| Disconnected(ticket:N)(reason:string)(revoked:bool) | RetryConnection(ticket:N) | ChooseAppearance(value:appearance)
 | AddFile(owner:editor)(file:selected_file) | RetryUpload(ticket:N) | CancelUpload(ticket:N)
 | Uploaded(ticket:N)(outcome:sum string attachment)
 | OpenPreview(file:attachment)(trigger:string) | Previewed(ticket:N)(outcome:sum string string) | ClosePreview
@@ -107,7 +107,7 @@ Definition service_step input s :=
   | OpenSettings=>effects(with_settings true s)[Focus "settings"]|CloseSettings=>effects(with_settings false s)[Focus "nav/settings"]
   | Connect=>match connection s with Loading _ _|Loaded _ _ _=>keep s|_=>connect s end
   | Authenticated t r=>auth_result t r s
-  | Disconnected t error=>if ticket_matches t(connection s)then effects(with_connection(Failed t tt error)s)[Reconnect t 1000]else keep s
+  | Disconnected t error _=>if ticket_matches t(connection s)then effects(with_connection(Failed t tt error)s)[Reconnect t 1000]else keep s
   | RetryConnection t=>match connection s with Failed u _ _=>if N.eqb t u then connect s else keep s|_=>keep s end
   | ChooseAppearance a=>effects(with_theme a s)[SaveAppearance a]
   | AddFile e f=>if connected s then begin_upload e f s else keep s | RetryUpload t=>retry_upload t s
@@ -168,7 +168,7 @@ Definition service_input_decoders : list (string * (json -> option service_input
   ("close_settings", fun j => Some CloseSettings);
   ("connect", fun j => Some Connect);
   ("authenticated", fun j => t<-natural_field "ticket" j;;r<-decode_outcome decode_unit j;;Some(Authenticated t r));
-  ("disconnected", fun j => t<-natural_field "ticket" j;;r<-string_field "error" j;;Some(Disconnected t r));
+  ("disconnected", fun j => t<-natural_field "ticket" j;;r<-string_field "error" j;;revoked<-bool_field "revoked" j;;Some(Disconnected t r revoked));
   ("retry_connection", fun j => t<-natural_field "ticket" j;;Some(RetryConnection t));
   ("appearance", fun j => a<-bind(string_field "value" j)decode_appearance;;Some(ChooseAppearance a));
   ("add_file", fun j => e<-bind(field "editor" j)decode_editor;;f<-bind(field "file" j)decode_file;;Some(AddFile e f));

@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Import Commands Streams Codec.
+From Selvedge.Kernel Require Search.
 From Selvedge.Interaction Require Import Codec Identity Resource Services Forms Speech ApplicationState.
 Import ListNotations.
 Open Scope string_scope.
@@ -351,7 +352,7 @@ Definition speech input world s :=
   |_,_=>base end.
 Definition edit_search query project work s :=set_search(Search query project work None)s.
 Definition submit_search after s :=let search:=history_search(authoring_state s)in
-  issue(JObject(("op",JString "search_history")::("query",JString(keyword search))::("after",number after)::("limit",number 20)::
+  issue(JObject(("op",JString "search_history")::("query",JString(keyword search))::("after",number after)::("limit",number Search.default_limit)::
     present "project_id"(optional_id(project_filter search))(present "work_id"(optional_id(work_filter search))[])))
     (SearchSubmission(keyword search)(project_filter search)(work_filter search))s.
 Definition active_previews world s :=

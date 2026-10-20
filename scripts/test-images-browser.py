@@ -55,11 +55,19 @@ def paste_image(composer):
 
 
 def visible_images(page, count):
-    images = page.locator('img[src^="/api/board/attachments/"]:not([inert] img)').filter(visible=True)
+    # Native modal dialogs make the background implicitly inert without adding an inert attribute.
+    modals = page.locator('dialog:modal')
+    scope = page
+    if modals.count():
+        active = page.locator('dialog:modal:focus-within').last
+        expect(active).to_have_count(1)
+        scope = active
+    images = scope.locator('img[src^="/api/board/attachments/"]').filter(visible=True)
     expect(images).to_have_count(count)
     page.wait_for_function('''count=>{
-      const images=[...document.querySelectorAll('img[src^="/api/board/attachments/"]')]
-        .filter(image=>image.checkVisibility()&&!image.closest('[inert]'));
+      const root=document.activeElement.closest('dialog:modal')??document;
+      const images=[...root.querySelectorAll('img[src^="/api/board/attachments/"]')]
+        .filter(image=>image.checkVisibility());
       return images.length===count&&images.every(image=>image.complete&&image.naturalWidth===2&&image.naturalHeight===2);
     }''', arg=count)
 

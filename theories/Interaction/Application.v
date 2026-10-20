@@ -47,13 +47,16 @@ Definition interpret_language_effect namespace world (effect:Selvedge.Interactio
      else reject "ReadOnlyDocument" "The interactive document cannot submit to this task" s end
  | _=>effects s[LanguageEffect effect]end.
 
-Definition apply_language namespace lagged world input s :=
+Definition apply_language_in namespace world environment input s :=
  let decision:=Selvedge.Interaction.Interactive.Language.step_visible(known_visible namespace world s)input(current_language_state namespace world s)
-   (Documents.environment namespace lagged world s)in
+   environment in
  let next:=with_interactive(Selvedge.Interaction.Interactive.State.next_state decision)s in
  fold_left(fun result effect=>append_result result
    (interpret_language_effect namespace world effect(resulting_state result)))
   (Selvedge.Interaction.Interactive.State.effects decision)(keep next).
+
+Definition apply_language namespace lagged world input s :=
+ apply_language_in namespace world (Documents.environment namespace lagged world s) input s.
 
 Definition shared_definition namespace world s : option Selvedge.Interaction.Interactive.Types.input :=
  match location(navigation_state s)with
@@ -64,9 +67,12 @@ Definition shared_definition namespace world s : option Selvedge.Interaction.Int
      (Documents.externally_allowed namespace owner world s))
  |_=>None end.
 
-Definition refresh_language namespace lagged world s :=
+Definition refresh_language namespace lagged (revoked:bool) world s :=
  let shared:=match shared_definition namespace world s with None=>keep s|Some input=>apply_language namespace lagged world input s end in
- append_result shared(apply_language namespace lagged world Selvedge.Interaction.Interactive.Types.EnvironmentChanged(resulting_state shared)).
+ let next:=resulting_state shared in
+ (* Clear cached source values once; subsequent offline refreshes retain only the cleared handles. *)
+ let environment:=Documents.environment_with_revocation namespace lagged revoked world next in
+ append_result shared(apply_language_in namespace world environment Selvedge.Interaction.Interactive.Types.EnvironmentChanged next).
 
 Definition pending_language ticket s :=
  match find(fun pending=>N.eqb ticket(ApplicationState.ticket pending))(awaiting(authoring_state s))with
@@ -92,6 +98,9 @@ Definition prune_documents namespace lagged world before after:=
 
 Definition step namespace lagged now world input s :=
  let before:=s in
+ let revoked:=match input with
+ |Input.ServiceInput(Services.Disconnected ticket _ true)=>Services.ticket_matches ticket(Services.connection(service_state s))
+ |_=>false end in
  let s:=Documents.synchronize_documents namespace lagged world s in
  let result:=match local_step now input world s with
  |Some result=>completed_language namespace lagged world input s result
@@ -106,7 +115,7 @@ Definition step namespace lagged now world input s :=
    |_=>reject "UnsupportedInput" "This interaction input has no reducer" s end end in
  let next:=Documents.synchronize_documents namespace lagged world(resulting_state result)in
  let pruned:=prune_documents namespace lagged world before next in
- append_result(append_result result pruned)(refresh_language namespace lagged world(resulting_state pruned)).
+ append_result(append_result result pruned)(refresh_language namespace lagged revoked world(resulting_state pruned)).
 
 Definition interactive_portals namespace lagged world s :=
  let environment:=Documents.environment namespace lagged world s in

@@ -294,7 +294,6 @@ Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene)
   | Scene role key label value disabled checked multiline action attributes source children =>
     let rendered := map (render_scene mode system_dark) children in
     match role with
-    | Text => TextNode value
     | Markdown => MarkdownNode key value (optional_bool "complete" source)
         (optional_json "source" source) (optional_json "owner" source) source
     | Portal => PortalNode key (optional_text "target" source) rendered
@@ -311,10 +310,13 @@ Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene)
             match role, field "dismiss_action" source with
             | Dialog, Some dismiss_action => [EventBinding Dismiss dismiss_action] | _, _ => [] end
           end)
-        ((if String.eqb label "" then [] else
-          match role with
-          | Button | Link | Header | Heading | OptionView | Code | Icon => [TextNode label]
-          | _ => [] end) ++ rendered) source in
+        (match role with
+         | Text => [TextNode value]
+         | _ => (if String.eqb label "" then [] else
+           match role with
+           | Button | Link | Header | Heading | OptionView | Code | Icon => [TextNode label]
+           | _ => [] end) ++ rendered
+         end) source in
       match role with
       | Field | Select | Checkbox =>
           Element (key ++ "/field") "div" [Property "data-field" key]

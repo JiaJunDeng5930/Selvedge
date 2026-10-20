@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
 From Selvedge.Kernel Require Import Commands Conversation Streams.
+From Selvedge.Kernel Require Search.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require Documents.
 From Selvedge.Interaction Require Import Codec Identity Resource Services Forms Speech ApplicationState ApplicationOps Origin Input InputCodecs Scene ApplicationCore SkillMention.
@@ -22,6 +23,7 @@ Definition scene_property role '(name,value):list(Scene.property Input.input):=
  |JsonProperty value=>match scene_data_key name with Some key=>[Scene.Data key value]|None=>[]end
  |InputProperty value=>match action_input value with None=>[]|Some input=>
    if String.eqb name "dismiss_action"then [Scene.Dismiss input]else
+   if String.eqb name "file_action"then [Scene.Files input]else
    [Scene.Bind(match role with Scene.Field|Scene.Select|Scene.Checkbox=>Scene.Supply
       (match input with ServiceInput(AddFile _ _)=>Scene.FileInjection|Input.Interactive _=>Scene.InteractiveValueInjection|_=>Scene.ValueInjection end)input
       |_=>Scene.Activate input end)]end end.
@@ -40,7 +42,8 @@ Definition optional_label id := match id with None=>"All Tasks"|Some id=>"Work #
 Fixpoint join_text delimiter xs := match xs with []=>""|[x]=>x|x::xs=>x++delimiter++join_text delimiter xs end.
 Definition option_node value caption := JObject[("value",value);("label",JString caption)].
 Definition key_suffix key id := key++show_natural id.
-Definition project_options world := option_node(JString "")"Environment defaults"::map(fun p=>option_node(value_or JNull(field "project_id" p))(text "name" p))(items "projects" world).
+Definition project_choices world := map(fun p=>option_node(value_or JNull(field "project_id" p))(text "name" p))(items "projects" world).
+Definition project_options world := option_node(JString "")"Environment defaults"::project_choices world.
 Fixpoint kind_options k (world:json) := match k with
 |KEnum first rest=>map(fun s=>option_node(JString s)s)(first::rest)
 |KOptional k=>option_node(JString "")"Use default"::kind_options k world
@@ -126,6 +129,9 @@ Definition field_applies d world s name :=
  if String.eqb name "network_access"then negb(Json.equal(observed "approval")(JString "full-access"))else
  if String.eqb name "sandbox"then negb(Json.equal(observed "approval")(JString "full-access"))else
  if String.eqb name "draft_profile"then read_flag "assisted" d else true.
+Definition attachment_field e:=match e with NewTask _|Message _=>Some "message"|Card _=>Some "description"|_=>None end.
+Definition can_attach e:=match attachment_field e with Some _=>true|None=>false end.
+Definition attach_action e:=invoke(Input.ServiceInput(AddFile e(SelectedFile "" "" "" 0))).
 Definition field_scene d world s f :=
   let name:=field_name(specification f)in let key:=editor_key(owner d)++"/"++name in
   let efforts:=ModelSelection.reasoning_values world(model_key d world s)in
@@ -137,6 +143,7 @@ Definition field_scene d world s f :=
    else if String.eqb(widget f)"project"then project_options world else kind_options(Schema.field_kind(specification f))world in
   let options:=if select then preserve_selected(field_value f d world s)options else options in
   node kind key[("disabled",JsonProperty(JBool(field_disabled(owner d)name world || (String.eqb name "create_worktree" && worktree_unavailable d world s))));("specification",FieldProperty(specification f));("keys",KeyProperty(if String.eqb name "message"then mention_keys(owner d)world s else []));("attrs",JsonProperty(JObject[("data-field",JString(field_key(owner d)name));("data-object-owner",JString(field_owner_key(owner d)name))]));("label",JsonProperty(JString(label f)));("value",JsonProperty(field_value f d world s));("value_kind",JsonProperty(JString(kind_name(Schema.field_kind(specification f)))));("action",InputProperty(edit_action(owner d)name));
+    ("file_action",InputProperty(if connected(service_state s) && (match attachment_field(owner d)with Some target=>String.eqb name target|None=>false end)then attach_action(owner d)else UiAction None));
     ("multiline",JsonProperty(JBool(existsb(String.eqb(widget f))["textarea";"lines";"json";"graph_nodes";"graph_rules"])));
     ("options",JsonProperty(JArray options));("help",JsonProperty(JString(help f)));("invalid",JsonProperty(JBool(match raw_text name d with Some _=>true|None=>false end)))]
     (List.app (if String.eqb name "message"then [mention_suggestions(owner d)world s]else
@@ -150,10 +157,14 @@ Definition upload_scene d s :=map(fun upload=>match upload with
 |Resource.Failed t r error=>group("upload/"++show_natural t)[text_node("upload/"++show_natural t++"/error")error;button("upload/"++show_natural t++"/retry")"Retry upload"(invoke(Input.ServiceInput(RetryUpload t)))(negb(connected(service_state s)));button("upload/"++show_natural t++"/cancel")"Remove"(invoke(Input.ServiceInput(CancelUpload t)))false]
 |_=>group "unused-upload"[]end)
   (filter(fun r=>match upload_owner r with Some e=>same_editor(owner d)e|None=>false end)(uploads(service_state s))).
+Definition image_scene key id caption:=node Scene.Image_role key[("url",JsonProperty(JString("/api/board/attachments/"++id)));("label",JsonProperty(JString caption))][].
+Definition message_images key message:=
+ map(fun part=>let image:=value_or JNull(field "image" part)in
+  image_scene(key++"/image/"++text "id" image)(text "id" image)"Image")
+ (filter(fun part=>String.eqb(text "type" part)"image"&&passive_mime(text "mime"(value_or JNull(field "image" part))))(items "content" message)).
 Definition attachment_scene d :=map(fun a=>group(editor_key(owner d)++"/attachment/"++asset_id a)
- [button(editor_key(owner d)++"/attachment/"++asset_id a++"/preview")(asset_name a)(invoke(Input.ServiceInput(OpenPreview (a) (editor_key(owner d)++"/attachment/"++asset_id a++"/preview"))))false;
-  button(editor_key(owner d)++"/attachment/"++asset_id a++"/remove")"Remove attachment"(invoke(Input.RemoveAttachment (owner d) (asset_id a)))false])(attachments d).
-Definition can_attach e:=match e with NewTask _|Message _|Card _=>true|_=>false end.
+ ((if passive_image a then [image_scene(editor_key(owner d)++"/attachment/"++asset_id a++"/image")(asset_id a)(asset_name a)]else [])++[button(editor_key(owner d)++"/attachment/"++asset_id a++"/preview")("Preview "++asset_name a)(invoke(Input.ServiceInput(OpenPreview (a) (editor_key(owner d)++"/attachment/"++asset_id a++"/preview"))))false;
+  button(editor_key(owner d)++"/attachment/"++asset_id a++"/remove")"Remove attachment"(invoke(Input.RemoveAttachment (owner d) (asset_id a)))false]))(attachments d).
 Definition can_speak e:=match e with NewTask _|Message _=>true|_=>false end.
 Definition execution_summary task world := match find_task task world with
  |None=>"配置模型与权限"
@@ -168,7 +179,7 @@ Definition form_scene e world s :=
   let blocked:=match obstruction world(service_state s)d with Some _=>true|None=>editor_pending e s end in
   let caption:=match e with Message _=>if String.eqb(read_text "delivery" d)"steer"then "Steer"else "Send"|NewTask _=>"Start task"|Fork _=>"Fork task"|Compact _=>"Compact history"|_=>"Save"end in
   let field_nodes := (map(field_scene d world s)(filter(fun f=>negb(String.eqb(field_name(specification f))"revision") && (match e with Message _=>existsb(String.eqb(field_name(specification f)))["message";"delivery"]|_=>true end) && field_applies d world s(field_name(specification f)))(form_fields e))++attachment_scene d++upload_scene d s)%list in
-  let control_nodes := ((if can_attach e then [node Scene.Field_role(editor_key e++"/upload")[("disabled",JsonProperty(JBool(negb(connected(service_state s)))));("label",JsonProperty(JString "Attach files"));("attrs",JsonProperty(JObject[("type",JString "file");("multiple",JString "true")]));("action",InputProperty(invoke(Input.ServiceInput(AddFile (e) (SelectedFile "" "" "" 0)))))][]]else [])++
+  let control_nodes := ((if can_attach e then [node Scene.Field_role(editor_key e++"/upload")[("disabled",JsonProperty(JBool(negb(connected(service_state s)))));("label",JsonProperty(JString "Attach files"));("attrs",JsonProperty(JObject[("type",JString "file");("multiple",JString "true")]));("action",InputProperty(attach_action e))][]]else [])++
    (if can_speak e then [button(editor_key e++"/dictate")"Dictate"(invoke(Input.SpeechInput(BeginDictation (e) (revision d))))(negb(free(speech_state s)));
       button(editor_key e++"/skills")"Skills"(invoke(Input.LoadSkills (e)))false]else [])++
    (match e with NewTask _=>[button(editor_key e++"/voice-new")"Start voice task"(invoke(Input.BeginVoiceNew e))(negb(free(speech_state s))||match voice_obstruction world(service_state s)d with Some _=>true|None=>false end)]|_=>[]end)++
@@ -261,7 +272,7 @@ Definition message_scene namespace task index message s :=
   node Scene.Section_role anchor[("attrs",JsonProperty(JObject[("data-reading-anchor",JString anchor)]))]
     (if existsb(String.eqb(value_or ""(Conversation.json_message_role message)))["user";"assistant"]then
       [text_node(anchor++"/role")(value_or "event"(Conversation.json_message_role message));
-       node Scene.Markdown_role key(("value",JsonProperty(JString source))::("complete",JsonProperty(JBool true))::observed)[]]
+       node Scene.Markdown_role key(("value",JsonProperty(JString source))::("complete",JsonProperty(JBool true))::observed)[]]++message_images anchor message
      else let open:=audit_expanded task(N.of_nat index)message s in
       [button(anchor++"/disclose")(audit_title message)(invoke(Input.SetDisclosure task(N.of_nat index)0(negb open)))false]++
       if open then [node Scene.Code_role(anchor++"/detail")[("value",JsonProperty(JString(render_json message)))][]]else []).
@@ -382,7 +393,7 @@ Definition conversation_scene namespace task world s :=
          editor_button("task/"++show_natural task++"/fork")"Fork"(Fork task);
          editor_button("task/"++show_natural task++"/compact")"Compact history"(Compact task);
          button("task/"++show_natural task++"/side")"Side conversation"(invoke(Input.BeginSide task))(negb(connected(service_state s)));
-         button("task/"++show_natural task++"/return-side")"追加回上级 task"(command_action "return_side_conversation"[("task_id",number task)])(negb(connected(service_state s)));
+         button("task/"++show_natural task++"/return-side")(match natural_field "parent" found with Some parent=>("追加回 task #"++show_natural parent)%string|None=>"追加回上级 task"end)(command_action "return_side_conversation"[("task_id",number task)])(negb(connected(service_state s)));
          button("task/"++show_natural task++"/voice")"Start voice"(invoke(Input.SpeechInput(BeginVoice (task))))(negb(free(speech_state s)))]);
      node Scene.Group_role("conversation/"++show_natural task++"/history")[("attrs",JsonProperty(JObject[("data-reading-root",JString "true")]))]
        (history_scenes namespace task 0(items "history" found)s++flat_map(fun output=>live_scene namespace task world output s)(filter(fun o=>N.eqb task(output_task o))(active_previews world s)));
@@ -459,20 +470,34 @@ Definition graphs_scene world s:=group "graphs"[heading "graphs/title" "Task gra
  [heading("graph/"++show_natural id++"/name")(text "name" graph);editor_button("graph/"++show_natural id++"/edit")"Edit"(TaskGraph(Some id)(active_work(navigation_state s)));
  button("graph/"++show_natural id++"/delete")"Delete"(command_action "delete_task_graph"[("graph_id",number id)])(negb(connected(service_state s)))]end)(filter(fun graph=>match active_work(navigation_state s)with
  |None=>true|Some work=>same_scope(Some work)(natural_field "work_id" graph)end)(items "graphs" world)))].
+Definition search_hit_scene hit:=
+ let task:=value_or JNull(field "task" hit)in
+ let id:=value_or JNull(field "id" task)in
+ let index:=value_or JNull(field "message_index" hit)in
+ let key:="search-hit/"++value_or ""(as_number id)++"/"++value_or ""(as_number index)in
+ group key
+  ([button(key++"/open")(text "title" task++" · 消息 #"++match natural index with Some n=>show_natural(N.succ n)|None=>""end)(history_action id index)false;
+    text_node(key++"/role")(text "role" hit)]++
+   (if String.eqb(text "before" hit)""then []else[text_node(key++"/before")("上一条："++text "before" hit)])++
+   [text_node(key++"/snippet")("命中消息："++text "snippet" hit)]++
+   if String.eqb(text "after" hit)""then []else[text_node(key++"/after")("下一条："++text "after" hit)]).
 Definition search_scene s world:=let search:=history_search(authoring_state s)in
+ let disabled:=negb(connected(service_state s))in
  group "history-search"[heading "history-search/title" "搜索对话";
- node Scene.Field_role "history-search/query"[("label",JsonProperty(JString "Keyword"));("value",JsonProperty(JString(keyword search)));("action",InputProperty(invoke(Input.WriteHistoryQuery "")))][];
- node Scene.Select_role "history-search/project"[("specification",FieldProperty(Schema.Field "project"(KOptional KNatural)));("label",JsonProperty(JString "Project"));("value",JsonProperty(optional_id(project_filter search)));("options",JsonProperty(JArray(project_options world)));("action",InputProperty(invoke(Input.ChooseHistoryScope (true) None)))][];
- node Scene.Select_role "history-search/work"[("specification",FieldProperty(Schema.Field "work"(KOptional KNatural)));("label",JsonProperty(JString "Work"));("value",JsonProperty(optional_id(work_filter search)));("options",JsonProperty(JArray(option_node(JString "")"All Works"::map(fun w=>option_node(value_or JNull(field "work_id" w))(text "name" w))(items "works" world))));("action",InputProperty(invoke(Input.ChooseHistoryScope (false) None)))][];
- button "history-search/submit" "Search"(invoke(Input.SubmitHistorySearch (0)))(negb(connected(service_state s)));
- group "history-search/results"(match search_result search with None=>[]|Some reply=>
-   if flag "ok" reply then let result:=value_or JNull(field "result" reply)in
-    map(fun hit=>let task:=value_or JNull(field "task" hit)in let id:=value_or JNull(field "id" task)in let index:=value_or JNull(field "message_index" hit)in
-     group("search-hit/"++value_or ""(as_number id)++"/"++value_or ""(as_number index))
-      [button("search-hit/open/"++value_or ""(as_number id)++"/"++value_or ""(as_number index))(text "title" task++" — "++text "snippet" hit)(history_action id index)false;
-       text_node "search-hit/before"(text "before" hit);text_node "search-hit/after"(text "after" hit)])(items "hits" result)++
-    (if flag "has_more" result then [button "history-search/more" "More results"(invoke(Input.SubmitHistorySearch(value_or (0%N)(natural_field "next_after" result))))(negb(connected(service_state s)))]else [])
-   else [text_node "history-search/error"(text "error" reply)]end)].
+ node Scene.Field_role "history-search/query"[("label",JsonProperty(JString "关键词"));("value",JsonProperty(JString(keyword search)));("keys",KeyProperty[("Enter",Input.SubmitHistorySearch 0)]);("action",InputProperty(invoke(Input.WriteHistoryQuery "")))][];
+ node Scene.Select_role "history-search/project"[("specification",FieldProperty(Schema.Field "project"(KOptional KNatural)));("label",JsonProperty(JString "项目"));("value",JsonProperty(optional_id(project_filter search)));("options",JsonProperty(JArray(option_node(JString "")"全部"::project_choices world)));("action",InputProperty(invoke(Input.ChooseHistoryScope true None)))][];
+ node Scene.Select_role "history-search/work"[("specification",FieldProperty(Schema.Field "work"(KOptional KNatural)));("label",JsonProperty(JString "Work"));("value",JsonProperty(optional_id(work_filter search)));("options",JsonProperty(JArray(option_node(JString "")"全部"::map(fun w=>option_node(value_or JNull(field "work_id" w))(text "name" w))(items "works" world))));("action",InputProperty(invoke(Input.ChooseHistoryScope false None)))][];
+ button "history-search/submit" "搜索"(invoke(Input.SubmitHistorySearch 0))disabled;
+ group "history-search/results"(match search_result search with
+ |None=>[text_node "history-search/prompt" "输入关键词，选择项目或 Work，然后搜索对话。"]
+ |Some reply=>if flag "ok" reply then let result:=value_or JNull(field "result" reply)in
+   match items "hits" result with
+   |[]=>[text_node "history-search/empty" "没有找到匹配的消息。"]
+   |hits=>map search_hit_scene hits++
+    (match natural_field "after" result with Some after=>if N.eqb after 0 then []else[button "history-search/previous" "上一页"(invoke(Input.SubmitHistorySearch(N.sub after Search.default_limit)))disabled]|None=>[]end)++
+    (match natural_field "next_after" result with Some after=>[button "history-search/more" "更多结果"(invoke(Input.SubmitHistorySearch after))disabled]|None=>[]end)
+   end
+   else[text_node "history-search/error"(text "message"(value_or JNull(field "error" reply)))]end)].
 
 Definition speech_scene s:=let sp:=speech_state s in
  group "speech"([text_node "speech/notice"(notice sp);text_node "speech/live"(live_text sp)]++
@@ -517,7 +542,7 @@ Definition preview_scene s:=match preview(service_state s)with
 |Dormant=>[]|Loading _ request=>[node Scene.Dialog_role "file-preview"[("label",JsonProperty(JString(asset_name(preview_file request))));("dismiss_action",InputProperty(invoke(Input.ServiceInput ClosePreview)))][text_node "file-preview/loading" "Loading…"]]
 |Resource.Failed _ request error=>[node Scene.Dialog_role "file-preview"[("label",JsonProperty(JString(asset_name(preview_file request))));("dismiss_action",InputProperty(invoke(Input.ServiceInput ClosePreview)))][text_node "file-preview/error" error;button "file-preview/close" "Close"(invoke(Input.ServiceInput ClosePreview))false]]
 |Loaded _ request url=>[node Scene.Dialog_role "file-preview"[("label",JsonProperty(JString(asset_name(preview_file request))));("dismiss_action",InputProperty(invoke(Input.ServiceInput ClosePreview)))]
- [(if passive_image(preview_file request)then node Scene.Image_role "file-preview/image"[("url",JsonProperty(JString("/api/board/attachments/"++asset_id(preview_file request))));("label",JsonProperty(JString(asset_name(preview_file request))))][]else text_node "file-preview/text" "Inline preview is unavailable for this file type.");
+ [(if passive_image(preview_file request)then image_scene "file-preview/image"(asset_id(preview_file request))(asset_name(preview_file request))else text_node "file-preview/text" "Inline preview is unavailable for this file type.");
  button "file-preview/download" "Download"(invoke(Input.ServiceInput(Download (preview_file request))))false;button "file-preview/close" "Close"(invoke(Input.ServiceInput ClosePreview))false]]end.
 Definition directory_scene s:=match directory(service_state s)with
 |Dormant=>[]|r=>let owner:=match r with Loading _ q|Loaded _ q _|Resource.Failed _ q _=>Some q|Dormant=>None end in
@@ -550,5 +575,5 @@ Definition observe namespace now world s :=
   |HistorySearch=>search_scene s world|SharedUI work task=>shared_ui_scene work task world s end in
   node Scene.Group_role "application"[("layout",JsonProperty(JString "workspace"));("appearance",JsonProperty(JString(appearance_name(theme(service_state s)))));("attrs",JsonProperty(JObject[("class",JString "application")]))]
   ([navigation_scene world s;node Scene.Main_role "main"[("attrs",JsonProperty(JObject[("tabindex",JString "-1")]))](storage_notice s++[main])]++
-   match side_task(navigation_state s)with None=>[]|Some task=>[node Scene.Aside_role "side-conversation"[("label",JsonProperty(JString "Side conversation"))][button "side-conversation/close" "Close side window"(invoke(Input.CloseSide))false;conversation_scene namespace task world s]]end++
+   match side_task(navigation_state s)with None=>[]|Some task=>[node Scene.Aside_role "side-conversation"[("label",JsonProperty(JString "Side conversation"))][heading "side-conversation/title"("Side conversation · task #"++show_natural task);button "side-conversation/close" "关闭"(invoke(Input.CloseSide))false;conversation_scene namespace task world s]]end++
    map(panel_scene world s)(rev(layers(navigation_state s)))++settings_scene s++preview_scene s++directory_scene s).

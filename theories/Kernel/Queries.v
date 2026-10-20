@@ -43,7 +43,7 @@ Definition answer (command : Selvedge.Generated.Commands.command) (value : world
  | Selvedge.Generated.Commands.Cmd_list _ => Some (list_tasks value)
  | Selvedge.Generated.Commands.Cmd_read request => Some (read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (default_n (Selvedge.Generated.Commands.read_limit request) 100) value)
  | Selvedge.Generated.Commands.Cmd_search_history request => Some (Search.search (Selvedge.Generated.Commands.search_history_query request) (Selvedge.Generated.Commands.search_history_project_id request) (Selvedge.Generated.Commands.search_history_work_id request)
-   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (default_n (Selvedge.Generated.Commands.search_history_limit request) 20) value)
+   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (default_n (Selvedge.Generated.Commands.search_history_limit request) Search.default_limit) value)
  | Selvedge.Generated.Commands.Cmd_list_projects _ => Some (State.success (JObject [("projects",JArray (projects_json value))]))
  | Selvedge.Generated.Commands.Cmd_read_project request => Some (read_project (Selvedge.Generated.Commands.read_project_project_id request) value)
  | _ => None

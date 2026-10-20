@@ -13,7 +13,7 @@ Definition encode_service_input input:=match input with
 |DismissStorageProblem=>record_input "dismiss_storage_problem"[]
 |OpenSettings=>record_input "open_settings"[]|CloseSettings=>record_input "close_settings"[]|Connect=>record_input "connect"[]
 |Authenticated t r=>record_input "authenticated"(("ticket",number t)::encode_outcome encode_unit r)
-|Disconnected t error=>record_input "disconnected"[("ticket",number t);("error",JString error)]
+|Disconnected t error revoked=>record_input "disconnected"[("ticket",number t);("error",JString error);("revoked",JBool revoked)]
 |RetryConnection t=>ticket_input "retry_connection" t
 |ChooseAppearance a=>record_input "appearance"[("value",JString(appearance_name a))]
 |AddFile e f=>record_input "add_file"[("editor",encode_editor e);("file",encode_file f)]

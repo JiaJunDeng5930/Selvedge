@@ -217,10 +217,11 @@ Definition observe_document namespace raw world s:option(Types.input*state):=
   let ending:=if String.eqb(observation_prefix observation)(markdown doc)then document_ending stamp else Types.Open in
   Some(Types.SourceChanged owner(observation_code observation)(observation_closed observation)ending(document_external namespace doc s),next)
  else None.
-Definition environment namespace lagged world s:=JObject[
+Definition environment_with_revocation namespace lagged revoked world s:=JObject[
  ("world",world);("namespace",JString namespace);("connected",JBool(connected(service_state s)));
- ("display_lagged",JBool lagged);("revoked",JBool(negb(valid_namespace namespace)));
+ ("display_lagged",JBool lagged);("revoked",JBool(revoked||negb(valid_namespace namespace)));
  ("viewing_tasks",JArray(map number(visible_tasks s)));("work",optional_id(active_work(navigation_state s)))].
+Definition environment namespace lagged world s:=environment_with_revocation namespace lagged false world s.
 Definition edit_retained namespace identity (toggle:bool) world s:=
  match find(fun stamp=>String.eqb identity(document_identity stamp))(retained_stamps namespace world s)with
  |None=>s|Some stamp=>if toggle then

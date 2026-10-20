@@ -57,15 +57,17 @@ Arguments Supply {Action}.
 Inductive data_key := Label|Value|Attributes|Disabled|Checked|Multiline|Options|Help|Invalid|Role|ValueKind|Url|Complete|Origin|DocumentKey|Epoch|Revision|Ending|Appearance|Layout|Target.
 Definition data_name key:=match key with Label=>"label"|Value=>"value"|Attributes=>"attrs"|Disabled=>"disabled"|Checked=>"checked"|Multiline=>"multiline"|Options=>"options"|Help=>"help"|Invalid=>"invalid"|Role=>"role"|ValueKind=>"value_kind"|Url=>"url"|Complete=>"complete"|Origin=>"origin"|DocumentKey=>"document_key"|Epoch=>"epoch"|Revision=>"revision"|Ending=>"ending"|Appearance=>"appearance"|Layout=>"layout"|Target=>"target"end.
 Definition key_eq_dec : forall(a b:data_key),{a=b}+{a<>b}. Proof. decide equality. Defined.
-Inductive property (Action:Type) := Data(key:data_key)(value:json)|Bind(value:binding Action)|Dismiss(action:Action)|Specification(field:field_spec)|KeyActions(values:list(string*Action)).
+Inductive property (Action:Type) := Data(key:data_key)(value:json)|Bind(value:binding Action)|Dismiss(action:Action)|Files(action:Action)|Specification(field:field_spec)|KeyActions(values:list(string*Action)).
 Arguments Data {Action}.
 Arguments Bind {Action}.
 Arguments Dismiss {Action}.
+Arguments Files {Action}.
 Arguments Specification {Action}.
 Arguments KeyActions {Action}.
 Fixpoint data_property {A} key (props:list(property A)) : option json :=match props with []=>None|Data k value::rest=>if key_eq_dec key k then Some value else data_property key rest|_::rest=>data_property key rest end.
 Fixpoint binding_property {A}(props:list(property A)):option(binding A):=match props with []=>None|Bind value::_=>Some value|_::rest=>binding_property rest end.
 Fixpoint dismiss_property {A}(props:list(property A)):option A:=match props with []=>None|Dismiss action::_=>Some action|_::rest=>dismiss_property rest end.
+Fixpoint files_property {A}(props:list(property A)):option A:=match props with []=>None|Files action::_=>Some action|_::rest=>files_property rest end.
 Fixpoint field_property {A}(props:list(property A)):field_spec:=match props with []=>Schema.Field "value" KText|Specification spec::_=>spec|_::rest=>field_property rest end.
 Fixpoint keys_property {A}(props:list(property A)):list(string*A):=match props with []=>[]|KeyActions values::_=>values|_::rest=>keys_property rest end.
 Definition data_properties {A}(props:list(property A)):=flat_map(fun p=>match p with Data key value=>[(data_name key,value)]|_=>[]end)props.
@@ -89,20 +91,25 @@ Inductive scene (Action:Type) :=
 | ActionButton(key:string)(properties:list(string*json))(action:option Action)(disabled:bool)(children:list(scene Action))
 | FormView(key:string)(properties:list(string*json))(submit:option Action)(children:list(scene Action))
 | FieldView(kind:field_kind)(key:string)(spec:field_spec)(value:rendered_value(Schema.field_kind spec))
-    (properties:list(string*json))(input:option(injection*Action))(keys:list(string*Action))(children:list(scene Action)).
+    (properties:list(string*json))(input:option(injection*Action))(keys:list(string*Action))(children:list(scene Action))
+| FieldWithFiles(key:string)(spec:field_spec)(value:rendered_value(Schema.field_kind spec))
+    (properties:list(string*json))(input:option(injection*Action))(files:Action)(keys:list(string*Action))(children:list(scene Action)).
 Arguments GraphicView {Action}.
 Arguments Container {Action}.
 Arguments Content {Action}.
 Arguments ActionButton {Action}.
 Arguments FormView {Action}.
 Arguments FieldView {Action}.
+Arguments FieldWithFiles {Action}.
 Definition make {A}(selected:standard_kind)(key:string)(props:list(property A))(children:list(scene A)):scene A:=
   let data:=data_properties props in
   let role:=proj1_sig selected in
   match role as selected_role return selected_role<>Graphic->scene A with
   |Button=>fun _=>ActionButton key data(activate_property props)(match data_property Disabled props with Some(JBool b)=>b|_=>false end)children
   |Form=>fun _=>FormView key data(activate_property props)children
-  |Field=>fun _=>FieldView InputField key(field_property props)(input_value props)data(supply_property props)(keys_property props)children
+  |Field=>fun _=>match files_property props with
+    |None=>FieldView InputField key(field_property props)(input_value props)data(supply_property props)(keys_property props)children
+    |Some files=>FieldWithFiles key(field_property props)(input_value props)data(supply_property props)files(keys_property props)children end
   |Select=>fun _=>FieldView SelectField key(field_property props)(input_value props)data(supply_property props)(keys_property props)children
   |Checkbox=>fun _=>FieldView CheckboxField key(field_property props)(input_value props)data(supply_property props)(keys_property props)children
   |Heading=>fun _=>Content CHeading key data children
@@ -111,6 +118,13 @@ Definition make {A}(selected:standard_kind)(key:string)(props:list(property A))(
   |_=>fun _=>Container(match role with Header=>CHeader|Navigation=>CNavigation|Main=>CMain|Aside=>CAside|Section=>CSection|Dialog=>CDialog|ListView=>CList|Item=>CItem|Table=>CTable|Row=>CRow|Cell=>CCell|Portal=>CPortal|_=>CGroup end)key data(dismiss_property props)children end (proj2_sig selected).
 Definition encode_rendered {k}(v:rendered_value k):=match v with Canonical value=>encode_value k value|Raw text=>JString text end.
 Definition injection_name i:=match i with ValueInjection=>"value"|FileInjection=>"file"|InteractiveValueInjection=>"input.value"end.
+Definition field_properties {A}(encode_action:A->json)(spec:field_spec)
+  (value:rendered_value(Schema.field_kind spec))(props:list(string*json))
+  (input:option(injection*A))(keys:list(string*A)) :=
+  ("meta",JObject[("key_actions",JObject(map(fun p=>(fst p,encode_action(snd p)))keys))])::
+  ("value",encode_rendered value)::match input with
+  |None=>remove_field "value" props
+  |Some(inject,a)=>("injection",JString(injection_name inject))::("action",encode_action a)::remove_field "value" props end.
 Fixpoint encode {A}(encode_action:A->json)(value:scene A):json:=
   let pack role key props children:=JObject(("kind",JString(kind_name role))::("key",JString key)::("children",JArray(map(encode encode_action)children))::props)in
   match value with
@@ -123,11 +137,15 @@ Fixpoint encode {A}(encode_action:A->json)(value:scene A):json:=
        match action with None=>remove_field "disabled" props|Some a=>("action",encode_action a)::remove_field "disabled" props end)children
   |FormView key props submit children=>pack Form key(match submit with None=>props|Some a=>("action",encode_action a)::props end)children
   |FieldView role key spec value props input keys children=>pack(field_role role)key
-      (("meta",JObject[("key_actions",JObject(map(fun p=>(fst p,encode_action(snd p)))keys))])::("value",encode_rendered value)::match input with None=>remove_field "value" props|Some(inject,a)=>("injection",JString(injection_name inject))::("action",encode_action a)::remove_field "value" props end)children end.
+      (field_properties encode_action spec value props input keys)children
+  |FieldWithFiles key spec value props input files keys children=>pack Field key
+      (("file_action",encode_action files)::field_properties encode_action spec value props input keys)children end.
 Fixpoint map_actions {A B}(f:A->B)(value:scene A):scene B:=match value with
 |GraphicView key props drawing=>GraphicView key props(Graphics.map_actions f drawing)
 |Container role key props dismiss children=>Container role key props(option_map f dismiss)(map(map_actions f)children)
 |Content role key props children=>Content role key props(map(map_actions f)children)
 |ActionButton key props action disabled children=>ActionButton key props(option_map f action)disabled(map(map_actions f)children)
 |FormView key props submit children=>FormView key props(option_map f submit)(map(map_actions f)children)
-|FieldView role key spec value props input keys children=>FieldView role key spec value props(option_map(fun '(i,a)=>(i,f a))input)(map(fun p=>(fst p,f(snd p)))keys)(map(map_actions f)children)end.
+|FieldView role key spec value props input keys children=>FieldView role key spec value props(option_map(fun '(i,a)=>(i,f a))input)(map(fun p=>(fst p,f(snd p)))keys)(map(map_actions f)children)
+|FieldWithFiles key spec value props input files keys children=>FieldWithFiles key spec value props
+ (option_map(fun '(i,a)=>(i,f a))input)(f files)(map(fun p=>(fst p,f(snd p)))keys)(map(map_actions f)children)end.
