@@ -126,7 +126,11 @@ Definition bind_arguments (entries : list json) := flat_map (fun entry =>
     JString ("/proc/self/fd/" ++ diagnostic (get entry "descriptor"));get entry "root"]) entries.
 Definition linux_prefix (source : json) :=
   let project := boolean_field source "projectOnly" in
-  JArray (map JString ["--die-with-parent";"--new-session";"--unshare-user";"--unshare-pid";"--unshare-ipc";"--unshare-uts";"--cap-drop";"ALL"] ++
+  (* Bun's dedicated PTY already owns a new controlling-terminal session.
+     Starting another session here would detach its foreground process group. *)
+  JArray (map JString (["--die-with-parent"] ++
+    (if String.eqb (str (get source "options") "processMode") "pty" then [] else ["--new-session"]) ++
+    ["--unshare-user";"--unshare-pid";"--unshare-ipc";"--unshare-uts";"--cap-drop";"ALL"]) ++
     (if project then map JString ["--tmpfs";"/"] else map JString ["--ro-bind";"/";"/"]) ++
     (if boolean_field (get (get source "plan") "sandbox") "network_access" then [] else [JString "--unshare-net"]) ++
     (if project then flat_map (fun entry => [JString "--ro-bind";get entry "canonical";get entry "root"]) (items (get source "runtimeReads")) else []) ++

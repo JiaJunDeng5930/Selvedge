@@ -270,7 +270,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   }
   async function execute() {
     try {
-      launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
+      launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, processMode: mode });
       if (artifactDirectory) {
         boundary('effect.artifact_limit', { arguments: arguments_, limits, options });
         await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -281,7 +281,11 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         }
       }
       signal?.throwIfAborted();
-      child = Bun.spawn([launch.file, ...launch.prefix, '-c', arguments_.command], {
+      // The PTY foreground job owns signals; the sandbox supervisor stays outside its process group.
+      const command = mode === 'pty'
+        ? ['-c', 'set -m; "$@"; exit "$?"', 'selvedge-pty', '/bin/bash', '--noprofile', '--norc', '-c', arguments_.command]
+        : ['-c', arguments_.command];
+      child = Bun.spawn([launch.file, ...launch.prefix, ...command], {
         cwd: launch.cwd, env: { ...launch.env, ...(mode === 'pty' ? { TERM: 'xterm-256color' } : {}) },
         detached: true, stdio: ['pipe', 'pipe', 'pipe', ...launch.descriptors],
         ...(mode === 'pty' ? { terminal: { cols, rows,
