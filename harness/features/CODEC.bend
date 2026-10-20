@@ -172,3 +172,12 @@ def completion(kind: String, +body: J.Json) -> Result<&2, &2, String, F.Completi
 
 def compaction_json(state: F.State()) -> J.Json:
   Compaction.state_json(F.compaction(state))
+
+
+# Native feature tools obtain calling identity from their accepted invocation,
+# never from model-supplied JSON fields. Ordinary commands have no implicit caller.
+def bind_caller(command: M.Command, caller: Nat) -> M.Command:
+  match command:
+    case M.FeatureCommand{F.WorkCommand{command}}: M.FeatureCommand{F.WorkCommand{WorkCodec.bind_command(command, caller)}}
+    case M.Observe{M.FeatureQuery{F.WorkQuery{query}}}: M.Observe{M.FeatureQuery{F.WorkQuery{WorkCodec.bind_query(query, caller)}}}
+    case other: other

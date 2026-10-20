@@ -29,6 +29,28 @@ type TaskCreation is Type:
       {W.resolve(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}, state) ==
         W.Refuse{"task_creation_boundary", "Create Work Tasks through the harness feature operation."} : W.Resolution}}
 
+type SharedUI is Type:
+  SharedUI{
+    updated: @+id:Nat -> @+source:String -> @+previous:W.Work -> @+state:W.State ->
+      {W.find(Actual.result_state(Actual.realize_calculation(W.UpdateUI{id, W.with_ui(source, 1n+W.ui_revision(previous), previous)}, state)), id) ==
+        Some{W.with_ui(source, 1n+W.ui_revision(previous), previous)} : Maybe<&2, W.Work>},
+    observations: @+source:String -> @+revision:Nat -> @+previous:W.Work ->
+      {W.ui_source(W.with_ui(source, revision, previous)) == source : String} &
+      {W.ui_revision(W.with_ui(source, revision, previous)) == revision : Nat} &
+      {W.name(W.with_ui(source, revision, previous)) == W.name(previous) : String},
+    other_work: @+id:Nat -> @+work:W.Work -> @+other:Nat -> @+state:W.State ->
+      @different:{Nat.is_eq(other, id) == False{} : Bool} ->
+      {W.find(Actual.result_state(Actual.realize_calculation(W.UpdateUI{id, work}, state)), other) == W.find(state, other) : Maybe<&2, W.Work>},
+    task_owner: @+id:Nat -> @+work:W.Work -> @+task:Nat -> @+lineage:+List<Nat> -> @+state:W.State ->
+      {W.task_owner(Actual.result_state(Actual.realize_calculation(W.UpdateUI{id, work}, state)), task, lineage) == W.task_owner(state, task, lineage) : Maybe<&2, Nat>},
+    conflict: @id:Nat -> @patch:String -> @previous:W.Work ->
+      {W.patch_revision(False{}, id, patch, previous) ==
+        W.Refuse{"revision_conflict", "The Work UI changed. Read its current source and revision before applying another patch."} : W.Resolution},
+    resolved: @+id:Nat -> @+source:String -> @+previous:W.Work ->
+      {W.patched_source(Done{source}, id, previous) == W.Accept{W.UpdateUI{id, W.with_ui(source, 1n+W.ui_revision(previous), previous)}} : W.Resolution},
+    rename_preserves: @+id:Nat -> @+name:String -> @+previous:W.Work ->
+      {W.rename_valid(True{}, id, name, previous) == W.Accept{W.Retitle{id, W.Work{name, W.ui_source(previous), W.ui_revision(previous)}}} : W.Resolution}}
+
 type Boundary is Type:
   Boundary{
     refinement: @+change:W.Change -> @+state:W.State ->
@@ -57,4 +79,5 @@ type Boundary is Type:
       {W.task_owner(state, child, parent <> lineage) == W.task_owner(state, parent, lineage) : Maybe<&2, Nat>},
     graph_removed: @+id:Nat -> @+state:W.State ->
       {W.graph_owner(W.dissociate_graph(id, state), id) == None{} : Maybe<&2, Nat>},
-    task_creation: TaskCreation}
+    task_creation: TaskCreation,
+    shared_ui: SharedUI}

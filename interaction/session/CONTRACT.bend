@@ -24,6 +24,7 @@ import ../interactive_markdown/MODEL.bend as InteractiveCore
 import ../interactive_markdown/DOCUMENTS.bend as Documents
 import ../interactive_markdown/documents-contract.bend as DocumentRequirement
 import ../../features/work/MODEL.bend as Work
+import ../../harness/features/work-state.bend as WorkState
 import ../../features/worktree/MODEL.bend as Worktree
 import ../../harness/conversation/TITLE.bend as Title
 import ../../harness/features/MODEL.bend as F
@@ -475,6 +476,74 @@ law interactive_feedback_is_terminal:
     J.boolean(J.get(result, "ok")), J.text(J.get(J.get(result, "error"), "message"))}, application)) ==
     (Nil{}, Nil{}) : +List<M.Effect()> & +List<E.Effect>}
 
+# A shared action uses the Task selected on entry only while that Task still
+# belongs to this Work. The document must be the active canonical shared owner;
+# ordinary and side-conversation documents retain their own Task authority.
+def shared_document_owner(+found: Maybe<&2, Documents.Document>, +owner: Interactive.Owner) -> Bool:
+  match found:
+    case None{}: False{}
+    case Some{Documents.Document{+source, text, +epoch, revision, ending, observed, +fences, active}}:
+      active && DocumentRequirement.fence_owned(source, epoch, owner, fences)
+
+def shared_owns(+owner: Interactive.Owner, +work: Nat, +documents: Documents.State) -> Bool:
+  +source: Content.Source = Content.SharedDocument{Documents.namespace(documents), "work/" ++ Nat.show(work)}
+  shared_document_owner(DocumentRequirement.document_lookup(Content.source_key(source), Documents.documents(documents)), owner)
+
+def task_in_work(+current: Maybe<&2, Nat>, +work: Nat) -> Bool:
+  match current:
+    case None{}: False{}
+    case Some{value}: Nat.is_eq(work, value)
+
+def selected_work_task(+selected: Maybe<&2, Nat>, +work: Nat, +world: M.World()) -> Maybe<&2, Nat>:
+  match selected:
+    case None{}: None{}
+    case Some{task}: Bool.pick(Maybe<&2, Nat>, task_in_work(WorkState.task_owner(task, world), work), Some{task}, None{})
+
+def document_action_task(+owner: Interactive.Owner, +application: E.Application) -> Maybe<&2, Nat>:
+  +documents: Documents.State = E.interactive_data(E.session(application))
+  DocumentRequirement.task_owner(Documents.namespace(documents), owner, Documents.documents(documents))
+
+def shared_action_choice(+owned: Bool, +work: Nat, +selected: Maybe<&2, Nat>, +fallback: Maybe<&2, Nat>, +world: M.World()) -> Maybe<&2, Nat>:
+  match owned:
+    case True{}: selected_work_task(selected, work, world)
+    case False{}: fallback
+
+def action_task_at(+route: U.Route, +owner: Interactive.Owner, +application: E.Application) -> Maybe<&2, Nat>:
+  match route:
+    case U.SharedUI{work, selected}:
+      shared_action_choice(shared_owns(owner, work, E.interactive_data(E.session(application))), work, selected, document_action_task(owner, application), E.program(application))
+    case _: document_action_task(owner, application)
+
+def action_task(+owner: Interactive.Owner, +application: E.Application) -> Maybe<&2, Nat>:
+  action_task_at(E.route(E.session(application)), owner, application)
+
+law interactive_action_owner:
+  @+owner:Interactive.Owner -> @+application:E.Application ->
+  {E.interactive_action_task(owner, application) == action_task(owner, application) : Maybe<&2, Nat>}
+
+def fill_composer_empty(+found: Maybe<&2, U.Draft>) -> Bool:
+  match found:
+    case Some{U.Draft{+revision, U.Message{+task, U.Text{+text, +images}, +delivery}, +feedback, +directory_entry}}: String.eq(text, "") && List.is_empty(&2, B.Attachment, images)
+    case _: False{}
+
+def captured_fill_empty(+empty: Bool, +task: Nat, +message: String, +application: E.Application) -> E.Decision:
+  match empty:
+    case False{}: E.Decision{application, D.failure("interaction_refused", "Clear the message composer before filling it from this view"), Nil{}, Nil{}, False{}}
+    case True{}: E.manual_edit(U.MessageEditor{task}, U.WriteMessage{U.initial_text(message)}, application)
+
+def captured_fill_owner(+task: Maybe<&2, Nat>, +message: String, +application: E.Application) -> E.Decision:
+  match task:
+    case None{}: E.Decision{application, D.failure("interaction_refused", "This view no longer owns a task"), Nil{}, Nil{}, False{}}
+    case Some{id}:
+      captured_fill_empty(fill_composer_empty(E.find_draft(E.drafts(E.session(application)), U.MessageEditor{id})), id, message, application)
+
+def captured_fill(+owner: Interactive.Owner, +message: String, +application: E.Application) -> E.Decision:
+  captured_fill_owner(action_task(owner, application), message, application)
+
+law interactive_fill:
+  @+owner:Interactive.Owner -> @path:String -> @+message:String -> @+application:E.Application ->
+  {E.interpret_interactive_effect(Interactive.FillDraft{owner, path, message}, application) == captured_fill(owner, message, application) : E.Decision}
+
 # Sending from a view captures its declared message, never the mutable composer.
 # The existing submission rules and authoritative Commands resolver decide
 # whether that captured request may run. Failure settles the same correlation;
@@ -499,7 +568,7 @@ def captured_send_owner(+task: Maybe<&2, Nat>, +owner: Interactive.Owner, +path:
         E.busy(E.pending(E.session(application)), U.MessageEditor{id}), E.program(application)), id, owner, path, ticket, message, application)
 
 def captured_send(+owner: Interactive.Owner, +path: String, +ticket: Nat, +message: String, +application: E.Application) -> E.Decision:
-  captured_send_owner(Documents.current_owning_task(owner, E.interactive_data(E.session(application))), owner, path, ticket, message, application)
+  captured_send_owner(action_task(owner, application), owner, path, ticket, message, application)
 
 law interactive_send:
   for +owner: Interactive.Owner
@@ -974,9 +1043,30 @@ law visible_tasks_include_side_windows_and_the_original_route:
   @+route:U.Route -> @+layers:+List<E.Layer> -> @+session:E.Session ->
   {E.visible_tasks(E.with_layers(layers, E.with_route(route, session))) == E.visible_route_tasks(route, layers) : +List<Nat>}
 
+def required_work_document(+found: Maybe<&2, Work.Work>, +work: Nat, +previous: E.Decision) -> E.Decision:
+  match found:
+    case None{}: previous
+    case Some{+value}:
+      +application: E.Application = E.decision_application(previous)
+      E.combine_interactive(previous, E.interactive_result(Documents.shared("work/" ++ Nat.show(work), Work.ui_source(value), Work.ui_revision(value),
+        E.program(application), E.interactive_data(E.session(application))), application))
+
+def required_shared_documents(+route: U.Route, +previous: E.Decision) -> E.Decision:
+  match route:
+    case U.SharedUI{work, task}:
+      +application: E.Application = E.decision_application(previous)
+      required_work_document(Work.find(WorkState.registry(E.program(application)), work), work, previous)
+    case _: previous
+
+# Task documents retain their own viewing identities. The selected Work page
+# additionally observes that Work's committed definition and revision.
+def required_document_sync(+application: E.Application) -> E.Decision:
+  +tasks: E.Decision = E.interactive_result(Documents.reconcile_visible(E.visible_tasks(E.session(application)), E.previews(E.session(application)), E.program(application), E.interactive_data(E.session(application))), application)
+  required_shared_documents(E.route(E.session(E.decision_application(tasks))), tasks)
+
 law interactive_documents_follow_visible_tasks:
   @+application:E.Application ->
-  {E.interactive_synchronize(application) == E.interactive_result(Documents.reconcile_visible(E.visible_tasks(E.session(application)), E.previews(E.session(application)), E.program(application), E.interactive_data(E.session(application))), application) : E.Decision}
+  {E.interactive_synchronize(application) == required_document_sync(application) : E.Decision}
 
 law captured_interactive_send_remains_literal:
   @+task:Nat -> @+message:String -> @now:U32 ->

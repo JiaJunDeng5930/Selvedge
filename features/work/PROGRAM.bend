@@ -29,3 +29,5 @@ def realize_calculation(change: W.Change, +state: W.State) -> C.Decision<W.State
       C.Decision{put(id, work, state, next), D.success(W.work_json(id, work)), Nil{}}
     case W.Retitle{+id, +work}:
       C.Decision{put(id, work, state, W.next(state)), D.success(W.work_json(id, work)), Nil{}}
+    case W.UpdateUI{+id, +work}:
+      C.Decision{put(id, work, state, W.next(state)), D.success(W.ui_json(id, work)), Nil{}}

@@ -14,16 +14,17 @@ import ../../harness/MODEL.bend as Harness
 law visible_document_exposure_uses_its_viewing_task:
   @+source:Code.Source -> @+text:String -> @+epoch:Nat -> @+revision:Nat -> @+ending:UI.Ending -> @+observed:Nat -> @+fences:+List<Docs.Fence> -> @active:Bool -> @+rest:+List<Docs.Document> -> @+viewers:+List<Nat> -> @+entries:+List<Docs.RetainedEntry> ->
   {Docs.exposed_visible_documents(Docs.Document{source, text, epoch, revision, ending, observed, fences, active} <> rest, viewers, entries) ==
-    Docs.Document{source, text, epoch, revision, ending, observed, fences, Docs.present_nat(viewers, Docs.source_viewer(source)) && Bool.not(Docs.entry_archived(entries, Code.source_key(source)))} <> Docs.exposed_visible_documents(rest, viewers, entries) : +List<Docs.Document>}
+    Docs.Document{source, text, epoch, revision, ending, observed, fences, Docs.viewer_exposed(viewers, Docs.source_viewer(source)) && Bool.not(Docs.entry_archived(entries, Code.source_key(source)))} <> Docs.exposed_visible_documents(rest, viewers, entries) : +List<Docs.Document>}
 
 law visible_document_exposure_refreshes_actual_documents:
   @+viewers:+List<Nat> -> @+world:Harness.World() -> @+state:Docs.State ->
   {Docs.expose_visible(viewers, world, state) == Docs.refresh(world, Docs.with_documents(Docs.exposed_visible_documents(Docs.documents(state), viewers, Docs.retained_entries(Docs.retention(state))), state)) : Docs.Decision}
 
-# Authority is an identity in the current data space, not a retained eligibility
-# flag. The viewer and immutable producer/request/part all occur in Code.key.
+# Authority is the current data space and canonical output provenance or shared
+# document owner. Parser observations do not create authority.
 def canonical_source(+store: String, source: Code.Source) -> Bool:
   match source:
+    case Code.SharedDocument{+namespace, owner}: Live.valid_namespace(namespace) && String.eq(namespace, store)
     case Code.Generated{+namespace, viewer, D.OutputOrigin{producer, operation, part, D.InteractiveV1{}}, complete}:
       Live.valid_namespace(namespace) && String.eq(namespace, store)
     case _: False{}
@@ -194,10 +195,11 @@ def observation_state(+eligible: Bool, observation: Docs.FenceObservation, docum
   Docs.with_documents(write_document(Docs.documents(state), Docs.Document{source, text, current_epoch, current_revision, ending, String.length(input_prefix),
     write_fence(fences, Docs.Fence{ordinal, eligible, code, closed, False{}}), active}), state)
 
-# External model actions additionally require a completed output owned by its
-# current viewer. Local editing does not depend on network freshness.
+# External actions require a completed owned output or a committed shared
+# definition. Local editing does not depend on network freshness.
 def completed_producer(source: Code.Source) -> Bool:
   match source:
+    case Code.SharedDocument{namespace, owner}: True{}
     case Code.Generated{namespace, viewer, D.OutputOrigin{producer, operation, part, mode}, True{}}: Nat.is_eq(viewer, producer)
     case _: False{}
 
@@ -297,7 +299,7 @@ def required_refresh(+world: Harness.World(), +state: Docs.State) -> Docs.Decisi
 def task_from_document(+store: String, +expected: UI.Owner, document: Docs.Document, fallback: Maybe<&2, Nat>) -> Maybe<&2, Nat>:
   Docs.Document{+source, text, +epoch, revision, ending, observed, fences, active} = document
   Bool.pick(Maybe<&2, Nat>, canonical_source(store, source) && active && completed_producer(source) &&
-    fence_owned(source, epoch, expected, fences), Some{Docs.source_viewer(source)}, fallback)
+    fence_owned(source, epoch, expected, fences), Docs.source_viewer(source), fallback)
 
 def task_owner(+store: String, +expected: UI.Owner, documents: +List<Docs.Document>) -> Maybe<&2, Nat>:
   match documents:

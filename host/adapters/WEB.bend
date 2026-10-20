@@ -939,9 +939,11 @@ def leading_space(+value: String) -> String:
   match value:
     case SCon{' ', rest}: rest
     case _: value
+# NOTE: SSE CRLF lines can contain complete tool arguments; removing the final
+# carriage return must not recurse once per character on the JavaScript stack.
 def cr_selected(strip: Bool, +value: String) -> String:
   match strip:
-    case True{}: String.take(value, Nat.sub(String.length(value), 1n))
+    case True{}: String.reverse(String.drop(String.reverse(value), 1n))
     case False{}: value
 def cr_strip(+value: String) -> String:
   cr_selected(String.ends_with(value, "\r"), value)

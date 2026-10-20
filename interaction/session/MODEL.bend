@@ -2451,9 +2451,55 @@ def interactive_viewer(+value: U.Route) -> Maybe<&2, Nat>:
     case U.Conversation{+task}: Some{task}
     case _: None{}
 
+def interactive_reply(+succeeded: Bool, +first: J.Json, +second: J.Json) -> J.Json:
+  match succeeded:
+    case True{}: second
+    case False{}: first
+
+def combine_interactive(+first: Decision, +second: Decision) -> Decision:
+  Decision{+old_application, +first_reply, +first_runtime, +first_effects, +first_durable} = first
+  Decision{+application, +reply, +runtime, +effects, +durable} = second
+  Decision{application, interactive_reply(J.boolean(J.get(first_reply, "ok")), first_reply, reply), List.append(&2, M.Effect(), first_runtime, runtime), List.append(&2, Effect, first_effects, effects), first_durable || durable}
+
+def decision_application(+result: Decision) -> Application:
+  Decision{+application, +reply, +runtime, +interaction, +durable} = result
+  application
+
+def shared_ui_owner(+work: Nat) -> String:
+  "work/" ++ Nat.show(work)
+
+def selected_shared_task(+route: U.Route) -> Maybe<&2, Nat>:
+  match route:
+    case U.Conversation{task}: Some{task}
+    case U.SharedUI{work, task}: task
+    case _: None{}
+
+def shared_ui_source(+work: Nat, +state: Session) -> Content.Source:
+  Content.SharedDocument{namespace(state), shared_ui_owner(work)}
+
+def shared_ui_found(+found: Maybe<&2, Work.Work>, +work: Nat, +result: Decision) -> Decision:
+  match found:
+    case None{}: result
+    case Some{+value}:
+      +application: Application = decision_application(result)
+      +updated: Decision = interactive_result(Documents.shared(shared_ui_owner(work), Work.ui_source(value), Work.ui_revision(value), program(application), interactive_data(session(application))), application)
+      combine_interactive(result, updated)
+
+def shared_ui_route(+route: U.Route, +result: Decision) -> Decision:
+  match route:
+    case U.SharedUI{work, task}:
+      +application: Application = decision_application(result)
+      shared_ui_found(Work.find(WorkState.registry(program(application)), work), work, result)
+    case _: result
+
+def shared_ui_synchronize(+result: Decision) -> Decision:
+  +application: Application = decision_application(result)
+  shared_ui_route(route(session(application)), result)
+
+
 def interactive_synchronize(+application: Application) -> Decision:
   +current = session(application)
-  interactive_result(Documents.reconcile_visible(visible_tasks(current), previews(current), program(application), interactive_data(current)), application)
+  shared_ui_synchronize(interactive_result(Documents.reconcile_visible(visible_tasks(current), previews(current), program(application), interactive_data(current)), application))
 
 def interactive_environment(+namespace: String, +sequence: Nat, +fresh: Bool, +allowed: Bool, +application: Application) -> Decision:
   interactive_result(Documents.environment(namespace, sequence, fresh, allowed, interactive_data(session(application))), application)
@@ -2485,7 +2531,7 @@ def interactive_fill_empty(+empty: Bool, +task: Nat, +message: String, +applicat
 
 def interactive_fill_owned(+found: Maybe<&2, Nat>, +message: String, +application: Application) -> Decision:
   match found:
-    case None{}: unchanged(application)
+    case None{}: refuse(application, "This view no longer owns a task")
     case Some{+task}: interactive_fill_empty(interactive_draft_empty(find_draft(drafts(session(application)), U.MessageEditor{task})), task, message, application)
 
 def interactive_send_resolved(+resolved: Commands.Operation, +command: M.Command, +owner: Interactive.Owner, +path: String, +ticket: Nat, +application: Application) -> Decision:
@@ -2513,27 +2559,37 @@ def interactive_send_owned(+found: Maybe<&2, Nat>, +owner: Interactive.Owner, +p
       +draft: U.Draft = U.Draft{0n, U.Message{task, U.initial_text(message), U.Send{}}, U.Editing{}, ""}
       interactive_send_checked(submission_ready(pending(session(application)), program(application), draft), owner, path, ticket, draft, application)
 
+def shared_action_task(+found: Maybe<&2, Nat>, +work: Nat, +world: M.World()) -> Maybe<&2, Nat>:
+  match found:
+    case None{}: None{}
+    case Some{task}: Bool.pick(Maybe<&2, Nat>, same_work(Some{work}, WorkState.task_owner(task, world)), Some{task}, None{})
+
+def shared_action_owner(+owned: Bool, +owner: Interactive.Owner, +work: Nat, +task: Maybe<&2, Nat>, +application: Application) -> Maybe<&2, Nat>:
+  match owned:
+    case True{}: shared_action_task(task, work, program(application))
+    case False{}: Documents.current_owning_task(owner, interactive_data(session(application)))
+
+def interactive_action_route(+route: U.Route, +owner: Interactive.Owner, +application: Application) -> Maybe<&2, Nat>:
+  match route:
+    case U.SharedUI{work, task}:
+      +current: Session = session(application)
+      shared_action_owner(Documents.shared_owner(owner, shared_ui_owner(work), interactive_data(current)), owner, work, task, application)
+    case _: Documents.current_owning_task(owner, interactive_data(session(application)))
+
+def interactive_action_task(+owner: Interactive.Owner, +application: Application) -> Maybe<&2, Nat>:
+  +current: Session = session(application)
+  interactive_action_route(route(current), owner, application)
+
 def interpret_interactive_effect(+effect: Interactive.Effect, +application: Application) -> Decision:
   match effect:
     case Interactive.FillDraft{+owner, +path, +message}:
-      interactive_fill_owned(Documents.current_owning_task(owner, interactive_data(session(application))), message, application)
+      interactive_fill_owned(interactive_action_task(owner, application), message, application)
     case Interactive.SendMessage{+owner, +path, +ticket, +message}:
-      interactive_send_owned(Documents.current_owning_task(owner, interactive_data(session(application))), owner, path, ticket, message, application)
+      interactive_send_owned(interactive_action_task(owner, application), owner, path, ticket, message, application)
     case other: local(program(application), session(application), [InteractiveEffect{other}])
 
-def interactive_reply(+succeeded: Bool, +first: J.Json, +second: J.Json) -> J.Json:
-  match succeeded:
-    case True{}: second
-    case False{}: first
 
-def combine_interactive(+first: Decision, +second: Decision) -> Decision:
-  Decision{+old_application, +first_reply, +first_runtime, +first_effects, +first_durable} = first
-  Decision{+application, +reply, +runtime, +effects, +durable} = second
-  Decision{application, interactive_reply(J.boolean(J.get(first_reply, "ok")), first_reply, reply), List.append(&2, M.Effect(), first_runtime, runtime), List.append(&2, Effect, first_effects, effects), first_durable || durable}
 
-def decision_application(+result: Decision) -> Application:
-  Decision{+application, +reply, +runtime, +interaction, +durable} = result
-  application
 
 def interpret_interactive_effects(+effects: +List<Effect>, +application: Application) -> Decision:
   match effects:
@@ -2592,6 +2648,7 @@ def clear_discarded(+task: Nat, +application: Application) -> Decision:
 
 def code_generated_known(+source: Content.Source, +state: Session) -> Bool:
   match source:
+    case Content.SharedDocument{+namespace, +owner}: Documents.source_known(source, interactive_data(state))
     case Content.Generated{+namespace, +viewer, D.OutputOrigin{+producer, +operation, +part, D.InteractiveV1{}}, +complete}: Documents.source_known(source, interactive_data(state))
     case _: True{}
 

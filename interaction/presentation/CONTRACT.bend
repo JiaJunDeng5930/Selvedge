@@ -232,7 +232,7 @@ def required_compact_navigation(view:V.Navigation, header:SurfaceTypes.Node, +st
   SurfaceTypes.Node{Identity.Place{"/navigation"}, "navigation", "Task tree", SurfaceTypes.Navigation{}, SurfaceTypes.Region{},
     header <> SurfaceTypes.Node{Identity.Part{Identity.Place{"/navigation"}, "header"}, "navigation-header", "Task tree", SurfaceTypes.NavigationHeader{}, SurfaceTypes.Region{},
       Model.work_settings(E.active_work(current), state)} <>
-      Model.navigation_contents(expanded, E.route(current), create, destinations, projects, tasks, state)}
+      List.append(&2, SurfaceTypes.Node, Model.shared_ui_navigation(E.active_work(current), state), Model.navigation_contents(expanded, E.route(current), create, destinations, projects, tasks, state))}
 
 law compact_task_tree_retains_header_grouping_and_original_task_contents:
   @+navigation:V.Navigation -> @+header:SurfaceTypes.Node -> @+state:InteractionTypes.State ->
@@ -1232,6 +1232,8 @@ def expected_structure(recipe: Composition.Recipe) -> Composition.Structure:
       Composition.Structure{[Composition.BoardTitle{}, Composition.BoardControls{}], [Composition.BoardStages{}], Nil{}}
     case Composition.Recipe{measure, heading, Composition.AgentRows{}, composer, decisions, latest}:
       Composition.Structure{[Composition.CollectionTitle{}, Composition.CollectionActions{}], [Composition.AgentEntries{}], Nil{}}
+    case Composition.Recipe{measure, heading, Composition.SharedInterfaceBody{}, composer, decisions, latest}:
+      Composition.Structure{[Composition.SharedTitle{}], [Composition.SharedContent{}], Nil{}}
     case Composition.Recipe{measure, heading, Composition.TaskGraphRows{}, composer, decisions, latest}:
       Composition.Structure{[Composition.CollectionTitle{}, Composition.CollectionActions{}], [Composition.TaskGraphEntries{}], Nil{}}
     case Composition.Recipe{measure, heading, Composition.UnavailableNotice{}, composer, decisions, latest}:

@@ -953,8 +953,14 @@ def history_works(values: +List<Finite.Entry(Work.Work)>) -> +List<Search.Choice
     case Nil{}: Nil{}
     case Con{(id, work), rest}: Search.Choice{Nat.show(id), Work.name(work)} <> history_works(rest)
 
+def shared_ui_page(+found: Maybe<&2, Work.Work>, +work: Nat) -> ViewTypes.Page:
+  match found:
+    case None{}: ViewTypes.MissingObject{"This Work no longer exists"}
+    case Some{+value}: ViewTypes.SharedUIPage{work, Work.name(value), Work.ui_source(value)}
+
 def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.Page:
   match route:
+    case U.SharedUI{work, task}: shared_ui_page(Work.find(WorkState.registry(world), work), work)
     case U.Start{}: ViewTypes.StartPage{composer(E.creation_editor(session), session, world)}
     case U.Conversation{id}: task_page(Tasks.find(Commands.entries(world), id), session, world)
     case U.ProjectHome{+id}: project_page(Projects.find(Projects.registry(F.State(), world), id), id, route, world)
@@ -1264,6 +1270,7 @@ def has_return_latest(action: Maybe<&2, U.Input>) -> Bool:
 
 def page_composition(page: ViewTypes.Page) -> Composition.Page:
   match page:
+    case ViewTypes.SharedUIPage{work, name, source}: Composition.SharedInterface{}
     case ViewTypes.StartPage{composer}: Composition.Creation{has_composer(composer)}
     case ViewTypes.TaskPage{task}:
       ViewTypes.TaskScene{task_id, title, status, context, timeline, previews, composer, details, actions} = task

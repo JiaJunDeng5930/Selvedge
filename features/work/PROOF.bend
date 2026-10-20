@@ -8,6 +8,7 @@ import ./CODEC.bend as Codec
 import ../../bendlib/component.bend as C
 import ../../bendlib/association-map.bend as Finite
 import ../../bendlib/json.bend as J
+import ../../bendlib/logic-proof.bend as Logic
 
 def store_step(hit: Bool, +key: Nat, +previous: W.Work, +rest: +List<Finite.Entry(W.Work)>, +id: Nat, +work: W.Work,
   induction: {P.put_entries(rest, id, work) == Spec.store(rest, id, work) : +List<Finite.Entry(W.Work)>}) ->
@@ -37,6 +38,11 @@ def refinement(+change: W.Change, +state: W.State) ->
       W.State{+works, +roots, +graphs, +next} = state
       Equal.cong(+List<Finite.Entry(W.Work)>, C.Decision<W.State, Unit>,
         (entries => C.Decision{W.State{entries, roots, graphs, next}, D.success(W.work_json(id, work)), Nil{}}),
+        P.put_entries(works, id, work), Spec.store(works, id, work), store_meaning(works, id, work))
+    case W.UpdateUI{+id, +work}:
+      W.State{+works, +roots, +graphs, +next} = state
+      Equal.cong(+List<Finite.Entry(W.Work)>, C.Decision<W.State, Unit>,
+        (entries => C.Decision{W.State{entries, roots, graphs, next}, D.success(W.ui_json(id, work)), Nil{}}),
         P.put_entries(works, id, work), Spec.store(works, id, work), store_meaning(works, id, work))
 
 def same_key(+id: Nat) -> {Nat.is_eq(id, id) == True{} : Bool}:
@@ -140,6 +146,51 @@ def lookup_put(entries: +List<Finite.Entry(W.Work)>, +id: Nat, +work: W.Work) ->
     case Con{(+key, +previous), +rest}:
       lookup_put_step(Nat.is_eq(id, key), key, previous, rest, id, work, {==}, lookup_put(rest, id, work))
 
+def equal_key(+left: Nat, +right: Nat, +observed: {Nat.is_eq(left, right) == True{} : Bool}) -> {left == right : Nat}:
+  match left right:
+    case 0n 0n: {==}
+    case 0n 1n+rest: Logic.impossible({0n == 1n+rest : Nat}, observed)
+    case 1n+rest 0n: Logic.impossible({1n+rest == 0n : Nat}, observed)
+    case 1n+left 1n+right:
+      Equal.cong(Nat, Nat, (value => 1n+value), left, right, equal_key(left, right, observed))
+
+def head_miss(+key: Nat, +work: W.Work, +rest: +List<Finite.Entry(W.Work)>, +query: Nat,
+  +observed: {Nat.is_eq(query, key) == False{} : Bool}) ->
+  {Finite.find(~W.Work, (key, work) <> rest, query) == Finite.find(~W.Work, rest, query) : Maybe<&2, W.Work>}:
+  backwards = Equal.sym(Bool, Nat.is_eq(query, key), False{}, observed)
+  %backwards : {Finite.choose(~W.Work, _, work, Finite.find(~W.Work, rest, query)) == Finite.find(~W.Work, rest, query) : Maybe<&2, W.Work>}
+  {==}
+
+def other_key(+id: Nat, +query: Nat, +key: Nat,
+  selected: {Nat.is_eq(id, key) == True{} : Bool}, +different: {Nat.is_eq(query, id) == False{} : Bool}) ->
+  {Nat.is_eq(query, key) == False{} : Bool}:
+  Equal.trans(Bool, Nat.is_eq(query, key), Nat.is_eq(query, id), False{},
+    Equal.sym(Bool, Nat.is_eq(query, id), Nat.is_eq(query, key),
+      Equal.cong(Nat, Bool, (value => Nat.is_eq(query, value)), id, key, equal_key(id, key, selected))), different)
+
+def unrelated_put_step(+hit: Bool, +key: Nat, +previous: W.Work, +rest: +List<Finite.Entry(W.Work)>, +id: Nat, +work: W.Work, +query: Nat,
+  +observed: {Nat.is_eq(id, key) == hit : Bool}, +different: {Nat.is_eq(query, id) == False{} : Bool},
+  induction: {Finite.find(~W.Work, P.put_entries(rest, id, work), query) == Finite.find(~W.Work, rest, query) : Maybe<&2, W.Work>}) ->
+  {Finite.find(~W.Work, P.put_selected(hit, key, previous, rest, work, P.put_entries(rest, id, work)), query) ==
+   Finite.find(~W.Work, (key, previous) <> rest, query) : Maybe<&2, W.Work>}:
+  match hit:
+    case True{}:
+      Equal.trans(Maybe<&2, W.Work>, Finite.find(~W.Work, (key, work) <> rest, query), Finite.find(~W.Work, rest, query),
+        Finite.find(~W.Work, (key, previous) <> rest, query), head_miss(key, work, rest, query, other_key(id, query, key, observed, different)),
+        Equal.sym(Maybe<&2, W.Work>, Finite.find(~W.Work, (key, previous) <> rest, query), Finite.find(~W.Work, rest, query),
+          head_miss(key, previous, rest, query, other_key(id, query, key, observed, different))))
+    case False{}:
+      Equal.cong(Maybe<&2, W.Work>, Maybe<&2, W.Work>, (tail => Finite.choose(~W.Work, Nat.is_eq(query, key), previous, tail)),
+        Finite.find(~W.Work, P.put_entries(rest, id, work), query), Finite.find(~W.Work, rest, query), induction)
+
+def unrelated_put(entries: +List<Finite.Entry(W.Work)>, +id: Nat, +work: W.Work, +query: Nat,
+  +different: {Nat.is_eq(query, id) == False{} : Bool}) ->
+  {Finite.find(~W.Work, P.put_entries(entries, id, work), query) == Finite.find(~W.Work, entries, query) : Maybe<&2, W.Work>}:
+  match entries:
+    case Nil{}: head_miss(id, work, Nil{}, query, different)
+    case Con{(+key, +previous), +rest}:
+      unrelated_put_step(Nat.is_eq(id, key), key, previous, rest, id, work, query, {==}, different, unrelated_put(rest, id, work, query, different))
+
 def written(+id: Nat, +work: W.Work, state: W.State, +next: Nat) ->
   {W.find(P.put(id, work, state, next), id) == Some{work} : Maybe<&2, W.Work>}:
   W.State{works, roots, graphs, previous_next} = state
@@ -162,6 +213,9 @@ def roots_preserved(+change: W.Change, +state: W.State) ->
     case W.Retitle{id, work}:
       W.State{works, roots, graphs, next} = state
       {==}
+    case W.UpdateUI{id, work}:
+      W.State{works, roots, graphs, next} = state
+      {==}
 
 def graphs_preserved(+change: W.Change, +state: W.State) ->
   {W.graphs(P.result_state(P.realize_calculation(change, state))) == W.graphs(state) : +List<Finite.Entry(Nat)>}:
@@ -170,6 +224,9 @@ def graphs_preserved(+change: W.Change, +state: W.State) ->
       W.State{works, roots, graphs, previous} = state
       {==}
     case W.Retitle{id, work}:
+      W.State{works, roots, graphs, next} = state
+      {==}
+    case W.UpdateUI{id, work}:
       W.State{works, roots, graphs, next} = state
       {==}
 
@@ -224,6 +281,57 @@ def task_creation_delegated(work: Nat, profile: String, reasoning: String, messa
 def task_creation() -> Contract.TaskCreation:
   Contract.TaskCreation{task_creation_constructed, task_creation_encoded, task_creation_omitted_worktree, task_creation_delegated}
 
+def ui_updated(+id: Nat, +source: String, +previous: W.Work, +state: W.State) ->
+  {W.find(P.result_state(P.realize_calculation(W.UpdateUI{id, W.with_ui(source, 1n+W.ui_revision(previous), previous)}, state)), id) ==
+    Some{W.with_ui(source, 1n+W.ui_revision(previous), previous)} : Maybe<&2, W.Work>}:
+  written(id, W.with_ui(source, 1n+W.ui_revision(previous), previous), state, W.next(state))
+
+def ui_observations(+source: String, +revision: Nat, +previous: W.Work) ->
+  {W.ui_source(W.with_ui(source, revision, previous)) == source : String} &
+  {W.ui_revision(W.with_ui(source, revision, previous)) == revision : Nat} &
+  {W.name(W.with_ui(source, revision, previous)) == W.name(previous) : String}:
+  W.Work{name, old_source, old_revision} = previous
+  ({==}, ({==}, {==}))
+
+def ui_other_work(+id: Nat, +work: W.Work, +other: Nat, +state: W.State,
+  different: {Nat.is_eq(other, id) == False{} : Bool}) ->
+  {W.find(P.result_state(P.realize_calculation(W.UpdateUI{id, work}, state)), other) == W.find(state, other) : Maybe<&2, W.Work>}:
+  W.State{works, roots, graphs, next} = state
+  unrelated_put(works, id, work, other, different)
+
+def ui_lineage_owner(+id: Nat, +work: W.Work, lineage: +List<Nat>, +state: W.State) ->
+  {W.lineage_owner(P.result_state(P.realize_calculation(W.UpdateUI{id, work}, state)), lineage) == W.lineage_owner(state, lineage) : Maybe<&2, Nat>}:
+  match lineage:
+    case Nil{}: {==}
+    case Con{+task, +rest}:
+      W.State{+works, +roots, +graphs, +next} = state
+      Equal.cong(Maybe<&2, Nat>, Maybe<&2, Nat>, (owner => W.preferred_owner(Finite.find(~Nat, roots, task), owner)),
+        W.lineage_owner(P.result_state(P.realize_calculation(W.UpdateUI{id, work}, W.State{works, roots, graphs, next})), rest),
+        W.lineage_owner(W.State{works, roots, graphs, next}, rest), ui_lineage_owner(id, work, rest, W.State{works, roots, graphs, next}))
+
+def ui_task_owner(+id: Nat, +work: W.Work, +task: Nat, +lineage: +List<Nat>, +state: W.State) ->
+  {W.task_owner(P.result_state(P.realize_calculation(W.UpdateUI{id, work}, state)), task, lineage) == W.task_owner(state, task, lineage) : Maybe<&2, Nat>}:
+  W.State{+works, +roots, +graphs, +next} = state
+  Equal.cong(Maybe<&2, Nat>, Maybe<&2, Nat>, (owner => W.preferred_owner(Finite.find(~Nat, roots, task), owner)),
+    W.lineage_owner(P.result_state(P.realize_calculation(W.UpdateUI{id, work}, W.State{works, roots, graphs, next})), lineage),
+    W.lineage_owner(W.State{works, roots, graphs, next}, lineage), ui_lineage_owner(id, work, lineage, W.State{works, roots, graphs, next}))
+
+def ui_conflict(id: Nat, patch: String, previous: W.Work) ->
+  {W.patch_revision(False{}, id, patch, previous) ==
+    W.Refuse{"revision_conflict", "The Work UI changed. Read its current source and revision before applying another patch."} : W.Resolution}:
+  {==}
+
+def ui_resolved(+id: Nat, +source: String, +previous: W.Work) ->
+  {W.patched_source(Done{source}, id, previous) == W.Accept{W.UpdateUI{id, W.with_ui(source, 1n+W.ui_revision(previous), previous)}} : W.Resolution}:
+  {==}
+
+def ui_rename_preserves(+id: Nat, +name: String, +previous: W.Work) ->
+  {W.rename_valid(True{}, id, name, previous) == W.Accept{W.Retitle{id, W.Work{name, W.ui_source(previous), W.ui_revision(previous)}}} : W.Resolution}:
+  {==}
+
+def shared_ui() -> Contract.SharedUI:
+  Contract.SharedUI{ui_updated, ui_observations, ui_other_work, ui_task_owner, ui_conflict, ui_resolved, ui_rename_preserves}
+
 def boundary() -> Contract.Boundary:
   Contract.Boundary{refinement, added, retitled, roots_preserved, graphs_preserved,
-    task_associated, graph_associated, root_no_transfer, lineage_inheritance, graph_removed, task_creation()}
+    task_associated, graph_associated, root_no_transfer, lineage_inheritance, graph_removed, task_creation(), shared_ui()}

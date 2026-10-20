@@ -62,9 +62,12 @@ returns the first assessment obstruction, preserves the complete application and
 emits no directory observation. Accepted preparation keeps the immutable draft
 snapshot and the command resolver as the authoritative execution boundary.
 
-An interactive Send captures its declared message and the current document's
-owning task. It uses that captured draft through the same submission requirements
-and command resolver, emits one request carrying the owner/path/ticket completion,
+An interactive action uses its canonical document's Task, or the Task selected
+on entry to a Work's shared UI while it still belongs to that Work. The
+`action_task` specification states this ownership independently of the production
+lookup. Missing Task authority refuses both Fill and Send. An interactive Send
+captures that Task and its declared message. It uses that captured draft through
+the same submission requirements and command resolver, emits one request carrying the owner/path/ticket completion,
 and leaves the composer untouched. Completion returns only correlated interactive
 feedback; the complete decision preserves the other session fields and maps core
 effects in order. These are specified independently in `captured_send` and

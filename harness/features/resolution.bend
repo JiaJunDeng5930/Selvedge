@@ -189,6 +189,7 @@ def work(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World(
   match command:
     case Work.CreateTask{+id, profile, reasoning, message, settings, create_worktree}:
       work_create(~start, WorkState.exists(id, world), id, profile, reasoning, message, settings, create_worktree, world)
+    case Work.ApplyUIPatch{caller, patch, revision}: work_change(WorkState.ui_patch(caller, patch, revision, world))
     case other: work_change(Work.resolve(other, WorkState.registry(world)))
 
 def worktree_retry(allowed: Bool, id: Nat) -> Resolution:

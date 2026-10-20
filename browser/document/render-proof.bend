@@ -186,6 +186,7 @@ def stream_output_key_agreement(+source: Code.Source, +fallback: Identity.Key) -
   {Interface.output_key(source, fallback) == RuleCodeObservationRules.expected_output_key(source, fallback) : Identity.Key}:
   match source:
     case Code.Generated{namespace, viewer, origin, complete}: {==}
+    case Code.SharedDocument{namespace, owner}: {==}
     case Code.Message{task, message}: {==}
     case Code.StreamingPart{task, operation, part}: {==}
 

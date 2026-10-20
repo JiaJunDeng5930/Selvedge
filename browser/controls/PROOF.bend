@@ -1183,6 +1183,7 @@ def other_main_fields(+measure: Composition.Measure, +heading: Composition.Headi
     case Composition.ProjectSections{}: {==}
     case Composition.ProjectRows{}: {==}
     case Composition.AgentRows{}: {==}
+    case Composition.SharedInterfaceBody{}: {==}
     case Composition.TaskGraphRows{}: {==}
     case Composition.StageColumns{}: {==}
     case Composition.UnavailableNotice{}: {==}

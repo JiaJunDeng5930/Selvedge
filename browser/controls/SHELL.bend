@@ -182,6 +182,7 @@ def page_organization(organization: Composition.Body) -> Bool:
     case Composition.ProjectSections{}: True{}
     case Composition.ProjectRows{}: True{}
     case Composition.AgentRows{}: True{}
+    case Composition.SharedInterfaceBody{}: True{}
     case Composition.TaskGraphRows{}: True{}
     case Composition.StageColumns{}: True{}
     case _: False{}

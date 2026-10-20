@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { access, chmod, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { archiveManagedWorktree, createManagedWorktree, reconcileManagedWorktree } from '../host/worktrees.mjs';
@@ -79,17 +80,57 @@ test('real Git preserves dirty source data, suppresses project programs and reco
   assert.equal(recovered.root, archived.root);
   assert.equal(await readFile(path.join(archivedPrimary, 'ignored.local'), 'utf8'), 'retained generated data');
 
-  // Observe the actual reservation directly: macOS batches watch notifications
-  // and can deliver them after this small checkout has already completed.
-  // Report exactly the path retained after cancellation and Git's cleanup.
+  // NOTE: Directory notifications can arrive after a fast checkout has completed.
+  // Keep the external Git invocation pending after registration until cancellation.
   const controller = new AbortController();
   const reserved = path.join(state, 'worktrees', 'task-43');
-  const observer = setInterval(() => {
-    if (existsSync(reserved)) controller.abort();
-  }, 1);
-  t.after(() => { clearInterval(observer); controller.abort(); });
-  const failed = await createManagedWorktree({ ...effect, task_id: 43 }, { home: state, limits, signal: controller.signal });
-  clearInterval(observer);
+  const bin = path.join(base, 'git-control');
+  const ready = path.join(base, 'checkout-ready');
+  const wrapper = path.join(bin, 'git-control.mjs');
+  const realGit = (await execute('sh', ['-c', 'command -v git'])).stdout.trim();
+  await mkdir(bin);
+  await writeFile(wrapper, `import { spawn } from 'node:child_process';
+import { accessSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+const worktree = args.indexOf('worktree');
+const controlled = worktree >= 0 && args[worktree + 1] === 'add' && args.includes(${JSON.stringify(reserved)});
+const child = spawn(${JSON.stringify(realGit)}, args, { stdio: 'inherit' });
+process.once('SIGTERM', () => { child.kill('SIGTERM'); process.exit(143); });
+child.once('error', error => { console.error(error); process.exit(1); });
+child.once('close', (code, signal) => {
+  if (code !== 0 || signal || !controlled) process.exit(code ?? 1);
+  accessSync(${JSON.stringify(path.join(reserved, '.git'))});
+  writeFileSync(${JSON.stringify(ready)}, 'ready\\n', { flag: 'wx', mode: 0o600 });
+  setInterval(() => {}, 1000);
+});
+`);
+  const executable = path.join(bin, 'git');
+  await writeFile(executable, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(wrapper)} "$@"\n`);
+  await chmod(executable, 0o700);
+  const previousPath = process.env.PATH;
+  let creation;
+  let failed;
+  try {
+    process.env.PATH = [bin, previousPath].filter(Boolean).join(path.delimiter);
+    let settled;
+    creation = createManagedWorktree({ ...effect, task_id: 43 }, { home: state, limits, signal: controller.signal })
+      .then(result => { settled = result; return result; });
+    const deadline = Date.now() + 5000;
+    while (!existsSync(ready)) {
+      assert.equal(settled, undefined, JSON.stringify(settled));
+      assert.ok(Date.now() < deadline, 'The real Git checkout reaches its controlled cancellation point');
+      await delay(5);
+    }
+    controller.abort();
+    failed = await creation;
+  } finally {
+    controller.abort();
+    try { await creation; }
+    finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }
   assert.equal(controller.signal.aborted, true, JSON.stringify(failed));
   assert.equal(failed.ok, false, JSON.stringify(failed));
   let retained = true;

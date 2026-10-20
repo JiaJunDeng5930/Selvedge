@@ -4,6 +4,7 @@ import ../IDENTITY.bend as UIIdentity
 import ../../harness/DOMAIN.bend as D
 
 type Source is Data:
+  SharedDocument{namespace: String, owner: String}
   Message{task: Nat, message: Nat}
   StreamingPart{task: Nat, operation: Nat, part: Nat}
   Generated{namespace: String, viewer: Nat, origin: D.OutputOrigin, complete: Bool}
@@ -46,6 +47,7 @@ type Scene is Data:
 
 def source_key(source: Source) -> String:
   match source:
+    case SharedDocument{namespace, owner}: "store/" ++ namespace ++ "/shared/" ++ owner
     case Message{task, message}: "task/" ++ Nat.show(task) ++ "/message/" ++ Nat.show(message)
     case StreamingPart{task, operation, part}: "task/" ++ Nat.show(task) ++ "/stream/" ++ Nat.show(operation) ++ "/part/" ++ Nat.show(part)
     case Generated{namespace, viewer, D.OutputOrigin{producer_task, operation, part, mode}, complete}:
@@ -54,6 +56,7 @@ def source_key(source: Source) -> String:
 def complete(source: Maybe<&2, Source>) -> Bool:
   match source:
     case None{}: True{}
+    case Some{SharedDocument{namespace, owner}}: True{}
     case Some{Message{task, message}}: True{}
     case Some{StreamingPart{task, operation, part}}: False{}
     case Some{Generated{namespace, viewer, origin, complete}}: complete

@@ -21,6 +21,7 @@ def source_meaning(+source: Code.Source, +store: String) ->
   match source:
     case Code.Generated{namespace, viewer, D.OutputOrigin{producer, operation, part, D.InteractiveV1{}}, complete}: {==}
     case Code.Generated{namespace, viewer, D.OutputOrigin{producer, operation, part, D.Plain{}}, complete}: {==}
+    case Code.SharedDocument{namespace, owner}: {==}
     case Code.Message{task, message}: {==}
     case Code.StreamingPart{task, operation, part}: {==}
 
@@ -304,6 +305,7 @@ def completed_producer_meaning(+source: Code.Source) ->
   match source:
     case Code.Generated{namespace, viewer, D.OutputOrigin{producer, operation, part, mode}, True{}}: {==}
     case Code.Generated{namespace, viewer, D.OutputOrigin{producer, operation, part, mode}, False{}}: {==}
+    case Code.SharedDocument{namespace, owner}: {==}
     case Code.Message{task, message}: {==}
     case Code.StreamingPart{task, operation, part}: {==}
 
@@ -587,8 +589,8 @@ def owner_task_authority(+store: String, +source: Code.Source, +active: Bool, +f
       Equal.cong(Bool, Bool, owned => Spec.canonical_source(store, source) && active && Spec.completed_producer(source) && owned,
         Docs.owner_matches(fences, source, epoch, expected), Spec.fence_owned(source, epoch, expected, fences), fence_owner_meaning(fences, source, epoch, expected))))
 
-def task_choice_meaning(+owned: Bool, +task: Nat, +fallback: Maybe<&2, Nat>) ->
-  {Docs.task_if_owned(owned, task, fallback) == Bool.pick(Maybe<&2, Nat>, owned, Some{task}, fallback) : Maybe<&2, Nat>}:
+def task_choice_meaning(+owned: Bool, +task: Maybe<&2, Nat>, +fallback: Maybe<&2, Nat>) ->
+  {Docs.task_if_owned(owned, task, fallback) == Bool.pick(Maybe<&2, Nat>, owned, task, fallback) : Maybe<&2, Nat>}:
   match owned:
     case False{}: {==}
     case True{}: {==}
@@ -601,11 +603,11 @@ def task_owner_meaning(+store: String, +documents: +List<Docs.Document>, +expect
       +document: Docs.Document = Docs.Document{source, text, epoch, revision, ending, observed, fences, active}
       +authorized: Bool = Docs.source_scope(source, store) && active && Docs.external_source(source) && Docs.owner_matches(fences, source, epoch, expected)
       Equal.trans(Maybe<&2, Nat>, Docs.owning_task(store, document <> rest, expected),
-        Bool.pick(Maybe<&2, Nat>, authorized, Some{Docs.source_viewer(source)}, Docs.owning_task(store, rest, expected)), Spec.task_owner(store, expected, document <> rest),
+        Bool.pick(Maybe<&2, Nat>, authorized, Docs.source_viewer(source), Docs.owning_task(store, rest, expected)), Spec.task_owner(store, expected, document <> rest),
         task_choice_meaning(authorized, Docs.source_viewer(source), Docs.owning_task(store, rest, expected)),
-        Equal.trans(Maybe<&2, Nat>, Bool.pick(Maybe<&2, Nat>, authorized, Some{Docs.source_viewer(source)}, Docs.owning_task(store, rest, expected)),
+        Equal.trans(Maybe<&2, Nat>, Bool.pick(Maybe<&2, Nat>, authorized, Docs.source_viewer(source), Docs.owning_task(store, rest, expected)),
           Spec.task_from_document(store, expected, document, Docs.owning_task(store, rest, expected)), Spec.task_owner(store, expected, document <> rest),
-          Equal.cong(Bool, Maybe<&2, Nat>, owned => Bool.pick(Maybe<&2, Nat>, owned, Some{Docs.source_viewer(source)}, Docs.owning_task(store, rest, expected)),
+          Equal.cong(Bool, Maybe<&2, Nat>, owned => Bool.pick(Maybe<&2, Nat>, owned, Docs.source_viewer(source), Docs.owning_task(store, rest, expected)),
             authorized, Spec.canonical_source(store, source) && active && Spec.completed_producer(source) && Spec.fence_owned(source, epoch, expected, fences),
             owner_task_authority(store, source, active, fences, epoch, expected)),
           Equal.cong(Maybe<&2, Nat>, Maybe<&2, Nat>, fallback => Spec.task_from_document(store, expected, document, fallback),

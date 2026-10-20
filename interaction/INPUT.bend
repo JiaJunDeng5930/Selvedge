@@ -95,6 +95,7 @@ type Edit is Data:
   ResetTitlePrompts{}
 
 type Route is Data:
+  SharedUI{work: Nat, task: Maybe<&2, Nat>}
   Start{}
   Conversation{task: Nat}
   ProjectHome{project: Nat}
