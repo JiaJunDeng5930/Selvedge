@@ -1,0 +1,9 @@
+.workpad/
+.build/
+node_modules/
+*.vo
+*.vos
+*.vok
+*.glob
+.*.aux
+_build/
