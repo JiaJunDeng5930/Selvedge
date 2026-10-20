@@ -2,6 +2,7 @@ import Base
 import ../../features/compaction/SPEC.bend as Compaction
 import ../../features/compaction/STATE.bend as CompactionState
 import ../tools/SYNTAX.bend as Native
+import ../tools/discovery.bend as Discovery
 import ../../bendlib/categories.bend as Categories
 import ../features/STATE.bend as FeatureState
 import ../features/protocol.bend as FeatureProtocol
@@ -324,6 +325,7 @@ def input(+event: M.Input, +world: M.World()) -> M.Decision():
 
 type Invocation is Data:
   Internal{operation: Commands.Operation}
+  DefinitionResult{value: J.Json}
   Branch{count: Nat, messages: +List<String>, selection: Workspace.Selection}
 
 def number(+arguments: J.Json, name: String, fallback: Nat) -> Nat:
@@ -478,6 +480,8 @@ def native_feature(+operation: String, frozen_schema: J.Json, arguments: J.Json,
 
 def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, +task: D.Task, +world: M.World()) -> Invocation:
   match tool:
+    case Native.Discover{}:
+      DefinitionResult{Discovery.discover(T.task_tools(D.task_contract(task)), arguments)}
     case Native.Observe{query}:
       Internal{Commands.resolve(M.Observe{native_query(query, arguments, caller)}, world)}
     case Native.Create{profile, reasoning, message, settings}:
@@ -542,6 +546,7 @@ def branched_invocation(built: Commands.Children, call: D.Call, remaining: +List
 def invoked(operation: Invocation, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, +world: M.World()) -> M.Decision():
   match operation:
     case Internal{operation}: finish(D.task_id(task), call, remaining, Commands.meaning(operation, world))
+    case DefinitionResult{value}: finish(D.task_id(task), call, remaining, C.Decision{world, D.success(value), Nil{}})
     case Branch{count, texts, selection}:
       C.Frame{+task_state, +board} = world
       next_task = D.state_next_task(task_state)

@@ -49,6 +49,13 @@ multiple roots, override selection, skill metadata and incomplete scans. Context
 admission, deltas, inherited history and provider selection remain native
 construction and proof obligations.
 
+MCP tool discovery has one HTTP-to-stdio probe for physical provider-prefix
+stability, exact-name retrieval beyond the search limit, and the original schema
+and plugin policy on calls made before definition loading. It records the real
+MCP and plugin peers and reopens the journal to check retained definitions without
+replaying external calls. Semantic selection and invocation authority remain
+production construction and proof obligations.
+
 Remote control keeps focused physical checks for atomic command receipts across
 SQLite reopen, WebSocket session teardown and the real Durable Object runtime.
 Grant permissions, generations and command classification belong to native

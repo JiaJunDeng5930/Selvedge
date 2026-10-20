@@ -239,6 +239,8 @@ def branched_semantics(+built: Commands.Children, +call: D.Call, +remaining: +Li
 
 def Laws.invocation_semantics(operation, call, remaining, task, world):
   match operation world:
+    case Protocol.DefinitionResult{value} _:
+      finish_internal_semantics(D.task_id(task), call, remaining, C.Decision{world, D.success(value), Nil{}})
     case Protocol.Internal{+operation} _:
       +id = D.task_id(task)
       +realized = P.realize_calculation(operation, world)

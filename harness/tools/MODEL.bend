@@ -1,6 +1,7 @@
 import Base
 import ../DOMAIN.bend as D
 import ./SYNTAX.bend as Native
+import ./discovery.bend as Discovery
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/json.bend as J
 import ../transport/schema.bend as Schema
@@ -66,6 +67,7 @@ def query_bindings(query: Native.Query) -> Bindings:
 
 def body_bindings(program: Native.Body) -> Bindings:
   match program:
+    case Native.Discover{}: empty_bindings()
     case Native.Observe{query}: query_bindings(query)
     case Native.Create{profile, reasoning, message, settings}:
       join(text_binding(profile), join(text_binding(reasoning), join(text_binding(message), settings_binding(D.task_settings_schema(), settings))))
@@ -86,6 +88,7 @@ def bound_schema(bindings: Bindings) -> J.Json:
 
 def schema(program: Native.Body) -> J.Json:
   match program:
+    case Native.Discover{}: Discovery.schema()
     case Native.Process{}: D.process_schema()
     case Native.ProcessRead{}: D.process_read_schema()
     case Native.ProcessWrite{}: D.process_write_schema()
@@ -231,6 +234,7 @@ def catalog_entry(request: Request) -> +List<D.Tool>:
   catalog_constructed(construct(request))
 
 def catalog(max_fork: Nat) -> +List<D.Tool>:
+  List.append(&2, D.Tool, catalog_entry(Request{"discover_tools", "Find external MCP and plugin tools by keywords, or load their complete definitions with exact names. External function declarations are a lightweight directory, not parameter definitions. Call this before using an unfamiliar external tool; copy its parameters from the result. names bypasses search and the result limit. Without query or names, returns a bounded directory page. Use offset for later pages. Definitions remain in ordinary tool results; rediscover after compaction if needed.", Native.Discover{}}),
   List.append(&2, D.Tool, catalog_entry(Request{"create_task", "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.",
     Native.Create{Native.TextArgument{"profile", "Configured model profile", True{}, ""},
       Native.TextArgument{"reasoning", "Reasoning effort; defaults to the selected profile", False{}, "default"},
@@ -250,4 +254,4 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
     List.append(&2, D.Tool, catalog_entry(Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
       Native.ProcessWrite{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))))
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}}))))))))))

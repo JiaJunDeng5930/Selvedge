@@ -70,3 +70,10 @@ public command catalog's actual command kinds and the graph codec's node
 classification. The host reports only directory and guidance observations;
 `effect.workspace_command_observed` consumes them at the plan's native coordinates
 and preserves the remaining command fields by construction.
+
+Model requests retain stable native definitions and lightweight external function
+declarations. Complete MCP and plugin schemas arrive through `discover_tools`
+results at their committed history position. `discovery.bend` owns that
+presentation for Responses and ChatGPT Web; it leaves the original task catalog
+and callable projection intact. See [ADR 0053](../../docs/adr/0053-deferred-tool-definitions.md)
+for the provider constraint and cache decision.

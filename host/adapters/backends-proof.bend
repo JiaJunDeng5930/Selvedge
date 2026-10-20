@@ -1,6 +1,7 @@
 import Base
 import ../../bendlib/json.bend as J
 import ./BACKENDS.bend as B
+import ../../harness/tools/discovery-proof.bend as DiscoveryProof
 
 def B.complete_correspondence():
   operation => source => {==}
