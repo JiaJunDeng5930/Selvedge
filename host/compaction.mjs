@@ -1,5 +1,5 @@
 import { boundary } from './public/model-boundary.mjs';
-import { providerSession, prepareModelRequest, requestProviderJSON, requestProviderSSE, responseBody } from './providers.mjs';
+import { providerSession, observeCompactionScope, prepareModelRequest, requestProviderJSON, requestProviderSSE, responseBody } from './providers.mjs';
 import { compactionSettings } from './config.mjs';
 
 async function measured(session, prepared, limits, options, window_tokens) {
@@ -27,7 +27,7 @@ async function measured(session, prepared, limits, options, window_tokens) {
 export async function observeModelRequest(effect, config, home, limits, options = {}) {
   const session = await providerSession(effect, config, home, options);
   if (effect.scope_only || effect.kind === 'context_scope') return { scope: session.scope, now: Date.now() };
-  const scope = boundary('backend.compaction_scope_changed', { effect, scope: session.scope });
+  const scope = observeCompactionScope(effect, session.scope);
   // DEFENSE: Credential/account rotation between selection and observation invalidates the old opaque context consumer.
   if (scope.scope_changed) return { ...scope, now: Date.now() };
   const request = boundary('backend.compaction_model_request', { effect, profile: session.profile });
@@ -42,7 +42,7 @@ export async function observeModelRequest(effect, config, home, limits, options 
 // ticket belong to harness/compaction and the owning feature, never this loop.
 export async function requestCompaction(effect, config, home, limits, options = {}) {
   const session = await providerSession(effect, config, home, options);
-  const scope = boundary('backend.compaction_scope_changed', { effect, scope: session.scope });
+  const scope = observeCompactionScope(effect, session.scope);
   // DEFENSE: Compaction cannot submit a previously selected opaque window after its credential/account consumer changes.
   if (scope.scope_changed) return scope;
   const call = boundary('backend.compaction_effect', { effect });

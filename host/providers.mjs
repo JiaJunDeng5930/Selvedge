@@ -87,7 +87,7 @@ export async function prepareModelRequest(request, home, limits) {
 
 function guardProviderRequest(prepared, limits) {
   // DEFENSE: User history and external tool output can make the encoded provider request exceed the configured HTTP byte budget.
-  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: prepared.request });
+  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: { input: prepared.request.input } });
 }
 
 // Resolve the complete consumer before selecting opaque input. API-key identity
@@ -158,6 +158,11 @@ export async function requestProviderJSON(session, suffix, prepared, limits, { o
   return value;
 }
 
+export function observeCompactionScope(effect, scope) {
+  const { kind, context_selected, context_scope } = effect;
+  return boundary('backend.compaction_scope_changed', { effect: { kind, context_selected, context_scope }, scope });
+}
+
 export async function requestModel(effect, config, home, limits, { signal, onDelta = () => {}, onSnapshot = () => {}, onRetry = () => {}, onObservation = () => {} } = {}) {
   signal?.throwIfAborted();
   const configured = config.profiles[effect.model.profile];
@@ -168,7 +173,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   if (support.transport === 'echo') return boundary('backend.echo', { history: effect.history });
   const session = await createProviderSession(effect, configured, support, home, { signal });
   const { profile, scope } = session;
-  const consumer = boundary('backend.compaction_scope_changed', { effect, scope });
+  const consumer = observeCompactionScope(effect, scope);
   // DEFENSE: Credentials can rotate after context selection; old opaque context must not be dispatched to the new consumer.
   if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
   const prepared = await prepareModelRequest(responseBody(effect, profile), home, limits);
