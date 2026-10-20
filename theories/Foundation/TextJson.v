@@ -45,13 +45,15 @@ Definition escaped_scalar s : scan string :=
    else if (56320<=?hi)&&(hi<=?57343) then Invalid "Unpaired Unicode surrogate"
    else encoded_scalar hi rest
  | More=>More | Invalid e=>Invalid e end.
-Fixpoint quoted_body (fuel:nat) (s:string) : scan string :=
+Definition finish_string reversed:=String.string_of_list_ascii(List.rev_append reversed []).
+Fixpoint push_string s reversed:=match s with EmptyString=>reversed|String c rest=>push_string rest(c::reversed)end.
+Fixpoint quoted_acc (fuel:nat) (s:string) (reversed:list ascii) : scan string :=
  match fuel with
  | O=>Invalid "String token exceeds its budget"
  | S k=>match s with
    | EmptyString=>More
    | String c r=>
-     if Ascii.eqb c """" then Scanned "" r else
+     if Ascii.eqb c """" then Scanned(finish_string reversed)r else
      if ascii_code c <? 32 then Invalid "Control character in quoted string" else
      if Ascii.eqb c "\" then
        match r with
@@ -66,20 +68,22 @@ Fixpoint quoted_body (fuel:nat) (s:string) : scan string :=
            if Ascii.eqb e "r" then Scanned (byte 13) rest else
            if Ascii.eqb e "t" then Scanned (byte 9) rest else Invalid "Invalid string escape" in
          match decoded with
-         | Scanned head tail=>scan_map (fun suffix=>head++suffix) (quoted_body k tail)
+         | Scanned head tail=>quoted_acc k tail(push_string head reversed)
          | More=>More | Invalid e=>Invalid e end
        end
-     else scan_map (fun suffix=>String c suffix) (quoted_body k r)
+     else quoted_acc k r(c::reversed)
    end
  end.
+Definition quoted_body fuel s:=quoted_acc fuel s [].
 Definition quoted fuel s := match s with
  | EmptyString=>More
  | String c r=>if Ascii.eqb c """" then quoted_body fuel r else Invalid "Expected a quoted JSON string" end.
 Definition whitespace c := existsb (Ascii.eqb c) [" "%char; "009"%char; "010"%char; "013"%char].
 Fixpoint trim_left s := match s with String c r=>if whitespace c then trim_left r else s | _=>s end.
-Fixpoint take_while (p:ascii->bool) (s:string) : string*string :=
- match s with EmptyString=>("","") | String c r=>if p c then
- let '(a,b):=take_while p r in (String c a,b) else ("",s) end.
+Fixpoint take_while_acc(p:ascii->bool)(s:string)(reversed:list ascii):string*string:=
+ match s with EmptyString=>(finish_string reversed,"")|String c rest=>
+ if p c then take_while_acc p rest(c::reversed)else(finish_string reversed,s)end.
+Definition take_while p s:=take_while_acc p s [].
 Definition number_char c := is_digit c || existsb (Ascii.eqb c) ["-"%char;"+"%char;"."%char;"e"%char;"E"%char].
 Fixpoint drop_prefix prefix source : option string :=
  match prefix,source with
@@ -96,34 +100,34 @@ Fixpoint json_value (fuel:nat) (s:string) : scan json :=
    | String c r=>
     if Ascii.eqb c """" then scan_map JString (quoted_body k r) else
     if Ascii.eqb c "[" then
-      let fix items (left:nat) (text:string) : scan (list json) :=
+      let fix items (left:nat) (text:string) (reversed:list json) : scan (list json) :=
         match left with
         | O=>Invalid "JSON array exceeds budget"
         | S n=>let text:=trim_left text in
           match text with
           | EmptyString=>More
-          | String c r=>if Ascii.eqb c "]" then Scanned [] r else
+          | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append reversed [])r else
             match json_value k text with
             | Scanned value rest=>let rest:=trim_left rest in
               match rest with
               | EmptyString=>More
-              | String c r=>if Ascii.eqb c "]" then Scanned [value] r else
+              | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append(value::reversed)[])r else
                 if Ascii.eqb c "," then
                   match trim_left r with
                   | String c _=>if Ascii.eqb c "]" then Invalid "Trailing array comma"
-                    else scan_map (cons value) (items n r)
+                    else items n r(value::reversed)
                   | _=>More end
                 else Invalid "Expected array separator" end
             | More=>More | Invalid e=>Invalid e end
-          end end in scan_map JArray (items k r)
+          end end in scan_map JArray (items k r [])
     else if Ascii.eqb c "{" then
-      let fix members (left:nat) (seen:list string) (text:string) : scan (list(string*json)) :=
+      let fix members (left:nat) (seen:list string) (text:string) (reversed:list(string*json)) : scan (list(string*json)) :=
         match left with
         | O=>Invalid "JSON object exceeds budget"
         | S n=>let text:=trim_left text in
           match text with
           | EmptyString=>More
-          | String c r=>if Ascii.eqb c "}" then Scanned [] r else
+          | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append reversed [])r else
             match quoted k text with
             | Scanned key rest=>if existsb (String.eqb key) seen then Invalid "Duplicate object key" else
               match trim_left rest with
@@ -132,17 +136,17 @@ Fixpoint json_value (fuel:nat) (s:string) : scan json :=
                 match json_value k r with
                 | Scanned value rest=>match trim_left rest with
                   | EmptyString=>More
-                  | String c r=>if Ascii.eqb c "}" then Scanned [(key,value)] r else
+                  | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append((key,value)::reversed)[])r else
                     if Ascii.eqb c "," then
                       match trim_left r with
                       | String c _=>if Ascii.eqb c "}" then Invalid "Trailing object comma"
-                        else scan_map (cons (key,value)) (members n (key::seen) r)
+                        else members n(key::seen)r((key,value)::reversed)
                       | _=>More end
                     else Invalid "Expected object separator" end
                 | More=>More | Invalid e=>Invalid e end
                 else Invalid "Expected object colon" end
             | More=>More | Invalid e=>Invalid e end
-          end end in scan_map JObject (members k [] r)
+          end end in scan_map JObject (members k [] r [])
     else if Ascii.eqb c "t" then keyword "true" (JBool true) s else
     if Ascii.eqb c "f" then keyword "false" (JBool false) s else
     if Ascii.eqb c "n" then keyword "null" JNull s else
@@ -165,11 +169,13 @@ Definition escape_char c : string :=
  if ascii_code c <? 32 then
    "\u00" ++ String (hex_char (ascii_code c/16)) (String (hex_char (ascii_code c mod 16)) "")
  else String c "".
-Fixpoint escape_string s := match s with EmptyString=>"" | String c r=>escape_char c++escape_string r end.
+Fixpoint escape_acc s reversed:=match s with EmptyString=>String.concat ""(List.rev_append reversed [])
+ |String c rest=>escape_acc rest(escape_char c::reversed)end.
+Definition escape_string s:=escape_acc s [].
 Definition quote s := """"++escape_string s++"""".
 Fixpoint render_json (value:json) : string :=
  match value with
  | JNull=>"null" | JBool true=>"true" | JBool false=>"false"
  | JNumber s=>s | JString s=>quote s
- | JArray values=>"["++String.concat "," (map render_json values)++"]"
- | JObject fields=>"{"++String.concat "," (map (fun kv=>quote(fst kv)++":"++render_json(snd kv)) fields)++"}" end.
+ | JArray values=>"["++String.concat "," (List.rev_append(fold_left(fun reversed value=>render_json value::reversed)values[])[])++"]"
+ | JObject fields=>"{"++String.concat "," (List.rev_append(fold_left(fun reversed kv=>(quote(fst kv)++":"++render_json(snd kv))::reversed)fields[])[])++"}" end.

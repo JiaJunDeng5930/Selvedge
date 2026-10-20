@@ -1,4 +1,5 @@
 From Stdlib Require Import String Ascii List Bool NArith.
+From Selvedge.Foundation Require Import Sequence.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -38,30 +39,37 @@ Definition decode_one (source : string) : option decoded :=
       then bounded 65536 1114111 (continuation 3%nat (code-240) prefix rest)
     else None
   end.
-Fixpoint chunks_fuel (fuel : nat) (source : string) : option (list (N * string)) :=
+Definition byte_length := String.length.
+Fixpoint chunks_acc (fuel : nat) (source : string) (reversed : list (N * string)) : option (list (N * string)) :=
   match source with
-  | EmptyString => Some []
+  | EmptyString => Some (List.rev_append reversed [])
   | _ => match fuel with
     | O => None
     | S fuel => match decode_one source with
       | None => None
-      | Some result => match chunks_fuel fuel result.(remaining) with
-        | None => None
-        | Some values => Some ((result.(scalar),result.(encoded))::values)
-        end
+      | Some result => chunks_acc fuel result.(remaining) ((result.(scalar),result.(encoded))::reversed)
       end
     end
   end.
-Definition chunks (source : string) := chunks_fuel (String.length source) source.
-Definition decode (source : string) := option_map (map (@fst N string)) (chunks source).
-Definition well_formed (source : string) := match chunks source with Some _ => true | None => false end.
+Definition chunks_fuel fuel source := chunks_acc fuel source [].
+Definition chunks (source : string) := chunks_fuel (byte_length source) source.
+Definition decode (source : string) := option_map (fun values => List.rev_append
+  (fold_left (fun reversed value => fst value::reversed) values []) []) (chunks source).
+Fixpoint validate_fuel (fuel : nat) (source : string) : bool :=
+  match source with EmptyString => true | _ => match fuel with O => false | S fuel =>
+    match decode_one source with None => false | Some result => validate_fuel fuel result.(remaining) end end end.
+Definition well_formed (source : string) := validate_fuel (byte_length source) source.
 Fixpoint no_nul (source : string) : bool :=
   match source with EmptyString => true | String c rest =>
-    negb (Ascii.eqb c (ascii_of_nat 0)) && no_nul rest end.
-Definition scalar_count (source : string) := option_map (@List.length N) (decode source).
-Definition render_chunks (values : list (N * string)) := String.concat "" (map (@snd N string) values).
+    if Ascii.eqb c (ascii_of_nat 0) then false else no_nul rest end.
+Fixpoint count_fuel (fuel : nat) (source : string) (count : nat) : option nat :=
+  match source with EmptyString => Some count | _ => match fuel with O => None | S fuel =>
+    match decode_one source with None => None | Some result => count_fuel fuel result.(remaining) (S count) end end end.
+Definition scalar_count (source : string) := count_fuel (byte_length source) source 0%nat.
+Definition render_chunks (values : list (N * string)) := String.concat "" (List.rev_append
+  (fold_left (fun reversed value => snd value::reversed) values []) []).
 Definition take (count : nat) (source : string) : option string :=
-  option_map (fun values => render_chunks (firstn count values)) (chunks source).
+  option_map (fun values => render_chunks (Sequence.take count values)) (chunks source).
 Definition encode (value : N) : option string :=
   if scalar_valid value then
     if value <? 128 then Some (String (octet value) "")

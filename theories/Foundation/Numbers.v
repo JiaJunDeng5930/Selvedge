@@ -1,6 +1,11 @@
 From Stdlib Require Import String Ascii Bool NArith ZArith DecimalString.
 Open Scope string_scope.
 
+(* Keep moderate natural literals compact through extraction. With the default
+   threshold, 4096 becomes thousands of nested successors and overflows the
+   JavaScript parser before the extracted program can start. *)
+Number Notation nat Init.Nat.of_num_uint Init.Nat.to_num_uint (abstract after 32) : nat_scope.
+
 Definition is_digit (c : ascii) : bool :=
   let n := nat_of_ascii c in (48 <=? n)%nat && (n <=? 57)%nat.
 
