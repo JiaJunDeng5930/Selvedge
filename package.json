@@ -22,6 +22,7 @@
     "acorn": "8.15.0",
     "diff": "9.0.0",
     "gpt-tokenizer": "4.0.0",
+    "impit": "0.14.6",
     "openid-client": "6.8.8",
     "ws": "8.22.0"
   },

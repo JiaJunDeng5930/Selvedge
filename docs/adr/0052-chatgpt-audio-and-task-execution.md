@@ -60,6 +60,15 @@ Authentication is part of Selvedge's account lifecycle. Requiring a separately
 installed executable and an account RPC solely to obtain authorization adds
 installation and protocol dependencies without providing task execution value.
 
+Use an in-process Chromium-compatible HTTP client for dictation uploads. With
+identical authorization, audio bytes and request headers, the deployed gateway
+challenged Bun requests while Chromium requests returned transcription text.
+Matching the proxy and automatic headers did not remove the failure, and
+Chromium still succeeded with HTTP/2 disabled. The native client dependency
+addresses this observed transport boundary without a browser process. Keep voice
+signaling on its existing transport and share the existing authorization and
+token-refresh lifecycle.
+
 ## Consequences
 
 Closing voice releases media and control resources while accepted task work

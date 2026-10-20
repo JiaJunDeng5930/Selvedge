@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import { Impit } from 'impit';
 import WebSocket from 'ws';
 import { createAudioAccount } from './chatgpt-account.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 const contract = () => boundary('audio.contract', {});
+// NOTE: The transcription gateway challenges Bun's HTTP/TLS profile for requests that succeed through Chromium's network stack.
+const transcriptionClient = new Impit({ browser: 'chrome' });
+const transcriptionFetch = transcriptionClient.fetch.bind(transcriptionClient);
 
 async function responseText(response, maximum) {
   const reader = response.body?.getReader();
@@ -77,16 +81,16 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       asr_max_bytes: limits.asr_max_bytes, connect_timeout_ms: limits.connect_timeout_ms };
   }
 
-  async function authenticatedFetch(url, options, selected, signal) {
+  async function authenticatedFetch(url, options, selected, signal, send = fetchImpl) {
     let authorization = selected.authorization;
-    let response = await fetchImpl(url, { ...options, signal,
+    let response = await send(url, { ...options, signal,
       headers: { ...authHeaders(authorization), ...options.headers } });
     // DEFENSE: An access token can expire after authorization and before the audio request; the existing account refresh serializes rotation and permits exactly one retry after a 401.
     if (boundary('audio.transport', { status: response.status, ok: response.ok }) === 'refresh') {
       await response.body?.cancel();
       authorization = await authorization.refreshAfterRejection({ signal });
       selected.authorization = authorization;
-      response = await fetchImpl(url, { ...options, signal,
+      response = await send(url, { ...options, signal,
         headers: { ...authHeaders(authorization), ...options.headers } });
     }
     return response;
@@ -101,7 +105,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     const body = new FormData();
     body.append('file', new Blob([audio], { type: plan.mime }), plan.filename);
     if (plan.language !== null) body.append('language', plan.language);
-    const response = await authenticatedFetch(limits.transcribe_url, { method: 'POST', body }, selected, lifetime);
+    const response = await authenticatedFetch(limits.transcribe_url, { method: 'POST', body }, selected, lifetime, transcriptionFetch);
     const value = parsedJson(await responseText(response, limits.response_max_bytes));
     return boundary('audio.asr_response', { status: response.status, value });
   }
