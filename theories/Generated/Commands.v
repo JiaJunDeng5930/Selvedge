@@ -1974,4 +1974,3 @@ Proof. intros []; reflexivity. Qed.
 Theorem encode_declared_keys : forall value, (match encode value with JObject values => source_keys values | _ => [] end) = "op" :: declared_names (command_fields (declared_command value)).
 
 Proof. intros []; reflexivity. Qed.
-

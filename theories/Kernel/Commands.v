@@ -96,4 +96,3 @@ Definition command_specs : list command_spec := [
   Command "read_worktree" task_identity;
   Command "retry_worktree_archive" task_identity
 ].
-
