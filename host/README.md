@@ -180,12 +180,24 @@ tool. File locking, atomic editing
 and revision checks required by a project belong in its commands or reusable
 scripts. Process isolation does not provide cross-process filesystem transactions.
 
-`process.mjs` drains both pipes with bounded previews and bounded artifact files
-under the service home's `artifacts` directory. Output beyond the artifact cap is
-discarded but counted and reported. Previews retain Unicode head and tail, and
-artifact prefixes do not split UTF-8 retention boundaries. Raw byte counts and
-omitted-character counts are separate. Arbitrary binary output can still require
-a binary-aware Bash reader.
+`process.mjs` starts ordinary pipe processes or Bun pseudo-terminals. Both keep
+stdin open for operation-scoped input. Pipe writes support EOF; PTY writes carry
+terminal input and resize requests. A process has no deadline unless its caller
+supplies `timeout_ms`. Cancellation, an explicit deadline and shell exit clean up
+the owned process group and session, input handles, terminal and sandbox
+resources. Session cleanup includes the additional groups created by ordinary
+terminal job control. It observes membership through macOS libproc/`getsid` or
+Linux `/proc` and signals those members; OS process observations and delivery of
+signals remain physical boundaries.
+
+Live reads use decimal-string cursors counting Unicode code points in observed
+stdout/stderr arrival order; PTY output is one combined stream. The bounded
+preview retains the newest content and explicitly reports evicted characters.
+Final stdout/stderr previews retain their newest content too. Artifact files
+under the service home's `artifacts` directory use bounded disk rings, normalized
+to their newest readable bytes at completion without splitting the retained
+UTF-8 beginning. Raw byte counts and omitted-character counts are separate.
+Arbitrary binary output can still require a binary-aware Bash reader.
 Artifacts have private permissions; they are not automatically garbage-collected
 because durable history may reference them. File synchronization is reported in
 artifact metadata; filesystem loss or external deletion remains possible.

@@ -6,7 +6,7 @@ input schema and checks the actual descriptor before constructing typed membersh
 in the intersection of correspondence and admissibility. Correspondence binds
 the declaration, arguments, capability and execution; admissibility requires
 nonempty names and descriptions and a supported schema.
-The default seven task and process tools are definitions in `catalog`.
+The default task and process tools are definitions in `catalog`.
 The feature assembly appends its own constructed tools from its command specifications.
 
 For example, a new tool over the existing task observation needs only:
@@ -56,3 +56,17 @@ authorization, completion correlation and committed state laws remain obligation
 and protocol owners. A new semantic primitive needs its own specification and
 production proof. `Process` crosses the external host boundary: sandboxing,
 execution ordering and unknown outcomes still require that boundary's evidence.
+
+`ProcessRead` and `ProcessWrite` use the same committed external-effect boundary
+as `Process`. Their `operation_id` belongs to the invoking Task; neither accepts
+a Task identity. Bash defaults to pipe mode and unlimited runtime. `timeout_ms`
+adds a deadline; PTY mode supplies a terminal and paired `cols`/`rows` dimensions.
+A Bash start requests one model continuation so programs waiting for input can
+be controlled before completion. Short reads and writes do not cause a second
+startup notification. An idle conversation retains its running processes.
+
+Reads use decimal-string Unicode code point cursors. A read returns the latest
+bounded merged output, its actual `start_cursor`, the absolute `next_cursor`,
+and `omitted_characters` for any evicted prefix. The cursor advances independently
+of retained capacity. Pipe writes may close stdin with `eof`; PTY writes carry
+terminal control characters and may resize the terminal with paired dimensions.

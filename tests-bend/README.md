@@ -34,7 +34,10 @@ subprocess pipe pressure and process-tree cleanup, filesystem links and content
 integrity, byte-split network decoding, credential rotation and secret-file
 handling, transport teardown, and observed browser connection/IME regressions.
 The handwritten source scanners retain small syntax regressions. These checks
-exercise the actual production paths rather than test-only models.
+exercise the actual production paths rather than test-only models. The process
+probe sends real model tool calls through the service to exercise live retained
+output under pipe pressure, stdin closure, terminal resizing and signals, and
+cleanup of owned subprocesses.
 
 Managed worktrees add focused real-Git checks for copying local edits without
 executing repository programs, archive/recovery and interrupted checkout ownership.

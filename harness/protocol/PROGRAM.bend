@@ -499,6 +499,10 @@ def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, 
         Commands.selected_settings(Native.settings(settings, arguments), Commands.task_selection(task), D.model_profile(D.task_model(task)), world), task, world)
     case Native.Process{}:
       Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+    case Native.ProcessRead{}:
+      Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+    case Native.ProcessWrite{}:
+      Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
 
 def executable_invocation(allowed: Bool, invocation: Invocation) -> Invocation:
   match allowed:

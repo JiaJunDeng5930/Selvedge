@@ -369,8 +369,34 @@ can resume the model while siblings continue. Quiet operations do not poll the
 model. `read` exposes their operation IDs; `phase: idle` alone does not mean all
 external work has completed—also check that `operations` is empty.
 
+`bash` has no runtime deadline unless `timeout_ms` is specified. Start development
+servers with their ordinary foreground command; no background or server mode is
+needed. Bash announces its `operation_id` while it continues running, and the
+model can call `read_process` or `write_process` from the same task. Completion
+arrives automatically. `cancel_operation` stops the selected process, and closing
+the service stops its running processes.
+
+The default `mode: "pipe"` keeps stdout and stderr separate and accepts ordinary
+stdin. For a terminal application, start Bash with `mode: "pty"`; optional `cols`
+and `rows` set its initial terminal size. PTY output combines stdout and stderr.
+Use `write_process` with `operation_id` and `input` to send text, including terminal
+key sequences such as `"\u0003"` for Ctrl-C. In pipe mode, `eof: true` closes stdin
+after any supplied input. In PTY mode, set `cols` and `rows` together to resize the
+terminal, and send `"\u0004"` for the terminal's Ctrl-D key instead of closing stdin.
+
+`read_process` takes `operation_id` and an optional decimal-string `cursor`
+(default `"0"`). It returns available output immediately, with `status`,
+`start_cursor` and `next_cursor`; pass `next_cursor` into the next read to obtain
+only newer output. The bounded buffer retains the newest content. If earlier
+content was discarded, `omitted_characters` and an explicit omission marker
+identify the gap. Each task can access only its own process sessions. Completed
+sessions remain readable until 64 newer completions replace them; service
+restart clears these physical sessions without relaunching their commands.
+
 `max_output_length` bounds retained Unicode characters per stream (default 40,000,
-maximum 65,536), excluding the omission marker. Previews keep the head and tail;
+maximum 65,536), excluding the omission marker. The combined `read_process` output
+has one buffer of the same size; the tool result byte budget can reduce these
+limits. Previews keep the newest output;
 metadata reports raw byte counts and omitted character counts. Truncated streams
 carry private artifact paths, SHA-256 revisions and explicit retention limits.
 An artifact capped at 8 MiB is a retained prefix, not the complete output. Inspect

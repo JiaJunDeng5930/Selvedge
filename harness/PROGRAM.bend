@@ -301,13 +301,13 @@ def decision_effects(decision: M.Decision()) -> +List<M.Effect()>:
 def model_request_direct(task: D.Task, world: M.World()) -> M.Decision():
   CompactionSpec.attach(Reasoning.start(F.State(), F.Effect, task, world))
 
-def external_tool(tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
+def external_tool(+tool: D.Tool, +call: D.Call, +remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
   tasks = D.state_tasks(task_state)
   +next_ticket = D.state_next_ticket(task_state)
-  next = T.promote(Ops.started(next_ticket, call, remaining, task))
+  next = T.promote(Ops.started_tool(tool, next_ticket, call, remaining, task))
   C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, J.Null{},
-    [Effects.ExecuteTool{D.task_id(task), next_ticket, tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]}
+    [Effects.ExecuteTool{D.task_id(task), next_ticket, next_ticket, tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]}
 
 def approval_request(+reviewer: D.ApprovalReviewer, +call: D.Call, remaining: +List<D.Attempt>, task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
@@ -317,13 +317,13 @@ def approval_request(+reviewer: D.ApprovalReviewer, +call: D.Call, remaining: +L
   C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, pending), task_state)), board}, J.Null{},
     Approvals.review_effects(F.Effect, reviewer, pending, ticket, call)}
 
-def elevated_tool(reviewer: D.ApprovalReviewer, tool: D.Tool, +operation: D.Operation(), +task: D.Task, world: M.World()) -> M.Decision():
+def elevated_tool(reviewer: D.ApprovalReviewer, +tool: D.Tool, +operation: D.Operation(), +task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
   tasks = D.state_tasks(task_state)
   +ticket = D.state_next_ticket(task_state)
-  next = Ops.elevated(ticket, reviewer, operation, task)
+  next = Ops.elevated_tool(tool, ticket, reviewer, operation, task)
   C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, next), task_state)), board}, J.Null{},
-    [Effects.ExecuteTool{D.task_id(task), ticket, tool, Ops.call(operation), D.task_context(task), D.Unrestricted{}}]}
+    [Effects.ExecuteTool{D.task_id(task), ticket, Ops.ticket(operation), tool, Ops.call(operation), D.task_context(task), D.Unrestricted{}}]}
 
 def check_tool(+plugin: D.PluginRef, pending: +List<D.PluginRef>, tool: D.Tool, +call: D.Call, remaining: +List<D.Attempt>, +task: D.Task, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world

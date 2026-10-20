@@ -129,6 +129,10 @@ def classified(source: D.Source, tool: D.Tool, +call: D.Call,
   match source:
     case D.Harness{Native.Process{}}:
       external_capacity(tool, call, remaining, task)
+    case D.Harness{Native.ProcessRead{}}:
+      external_capacity(tool, call, remaining, task)
+    case D.Harness{Native.ProcessWrite{}}:
+      external_capacity(tool, call, remaining, task)
     case D.Harness{builtin}:
       internal_capacity(builtin, call, remaining, task, world)
     case D.Mcp{server, remote}:
@@ -367,8 +371,8 @@ def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
       environment = D.state_environment(task_state_2)
       limits = D.state_limits(task_state_2)
       projects = D.state_projects(task_state_2)
-      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, T.promote(Ops.started(ticket, call, remaining, task))), task_state_2)), board},
-        J.Null{}, [Effects.ExecuteTool{D.task_id(task), ticket, tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]}
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, T.promote(Ops.started_tool(tool, ticket, call, remaining, task))), task_state_2)), board},
+        J.Null{}, [Effects.ExecuteTool{D.task_id(task), ticket, ticket, tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]}
     case Review{+reviewer, +call, remaining, task} C.Frame{+task_state_3, +board}:
       tasks = D.state_tasks(task_state_3)
       next_task = D.state_next_task(task_state_3)
@@ -379,15 +383,15 @@ def meaning_calculation(action: Action, world: M.World()) -> M.Decision():
       +prepared = T.promote(Ops.awaiting(ticket, reviewer, call, remaining, task))
       C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, prepared), task_state_3)), board},
         J.Null{}, Approvals.review_effects(F.Effect, reviewer, prepared, ticket, call)}
-    case Granted{reviewer, tool, +operation, +task} C.Frame{+task_state_4, +board}:
+    case Granted{reviewer, +tool, +operation, +task} C.Frame{+task_state_4, +board}:
       tasks = D.state_tasks(task_state_4)
       next_task = D.state_next_task(task_state_4)
       +ticket = D.state_next_ticket(task_state_4)
       environment = D.state_environment(task_state_4)
       limits = D.state_limits(task_state_4)
       projects = D.state_projects(task_state_4)
-      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, Ops.elevated(ticket, reviewer, operation, task)), task_state_4)), board},
-        J.Null{}, [Effects.ExecuteTool{D.task_id(task), ticket, tool, Ops.call(operation), D.task_context(task), D.Unrestricted{}}]}
+      C.Decision{C.Frame{D.with_state_next_ticket(1n+ticket, D.with_state_tasks(T.replace(tasks, Ops.elevated_tool(tool, ticket, reviewer, operation, task)), task_state_4)), board},
+        J.Null{}, [Effects.ExecuteTool{D.task_id(task), ticket, Ops.ticket(operation), tool, Ops.call(operation), D.task_context(task), D.Unrestricted{}}]}
     case GrantFailure{operation, task} _:
       Results.begin(F.State(), F.Effect, operation, grant_failure_value(), True{}, task, world)
     case Hook{+plugin, pending, tool, +call, remaining, +task} C.Frame{+task_state_5, +board}:
