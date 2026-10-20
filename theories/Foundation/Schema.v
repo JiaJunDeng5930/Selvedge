@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith ZArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Export Numbers.
 Import ListNotations.
 Open Scope string_scope.
 
