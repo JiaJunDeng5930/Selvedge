@@ -77,6 +77,8 @@ def body_bindings(program: Native.Body) -> Bindings:
     case Native.Fork{count, messages, settings}:
       join(natural_binding(count), join(texts_binding(messages), settings_binding(D.fork_settings_schema(), settings)))
     case Native.Process{}: empty_bindings()
+    case Native.ProcessRead{}: empty_bindings()
+    case Native.ProcessWrite{}: empty_bindings()
 
 def bound_schema(bindings: Bindings) -> J.Json:
   Bindings{properties, required} = bindings
@@ -85,6 +87,8 @@ def bound_schema(bindings: Bindings) -> J.Json:
 def schema(program: Native.Body) -> J.Json:
   match program:
     case Native.Process{}: D.process_schema()
+    case Native.ProcessRead{}: D.process_read_schema()
+    case Native.ProcessWrite{}: D.process_write_schema()
     case Native.Feature{operation, schema}: Schema.command_arguments(schema)
     case other: bound_schema(body_bindings(other))
 
@@ -239,7 +243,11 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
     Native.Send{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.TextArgument{"message", "Nonempty message", True{}, ""}}}),
     List.append(&2, D.Tool, catalog_entry(Request{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
     Native.Archive{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"bash", "Run noninteractive Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically, so do not poll. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded UTF-8 previews and artifact paths. The default deadline is 30 seconds, at most 30 minutes.",
+    List.append(&2, D.Tool, catalog_entry(Request{"bash", "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied (at most 30 minutes).",
     Native.Process{}}),
+    List.append(&2, D.Tool, catalog_entry(Request{"read_process", "Read available incremental output from this task's Bash operation while running or after completion. Use next_cursor from the previous read. Output is bounded and explicitly marks discarded content. Call on demand; do not poll automatically.",
+      Native.ProcessRead{}}),
+    List.append(&2, D.Tool, catalog_entry(Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
+      Native.ProcessWrite{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))))

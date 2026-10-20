@@ -129,6 +129,16 @@ def started(ticket: Nat, call: D.Call, remaining: +List<D.Attempt>, +task: D.Tas
   D.with_operations(List.append(&2, D.Operation(), D.task_operations(task), [(ticket, D.OperationBody{call, False{}, D.Executing{}})]),
     D.with_phase(D.Ready{remaining}, task))
 
+# A process may require input before it can finish. Publish its running identity
+# in the next model request; short read/write calls do not request another turn.
+def process_started(process: Bool, task: D.Task) -> D.Task:
+  match process:
+    case True{}: D.notify(task)
+    case False{}: task
+
+def started_tool(tool: D.Tool, ticket: Nat, call: D.Call, remaining: +List<D.Attempt>, task: D.Task) -> D.Task:
+  process_started(D.native_process(D.tool_source(tool)), started(ticket, call, remaining, task))
+
 def awaiting(ticket: Nat, reviewer: D.ApprovalReviewer, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task) -> D.Task:
   D.with_operations(List.append(&2, D.Operation(), D.task_operations(task), [(ticket, D.OperationBody{call, False{}, D.ApprovalPending{reviewer}})]),
     D.with_phase(D.Ready{remaining}, task))
@@ -138,6 +148,9 @@ def permitted(reviewer: D.ApprovalReviewer, operation: D.Operation(), +task: D.T
 
 def elevated(ticket: Nat, reviewer: D.ApprovalReviewer, operation: D.Operation(), +task: D.Task) -> D.Task:
   D.with_operations(replace(D.task_operations(task), with_stage(D.ElevatedExecuting{ticket, reviewer}, operation)), task)
+
+def elevated_tool(tool: D.Tool, ticket: Nat, reviewer: D.ApprovalReviewer, operation: D.Operation(), task: D.Task) -> D.Task:
+  process_started(D.native_process(D.tool_source(tool)), elevated(ticket, reviewer, operation, task))
 
 def result(operation: D.Operation(), value: J.Json, error: Bool) -> D.Message:
   (ticket, D.OperationBody{D.Call{id, name, arguments}, announced, stage}) = operation

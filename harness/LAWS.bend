@@ -360,8 +360,8 @@ law tool_dispatch:
   for +state: D.State
   {P.external_tool(tool, call, remaining, task, C.Frame{state, board}) ==
     C.Decision{C.Frame{D.with_state_next_ticket(1n+D.state_next_ticket(state),
-      D.with_state_tasks(T.replace(D.state_tasks(state), T.promote(Ops.started(D.state_next_ticket(state), call, remaining, task))), state)), board},
-      J.Null{}, [Effects.ExecuteTool{D.task_id(task), D.state_next_ticket(state), tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]} : M.Decision()}
+      D.with_state_tasks(T.replace(D.state_tasks(state), T.promote(Ops.started_tool(tool, D.state_next_ticket(state), call, remaining, task))), state)), board},
+      J.Null{}, [Effects.ExecuteTool{D.task_id(task), D.state_next_ticket(state), D.state_next_ticket(state), tool, call, D.task_context(task), Workspace.default_access(D.task_context(task))}]} : M.Decision()}
 
 law full_history_dispatch:
   for +task: D.Task
@@ -782,3 +782,26 @@ law root_initial_history:
       D.execution_configuration(D.Contract{D.Model{profile, reasoning}, catalog, forks, descendants, plugins, context}),
       D.Active{}, TaskRequirements.initial_history(instructions, project, context, profile, reasoning, message, D.EmptyHistory{}),
       Nil{}, D.Ready{Nil{}}, Nil{}, True{}}]) : +List<D.Task>}
+
+# Bash needs one continuation before completion so a program waiting for input
+# can receive it; announcing the operation preserves its completion right.
+law bash_start_continuation:
+  for name: String
+  for description: String
+  for schema: J.Json
+  for ticket: Nat
+  for call: D.Call
+  for remaining: +List<D.Attempt>
+  for task: D.Task
+  {D.task_notified(Ops.started_tool(D.Tool{name, description, schema, D.Harness{Native.Process{}}}, ticket, call, remaining, task)) == True{} : Bool}
+
+law bash_start_retains_completion:
+  for name: String
+  for description: String
+  for schema: J.Json
+  for +ticket: Nat
+  for +call: D.Call
+  for +remaining: +List<D.Attempt>
+  for +task: D.Task
+  {D.task_operations(Ops.started_tool(D.Tool{name, description, schema, D.Harness{Native.Process{}}}, ticket, call, remaining, task)) ==
+    D.task_operations(Ops.started(ticket, call, remaining, task)) : +List<D.Operation()>}

@@ -17,8 +17,8 @@ test('the actual sandbox admits its quoted workspace roots and blocks symlink an
   await symlink(outside, path.join(roots[0], 'escape'));
   const plan = { access: 'sandboxed', workspace: { roots, primary_root: roots[1] },
     sandbox: { mode: 'workspace-write', network_access: false } };
-  const limits = { bash_timeout_ms: 3000, bash_default_output_length: 40000,
-    bash_max_output_length: 65536, artifact_bytes: 1024 };
+  const limits = { bash_default_output_length: 40000, bash_max_output_length: 65536,
+    tool_output_bytes: 65536, artifact_bytes: 1024 };
   const command = `set -e; pwd; cat ${shellQuote(path.join(outside, 'readable'))}; ` +
     `printf one > ${shellQuote(path.join(roots[0], 'one'))}; printf two > two; printf temp > "$TMPDIR/temp"; ` +
     `! (printf bad > ${shellQuote(path.join(roots[0], 'escape', 'bad'))}); ` +

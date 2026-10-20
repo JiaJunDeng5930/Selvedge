@@ -80,8 +80,9 @@ def effect(effect: M.Effect()) -> J.Json:
         J.Field{"model", model_json(model)}, J.Field{"history", J.Array{ReasoningView.history(history)}},
         J.Field{"history_preview", J.Boolean{True{}}}, J.Field{"history_preview_bytes", J.nat(ReasoningView.maximum_bytes())}]}
     case Effects.FeatureEffect{effect}: FeatureCodec.effect_json(model_json, effect)
-    case Effects.ExecuteTool{task_id, ticket, tool, call, context, access}:
+    case Effects.ExecuteTool{task_id, ticket, operation_id, tool, call, context, access}:
       J.Object{[J.Field{"kind", J.Text{"tool"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},
+        J.Field{"operation_id", J.nat(operation_id)},
         J.Field{"tool", D.tool_json(tool)}, J.Field{"call", T.call_json(call)}, J.Field{"execution", D.execution_json(context, access)}]}
     case Effects.RequestApproval{task_id, ticket, D.Profile{+key, +provider, +name, policy, options}, call, context, history}:
       J.Object{[J.Field{"kind", J.Text{"approval"}}, J.Field{"task_id", J.nat(task_id)}, J.Field{"ticket", J.nat(ticket)},

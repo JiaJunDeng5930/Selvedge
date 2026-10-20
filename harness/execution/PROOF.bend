@@ -401,3 +401,14 @@ def work_consumer_correspondence(member):
   Categories.Membership{Categories.Construction{request, result}, evidence} = member
   Execution.WorkRequest{work, task, world} = request
   work_consumer_correspondence_calculation(Execution.WorkRequest{work, task, world}, result, evidence)
+
+def Laws.bash_start_continuation(name, description, schema, ticket, call, remaining, task):
+  match task:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}:
+      match notified:
+        case True{}: {==}
+        case False{}: {==}
+
+def Laws.bash_start_retains_completion(name, description, schema, ticket, call, remaining, task):
+  match task:
+    case D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified}: {==}

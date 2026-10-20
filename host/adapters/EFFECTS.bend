@@ -1,5 +1,6 @@
 import Base
 import ../../harness/conversation/TITLE.bend as Title
+import ../../harness/DOMAIN.bend as Domain
 import ../../harness/transport/wire-shape.bend as Shape
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
@@ -532,19 +533,65 @@ def failure_context_classified(+context_limit: Bool, +kind: CallbackKind, +effec
 def complete_failure_input(+effect: J.Json, +message: String, +context_limit: Bool) -> J.Json:
   failure_context_classified(context_limit, classify_callback_kind(J.text(J.get(effect, "kind"))), effect, message)
 
-def bash_bounds(+valid: Bool, +timeout: J.Json, +maximum: J.Json) -> J.Json:
-  match valid:
-    case False{}: Model.failure_code("TypeError", "Malformed Bash effect")
-    case True{}: Model.success(J.Object{Con{field("timeout", timeout), Con{field("maximum", maximum), Nil{}}}})
+def process_dimensions(+arguments: J.Json) -> Bool:
+  (has(arguments, "cols") && has(arguments, "rows")) || (Bool.not(has(arguments, "cols")) && Bool.not(has(arguments, "rows")))
+
+def bash_mode(arguments: J.Json) -> J.Json:
+  default_null(J.get(arguments, "mode"), J.Text{"pipe"})
+
+def bash_timeout_valid(+timeout: J.Json) -> Bool:
+  match timeout:
+    case J.Null{}: True{}
+    case _: Model.nonnegative_le(timeout, "1800000") && Model.decimal_le("100", number_text(timeout))
+
+# JSON escaping can use six bytes per code point. Two retained stream previews
+# share the tool-output budget; leave room for metadata and truncation markers.
+def process_output_capacity(limits: J.Json) -> J.Json:
+  J.Number{U32.show(U32.div(U32.sub(Schema.number_or(Schema.number(J.get(limits, "tool_output_bytes")), 0), 4096), 12))}
+
+def bounded_process_output_result(within: Bool, requested: J.Json, capacity: J.Json) -> J.Json:
+  match within:
+    case True{}: requested
+    case False{}: capacity
+
+def bounded_process_output(+requested: J.Json, +limits: J.Json) -> J.Json:
+  bounded_process_output_result(Model.nonnegative_le(requested, number_text(process_output_capacity(limits))), requested, process_output_capacity(limits))
+
+def bash_bounds(valid: Bool, timeout: J.Json, maximum: J.Json, +arguments: J.Json) -> J.Json:
+  type_outcome_value(valid, J.Object{[field("timeout", timeout), field("maximum", maximum),
+    field("mode", bash_mode(arguments)), field("cols", default_null(J.get(arguments, "cols"), J.Number{"80"})),
+    field("rows", default_null(J.get(arguments, "rows"), J.Number{"24"}))]}, "Malformed Bash effect")
 
 def bash_arguments(+source: J.Json) -> J.Json:
   +arguments = J.get(source, "arguments")
   +limits = J.get(source, "limits")
-  +timeout = default_null(J.get(arguments, "timeout_ms"), J.get(limits, "bash_timeout_ms"))
+  +timeout = J.get(arguments, "timeout_ms")
   +maximum = default_null(J.get(arguments, "max_output_length"), J.get(limits, "bash_default_output_length"))
-  bash_bounds(J.is_text(J.get(arguments, "command")) && Bool.not(String.eq(J.text(J.get(arguments, "command")), "")) && well(J.text(J.get(arguments, "command"))) &&
-    no_nul(J.text(J.get(arguments, "command"))) && Model.nonnegative_le(timeout, "1800000") && Model.decimal_le("100", number_text(timeout)) && positive_safe_integer(J.get(limits, "bash_max_output_length")) &&
-    positive_safe_integer(maximum) && Model.nonnegative_le(maximum, number_text(J.get(limits, "bash_max_output_length"))) && allowed(fields(arguments), ["command", "timeout_ms", "max_output_length", "sandbox_permissions", "justification"]), timeout, maximum)
+  bash_bounds(Schema.valid(Domain.process_schema(), arguments) && well(J.text(J.get(arguments, "command"))) &&
+    no_nul(J.text(J.get(arguments, "command"))) && Bool.not(String.eq(J.text(J.get(arguments, "command")), "")) && bash_timeout_valid(timeout) &&
+    process_dimensions(arguments) && (Bool.not(has(arguments, "cols")) || String.eq(J.text(bash_mode(arguments)), "pty")) &&
+    positive_safe_integer(J.get(limits, "bash_max_output_length")) &&
+    Model.nonnegative_le(J.get(limits, "tool_output_bytes"), "4294967295") && Model.decimal_le("4108", number_text(J.get(limits, "tool_output_bytes"))) && positive_safe_integer(process_output_capacity(limits)) &&
+    positive_safe_integer(maximum) && Model.nonnegative_le(maximum, number_text(J.get(limits, "bash_max_output_length"))),
+    timeout, bounded_process_output(maximum, limits), arguments)
+
+def process_cursor(arguments: J.Json) -> J.Json:
+  default_null(J.get(arguments, "cursor"), J.Text{"0"})
+
+def process_read_arguments(source: J.Json) -> J.Json:
+  +arguments = J.get(source, "arguments")
+  +cursor = process_cursor(arguments)
+  type_outcome_value(Schema.valid(Domain.process_read_schema(), arguments) &&
+    Model.safe_integer(J.Number{J.text(cursor)}) && Model.nonnegative_le(J.Number{J.text(cursor)}, "9007199254740991"),
+    J.Object{[field("operation_id", J.get(arguments, "operation_id")), field("cursor", cursor)]}, "Malformed process read")
+
+def process_write_arguments(source: J.Json) -> J.Json:
+  +arguments = J.get(source, "arguments")
+  type_outcome_value(Schema.valid(Domain.process_write_schema(), arguments) && process_dimensions(arguments) &&
+    (Bool.not(has(arguments, "input")) || well(J.text(J.get(arguments, "input")))),
+    J.Object{[field("operation_id", J.get(arguments, "operation_id")), field("input", default_null(J.get(arguments, "input"), J.Text{""})),
+      field("eof", default_null(J.get(arguments, "eof"), J.Boolean{False{}})), field("cols", J.get(arguments, "cols")), field("rows", J.get(arguments, "rows"))]},
+    "Malformed process write")
 
 def artifact_observed(+truncated: Bool, +observed: Bool, +name: String, +artifact: J.Json) -> +List<&2, J.Field>:
   match truncated observed:
@@ -558,9 +605,9 @@ def process_value(+source: J.Json) -> J.Json:
   +out = J.get(source, "out")
   +err = J.get(source, "err")
   J.Object{List.append(&2, J.Field,
-    Con{field("exit_code", J.get(source, "exitCode")), Con{field("signal", J.get(source, "exitSignal")), Con{field("stdout", J.get(out, "text")), Con{field("stderr", J.get(err, "text")),
+    Con{field("mode", J.get(source, "mode")), Con{field("start_cursor", J.get(source, "start_cursor")), Con{field("next_cursor", J.get(source, "next_cursor")), Con{field("omitted_characters", J.get(source, "omitted_characters")), Con{field("exit_code", J.get(source, "exitCode")), Con{field("signal", J.get(source, "exitSignal")), Con{field("stdout", J.get(out, "text")), Con{field("stderr", J.get(err, "text")),
     Con{field("stdout_truncated", J.get(out, "truncated")), Con{field("stderr_truncated", J.get(err, "truncated")), Con{field("stdout_bytes", J.get(out, "total_bytes")), Con{field("stderr_bytes", J.get(err, "total_bytes")),
-    Con{field("stdout_omitted_characters", J.get(out, "omitted_characters")), Con{field("stderr_omitted_characters", J.get(err, "omitted_characters")), Nil{}}}}}}}}}}},
+    Con{field("stdout_omitted_characters", J.get(out, "omitted_characters")), Con{field("stderr_omitted_characters", J.get(err, "omitted_characters")), Nil{}}}}}}}}}}}}}}},
     List.append(&2, J.Field, artifact_field("stdout_artifact", out, J.get(source, "outArtifact")), artifact_field("stderr_artifact", err, J.get(source, "errArtifact"))))}
 
 def scalar_text(+value: J.Json) -> String:
@@ -1719,10 +1766,20 @@ def meaning_route_16(+accepted: Bool, +operation: String, +source: J.Json) -> J.
     case True{}: Model.success(process_result(source))
     case False{}: meaning_route_17(String.eq(operation, "effect.sandbox_admit"), operation, source)
 
+def process_arguments_route(accepted: Bool, source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: process_read_arguments(source)
+    case False{}: process_write_arguments(source)
+
+def process_arguments_route_or(accepted: Bool, read: Bool, other: J.Json, source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: process_arguments_route(read, source)
+    case False{}: other
+
 def meaning_route_15(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:
     case True{}: bash_arguments(source)
-    case False{}: meaning_route_16(String.eq(operation, "effect.process_result"), operation, source)
+    case False{}: process_arguments_route_or(String.eq(operation, "effect.process_read_arguments") || String.eq(operation, "effect.process_write_arguments"), String.eq(operation, "effect.process_read_arguments"), meaning_route_16(String.eq(operation, "effect.process_result"), operation, source), source)
 
 def meaning_route_14(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
   match accepted:

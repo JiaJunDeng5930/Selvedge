@@ -40,10 +40,14 @@ type Body is Data:
   Cancel{task: Natural, operation: Natural}
   Fork{count: Natural, messages: Texts, settings: Settings}
   Process{}
+  ProcessRead{}
+  ProcessWrite{}
 
 def external(body: Body) -> Bool:
   match body:
     case Process{}: True{}
+    case ProcessRead{}: True{}
+    case ProcessWrite{}: True{}
     case _: False{}
 
 def default_number(fallback: NaturalDefault, caller: Nat) -> Nat:
@@ -188,6 +192,8 @@ def json(value: Body) -> J.Json:
     case Cancel{task, operation}: J.Object{[J.Field{"kind", J.Text{"Cancel"}}, J.Field{"task", number_json(task)}, J.Field{"operation", number_json(operation)}]}
     case Fork{count, messages, settings}: J.Object{[J.Field{"kind", J.Text{"Fork"}}, J.Field{"count", number_json(count)}, J.Field{"messages", texts_json(messages)}, J.Field{"settings", settings_json(settings)}]}
     case Process{}: J.Object{[J.Field{"kind", J.Text{"Process"}}]}
+    case ProcessRead{}: J.Object{[J.Field{"kind", J.Text{"ProcessRead"}}]}
+    case ProcessWrite{}: J.Object{[J.Field{"kind", J.Text{"ProcessWrite"}}]}
 
 def same(left: Body, right: Body) -> Bool:
   J.same(json(left), json(right))

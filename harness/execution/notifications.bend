@@ -208,7 +208,7 @@ def dispatched(effects: +List<M.Effect()>, +tasks: +List<D.Task>) -> +List<D.Not
     case Nil{}: Nil{}
     case Con{Effects.RequestModel{id, ticket, model, history, tools, callable, context, scope, reserve}, rest}:
       List.append(&2, D.Notice, model_started(id, ticket, model, "model", tasks), dispatched(rest, tasks))
-    case Con{Effects.ExecuteTool{id, ticket, tool, call, context, access}, rest}:
+    case Con{Effects.ExecuteTool{id, ticket, operation_id, tool, call, context, access}, rest}:
       List.append(&2, D.Notice, found_event(T.find(tasks, id), D.ToolDispatched{}, J.Object{[J.Field{"ticket", J.nat(ticket)},
         J.Field{"tool", D.tool_json(tool)}, J.Field{"call", T.call_json(call)}]}), dispatched(rest, tasks))
     case Con{other, rest}: dispatched(rest, tasks)

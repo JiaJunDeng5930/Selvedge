@@ -178,7 +178,7 @@ def native_execution(program: Native.Body) -> Execution:
 
 def native_process(source: Source) -> Bool:
   match source:
-    case Harness{program}: Native.external(program)
+    case Harness{Native.Process{}}: True{}
     case _: False{}
 
 def native_source(source: Source) -> Bool:
@@ -607,12 +607,29 @@ def fork_settings_schema() -> J.Json:
 
 def process_schema() -> J.Json:
   Schema.object([J.Field{"command", string_schema("Command to run")},
-      J.Field{"timeout_ms", integer_schema("Deadline in milliseconds", 100, 1800000)},
+      J.Field{"timeout_ms", integer_schema("Optional deadline in milliseconds; omitted means no deadline", 100, 1800000)},
+      J.Field{"mode", J.Object{[J.Field{"type", J.Text{"string"}},
+        J.Field{"enum", J.Array{[J.Text{"pipe"}, J.Text{"pty"}]}}]}},
+      J.Field{"cols", integer_schema("PTY columns; supply with rows, default 80", 1, 65535)},
+      J.Field{"rows", integer_schema("PTY rows; supply with cols, default 24", 1, 65535)},
       J.Field{"sandbox_permissions", J.Object{[J.Field{"type", J.Text{"string"}},
         J.Field{"enum", J.Array{[J.Text{"use_default"}, J.Text{"require_escalated"}]}}]}},
       J.Field{"justification", string_schema("Required for require_escalated: explain the necessary outside-workspace write, network access, or other sandbox exception; at most 2048 UTF-8 bytes")},
-      J.Field{"max_output_length", integer_schema("Maximum retained Unicode characters per stream, excluding the truncation marker; defaults to 40000", 1, 65536)}],
+      J.Field{"max_output_length", integer_schema("Maximum retained Unicode code points; latest content replaces older output, default 40000, also capped by the tool output byte budget", 1, 65536)}],
       [J.Text{"command"}])
+
+def process_read_schema() -> J.Json:
+  Schema.object([J.Field{"operation_id", integer_schema("Bash operation identity in this task", 0, 4294967295)},
+    J.Field{"cursor", string_schema("Absolute Unicode code point cursor as a decimal string; default 0. Pass the prior next_cursor for incremental output.")}],
+    [J.Text{"operation_id"}])
+
+def process_write_schema() -> J.Json:
+  Schema.object([J.Field{"operation_id", integer_schema("Running Bash operation identity in this task", 0, 4294967295)},
+    J.Field{"input", string_schema("Text to write; PTY accepts terminal control characters and escape sequences")},
+    J.Field{"eof", J.Object{[J.Field{"type", J.Text{"boolean"}}, J.Field{"description", J.Text{"Close pipe stdin after writing input; unavailable in PTY mode"}}]}},
+    J.Field{"cols", integer_schema("New PTY columns; supply with rows", 1, 65535)},
+    J.Field{"rows", integer_schema("New PTY rows; supply with cols", 1, 65535)}],
+    [J.Text{"operation_id"}])
 
 
 type Contract is Data:
@@ -1286,7 +1303,7 @@ def boundary_limits() -> J.Json:
   J.Object{[J.Field{"frame_bytes", J.nat(U32.to_nat(frame_bytes()))}, J.Field{"header_bytes", J.nat(U32.to_nat(16384))},
     J.Field{"request_timeout_ms", J.nat(U32.to_nat(5000))}, J.Field{"tool_output_bytes", J.nat(U32.to_nat(65536))},
     J.Field{"approval_reason_bytes", J.nat(2048n)},
-    J.Field{"bash_timeout_ms", J.nat(U32.to_nat(30000))}, J.Field{"mcp_catalog_tools", J.nat(U32.to_nat(1024))},
+    J.Field{"mcp_catalog_tools", J.nat(U32.to_nat(1024))},
     J.Field{"mcp_timeout_ms", J.nat(U32.to_nat(30000))},
     J.Field{"plugin_timeout_ms", J.nat(U32.to_nat(10000))},
     J.Field{"plugin_event_timeout_ms", J.nat(U32.to_nat(5000))},

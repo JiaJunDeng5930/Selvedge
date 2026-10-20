@@ -443,9 +443,9 @@ def retained_effects(effects: +List<M.Effect()>, +cancellations: +List<M.Effect(
     case Con{Effects.RequestReasoning{+id, +ticket, model, history}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         Effects.RequestReasoning{id, ticket, model, history}, retained_effects(rest, cancellations, tasks))
-    case Con{Effects.ExecuteTool{+id, +ticket, tool, call, context, access}, rest}:
+    case Con{Effects.ExecuteTool{+id, +ticket, operation_id, tool, call, context, access}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
-        Effects.ExecuteTool{id, ticket, tool, call, context, access}, retained_effects(rest, cancellations, tasks))
+        Effects.ExecuteTool{id, ticket, operation_id, tool, call, context, access}, retained_effects(rest, cancellations, tasks))
     case Con{Effects.RequestApproval{+id, +ticket, reviewer, call, context, history}, rest}:
       keep_effect(found_archived(T.find(tasks, id)) || explicitly_cancelled(cancellations, id, ticket),
         Effects.RequestApproval{id, ticket, reviewer, call, context, history}, retained_effects(rest, cancellations, tasks))
@@ -503,10 +503,10 @@ def runs_tools(status: D.Status) -> Bool:
     case D.Stopped{}: True{}
     case _: False{}
 
-def operation_effect(found: Maybe<&2, D.Operation()>, call: D.Call, budget: Nat) -> Bool:
+def operation_effect(found: Maybe<&2, D.Operation()>, operation_id: Nat, call: D.Call, budget: Nat) -> Bool:
   match found:
     case None{}: False{}
-    case Some{+operation}: Ops.executing(Ops.stage(operation)) && Same.call(budget, call, Ops.call(operation))
+    case Some{+operation}: Nat.is_eq(Ops.ticket(operation), operation_id) && Ops.executing(Ops.stage(operation)) && Same.call(budget, call, Ops.call(operation))
 
 def result_effect(found: Maybe<&2, D.Operation()>, ticket: Nat, plugin: D.PluginRef, call: D.Call, value: J.Json, error: Bool, +budget: Nat) -> Bool:
   match found:
@@ -520,10 +520,10 @@ def after_effect(found: Maybe<&2, D.Task>, operation: Nat, ticket: Nat, plugin: 
     case None{}: False{}
     case Some{task}: result_effect(Ops.find(D.task_operations(task), operation), ticket, plugin, call, value, error, budget)
 
-def tool_effect(found: Maybe<&2, D.Task>, ticket: Nat, tool: D.Tool, call: D.Call, +budget: Nat) -> Bool:
+def tool_effect(found: Maybe<&2, D.Task>, ticket: Nat, operation_id: Nat, tool: D.Tool, call: D.Call, +budget: Nat) -> Bool:
   match found:
     case Some{D.Task{id, lineage, contract, +current, status, history, queued, phase, operations, notified}}:
-      runs_tools(status) && operation_effect(Ops.find_callback(operations, ticket), call, budget) &&
+      runs_tools(status) && operation_effect(Ops.find_callback(operations, ticket), operation_id, call, budget) &&
         tool_member(T.task_tools(contract), tool, budget)
     case _: False{}
 
@@ -552,7 +552,7 @@ def has_effect_ticket(effects: +List<M.Effect()>, +ticket: Nat) -> Bool:
       feature_ticket_matches(FeatureState.effect_ticket(effect), ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.RequestApproval{id, other, reviewer, call, context, history}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
-    case Con{Effects.ExecuteTool{id, other, tool, call, context, access}, rest}:
+    case Con{Effects.ExecuteTool{id, other, operation_id, tool, call, context, access}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
     case Con{Effects.CheckTool{id, other, reference, tool, call}, rest}:
       Nat.is_eq(other, ticket) || has_effect_ticket(rest, ticket)
@@ -620,10 +620,10 @@ def effects(pending: +List<M.Effect()>, +tasks: +List<D.Task>, +first_ticket: Na
         reasoning_effect(T.find(tasks, id), ticket, model, history, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.FeatureEffect{effect}, +rest}:
       feature_ticket_fresh(FeatureState.effect_ticket(effect), rest, first_ticket) && effects(rest, tasks, first_ticket, budget)
-    case Con{Effects.ExecuteTool{+id, +ticket, tool, call, context, access}, +rest}:
+    case Con{Effects.ExecuteTool{+id, +ticket, operation_id, tool, call, context, access}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && default_access_effect(T.find(tasks, id), ticket, access) &&
-        tool_effect(T.find(tasks, id), ticket, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
+        tool_effect(T.find(tasks, id), ticket, operation_id, tool, call, budget) && effects(rest, tasks, first_ticket, budget)
     case Con{Effects.RequestApproval{+id, +ticket, reviewer, call, context, history}, +rest}:
       Nat.is_le(first_ticket, ticket) && Bool.not(has_effect_ticket(rest, ticket)) &&
         context_effect(T.find(tasks, id), context, budget) && review_effect(T.find(tasks, id), ticket, reviewer, call, history, budget) &&

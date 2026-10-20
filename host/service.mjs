@@ -7,7 +7,7 @@ import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
-import { runBash } from './process.mjs';
+import { runBash, startBash } from './process.mjs';
 import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation, workspaceCommandPlan } from './project.mjs';
 import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
@@ -33,6 +33,8 @@ export class CommandNotSubmitted extends Error {
 
 export class Service extends EventEmitter {
   #running = new Map();
+  #processSessions = new Map();
+  #completedProcesses = new Set();
   #providerCancellations = new Set();
   #servers = new Map();
   #catalog = new Map();
@@ -261,6 +263,61 @@ export class Service extends EventEmitter {
     this.#providerCancellations.add(promise);
   }
 
+  async #runProcess(effect, signal) {
+    const key = `${effect.task_id}:${effect.operation_id}`;
+    const session = { mode: effect.call.arguments.mode ?? 'pipe' };
+    // Register before observing the checkout or preparing the sandbox: a sibling
+    // read/write effect can run while the original process is still starting.
+    this.#processSessions.set(key, session);
+    const prepared = this.#managedWorktreeRoot(effect.task_id).then(managedWorktreeRoot =>
+      startBash(effect.call.arguments, this.limits, { signal, execution: effect.execution, managedWorktreeRoot,
+        readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') }));
+    session.ready = prepared.then(({ read, write }) => { session.read = read; session.write = write; },
+      error => { session.failure = { code: error.code ?? 'command_start_failed', message: error.message }; });
+    try {
+      const runtime = await prepared;
+      return await runtime.result;
+    } finally {
+      this.#completedProcesses.add(key);
+      while (this.#completedProcesses.size > 64) {
+        const retired = this.#completedProcesses.values().next().value;
+        this.#completedProcesses.delete(retired);
+        this.#processSessions.delete(retired);
+      }
+    }
+  }
+
+  async #processTool(effect) {
+    const reading = effect.tool.source.program.kind === 'ProcessRead';
+    const arguments_ = boundary(reading ? 'effect.process_read_arguments' : 'effect.process_write_arguments',
+      { arguments: effect.call.arguments });
+    const session = this.#processSessions.get(`${effect.task_id}:${arguments_.operation_id}`);
+    // DEFENSE: A caller can name another task's operation, an evicted completed
+    // process, or an operation from before this service was restarted.
+    if (!session) return { error: true, value: { error: { code: 'unknown_process',
+      message: 'No retained Bash process exists for this task and operation_id' } } };
+    try {
+      if (reading) {
+        const value = session.read ? session.read(arguments_.cursor) : {
+          status: session.failure ? 'completed' : 'starting', mode: session.mode, output: '',
+          start_cursor: '0', next_cursor: '0', omitted_characters: 0,
+          ...(session.failure ? { completion: { error: true, exit_code: null, signal: null, reason: session.failure } } : {}),
+        };
+        return { error: false, value: { operation_id: arguments_.operation_id, ...value } };
+      }
+      await session.ready;
+      // DEFENSE: Checkout observation or sandbox preparation can fail before a
+      // writable process session is available to this already accepted call.
+      if (session.failure) return { error: true, value: { error: session.failure } };
+      const { operation_id, ...input } = arguments_;
+      return { error: false, value: { operation_id, ...await session.write(input) } };
+    } catch (error) {
+      // DEFENSE: Live process reads/writes can report invalid cursors, closed
+      // stdin, exited terminals or OS I/O failures without cancelling Bash.
+      return { error: true, value: { error: { code: error.code ?? 'process_io_failed', message: error.message } } };
+    }
+  }
+
   async #perform(effect, signal) {
     if (effect.kind.startsWith('worktree_')) {
       if (effect.kind === 'worktree_archive') {
@@ -342,9 +399,9 @@ export class Service extends EventEmitter {
       } else {
         let result;
         if (effect.tool.source.kind === 'native') {
-          result = await runBash(effect.call.arguments, this.limits, { signal, execution: effect.execution,
-            managedWorktreeRoot: await this.#managedWorktreeRoot(effect.task_id),
-            readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') });
+          result = effect.tool.source.program.kind === 'Process'
+            ? await this.#runProcess(effect, signal)
+            : await this.#processTool(effect);
         } else if (effect.tool.source.plugin) {
           const client = this.#plugins.get(effect.tool.source.plugin.name);
           // DEFENSE: A frozen plugin tool contract can outlive that plugin's configured process.
@@ -820,6 +877,8 @@ export class Service extends EventEmitter {
     if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
     for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));
     settled.push(...await Promise.allSettled([...this.#running.values()].map(active => active.promise)));
+    this.#processSessions.clear();
+    this.#completedProcesses.clear();
     settled.push(...await Promise.allSettled([...this.#providerCancellations]));
     settled.push(...await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close())));
     settled.push(...await Promise.allSettled([this.#catalogTail]));
