@@ -249,7 +249,9 @@ def context_waits(revision: Nat, purpose: D.ContextPurpose, outcome: Result<&2, 
   context_waits_active(D.task_status(task), purpose, revision, outcome, task, world)
 
 def context_wait(outcome: Result<&2, &2, String, +List<D.ContextObservation()>>, task: D.Task, world: M.World()) -> M.Decision():
-  C.Decision{Commands.replace(D.with_phase(D.Ready{Nil{}}, Reasoning.observed_context(outcome, task)), world), acknowledgement(True{}), Nil{}}
+  # Metering may restart after publishing a running process. Preserve the
+  # pending generation even though that publication consumed its notification.
+  C.Decision{Commands.replace(D.notify(D.with_phase(D.Ready{Nil{}}, Reasoning.observed_context(outcome, task))), world), acknowledgement(True{}), Nil{}}
 
 def context_compaction_active(status: D.Status, purpose: D.ContextPurpose, revision: Nat, length: Nat) -> Bool:
   match status purpose:
