@@ -5,6 +5,7 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/stdlib.bend as Std
 import ../../bendlib/categories.bend as Categories
 import ../../harness/DOMAIN.bend as Domain
+import ../../harness/tools/discovery.bend as Discovery
 import ./MODEL.bend as Model
 import ./ACCOUNTS.bend as Account
 import ../../harness/context/MODEL.bend as Context
@@ -895,7 +896,7 @@ def callable_tools(tools: +List<J.Json>, +callable: +List<J.Json>) -> +List<J.Js
     case Con{+item, rest}: callable_tool_entry(contains(callable, J.get(item, "name")), item, callable_tools(rest, callable))
 
 def request_base(+effect: J.Json, profile: J.Json, input: J.Json) -> J.Json:
-  J.Object{Con{J.Field{"model", J.get(J.get(effect, "model"), "name")}, Con{J.Field{"stream", J.Boolean{True{}}}, Con{J.Field{"store", J.Boolean{False{}}}, Con{J.Field{"instructions", choose(independent(J.get(effect, "kind")), J.get(effect, "instructions"), J.Text{""})}, Con{J.Field{"input", input}, Con{J.Field{"reasoning", J.Object{Con{J.Field{"effort", choose(account(profile), effective_effort(effect), request_effort(effect))}, Nil{}}}}, Con{J.Field{"tools", J.Array{Std.map(~J.Json, ~J.Json, ~(item => tool(item)), J.items(J.get(effect, "tools")))}}, Con{J.Field{"parallel_tool_calls", J.Boolean{True{}}}, Con{J.Field{"include", J.Array{Con{J.Text{"reasoning.encrypted_content"}, Nil{}}}}, Con{J.Field{"tool_choice", allowed_tools(effect)}, Nil{}}}}}}}}}}}}
+  J.Object{Con{J.Field{"model", J.get(J.get(effect, "model"), "name")}, Con{J.Field{"stream", J.Boolean{True{}}}, Con{J.Field{"store", J.Boolean{False{}}}, Con{J.Field{"instructions", choose(independent(J.get(effect, "kind")), J.get(effect, "instructions"), J.Text{""})}, Con{J.Field{"input", input}, Con{J.Field{"reasoning", J.Object{Con{J.Field{"effort", choose(account(profile), effective_effort(effect), request_effort(effect))}, Nil{}}}}, Con{J.Field{"tools", J.Array{Std.map(~J.Json, ~J.Json, ~(item => tool(item)), Discovery.presentation_catalog(J.items(J.get(effect, "tools"))))}}, Con{J.Field{"parallel_tool_calls", J.Boolean{True{}}}, Con{J.Field{"include", J.Array{Con{J.Text{"reasoning.encrypted_content"}, Nil{}}}}, Con{J.Field{"tool_choice", allowed_tools(effect)}, Nil{}}}}}}}}}}}}
 
 def account_tools_empty(empty: Bool, tools: +List<J.Json>, +body: J.Json) -> J.Json:
   match empty:
@@ -1562,7 +1563,7 @@ law response_family_identity:
 
 
 law tool_authority_projection:
-  @effect:J.Json -> @profile:J.Json -> @input:J.Json -> {J.get(request_base(effect, profile, input), "tools") == J.Array{Std.map(~J.Json, ~J.Json, ~(item => tool(item)), J.items(J.get(effect, "tools")))} : J.Json}
+  @effect:J.Json -> @profile:J.Json -> @input:J.Json -> {J.get(request_base(effect, profile, input), "tools") == J.Array{Std.map(~J.Json, ~J.Json, ~(item => tool(item)), Discovery.presentation_catalog(J.items(J.get(effect, "tools"))))} : J.Json}
 
 
 

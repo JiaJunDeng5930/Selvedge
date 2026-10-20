@@ -9,6 +9,17 @@ nonempty names and descriptions and a supported schema.
 The default task and process tools are definitions in `catalog`.
 The feature assembly appends its own constructed tools from its command specifications.
 
+[discovery.bend](discovery.bend) observes external definitions in the caller's
+frozen task catalog. `discover_tools` searches names and descriptions, or accepts
+exact public `names` to bypass keywords and pagination. Search and directory
+pages use `limit` and `offset`; exact misses are explicit. Results carry the
+original complete parameter schemas in ordinary committed tool output. Native
+tools remain fully defined. Discovery has no external effect and does not add
+execution rights or a loaded-tools registry. The normal source-specific argument
+validation, availability, hooks and approvals still apply to every invocation.
+A task whose frozen catalog lacks the discovery capability retains its original
+complete definitions. Its production laws are discharged by [discovery-proof.bend](discovery-proof.bend).
+
 For example, a new tool over the existing task observation needs only:
 
 ```bend

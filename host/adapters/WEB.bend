@@ -1,5 +1,6 @@
 import Base
 import ./BACKENDS.bend as Backend
+import ../../harness/tools/discovery.bend as Discovery
 import ../../bendlib/json.bend as J
 import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
@@ -442,15 +443,17 @@ def flat_characters(value: String) -> Bool:
       ((Bool.not(U32.is_lt(code, 65)) && U32.is_lt(code, 91)) || (Bool.not(U32.is_lt(code, 97)) && U32.is_lt(code, 123)) || (Bool.not(U32.is_lt(code, 48)) && U32.is_lt(code, 58)) || U32.is_eq(code, 95) || U32.is_eq(code, 36) || U32.is_eq(code, 46) || U32.is_eq(code, 45)) && flat_characters(rest)
 def flat_name(+value: J.Json) -> Bool:
   nonempty(value) && Nat.is_le(String.length(J.text(value)), 256n) && flat_characters(J.text(value))
-def tool_selected(valid: Bool, item: J.Json, +rest: Result<&2, &2, String, +List<J.Json>>) -> Result<&2, &2, String, +List<J.Json>>:
+def tool_selected(valid: Bool, available: Bool, item: J.Json, +rest: Result<&2, &2, String, +List<J.Json>>) -> Result<&2, &2, String, +List<J.Json>>:
   match valid rest:
     case False{} _: Fail{"ChatGPT Web requires unique flat function names and JSON Schema parameters"}
     case True{} Fail{error}: Fail{error}
-    case True{} Done{rest}: Done{object(field("type", text("function")) <> subset(item, "name" <> "description" <> "parameters" <> Nil{})) <> rest}
-def project_tools(items: +List<J.Json>) -> Result<&2, &2, String, +List<J.Json>>:
+    case True{} Done{rest}: Done{object(field("type", text("function")) <> subset(Backend.tool(Discovery.presented(available, item)), "name" <> "description" <> "parameters" <> Nil{})) <> rest}
+def project_tools_available(items: +List<J.Json>, +available: Bool) -> Result<&2, &2, String, +List<J.Json>>:
   match items:
     case Nil{}: Done{Nil{}}
-    case Con{+item, +rest}: tool_selected(flat_name(get(item, "name")) && Bool.not(contains_name(rest, "name", get(item, "name"))) && J.is_object(get(item, "parameters")), item, project_tools(rest))
+    case Con{+item, +rest}: tool_selected(flat_name(get(item, "name")) && Bool.not(contains_name(rest, "name", get(item, "name"))) && J.is_object(get(item, "parameters")), available, item, project_tools_available(rest, available))
+def project_tools(+items: +List<J.Json>) -> Result<&2, &2, String, +List<J.Json>>:
+  project_tools_available(items, Discovery.discovery_available(items))
 def tools_model(model: Bool, effect: J.Json) -> J.Json:
   match model:
     case False{}: Model.success(J.Array{Nil{}})

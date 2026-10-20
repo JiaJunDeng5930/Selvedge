@@ -195,7 +195,8 @@ test('live reads drain both full pipes and retain the newest valid Unicode with 
     await waitFile(path.join(directory, 'pressure.ready'));
     const observed = value(yield call('read_process', { operation_id: operationId }));
     assert.equal(observed.status, 'running');
-    assert.match(observed.output, /STDOUT-TAIL-🙂界\n$/);
+    // Separate pipes can arrive in either order despite the child's sequenced write callbacks.
+    assert.match(observed.output, /(?:STDOUT|STDERR)-TAIL-🙂界\n$/);
     assert.equal(observed.output.includes('\ufffd'), false);
     assert.ok(Array.from(observed.output).length < 1048576, 'The retained output must be bounded despite pipe pressure');
     assert.ok(observed.omitted_characters > 0);

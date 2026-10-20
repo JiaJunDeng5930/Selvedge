@@ -1,5 +1,6 @@
 import Base
 import ./harness/DOMAIN.bend as D
+import ./harness/tools/discovery-proof.bend as DiscoveryProof
 import ./harness/MODEL.bend as M
 import ./bendlib/json.bend as J
 import ./harness/transport/PROGRAM.bend as Frontend
