@@ -262,4 +262,4 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
     List.append(&2, D.Tool, catalog_entry(Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
       Native.ProcessWrite{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}}))))))))))
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))))))
