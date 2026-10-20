@@ -787,11 +787,7 @@ def collapsed_navigation_agreement(beside: Bool) ->
     case False{}: {==}
 
 def Rule.composer_tree_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
-  match creation_context execution_controls:
-    case Nil{} Nil{}: {==}
-    case Nil{} Con{first, rest}: {==}
-    case Con{first, rest} Nil{}: {==}
-    case Con{first, rest} Con{other, tail}: {==}
+  {==}
 
 def Rule.composer_tree_agreement(view, parent, state):
   match view:
@@ -816,11 +812,9 @@ def Rule.task_environment_control_belongs_to_new_task(editor, parent, state):
 def Rule.cloud_task_voice_waits_for_creation(editor, revision, parent, speech): {==}
 
 def Rule.composer_enclosure_present_agreement(identity, revision, message, phase, creation_context, execution_controls, context, assessment, submit, feedback, pending, parent, state):
-  match creation_context execution_controls:
-    case Nil{} Nil{}: {==}
-    case Nil{} Con{first, rest}: {==}
-    case Con{first, rest} Nil{}: {==}
-    case Con{first, rest} Con{other, tail}: {==}
+  match creation_context:
+    case Nil{}: {==}
+    case Con{first, rest}: {==}
 
 def Rule.composer_enclosure_agreement(view, parent, state):
   match view:
