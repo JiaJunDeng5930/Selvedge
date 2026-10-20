@@ -73,7 +73,7 @@ async function measured(label) {
 }
 await import('node:fs/promises').then(({mkdir}) => mkdir(path.join(root,'.workpad'),{recursive:true}));
 for (const filename of await paths('theories')) if (/\.(vo|vos|vok|glob)$|\/\..*\.aux$/.test(filename)) await rm(path.join(root,filename));
-for (const filename of ['.build/build-state.json','.build/extracted']) await rm(path.join(root,filename),{recursive:true,force:true});
+for (const filename of ['.build/build-state.json','.build/extracted','.lia.cache','.nia.cache']) await rm(path.join(root,filename),{recursive:true,force:true});
 const results = [await measured('clean'), await measured('unchanged')];
 const requested = process.argv.slice(2);
 const changes = requested.length ? requested : ['theories/Browser/Native.v','theories/Kernel/Commands.v','theories/Foundation/Schema.v','theories/Browser/NativeProof.v'];

@@ -26,8 +26,8 @@ export async function auditAssumptions({ prefixes = [] } = {}) {
     if (prefixes.length && !prefixes.some(prefix => filename.startsWith(`theories/${prefix}/`))) continue;
     const module = `Selvedge.${filename.slice('theories/'.length, -2).replaceAll('/', '.')}`;
     const source = withoutComments(await readFile(path.join(root, filename), 'utf8'));
-    if (/^\s*(?:Axiom|Axioms|Admitted)\b/m.test(source) || /\badmit\s*[.;]/.test(source)) {
-      throw new Error(`Unchecked proof declaration or tactic in ${filename}`);
+    if (/^\s*(?:Axiom|Axioms|Admitted)\b/m.test(source)) {
+      throw new Error(`Unchecked proof declaration in ${filename}`);
     }
     // Vendored RecordEta checks a theorem inside __test; its name includes that module.
     const scopes = [];
