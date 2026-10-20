@@ -1,5 +1,6 @@
 import Base
 import ../DOMAIN.bend as D
+import ../conversation/PROGRAM.bend as Content
 import ../../bendlib/json.bend as J
 
 # Search sources retain the existing task summary and its immutable history.
@@ -9,10 +10,21 @@ type Source is Data:
 type Text is Data:
   Text{role: String, text: String}
 
+def provider_speech(assistant: Bool, value: J.Json) -> Maybe<&2, Text>:
+  match assistant:
+    case False{}: None{}
+    case True{}: Some{Text{"assistant", Content.provider_text(value)}}
+
+def provider_readable(kind: Content.ContextKind, +value: J.Json) -> Maybe<&2, Text>:
+  match kind:
+    case Content.SpeechContext{}: provider_speech(Content.provider_assistant(value), value)
+    case _: None{}
+
 def readable(message: D.Message) -> Maybe<&2, Text>:
   match message:
     case D.UserMessage{text}: Some{Text{"user", text}}
     case D.AssistantMessage{origin, text}: Some{Text{"assistant", text}}
+    case D.ModelContext{origin, +value}: provider_readable(Content.provider_kind(value), value)
     case D.SpeechTranscript{owner, session, item, speaker, completion, text}:
       Some{Text{D.speech_speaker_name(speaker), text}}
     case _: None{}

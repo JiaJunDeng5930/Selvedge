@@ -49,6 +49,13 @@ test('HTTP and native agent search retain scoped original message locations acro
   const workA = (await command({ op: 'create_work', name: 'First Work' })).work_id;
   const workB = (await command({ op: 'create_work', name: 'Second Work' })).work_id;
   const records = [];
+  const readable = item => {
+    if (item.role === 'user') return { role: 'user', text: item.content };
+    assert.equal(item.role, 'model_context');
+    assert.equal(item.content.type, 'message');
+    assert.equal(item.content.role, 'assistant');
+    return { role: 'assistant', text: item.content.content.map(part => part.text).join('') };
+  };
   const create = async (label, project_id, work_id) => {
     const message = `${label} user context before. 星河 NeEdLe user match. Context after.`;
     const { task_id } = await command({ op: 'create_work_task', work_id, profile: 'interactive',
@@ -56,8 +63,9 @@ test('HTTP and native agent search retain scoped original message locations acro
     const assistant = `${label} assistant context before. 星河 nEeDlE assistant match. Context after.`;
     const page = await complete(task_id, message, assistant);
     for (const [message_index, item] of page.messages.entries()) {
-      if (item.content === message || item.content === assistant) {
-        records.push({ task_id, message_index, role: item.role, text: item.content, project_id, work_id });
+      if (item.content === message || (item.role === 'model_context' && item.content.type === 'message'
+          && item.content.content[0].text === assistant)) {
+        records.push({ task_id, message_index, ...readable(item), wire_role: item.role, project_id, work_id });
       }
     }
     return task_id;
@@ -87,8 +95,8 @@ test('HTTP and native agent search retain scoped original message locations acro
     assert.equal(typeof hit.after, 'string');
     const original = await command({ op: 'read', task_id: hit.task.id, after: hit.message_index, limit: 1 });
     assert.equal(original.messages.length, 1);
-    assert.equal(original.messages[0].content, source.text);
-    assert.equal(original.messages[0].role, hit.role);
+    assert.equal(original.messages[0].role, source.wire_role);
+    assert.deepEqual(readable(original.messages[0]), { role: hit.role, text: source.text });
   }
   const firstAssistant = all.hits.find(hit => hit.task.id === first && hit.role === 'assistant');
   assert.match(firstAssistant.before, /First conversation user/);

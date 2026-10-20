@@ -4,6 +4,7 @@ import ../COMMANDS.bend as Commands
 import ./MODEL.bend as S
 import ./PROGRAM.bend as Actual
 import ../DOMAIN.bend as D
+import ../conversation/PROGRAM.bend as Content
 import ../../bendlib/json.bend as J
 
 # A rejected project/Work intersection contributes no messages to the result.
@@ -75,3 +76,16 @@ def public_missing_project(+query: String, +project: Maybe<&2, Nat>, +work: Mayb
   {Commands.query(M.Search{query, project, work, after, limit}, world) == D.failure("project_not_found", "The project does not exist") : J.Json}:
   Equal.cong(Bool, J.Json, exists => Commands.search_scoped(exists, Commands.search_work_exists(work, world), query, project, work, after, limit, world),
     Commands.search_project_exists(project, world), False{}, missing)
+
+# Provider messages shown as assistant speech use the same text decoder and
+# retain the original ModelContext record's location in the history scan.
+def visible_provider_speech(+origin: D.OutputOrigin, +value: J.Json,
+  speech: {Content.provider_kind(value) == Content.SpeechContext{} : Content.ContextKind},
+  assistant: {Content.provider_assistant(value) == True{} : Bool}) ->
+  {S.readable(D.ModelContext{origin, value}) == Some{S.Text{"assistant", Content.provider_text(value)}} : Maybe<&2, S.Text>}:
+  Equal.trans(Maybe<&2, S.Text>, S.readable(D.ModelContext{origin, value}),
+    S.provider_readable(Content.SpeechContext{}, value), Some{S.Text{"assistant", Content.provider_text(value)}},
+    Equal.cong(Content.ContextKind, Maybe<&2, S.Text>, kind => S.provider_readable(kind, value),
+      Content.provider_kind(value), Content.SpeechContext{}, speech),
+    Equal.cong(Bool, Maybe<&2, S.Text>, selected => S.provider_speech(selected, value),
+      Content.provider_assistant(value), True{}, assistant))

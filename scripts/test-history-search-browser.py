@@ -38,7 +38,9 @@ def seed(fixture, workspace):
         text = marker if not sources else title + ': 星河 Needle another match.'
         fixture.finish(request, text=text + '\n\nThe nearby sentence preserves the original discussion.')
         page = fixture.idle(created['task_id'])
-        index = next(index for index, message in enumerate(page['messages']) if message.get('content', '').startswith(text))
+        index = next(index for index, message in enumerate(page['messages'])
+                     if message.get('role') == 'model_context' and message['content']['type'] == 'message'
+                     and message['content']['role'] == 'assistant' and message['content']['content'][0]['text'].startswith(text))
         sources.append({'task_id': created['task_id'], 'title': page['task']['title'], 'message_index': index})
     target = sources[0]
     later = 'Continue this conversation with a long later response.'
