@@ -7,3 +7,5 @@ node_modules/
 *.glob
 .*.aux
 _build/
+host/public/generated/
+plugins/selvedge-chatgpt/generated/

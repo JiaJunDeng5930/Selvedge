@@ -38,6 +38,13 @@ interpretation and executable boundary checks. External malformed input is
 rejected by admission functions; dependent internal data does not remove that
 runtime responsibility.
 
+A real JavaScript extraction probe found that retaining Peano naturals made
+ordinary escaped Unicode scalar decoding overflow the stack. Use the mature
+arbitrary-precision natural-number extraction and Zarith JavaScript runtime
+support rather than silently narrowing domain naturals to machine integers.
+Keep that mapping in extraction configuration, with its runtime dependency
+pinned and checked through the public extracted boundary.
+
 Each migration unit owns related data, operations, admission, requirements,
 proofs and its execution entry. Dependencies follow contracts and actual
 reduction requirements. Cross-domain invariants belong to composition modules.

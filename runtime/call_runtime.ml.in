@@ -1,0 +1,10 @@
+open Js_of_ocaml
+module Model = @MODEL@
+module Json = Json_io.Make(Model)
+
+let call operation source =
+  Js.string (Json.stringify (Model.@ENTRY@ (Js.to_string operation) (Json.parse (Js.to_string source))))
+
+let () = Js.Unsafe.set Js.Unsafe.global "@GLOBAL@" (Js.Unsafe.obj [|
+  "call", Js.Unsafe.inject (Js.wrap_callback call)
+|])

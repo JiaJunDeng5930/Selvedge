@@ -1,0 +1,24 @@
+{
+  "name": "selvedge",
+  "private": true,
+  "type": "module",
+  "engines": { "bun": ">=1.4.2" },
+  "scripts": {
+    "build": "bun scripts/build.mjs",
+    "start": "bun run build && bun host/cli.mjs server",
+    "check": "bun scripts/check.mjs",
+    "test": "bun scripts/test.mjs",
+    "bench": "bun scripts/benchmark.mjs",
+    "verify": "bun run check && bun run test"
+  },
+  "dependencies": {
+    "diff": "9.0.0",
+    "gpt-tokenizer": "4.0.0",
+    "impit": "0.14.6",
+    "openid-client": "6.8.8",
+    "ws": "8.22.0"
+  },
+  "devDependencies": { "jose": "6.2.12" },
+  "packageManager": "bun@1.4.2",
+  "workspaces": ["plugins/selvedge-chatgpt", "relay"]
+}

@@ -1,0 +1,10 @@
+import { readdir } from 'node:fs/promises';
+import { build, root } from './build.mjs';
+import { runTestProcess } from './test-process.mjs';
+await build();
+const files = (await readdir(new URL('../tests/', import.meta.url))).filter(name => name.endsWith('.test.mjs')).sort();
+const selected = process.argv.slice(2);
+const tests = selected.length ? files.filter(name => selected.includes(name) || selected.includes(`tests/${name}`)) : files;
+if (!tests.length) throw new Error('No end-to-end tests selected');
+const result = await runTestProcess('Selvedge end-to-end tests', [process.execPath, '--test', ...tests.map(name => `tests/${name}`)], { cwd: root });
+if (result.exitCode !== 0) process.exitCode = result.exitCode || 1;

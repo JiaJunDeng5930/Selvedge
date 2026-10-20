@@ -1,0 +1,13 @@
+{
+  "rocq": "9.2",
+  "metarocq-template": "1.5.1+9.2",
+  "ocaml": "4.14.2",
+  "js_of_ocaml": "6.4.1",
+  "bun": "1.4.2",
+  "zarith": "1.14",
+  "zarith_stubs_js": "v0.16.1",
+  "zarith_stubs_js_sha256": {
+    "biginteger.js": "466141d9f4be50d5f717c89ca8b00d20fb3168bd3df36677368c3fbddbfb884d",
+    "runtime.js": "32438ed6c68a5c08090bf53509098708bb078198c468a26a377b8e677edd687b"
+  }
+}
