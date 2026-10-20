@@ -4,6 +4,7 @@ import ../experience/MODEL.bend as Experience
 import ../experience/ACTIVITY.bend as Activity
 import ./INFORMATION.bend as Information
 import Base
+import ../search/MODEL.bend as Search
 import ../../harness/COMMANDS.bend as Commands
 import ../../harness/tasks/PROGRAM.bend as T
 import ../../harness/MODEL.bend as M
@@ -105,7 +106,7 @@ law global_navigation_layer_uses_existing_modal_dismissal:
 
 law global_destinations_retain_existing_route_inputs:
   {View.global_destinations() ==
-    [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})] : +List<V.ControlDeclaration>}
+    [View.control("history-search", "搜索对话", U.Navigate{U.HistorySearch{Search.initial()}}), View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})] : +List<V.ControlDeclaration>}
 
 law global_menu_entry_preserves_command_and_current_route_selection:
   @+route:U.Route -> @+parent:Identity.Key -> @+identity:String -> @+label:String -> @+prominence:V.Prominence -> @+input:U.Input -> @+availability:V.Availability -> @+state:InteractionTypes.State ->
@@ -698,19 +699,19 @@ def navigation_create_control(navigation: V.Navigation) -> V.ControlDeclaration:
 def navigation_board_control(navigation: V.Navigation) -> Maybe<&2, V.ControlDeclaration>:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   match destinations:
-    case Con{board, rest}: Some{board}
-    case Nil{}: None{}
+    case Con{search, Con{board, rest}}: Some{board}
+    case _: None{}
 
 def navigation_projects_control(navigation: V.Navigation) -> Maybe<&2, V.ControlDeclaration>:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   match destinations:
-    case Con{board, Con{collection, rest}}: Some{collection}
+    case Con{search, Con{board, Con{collection, rest}}}: Some{collection}
     case _: None{}
 
 def navigation_agents_control(navigation: V.Navigation) -> Maybe<&2, V.ControlDeclaration>:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   match destinations:
-    case Con{board, Con{collection, Con{agents, rest}}}: Some{agents}
+    case Con{search, Con{board, Con{collection, Con{agents, rest}}}}: Some{agents}
     case _: None{}
 
 def selected_control(found: Maybe<&2, V.ControlDeclaration>, route: U.Route) -> Bool:
@@ -730,7 +731,7 @@ def agents_navigation_selected(+route: U.Route, +world: M.World(), +session: E.S
 def navigation_task_graphs_control(navigation: V.Navigation) -> Maybe<&2, V.ControlDeclaration>:
   V.Navigation{expanded, create, destinations, projects, tasks, toggle} = navigation
   match destinations:
-    case Con{board, Con{collection, Con{agents, Con{graphs, rest}}}}: Some{graphs}
+    case Con{search, Con{board, Con{collection, Con{agents, Con{graphs, rest}}}}}: Some{graphs}
     case _: None{}
 
 def task_graphs_navigation_selected(+route: U.Route, +world: M.World(), +session: E.Session) -> Bool:
@@ -1665,7 +1666,7 @@ type ProjectInteractionRequirements is Type:
           Model.disclosed_tasks(expanded, tasks, Identity.Entity{parent, "project", Nat.show(id)}, state)}] : +List<SurfaceTypes.Node>},
     independent_source: @+expanded:Bool -> @+route:U.Route -> @+world:M.World() -> @+session:E.Session ->
       {View.navigation(expanded, route, world, session) == V.Navigation{expanded, View.control("new-task", "新建对话", U.BeginTask{None{}}),
-        [View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
+        [View.control("history-search", "搜索对话", U.Navigate{U.HistorySearch{Search.initial()}}), View.control("board", "任务看板", U.Navigate{U.TaskBoard{}}), View.control("projects", "项目", U.Navigate{U.ProjectCollection{}}), View.control("agents", "智能体", U.Navigate{U.AgentCollection{}}), View.control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})],
         View.named_projects(View.navigation_projects(Projects.entries(Projects.registry(F.State(), world)), View.work_tasks(Commands.entries(world), E.active_work(session), world), route, View.active_project(route, session, world), E.navigation(session), E.active_work(session)), world), View.named_trees(View.task_forest(View.project_tasks(View.work_tasks(Commands.entries(world), E.active_work(session), world), None{}), route), world),
         V.ControlDeclaration{"navigation/toggle", View.task_navigation_toggle_label(expanded), V.Secondary{}, U.SetNavigation{Bool.not(expanded)}, V.Available{}}} : V.Navigation},
     navigation_entry_fields: @+key:Identity.Key -> @+semantic:String -> @+label:String -> @role:SurfaceTypes.Role -> @+meaning:SurfaceTypes.Meaning -> @+children:+List<SurfaceTypes.Node> -> @+selected:Bool ->
@@ -3046,3 +3047,20 @@ law side_conversation_has_its_own_reading_and_composer_context:
       List.append(&2, SurfaceTypes.Node, Model.conversation_timeline(id, groups, live, previews, Identity.Entity{parent, "task", Nat.show(id)}, state),
         List.append(&2, SurfaceTypes.Node, Model.latest(latest, Identity.Entity{parent, "task", Nat.show(id)}, state),
           List.append(&2, SurfaceTypes.Node, Model.approval_queue(decisions, Identity.Entity{parent, "task", Nat.show(id)}, state), Model.composer(input, Identity.Entity{parent, "task", Nat.show(id)}, state))))}] : +List<SurfaceTypes.Node>}
+
+
+law history_keyword_binding_edits_the_shared_form:
+  @query:String -> @+next:String ->
+  {Model.bind(SurfaceTypes.HistorySearchQuery{query}, SurfaceTypes.Search{next}) ==
+    Some{InteractionTypes.ApplicationInput{E.UserInput{U.WriteHistoryQuery{next}}}} : Maybe<&2, InteractionTypes.Input>}
+
+law history_scope_binding_retains_the_filter_dimension:
+  @+project:Bool -> @value:String -> @choices:+List<Search.Choice> -> @+next:String ->
+  {Model.bind(SurfaceTypes.HistorySearchScope{project, value, choices}, SurfaceTypes.Change{Forms.Text{next}}) ==
+    Some{InteractionTypes.ApplicationInput{E.UserInput{U.ChooseHistoryScope{project, next}}}} : Maybe<&2, InteractionTypes.Input>}
+
+
+law history_keyword_confirmation_submits_the_same_query:
+  @query:String ->
+  {Model.bind(SurfaceTypes.HistorySearchQuery{query}, SurfaceTypes.Press{}) ==
+    Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SubmitHistorySearch{0n}}}}} : Maybe<&2, InteractionTypes.Input>}

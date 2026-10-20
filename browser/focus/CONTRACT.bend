@@ -291,6 +291,8 @@ def required_focusable(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.Edit{editor, field, Forms.FileCollection{}, value, choices}: False{}
     case SurfaceTypes.Edit{editor, field, Forms.DirectoryCollection{}, value, choices}: False{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
+    case SurfaceTypes.HistorySearchQuery{query}: True{}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
     case SurfaceTypes.BoardSearch{filter}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: enabled

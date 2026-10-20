@@ -4,6 +4,7 @@ import ../../interaction/experience/MODEL.bend as UXTypes
 import ../../interaction/presentation/INFORMATION.bend as Information
 import ./SURFACES.bend as Surfaces
 import Base
+import ../../interaction/search/MODEL.bend as Search
 import ../../bendlib/categories.bend as Categories
 import ../../interaction/IDENTITY.bend as UIIdentity
 import ../document/SOURCE.bend as Source
@@ -107,6 +108,8 @@ def node_value(value: SurfaceTypes.Meaning) -> String:
       Bool.pick(String, String.eq(tag, "slider") || String.eq(tag, "select") || String.eq(tag, "checkbox"), InteractiveSyntax.scalar_text(canonical), raw)
     case SurfaceTypes.Edit{editor, field, entry, observed_value, choices}: field_text(field, observed_value)
     case SurfaceTypes.BoardSearch{filter}: filter_search(filter)
+    case SurfaceTypes.HistorySearchQuery{query}: query
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: value
     case SurfaceTypes.SearchChoices{query}: query
     case SurfaceTypes.EnterDirectory{editor, text}: text
     case SurfaceTypes.DirectoryBrowserLocation{value}: value
@@ -397,9 +400,16 @@ def interactive_choices(options: +List<String>, +selected: String) -> +List<Sour
     case Con{+option, rest}: Source.Choice{option, option, String.eq(option, selected)} <> interactive_choices(rest, selected)
 
 
+
+def history_scope_choices(values: +List<Search.Choice>, +selected: String) -> +List<Source.Choice>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{Search.Choice{+value, label}, rest}: Source.Choice{value, label, String.eq(value, selected)} <> history_scope_choices(rest, selected)
+
 def choices(value: SurfaceTypes.Meaning) -> +List<Source.Choice>:
   match value:
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, Interactive.StateSchema{kind, initial, minimum, maximum, step, options, max_length}, raw, canonical, validation, enabled}, children}}: interactive_choices(options, J.text(canonical))
+    case SurfaceTypes.HistorySearchScope{project, selected, choices}: history_scope_choices(choices, selected)
     case SurfaceTypes.BoardProfile{automatic, selected, profiles, enabled}: option_values(FieldOptions.profile_options(profiles), selected)
     case SurfaceTypes.Edit{editor, field, entry, observed, options}: option_values(options, field_text(field, observed))
     case _: Nil{}
@@ -413,6 +423,7 @@ def field_placeholder(kind: EditorLayout.FieldKind, name: String) -> String:
 
 def semantic_placeholder(value: SurfaceTypes.Meaning, name: String) -> String:
   match value:
+    case SurfaceTypes.HistorySearchQuery{query}: "关键词"
     case SurfaceTypes.BoardSearch{filter}: "搜索任务"
     case SurfaceTypes.SearchChoices{query}: name
     case SurfaceTypes.Edit{editor, Forms.CardLabels{}, entry, observed, choices}: "每行一个标签"
@@ -476,6 +487,11 @@ def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List
   match value:
     case Controls.DirectoryChooser{face}: [Doc.ConfirmText{UIIdentity.encode(key)}]
     case _: Nil{}
+
+def field_confirmation_events(meaning: SurfaceTypes.Meaning, +widget: Controls.Widget, +key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
+  match meaning:
+    case SurfaceTypes.HistorySearchQuery{query}: [Doc.ConfirmText{UIIdentity.encode(key)}]
+    case _: field_remaining_events(widget, key)
 
 def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Design.LayoutParameters) -> Nat:
   match value:
@@ -607,7 +623,7 @@ def native_input_request(+key: UIIdentity.Key, +input: Controls.FormInput, +visu
   Controls.FormInput{+meaning, +name, +widget, label, availability} = input
   InputFieldRequest{FieldBinding{key, expected_input_attributes(key, input)},
     FieldContent{field_kind(widget), Factory.style(visual, input_width(widget, visual, parameters), input_height_for(meaning, widget, visual), Model.Confined{}), node_value(meaning), placeholder(widget, meaning, name), choices(meaning), input_policy_for(meaning, widget, visual, parameters), name},
-    FieldProtocol{enabled(availability), field_input_event(meaning, widget, key), field_remaining_events(widget, key)}}
+    FieldProtocol{enabled(availability), field_input_event(meaning, widget, key), field_confirmation_events(meaning, widget, key)}}
 
 def interpret_input_field(label: Controls.LabelPlacement, key: UIIdentity.Key, name: String, visual: Design.Style, request: InputFieldRequest) -> Source.Node:
   InputFieldRequest{binding, content, protocol} = request

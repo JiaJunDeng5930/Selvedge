@@ -1,6 +1,7 @@
 import ../experience/PROGRAM.bend as UX
 import ../experience/MODEL.bend as Experience
 import Base
+import ../search/MODEL.bend as Search
 import ../../features/titles/STATE.bend as TitleState
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
@@ -714,7 +715,7 @@ def compact_task_navigation_toggle_label(expanded: Bool) -> String:
     case False{}: "Open Task list"
 
 def global_destinations() -> +List<ViewTypes.ControlDeclaration>:
-  [control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}}), control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})]
+  [control("history-search", "搜索对话", U.Navigate{U.HistorySearch{Search.initial()}}), control("board", "任务看板", U.Navigate{U.TaskBoard{}}), control("projects", "项目", U.Navigate{U.ProjectCollection{}}), control("agents", "智能体", U.Navigate{U.AgentCollection{}}), control("task-graphs", "Task graphs", U.Navigate{U.TaskGraphs{}})]
 
 def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.Session) -> ViewTypes.Navigation:
   +nav = E.navigation(session)
@@ -941,6 +942,17 @@ def work_graph_scenes(graphs: +List<Finite.Entry(G.Graph)>, route: U.Route, worl
     case None{}: task_graph_scenes(graphs, route, world)
     case Some{owner}: scoped_graph_scenes(graphs, route, world, owner)
 
+
+def history_projects(values: +List<Finite.Entry(D.Project)>) -> +List<Search.Choice>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{(id, D.Project{name, workspace, guidance, create_worktree}), rest}: Search.Choice{Nat.show(id), name} <> history_projects(rest)
+
+def history_works(values: +List<Finite.Entry(Work.Work)>) -> +List<Search.Choice>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{(id, work), rest}: Search.Choice{Nat.show(id), Work.name(work)} <> history_works(rest)
+
 def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.Page:
   match route:
     case U.Start{}: ViewTypes.StartPage{composer(E.creation_editor(session), session, world)}
@@ -952,6 +964,7 @@ def page(+route: U.Route, +session: E.Session, +world: M.World()) -> ViewTypes.P
       now = E.now(session)
       board_page(Board.registry(world), filter, route, now, world)
     case U.AgentCollection{}: ViewTypes.AgentsPage{agent_scenes(agents(Board.registry(world)), world), control("agent/new", "New agent", U.EditAgent{None{}})}
+    case U.HistorySearch{search}: ViewTypes.HistorySearchPage{search, history_projects(Projects.entries(Projects.registry(F.State(), world))), history_works(Work.works(WorkState.registry(world)))}
     case U.TaskGraphs{}: ViewTypes.TaskGraphsPage{work_graph_scenes(G.graphs(GraphState.registry(world)), route, world, E.active_work(session)), control("task-graph/new", "New task graph", U.EditTaskGraph{None{}})}
 
 def task_menu(actions: ViewTypes.TaskActions) -> +List<ViewTypes.ControlDeclaration>:
@@ -1261,6 +1274,7 @@ def page_composition(page: ViewTypes.Page) -> Composition.Page:
     case ViewTypes.BoardPage{filter, columns, create, working, settings, filters, archive}: Composition.TaskBoard{}
     case ViewTypes.AgentsPage{agents, create}: Composition.AgentCollection{}
     case ViewTypes.TaskGraphsPage{graphs, create}: Composition.TaskGraphCollection{}
+    case ViewTypes.HistorySearchPage{search, projects, works}: Composition.ProjectCollection{}
     case ViewTypes.MissingObject{message}: Composition.Unavailable{}
 
 def arrangement(beside: Bool, expanded: Bool) -> ViewTypes.Arrangement:

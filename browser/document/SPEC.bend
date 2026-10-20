@@ -74,6 +74,8 @@ def interactive(meaning: SurfaceTypes.Meaning) -> Bool:
     case SurfaceTypes.PanelToggle{expanded, input, availability}: True{}
     case SurfaceTypes.Choice{kind, icon, selected, description, input, availability}: True{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: field_control(entry)
+    case SurfaceTypes.HistorySearchQuery{query}: True{}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
     case SurfaceTypes.BoardSearch{filter}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: True{}

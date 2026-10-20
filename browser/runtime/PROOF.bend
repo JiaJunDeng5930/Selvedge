@@ -1023,6 +1023,8 @@ def native_checked_requirement(meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.Activate{input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: native_edit_checked_requirement(field, value, editor, entry, choices)
     case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
@@ -1077,6 +1079,8 @@ def native_value_requirement(meaning: SurfaceTypes.Meaning) ->
     case SurfaceTypes.Activate{input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: native_edit_value_requirement(value, field)
     case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
@@ -1143,6 +1147,8 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.DirectoryBrowserLocation{left_value} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
@@ -1208,6 +1214,8 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.BoardSearch{left_filter} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
@@ -1266,6 +1274,8 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{left_identity, left_occurrence, left_tag, left_attrs, Interactive.FieldBinding{left_state_id, left_schema, left_raw, left_canonical, left_validation, left_enabled}, left_children}} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
@@ -1317,57 +1327,161 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.Edit{left_editor, left_field, left_entry, left_value, left_choices} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.SettingEntry{right_subject, right_value, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.SettingEntry{right_subject, right_value, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.SettingEntry{right_subject, right_value, right_input, right_availability}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActivityRow{right_role}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActivityRow{right_role}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActivityRow{right_role}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActivityGroup{right_activity, right_dismiss, right_outside, right_escape}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActivityGroup{right_activity, right_dismiss, right_outside, right_escape}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActivityGroup{right_activity, right_dismiss, right_outside, right_escape}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.DecisionGroup{right_decision}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.DecisionGroup{right_decision}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.DecisionGroup{right_decision}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.WorkspaceCollection{right_collection}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.WorkspaceCollection{right_collection}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.WorkspaceCollection{right_collection}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.WorkspaceMember{right_collection, right_path}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.WorkspaceMember{right_collection, right_path}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.WorkspaceMember{right_collection, right_path}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActionUnit{right_action}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActionUnit{right_action}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActionUnit{right_action}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActionFeedback{right_feedback}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActionFeedback{right_feedback}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActionFeedback{right_feedback}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActionExplanation{right_assessment}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActionExplanation{right_assessment}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActionExplanation{right_assessment}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActionCommit{right_assessment, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActionCommit{right_assessment, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActionCommit{right_assessment, right_input, right_availability}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ObjectGroup{right_object}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ObjectGroup{right_object}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ObjectGroup{right_object}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.SupportingControl{right_support, right_property, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.SupportingControl{right_support, right_property, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.SupportingControl{right_support, right_property, right_input, right_availability}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.InformationText{right_role}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.InformationText{right_role}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.InformationText{right_role}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.LayerRegion{right_dismiss, right_outside, right_escape}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.LayerRegion{right_dismiss, right_outside, right_escape}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.LayerRegion{right_dismiss, right_outside, right_escape}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.DirectoryBrowserLocation{right_value}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.DirectoryBrowserLocation{right_value}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.DirectoryBrowserLocation{right_value}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.PanelToggle{right_expanded, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.PanelToggle{right_expanded, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.PanelToggle{right_expanded, right_input, right_availability}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.CardContent{right_face}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.CardContent{right_face}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.CardContent{right_face}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.MovableCard{right_destinations, right_face}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.MovableCard{right_destinations, right_face}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.MovableCard{right_destinations, right_face}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.Region{}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.Region{}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.Region{}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.PageContext{right_conversation}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.PageContext{right_conversation}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.PageContext{right_conversation}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ActivityContent{right_expanded, right_audit}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ProjectGroup{right_project, right_selected, right_expanded}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.TaskRow{right_task, right_status, right_selected}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.TaskChildren{right_task}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.TaskChildren{right_task}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.TaskChildren{right_task}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ProjectChooser{right_selected}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ProjectChooser{right_selected}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ProjectChooser{right_selected}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.DirectoryRow{right_path, right_primary}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ContextSummary{right_observation}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ContextSummary{right_observation}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ContextSummary{right_observation}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ChoiceGroup{}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ChoiceGroup{}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ChoiceGroup{}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.Choice{right_kind, right_classification, right_selected, right_description, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.Choice{right_kind, right_classification, right_selected, right_description, right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.Choice{right_kind, right_classification, right_selected, right_description, right_input, right_availability}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.PageRegion{right_region, right_position}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.PageRegion{right_region, right_position}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.PageRegion{right_region, right_position}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.BoardLane{right_stage, right_count}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.BoardLane{right_stage, right_count}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.BoardLane{right_stage, right_count}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.CardArchive{right_count}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.CardArchive{right_count}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.CardArchive{right_count}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.BoardSearch{right_filter}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.BoardSearch{right_filter}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.BoardSearch{right_filter}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.BoardGroup{right_grouping}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.BoardGroup{right_grouping}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.BoardGroup{right_grouping}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ReadOnly{right_text}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ReadOnly{right_text}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ReadOnly{right_text}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.Fact{right_value}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.Fact{right_value}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.Fact{right_value}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.RichText{right_source, right_value}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.RichText{right_source, right_value}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.RichText{right_source, right_value}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.TaskFacts{right_details}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.TaskFacts{right_details}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.TaskFacts{right_details}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.CodeFacts{right_view}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.CodeFacts{right_view}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.CodeFacts{right_view}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.InteractiveRegion{right_identity, right_source_visible}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.InteractiveRegion{right_identity, right_source_visible}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.InteractiveRegion{right_identity, right_source_visible}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.InteractiveNode{right_node}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.InteractiveNode{right_node}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.InteractiveNode{right_node}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.InteractiveView{right_event, right_command, right_label, right_enabled}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.InteractiveView{right_event, right_command, right_label, right_enabled}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.InteractiveView{right_event, right_command, right_label, right_enabled}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.Activate{right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.Activate{right_input, right_availability}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.HistorySearchScope{scope_1, right_query, choices_1}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.HistorySearchScope{scope_1, right_query, choices_1}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.HistorySearchScope{scope_1, right_query, choices_1}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.SearchChoices{left_query} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
+    case SurfaceTypes.HistorySearchQuery{left_query} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, left_query, choices_0} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.SettingEntry{right_subject, right_value, right_input, right_availability}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ActivityRow{right_role}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ActivityGroup{right_activity, right_dismiss, right_outside, right_escape}: {==}
@@ -1413,6 +1527,8 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.ReceiveFile{left_editor, left_enabled} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
@@ -1461,6 +1577,8 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.EnterDirectory{left_editor, left_text} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
@@ -1509,6 +1627,8 @@ def native_binding_requirement(original: SurfaceTypes.Meaning, current: SurfaceT
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.Activate{right_input, right_availability}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.Edit{right_editor, right_field, right_entry, right_value, right_choices}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.SearchChoices{right_query}: {==}
+    case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.HistorySearchQuery{right_query}: {==}
+    case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.HistorySearchScope{scope_0, right_query, choices_0}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.ReceiveFile{right_editor, right_enabled}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.EnterDirectory{right_editor, right_text}: {==}
     case SurfaceTypes.BoardProfile{left_automatic, left_selected, left_choices, left_enabled} SurfaceTypes.BoardProfile{right_automatic, right_selected, right_choices, right_enabled}: {==}
@@ -2639,6 +2759,8 @@ def dismiss_meaning_requirement(meaning: SurfaceTypes.Meaning, key: UIIdentity.K
     case SurfaceTypes.Activate{input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
@@ -3474,6 +3596,7 @@ def refresh_io_meaning(+effect: E.Effect, +origin: String, +state: Browser.State
     case E.ContentEffect{identity, value}: {==}
     case E.ObserveWorkspaceGit{ticket, primary}: {==}
     case E.ObserveDirectories{ticket, entered}: {==}
+    case E.LocateHistoryMessage{task, message_index}: {==}
     case E.Attend{target}: {==}
     case E.PersistModelPreference{profile, reasoning}: {==}
     case E.InteractiveEffect{value}: {==}
@@ -4232,6 +4355,8 @@ def Rule.action_binding_updates_complete(key, found, pending, owned):
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.Activate{meaning_input, meaning_availability}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.Edit{meaning_editor, meaning_field, meaning_entry, meaning_value, meaning_choices}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.SearchChoices{meaning_query}, nested}}: {==}
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.HistorySearchQuery{meaning_query}, nested}}: {==}
+    case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.HistorySearchScope{scope_0, meaning_query, choices_0}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.ReceiveFile{meaning_editor, meaning_enabled}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.EnterDirectory{meaning_editor, meaning_text}, nested}}: {==}
     case Some{SurfaceTypes.Node{identity, semantic, label, role, SurfaceTypes.BoardProfile{meaning_automatic, meaning_selected, meaning_choices, meaning_enabled}, nested}}: {==}
@@ -4425,6 +4550,8 @@ def interactive_event_requirement(found: Maybe<&2, SurfaceTypes.Node>) ->
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Activate{meaning_input, meaning_availability}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.Edit{meaning_editor, meaning_field, meaning_entry, meaning_value, meaning_choices}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.SearchChoices{meaning_query}, nested}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchQuery{meaning_query}, nested}}: {==}
+    case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.HistorySearchScope{scope_0, meaning_query, choices_0}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.ReceiveFile{meaning_editor, meaning_enabled}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.EnterDirectory{meaning_editor, meaning_text}, nested}}: {==}
     case Some{SurfaceTypes.Node{key, semantic, label, role, SurfaceTypes.BoardProfile{meaning_automatic, meaning_selected, meaning_choices, meaning_enabled}, nested}}: {==}
@@ -4540,6 +4667,8 @@ def Rule.action_update_complete(node, current, pending):
     case SurfaceTypes.Activate{input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}
@@ -4642,6 +4771,8 @@ def native_named_action_complete(+node: SurfaceTypes.Node, +current: +List<Surfa
     case SurfaceTypes.Activate{input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}

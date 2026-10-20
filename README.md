@@ -16,6 +16,13 @@ sends its new content to the parent; later returns send only later content.
 Side instructions and tracked parent status updates are excluded. The existing
 `read_task` tool can inspect the parent, or any other Task, by ID.
 
+**搜索对话** finds user and assistant messages across Tasks, with
+optional Project and Work filters. Results show the Task, a matching excerpt and
+nearby conversation text; selecting a result opens the original message. Agents
+use the same `search_history` query with `query`, optional `project_id` and
+`work_id`, and `after`/`limit` pagination. A result's `message_index` is the
+original history offset accepted by `read_task`'s `after` parameter.
+
 Type `@` in a new Task or conversation message to search available skills by
 name or description. Select with the arrow keys and Enter or Tab, or click a
 result; Escape dismisses the list. Selection inserts a Markdown reference to the

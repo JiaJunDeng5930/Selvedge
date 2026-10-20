@@ -393,6 +393,8 @@ def experience_source(+capacity: Nat, +key: UIIdentity.Key, +label: String, +rol
     case SurfaceTypes.SettingEntry{subject, value, input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{scope_0, query, choices_0}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
     case SurfaceTypes.BoardProfile{automatic, selected, choices, enabled}: {==}

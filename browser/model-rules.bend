@@ -10,6 +10,17 @@ import ./runtime/PLATFORM.bend as Platform
 import ./focus/MODEL.bend as Focus
 import ../interaction/presentation/SURFACE.bend as SurfaceTypes
 import ../interaction/TYPES.bend as InteractionTypes
+import ../interaction/STATE.bend as Core
+import ../interaction/session/MODEL.bend as E
+import ./reading/MODEL.bend as Reading
+
+law history_message_location:
+  for +task: Nat
+  for message_index: Nat
+  for application: E.Application
+  {Model.history_location_effects([E.LocateHistoryMessage{task, message_index}], application) ==
+    [Model.PlatformEffect{Platform.ApplyReading{task,
+      E.reader_generation(E.reader(E.readers(E.session(application)), task)), Reading.LocateMessage{message_index}}}] : +List<Model.Effect>}
 
 law resolved_scope_focus:
   for +ticket: Nat
@@ -175,10 +186,11 @@ def delivered_effects(effects: +List<Platform.Effect>, +surface: SurfaceTypes.Su
 
 def committed_decision(decision: Platform.Decision, +generation: Nat, +environment: Design.Environment, +font: F.State) -> Model.Decision:
   Platform.Decision{+product, platform, +source} = decision
-  InteractionTypes.Decision{core, reply, runtime, interaction, services, durable} = product
+  InteractionTypes.Decision{+core, reply, runtime, interaction, services, durable} = product
   +next: Model.State = Model.State{Platform.State{core, platform}, generation,
     Rendered.AwaitingFrame{generation}, environment, F.retag(font, generation)}
-  Model.Decision{next, product, delivered_effects(source, Model.observed_surface(next))}
+  Model.Decision{next, product, List.append(&2, Model.Effect,
+    delivered_effects(source, Model.observed_surface(next)), Model.history_location_effects(interaction, Core.application(core)))}
 
 law production_commit_complete:
   for +decision: Platform.Decision

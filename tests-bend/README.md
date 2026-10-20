@@ -101,6 +101,18 @@ It checks local dismissal, explicit return delivery through the running parent's
 queue, provider encoding of filtered records, and the return cursor after SQLite
 reopen. Side snapshot and filtering semantics remain production proof obligations.
 
+`history-search.test.mjs` follows original message locations through HTTP, an actual
+native agent tool call and SQLite reopen. After the production build, its companion
+Chromium check searches conversations and clicks a result to scroll to the original
+message:
+
+```sh
+BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium python3 scripts/test-history-search-browser.py
+```
+
+It reuses the temporary model HTTP fixture, requires Python Playwright and saves
+browser evidence under `.workpad/history-search-browser-results`.
+
 Use Bun 1.4.2 or later and the pinned Bend toolchain installed by
 `bash scripts/bootstrap.sh`:
 

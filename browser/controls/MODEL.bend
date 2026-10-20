@@ -133,15 +133,15 @@ def role_name(+value: SurfaceTypes.Role) -> String:
     case SurfaceTypes.Section{}: "section"
     case _: "content"
 
-def reading_attributes(+role: SurfaceTypes.Role, +key: UIIdentity.Key) -> +List<Source.Attribute>:
+def reading_attributes(+role: SurfaceTypes.Role, +key: UIIdentity.Key, +semantic: String) -> +List<Source.Attribute>:
   match role:
-    case SurfaceTypes.UserMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
-    case SurfaceTypes.AssistantMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
+    case SurfaceTypes.UserMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}, Source.DataAttribute{"message-index", String.drop(semantic, 8n)}]
+    case SurfaceTypes.AssistantMessage{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}, Source.DataAttribute{"message-index", String.drop(semantic, 8n)}]
     case SurfaceTypes.Activity{}: [Source.DataAttribute{"reading-key", UIIdentity.encode(key)}]
     case _: Nil{}
 
 def attributes(+key: UIIdentity.Key, +semantic: String, +role: SurfaceTypes.Role) -> +List<Source.Attribute>:
-  List.append(&2, Source.Attribute, [Source.DataAttribute{"native-key", UIIdentity.encode(key)}, Source.DataAttribute{"region", role_name(role)}, Source.DataAttribute{"semantic", semantic}], reading_attributes(role, key))
+  List.append(&2, Source.Attribute, [Source.DataAttribute{"native-key", UIIdentity.encode(key)}, Source.DataAttribute{"region", role_name(role)}, Source.DataAttribute{"semantic", semantic}], reading_attributes(role, key, semantic))
 
 # Observation identity belongs to the source node receiving the decoration.
 

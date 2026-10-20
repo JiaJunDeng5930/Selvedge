@@ -1,3 +1,4 @@
+import ./search/PROOF.bend as SearchProof
 import ./conversation/speech-proof.bend as SpeechProof
 import Base
 import ./tools/discovery-proof.bend as DiscoveryProof

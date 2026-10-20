@@ -73,6 +73,8 @@ def same_meaning(original: SurfaceTypes.Meaning, current: SurfaceTypes.Meaning) 
     case SurfaceTypes.Edit{editor, field, entry, value, choices} SurfaceTypes.Edit{other, new_field, new_entry, new_value, new_choices}: U.same_editor(editor, other)
     case SurfaceTypes.EnterDirectory{editor, text} SurfaceTypes.EnterDirectory{other, new_text}: U.same_editor(editor, other)
     case SurfaceTypes.ReceiveFile{editor, enabled} SurfaceTypes.ReceiveFile{other, new_enabled}: U.same_editor(editor, other)
+    case SurfaceTypes.HistorySearchQuery{query} SurfaceTypes.HistorySearchQuery{new_query}: True{}
+    case SurfaceTypes.HistorySearchScope{+project, value, choices} SurfaceTypes.HistorySearchScope{+new_project, new_value, new_choices}: (project && new_project) || (Bool.not(project) && Bool.not(new_project))
     case SurfaceTypes.SearchChoices{query} SurfaceTypes.SearchChoices{new_query}: True{}
     case SurfaceTypes.BoardSearch{filter} SurfaceTypes.BoardSearch{new_filter}: True{}
     case SurfaceTypes.DirectoryBrowserLocation{value} SurfaceTypes.DirectoryBrowserLocation{new_value}: True{}
@@ -156,6 +158,8 @@ def editing(meaning: SurfaceTypes.Meaning) -> Bool:
   match meaning:
     case SurfaceTypes.InteractiveNode{Interactive.ExpandedNode{identity, occurrence, tag, attrs, Interactive.FieldBinding{state_id, schema, raw, canonical, validation, enabled}, children}}: True{}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: True{}
+    case SurfaceTypes.HistorySearchQuery{query}: True{}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: True{}
     case SurfaceTypes.SearchChoices{query}: True{}
     case SurfaceTypes.ReceiveFile{editor, enabled}: True{}
     case SurfaceTypes.EnterDirectory{editor, text}: True{}

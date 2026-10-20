@@ -200,6 +200,8 @@ def navigation_region_meaning_binding(+key: UIIdentity.Key, +owner: UIIdentity.K
     case SurfaceTypes.CodeFacts{view}: {==}
     case SurfaceTypes.Activate{input, availability}: {==}
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
     case SurfaceTypes.EnterDirectory{editor, text}: {==}
@@ -286,6 +288,8 @@ def representation_retains_binding(+key: UIIdentity.Key, +meaning: SurfaceTypes.
         case Forms.PositiveInteger{}: {==}
         case Forms.DirectoryCollection{}: {==}
         case Forms.FileCollection{}: {==}
+    case SurfaceTypes.HistorySearchQuery{query}: {==}
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: {==}
     case SurfaceTypes.SearchChoices{query}: {==}
     case SurfaceTypes.BoardSearch{filter}: {==}
     case SurfaceTypes.ReceiveFile{editor, enabled}: {==}
@@ -1964,6 +1968,8 @@ def native_textarea_policy_correspondence(+meaning: SurfaceTypes.Meaning, +fallb
     case SurfaceTypes.InteractiveView{event, command, label, enabled}: selected_textarea_policy_correspondence(False{}, fallback)
     case SurfaceTypes.Activate{input, availability}: selected_textarea_policy_correspondence(False{}, fallback)
     case SurfaceTypes.Edit{editor, field, entry, value, choices}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.HistorySearchQuery{query}: selected_textarea_policy_correspondence(False{}, fallback)
+    case SurfaceTypes.HistorySearchScope{project, value, choices}: selected_textarea_policy_correspondence(False{}, fallback)
     case SurfaceTypes.SearchChoices{query}: selected_textarea_policy_correspondence(False{}, fallback)
     case SurfaceTypes.ReceiveFile{editor, enabled}: selected_textarea_policy_correspondence(False{}, fallback)
     case SurfaceTypes.EnterDirectory{editor, text}: selected_textarea_policy_correspondence(False{}, fallback)

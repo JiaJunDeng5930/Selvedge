@@ -338,6 +338,7 @@ def page_sequence(+page: V.Page, +parent: Identity.Key, +state: InteractionTypes
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
     case V.TaskGraphsPage{graphs, create}: {==}
+    case V.HistorySearchPage{search, projects, works}: {==}
     case V.MissingObject{message}: {==}
 
 def page_only_regions(+page: V.Page, +parent: Identity.Key, +state: InteractionTypes.State) ->
@@ -362,6 +363,7 @@ def page_only_regions(+page: V.Page, +parent: Identity.Key, +state: InteractionT
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
     case V.TaskGraphsPage{graphs, create}: {==}
+    case V.HistorySearchPage{search, projects, works}: {==}
     case V.MissingObject{message}: {==}
 
 def task_reading(+value: V.TaskScene, +parent: Identity.Key, +state: InteractionTypes.State) -> Rule.task_reading(value, parent, state):
@@ -440,6 +442,7 @@ def page_payload(+page: V.Page, +state: InteractionTypes.State) ->
     case V.BoardPage{filter, columns, create, working, settings, filters, archive}: {==}
     case V.AgentsPage{agents, create}: {==}
     case V.TaskGraphsPage{graphs, create}: {==}
+    case V.HistorySearchPage{search, projects, works}: {==}
     case V.MissingObject{message}: {==}
 
 def task_graphs_route_selects_nav(+world: M.World(), +session: E.Session) ->

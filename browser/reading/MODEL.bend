@@ -18,6 +18,7 @@ type Effect is Data:
   AlignLatest{animate: Bool}
   PreserveAnchor{anchor: Physical.Anchor}
   MeasureAnchor{}
+  LocateMessage{message_index: Nat}
   ReserveComposer{height: F32}
 
 type Decision is Data:

@@ -1,5 +1,6 @@
 import ../experience/MODEL.bend as Experience
 import Base
+import ../search/MODEL.bend as Search
 import ../conversation/OUTPUT.bend as Live
 import ../submission/FIELDS.bend as Forms
 import ../../features/board/MODEL.bend as B
@@ -136,6 +137,7 @@ type Page is Data:
     settings: ControlDeclaration, filters: ControlDeclaration, archive: ControlDeclaration}
   AgentsPage{agents: +List<AgentScene>, create: ControlDeclaration}
   TaskGraphsPage{graphs: +List<TaskGraphScene>, create: ControlDeclaration}
+  HistorySearchPage{search: Search.State, projects: +List<Search.Choice>, works: +List<Search.Choice>}
   MissingObject{message: String}
 
 type LayerContent is Data:

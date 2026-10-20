@@ -1,4 +1,5 @@
 import Base
+import ../search/MODEL.bend as Search
 import ../experience/MODEL.bend as Experience
 import ../experience/ACTIVITY.bend as Activity
 import ./INFORMATION.bend as Information
@@ -119,6 +120,8 @@ type Meaning is Data:
   BoardLane{stage: B.Stage, count: Nat}
   CardArchive{count: Nat}
   BoardSearch{filter: B.Filter}
+  HistorySearchQuery{query: String}
+  HistorySearchScope{project: Bool, value: String, choices: +List<Search.Choice>}
   BoardGroup{grouping: BoardGrouping}
   ReadOnly{text: String}
   Fact{value: String}

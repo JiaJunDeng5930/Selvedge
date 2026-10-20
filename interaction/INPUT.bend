@@ -1,4 +1,5 @@
 import Base
+import ./search/MODEL.bend as Search
 import ../harness/COMMANDS.bend as Commands
 import ../harness/MODEL.bend as M
 import ../features/board/MODEL.bend as B
@@ -100,6 +101,7 @@ type Route is Data:
   TaskBoard{}
   AgentCollection{}
   TaskGraphs{}
+  HistorySearch{search: Search.State}
 
 def route_owns(route: Route, task: Nat) -> Bool:
   match route:
@@ -137,6 +139,8 @@ type Action is Data:
   CreateWork{}
   RenameWork{work: Nat}
   Navigate{route: Route}
+  SubmitHistorySearch{after: Nat}
+  OpenHistoryMessage{task: Nat, message_index: Nat}
   SelectProject{project: Maybe<&2, Nat>}
   ToggleProjectGroup{project: Nat}
   BeginTask{project: Maybe<&2, Nat>}
@@ -177,6 +181,8 @@ type Input is Data:
   SetDisclosure{task: Nat, group: Nat, occurrence: Nat, expanded: Bool}
   SetNavigation{expanded: Bool}
   SearchChoices{query: String}
+  WriteHistoryQuery{query: String}
+  ChooseHistoryScope{project: Bool, value: String}
   FilterBoard{filter: B.Filter}
 
 def approval_outcome(allow: Bool, reason: String) -> D.ApprovalOutcome:
