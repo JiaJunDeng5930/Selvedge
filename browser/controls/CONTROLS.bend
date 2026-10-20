@@ -483,15 +483,22 @@ def field_input_event(meaning: SurfaceTypes.Meaning, value: Controls.Widget, key
     case SurfaceTypes.Edit{editor, field, Forms.StructuredText{}, observed, choices}: Doc.EditStructuredText{UIIdentity.encode(key)}
     case _: field_first_event(value, key)
 
-def field_remaining_events(value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
+def textarea_file_events(meaning: SurfaceTypes.Meaning, key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
+  match meaning:
+    case SurfaceTypes.Edit{editor, Forms.CardDescription{}, Forms.Multiline{}, observed, choices}: [Doc.SelectFiles{UIIdentity.encode(key)}]
+    case _: Nil{}
+
+def field_remaining_events(meaning: SurfaceTypes.Meaning, value: Controls.Widget, key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
   match value:
     case Controls.DirectoryChooser{face}: [Doc.ConfirmText{UIIdentity.encode(key)}]
+    case Controls.MessageInput{}: [Doc.SelectFiles{UIIdentity.encode(key)}]
+    case Controls.TextArea{}: textarea_file_events(meaning, key)
     case _: Nil{}
 
 def field_confirmation_events(meaning: SurfaceTypes.Meaning, +widget: Controls.Widget, +key: UIIdentity.Key) -> +List<Doc.DOMEvent>:
   match meaning:
     case SurfaceTypes.HistorySearchQuery{query}: [Doc.ConfirmText{UIIdentity.encode(key)}]
-    case _: field_remaining_events(widget, key)
+    case _: field_remaining_events(meaning, widget, key)
 
 def maximum_lines(value: Controls.Widget, visual: Design.Style, parameters: Design.LayoutParameters) -> Nat:
   match value:

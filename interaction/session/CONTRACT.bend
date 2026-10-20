@@ -97,9 +97,9 @@ type WorkRequirements is Type:
     draft_owner: @+work:Maybe<&2, Nat> -> @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @enabled:Bool ->
       {U.owner(U.NewTask{message, profile, reasoning, context, enabled, work}) == U.NewTaskEditor{work} : U.Editor},
     member_creation: @+work:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:Bool -> @now:U32 ->
-      {U.command(U.NewTask{message, profile, reasoning, context, enabled, Some{work}}, now) == M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, U.text(message), Context.settings(context), enabled}}} : M.Command},
+      {U.command(U.NewTask{message, profile, reasoning, context, enabled, Some{work}}, now) == M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, U.content(message), Context.settings(context), enabled}}} : M.Command},
     independent_creation: @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:Bool -> @now:U32 ->
-      {U.command(U.NewTask{message, profile, reasoning, context, enabled, None{}}, now) == U.task_creation(enabled, profile, reasoning, U.text(message), Context.settings(context)) : M.Command},
+      {U.command(U.NewTask{message, profile, reasoning, context, enabled, None{}}, now) == U.task_creation(enabled, profile, reasoning, U.content(message), Context.settings(context)) : M.Command},
     rename_owner: @+work:Nat -> @+name:String -> @now:U32 ->
       {U.command(U.WorkName{work, name}, now) == M.FeatureCommand{F.WorkCommand{Work.Rename{work, name}}} : M.Command},
     selection_keeps_previous_location: @+work:Maybe<&2, Nat> -> @+route:U.Route -> @intent:E.NavigationIntent -> @collapsed:+List<Nat> -> @+previous:Maybe<&2, Nat> -> @+visits:+List<E.WorkVisit> -> @+generation:Nat ->
@@ -838,7 +838,7 @@ law prepared_task_retains_worktree_choice:
   @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration ->
   @+enabled:Bool -> @+work:Maybe<&2, Nat> -> @+observation:Context.DirectoryObservation -> @+now:U32 ->
   {U.prepared_command(U.NewTask{message, profile, reasoning, context, enabled, work}, observation, now) ==
-    U.create_task(work, enabled, profile, reasoning, U.text(message), Context.observed_settings(context, observation)) : M.Command}
+    U.create_task(work, enabled, profile, reasoning, U.content(message), Context.observed_settings(context, observation)) : M.Command}
 
 law prepared_project_creation_retains_worktree_choice:
   @+name:String -> @previous:D.Workspace -> @+workspace:D.Workspace -> @+guidance:D.ProjectContext -> @+enabled:Bool -> @now:U32 ->
@@ -885,11 +885,11 @@ law worktree_changed_primary_preserves_application:
   {E.workspace_git_result(E.LoadingWorkspaceGit{current, root}, ticket, available, application) == E.unchanged(application) : E.Decision}
 
 law task_without_worktree_uses_normal_creation:
-  @profile:String -> @reasoning:String -> @message:String -> @settings:J.Json ->
+  @profile:String -> @reasoning:String -> @message:D.UserContent -> @settings:J.Json ->
   {U.task_creation(False{}, profile, reasoning, message, settings) == M.Create{profile, reasoning, message, settings} : M.Command}
 
 law task_with_worktree_uses_owned_creation:
-  @profile:String -> @reasoning:String -> @message:String -> @settings:J.Json ->
+  @profile:String -> @reasoning:String -> @message:D.UserContent -> @settings:J.Json ->
   {U.task_creation(True{}, profile, reasoning, message, settings) ==
     M.FeatureCommand{F.WorktreeCommand{Worktree.Create{profile, reasoning, message, settings}}} : M.Command}
 
@@ -940,7 +940,7 @@ law refused_worktree_preference_stops_submission:
 law composer_side_command:
   @+task:Nat -> @+message:String -> @+question:String -> @delivery:U.Delivery -> @now:U32 ->
   @recognized:{U.side_conversation_question(message) == Some{question} : Maybe<&2, String>} ->
-  {U.command(U.Message{task, U.initial_text(message), delivery}, now) == M.OpenSideConversation{task, question} : M.Command}
+  {U.command(U.Message{task, U.initial_text(message), delivery}, now) == M.OpenSideConversation{task, D.text_content(question)} : M.Command}
 
 law composer_plain_message:
   @+task:Nat -> @+message:String -> @+delivery:U.Delivery -> @now:U32 ->
@@ -948,7 +948,7 @@ law composer_plain_message:
   {U.command(U.Message{task, U.initial_text(message), delivery}, now) == U.message_command(delivery, task, message) : M.Command}
 
 law side_creation_captures_composer_and_attention:
-  @+parent:Nat -> @message:String -> @+draft:U.Draft -> @+application:E.Application ->
+  @+parent:Nat -> @message:D.UserContent -> @+draft:U.Draft -> @+application:E.Application ->
   {E.composer_completion(M.OpenSideConversation{parent, message}, draft, application) ==
     E.SideCreationCompletion{parent, Some{draft}, E.selection_generation(E.session(application)), E.next_layer(E.session(application))} : E.Completion}
 
@@ -980,4 +980,4 @@ law interactive_documents_follow_visible_tasks:
 
 law captured_interactive_send_remains_literal:
   @+task:Nat -> @+message:String -> @now:U32 ->
-  {E.interactive_message_command(U.Message{task, U.initial_text(message), U.Send{}}, now) == M.Send{task, message} : M.Command}
+  {E.interactive_message_command(U.Message{task, U.initial_text(message), U.Send{}}, now) == M.Send{task, D.text_content(message)} : M.Command}

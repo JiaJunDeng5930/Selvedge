@@ -728,7 +728,7 @@ def navigation(+expanded: Bool, +route: U.Route, +world: M.World(), +session: E.
 
 def task_details(+task: D.Task) -> ViewTypes.TaskDetails:
   D.Task{id, lineage, D.Contract{+model, tools, max_fork, max_descendants, plugins, context}, current, status, history, queued, phase, operations, notified} = task
-  ViewTypes.TaskDetails{Context.effective(task), D.task_model(task), tools, lineage, queued, status, phase}
+  ViewTypes.TaskDetails{Context.effective(task), D.task_model(task), tools, lineage, D.content_texts(queued), status, phase}
 
 def lifecycle(+id: Nat, +value: D.Control, +label: String, world: M.World()) -> ViewTypes.ControlDeclaration:
   native("task/" ++ Nat.show(id) ++ "/" ++ label, label, ViewTypes.Secondary{}, U.ControlTask{id, value}, world)

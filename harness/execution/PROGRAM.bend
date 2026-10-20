@@ -63,6 +63,9 @@ def arguments_valid(source: D.Source, schema: J.Json, +arguments: J.Json, caller
     case D.Harness{Native.Process{}}:
       Schema.valid(schema, arguments) && D.nonempty(J.text(J.get(arguments, "command"))) &&
         Bool.not(String.contains(J.text(J.get(arguments, "command")), SCon{Chr{0}, SNil{}})) && Approvals.valid_request(arguments)
+    case D.Harness{Native.ReadImage{}}:
+      Schema.valid(schema, arguments) && D.nonempty(J.text(J.get(arguments, "path"))) &&
+        Bool.not(String.contains(J.text(J.get(arguments, "path")), SCon{Chr{0}, SNil{}}))
     case D.Harness{other}: Schema.valid(schema, arguments) && Native.caller_arguments_valid(other, arguments, caller)
 
 def external_review(needed: Bool, tool: D.Tool, call: D.Call, remaining: +List<D.Attempt>, +task: D.Task) -> Action:
@@ -132,6 +135,8 @@ def classified(source: D.Source, tool: D.Tool, +call: D.Call,
     case D.Harness{Native.ProcessRead{}}:
       external_capacity(tool, call, remaining, task)
     case D.Harness{Native.ProcessWrite{}}:
+      external_capacity(tool, call, remaining, task)
+    case D.Harness{Native.ReadImage{}}:
       external_capacity(tool, call, remaining, task)
     case D.Harness{builtin}:
       internal_capacity(builtin, call, remaining, task, world)

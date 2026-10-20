@@ -20,6 +20,16 @@ its command path keeps the original intent separate from workspace observations
 and commits the native command with its retained receipt. Closing a transport
 leaves the Service and its tasks running. See [remote setup](../docs/remote-control.md).
 
+Image input records use immutable content-addressed assets in the existing
+attachment vault. Uploaded images, the sandboxed `read_image` tool, and standard
+MCP image output all preserve real image content for account-backed ChatGPT
+Responses requests. Provider plans keep asset identities; the IO interpreter
+verifies their stored metadata and emits image data URLs at dispatch. Other
+model backends reject image input explicitly. Account image requests use the
+same per-image token estimate as the Codex account client; actual context-limit
+rejections retain the normal compaction path. MCP retains the existing whole-line
+JSON-RPC frame budget, including its base64 payload.
+
 Pure host semantics belong to [adapters](adapters/README.md), whose domain
 modules construct results from the complete JSON source and consume the resulting
 category membership. [MODEL.bend](adapters/MODEL.bend) supplies the shared

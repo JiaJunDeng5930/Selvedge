@@ -351,7 +351,7 @@ def archive_retained(status: D.Status, +previous: D.Task, +candidate: D.Task, +b
       archived(D.task_status(candidate)) &&
         archived_suffix(Nat.sub(D.history_length(D.task_history(candidate)), D.history_length(D.task_history(previous))),
           D.task_history(candidate), D.task_id(previous), D.task_operations(previous)) &&
-        Same.strings(D.task_queue(previous), D.task_queue(candidate))
+        J.same(J.Array{D.content_values(D.task_queue(previous))}, J.Array{D.content_values(D.task_queue(candidate))})
     case _: True{}
 
 # Archival seals new work. A self-archive invocation may still own its result

@@ -15,7 +15,7 @@ const limits = { frame_bytes: 1024 * 1024, approval_reason_bytes: 400,
   model_retry: { delays_ms: [1, 2], statuses: [429, 500, 502, 503, 504], max_retry_after_ms: 1000 } };
 const baseEffect = () => ({ kind: 'model', task_id: 0, ticket: 1,
   model: { profile: 'web', provider: 'chatgpt-web', name: 'chatgpt-web/high', reasoning: 'medium' },
-  history: [{ role: 'user', content: 'first question' }], tools: [], callable: [] });
+  history: [{ role: 'user', content: [{ type: 'text', text: 'first question' }] }], tools: [], callable: [] });
 
 const answer = text => [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }];
 

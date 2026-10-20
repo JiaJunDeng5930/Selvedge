@@ -245,11 +245,12 @@ def public_value(+fuel: Nat, +value: J.Json) -> J.Json:
         public_object_prepend(public_field(name, public_value(p, item)), public_value(p, J.Object{rest})))
     case _ _: value
 
+# The evaluator consumes a public text preview; image markers retain their presence.
 def public_message(message: D.Message, rest: +List<J.Json>) -> +List<J.Json>:
   match message:
     case D.SpeechTranscript{owner, session, item, speaker, completion, text}:
       J.Object{[J.Field{"role", J.Text{D.speech_speaker_name(speaker)}}, J.Field{"content", J.Text{text}}]} <> rest
-    case D.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]} <> rest
+    case D.UserMessage{text}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{D.content_text(text)}}]} <> rest
     case D.AssistantMessage{origin, text}: J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.FailureMessage{text}: J.Object{[J.Field{"role", J.Text{"error"}}, J.Field{"content", J.Text{text}}]} <> rest
     case D.ContextReplacement{value}: rest

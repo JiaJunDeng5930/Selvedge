@@ -49,6 +49,9 @@ def Browser.admitted_navigation_normalized():
 def Browser.admitted_navigation_result():
   source => evidence => {==}
 
+def Browser.image_correspondence():
+  source => {==}
+
 def Browser.link_correspondence():
   source => {==}
 
@@ -105,9 +108,17 @@ def link_dispatch(selected: Bool, +operation: String, +source: J.Json) ->
         Browser.link(source), Browser.link_calculation(source), Browser.link_correspondence()(source))
     case False{}: stream_dispatch(String.eq(operation, "browser.stream_step"), operation, source)
 
+def image_dispatch(selected: Bool, +operation: String, +source: J.Json) ->
+    {Browser.run_image(selected, operation, source) == Browser.meaning_image(selected, operation, source) : J.Json}:
+  match selected:
+    case True{}:
+      Equal.cong(J.Json, J.Json, (value => Model.success(value)),
+        Browser.image(source), Browser.image_calculation(source), Browser.image_correspondence()(source))
+    case False{}: link_dispatch(String.eq(operation, "browser.link"), operation, source)
+
 def complete_dispatch(+operation: String, +source: J.Json) ->
     {Browser.run(operation, source) == Browser.meaning(operation, source) : J.Json}:
-  link_dispatch(String.eq(operation, "browser.link"), operation, source)
+  image_dispatch(String.eq(operation, "browser.image"), operation, source)
 
 def Browser.complete_correspondence():
   operation => source => complete_dispatch(operation, source)

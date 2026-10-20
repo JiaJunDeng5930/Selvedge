@@ -18,9 +18,9 @@ type ContextBoundary is Type:
     guidance_byte_length: @+text:String -> {J.utf8_length(text) == J.utf8_length_spec(text) : Nat},
     coordinates: @+workspace:D.Workspace -> @sandbox:D.Sandbox -> @approval:D.ApprovalPolicy -> @project:Maybe<&2, Nat> ->
       {W.workspace(D.TaskContext{workspace, sandbox, approval, project}) == workspace : D.Workspace},
-    inherited: @id:Nat -> @+parent:D.Task -> @call:String -> @branch:Nat -> @remaining:+List<D.Attempt> -> @message:Maybe<&2, String> ->
+    inherited: @id:Nat -> @+parent:D.Task -> @call:String -> @branch:Nat -> @remaining:+List<D.Attempt> -> @message:Maybe<&2, D.UserContent> ->
       {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext},
-    no_inherited_rights: @id:Nat -> @parent:D.Task -> @call:String -> @branch:Nat -> @remaining:+List<D.Attempt> -> @message:Maybe<&2, String> ->
+    no_inherited_rights: @id:Nat -> @parent:D.Task -> @call:String -> @branch:Nat -> @remaining:+List<D.Attempt> -> @message:Maybe<&2, D.UserContent> ->
       {D.task_operations(Commands.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<D.Operation()>},
     override_context: @+context:D.TaskContext -> @guidance:D.ProjectContext -> @task:D.Task ->
       {D.task_context(Commands.selected_parent(W.Selection{context, guidance}, task)) == context : D.TaskContext},
@@ -35,7 +35,7 @@ type ContextBoundary is Type:
       {Projects.create_worktree(Projects.proposal(name, workspace, guidance, J.Boolean{selected}, previous)) == selected : Bool},
     protected_review: ({W.review_no_broader(D.FullAccess{}, D.AskForApproval{}) == False{} : Bool} &
       (@profile:D.Profile -> {W.review_no_broader(D.FullAccess{}, D.ApprovalForMe{profile}) == False{} : Bool})),
-    refused_delegation: @+context:D.TaskContext -> @+guidance:D.ProjectContext -> @+parent:D.TaskContext -> @+count:Nat -> @+messages:+List<String> ->
+    refused_delegation: @+context:D.TaskContext -> @+guidance:D.ProjectContext -> @+parent:D.TaskContext -> @+count:Nat -> @+messages:+List<D.UserContent> ->
       @rejected:{W.may_delegate(context, parent) == False{} : Bool} ->
       {Protocol.branch_selection(Done{W.Selection{context, guidance}}, count, messages, parent) ==
         Protocol.delegated_calculation(False{}, count, messages, W.Selection{context, guidance}) : Protocol.Invocation}

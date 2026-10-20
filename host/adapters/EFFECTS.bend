@@ -7,6 +7,7 @@ import ../../bendlib/categories.bend as Categories
 import ../../bendlib/stdlib.bend as Std
 import ./MODEL.bend as Model
 import ../../harness/MODEL.bend as Harness
+import ../../harness/DOMAIN.bend as D
 import ../../harness/features/MODEL.bend as Features
 import ../../harness/transport/wire.bend as Wire
 import ../../harness/transport/schema.bend as Schema
@@ -616,6 +617,111 @@ def scalar_text(+value: J.Json) -> String:
     case J.Text{text}: text
     case J.Null{}: "null"
     case _: ""
+
+def image_arguments_bound(valid: Bool, +arguments: J.Json) -> J.Json:
+  match valid:
+    case False{}: Model.failure_code("TypeError", "Malformed image read effect")
+    case True{}:
+      Model.success(J.Object{[field("path", J.get(arguments, "path")),
+        field("detail", default_null(J.get(arguments, "detail"), J.Text{"auto"})),
+        field("timeout", J.Number{"30000"}), field("maximum", J.Number{"10485760"})]})
+
+# DEFENSE: Tool arguments are supplied by a model or hook; only a nonempty local path and the declared image detail may reach file IO.
+def image_arguments(+source: J.Json) -> J.Json:
+  +arguments = J.get(source, "arguments")
+  +path = J.text(J.get(arguments, "path"))
+  image_arguments_bound(Schema.valid(D.image_schema(), arguments) && content(path) && well(path) && no_nul(path), arguments)
+
+def image_reference_asset(+value: J.Json) -> J.Json:
+  J.Object{[field("id", J.get(value, "id")), field("mime", J.get(value, "mime")),
+    field("bytes", J.Number{scalar_text(J.get(value, "bytes"))})]}
+
+def image_reference_optional(+value: J.Json, +key: String) -> Bool:
+  Bool.not(has(value, key)) || J.is_text(J.get(value, key))
+
+def image_reference_valid(+value: J.Json) -> Bool:
+  J.is_object(value) && allowed(fields(value), ["id", "mime", "bytes", "name", "path"]) &&
+    D.valid_image_asset(image_reference_asset(value)) && image_reference_optional(value, "name") && image_reference_optional(value, "path")
+
+def image_refs_join(left: Result<&2, &2, String, +List<J.Json>>, right: Result<&2, &2, String, +List<J.Json>>) -> Result<&2, &2, String, +List<J.Json>>:
+  match left right:
+    case Fail{error} _: Fail{error}
+    case _ Fail{error}: Fail{error}
+    case Done{first} Done{last}: Done{List.append(&2, J.Json, first, last)}
+
+def image_refs_admitted(valid: Bool, values: +List<J.Json>, error: String) -> Result<&2, &2, String, +List<J.Json>>:
+  match valid:
+    case True{}: Done{values}
+    case False{}: Fail{error}
+
+def image_refs_part_kind(image: Bool, +value: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  match image:
+    case True{}: image_refs_admitted(D.valid_image_part(value), [J.get(value, "image")], "Invalid image content part")
+    case False{}: image_refs_admitted(Schema.valid(D.content_part_schema(), value), Nil{}, "Invalid message content part")
+
+def image_refs_part(+value: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  image_refs_part_kind(String.eq(J.text(J.get(value, "type")), "image"), value)
+
+def image_refs_parts(values: +List<J.Json>) -> Result<&2, &2, String, +List<J.Json>>:
+  match values:
+    case Nil{}: Done{Nil{}}
+    case Con{value, rest}: image_refs_join(image_refs_part(value), image_refs_parts(rest))
+
+def image_refs_message(value: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  match value:
+    case J.Array{parts}: image_refs_parts(parts)
+    case J.Text{text}: Done{Nil{}}
+    case J.Null{}: Done{Nil{}}
+    case _: Fail{"Invalid message content"}
+
+def image_refs_attachments(values: +List<J.Json>) -> Result<&2, &2, String, +List<J.Json>>:
+  match values:
+    case Nil{}: Done{Nil{}}
+    case Con{+value, rest}:
+      image_refs_join(image_refs_admitted(image_reference_valid(value), [value], "Invalid image attachment reference"), image_refs_attachments(rest))
+
+def image_refs_images(value: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
+  match value:
+    case J.Null{}: Done{Nil{}}
+    case J.Array{values}: image_refs_attachments(values)
+    case _: Fail{"Images must be an array"}
+
+def image_refs_limit(result: Result<&2, &2, String, +List<J.Json>>) -> Result<&2, &2, String, +List<J.Json>>:
+  match result:
+    case Fail{error}: Fail{error}
+    case Done{+values}:
+      image_refs_admitted(Nat.is_le(List.length(&2, J.Json, values), 4n), values, "A user message supports at most four images")
+
+def image_refs_messages(messages: +List<J.Json>) -> Result<&2, &2, String, +List<J.Json>>:
+  match messages:
+    case Nil{}: Done{Nil{}}
+    case Con{message, rest}: image_refs_join(image_refs_limit(image_refs_message(message)), image_refs_messages(rest))
+
+def image_refs_result(result: Result<&2, &2, String, +List<J.Json>>) -> J.Json:
+  match result:
+    case Fail{error}: Model.failure_code("TypeError", error)
+    case Done{values}: Model.success(J.Array{values})
+
+# DEFENSE: Public commands contain client-selected image identities; resolve every claimed image before committing the command to the journal.
+def message_images(+source: J.Json) -> J.Json:
+  +command = J.get(source, "command")
+  image_refs_result(image_refs_join(
+    image_refs_limit(image_refs_join(image_refs_message(J.get(command, "message")), image_refs_images(J.get(command, "images")))),
+    image_refs_messages(J.items(J.get(command, "messages")))))
+
+def image_reference_matches_optional(+value: J.Json, +attachment: J.Json, +key: String) -> Bool:
+  Bool.not(has(value, key)) || J.same(J.get(value, key), J.get(attachment, key))
+
+# DEFENSE: A client can submit an existing digest with forged media or size metadata; the opened vault record owns all image metadata.
+def message_image_match(+source: J.Json) -> J.Json:
+  +value = J.get(source, "value")
+  +attachment = J.get(source, "attachment")
+  response_bound_result(image_reference_valid(value) && J.same(J.get(value, "id"), J.get(attachment, "id")) &&
+    J.same(J.get(value, "mime"), J.get(attachment, "mime")) &&
+    String.eq(scalar_text(J.get(value, "bytes")), scalar_text(J.get(attachment, "bytes"))) &&
+    image_reference_matches_optional(value, attachment, "name") && image_reference_matches_optional(value, attachment, "path"),
+    value, "Image reference does not match the stored attachment")
+
 
 def exit_message(+signal: J.Json, +code: J.Json) -> String:
   match signal:
@@ -1858,6 +1964,9 @@ def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
 
 def meaning(+operation: String, +source: J.Json) -> J.Json:
   match operation:
+    case "effect.image_arguments": image_arguments(source)
+    case "effect.message_images": message_images(source)
+    case "effect.message_image_match": message_image_match(source)
     case "effect.workspace_command": workspace_command(source)
     case "effect.workspace_settings": workspace_settings(source)
     case "effect.workspace_command_observed": workspace_command_observed(source)

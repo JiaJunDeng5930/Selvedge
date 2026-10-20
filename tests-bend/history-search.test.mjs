@@ -50,7 +50,8 @@ test('HTTP and native agent search retain scoped original message locations acro
   const workB = (await command({ op: 'create_work', name: 'Second Work' })).work_id;
   const records = [];
   const readable = item => {
-    if (item.role === 'user') return { role: 'user', text: item.content };
+    if (item.role === 'user') return { role: 'user',
+      text: item.content.filter(part => part.type === 'text').map(part => part.text).join('') };
     assert.equal(item.role, 'model_context');
     assert.equal(item.content.type, 'provider_receipt');
     assert.equal(item.content.item.type, 'message');
@@ -64,7 +65,7 @@ test('HTTP and native agent search retain scoped original message locations acro
     const assistant = `${label} assistant context before. 星河 nEeDlE assistant match. Context after.`;
     const page = await complete(task_id, message, assistant);
     for (const [message_index, item] of page.messages.entries()) {
-      if (item.content === message || (item.role === 'model_context' && item.content.type === 'provider_receipt'
+      if ((item.role === 'user' && readable(item).text === message) || (item.role === 'model_context' && item.content.type === 'provider_receipt'
           && item.content.item.type === 'message' && item.content.item.content[0].text === assistant)) {
         records.push({ task_id, message_index, ...readable(item), wire_role: item.role, project_id, work_id });
       }

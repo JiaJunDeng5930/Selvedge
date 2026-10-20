@@ -310,10 +310,10 @@ def Rule.realized_decision_exact(decision):
 def submission_clear_policy(body: U.Body) ->
   {Model.empty_message(body) == Rule.required_submission_clear(body) : Bool}:
   match body:
-    case U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}: {==}
+    case U.NewTask{U.Text{text, images}, profile, reasoning, context, create_worktree, work}: {==}
     case U.WorkName{work, name}: {==}
     case U.TitlePrompts{revision, prompts}: {==}
-    case U.Message{task, U.Text{text}, delivery}: {==}
+    case U.Message{task, U.Text{text, images}, delivery}: {==}
     case U.Project{project, name, workspace, create_worktree}: {==}
     case U.Card{card, revision, value, assist, profile, keep_open}: {==}
     case U.Agent{agent, revision, name, profile, reasoning, instructions, context, concurrency}: {==}

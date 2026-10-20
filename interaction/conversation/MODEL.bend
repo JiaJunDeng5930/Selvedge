@@ -119,7 +119,7 @@ def speech_speaker(speaker: D.SpeechSpeaker) -> Speaker:
 
 def prepend(message: D.Message, index: Nat, tail: +List<Group>) -> +List<Group>:
   match message:
-    case D.UserMessage{+text}: Speech{index, UserSpeech{}, text, D.UserMessage{text}} <> tail
+    case D.UserMessage{+text}: Speech{index, UserSpeech{}, D.content_markdown(text), D.UserMessage{text}} <> tail
     case D.AssistantMessage{+origin, +text}: Speech{index, AssistantSpeech{}, text, D.AssistantMessage{origin, text}} <> tail
     case D.SpeechTranscript{+owner, +session_id, +item_id, +speaker, +completion, +text}:
       Speech{index, speech_speaker(speaker), text, D.SpeechTranscript{owner, session_id, item_id, speaker, completion, text}} <> tail

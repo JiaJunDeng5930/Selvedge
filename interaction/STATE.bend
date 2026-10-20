@@ -7,6 +7,7 @@ import ./conversation/CODE.bend as Content
 import ./conversation/OUTPUT.bend as Live
 import ../harness/MODEL.bend as M
 import ../harness/transport/command-codec.bend as CommandCodec
+import ../harness/DOMAIN.bend as D
 import ../features/board/MODEL.bend as B
 import ../bendlib/association-map.bend as Finite
 import ./INPUT.bend as U
@@ -69,6 +70,10 @@ def attachment_edit(found: Maybe<&2, U.Draft>, add: Maybe<&2, B.Attachment>, id:
   match found:
     case Some{U.Draft{revision, U.Card{card, version, B.Draft{title, description, stage, priority, owner, project, labels, files}, assist, profile, keep_open}, feedback, directory_entry}}:
       Some{U.WriteCard{B.Patch{None{}, None{}, None{}, None{}, None{}, None{}, None{}, Some{add_file(add, remove_file(files, id))}}}}
+    case Some{U.Draft{revision, U.NewTask{+message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}}:
+      Some{U.WriteImages{add_file(add, remove_file(U.images(message), id))}}
+    case Some{U.Draft{revision, U.Message{task, +message, delivery}, feedback, directory_entry}}:
+      Some{U.WriteImages{add_file(add, remove_file(U.images(message), id))}}
     case _: None{}
 
 def apply_edit(edit: Maybe<&2, U.Edit>, editor: U.Editor, +application: E.Application) -> E.Decision:
@@ -228,15 +233,17 @@ def application_admitted(found: Maybe<&1, Categories.Membership<ApplicationReque
     case None{}: application_result(E.refuse(application, "Connect and finish pending file uploads before submitting"), services)
     case Some{member}: apply_application(member)
 
-def is_card_draft(found: Maybe<&2, U.Draft>) -> Bool:
+def attachment_draft(found: Maybe<&2, U.Draft>) -> Bool:
   match found:
     case Some{U.Draft{revision, U.Card{id, version, value, assist, profile, keep_open}, feedback, directory_entry}}: True{}
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, create_worktree, work}, feedback, directory_entry}}: True{}
+    case Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}}: True{}
     case _: False{}
 
 def accepts_files(editor: U.Editor, application: E.Application) -> Bool:
   +observed_session = E.session(application)
   drafts = E.drafts(observed_session)
-  is_card_draft(E.find_draft(drafts, editor))
+  attachment_draft(E.find_draft(drafts, editor))
 
 type ServiceRequest is Data:
   ServiceRequest{input: Services.Input, application: E.Application, services: Services.State}
@@ -264,7 +271,7 @@ def directory_allowed(member: Categories.Membership<ServiceRequest, Categories.h
 def file_request_admitted(found: Maybe<&1, Categories.Membership<ServiceRequest, Categories.holds(ServiceRequest, file_request_available)>>, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
   match found:
     case Some{member}: add_allowed(member)
-    case None{}: application_result(E.refuse(application, "Attachments belong to a card draft"), services)
+    case None{}: application_result(E.refuse(application, "The attachment editor is not available"), services)
 
 def directory_request_admitted(found: Maybe<&1, Categories.Membership<ServiceRequest, Categories.holds(ServiceRequest, directory_request_available)>>, application: E.Application, services: Services.State) -> InteractionTypes.Decision:
   match found:
@@ -288,7 +295,7 @@ def speech_insertion(append: Bool, +old: String, text: String, start: Nat, end: 
 def insert_speech_admitted(found: Maybe<&2, String>, accepted: Bool, editor: U.Editor, text: String, append: Bool, start: Nat, end: Nat, application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match found accepted:
     case Some{old} True{}:
-      application_result(apply_edit(Some{U.WriteMessage{U.Text{speech_insertion(append, old, text, start, end)}}}, editor, application),
+      application_result(apply_edit(Some{U.WriteMessage{U.initial_text(speech_insertion(append, old, text, start, end))}}, editor, application),
         Services.with_speech(Speech.with_activity(Speech.Idle{}, Services.speech(services)), services))
     case _ _: application_result(E.unchanged(application), services)
 
@@ -353,6 +360,30 @@ def speech_input(input: Speech.Input, +application: E.Application, +services: Se
       speech_task_created(Speech.owned(Speech.activity(Services.speech(services)), ticket), ticket, task, application, services)
     case other: service_result(Services.step(Services.SpeechInput{other}, services), application)
 
+def image_editor(editor: U.Editor) -> Bool:
+  match editor:
+    case U.NewTaskEditor{work}: True{}
+    case U.MessageEditor{task}: True{}
+    case _: False{}
+
+def accepted_image_upload(valid: Bool, file: B.Attachment) -> Result<&2, &2, String, B.Attachment>:
+  # DEFENSE: The shared board endpoint accepts ordinary files; message attachments must satisfy the image contract after host MIME sniffing.
+  match valid:
+    case True{}: Done{file}
+    case False{}: Fail{"Select a PNG, JPEG, GIF or WebP image up to 10 MiB"}
+
+def image_upload_result(required: Bool, result: Result<&2, &2, String, B.Attachment>) -> Result<&2, &2, String, B.Attachment>:
+  match required result:
+    case True{} Done{+file}:
+      B.Attachment{id, name, mime, path, bytes} = file
+      accepted_image_upload(D.valid_image_asset(D.image_asset_json(D.ImageAsset{id, mime, bytes})), file)
+    case _ other: other
+
+def editor_upload_result(found: Maybe<&2, Services.Transfer>, result: Result<&2, &2, String, B.Attachment>) -> Result<&2, &2, String, B.Attachment>:
+  match found:
+    case Some{transfer}: image_upload_result(image_editor(Services.transfer_editor(transfer)), result)
+    case None{}: result
+
 def service_input(input: Services.Input, +application: E.Application, +services: Services.State) -> InteractionTypes.Decision:
   match input:
     case Services.SpeechInput{input}: speech_input(input, application, services)
@@ -360,6 +391,8 @@ def service_input(input: Services.Input, +application: E.Application, +services:
       directory_request_admitted(Categories.admit(ServiceRequest, directory_request_available, ServiceRequest{Services.OpenDirectoryPicker{editor, path, trigger}, application, services}), application, services)
     case Services.AddFile{+editor, file}:
       file_request_admitted(Categories.admit(ServiceRequest, file_request_available, ServiceRequest{Services.AddFile{editor, file}, application, services}), application, services)
+    case Services.Uploaded{+ticket, result}:
+      service_result(Services.step(Services.Uploaded{ticket, editor_upload_result(Finite.find(~Services.Transfer, Services.transfers(services), ticket), result)}, services), application)
     case Services.OpenSettings{}: service_result(Services.step(Services.OpenSettings{}, services), E.advance_selection(E.consume_global_navigation(application)))
     case Services.CloseSettings{}: service_result(Services.step(Services.CloseSettings{}, services), E.advance_selection(application))
     case other: service_result(Services.step(other, services), application)

@@ -312,7 +312,7 @@ def accepted_message_settlement_snapshot(+directory_entry: String, +revision: Na
   current: {E.owns_submission(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, session) == True{} : Bool},
   accepted: {J.boolean(J.get(result, "ok")) == True{} : Bool}) ->
   {Rule.session_drafts(E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session)) ==
-    E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
+    E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{"", Nil{}}, delivery}, U.Accepted{revision, result}, directory_entry},
       Rule.session_drafts(session)) : +List<U.Draft>}:
   E.Session{route, +drafts, readers, layers, attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
   found_owned = Equal.cong(Maybe<&2, U.Draft>, Bool,
@@ -337,7 +337,7 @@ def accepted_message_settlement_snapshot(+directory_entry: String, +revision: Na
   successful = E.with_draft(session,
     E.settled_current(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, True{}, True{}, revision, result))
   target = E.with_draft(session,
-    U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry})
+    U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{"", Nil{}}, delivery}, U.Accepted{revision, result}, directory_entry})
   settled = Equal.trans(E.Session,
     E.settle(U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}, result, session),
     located, target,
@@ -378,11 +378,11 @@ def accepted_message(+directory_entry: String, +revision: Nat, +task: Nat, +mess
   +accepted: {J.boolean(J.get(result, "ok")) == True{} : Bool}) ->
   {Rule.decision_drafts(E.native_session(Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}},
       program, result, effects, session, durable)) ==
-    E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
+    E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{"", Nil{}}, delivery}, U.Accepted{revision, result}, directory_entry},
       Rule.session_drafts(session)) : +List<U.Draft>}:
   +submitted: U.Draft = U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}
   +settled: E.Session = E.settle(submitted, result, session)
-  target: +List<U.Draft> = E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
+  target: +List<U.Draft> = E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{"", Nil{}}, delivery}, U.Accepted{revision, result}, directory_entry},
     Rule.session_drafts(session))
   guard_true = Equal.trans(Bool,
     J.boolean(J.get(result, "ok")) && True{}, True{}, True{},

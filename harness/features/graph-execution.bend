@@ -25,7 +25,7 @@ def created(work: Maybe<&2, Nat>, key: String, id: Nat, previous: +List<G.Resolv
   C.Decision{world, +reply, effects} = decision
   admitted(J.boolean(J.get(reply, "ok")), work, key, id, previous, before, world, reply, effects)
 
-def birth(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), progress: Spec.Births, node: O.GraphNode) -> Spec.Births:
+def birth(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), progress: Spec.Births, node: O.GraphNode) -> Spec.Births:
   match progress node:
     case Spec.BirthFailed{reply} _: Spec.BirthFailed{reply}
     case Spec.Born{world, work, previous, effects} O.GraphExisting{key, task}:
@@ -33,10 +33,10 @@ def birth(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+worl
     case Spec.Born{+world, work, previous, effects} O.GraphSpawn{key, profile, reasoning, message, selection}:
       created(work, key, next_task(world), previous, effects, spawn(profile, reasoning, message, selection, world))
 
-def births_from(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, progress: Spec.Births) -> Spec.Births:
+def births_from(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, progress: Spec.Births) -> Spec.Births:
   List.foldl(~&2, ~O.GraphNode, ~Spec.Births, ~(state => node => birth(~spawn, state, node)), nodes, progress)
 
-def births(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, work: Maybe<&2, Nat>, world: M.World()) -> Spec.Births:
+def births(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), nodes: +List<O.GraphNode>, work: Maybe<&2, Nat>, world: M.World()) -> Spec.Births:
   births_from(~spawn, nodes, Spec.Born{world, work, Nil{}, Nil{}})
 
 def installed(+id: Nat, declaration: G.Declaration, result: Spec.Births, original: M.World()) -> M.Decision():
@@ -46,7 +46,7 @@ def installed(+id: Nat, declaration: G.Declaration, result: Spec.Births, origina
       C.Decision{State.associate_graph(work, id, State.store(Graph.install(id, G.Declaration{name, declared, rules}, nodes, State.registry(world)), world)),
         D.success(Codec.graph_json(id, G.Graph{name, nodes, rules, Nil{}})), effects}
 
-def install(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), id: Nat, work: Maybe<&2, Nat>, declaration: G.Declaration, nodes: +List<O.GraphNode>, +world: M.World()) -> M.Decision():
+def install(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), id: Nat, work: Maybe<&2, Nat>, declaration: G.Declaration, nodes: +List<O.GraphNode>, +world: M.World()) -> M.Decision():
   installed(id, declaration, births(~spawn, nodes, work, world), world)
 
 def remove(+id: Nat, +world: M.World()) -> M.Decision():

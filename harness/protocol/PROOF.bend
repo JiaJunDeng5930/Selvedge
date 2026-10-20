@@ -38,7 +38,7 @@ def CodecContract.approval_input_closed_shape(policy):
 def CodecContract.configure_approval_input(id, profile, reasoning, sandbox, policy):
   {==}
 
-def delegated_calculation_checked(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext,
+def delegated_calculation_checked(+count: Nat, +messages: +List<D.UserContent>, +selection: Workspace.Selection, +parent: D.TaskContext,
   accepted: Bool, observed: {Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}) == accepted : Bool}) ->
   {Protocol.delegated_admitted(Categories.admit_checked(Protocol.DelegatedRequest, Protocol.delegated_accepts,
     Protocol.DelegatedRequest{count, messages, selection, parent}, accepted, observed), Protocol.DelegatedRequest{count, messages, selection, parent}) ==
@@ -47,7 +47,7 @@ def delegated_calculation_checked(+count: Nat, +messages: +List<String>, +select
     case False{}: {==}
     case True{}: {==}
 
-def delegated_calculation_semantics(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext) ->
+def delegated_calculation_semantics(+count: Nat, +messages: +List<D.UserContent>, +selection: Workspace.Selection, +parent: D.TaskContext) ->
   {Protocol.delegated(count, messages, selection, parent) ==
     Protocol.delegated_calculation(Protocol.delegated_accepts(Protocol.DelegatedRequest{count, messages, selection, parent}), count, messages, selection) : Protocol.Invocation}:
   delegated_calculation_checked(count, messages, selection, parent,
@@ -104,7 +104,7 @@ def Laws.review_semantics(resolution, world):
     case Approvals.Grant{operation, task, reviewer, reason} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, +board}: {==}
     case Approvals.Deny{operation, task, reviewer, outcome} _: {==}
 
-def spawn_semantics(+profile: D.Profile, +reasoning: String, +message: String, +selection: Workspace.Selection, +world: M.World()) ->
+def spawn_semantics(+profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
   {P.execute_start(profile, reasoning, message, selection, world) == Commands.start(profile, reasoning, message, selection, world) : M.Decision()}:
   match selection world:
     case Workspace.Selection{context, guidance}
@@ -149,7 +149,7 @@ def Laws.operation_semantics(operation, world):
       Equal.cong(D.Task, M.Decision(),
         (child => C.Decision{C.Frame{D.State{List.append(&2, D.Task, tasks, [child]), 1n+next_task, next_ticket, environment, limits, projects}, board},
           D.success(J.Object{[J.Field{"task_id", J.nat(next_task)}, J.Field{"parent_task_id", J.nat(D.task_id(parent))}]}), Nil{}}),
-        Side.opened(next_task, parent, message), SideRequirements.initial_message(String.is_empty(message), message, SideRequirements.required_child(next_task, parent)),
+        Side.opened(next_task, parent, message), SideRequirements.initial_message(Bool.not(D.content_nonempty(message)), message, SideRequirements.required_child(next_task, parent)),
         SideProof.opened(next_task, parent, message))
     case Commands.ReturnSideConversation{side, parent, after, through, transcript} C.Frame{D.State{tasks, next_task, next_ticket, environment, limits, projects}, board}: {==}
     case Commands.Summarize{task} _: ReasoningProof.observe_meaning(Features.State(), Features.Effect, task, D.SummaryContext{}, world)
@@ -177,7 +177,7 @@ def model_result_semantics(+task: D.Task, +outcome: D.Outcome, +allowed: +List<S
       Equal.cong(M.Decision(), M.Decision(), Protocol.accepted_reaction, actual, required,
         Equal.trans(M.Decision(), actual, middle, required,
           FeatureLaws.react_outputs(~P.output_send, ~Commands.output_send,
-            ~(+target => +message => +state => Laws.command_semantics(M.Send{target, message}, state)),
+            ~(+target => +message => +state => Laws.command_semantics(M.Send{target, D.text_content(message)}, state)),
             source, T.accepted_reply_outputs(outcome, allowed, task), stored),
           Equal.cong(+List<String>, M.Decision(),
             (outputs => FeatureSpec.react_outputs(~Commands.output_send, source, outputs, stored)),

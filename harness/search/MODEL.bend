@@ -22,7 +22,7 @@ def provider_readable(kind: Content.ContextKind, +value: J.Json) -> Maybe<&2, Te
 
 def readable(message: D.Message) -> Maybe<&2, Text>:
   match message:
-    case D.UserMessage{text}: Some{Text{"user", text}}
+    case D.UserMessage{content}: Some{Text{"user", D.content_text(content)}}
     case D.AssistantMessage{origin, text}: Some{Text{"assistant", text}}
     case D.ModelContext{origin, +value}: provider_readable(Content.provider_kind(value), value)
     case D.SpeechTranscript{owner, session, item, speaker, completion, text}:

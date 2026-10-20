@@ -14,21 +14,21 @@ import ../../features/work/MODEL.bend as Work
 
 type GraphNode is Data:
   GraphExisting{key: String, task: Nat}
-  GraphSpawn{key: String, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  GraphSpawn{key: String, profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
 
 # These are already resolved feature operations. External callers cannot bypass
 # the command resolver by constructing them through the wire protocol.
 type Operation is Data:
   WorkChange{change: Work.Change}
-  StartWorkTask{work: Nat, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
-  StartWorkWorktree{work: Nat, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  StartWorkTask{work: Nat, profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
+  StartWorkWorktree{work: Nat, profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
   ConfigureTitles{prompts: Title.Prompts}
   RemoteChange{change: Remote.Change}
-  StartWorktree{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  StartWorktree{profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
   RetryWorktreeArchive{task_id: Nat}
   ChatGPTChange{change: ChatGPT.Change}
   BoardChange{change: Resolution.Change}
-  StartCard{id: Nat, card: Board.Card, now: U32, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  StartCard{id: Nat, card: Board.Card, now: U32, profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
   InstallGraph{id: Nat, work: Maybe<&2, Nat>, declaration: TaskGraph.Declaration, nodes: +List<GraphNode>}
   DeleteGraph{id: Nat}
 

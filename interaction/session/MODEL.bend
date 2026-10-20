@@ -1514,7 +1514,7 @@ def side_creation_completion(parent: Nat, draft: Maybe<&2, U.Draft>, +applicatio
   SideCreationCompletion{parent, draft, selection_generation(session(application)), next_layer(session(application))}
 
 def begin_side_conversation(+task: Nat, +application: Application) -> Decision:
-  request_command(M.OpenSideConversation{task, ""}, side_creation_completion(task, None{}, application), application)
+  request_command(M.OpenSideConversation{task, D.text_content("")}, side_creation_completion(task, None{}, application), application)
 
 def follow_created(id: Maybe<&2, Nat>, application: Application) -> Decision:
   match id:
@@ -2475,7 +2475,7 @@ def preview_source(+viewer: Nat, +output: Live.Output, +part: Nat, +state: Sessi
 
 def interactive_draft_empty(+found: Maybe<&2, U.Draft>) -> Bool:
   match found:
-    case Some{U.Draft{+revision, U.Message{+task, U.Text{+text}, +delivery}, +feedback, +directory_entry}}: String.eq(text, "")
+    case Some{U.Draft{+revision, U.Message{+task, U.Text{+text, +images}, +delivery}, +feedback, +directory_entry}}: String.eq(text, "") && List.is_empty(&2, B.Attachment, images)
     case _: False{}
 
 def interactive_fill_empty(+empty: Bool, +task: Nat, +message: String, +application: Application) -> Decision:
@@ -2495,7 +2495,7 @@ def interactive_send_resolved(+resolved: Commands.Operation, +command: M.Command
 
 def interactive_message_command(body: U.Body, now: U32) -> M.Command:
   match body:
-    case U.Message{task, message, delivery}: U.message_command(delivery, task, U.text(message))
+    case U.Message{task, message, delivery}: U.message_content_command(delivery, task, U.content(message))
     case other: U.command(other, now)
 
 def interactive_send_checked(+ready: Bool, +owner: Interactive.Owner, +path: String, +ticket: Nat, +draft: U.Draft, +application: Application) -> Decision:

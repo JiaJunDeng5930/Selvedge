@@ -57,7 +57,7 @@ type SubmissionRequirements is Type:
       @accepted:{J.boolean(J.get(result, "ok")) == True{} : Bool} ->
       {decision_drafts(E.native_session(Some{U.Draft{revision, U.Message{task, message, delivery}, feedback, directory_entry}},
           program, result, effects, session, durable)) ==
-        E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{""}, delivery}, U.Accepted{revision, result}, directory_entry},
+        E.put_draft(U.Draft{(revision + 1n : Nat), U.Message{task, U.Text{"", Nil{}}, delivery}, U.Accepted{revision, result}, directory_entry},
           session_drafts(session)) : +List<U.Draft>},
     unowned_directory: @+ticket:Nat -> @+result:Result<&2, &2, String, Context.DirectoryObservation> ->
       @+application:E.Application ->
@@ -126,7 +126,7 @@ type FeedbackRequirements is Type:
       {InterfaceView.composer(Some{View.ComposerScene{identity, revision, message, View.Creation{}, Nil{}, footer, context, assessment, submit, U.Rejected{submitted, reason}, pending}}, parent, state) ==
         [SurfaceTypes.Node{Identity.Entity{parent, "composer", U.editor_key(identity)}, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           InterfaceView.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, Identity.Entity{parent, "composer", U.editor_key(identity)}, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, InterfaceView.speech_controls(identity, revision, Identity.Entity{parent, "composer", U.editor_key(identity)}, state),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, InterfaceView.speech_controls(identity, revision, Identity.Entity{parent, "composer", U.editor_key(identity)}, state), InterfaceView.file_field(identity, Identity.Part{Identity.Entity{parent, "composer", U.editor_key(identity)}, "attachments"}, state)),
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, InterfaceView.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, Identity.Entity{parent, "composer", U.editor_key(identity)}, state), InterfaceView.action_feedback_nodes(identity, U.Rejected{submitted, reason}, Identity.Entity{parent, "composer", U.editor_key(identity)})), [InterfaceView.action_footer(footer, UX.action(identity, revision, pending), assessment, submit, Identity.Entity{parent, "composer", U.editor_key(identity)}, state)]))}] : +List<SurfaceTypes.Node>}}
 
 law feedback_evidence:

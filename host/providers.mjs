@@ -4,6 +4,7 @@ import { events, readText } from './network.mjs';
 import { authorize } from './chatgpt-account.mjs';
 import { boundary, observeJson } from './public/model-boundary.mjs';
 import { requestHeaders } from './model-request.mjs';
+import { imageDataURL } from './files.mjs';
 import { requestChatGPTWeb, cancelChatGPTWeb } from './chatgpt-web.mjs';
 
 // Transport abort detaches an observer. A committed native cancellation also
@@ -52,9 +53,45 @@ export function prepareProviderRequest(request) {
   return Object.freeze({ request, body, bytes: Buffer.byteLength(body) });
 }
 
+// Native plans retain asset identities. Only this transport interpreter creates data URLs.
+export async function prepareModelRequest(request, home, limits) {
+  const assets = [];
+  const slots = [];
+  for (const item of request.input ?? []) {
+    const parts = item.type === 'function_call_output' ? item.output : item.content;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      if (part?.type === 'input_image' && part.image_asset) {
+        assets.push(part.image_asset);
+        slots.push(part);
+      }
+    }
+  }
+  const planned = prepareProviderRequest(request);
+  // The ordinary frame budget still bounds every non-image byte in the plan.
+  boundary('backend.request_size', { bytes: planned.bytes, limits });
+  boundary('backend.image_request_budget', { assets });
+  const urls = await Promise.all(assets.map(asset => imageDataURL(home, asset)));
+  const images = new Map(slots.map((slot, index) => [slot, urls[index]]));
+  const input = (request.input ?? []).map(item => {
+    const key = item.type === 'function_call_output' ? 'output' : 'content';
+    if (!Array.isArray(item[key])) return item;
+    return { ...item, [key]: item[key].map(part => {
+      if (!images.has(part)) return part;
+      const { image_asset, ...fields } = part;
+      return { ...fields, image_url: images.get(part) };
+    }) };
+  });
+  const wire = slots.length ? { ...request, input } : request;
+  const body = stringifyJson(wire);
+  const prepared = Object.freeze({ request, body, bytes: Buffer.byteLength(body) });
+  guardProviderRequest(prepared, limits);
+  return prepared;
+}
+
 function guardProviderRequest(prepared, limits) {
   // DEFENSE: User history and external tool output can make the encoded provider request exceed the configured HTTP byte budget.
-  boundary('backend.request_size', { bytes: prepared.bytes, limits });
+  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: prepared.request });
 }
 
 // Resolve the complete consumer before selecting opaque input. API-key identity
@@ -82,7 +119,7 @@ export async function providerSession(effect, config, home, { signal } = {}) {
     .update(JSON.stringify([configured.provider, configured.endpoint ?? null, effect.model.profile, effect.model.name, credential]))
     .digest('hex');
   const profile = { ...configured, scope };
-  return { profile, backend, scope, lifetime, headers,
+  return { profile, backend, scope, lifetime, headers, home,
     account: Boolean(authorization),
     refresh: async () => {
       authorization = await authorization.refreshAfterRejection({ signal: lifetime });
@@ -136,7 +173,7 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   const consumer = boundary('backend.compaction_scope_changed', { effect, scope });
   // DEFENSE: Credentials can rotate after context selection; old opaque context must not be dispatched to the new consumer.
   if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
-  const prepared = prepareProviderRequest(responseBody(effect, profile));
+  const prepared = await prepareModelRequest(responseBody(effect, profile), home, limits);
   return requestProviderSSE(session, effect, prepared, limits, { onDelta, onRetry, onObservation });
 }
 

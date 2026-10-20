@@ -1,10 +1,12 @@
 import { boundary } from './public/model-boundary.mjs';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, open, readdir, readFile } from 'node:fs/promises';
 import { readSync, writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { prepareSandbox } from './sandbox.mjs';
+import { storeImageContent } from './files.mjs';
 
 export function killGroup(child, signal = 'SIGKILL') {
   // DEFENSE: A failed spawn has no PID and therefore owns no process group.
@@ -392,3 +394,50 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
 
 /** Execute an already validated Bash effect and wait for its final result. */
 export async function runBash(arguments_, limits, options) { return startBash(arguments_, limits, options).result; }
+
+/** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
+export async function runReadImage(arguments_, limits, { signal, execution, readOnlyPaths, managedWorktreeRoot, home }) {
+  signal?.throwIfAborted();
+  const { path: filename, detail, timeout, maximum } = boundary('effect.image_arguments', { arguments: arguments_ });
+  const launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
+  const quoted = "'" + filename.replaceAll("'", "'\"'\"'") + "'";
+  const command = `[ -f ${quoted} ] || { printf '%s' 'Image path must be a regular file' >&2; exit 1; }; head -c ${maximum + 1} < ${quoted}`;
+  const chunks = [];
+  const stderr = capture(4096);
+  let bytes = 0;
+  let child;
+  let timer;
+  let failure;
+  const stop = error => { failure ??= error; if (child) killGroup(child); };
+  const aborted = () => stop(signal.reason);
+  try {
+    child = spawn(launch.file, [...launch.prefix, '-c', command], {
+      cwd: launch.cwd, env: launch.env, detached: true,
+      stdio: ['ignore', 'pipe', 'pipe', ...launch.descriptors],
+    });
+    timer = setTimeout(() => stop(new Error('Image read timed out')), timeout);
+    signal?.addEventListener('abort', aborted, { once: true });
+    if (signal?.aborted) aborted();
+    child.stdout.on('data', chunk => {
+      bytes += chunk.length;
+      // DEFENSE: A local image may exceed the upload budget or grow during the sandboxed read.
+      if (bytes > maximum) { stop(new RangeError('Image exceeds the 10 MiB byte limit')); return; }
+      chunks.push(chunk);
+    });
+    child.stderr.on('data', chunk => stderr.add(chunk));
+    await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', code => {
+        if (failure) reject(failure);
+        else if (code !== 0) reject(new Error(stderr.result().text.trim() || `Image read failed with exit code ${code}`));
+        else resolve();
+      });
+    });
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', aborted);
+    await launch.cleanup();
+  }
+  signal?.throwIfAborted();
+  return { value: { content: [await storeImageContent(home, path.basename(filename), Buffer.concat(chunks, bytes), detail)] }, error: false };
+}

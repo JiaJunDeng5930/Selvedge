@@ -21,7 +21,7 @@ import ../../features/work/PROGRAM.bend as Work
 import ./work-state.bend as WorkState
 import ./MODEL.bend as F
 
-def realize_calculation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
+def realize_calculation(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case O.WorkChange{change}: WorkState.embed(Work.realize_calculation(change, WorkState.registry(world)), world)
     case O.StartWorkTask{work, profile, reasoning, message, selection}:
@@ -48,13 +48,13 @@ def event_calculation(event: O.ResolvedEvent, +world: M.World()) -> M.Decision()
     case O.ChatGPTResult{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
     case O.BoardTextResult{id, card, outcome, retitle}: Board.completed(id, card, outcome, retitle, world)
 
-def resolution_calculation(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), resolution: Resolution.Resolution, world: M.World()) -> M.Decision():
+def resolution_calculation(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), resolution: Resolution.Resolution, world: M.World()) -> M.Decision():
   match resolution:
     case Resolution.Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
     case Resolution.Accept{operation}: realize_calculation(~spawn, operation, world)
 
-def realize(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def realize(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   member: Resolution.ConstructedCommand(~start)) -> M.Decision():
   Categories.Membership{Categories.Construction{Resolution.CommandRequest{command, world}, resolution}, evidence} = member
   resolution_calculation(~spawn, resolution, world)

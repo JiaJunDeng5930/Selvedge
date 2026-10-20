@@ -60,6 +60,16 @@ explicitly shared projects through OpenAI Secure MCP Tunnel. Its connection gran
 apply across conversations, and local operations run in the selected project's
 Workspace.
 
+Paste, drop or select images in a new Task or conversation message. Images stay
+visible in the conversation and accompany the message to a ChatGPT account model;
+image attachments on board cards follow the same path when the card starts.
+The `read_image` tool lets a model inspect a local image under its Task's existing
+workspace and sandbox permissions. Uploaded and tool-read images retain a
+content-addressed snapshot for subsequent calls and recovery. Other model
+backends report unsupported image input explicitly. See the
+[image input decision](docs/adr/0052-image-model-input.md) for the representation
+and backend boundary.
+
 [Remote control](docs/remote-control.md) connects an authorized device through a
 Cloudflare Workers and Durable Objects relay. The host initiates HTTPS/WSS on
 TCP 443 and retains task execution and its journal. No public host IP, VPS or
@@ -596,7 +606,7 @@ native boundary policy. Permanent failures and excessive `Retry-After` delays
 are not retried. A partially exposed response stream is never silently replayed;
 retry notices are visible in the event stream and browser.
 
-The current journal format is `selvedge-bend-journal-7`, independent of build
+The current journal format is `selvedge-bend-journal-8`, independent of build
 fingerprints and compiler versions, with task-local workspace settings stored in
 its inputs. Its metadata persists one random 128-bit data namespace, bound to
 the journal hash chain and retained across service restarts. Reopening validates integrity and complete committed decisions

@@ -43,7 +43,7 @@ def visible_sources(groups: +List<Actual.VisibleGroup>) -> +List<D.Message>:
 def text(source: D.Message) -> String:
   match source:
     case D.SpeechTranscript{owner, session, item, speaker, completion, value}: value
-    case D.UserMessage{value}: value
+    case D.UserMessage{value}: D.content_markdown(value)
     case D.AssistantMessage{origin, value}: value
     case D.ModelContext{origin, value}: Content.provider_text(value)
     case _: ""

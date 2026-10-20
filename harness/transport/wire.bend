@@ -87,20 +87,20 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
     case M.AcceptSpeechDelegationCommand{}:
       M.AcceptSpeechDelegation{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "session_id")), J.text(J.get(body, "delegation_id")), J.text(J.get(body, "message")), J.text(J.get(body, "mode"))}
     case M.CreateCommand{}:
-      M.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
+      M.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), D.user_content(J.get(body, "message"), J.get(body, "images")), J.get(body, "settings")}
     case M.SendCommand{}:
-      M.Send{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
+      M.Send{Protocol.number(body, "task_id", 0n), D.user_content(J.get(body, "message"), J.get(body, "images"))}
     case M.SteerCommand{}:
-      M.Steer{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "message"))}
+      M.Steer{Protocol.number(body, "task_id", 0n), D.user_content(J.get(body, "message"), J.get(body, "images"))}
     case M.CancelCommand{}:
       M.Cancel{Protocol.number(body, "task_id", 0n), Protocol.number(body, "operation_id", 0n)}
     case M.ControlCommand{control}:
       M.ChangeStatus{Protocol.number(body, "task_id", 0n), control}
     case M.ForkCommand{}:
       M.Fork{Protocol.number(body, "task_id", 0n), Protocol.number(body, "child_count", 0n),
-        J.text_values(J.items(J.get(body, "messages"))), J.get(body, "settings")}
+        D.content_items(J.items(J.get(body, "messages"))), J.get(body, "settings")}
     case M.OpenSideConversationCommand{}:
-      M.OpenSideConversation{Protocol.number(body, "task_id", 0n), J.text_or(J.get(body, "message"), "")}
+      M.OpenSideConversation{Protocol.number(body, "task_id", 0n), D.user_content(J.get(body, "message"), J.get(body, "images"))}
     case M.ReturnSideConversationCommand{}:
       M.ReturnSideConversation{Protocol.number(body, "task_id", 0n)}
     case M.ReadCommand{}:

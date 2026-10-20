@@ -44,14 +44,14 @@ type Operation is Data:
   RecordSpeech{task: D.Task, session: String, item: String, speaker: D.SpeechSpeaker, completion: D.SpeechCompletion, text: String}
   DelegateSpeech{task: D.Task, session: String, identity: String, mode: String, message: String}
   ReplaySpeech{result: J.Json}
-  Start{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
-  Deliver{task: D.Task, message: String}
-  Steer{task: D.Task, message: String}
+  Start{profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
+  Deliver{task: D.Task, message: D.UserContent}
+  Steer{task: D.Task, message: D.UserContent}
   Cancel{task: D.Task, operation: D.Operation()}
   Control{task: D.Task, request: D.Control, next: D.Status}
-  Branch{parent: D.Task, count: Nat, messages: +List<String>, selection: Workspace.Selection}
-  OpenSideConversation{parent: D.Task, message: String}
-  ReturnSideConversation{side: D.Task, parent: D.Task, after: Nat, through: Nat, transcript: String}
+  Branch{parent: D.Task, count: Nat, messages: +List<D.UserContent>, selection: Workspace.Selection}
+  OpenSideConversation{parent: D.Task, message: D.UserContent}
+  ReturnSideConversation{side: D.Task, parent: D.Task, after: Nat, through: Nat, transcript: D.UserContent}
   Summarize{task: D.Task}
   Checkpoint{task: D.Task, summary: String}
   Observe{query: M.Query}
@@ -93,13 +93,13 @@ def require(predicate: Operation -> Bool, operation: Operation, code: String, re
 
 def start_permitted(operation: Operation) -> Bool:
   match operation:
-    case Start{profile, reasoning, message, selection}: D.profile_permitted(profile, reasoning) && D.nonempty(message)
+    case Start{profile, reasoning, +message, selection}: D.profile_permitted(profile, reasoning) && D.content_nonempty(message) && D.content_valid(message)
     case _: False{}
 
 def input_permitted(operation: Operation) -> Bool:
   match operation:
-    case Deliver{task, message}: D.nonempty(message) && D.accepts_input(D.task_status(task))
-    case Steer{task, message}: D.nonempty(message) && D.accepts_input(D.task_status(task))
+    case Deliver{task, +message}: D.content_valid(message) && D.content_nonempty(message) && D.accepts_input(D.task_status(task))
+    case Steer{task, +message}: D.content_valid(message) && D.content_nonempty(message) && D.accepts_input(D.task_status(task))
     case _: False{}
 
 def cancel_permitted(operation: Operation) -> Bool:
@@ -133,7 +133,7 @@ def selected_settings(+options: J.Json, base: Workspace.Selection, profile: D.Pr
     options, profile, configured(settings(world)))
 
 def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +profile: D.Profile,
-  +reasoning: String, +message: String) -> Operation:
+  +reasoning: String, +message: D.UserContent) -> Operation:
   match selection:
     case Fail{reason}: Refuse{"invalid_settings", reason}
     case Done{selection}:
@@ -150,7 +150,7 @@ def workspace_permitted(+world: M.World(), operation: Operation) -> Bool:
 def available_workspace(operation: Operation, +world: M.World()) -> Operation:
   require(value => workspace_permitted(world, value), operation, "worktree_unavailable", "This managed worktree is not ready. Select an available workspace or wait for its operation to finish.")
 
-def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: String, options: J.Json, +world: M.World()) -> Operation:
+def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: D.UserContent, options: J.Json, +world: M.World()) -> Operation:
   match profile:
     case None{}: Refuse{"unknown_profile", "Select a configured model profile"}
     case Some{+profile}:
@@ -221,7 +221,7 @@ def delegate_speech_task(found: Maybe<&2, D.Task>, +session: String, +identity: 
         Refuse{"invalid_arguments", "A voice delegation requires stable session and delegation identities, a nonempty instruction, and send or steer mode"})
 
 def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, parent: D.Task,
-  count: Nat, messages: +List<String>) -> Operation:
+  count: Nat, messages: +List<D.UserContent>) -> Operation:
   match selection:
     case Fail{reason}: Refuse{"invalid_settings", reason}
     case Done{selection}: Branch{parent, count, messages, selection}
@@ -255,14 +255,14 @@ def selected_parent(+selection: Workspace.Selection, +parent: D.Task) -> D.Task:
   record_selection(Bool.not(Same.project(guidance, D.task_guidance(parent)) &&
     Same.task_context(context, D.task_context(parent))), selection, parent)
 
-def recipient(found: Maybe<&2, D.Task>, +message: String) -> Operation:
+def recipient(found: Maybe<&2, D.Task>, +message: D.UserContent) -> Operation:
   match found:
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+task}:
       require(input_permitted, Deliver{task, message},
         "invalid_arguments", "The message must be nonempty and the target must not be archived")
 
-def steering(found: Maybe<&2, D.Task>, +message: String) -> Operation:
+def steering(found: Maybe<&2, D.Task>, +message: D.UserContent) -> Operation:
   match found:
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+task}:
@@ -297,9 +297,9 @@ def per_fork(contract: D.Contract) -> Nat:
 def branch_count_valid(+count: Nat, parent: D.Task) -> Bool:
   Nat.is_le(1n, count) && Nat.is_le(count, per_fork(D.task_contract(parent)))
 
-def branch_messages_valid(count: Nat, messages: +List<String>) -> Bool:
-  +size = List.length(&2, String, messages)
-  Nat.is_eq(size, 0n) || Nat.is_eq(size, count)
+def branch_messages_valid(count: Nat, +messages: +List<D.UserContent>) -> Bool:
+  +size = List.length(&2, D.UserContent, messages)
+  (Nat.is_eq(size, 0n) || Nat.is_eq(size, count)) && D.contents_valid(messages)
 
 def branch_capacity_valid(+count: Nat, +parent: D.Task, world: M.World()) -> Bool:
   T.ancestors_fit(D.task_id(parent) <> D.task_lineage(parent), entries(world), count)
@@ -309,7 +309,7 @@ def branch_parent_valid(status: D.Status, phase: D.Phase) -> Bool:
     case D.Active{} D.Idle{}: True{}
     case _ _: False{}
 
-def branch_fits(+count: Nat, messages: +List<String>, +parent: D.Task, +world: M.World()) -> Bool:
+def branch_fits(+count: Nat, messages: +List<D.UserContent>, +parent: D.Task, +world: M.World()) -> Bool:
   FeatureState.execution_allowed(D.task_id(parent), world) && branch_count_valid(count, parent) && branch_messages_valid(count, messages) && branch_capacity_valid(count, parent, world)
 
 def branch_permitted(+world: M.World(), operation: Operation) -> Bool:
@@ -318,7 +318,7 @@ def branch_permitted(+world: M.World(), operation: Operation) -> Bool:
     case _: False{}
 
 def branch_ready_eligible(eligible: Bool, +parent: D.Task,
-  +count: Nat, +messages: +List<String>, world: M.World()) -> Operation:
+  +count: Nat, +messages: +List<D.UserContent>, world: M.World()) -> Operation:
   match eligible:
     case True{}:
       require(operation => branch_permitted(world, operation), Branch{parent, count, messages, task_selection(parent)},
@@ -326,10 +326,10 @@ def branch_ready_eligible(eligible: Bool, +parent: D.Task,
     case False{}: Refuse{"task_busy", "A manual fork requires an active, idle task"}
 
 def branch_ready(status: D.Status, phase: D.Phase, parent: D.Task,
-  count: Nat, messages: +List<String>, world: M.World()) -> Operation:
+  count: Nat, messages: +List<D.UserContent>, world: M.World()) -> Operation:
   branch_ready_eligible(branch_parent_valid(status, phase), parent, count, messages, world)
 
-def branched(found: Maybe<&2, D.Task>, count: Nat, messages: +List<String>, world: M.World()) -> Operation:
+def branched(found: Maybe<&2, D.Task>, count: Nat, messages: +List<D.UserContent>, world: M.World()) -> Operation:
   match found:
     case None{}: Refuse{"task_not_found", "The target task does not exist"}
     case Some{+parent}: branch_ready(D.task_status(parent), D.task_phase(parent), parent, count, messages, world)
@@ -337,10 +337,10 @@ def branched(found: Maybe<&2, D.Task>, count: Nat, messages: +List<String>, worl
 def side_open_permitted(+world: M.World(), operation: Operation) -> Bool:
   match operation:
     case OpenSideConversation{+parent, message}:
-      D.accepts_input(D.task_status(parent)) && branch_fits(1n, Nil{}, parent, world)
+      D.content_valid(message) && D.accepts_input(D.task_status(parent)) && branch_fits(1n, Nil{}, parent, world)
     case _: False{}
 
-def open_side(found: Maybe<&2, D.Task>, message: String, +world: M.World()) -> Operation:
+def open_side(found: Maybe<&2, D.Task>, message: D.UserContent, +world: M.World()) -> Operation:
   match found:
     case None{}: Refuse{"task_not_found", "The parent task does not exist"}
     case Some{parent}:
@@ -348,10 +348,10 @@ def open_side(found: Maybe<&2, D.Task>, message: String, +world: M.World()) -> O
         "side_unavailable", "A side conversation requires a non-archived parent and available descendant capacity")
 
 # DEFENSE: An independently growing side history can exceed the configured serialization budget; refuse without advancing its return cursor.
-def side_return_encoded(encoded: Result<&2, &2, String, String>, side: D.Task, parent: D.Task, after: Nat, through: Nat) -> Operation:
+def side_return_encoded(encoded: Result<&2, &2, String, String>, +side: D.Task, parent: D.Task, +after: Nat, through: Nat) -> Operation:
   match encoded:
     case Fail{reason}: Refuse{"output_limit", "The complete side conversation transcript exceeds the encoding bound"}
-    case Done{text}: ReturnSideConversation{side, parent, after, through, Side.returned_message(text)}
+    case Done{text}: ReturnSideConversation{side, parent, after, through, Side.returned_message(text, Side.suffix(side, after))}
 
 def side_return_content(messages: +List<D.Message>, +side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, world: M.World()) -> Operation:
   match messages:
@@ -460,7 +460,7 @@ def feature_start_result(operation: Operation) -> FeatureResolution.Start:
     case Refuse{code, reason}: FeatureResolution.StartRefused{code, reason}
     case _: FeatureResolution.InvalidStart{}
 
-def feature_start(profile: String, reasoning: String, message: String, options: J.Json, +world: M.World()) -> FeatureResolution.Start:
+def feature_start(profile: String, reasoning: String, message: D.UserContent, options: J.Json, +world: M.World()) -> FeatureResolution.Start:
   feature_start_result(selected(D.find_profile(configured(settings(world)), profile), reasoning, message, options, world))
 
 def feature_result(resolution: FeatureResolution.Resolution) -> Operation:
@@ -664,7 +664,7 @@ def replace(task: D.Task, world: M.World()) -> M.World():
 def changed(id: Nat, task: D.Task, world: M.World(), effects: +List<M.Effect()>) -> M.Decision():
   C.Decision{replace(task, world), D.success(id_result(id)), effects}
 
-def start_environment(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
+def start_environment(profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
   match selection world environment_value:
     case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
@@ -676,7 +676,7 @@ def start_environment(profile: D.Profile, reasoning: String, message: String, se
       C.Decision{C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board},
         D.success(id_result(next_task)), Nil{}}
 
-def start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+def start(profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   start_environment(profile, reasoning, message, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def start_idle_environment(profile: D.Profile, reasoning: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
@@ -704,16 +704,16 @@ def lifecycle(request: D.Control, next: D.Status, +task: D.Task, world: M.World(
     case D.Interrupt{}: C.Decision{Compaction.cancelled_world(task, replace(T.interrupt(task), world)), D.success(id_result(D.task_id(task))), [Effects.CancelTask{D.task_id(task)}]}
     case _: status_change(next, task, world)
 
-def initial_message(message: Maybe<&2, String>, history: D.History) -> D.History:
+def initial_message(message: Maybe<&2, D.UserContent>, history: D.History) -> D.History:
   match message:
     case None{}: history
     case Some{text}: D.HistoryNode{history, D.UserMessage{text}}
 
-def child_selected(+id: Nat, +parent: D.Task, +contract: D.Contract, call_id: String, branch: Nat, remaining: +List<D.Attempt>, message: Maybe<&2, String>) -> D.Task:
+def child_selected(+id: Nat, +parent: D.Task, +contract: D.Contract, call_id: String, branch: Nat, remaining: +List<D.Attempt>, message: Maybe<&2, D.UserContent>) -> D.Task:
   D.Task{id, D.task_id(parent) <> D.task_lineage(parent), contract, D.execution_configuration(contract), D.Active{},
     initial_message(message, D.child_history(Ops.inherited(parent), id, call_id, branch)), Nil{}, D.Ready{D.inherit_attempts(remaining)}, Nil{}, True{}}
 
-def child(id: Nat, +parent: D.Task, call_id: String, branch: Nat, remaining: +List<D.Attempt>, message: Maybe<&2, String>) -> D.Task:
+def child(id: Nat, +parent: D.Task, call_id: String, branch: Nat, remaining: +List<D.Attempt>, message: Maybe<&2, D.UserContent>) -> D.Task:
   child_selected(id, parent, D.effective_contract(parent), call_id, branch, remaining, message)
 
 type Children is Data:
@@ -724,12 +724,12 @@ def prepend(task: D.Task, children: Children) -> Children:
   Children{task <> rest, end}
 
 def children(count: Nat, +next_id: Nat, +branch: Nat, +parent: D.Task, +call_id: String,
-  +remaining: +List<D.Attempt>, +messages: +List<String>) -> Children:
+  +remaining: +List<D.Attempt>, +messages: +List<D.UserContent>) -> Children:
   match count:
     case 0n: Children{Nil{}, next_id}
     case 1n+p:
-      prepend(child(next_id, parent, call_id, branch, remaining, List.head(&2, String, messages)),
-        children(p, 1n+next_id, 1n+branch, parent, call_id, remaining, List.tail(&2, String, messages)))
+      prepend(child(next_id, parent, call_id, branch, remaining, List.head(&2, D.UserContent, messages)),
+        children(p, 1n+next_id, 1n+branch, parent, call_id, remaining, List.tail(&2, D.UserContent, messages)))
 
 def identity(task: D.Task) -> J.Json:
   J.nat(D.task_id(task))
@@ -737,9 +737,9 @@ def identity(task: D.Task) -> J.Json:
 def identities(tasks: +List<D.Task>) -> +List<J.Json>:
   Std.map(~D.Task, ~J.Json, ~identity, tasks)
 
-def branch_call(ticket: Nat, count: Nat, messages: +List<String>) -> D.Call:
+def branch_call(ticket: Nat, count: Nat, messages: +List<D.UserContent>) -> D.Call:
   D.Call{"manual-fork-" ++ Nat.show(ticket), "fork_task",
-    J.Object{[J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{J.text_items(messages)}}]}}
+    J.Object{[J.Field{"child_count", J.nat(count)}, J.Field{"messages", J.Array{D.content_values(messages)}}]}}
 
 def branch_commit(built: Children, +parent: D.Task, call_id: String, world: M.World()) -> M.Decision():
   Children{+spawned, end} = built
@@ -750,7 +750,7 @@ def branch_commit(built: Children, +parent: D.Task, call_id: String, world: M.Wo
   C.Decision{C.Frame{D.with_state_next_ticket(1n+next_ticket, D.with_state_next_task(end, D.with_state_tasks(List.append(&2, D.Task, T.replace(tasks, caller), spawned), task_state))), board},
     D.success(J.Object{[J.Field{"children", J.Array{identities(spawned)}}]}), Nil{}}
 
-def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+def branch(+task: D.Task, +count: Nat, +messages: +List<D.UserContent>, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
   +next_task = D.state_next_task(task_state)
   +next_ticket = D.state_next_ticket(task_state)
@@ -758,14 +758,14 @@ def branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Work
   +parent = D.append_message(D.FunctionCall{call}, task)
   branch_commit(children(count, next_task, 1n, selected_parent(selection, parent), T.call_id(call), Nil{}, messages), parent, T.call_id(call), world)
 
-def side_opened(+parent: D.Task, +message: String, world: M.World()) -> M.Decision():
+def side_opened(+parent: D.Task, +message: D.UserContent, world: M.World()) -> M.Decision():
   C.Frame{+task_state, board} = world
   +id = D.state_next_task(task_state)
-  child = SideRequirements.initial_message(String.is_empty(message), message, SideRequirements.required_child(id, parent))
+  child = SideRequirements.initial_message(Bool.not(D.content_nonempty(message)), message, SideRequirements.required_child(id, parent))
   C.Decision{C.Frame{D.with_state_next_task(1n+id, D.with_state_tasks(List.append(&2, D.Task, D.state_tasks(task_state), [child]), task_state)), board},
     D.success(J.Object{[J.Field{"task_id", J.nat(id)}, J.Field{"parent_task_id", J.nat(D.task_id(parent))}]}), Nil{}}
 
-def side_returned(+side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, transcript: String, world: M.World()) -> M.Decision():
+def side_returned(+side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, transcript: D.UserContent, world: M.World()) -> M.Decision():
   C.Decision{replace(D.append_context(D.SideReturnCursor{D.task_id(side), through}, side), replace(T.receive(transcript, parent), world)),
     D.success(J.Object{[J.Field{"task_id", J.nat(D.task_id(parent))}, J.Field{"side_task_id", J.nat(D.task_id(side))},
       J.Field{"after", J.nat(after)}, J.Field{"through", J.nat(through)}]}), Nil{}}
@@ -911,7 +911,7 @@ def command(+request: M.Command, +world: M.World()) -> M.Decision():
   meaning(resolve(request, world), world)
 
 def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision():
-  command(M.Send{target, message}, world)
+  command(M.Send{target, D.text_content(message)}, world)
 
 
 type CommandRequest is Data:

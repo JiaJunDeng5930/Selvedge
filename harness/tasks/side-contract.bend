@@ -75,7 +75,7 @@ def required_child(+id: Nat, +parent: D.Task) -> D.Task:
   D.Task{id, D.task_id(parent) <> D.task_lineage(parent), contract, D.execution_configuration(contract), D.Active{},
     birth_history(id, D.task_id(parent), snapshot_history(parent)), Nil{}, D.Idle{}, Nil{}, False{}}
 
-def initial_message(empty: Bool, message: String, task: D.Task) -> D.Task:
+def initial_message(empty: Bool, message: D.UserContent, task: D.Task) -> D.Task:
   match empty:
     case True{}: task
     case False{}: Tasks.receive(message, task)

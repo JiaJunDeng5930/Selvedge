@@ -23,7 +23,7 @@ law transcript_changes_only_history:
   for current: D.ExecutionConfiguration
   for status: D.Status
   for history: D.History
-  for queued: +List<String>
+  for queued: +List<D.UserContent>
   for phase: D.Phase
   for operations: +List<D.Operation()>
   for notified: Bool
@@ -71,7 +71,7 @@ law delegation_send_is_ordinary_input:
   for +text: String
   for +task: D.Task
   {Speech.accepted(session, identity, "send", text, task) ==
-    D.append_message(D.SpeechDelegationReceipt{D.task_id(task), session, identity, "send", text}, Tasks.receive(text, task)) : D.Task}
+    D.append_message(D.SpeechDelegationReceipt{D.task_id(task), session, identity, "send", text}, Tasks.receive(D.text_content(text), task)) : D.Task}
 
 law delegation_steer_is_ordinary_input:
   for +session: String
@@ -79,7 +79,7 @@ law delegation_steer_is_ordinary_input:
   for +text: String
   for +task: D.Task
   {Speech.accepted(session, identity, "steer", text, task) ==
-    D.append_message(D.SpeechDelegationReceipt{D.task_id(task), session, identity, "steer", text}, Tasks.steer(text, task)) : D.Task}
+    D.append_message(D.SpeechDelegationReceipt{D.task_id(task), session, identity, "steer", text}, Tasks.steer(D.text_content(text), task)) : D.Task}
 
 law delegation_send_committed_operation:
   for +task: D.Task
@@ -89,7 +89,7 @@ law delegation_send_committed_operation:
   for world: M.World()
   {Program.realize_calculation(Commands.DelegateSpeech{task, session, identity, "send", message}, world) ==
     Component.Decision{Tasks.update_world(Features.State(),
-      D.append_message(D.SpeechDelegationReceipt{D.task_id(task), session, identity, "send", message}, Tasks.receive(message, task)), world),
+      D.append_message(D.SpeechDelegationReceipt{D.task_id(task), session, identity, "send", message}, Tasks.receive(D.text_content(message), task)), world),
       D.success(Speech.delegation_result(D.task_id(task), session, identity, False{})), Nil{}} : M.Decision()}
 
 law replay_changes_nothing:

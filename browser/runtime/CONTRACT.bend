@@ -778,16 +778,16 @@ type RequestRequirements is Type:
   RequestRequirements{
     current_world: @+model_state:E.Application ->  @completion:E.Completion -> @reason:String -> {decision_world(E.complete_command(E.program(model_state), D.failure("command_not_submitted", reason), completion, model_state)) == E.program(model_state) : M.World()},
     owned_field_absent: @+fields:+List<J.Field> -> {J.find(Request.without_guidance(fields), "guidance") == J.Null{} : J.Json},
-    create: @profile:String -> @reasoning:String -> @message:String -> @fields:+List<J.Field> ->
+    create: @profile:String -> @reasoning:String -> @message:D.UserContent -> @fields:+List<J.Field> ->
       {Legacy.request_payload(M.Create{profile, reasoning, message, J.Object{fields}}) ==
           J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}},
             J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
-            J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}]} : J.Json},
-    fork: @id:Nat -> @count:Nat -> @messages:+List<String> -> @fields:+List<J.Field> ->
+            J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", D.content_json(message)}]} : J.Json},
+    fork: @id:Nat -> @count:Nat -> @messages:+List<D.UserContent> -> @fields:+List<J.Field> ->
       {Legacy.request_payload(M.Fork{id, count, messages, J.Object{fields}}) ==
           J.Object{[J.Field{"settings", J.Object{Request.without_guidance(fields)}}, J.Field{"op", J.Text{"fork"}},
             J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-            J.Field{"messages", J.Array{J.text_items(messages)}}]} : J.Json},
+            J.Field{"messages", J.Array{D.content_values(messages)}}]} : J.Json},
     project: @name:String -> @workspace:J.Json -> @guidance:+List<J.Field> -> @create_worktree:J.Json ->
       {Legacy.request_payload(M.CreateProject{name, workspace, J.Object{guidance}, create_worktree}) ==
         J.Object{Codec.optional_field("create_worktree", create_worktree,
@@ -824,7 +824,7 @@ type RequestRequirements is Type:
           U.Draft{revision, body, E.command_rejection_feedback(body, submitted, D.failure("command_not_submitted", reason)), directory_entry} : U.Draft},
     uncertain: @+model_state:Legacy.State ->  @ticket:Nat -> @reason:String -> {Legacy.failed_completion(ticket, reason, Legacy.with_receipt(None{}, model_state)) ==
         Legacy.Decision{Legacy.with_receipt(None{}, Legacy.with_pending(Legacy.uncertain_pending(Legacy.pending(model_state), ticket, reason), model_state)), Nil{}} : Legacy.Decision},
-    other_command: @id:Nat -> @message:String -> {Legacy.request_payload(M.Send{id, message}) == Codec.command_json(M.Send{id, message}) : J.Json}}
+    other_command: @id:Nat -> @message:D.UserContent -> {Legacy.request_payload(M.Send{id, message}) == Codec.command_json(M.Send{id, message}) : J.Json}}
 
 law request_evidence:
   RequestRequirements
@@ -2023,8 +2023,8 @@ law realized_decision_exact:
 # selection/composition. Other editors keep their native state.
 def required_submission_clear(body: U.Body) -> Bool:
   match body:
-    case U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}: String.eq(text, "")
-    case U.Message{task, U.Text{text}, delivery}: String.eq(text, "")
+    case U.NewTask{U.Text{text, images}, profile, reasoning, context, create_worktree, work}: String.eq(text, "") && List.is_empty(&2, B.Attachment, images)
+    case U.Message{task, U.Text{text, images}, delivery}: String.eq(text, "") && List.is_empty(&2, B.Attachment, images)
     case _: False{}
 
 def required_editor_reconciliation(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Editor.Editor:

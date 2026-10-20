@@ -46,7 +46,7 @@ def initial_project(project: D.ProjectContext, history: D.History) -> D.History:
     case D.ProjectContext{workspace, path, revision, content}: initial_context(D.project_guidance_context(workspace, path, revision, content), history)
 
 def initial_history(instructions: D.InitialInstructions, project: D.ProjectContext, context: D.TaskContext,
-  profile: D.Profile, reasoning: String, message: String, history: D.History) -> D.History:
+  profile: D.Profile, reasoning: String, message: D.UserContent, history: D.History) -> D.History:
   D.InitialInstructions{configured, global} = instructions
   D.HistoryNode{D.HistoryNode{initial_project(project, initial_global(global,
     initial_context(D.configured_context(configured), history))),

@@ -24,7 +24,7 @@ import ../../features/work/MODEL.bend as Work
 import ./worktree-state.bend as WorktreeState
 
 type Start is Data:
-  Start{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
+  Start{profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection}
   StartRefused{code: String, reason: String}
   InvalidStart{}
 
@@ -53,7 +53,7 @@ def graph_existing(exists: Bool, owned: Bool, key: String, id: Nat, rest: GraphN
     case True{} False{}: GraphNodesRefused{"task_graph_work_mismatch", "Every existing Task in a Work graph must already belong to that Work"}
     case True{} True{}: graph_prepend(O.GraphExisting{key, id}, rest)
 
-def graph_nodes(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def graph_nodes(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   nodes: +List<G.Node>, +work: Maybe<&2, Nat>, +world: M.World()) -> GraphNodes:
   match nodes:
     case Nil{}: GraphNodes{Nil{}}
@@ -61,37 +61,37 @@ def graph_nodes(~start: String -> String -> String -> J.Json -> @+world:M.World(
       graph_existing(GraphState.task_exists(Tasks.find(D.state_tasks(C.local(D.State, F.State(), world)), id)),
         GraphState.task_in_work(work, id, world), key, id, graph_nodes(~start, rest, work, world))
     case Con{G.Spawn{key, profile, reasoning, message, settings}, rest}:
-      graph_spawn(start(profile, reasoning, message, settings, world), key, graph_nodes(~start, rest, work, world))
+      graph_spawn(start(profile, reasoning, D.text_content(message), settings, world), key, graph_nodes(~start, rest, work, world))
 
 def graph_install(nodes: GraphNodes, id: Nat, work: Maybe<&2, Nat>, declaration: G.Declaration) -> Resolution:
   match nodes:
     case GraphNodes{nodes}: Accept{O.InstallGraph{id, work, declaration, nodes}}
     case GraphNodesRefused{code, reason}: Refuse{code, reason}
 
-def graph_built(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def graph_built(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   declaration: G.Declaration, id: Nat, +work: Maybe<&2, Nat>, +world: M.World()) -> Resolution:
   G.Declaration{name, +nodes, rules} = declaration
   graph_install(graph_nodes(~start, nodes, work, world), id, work, G.Declaration{name, nodes, rules})
 
-def graph_constructed(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def graph_constructed(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   constructed: Maybe<&1, Categories.Membership<G.Declaration, G.admissible>>, id: Nat, work: Maybe<&2, Nat>, +world: M.World()) -> Resolution:
   match constructed:
     case None{}: Refuse{"invalid_task_graph", "The task graph declaration has invalid identifiers, references or bounds"}
     case Some{member}: graph_built(~start, G.constructed_declaration(member), id, work, world)
 
-def graph_admitted(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def graph_admitted(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   allowed: Bool, id: Nat, work: Maybe<&2, Nat>, +declaration: G.Declaration, +world: M.World()) -> Resolution:
   match allowed:
     case False{}: Refuse{"invalid_task_graph", "The task graph declaration is invalid or the graph limit has been reached"}
     case True{}: graph_constructed(~start, G.construct(declaration), id, work, world)
 
-def graph_create(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def graph_create(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   exists: Bool, +work: Maybe<&2, Nat>, declaration: G.Declaration, +world: M.World()) -> Resolution:
   match exists:
     case False{}: Refuse{"work_not_found", "The Work does not exist"}
     case True{}: graph_admitted(~start, G.capacity(GraphState.registry(world)), G.next(GraphState.registry(world)), work, declaration, world)
 
-def graph_update(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def graph_update(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   found: Maybe<&2, G.Graph>, +id: Nat, +declaration: G.Declaration, +world: M.World()) -> Resolution:
   match found:
     case None{}: Refuse{"task_graph_not_found", "The task graph does not exist"}
@@ -102,7 +102,7 @@ def graph_remove(found: Maybe<&2, G.Graph>, id: Nat) -> Resolution:
     case None{}: Refuse{"task_graph_not_found", "The task graph does not exist"}
     case Some{graph}: Accept{O.DeleteGraph{id}}
 
-def graph(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: G.Command, +world: M.World()) -> Resolution:
+def graph(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: G.Command, +world: M.World()) -> Resolution:
   match command:
     case G.Create{+work, declaration}:
       graph_create(~start, GraphState.work_exists(work, world), work, declaration, world)
@@ -131,12 +131,12 @@ def card_options(project: Maybe<&2, Nat>, options: J.Json) -> J.Json:
     case J.Object{fields}: with_project(project, without_project(fields))
     case _: with_project(project, Nil{})
 
-def board(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, resolution: Board.Resolution, world: M.World()) -> Resolution:
+def board(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, resolution: Board.Resolution, world: M.World()) -> Resolution:
   match resolution:
     case Board.Refuse{code, reason}: Refuse{code, reason}
     case Board.Mutate{change}: Accept{O.BoardChange{change}}
     case Board.Launch{+id, +card, now, +agent}:
-      card_start(start(B.agent_profile(agent), B.agent_reasoning(agent), B.prompt(id, B.draft(card), B.agent_instructions(agent)),
+      card_start(start(B.agent_profile(agent), B.agent_reasoning(agent), B.prompt_content(id, B.draft(card), B.agent_instructions(agent)),
         card_options(B.project(B.draft(card)), B.agent_settings(agent)), world), id, card, now)
 
 def chatgpt(resolution: ChatGPT.Resolution) -> Resolution:
@@ -162,7 +162,7 @@ def work_worktree(resolution: Resolution, work: Nat) -> Resolution:
       Accept{O.StartWorkWorktree{work, profile, reasoning, message, selection}}
     case Accept{other}: Refuse{"invalid_work_start", "A Work task must resolve through ordinary task creation"}
 
-def worktree_selected(has_primary: Bool, profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection) -> Resolution:
+def worktree_selected(has_primary: Bool, profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection) -> Resolution:
   match has_primary:
     case False{}: Refuse{"worktree_requires_git", "A worktree requires a primary workspace in a Git repository"}
     case True{}: Accept{O.StartWorktree{profile, reasoning, message, selection}}
@@ -179,13 +179,13 @@ def work_start_choice(create_worktree: Bool, start: Start, work: Nat) -> Resolut
     case False{}: work_start(start, work)
     case True{}: work_worktree(worktree_start(start), work)
 
-def work_create(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
-  allowed: Bool, work: Nat, profile: String, reasoning: String, message: String, settings: J.Json, create_worktree: Bool, world: M.World()) -> Resolution:
+def work_create(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
+  allowed: Bool, work: Nat, profile: String, reasoning: String, message: D.UserContent, settings: J.Json, create_worktree: Bool, world: M.World()) -> Resolution:
   match allowed:
     case False{}: Refuse{"work_not_found", "The Work does not exist"}
     case True{}: work_start_choice(create_worktree, start(profile, reasoning, message, settings, world), work)
 
-def work(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: Work.Command, +world: M.World()) -> Resolution:
+def work(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: Work.Command, +world: M.World()) -> Resolution:
   match command:
     case Work.CreateTask{+id, profile, reasoning, message, settings, create_worktree}:
       work_create(~start, WorkState.exists(id, world), id, profile, reasoning, message, settings, create_worktree, world)
@@ -201,7 +201,7 @@ def worktree_archive_available(allowed: Bool, resolution: Resolution) -> Resolut
     case True{}: resolution
     case False{}: Refuse{"worktree_in_use", "This worktree is shared by other tasks. Archive those tasks before archiving its owner."}
 
-def worktree(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: Worktree.Command, +world: M.World()) -> Resolution:
+def worktree(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: Worktree.Command, +world: M.World()) -> Resolution:
   match command:
     case Worktree.Create{profile, reasoning, message, settings}: worktree_start(start(profile, reasoning, message, settings, world))
     case Worktree.RetryArchive{+id}: worktree_archive_available(WorktreeState.archive_allowed(id, world), worktree_retry(WorktreeState.retry_allowed(id, world), id))
@@ -211,7 +211,7 @@ def title_settings(resolution: Titles.SettingsResolution) -> Resolution:
     case Titles.Refuse{code, reason}: Refuse{code, reason}
     case Titles.Configure{prompts}: Accept{O.ConfigureTitles{prompts}}
 
-def resolve_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
+def resolve_calculation(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   match command:
     case F.WorkCommand{command}: work(~start, command, world)
     case F.TitleCommand{command}: title_settings(Titles.resolve_settings(command, world))
@@ -228,20 +228,20 @@ def native_start_allowed(start: Start, settings: J.Json, +caller: D.Task, +world
         D.state_environment(C.local(D.State, F.State(), world)), Projects.registry(F.State(), world))
     case _: True{}
 
-def native_nodes(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def native_nodes(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   nodes: +List<G.Node>, +caller: D.Task, +world: M.World()) -> Bool:
   match nodes:
     case Nil{}: True{}
     case Con{G.Existing{key, id}, rest}: native_nodes(~start, rest, caller, world)
     case Con{G.Spawn{key, profile, reasoning, message, +settings}, rest}:
-      native_start_allowed(start(profile, reasoning, message, settings, world), settings, caller, world) && native_nodes(~start, rest, caller, world)
+      native_start_allowed(start(profile, reasoning, D.text_content(message), settings, world), settings, caller, world) && native_nodes(~start, rest, caller, world)
 
-def native_declaration(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def native_declaration(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   declaration: G.Declaration, caller: D.Task, world: M.World()) -> Bool:
   G.Declaration{name, nodes, rules} = declaration
   native_nodes(~start, nodes, caller, world)
 
-def native_admissible(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start,
+def native_admissible(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start,
   caller: D.Task, command: F.Command, +world: M.World()) -> Bool:
   match command:
     case F.WorkCommand{Work.CreateTask{id, profile, reasoning, message, +settings, create_worktree}}:
@@ -253,21 +253,21 @@ def native_admissible(~start: String -> String -> String -> J.Json -> @+world:M.
 type CommandRequest is Data:
   CommandRequest{command: F.Command, world: M.World()}
 
-def command_resolution(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, request: CommandRequest) -> Resolution:
+def command_resolution(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, request: CommandRequest) -> Resolution:
   CommandRequest{command, world} = request
   resolve_calculation(~start, command, world)
 
-def ConstructedCommand(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start) -> Type:
+def ConstructedCommand(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start) -> Type:
   Categories.Membership<Categories.Construction<CommandRequest, Resolution>,
     Categories.constructed_by(CommandRequest, Resolution, command_resolution(~start))>
 
-def construct_command(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, world: M.World()) -> ConstructedCommand(~start):
+def construct_command(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: F.Command, world: M.World()) -> ConstructedCommand(~start):
   Categories.construct(CommandRequest, Resolution, command_resolution(~start), CommandRequest{command, world})
 
 
-def command_value(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, member: ConstructedCommand(~start)) -> Resolution:
+def command_value(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, member: ConstructedCommand(~start)) -> Resolution:
   Categories.Membership{Categories.Construction{request, result}, evidence} = member
   result
 
-def resolve(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
+def resolve(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Start, command: F.Command, +world: M.World()) -> Resolution:
   command_value(~start, construct_command(~start, command, world))

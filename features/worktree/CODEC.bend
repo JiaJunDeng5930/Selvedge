@@ -18,8 +18,8 @@ type Spec is Data:
 def create_schema(settings: J.Json) -> J.Json:
   D.command_schema([J.Field{"profile", D.string_schema("Configured model profile")},
     J.Field{"reasoning", D.string_schema("Reasoning effort")},
-    J.Field{"message", D.string_schema("Initial user request")}, J.Field{"settings", settings}],
-    [J.Text{"profile"}, J.Text{"message"}])
+    J.Field{"message", D.content_schema("Initial user request")}, J.Field{"images", D.images_schema()}, J.Field{"settings", settings}],
+    [J.Text{"profile"}])
 
 def task_schema() -> J.Json:
   D.command_schema([J.Field{"task_id", D.task_id_schema()}], [J.Text{"task_id"}])
@@ -41,7 +41,7 @@ def construct(kind: EntryKind, +body: J.Json) -> W.Command:
   match kind:
     case RetryArchiveKind{}: W.RetryArchive{number(J.get(body, "task_id"))}
     case _: W.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"),
-      J.text(J.get(body, "message")), J.get(body, "settings")}
+      D.user_content(J.get(body, "message"), J.get(body, "images")), J.get(body, "settings")}
 
 def query(kind: EntryKind, body: J.Json) -> W.Query:
   match kind:
@@ -60,7 +60,7 @@ def command_json(value: W.Command) -> J.Json:
   match value:
     case W.Create{profile, reasoning, message, settings}:
       command("create_worktree_task", settings_field(settings, [J.Field{"profile", J.Text{profile}},
-        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}]))
+        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", D.content_json(message)}]))
     case W.RetryArchive{task_id}: command("retry_worktree_archive", [J.Field{"task_id", J.nat(task_id)}])
 
 def query_json(value: W.Query) -> J.Json:

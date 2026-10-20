@@ -31,7 +31,7 @@ def work_created(work: Nat, task: Nat, original: M.World(), decision: M.Decision
 
 # The caller supplies the independent task-creation specification. The
 # executable assembler supplies its implementation to feature-execution.
-def meaning(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
+def meaning(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case O.WorkChange{change}: WorkState.embed(Work.meaning(change, WorkState.registry(world)), world)
     case O.StartWorkTask{work, profile, reasoning, message, selection}:

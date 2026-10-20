@@ -7,12 +7,12 @@ import { realpath } from 'node:fs/promises';
 import { Journal } from './journal.mjs';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
-import { runBash, startBash } from './process.mjs';
+import { runBash, startBash, runReadImage } from './process.mjs';
 import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation, workspaceCommandPlan } from './project.mjs';
 import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
-import { observeBoardCommand } from './board-files.mjs';
+import { observeBoardCommand, observeMessageImages } from './board-files.mjs';
 import { requestModel, requestCompaction, observeModelRequest, cancelModelTask, ContextLimitError } from './providers.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { browseDirectories } from './directories.mjs';
@@ -77,7 +77,7 @@ export class Service extends EventEmitter {
       });
       service.journal.on('observerFailure', error => service.#fatal(error));
       await Promise.all(Object.entries(config.mcp).map(async ([name, settings]) => {
-        const client = new Mcp(name, settings, service.limits);
+        const client = new Mcp(name, settings, service.limits, { home: service.home });
         service.#servers.set(name, client);
         // Initialization failures abort startup. Later failures remove routes
         // through a committed Configure input; frozen task definitions remain.
@@ -399,9 +399,13 @@ export class Service extends EventEmitter {
       } else {
         let result;
         if (effect.tool.source.kind === 'native') {
-          result = effect.tool.source.program.kind === 'Process'
-            ? await this.#runProcess(effect, signal)
-            : await this.#processTool(effect);
+          if (effect.tool.source.program.kind === 'Process') result = await this.#runProcess(effect, signal);
+          else if (effect.tool.source.program.kind === 'ReadImage') {
+            const executionOptions = { signal, execution: effect.execution,
+              managedWorktreeRoot: await this.#managedWorktreeRoot(effect.task_id),
+              readOnlyPaths: [this.home], home: this.home };
+            result = await runReadImage(effect.call.arguments, this.limits, executionOptions);
+          } else result = await this.#processTool(effect);
         } else if (effect.tool.source.plugin) {
           const client = this.#plugins.get(effect.tool.source.plugin.name);
           // DEFENSE: A frozen plugin tool contract can outlive that plugin's configured process.
@@ -487,6 +491,7 @@ export class Service extends EventEmitter {
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    command = await observeMessageImages(command, this.home);
     if (hasRootTaskCreation(command)) {
       // Keep each root's observed defaults adjacent to its command even when
       // catalog refreshes and other root births arrive concurrently.
@@ -527,6 +532,7 @@ export class Service extends EventEmitter {
     let rootFacts;
     try {
       command = await observeBoardCommand(envelope.intent, this.home);
+      command = await observeMessageImages(command, this.home);
       command = await this.#observeCommandWorkspace(command);
       if (hasRootTaskCreation(envelope.intent)) {
         rootFacts = { project: await snapshotProject(this.cwd, this.limits), instructions: {

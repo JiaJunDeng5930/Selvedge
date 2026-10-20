@@ -326,13 +326,13 @@ def input(+event: M.Input, +world: M.World()) -> M.Decision():
 type Invocation is Data:
   Internal{operation: Commands.Operation}
   DefinitionResult{value: J.Json}
-  Branch{count: Nat, messages: +List<String>, selection: Workspace.Selection}
+  Branch{count: Nat, messages: +List<D.UserContent>, selection: Workspace.Selection}
 
 def number(+arguments: J.Json, name: String, fallback: Nat) -> Nat:
   J.natural_or(J.natural(J.get(arguments, name)), fallback)
 
 type DelegatedRequest is Data:
-  DelegatedRequest{count: Nat, messages: +List<String>, selection: Workspace.Selection, parent: D.TaskContext}
+  DelegatedRequest{count: Nat, messages: +List<D.UserContent>, selection: Workspace.Selection, parent: D.TaskContext}
 
 def delegated_accepts(request: DelegatedRequest) -> Bool:
   DelegatedRequest{+count, +messages, +selection, +parent} = request
@@ -354,24 +354,24 @@ def delegated_admitted(admission: Maybe<&1, Categories.Membership<DelegatedReque
       DelegatedRequest{+count, +messages, +selection, +parent} = request
       Internal{Commands.Refuse{"approval_required", "A model-created child cannot broaden workspace or permissions. Ask the user to create a fork with those settings."}}
 
-def delegated(+count: Nat, +messages: +List<String>, +selection: Workspace.Selection, +parent: D.TaskContext) -> Invocation:
+def delegated(+count: Nat, +messages: +List<D.UserContent>, +selection: Workspace.Selection, +parent: D.TaskContext) -> Invocation:
   +request = {DelegatedRequest{count, messages, selection, parent} : DelegatedRequest}
   delegated_admitted(Categories.admit(DelegatedRequest, delegated_accepts, request), request)
 
-def delegated_calculation(allowed: Bool, count: Nat, messages: +List<String>, selection: Workspace.Selection) -> Invocation:
+def delegated_calculation(allowed: Bool, count: Nat, messages: +List<D.UserContent>, selection: Workspace.Selection) -> Invocation:
   match allowed:
     case True{}: Branch{count, messages, selection}
     case False{}: Internal{Commands.Refuse{"approval_required", "A model-created child cannot broaden workspace or permissions. Ask the user to create a fork with those settings."}}
 
 def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, count: Nat,
-  messages: +List<String>, parent: D.TaskContext) -> Invocation:
+  messages: +List<D.UserContent>, parent: D.TaskContext) -> Invocation:
   match selection:
     case Fail{reason}: Internal{Commands.Refuse{"invalid_settings", reason}}
     case Done{Workspace.Selection{+context, guidance}}:
       delegated(count, messages, Workspace.Selection{context, guidance}, parent)
 
 type BranchRequest is Data:
-  BranchRequest{count: Nat, texts: +List<String>, selection: Result<&2, &2, String, Workspace.Selection>, task: D.Task, world: M.World()}
+  BranchRequest{count: Nat, texts: +List<D.UserContent>, selection: Result<&2, &2, String, Workspace.Selection>, task: D.Task, world: M.World()}
 
 def branch_accepts(request: BranchRequest) -> Bool:
   BranchRequest{+count, +texts, +selection, +task, +world} = request
@@ -402,7 +402,7 @@ def branch_admitted(admission: Maybe<&1, Categories.Membership<BranchRequest, br
       BranchRequest{+count, +texts, +selection, +task, +world} = request
       Internal{Commands.Refuse{"resource_limit", "Fork count, aligned messages, or an ancestor descendant limit is invalid"}}
 
-def branch(+count: Nat, +texts: +List<String>, +selection: Result<&2, &2, String, Workspace.Selection>, +task: D.Task, +world: M.World()) -> Invocation:
+def branch(+count: Nat, +texts: +List<D.UserContent>, +selection: Result<&2, &2, String, Workspace.Selection>, +task: D.Task, +world: M.World()) -> Invocation:
   +request = {BranchRequest{count, texts, selection, task, world} : BranchRequest}
   branch_admitted(Categories.admit(BranchRequest, branch_accepts, request), request)
 
@@ -490,25 +490,27 @@ def invocation_with_caller(tool: Native.Body, +arguments: J.Json, +caller: Nat, 
     case Native.Create{profile, reasoning, message, settings}:
       +options = Native.settings(settings, arguments)
       native_creation(Commands.resolve(M.Create{Native.text(profile, arguments), Native.text(reasoning, arguments),
-        Native.text(message, arguments), options}, world), options, D.task_context(task), world)
+        D.text_content(Native.text(message, arguments)), options}, world), options, D.task_context(task), world)
     case Native.Feature{operation, schema}:
       native_feature(operation, schema, arguments, task, world)
     case Native.Send{target, message}:
-      Internal{Commands.resolve(M.Send{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
+      Internal{Commands.resolve(M.Send{Native.number(target, arguments, caller), D.text_content(Native.text(message, arguments))}, world)}
     case Native.Steer{target, message}:
-      Internal{Commands.resolve(M.Steer{Native.number(target, arguments, caller), Native.text(message, arguments)}, world)}
+      Internal{Commands.resolve(M.Steer{Native.number(target, arguments, caller), D.text_content(Native.text(message, arguments))}, world)}
     case Native.Archive{target}:
       Internal{Commands.resolve(M.ChangeStatus{Native.number(target, arguments, caller), D.Archive{}}, world)}
     case Native.Cancel{target, operation}:
       Internal{Commands.resolve(M.Cancel{Native.number(target, arguments, caller), Native.number(operation, arguments, caller)}, world)}
     case Native.Fork{count, messages, settings}:
-      branch(Native.number(count, arguments, caller), Native.texts(messages, arguments),
+      branch(Native.number(count, arguments, caller), D.text_contents(Native.texts(messages, arguments)),
         Commands.selected_settings(Native.settings(settings, arguments), Commands.task_selection(task), D.model_profile(D.task_model(task)), world), task, world)
     case Native.Process{}:
       Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
     case Native.ProcessRead{}:
       Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
     case Native.ProcessWrite{}:
+      Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
+    case Native.ReadImage{}:
       Internal{Commands.Refuse{"internal_error", "External tools must cross the external-effect boundary"}}
 
 def executable_invocation(allowed: Bool, invocation: Invocation) -> Invocation:

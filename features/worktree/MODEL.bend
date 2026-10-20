@@ -19,7 +19,7 @@ type State is Data:
   State{entries: +List<Finite.Entry(Worktree)>}
 
 type Command is Data:
-  Create{profile: String, reasoning: String, message: String, settings: J.Json}
+  Create{profile: String, reasoning: String, message: D.UserContent, settings: J.Json}
   RetryArchive{task_id: Nat}
 
 type Query is Data:

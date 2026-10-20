@@ -147,3 +147,20 @@ def event_kind(kind: String, +message: J.Json, +position: Nat, +scope: String, p
 
 def required_event(+message: J.Json, +position: Nat, +scope: String, previous: Selection) -> Selection:
   event_kind(J.text(J.get(message, "role")), message, position, scope, previous)
+
+# Compression may summarize text; image references remain actual model inputs.
+def image_part(part: J.Json) -> Bool:
+  String.eq(J.text(J.get(part, "type")), "image")
+
+def image_parts(parts: +List<J.Json>) -> +List<J.Json>:
+  List.filter(~J.Json, image_part, parts)
+
+def message_image_parts(content: J.Json) -> +List<J.Json>:
+  match content:
+    case J.Array{parts}: image_parts(parts)
+    case other: image_parts(J.items(J.get(other, "content")))
+
+def retained_images(parts: +List<J.Json>, rest: +List<J.Json>) -> +List<J.Json>:
+  match parts:
+    case Nil{}: rest
+    case Con{first, parts}: J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Array{first <> parts}}]} <> rest

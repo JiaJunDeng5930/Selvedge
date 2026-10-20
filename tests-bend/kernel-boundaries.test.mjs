@@ -43,5 +43,6 @@ test('full-size text survives file observation, native JSON rendering and Worker
   assert.equal(configured.value.reply.ok, true);
   assert.equal((await kernel.request({ kind: 'command', command: { op: 'create', profile: 'fixture', message: text } })).value.reply.ok, true);
   const page = await kernel.request({ kind: 'command', command: { op: 'read', task_id: 0 } });
-  assert.equal(page.value.reply.result.messages.find(message => message.role === 'user').content, text);
+  assert.deepEqual(page.value.reply.result.messages.find(message => message.role === 'user').content,
+    [{ type: 'text', text }]);
 });

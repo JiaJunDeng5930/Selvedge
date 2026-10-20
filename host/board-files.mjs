@@ -10,7 +10,7 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function filename(value) { return boundary('effect.filename', { value }); }
 
-function mediaType(bytes) {
+export function mediaType(bytes) {
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
   if (bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6))) return 'image/gif';
@@ -95,6 +95,16 @@ export async function saveBoardAttachment(home, name, stream) {
 export function observeBoardClock() {
   const seconds = Math.floor(Date.now() / 1000);
   return boundary('effect.board_clock', { seconds });
+}
+
+/** Resolve immutable image references before an input reaches the durable journal. */
+export async function observeMessageImages(command, home) {
+  const references = boundary('effect.message_images', { command });
+  await Promise.all(references.map(async value => {
+    const { attachment } = await readBoardAttachment(home, value.id);
+    boundary('effect.message_image_match', { value, attachment });
+  }));
+  return command;
 }
 
 /** Capture external observations. Card transitions and eligibility stay native. */

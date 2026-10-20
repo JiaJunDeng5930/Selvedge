@@ -83,6 +83,7 @@ def body_bindings(program: Native.Body) -> Bindings:
     case Native.Process{}: empty_bindings()
     case Native.ProcessRead{}: empty_bindings()
     case Native.ProcessWrite{}: empty_bindings()
+    case Native.ReadImage{}: empty_bindings()
 
 def bound_schema(bindings: Bindings) -> J.Json:
   Bindings{properties, required} = bindings
@@ -94,6 +95,7 @@ def schema(program: Native.Body) -> J.Json:
     case Native.Process{}: D.process_schema()
     case Native.ProcessRead{}: D.process_read_schema()
     case Native.ProcessWrite{}: D.process_write_schema()
+    case Native.ReadImage{}: D.image_schema()
     case Native.Feature{operation, schema}: Schema.command_arguments(schema)
     case other: bound_schema(body_bindings(other))
 
@@ -261,5 +263,7 @@ def catalog(max_fork: Nat) -> +List<D.Tool>:
       Native.ProcessRead{}}),
     List.append(&2, D.Tool, catalog_entry(Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
       Native.ProcessWrite{}}),
+    List.append(&2, D.Tool, catalog_entry(Request{"read_image", "Read a local PNG, JPEG, GIF or WebP image in this task's sandbox and return visual content to the model. Relative paths use the task workspace. Images are snapshotted before use; maximum 10 MiB. detail defaults to auto.",
+    Native.ReadImage{}}),
     catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}})))))))))))
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}}))))))))))))

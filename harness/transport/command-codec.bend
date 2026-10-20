@@ -36,21 +36,21 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{[J.Field{"op", J.Text{"accept_speech_delegation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"session_id", J.Text{session}}, J.Field{"delegation_id", J.Text{delegation}}, J.Field{"message", J.Text{message}}, J.Field{"mode", J.Text{mode}}]}
     case M.Create{profile, reasoning, message, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
-        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}])}
+        J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", D.content_json(message)}])}
     case M.Send{id, message}:
-      J.Object{[J.Field{"op", J.Text{"send"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
+      J.Object{[J.Field{"op", J.Text{"send"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", D.content_json(message)}]}
     case M.Steer{id, message}:
-      J.Object{[J.Field{"op", J.Text{"steer"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
+      J.Object{[J.Field{"op", J.Text{"steer"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", D.content_json(message)}]}
     case M.Cancel{id, operation}:
       J.Object{[J.Field{"op", J.Text{"cancel_operation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"operation_id", J.nat(operation)}]}
     case M.ChangeStatus{id, control}:
       J.Object{[J.Field{"op", J.Text{D.control_name(control)}}, J.Field{"task_id", J.nat(id)}]}
     case M.Fork{id, count, messages, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"fork"}}, J.Field{"task_id", J.nat(id)}, J.Field{"child_count", J.nat(count)},
-        J.Field{"messages", J.Array{J.text_items(messages)}}])}
+        J.Field{"messages", J.Array{D.content_values(messages)}}])}
     case M.Compact{id, summary}: compact_json(id, summary)
     case M.OpenSideConversation{id, message}:
-      J.Object{[J.Field{"op", J.Text{"open_side_conversation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", J.Text{message}}]}
+      J.Object{[J.Field{"op", J.Text{"open_side_conversation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"message", D.content_json(message)}]}
     case M.ReturnSideConversation{id}:
       J.Object{[J.Field{"op", J.Text{"return_side_conversation"}}, J.Field{"task_id", J.nat(id)}]}
     case M.Observe{M.Read{id, after, limit}}:

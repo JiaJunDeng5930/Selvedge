@@ -171,7 +171,7 @@ def Laws.phase_preserves_contract(phase, task):
 def Laws.queue_order(first, second, task):
   match task:
     case D.Task{id, lineage, contract, current, status, history, +queued, phase, operations, notified}:
-      Theory.append_associative(String, queued, [first], [second])
+      Theory.append_associative(D.UserContent, queued, [first], [second])
 
 def Laws.child_contract(id, parent, call, branch, remaining, message):
   match parent:
@@ -248,7 +248,7 @@ def initial_contexts_meaning(+configured: Maybe<&2, D.HistoryContext>, +global: 
     case Some{configured} Some{global} Some{project}: {==}
 
 def initial_history_meaning(+configured: Maybe<&2, D.HistoryContext>, +global: Maybe<&2, D.HistoryContext>, +project: Maybe<&2, D.HistoryContext>,
-  +context: D.TaskContext, +profile: D.Profile, +reasoning: String, +message: String, +history: D.History) ->
+  +context: D.TaskContext, +profile: D.Profile, +reasoning: String, +message: D.UserContent, +history: D.History) ->
   {D.HistoryNode{D.HistoryNode{D.history_initial_context(project, D.history_initial_context(global, D.history_initial_context(configured, history))),
     D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}, D.UserMessage{message}} ==
    D.HistoryNode{D.HistoryNode{Spec.initial_context(project, Spec.initial_context(global, Spec.initial_context(configured, history))),

@@ -174,7 +174,7 @@ def message(+budget: Nat, left: D.Message, right: D.Message) -> Bool:
       Nat.is_eq(owner_a, owner_b) && Nat.is_eq(operation_a, operation_b) && call(budget, call_a, call_b) &&
         json(budget, D.approval_reviewer_json(reviewer_a), D.approval_reviewer_json(reviewer_b)) &&
         json(budget, D.approval_outcome_json(outcome_a), D.approval_outcome_json(outcome_b))
-    case D.UserMessage{a} D.UserMessage{b}: string_equal(a, b)
+    case D.UserMessage{a} D.UserMessage{b}: json(budget, D.content_json(a), D.content_json(b))
     case D.SpeechTranscript{owner_a, session_a, item_a, speaker_a, completion_a, text_a} D.SpeechTranscript{owner_b, session_b, item_b, speaker_b, completion_b, text_b}:
       Nat.is_eq(owner_a, owner_b) && string_equal(session_a, session_b) && string_equal(item_a, item_b) &&
         string_equal(D.speech_speaker_name(speaker_a), D.speech_speaker_name(speaker_b)) &&

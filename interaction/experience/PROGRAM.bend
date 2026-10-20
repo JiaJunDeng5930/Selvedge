@@ -1079,7 +1079,7 @@ def fork_requirements(found: Maybe<&2, D.Task>, +count: Nat, +messages: +List<St
         M.Obstruction{M.Task{task}, None{}, "task_busy", "A manual fork requires an active, idle task"}),
       List.append(&2, M.Obstruction, failed_requirement(Commands.branch_count_valid(count, parent),
         obstruction(U.ForkEditor{task}, Forms.ForkCount{}, "invalid_fork_count", "Choose a fork count within the task limit")),
-      List.append(&2, M.Obstruction, failed_requirement(Commands.branch_messages_valid(count, messages),
+      List.append(&2, M.Obstruction, failed_requirement(Commands.branch_messages_valid(count, D.text_contents(messages)),
         obstruction(U.ForkEditor{task}, Forms.ForkMessages{}, "invalid_fork_messages", "Provide one message per fork, or no messages")),
       failed_requirement(Commands.branch_capacity_valid(count, parent, world),
         M.Obstruction{M.Task{task}, None{}, "resource_limit", "An ancestor descendant limit prevents this fork"}))))
@@ -1093,11 +1093,11 @@ def body_requirements(body: U.Body, +world: World.World()) -> +List<M.Obstructio
     case U.WorkName{work, name}:
       failed_requirement(Work.valid_name(name), obstruction(U.WorkEditor{work}, Forms.WorkName{}, "invalid_work_name", "Enter a Work name of at most 4096 UTF-8 bytes"))
     case U.NewTask{message, profile, reasoning, context, create_worktree, +work}:
-      List.append(&2, M.Obstruction, failed_requirement(D.nonempty(U.text(message)),
+      List.append(&2, M.Obstruction, failed_requirement(U.has_content(message),
         obstruction(U.NewTaskEditor{work}, Forms.MessageText{}, "empty_message", "Write a task to start")),
         model_requirements(D.find_profile(Commands.configured(Commands.settings(world)), profile), reasoning, U.NewTaskEditor{work}))
     case U.Message{task, message, delivery}:
-      failed_requirement(D.nonempty(U.text(message)), obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send"))
+      failed_requirement(U.has_content(message), obstruction(U.MessageEditor{task}, Forms.MessageText{}, "empty_message", "Write a message to send"))
     case U.Project{id, name, workspace, create_worktree}:
       failed_requirement(Projects.name_valid(name), obstruction(U.ProjectEditor{id}, Forms.ProjectName{}, "invalid_project_name", "Enter a project name of at most 256 UTF-8 bytes"))
     case U.Agent{+id, revision, +name, +profile, +reasoning, instructions, context, concurrency}:

@@ -37,6 +37,6 @@ def complete(completion: W.Completion, +world: M.World()) -> M.Decision():
 def retry_archive(+id: Nat, +world: M.World()) -> M.Decision():
   State.archive_value(id, W.lookup(id, State.registry(world)), world)
 
-def start(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), profile: D.Profile, reasoning: String, message: String, +selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+def start(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), profile: D.Profile, reasoning: String, message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   Workspace.Selection{context, guidance} = selection
   State.initialize(D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spawn(profile, reasoning, message, selection, world))

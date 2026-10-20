@@ -31,16 +31,16 @@ type Query is Data:
   FeatureQuery{query: F.Query}
 
 type Command is Data:
-  Create{profile: String, reasoning: String, message: String, settings: J.Json}
+  Create{profile: String, reasoning: String, message: D.UserContent, settings: J.Json}
   CreateIdle{profile: String, reasoning: String, settings: J.Json, work: Maybe<&2, Nat>, create_worktree: Bool}
   RecordSpeechTranscript{task_id: Nat, session_id: String, item_id: String, speaker: String, completion: String, text: String}
   AcceptSpeechDelegation{task_id: Nat, session_id: String, delegation_id: String, message: String, mode: String}
-  Send{task_id: Nat, message: String}
-  Steer{task_id: Nat, message: String}
+  Send{task_id: Nat, message: D.UserContent}
+  Steer{task_id: Nat, message: D.UserContent}
   Cancel{task_id: Nat, operation_id: Nat}
   ChangeStatus{task_id: Nat, control: D.Control}
-  Fork{task_id: Nat, count: Nat, messages: +List<String>, settings: J.Json}
-  OpenSideConversation{task_id: Nat, message: String}
+  Fork{task_id: Nat, count: Nat, messages: +List<D.UserContent>, settings: J.Json}
+  OpenSideConversation{task_id: Nat, message: D.UserContent}
   ReturnSideConversation{task_id: Nat}
   Compact{task_id: Nat, summary: Maybe<&2, String>}
   Observe{query: Query}
@@ -110,13 +110,13 @@ def commands() -> +List<CommandSpec>:
    CommandSpec{"create", "Start an agent with a frozen model and tool contract.", CreateCommand{},
      D.command_schema([J.Field{"profile", D.string_schema("Configured model profile")},
        J.Field{"reasoning", D.string_schema("Reasoning effort; defaults to medium")},
-       J.Field{"message", D.string_schema("Initial user request")}, J.Field{"settings", D.task_settings_schema()}], [J.Text{"profile"}, J.Text{"message"}])},
+       J.Field{"message", D.content_schema("Initial user request")}, J.Field{"images", D.images_schema()}, J.Field{"settings", D.task_settings_schema()}], [J.Text{"profile"}])},
    CommandSpec{"send", "Commit or queue a user message; reactivate a stopped task.", SendCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.string_schema("User message")}],
-       [J.Text{"task_id"}, J.Text{"message"}])},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.content_schema("User message")}, J.Field{"images", D.images_schema()}],
+       [J.Text{"task_id"}])},
    CommandSpec{"steer", "Replace current model work with immediate user input without cancelling independent operations or discarding queued follow-ups. Frozen tasks remain frozen.", SteerCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.string_schema("Immediate user instruction")}],
-       [J.Text{"task_id"}, J.Text{"message"}])},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.content_schema("Immediate user instruction")}, J.Field{"images", D.images_schema()}],
+       [J.Text{"task_id"}])},
    CommandSpec{"cancel_operation", "Cancel one live operation. Other work continues; previous side effects cannot be undone.", CancelCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"operation_id", D.task_id_schema()}],
        [J.Text{"task_id"}, J.Text{"operation_id"}])},
@@ -130,11 +130,11 @@ def commands() -> +List<CommandSpec>:
    CommandSpec{"fork", "Fork an idle task, subject to every ancestor's descendant limit.", ForkCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()},
        J.Field{"child_count", D.integer_schema("Number of children", 1, 4294967295)},
-       J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", D.string_schema("Child request")}]}},
+       J.Field{"messages", J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", D.content_schema("Child request")}]}},
        J.Field{"settings", D.task_settings_schema()}],
        [J.Text{"task_id"}, J.Text{"child_count"}])},
    CommandSpec{"open_side_conversation", "Open a side conversation from the task's committed history while its work continues. An omitted message creates an idle side task.", OpenSideConversationCommand{},
-     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.string_schema("Optional initial side conversation request")}], [J.Text{"task_id"}])},
+     D.command_schema([J.Field{"task_id", D.task_id_schema()}, J.Field{"message", D.content_schema("Optional initial side conversation request")}, J.Field{"images", D.images_schema()}], [J.Text{"task_id"}])},
    CommandSpec{"return_side_conversation", "Append only this side conversation's new content to its parent, excluding side instructions and parent lifecycle updates. Current work continues.", ReturnSideConversationCommand{},
      D.command_schema([J.Field{"task_id", D.task_id_schema()}], [J.Text{"task_id"}])},
    CommandSpec{"read", "Read a bounded history page without advancing the task.", ReadCommand{},

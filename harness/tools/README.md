@@ -6,7 +6,7 @@ input schema and checks the actual descriptor before constructing typed membersh
 in the intersection of correspondence and admissibility. Correspondence binds
 the declaration, arguments, capability and execution; admissibility requires
 nonempty names and descriptions and a supported schema.
-The default task and process tools are definitions in `catalog`.
+The default task, process and image tools are definitions in `catalog`.
 The feature assembly appends its own constructed tools from its command specifications.
 
 [discovery.bend](discovery.bend) observes external definitions in the caller's
@@ -65,7 +65,7 @@ limits constrain `max_fork` to `1..4294967295` before the native catalog is buil
 Catalog-wide tool name uniqueness remains a harness invariant. Command
 authorization, completion correlation and committed state laws remain obligations of the harness command
 and protocol owners. A new semantic primitive needs its own specification and
-production proof. `Process` crosses the external host boundary: sandboxing,
+production proof. `Process` and `ReadImage` cross the external host boundary: sandboxing,
 execution ordering and unknown outcomes still require that boundary's evidence.
 
 `ProcessRead` and `ProcessWrite` use the same committed external-effect boundary

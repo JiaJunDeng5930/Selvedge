@@ -452,9 +452,9 @@ law archived_input_unchanged:
   for +lineage: +List<Nat>
   for +contract: D.Contract
   for +history: D.History
-  for +queue: +List<String>
+  for +queue: +List<D.UserContent>
   for +phase: D.Phase
-  for text: String
+  for text: D.UserContent
   for +operations: +List<D.Operation()>
   for +notified: Bool
   {T.receive(text, D.Task{id, lineage, contract, current, D.Archived{}, history, queue, phase, operations, notified}) ==
@@ -479,7 +479,7 @@ law interrupt_preserves_contract:
 
 law interrupt_preserves_queue:
   for +task: D.Task
-  {D.task_queue(T.interrupt(task)) == D.task_queue(task) : +List<String>}
+  {D.task_queue(T.interrupt(task)) == D.task_queue(task) : +List<D.UserContent>}
 
 law interrupt_settles_phase:
   for task: D.Task
@@ -504,11 +504,11 @@ law phase_preserves_contract:
 # FIFO is a list-monoid law instantiated by the actual input-queue operation.
 
 law queue_order:
-  for +first: String
-  for +second: String
+  for +first: D.UserContent
+  for +second: D.UserContent
   for +task: D.Task
   {D.task_queue(D.queue_message(second, D.queue_message(first, task))) ==
-    List.append(&2, String, D.task_queue(task), [first, second]) : +List<String>}
+    List.append(&2, D.UserContent, D.task_queue(task), [first, second]) : +List<D.UserContent>}
 
 # A child snapshots the parent's effective execution contract at the actual fork,
 # has a new parent edge and receives no copy of waiting user messages.
@@ -519,7 +519,7 @@ law child_contract:
   for call: String
   for branch: Nat
   for remaining: +List<D.Attempt>
-  for message: Maybe<&2, String>
+  for message: Maybe<&2, D.UserContent>
   {D.task_contract(P.child(id, parent, call, branch, remaining, message)) == D.effective_contract(parent) : D.Contract}
 
 law child_execution:
@@ -528,7 +528,7 @@ law child_execution:
   for call: String
   for branch: Nat
   for remaining: +List<D.Attempt>
-  for message: Maybe<&2, String>
+  for message: Maybe<&2, D.UserContent>
   {D.task_execution(P.child(id, parent, call, branch, remaining, message)) == D.execution_configuration(D.effective_contract(parent)) : D.ExecutionConfiguration}
 
 law child_history_prefix:
@@ -546,7 +546,7 @@ law child_lineage:
   for call: String
   for branch: Nat
   for remaining: +List<D.Attempt>
-  for message: Maybe<&2, String>
+  for message: Maybe<&2, D.UserContent>
   {D.task_lineage(P.child(id, parent, call, branch, remaining, message)) ==
     D.task_id(parent) <> D.task_lineage(parent) : +List<Nat>}
 
@@ -556,8 +556,8 @@ law child_queue_empty:
   for call: String
   for branch: Nat
   for remaining: +List<D.Attempt>
-  for message: Maybe<&2, String>
-  {D.task_queue(P.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<String>}
+  for message: Maybe<&2, D.UserContent>
+  {D.task_queue(P.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<D.UserContent>}
 
 # Recovery and inheritance do not grant permission to repeat an external effect.
 
@@ -692,8 +692,8 @@ law queued_execution_configuration_rejected:
   for current: D.ExecutionConfiguration
   for status: D.Status
   for history: D.History
-  for first: String
-  for rest: +List<String>
+  for first: D.UserContent
+  for rest: +List<D.UserContent>
   for phase: D.Phase
   for operations: +List<D.Operation()>
   for notified: Bool
@@ -702,7 +702,7 @@ law queued_execution_configuration_rejected:
 law initial_history_order:
   for +instructions: D.InitialInstructions
   for +project: D.ProjectContext
-  for +message: String
+  for +message: D.UserContent
   for +id: Nat
   for +lineage: +List<Nat>
   for +profile: D.Profile
@@ -715,7 +715,7 @@ law initial_history_order:
   for +current: D.ExecutionConfiguration
   for +status: D.Status
   for +history: D.History
-  for +queued: +List<String>
+  for +queued: +List<D.UserContent>
   for +phase: D.Phase
   for +operations: +List<D.Operation()>
   for +notified: Bool
@@ -764,7 +764,7 @@ law model_request_full_history:
 law root_initial_history:
   for +profile: D.Profile
   for +reasoning: String
-  for +message: String
+  for +message: D.UserContent
   for +context: D.TaskContext
   for +instructions: D.InitialInstructions
   for +project: D.ProjectContext

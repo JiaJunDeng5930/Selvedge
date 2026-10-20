@@ -5,9 +5,16 @@ import ./PROGRAM.bend as P
 
 law native_start_retains_raw_source:
   @+history:J.Json -> @+raw:J.Json -> @+input:Nat -> @+window:Nat -> @+reserve:Nat ->
+  @without_images:{P.source_has_images(history, raw) == False{} : Bool} ->
   @fits:{Nat.is_le(Nat.add(input, reserve), window) == True{} : Bool} ->
   {P.start(history, raw, "chatgpt", "auto", input, window, reserve) ==
     M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve} : M.State}
+
+law image_source_uses_portable_compaction:
+  @+history:J.Json -> @+raw:J.Json -> @+provider:String -> @+method:String -> @+input:Nat -> @+window:Nat -> @+reserve:Nat ->
+  @images:{P.source_has_images(history, raw) == True{} : Bool} ->
+  {P.start(history, raw, provider, method, input, window, reserve) ==
+    M.State{M.PortableSource{J.stringify(raw)}, 0n, "", window, window, reserve} : M.State}
 
 law native_to_portable_preserves_source:
   @history:J.Json -> @+raw:J.Json -> @+cursor:Nat -> @+carry:String -> @+width:Nat -> @+window:Nat -> @+reserve:Nat ->

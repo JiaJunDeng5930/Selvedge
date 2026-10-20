@@ -44,12 +44,14 @@ type Body is Data:
   Process{}
   ProcessRead{}
   ProcessWrite{}
+  ReadImage{}
 
 def external(body: Body) -> Bool:
   match body:
     case Process{}: True{}
     case ProcessRead{}: True{}
     case ProcessWrite{}: True{}
+    case ReadImage{}: True{}
     case _: False{}
 
 def default_number(fallback: NaturalDefault, caller: Nat) -> Nat:
@@ -205,6 +207,7 @@ def json(value: Body) -> J.Json:
     case Process{}: J.Object{[J.Field{"kind", J.Text{"Process"}}]}
     case ProcessRead{}: J.Object{[J.Field{"kind", J.Text{"ProcessRead"}}]}
     case ProcessWrite{}: J.Object{[J.Field{"kind", J.Text{"ProcessWrite"}}]}
+    case ReadImage{}: J.Object{[J.Field{"kind", J.Text{"ReadImage"}}]}
 
 def same(left: Body, right: Body) -> Bool:
   J.same(json(left), json(right))
