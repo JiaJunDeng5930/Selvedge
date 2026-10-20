@@ -20,3 +20,5 @@ evidence. Read named observations and intended updates before private state
 representations. Local proofs are collected in the concept's `PROOF.bend`;
 independent evidence used across concepts remains separate where needed to keep
 the imports acyclic. The root [PROOF.bend](../../PROOF.bend) assembles the production evidence.
+
+Final speech transcripts and stable work-delegation receipts are retained in the ordinary Task history. [speech.bend](speech.bend) appends transcripts without changing execution state and binds delegation acceptance to ordinary task input. [speech-contract.bend](speech-contract.bend) and [speech-proof.bend](speech-proof.bend) bind those production writes and their scheduling classification.

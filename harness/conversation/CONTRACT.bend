@@ -4,8 +4,18 @@ import ./PROGRAM.bend as Content
 import ../../bendlib/json.bend as J
 import ../../interaction/conversation/MODEL.bend as Actual
 
-# The observable record is the original ordered history, independently of
-# speech/activity classification and whether an activity is expanded.
+# Task acceptance receipts are operational bookkeeping. All conversational
+# content retains its original order independently of disclosure or grouping.
+def displayed_message(message: D.Message, rest: +List<D.Message>) -> +List<D.Message>:
+  match message:
+    case D.SpeechDelegationReceipt{owner, session, identity, mode, text}: rest
+    case other: other <> rest
+
+def displayed_messages(messages: +List<D.Message>) -> +List<D.Message>:
+  match messages:
+    case Nil{}: Nil{}
+    case Con{message, rest}: displayed_message(message, displayed_messages(rest))
+
 def audit_sources(entries: +List<Actual.Audit>) -> +List<D.Message>:
   match entries:
     case Nil{}: Nil{}
@@ -32,6 +42,7 @@ def visible_sources(groups: +List<Actual.VisibleGroup>) -> +List<D.Message>:
 
 def text(source: D.Message) -> String:
   match source:
+    case D.SpeechTranscript{owner, session, item, speaker, completion, value}: value
     case D.UserMessage{value}: value
     case D.AssistantMessage{origin, value}: value
     case D.ModelContext{origin, value}: Content.provider_text(value)

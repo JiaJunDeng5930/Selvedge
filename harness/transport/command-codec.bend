@@ -28,6 +28,12 @@ def command_json(command: M.Command) -> J.Json:
       J.Object{[J.Field{"op", J.Text{"configure_task_execution"}}, J.Field{"task_id", J.nat(id)},
         J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}},
         J.Field{"sandbox", D.sandbox_json(sandbox)}, J.Field{"approval", approval_input(approval)}]}
+    case M.CreateIdle{profile, reasoning, options, work, create_worktree}:
+      J.Object{optional_field("settings", options, optional_field("work_id", J.optional_nat(work), [J.Field{"op", J.Text{"create_idle"}}, J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"create_worktree", J.Boolean{create_worktree}}] ))}
+    case M.RecordSpeechTranscript{id, session, item, speaker, completion, text}:
+      J.Object{[J.Field{"op", J.Text{"record_speech_transcript"}}, J.Field{"task_id", J.nat(id)}, J.Field{"session_id", J.Text{session}}, J.Field{"item_id", J.Text{item}}, J.Field{"speaker", J.Text{speaker}}, J.Field{"completion", J.Text{completion}}, J.Field{"text", J.Text{text}}]}
+    case M.AcceptSpeechDelegation{id, session, delegation, message, mode}:
+      J.Object{[J.Field{"op", J.Text{"accept_speech_delegation"}}, J.Field{"task_id", J.nat(id)}, J.Field{"session_id", J.Text{session}}, J.Field{"delegation_id", J.Text{delegation}}, J.Field{"message", J.Text{message}}, J.Field{"mode", J.Text{mode}}]}
     case M.Create{profile, reasoning, message, options}:
       J.Object{optional_field("settings", options, [J.Field{"op", J.Text{"create"}}, J.Field{"profile", J.Text{profile}},
         J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}])}

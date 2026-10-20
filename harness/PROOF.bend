@@ -1,3 +1,4 @@
+import ./conversation/speech-proof.bend as SpeechProof
 import Base
 import ./tasks/PROOF.bend as TaskProof
 import ./features/PROOF.bend as FrameProof

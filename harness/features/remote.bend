@@ -30,6 +30,7 @@ def selected_settings(value: J.Json) -> Bool:
 type NamedPermissionName is Data:
   NamedPermissionNameRead{}
   NamedPermissionNameCreate{}
+  NamedPermissionNameCreateIdle{}
   NamedPermissionNameCreateWorktreeTask{}
   NamedPermissionNameRetryWorktreeArchive{}
   NamedPermissionNameReviewApproval{}
@@ -49,6 +50,7 @@ def named_permission_discriminant(+value: String) -> NamedPermissionName:
     Bool.pick(NamedPermissionName, String.eq(value, "list_board_agents"), NamedPermissionNameRead{},
     Bool.pick(NamedPermissionName, String.eq(value, "list_task_graphs"), NamedPermissionNameRead{},
     Bool.pick(NamedPermissionName, String.eq(value, "read_task_graph"), NamedPermissionNameRead{},
+    Bool.pick(NamedPermissionName, String.eq(value, "create_idle"), NamedPermissionNameCreateIdle{},
     Bool.pick(NamedPermissionName, String.eq(value, "create"), NamedPermissionNameCreate{},
     Bool.pick(NamedPermissionName, String.eq(value, "create_worktree_task"), NamedPermissionNameCreateWorktreeTask{},
     Bool.pick(NamedPermissionName, String.eq(value, "retry_worktree_archive"), NamedPermissionNameRetryWorktreeArchive{},
@@ -83,11 +85,12 @@ def named_permission_discriminant(+value: String) -> NamedPermissionName:
     Bool.pick(NamedPermissionName, String.eq(value, "create_task_graph"), NamedPermissionNameCreateWorktreeTask{},
     Bool.pick(NamedPermissionName, String.eq(value, "update_task_graph"), NamedPermissionNameCreateWorktreeTask{},
     Bool.pick(NamedPermissionName, String.eq(value, "delete_task_graph"), NamedPermissionNameCreateWorktreeTask{},
-    NamedPermissionNameOther{}))))))))))))))))))))))))))))))))))))))))))))))
+    NamedPermissionNameOther{})))))))))))))))))))))))))))))))))))))))))))))))
 
 def named_permission_classified(name: NamedPermissionName, +body: J.Json) -> Maybe<&2, R.Rights>:
   match name:
     case NamedPermissionNameRead{}: Some{R.Rights{True{}, False{}, False{}, False{}}}
+    case NamedPermissionNameCreateIdle{}: Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")) || J.boolean(J.get(body, "create_worktree")), False{}}}
     case NamedPermissionNameCreate{}: Some{R.Rights{False{}, True{}, selected_settings(J.get(body, "settings")), False{}}}
     case NamedPermissionNameCreateWorktreeTask{}: Some{R.Rights{False{}, True{}, True{}, False{}}}
     case NamedPermissionNameRetryWorktreeArchive{}: Some{R.Rights{False{}, True{}, False{}, False{}}}

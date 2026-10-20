@@ -1,3 +1,5 @@
+import ./features/idle.bend as IdleCreation
+import ./conversation/speech.bend as Speech
 import Base
 import ../features/titles/STATE.bend as Titles
 import ../features/compaction/SPEC.bend as Compaction
@@ -36,6 +38,10 @@ import ./reasoning/MODEL.bend as Reasoning
 type Operation is Data:
   ConfigureExecution{task: D.Task, configuration: D.ExecutionConfiguration}
   Refuse{code: String, reason: String}
+  StartIdle{profile: D.Profile, reasoning: String, selection: Workspace.Selection, work: Maybe<&2, Nat>, create_worktree: Bool}
+  RecordSpeech{task: D.Task, session: String, item: String, speaker: D.SpeechSpeaker, completion: D.SpeechCompletion, text: String}
+  DelegateSpeech{task: D.Task, session: String, identity: String, mode: String, message: String}
+  ReplaySpeech{result: J.Json}
   Start{profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection}
   Deliver{task: D.Task, message: String}
   Steer{task: D.Task, message: String}
@@ -134,6 +140,7 @@ def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +pro
 
 def workspace_permitted(+world: M.World(), operation: Operation) -> Bool:
   match operation:
+    case StartIdle{profile, reasoning, Workspace.Selection{context, guidance}, work, create_worktree}: FeatureState.workspace_available(Workspace.workspace(context), world)
     case Start{profile, reasoning, message, Workspace.Selection{context, guidance}}: FeatureState.workspace_available(Workspace.workspace(context), world)
     case Branch{task, count, messages, Workspace.Selection{context, guidance}}: FeatureState.workspace_available(Workspace.workspace(context), world)
     case _: True{}
@@ -147,6 +154,69 @@ def selected(profile: Maybe<&2, D.Profile>, reasoning: String, message: String, 
     case Some{+profile}:
       available_workspace(start_selection(selected_settings(options, environment_selection(settings(world)), profile, world),
         profile, D.profile_selection(reasoning, profile), message), world)
+
+def idle_work_allowed(work: Maybe<&2, Nat>, world: M.World()) -> Bool:
+  match work:
+    case None{}: True{}
+    case Some{id}: WorkState.exists(id, world)
+
+def idle_selection(selection: Result<&2, &2, String, Workspace.Selection>, +profile: D.Profile, +reasoning: String, +work: Maybe<&2, Nat>, +create_worktree: Bool, +world: M.World()) -> Operation:
+  match selection:
+    case Fail{reason}: Refuse{"invalid_settings", reason}
+    case Done{+selection}:
+      Bool.pick(Operation, D.profile_permitted(profile, reasoning) && idle_work_allowed(work, world) && (Bool.not(create_worktree) || D.nonempty(IdleCreation.primary(selection))), StartIdle{profile, reasoning, selection, work, create_worktree},
+        Refuse{"invalid_arguments", "Idle task creation requires permitted reasoning, an existing selected Work, and a primary workspace when creating a worktree"})
+
+def selected_idle(profile: Maybe<&2, D.Profile>, reasoning: String, options: J.Json, work: Maybe<&2, Nat>, create_worktree: Bool, +world: M.World()) -> Operation:
+  match profile:
+    case None{}: Refuse{"unknown_profile", "Select a configured model profile"}
+    case Some{+profile}:
+      available_workspace(idle_selection(selected_settings(options, environment_selection(settings(world)), profile, world),
+        profile, D.profile_selection(reasoning, profile), work, create_worktree, world), world)
+
+def transcript_existing(found: Maybe<&2, D.Message>, +task: D.Task, +session: String, +item: String, +speaker: D.SpeechSpeaker, +completion: D.SpeechCompletion, +text: String) -> Operation:
+  match found:
+    case None{}:
+      Bool.pick(Operation, D.accepts_input(D.task_status(task)), RecordSpeech{task, session, item, speaker, completion, text},
+        Refuse{"task_archived", "An archived task cannot accept a new speech transcript"})
+    case Some{D.SpeechTranscript{owner, source, key, actual_speaker, actual_completion, actual_text}}:
+      Bool.pick(Operation, String.eq(D.speech_speaker_name(actual_speaker), D.speech_speaker_name(speaker)) &&
+        String.eq(D.speech_completion_name(actual_completion), D.speech_completion_name(completion)) && String.eq(actual_text, text),
+        ReplaySpeech{Speech.transcript_result(D.task_id(task), session, item, True{})},
+        Refuse{"speech_conflict", "A transcript identity already has different committed content"})
+    case Some{other}: Refuse{"speech_conflict", "The transcript identity belongs to another record"}
+
+def record_speech_task(found: Maybe<&2, D.Task>, +session: String, +item: String, +speaker: String, +completion: String, +text: String) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The target task does not exist"}
+    case Some{+task}:
+      Bool.pick(Operation, D.nonempty(session) && D.nonempty(item) && D.nonempty(text) &&
+        (String.eq(speaker, "user") || String.eq(speaker, "assistant")) &&
+        (String.eq(completion, "completed") || String.eq(completion, "interrupted")),
+        transcript_existing(Speech.transcript(D.task_history(task), D.task_id(task), session, item), task, session, item,
+          Bool.pick(D.SpeechSpeaker, String.eq(speaker, "assistant"), D.SpeechAssistant{}, D.SpeechUser{}),
+          Bool.pick(D.SpeechCompletion, String.eq(completion, "interrupted"), D.SpeechInterrupted{}, D.SpeechCompleted{}), text),
+        Refuse{"invalid_arguments", "A final transcript requires stable session and item identities, valid speaker and completion, and nonempty text"})
+
+def delegation_existing(found: Maybe<&2, D.Message>, +task: D.Task, +session: String, +identity: String, +mode: String, +text: String) -> Operation:
+  match found:
+    case None{}:
+      Bool.pick(Operation, D.accepts_input(D.task_status(task)), DelegateSpeech{task, session, identity, mode, text},
+        Refuse{"task_archived", "An archived task cannot accept a new voice delegation"})
+    case Some{D.SpeechDelegationReceipt{owner, source, key, actual_mode, actual_text}}:
+      Bool.pick(Operation, String.eq(actual_mode, mode) && String.eq(actual_text, text),
+        ReplaySpeech{Speech.delegation_result(D.task_id(task), session, identity, True{})},
+        Refuse{"speech_conflict", "A delegation identity already has different committed content"})
+    case Some{other}: Refuse{"speech_conflict", "The delegation identity belongs to another record"}
+
+def delegate_speech_task(found: Maybe<&2, D.Task>, +session: String, +identity: String, +mode: String, +text: String) -> Operation:
+  match found:
+    case None{}: Refuse{"task_not_found", "The target task does not exist"}
+    case Some{+task}:
+      Bool.pick(Operation, D.nonempty(session) && D.nonempty(identity) && D.nonempty(text) &&
+        (String.eq(mode, "send") || String.eq(mode, "steer")),
+        delegation_existing(Speech.delegation(D.task_history(task), D.task_id(task), session, identity), task, session, identity, mode, text),
+        Refuse{"invalid_arguments", "A voice delegation requires stable session and delegation identities, a nonempty instruction, and send or steer mode"})
 
 def branch_selection(selection: Result<&2, &2, String, Workspace.Selection>, parent: D.Task,
   count: Nat, messages: +List<String>) -> Operation:
@@ -470,10 +540,20 @@ def archival_control_allowed(request: D.Control, id: Nat, world: M.World()) -> B
     case D.Archive{}: FeatureState.archive_allowed(id, world)
     case _: True{}
 
+def speech_executable(allowed: Bool, operation: Operation) -> Operation:
+  match operation:
+    case ReplaySpeech{result}: ReplaySpeech{result}
+    case other: executable_operation(allowed, other)
+
 def resolve(command: M.Command, +world: M.World()) -> Operation:
   match command:
     case M.ConfigureTaskExecution{+id, profile, reasoning, sandbox, approval}:
       executable_operation(FeatureState.execution_allowed(id, world), pending_operation(Bool.not(FeatureState.pending_task(id, world)), configure_execution(T.find(entries(world), id), profile, reasoning, sandbox, approval, world)))
+    case M.CreateIdle{profile, reasoning, options, work, create_worktree}: selected_idle(D.find_profile(configured(settings(world)), profile), reasoning, options, work, create_worktree, world)
+    case M.RecordSpeechTranscript{+id, session, item, speaker, completion, text}:
+      record_speech_task(T.find(entries(world), id), session, item, speaker, completion, text)
+    case M.AcceptSpeechDelegation{+id, session, identity, message, mode}:
+      speech_executable(FeatureState.execution_allowed(id, world), delegate_speech_task(T.find(entries(world), id), session, identity, mode, message))
     case M.Create{profile, reasoning, message, options}:
       selected(D.find_profile(configured(settings(world)), profile), reasoning, message, options, world)
     case M.Send{+id, message}: executable_operation(FeatureState.execution_allowed(id, world), recipient(T.find(entries(world), id), message))
@@ -596,6 +676,20 @@ def start_environment(profile: D.Profile, reasoning: String, message: String, se
 
 def start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   start_environment(profile, reasoning, message, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
+
+def start_idle_environment(profile: D.Profile, reasoning: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
+  match selection world environment_value:
+    case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
+      +next_task = D.state_next_task(task_state)
+      +contract : D.Contract = D.Contract{D.Model{profile, reasoning}, catalog, max_fork, max_descendants, plugins, context}
+      task : D.Task = D.initialize_idle_history(instructions, guidance, D.Task{next_task, Nil{}, contract, D.execution_configuration(contract), D.Active{}, D.EmptyHistory{}, Nil{}, D.Idle{}, Nil{}, True{}})
+      C.Decision{C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, D.state_tasks(task_state), [task]), task_state)), board}, D.success(id_result(next_task)), Nil{}}
+
+def start_idle(profile: D.Profile, reasoning: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+  start_idle_environment(profile, reasoning, selection, world, settings(world))
+
+def speech_effects(mode: String, +task: D.Task) -> +List<M.Effect()>:
+  Bool.pick(+List<M.Effect()>, String.eq(mode, "steer"), T.steering_effects(F.Effect, D.task_phase(task), D.task_id(task)), Nil{})
 
 def status_change(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
   match next:
@@ -754,6 +848,12 @@ def meaning(operation: Operation, +world: M.World()) -> M.Decision():
     case ConfigureExecution{task, configuration}: configured_task(task, configuration, world)
     case Refuse{code, reason}: C.Decision{world, D.failure(code, reason), Nil{}}
     case Review{resolution}: Approvals.meaning_calculation(F.State(), F.Effect, resolution, world)
+    case StartIdle{profile, reasoning, +selection, work, create_worktree}: IdleCreation.required(work, create_worktree, selection, world, start_idle(profile, reasoning, selection, world))
+    case ReplaySpeech{result}: C.Decision{world, D.success(result), Nil{}}
+    case RecordSpeech{+task, +session, +item, speaker, completion, text}:
+      C.Decision{replace(Speech.record(session, item, speaker, completion, text, task), world), D.success(Speech.transcript_result(D.task_id(task), session, item, False{})), Nil{}}
+    case DelegateSpeech{+task, +session, +identity, +mode, message}:
+      C.Decision{replace(Speech.accepted(session, identity, mode, message, task), world), D.success(Speech.delegation_result(D.task_id(task), session, identity, False{})), speech_effects(mode, task)}
     case Start{profile, reasoning, message, selection}: start(profile, reasoning, message, selection, world)
     case FeatureOperation{operation}: FeatureSpec.meaning(~start, operation, world)
     case Deliver{+task, message}:

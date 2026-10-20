@@ -1,3 +1,4 @@
+import ./speech/CONTRACT.bend as Speech
 import Base
 import ../bendlib/association-map.bend as Finite
 import ../harness/MODEL.bend as M
@@ -67,13 +68,14 @@ type Presentation is Type:
     conversation_presentation: ConversationPresentationLaws.Requirements,
     board_presentation: SurfaceLaws.BoardPresentationRequirements,
     timeline: @+reader:E.Reader -> @+task:D.Task -> @+world:M.World() ->
-      {ConversationSpec.timeline_sources(Conversation.timeline(reader, task, world)) == D.history_messages(D.task_history(task), Nil{}) : +List<D.Message>},
+      {ConversationSpec.timeline_sources(Conversation.timeline(reader, task, world)) == ConversationSpec.displayed_messages(D.history_messages(D.task_history(task), Nil{})) : +List<D.Message>},
     displayed_text: @+messages:+List<D.Message> -> @+offset:Nat -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->
       ConversationSpec.visible_text_agreement(Conversation.visible(Conversation.groups(messages, offset), task, disclosures))
   }
 
 type Capabilities is Type:
   Capabilities{
+    speech: Speech.Requirements,
     board_capabilities: SurfaceLaws.BoardCapabilityRequirements,
     execution_context: ExecutionContextLaws.ContextRequirements,
     project_interaction: SurfaceLaws.ProjectInteractionRequirements,

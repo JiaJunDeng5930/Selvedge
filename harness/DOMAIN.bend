@@ -721,7 +721,27 @@ def output_origin_json(origin: OutputOrigin) -> J.Json:
   J.Object{[J.Field{"producer_task", J.nat(producer_task)}, J.Field{"operation", J.nat(operation)},
     J.Field{"part", J.nat(part)}, J.Field{"mode", J.Text{output_mode_name(mode)}}]}
 
+type SpeechSpeaker is Data:
+  SpeechUser{}
+  SpeechAssistant{}
+
+type SpeechCompletion is Data:
+  SpeechCompleted{}
+  SpeechInterrupted{}
+
+def speech_speaker_name(speaker: SpeechSpeaker) -> String:
+  match speaker:
+    case SpeechUser{}: "user"
+    case SpeechAssistant{}: "assistant"
+
+def speech_completion_name(completion: SpeechCompletion) -> String:
+  match completion:
+    case SpeechCompleted{}: "completed"
+    case SpeechInterrupted{}: "interrupted"
+
 type Message is Data:
+  SpeechTranscript{owner: Nat, session_id: String, item_id: String, speaker: SpeechSpeaker, completion: SpeechCompletion, text: String}
+  SpeechDelegationReceipt{owner: Nat, session_id: String, delegation_id: String, mode: String, message: String}
   UserMessage{text: String}
   AssistantMessage{origin: OutputOrigin, text: String}
   FunctionCall{call: Call}
@@ -1220,6 +1240,13 @@ def initial_project(project: ProjectContext, history: History) -> History:
 def initial_source_history(instructions: InitialInstructions, project: ProjectContext, history: History) -> History:
   InitialInstructions{configured, global} = instructions
   initial_project(project, initial_global(global, history_initial_context(configured_context(configured), history)))
+
+def initial_contract_history(instructions: InitialInstructions, project: ProjectContext, contract: Contract, history: History) -> History:
+  Contract{Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context} = contract
+  HistoryNode{initial_source_history(instructions, project, history), ContextMessage{TaskSettings{context, profile_key(profile), reasoning}}}
+
+def initialize_idle_history(instructions: InitialInstructions, project: ProjectContext, +task: Task) -> Task:
+  with_history(initial_contract_history(instructions, project, task_contract(task), task_history(task)), task)
 
 def initialize_contract(instructions: InitialInstructions, project: ProjectContext, message: String, contract: Contract, +task: Task) -> Task:
   Contract{Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context} = contract

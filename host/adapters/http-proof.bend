@@ -255,3 +255,6 @@ def H.admitted_content_route_target():
 
 def H.admitted_body_route_target():
   Request => source => evidence => {==}
+
+def H.admitted_audio_owner():
+  source => {==}

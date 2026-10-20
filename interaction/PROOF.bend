@@ -1,3 +1,5 @@
+import ./speech/PROOF.bend as SpeechProof
+import ./speech/MODEL.bend as Speech
 import ./INPUT.bend as U
 import Base
 import ../bendlib/categories.bend as Categories
@@ -25,11 +27,11 @@ import ./submission/PROOF.bend as CoreSubmissionProof
 import ./TYPES.bend as InteractionTypes
 
 def ExecutionContextLaws.settings_open_changes_only_its_open_flag(state):
-  Services.State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+  Services.State{access, settings, appearance, next, transfers, preview, directory_picker, +speech} = state
   {==}
 
 def ExecutionContextLaws.settings_close_changes_only_its_open_flag(state):
-  Services.State{access, settings, appearance, next, transfers, preview, directory_picker} = state
+  Services.State{access, settings, appearance, next, transfers, preview, directory_picker, +speech} = state
   {==}
 
 def Contract.settings_open_consumes_global_navigation_and_preserves_service_fields(application, services):
@@ -123,11 +125,11 @@ def lifted(decision: E.Decision, services: Services.State) ->
 def runtime_input(+input: M.Input, +program: M.World(), +session: E.Session, services: Services.State) ->
   {Core.runtime(Core.step(InteractionTypes.ApplicationInput{E.RuntimeInput{input}}, InteractionTypes.State{E.Application{program, session}, services})) ==
     Program.transition(input, program) : M.Decision()}:
-  Services.State{access, settings, appearance, next, transfers, preview, directory_picker} = services
+  Services.State{access, settings, appearance, next, transfers, preview, directory_picker, +speech} = services
   Equal.trans(M.Decision(),
-    Core.runtime(Core.application_result(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, settings, appearance, next, transfers, preview, directory_picker})),
+    Core.runtime(Core.application_result(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, settings, appearance, next, transfers, preview, directory_picker, speech})),
     Existing.runtime_observation(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session})), Program.transition(input, program),
-    lifted(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, settings, appearance, next, transfers, preview, directory_picker}),
+    lifted(ExperienceProgram.step(E.RuntimeInput{input}, E.Application{program, session}), Services.State{access, settings, appearance, next, transfers, preview, directory_picker, speech}),
     ExistingProof.runtime_input(input, program, session))
 
 def Architecture.surface():
@@ -152,6 +154,7 @@ def Architecture.surface():
       reader => task => world => Conversation.timeline_history(reader, task, world),
       messages => offset => task => disclosures => Conversation.observed_text(messages, offset, task, disclosures)},
     Contract.Capabilities{
+      SpeechProof.production(),
       SurfaceLaws.board_capability_evidence(),
       ExecutionContextLaws.context_evidence(),
       SurfaceLaws.project_interaction_evidence(),

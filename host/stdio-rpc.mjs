@@ -47,7 +47,8 @@ export class StdioRpc extends EventEmitter {
     this.closed = new Promise(resolve => {
       this.#child.once('exit', () => killGroup(this.#child));
       this.#child.once('close', (code, signal) => {
-        const decision = this.#decide('rpc.exit', { code, signal });
+        // DEFENSE: Bun emits an undefined close signal when spawn fails (for example ENOENT); observe the absent signal as null.
+        const decision = this.#decide('rpc.exit', { code, signal: signal ?? null });
         // DEFENSE: A plugin/MCP process can exit before pending replies arrive; reject those requests and withdraw its routes.
         if (decision.action === 'fail') this.#fail(new Error(decision.error));
         resolve();

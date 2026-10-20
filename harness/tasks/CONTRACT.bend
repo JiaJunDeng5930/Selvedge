@@ -101,3 +101,12 @@ def accepted_reply_outputs(+outcome: D.Outcome, allowed: +List<String>, task: D.
     case D.ModelReply{+items}:
       permitted_outputs(Tasks.model_reply_permitted(allowed, task, Tasks.ModelReplyCandidate{items}), D.ModelReply{items})
     case _: Nil{}
+
+# An idle task freezes the same context as an ordinary task, without inventing
+# an instruction or a model request before the first real input arrives.
+def initial_idle_history(instructions: D.InitialInstructions, project: D.ProjectContext, context: D.TaskContext,
+  profile: D.Profile, reasoning: String, history: D.History) -> D.History:
+  D.InitialInstructions{configured, global} = instructions
+  D.HistoryNode{initial_project(project, initial_global(global,
+    initial_context(D.configured_context(configured), history))),
+    D.ContextMessage{D.TaskSettings{context, D.profile_key(profile), reasoning}}}

@@ -988,6 +988,7 @@ def workspace_feature_observation(kind: Features.WorkspaceObservationKind) -> Wo
 def workspace_command_kind(kind: Harness.CommandKind, +command: J.Json) -> WorkspaceCommand:
   match kind:
     case Harness.CreateCommand{}: WorkspaceSettings{True{}, False{}}
+    case Harness.CreateIdleCommand{}: WorkspaceSettings{True{}, J.boolean(J.get(command, "create_worktree"))}
     case Harness.ForkCommand{}: WorkspaceSettings{False{}, False{}}
     case Harness.CreateProjectCommand{}: WorkspaceProject{}
     case Harness.UpdateProjectCommand{}: WorkspaceProject{}

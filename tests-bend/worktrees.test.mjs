@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { watch } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { access, chmod, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -79,17 +79,18 @@ test('real Git preserves dirty source data, suppresses project programs and reco
   assert.equal(recovered.root, archived.root);
   assert.equal(await readFile(path.join(archivedPrimary, 'ignored.local'), 'utf8'), 'retained generated data');
 
-  // Abort on the real directory reservation, possibly before Git finishes its
-  // own partial registration cleanup. Report exactly the path still retained.
+  // Observe the actual reservation directly: macOS batches watch notifications
+  // and can deliver them after this small checkout has already completed.
+  // Report exactly the path retained after cancellation and Git's cleanup.
   const controller = new AbortController();
   const reserved = path.join(state, 'worktrees', 'task-43');
-  const observer = watch(path.dirname(reserved), (_event, name) => {
-    if (name?.toString() === 'task-43') controller.abort();
-  });
-  t.after(() => { observer.close(); controller.abort(); });
+  const observer = setInterval(() => {
+    if (existsSync(reserved)) controller.abort();
+  }, 1);
+  t.after(() => { clearInterval(observer); controller.abort(); });
   const failed = await createManagedWorktree({ ...effect, task_id: 43 }, { home: state, limits, signal: controller.signal });
-  observer.close();
-  assert.equal(controller.signal.aborted, true);
+  clearInterval(observer);
+  assert.equal(controller.signal.aborted, true, JSON.stringify(failed));
   assert.equal(failed.ok, false, JSON.stringify(failed));
   let retained = true;
   try { await lstat(reserved); }

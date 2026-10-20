@@ -527,6 +527,31 @@ Later MCP catalog notifications change availability without rewriting that
 contract. Forked tasks inherit the contract and message prefix, with explicit
 branch results and fresh task identities.
 
+## Speech input and voice conversations
+
+Choose **Sign in for voice** to authorize the composer's dictation and live voice
+controls. Selvedge opens ChatGPT's authorization page and manages this login,
+credential storage and refresh itself. It follows Codex's ChatGPT OAuth flow and
+calls the audio services directly. The public Sign in with ChatGPT connection
+used for Responses has a separate permission scope and does not enable audio.
+
+Select the ChatGPT audio connection independently of the Task's model profile.
+The browser requests microphone access when recording starts; serve remote
+browser clients over HTTPS, or use the local loopback server.
+
+Finish dictation to insert the transcript into its original draft, then send it
+through the ordinary composer. Cancel discards the recording. If the draft was
+edited while transcription was pending, the recognized text remains available
+for explicit insertion instead of replacing the new text.
+
+Start voice in an existing Task or directly from the new Task form. A new voice
+conversation creates an ordinary idle Task with the selected execution settings;
+actual delegated work starts it. Spoken conversation appears in the same history
+as task work. Microphone mute, playback mute and stopping voice have separate
+controls. Stopping voice leaves accepted task work running, and its committed
+history remains available after restart. API-key and ChatGPT Web profiles do not
+provide the ChatGPT audio connection.
+
 ## Persistence and guarantees
 
 The journal records admitted inputs and decisions before any external effect is

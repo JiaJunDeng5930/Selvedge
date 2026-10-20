@@ -68,6 +68,8 @@ def audit_message(message: D.Message) -> Bool:
     case D.UserMessage{text}: False{}
     case D.AssistantMessage{origin, text}: False{}
     case D.ModelContext{origin, value}: False{}
+    case D.SpeechTranscript{owner, session_id, item_id, speaker, completion, text}: False{}
+    case D.SpeechDelegationReceipt{owner, session_id, delegation_id, mode, message}: False{}
     case _: True{}
 
 # Comparison reflexivity is needed to bind a reader's choice to its own group.
@@ -124,7 +126,7 @@ type Requirements is Type:
         Actual.groups(List.append(&2, D.Message, suffix, more), (index + 1n : Nat)))) ==
         first_identity(Actual.prepend_audit(index, failed, message, Actual.groups(suffix, (index + 1n : Nat)))) : Maybe<&2, Nat>},
     history: @+messages:+List<D.Message> -> @+offset:Nat ->
-      {Spec.sources(Actual.groups(messages, offset)) == messages : +List<D.Message>},
+      {Spec.sources(Actual.groups(messages, offset)) == Spec.displayed_messages(messages) : +List<D.Message>},
     visible_history: @+groups:+List<Actual.Group> -> @+task:Nat -> @+disclosures:+List<E.Disclosure> ->
       {Spec.visible_sources(Actual.visible(groups, task, disclosures)) == Spec.sources(groups) : +List<D.Message>},
     text: @+messages:+List<D.Message> -> @+offset:Nat -> @task:Nat -> @disclosures:+List<E.Disclosure> ->

@@ -30,8 +30,10 @@ def provider_group(+origin: D.OutputOrigin, +kind: Content.ContextKind, +index: 
     case Content.OtherContext{}: audit_prepend(index, Actual.audit_failed(D.ModelContext{origin, value}), D.ModelContext{origin, value}, tail)
 
 def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
-  {Spec.sources(Actual.prepend(message, index, tail)) == message <> Spec.sources(tail) : +List<D.Message>}:
+  {Spec.sources(Actual.prepend(message, index, tail)) == Spec.displayed_message(message, Spec.sources(tail)) : +List<D.Message>}:
   match message:
+    case D.SpeechTranscript{owner, session, item, speaker, completion, text}: {==}
+    case D.SpeechDelegationReceipt{owner, session, identity, mode, text}: {==}
     case D.UserMessage{text}: {==}
     case D.AssistantMessage{origin, text}: {==}
     case D.ModelContext{+origin, value}: provider_group(origin, Content.provider_kind(value), index, value, tail)
@@ -73,14 +75,15 @@ def prepend(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>) ->
       audit_prepend(index, Actual.audit_failed(audit_message), audit_message, tail)
 
 def grouped_history(+messages: +List<D.Message>, +index: Nat) ->
-  {Spec.sources(Actual.groups(messages, index)) == messages : +List<D.Message>}:
+  {Spec.sources(Actual.groups(messages, index)) == Spec.displayed_messages(messages) : +List<D.Message>}:
   match messages:
     case Nil{}: {==}
     case Con{+message, +rest}:
       Equal.trans(+List<D.Message>, Spec.sources(Actual.prepend(message, index, Actual.groups(rest, (index + 1n : Nat)))),
-        message <> Spec.sources(Actual.groups(rest, (index + 1n : Nat))), message <> rest,
+        Spec.displayed_message(message, Spec.sources(Actual.groups(rest, (index + 1n : Nat)))), Spec.displayed_message(message, Spec.displayed_messages(rest)),
         prepend(message, index, Actual.groups(rest, (index + 1n : Nat))),
-        Equal.cong(+List<D.Message>, +List<D.Message>, (tail => message <> tail), Spec.sources(Actual.groups(rest, (index + 1n : Nat))), rest, grouped_history(rest, (index + 1n : Nat))))
+        Equal.cong(+List<D.Message>, +List<D.Message>, tail => Spec.displayed_message(message, tail),
+          Spec.sources(Actual.groups(rest, (index + 1n : Nat))), Spec.displayed_messages(rest), grouped_history(rest, (index + 1n : Nat))))
 
 def audit_faces(+entries: +List<Actual.Audit>) ->
   {Spec.face_sources(Actual.audit_faces(entries)) == Spec.audit_sources(entries) : +List<D.Message>}:
@@ -127,6 +130,8 @@ def provider_group_text(+origin: D.OutputOrigin, +kind: Content.ContextKind, +in
 def prepend_text(+message: D.Message, +index: Nat, +tail: +List<Actual.Group>, evidence: Spec.text_agreement(tail)) ->
   Spec.text_agreement(Actual.prepend(message, index, tail)):
   match message:
+    case D.SpeechTranscript{owner, session, item, speaker, completion, text}: ({==}, evidence)
+    case D.SpeechDelegationReceipt{owner, session, identity, mode, text}: evidence
     case D.UserMessage{text}: ({==}, evidence)
     case D.AssistantMessage{origin, text}: ({==}, evidence)
     case D.ModelContext{+origin, value}: provider_group_text(origin, Content.provider_kind(value), index, value, tail, evidence)
@@ -186,9 +191,9 @@ def observed_text(+messages: +List<D.Message>, +offset: Nat, task: Nat, disclosu
   visible_text(Actual.groups(messages, offset), task, disclosures, displayed_text(messages, offset))
 
 def timeline_history(+reader: E.Reader, +task: D.Task, +world: M.World()) ->
-  {Spec.timeline_sources(Actual.timeline(reader, task, world)) == D.history_messages(D.task_history(task), Nil{}) : +List<D.Message>}:
+  {Spec.timeline_sources(Actual.timeline(reader, task, world)) == Spec.displayed_messages(D.history_messages(D.task_history(task), Nil{})) : +List<D.Message>}:
   E.Reader{generation, position, disclosures} = reader
   Equal.trans(+List<D.Message>,
     Spec.visible_sources(Actual.visible(Actual.groups(D.history_messages(D.task_history(task), Nil{}), 0n), D.task_id(task), disclosures)),
-    Spec.sources(Actual.groups(D.history_messages(D.task_history(task), Nil{}), 0n)), D.history_messages(D.task_history(task), Nil{}),
+    Spec.sources(Actual.groups(D.history_messages(D.task_history(task), Nil{}), 0n)), Spec.displayed_messages(D.history_messages(D.task_history(task), Nil{})),
     visible_history(Actual.groups(D.history_messages(D.task_history(task), Nil{}), 0n), D.task_id(task), disclosures), grouped_history(D.history_messages(D.task_history(task), Nil{}), 0n))

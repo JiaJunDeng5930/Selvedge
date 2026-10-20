@@ -1288,7 +1288,8 @@ def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +pare
     case Some{V.ComposerScene{+identity, +revision, message, phase, creation_context, execution_controls, context, +assessment, +submit, feedback, +pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       Some{Model.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
-        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), Model.action_feedback_nodes(identity, feedback, key)), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)])}
+        List.append(&2, SurfaceTypes.Node, Model.speech_controls(identity, revision, key, state),
+        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), Model.action_feedback_nodes(identity, feedback, key)), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}
 
 def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match context:

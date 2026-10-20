@@ -1,3 +1,4 @@
+import ./speech/MODEL.bend as Speech
 import Base
 import ../harness/MODEL.bend as M
 import ../features/board/MODEL.bend as B
@@ -17,6 +18,7 @@ import ./presentation/SURFACE.bend as SurfaceTypes
 # Commands and observations name their origin. A renderer can invoke only a
 # current product element; runtime receipts cannot impersonate element input.
 type Input is Data:
+  SpeechObserved{input: Speech.Input}
   # Trusted assembled interface commands stay typed through the platform bridge.
   InterfaceInput{input: InteractionTypes.Input}
   Engine{input: M.Input}
@@ -48,6 +50,7 @@ def observe(capacity: View.Capacity, state: InteractionTypes.State) -> SurfaceTy
 
 def step(input: Input, state: InteractionTypes.State) -> InteractionTypes.Decision:
   match input:
+    case SpeechObserved{input}: Core.step(InteractionTypes.ServiceInput{Services.SpeechInput{input}}, state)
     case InterfaceInput{input}: Core.step(input, state)
     case ProgramObserved{program}: Core.step(InteractionTypes.ApplicationInput{E.ProgramObserved{program}}, state)
     case CommandCompleted{program, result, completion}: Core.step(InteractionTypes.ApplicationInput{E.CommandCompleted{program, result, completion}}, state)

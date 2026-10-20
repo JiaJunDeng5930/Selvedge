@@ -80,6 +80,12 @@ def construct_command(kind: M.CommandKind, +body: J.Json) -> M.Command:
         execution_sandbox(String.eq(J.text(J.get(J.get(body, "sandbox"), "mode")), "read-only"), J.boolean(J.get(J.get(body, "sandbox"), "network_access"))),
         execution_approval(J.text(J.get(J.get(body, "approval"), "mode")), J.text_or(J.get(J.get(body, "approval"), "reviewer_profile"), J.text(J.get(body, "profile"))))}
     case M.FeatureKind{kind}: FeatureCodec.construct(kind, body)
+    case M.CreateIdleCommand{}:
+      M.CreateIdle{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), J.get(body, "settings"), J.natural(J.get(body, "work_id")), J.boolean(J.get(body, "create_worktree"))}
+    case M.RecordSpeechTranscriptCommand{}:
+      M.RecordSpeechTranscript{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "session_id")), J.text(J.get(body, "item_id")), J.text(J.get(body, "speaker")), J.text(J.get(body, "completion")), J.text(J.get(body, "text"))}
+    case M.AcceptSpeechDelegationCommand{}:
+      M.AcceptSpeechDelegation{Protocol.number(body, "task_id", 0n), J.text(J.get(body, "session_id")), J.text(J.get(body, "delegation_id")), J.text(J.get(body, "message")), J.text(J.get(body, "mode"))}
     case M.CreateCommand{}:
       M.Create{J.text(J.get(body, "profile")), J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), J.get(body, "settings")}
     case M.SendCommand{}:
@@ -721,6 +727,7 @@ def remote_probe_valid(valid: Bool, +body: J.Json) -> Result<&2, &2, String, M.I
 
 def root_environment_command(command: M.Command) -> Bool:
   match command:
+    case M.CreateIdle{profile, reasoning, settings, work, create_worktree}: True{}
     case M.Create{profile, reasoning, message, settings}: True{}
     case M.Fork{task, count, messages, settings}: True{}
     case M.OpenSideConversation{task, message}: False{}

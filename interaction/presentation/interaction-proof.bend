@@ -127,17 +127,17 @@ def stale_code_expiry(+identity: Code.Identity, source: String, +wrap: Bool, +co
         Nat.is_eq(current, ticket), False{}, stale)
 
 def restore_preview(value: Services.Preview, state: Services.State) -> Services.State:
-  Services.State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  Services.State{access, settings_open, appearance, next, transfers, value, directory_picker}
+  Services.State{access, settings_open, appearance, next, transfers, preview, directory_picker, +speech} = state
+  Services.State{access, settings_open, appearance, next, transfers, value, directory_picker, speech}
 
 def restore_directory_picker(value: Services.DirectoryPicker, state: Services.State) -> Services.State:
-  Services.State{access, settings_open, appearance, next, transfers, preview, directory_picker} = state
-  Services.State{access, settings_open, appearance, next, transfers, preview, value}
+  Services.State{access, settings_open, appearance, next, transfers, preview, directory_picker, +speech} = state
+  Services.State{access, settings_open, appearance, next, transfers, preview, value, speech}
 
 def encapsulated_stale_preview_reusable(+state: Services.State, +current: Nat, +file: B.Attachment, +trigger: String, +ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, different: {Nat.is_eq(current, ticket) == False{} : Bool}) ->
   {Services.step(Services.Previewed{ticket, result}, state) ==
         Services.Decision{state, Nil{}} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +stored_preview, +stored_directory_picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +stored_preview, +stored_directory_picker, +speech} = state
   backwards_preview = Equal.sym(Services.State, state, restore_preview(Services.LoadingPreview{current, file, trigger}, state),
     Equal.cong(Services.Preview, Services.State, value => restore_preview(value, state), Services.preview(state), Services.LoadingPreview{current, file, trigger}, observed_preview))
   %backwards_preview : {Services.step(Services.Previewed{ticket, result}, _) ==
@@ -147,10 +147,10 @@ def encapsulated_stale_preview_reusable(+state: Services.State, +current: Nat, +
   %backwards_directory_picker : {Services.step(Services.Previewed{ticket, result}, _) ==
         Services.Decision{_, Nil{}} : Services.Decision}
   Equal.trans(Services.Decision,
-    Services.preview_result(Services.LoadingPreview{current, file, trigger}, ticket, result, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}),
-    preview_outcome(Nat.is_eq(current, ticket), current, ticket, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result), Services.Decision{Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, Nil{}},
-    preview_checked(current, ticket, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result, Nat.is_eq(current, ticket), {==}),
-    Equal.cong(Bool, Services.Decision, owned => preview_outcome(owned, current, ticket, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}}, file, trigger, result), Nat.is_eq(current, ticket), False{}, different))
+    Services.preview_result(Services.LoadingPreview{current, file, trigger}, ticket, result, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}, speech}),
+    preview_outcome(Nat.is_eq(current, ticket), current, ticket, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}, speech}, file, trigger, result), Services.Decision{Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}, speech}, Nil{}},
+    preview_checked(current, ticket, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}, speech}, file, trigger, result, Nat.is_eq(current, ticket), {==}),
+    Equal.cong(Bool, Services.Decision, owned => preview_outcome(owned, current, ticket, Services.State{access, settings_open, appearance, next, transfers, Services.LoadingPreview{current, file, trigger}, Services.NoDirectoryPicker{}, speech}, file, trigger, result), Nat.is_eq(current, ticket), False{}, different))
 
 def encapsulated_stale_preview(+state: Services.State, current: Nat, +file: B.Attachment, trigger: String, ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.LoadingPreview{current, file, trigger} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, different: {Nat.is_eq(current, ticket) == False{} : Bool}) ->
   {Services.step(Services.Previewed{ticket, result}, state) ==
@@ -161,7 +161,7 @@ def encapsulated_stale_preview(+state: Services.State, current: Nat, +file: B.At
 def encapsulated_closed_preview(+state: Services.State, ticket: Nat, +result: Result<&2, &2, String, String>, observed_preview: {Services.preview(state) == Services.NoPreview{} : Services.Preview}, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}) ->
   {Services.step(Services.Previewed{ticket, result}, state) ==
         Services.Decision{state, Nil{}} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +stored_preview, +stored_directory_picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +stored_preview, +stored_directory_picker, +speech} = state
   backwards_preview = Equal.sym(Services.State, state, restore_preview(Services.NoPreview{}, state),
     Equal.cong(Services.Preview, Services.State, value => restore_preview(value, state), Services.preview(state), Services.NoPreview{}, observed_preview))
   %backwards_preview : {Services.step(Services.Previewed{ticket, result}, _) ==
@@ -177,7 +177,7 @@ def encapsulated_upload_destination(+state: Services.State, ticket: Nat, +editor
   {Services.step(Services.Uploaded{ticket, Done{attachment}}, state) ==
         Services.Decision{Services.with_transfers(Finite.remove(~Services.Transfer, Services.transfers(state), ticket), state),
           [Services.AttachToDraft{editor, attachment}]} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker, +speech} = state
   backwards_directory_picker = Equal.sym(Services.State, state, restore_directory_picker(Services.NoDirectoryPicker{}, state),
     Equal.cong(Services.DirectoryPicker, Services.State, value => restore_directory_picker(value, state), Services.directory_picker(state), Services.NoDirectoryPicker{}, observed_directory_picker))
   %backwards_directory_picker : {Services.step(Services.Uploaded{ticket, Done{attachment}}, _) ==
@@ -185,16 +185,16 @@ def encapsulated_upload_destination(+state: Services.State, ticket: Nat, +editor
           [Services.AttachToDraft{editor, attachment}]} : Services.Decision}
   Equal.trans(Services.Decision,
           Services.step(Services.Uploaded{ticket, Done{attachment}},
-            Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}),
+            Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}),
           Services.upload_finished(Some{Services.Uploading{editor, file}},
-            Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}},
+            Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech},
             ticket, Done{attachment}),
           Services.Decision{Services.State{access, settings_open, appearance, next,
-            Finite.remove(~Services.Transfer, transfers, ticket), preview, Services.NoDirectoryPicker{}},
+            Finite.remove(~Services.Transfer, transfers, ticket), preview, Services.NoDirectoryPicker{}, speech},
             [Services.AttachToDraft{editor, attachment}]},
           Equal.cong(Maybe<&2, Services.Transfer>, Services.Decision,
             found => Services.upload_finished(found,
-              Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}},
+              Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech},
               ticket, Done{attachment}),
             Finite.find(~Services.Transfer, transfers, ticket),
             Some{Services.Uploading{editor, file}}, found),
@@ -203,29 +203,29 @@ def encapsulated_upload_destination(+state: Services.State, ticket: Nat, +editor
 def encapsulated_missing_upload(+state: Services.State, ticket: Nat, +result: Result<&2, &2, String, B.Attachment>, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, missing: {Finite.find(~Services.Transfer, Services.transfers(state), ticket) == None{} : Maybe<&2, Services.Transfer>}) ->
   {Services.step(Services.Uploaded{ticket, result}, state) ==
         Services.Decision{state, Nil{}} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker, +speech} = state
   backwards_directory_picker = Equal.sym(Services.State, state, restore_directory_picker(Services.NoDirectoryPicker{}, state),
     Equal.cong(Services.DirectoryPicker, Services.State, value => restore_directory_picker(value, state), Services.directory_picker(state), Services.NoDirectoryPicker{}, observed_directory_picker))
   %backwards_directory_picker : {Services.step(Services.Uploaded{ticket, result}, _) ==
         Services.Decision{_, Nil{}} : Services.Decision}
   Equal.cong(Maybe<&2, Services.Transfer>, Services.Decision,
           found => Services.upload_finished(found,
-            Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, ticket, result),
+            Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}, ticket, result),
           Finite.find(~Services.Transfer, transfers, ticket), None{}, missing)
 
 def encapsulated_stale_auth_reusable(+state: Services.State, +ticket: Nat, +result: Result<&2, &2, String, Unit>, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, stale: {Services.expected_access(Services.access(state), ticket) == False{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, result}, state) ==
         Services.Decision{state, Nil{}} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +stored_directory_picker, +speech} = state
   backwards_directory_picker = Equal.sym(Services.State, state, restore_directory_picker(Services.NoDirectoryPicker{}, state),
     Equal.cong(Services.DirectoryPicker, Services.State, value => restore_directory_picker(value, state), Services.directory_picker(state), Services.NoDirectoryPicker{}, observed_directory_picker))
   %backwards_directory_picker : {Services.step(Services.Authenticated{ticket, result}, _) ==
         Services.Decision{_, Nil{}} : Services.Decision}
   Equal.trans(Services.Decision,
-    Services.step(Services.Authenticated{ticket, result}, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}),
-    authentication_outcome(Services.expected_access(access, ticket), ticket, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result), Services.Decision{Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, Nil{}},
-    authentication_checked(ticket, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result, Services.expected_access(access, ticket), {==}),
-    Equal.cong(Bool, Services.Decision, owned => authentication_outcome(owned, ticket, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}}, result), Services.expected_access(access, ticket), False{}, stale))
+    Services.step(Services.Authenticated{ticket, result}, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}),
+    authentication_outcome(Services.expected_access(access, ticket), ticket, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}, result), Services.Decision{Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}, Nil{}},
+    authentication_checked(ticket, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}, result, Services.expected_access(access, ticket), {==}),
+    Equal.cong(Bool, Services.Decision, owned => authentication_outcome(owned, ticket, Services.State{access, settings_open, appearance, next, transfers, preview, Services.NoDirectoryPicker{}, speech}, result), Services.expected_access(access, ticket), False{}, stale))
 
 def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result<&2, &2, String, Unit>, observed_directory_picker: {Services.directory_picker(state) == Services.NoDirectoryPicker{} : Services.DirectoryPicker}, stale: {Services.expected_access(Services.access(state), ticket) == False{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, result}, state) ==
@@ -236,31 +236,31 @@ def encapsulated_stale_auth(+state: Services.State, ticket: Nat, +result: Result
 def encapsulated_failed_auth_no_attention(+state: Services.State, reason: String, application: E.Application) ->
   {Core.service_result(Services.authentication_calculation(state, Fail{reason}), application) ==
         Core.application_result_with_services(E.unchanged(application), Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]) : InteractionTypes.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker, +speech} = state
   {==}
 
 def encapsulated_readiness_attention(+state: Services.State, +application: E.Application) ->
   {Core.service_result(Services.authentication_calculation(state, Done{Unit{}}), application) ==
         InteractionTypes.Decision{Core.from_application(application, Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state))), D.success(J.Null{}), Nil{}, [E.Attend{Core.session_attention(application)}], Nil{}, False{}} : InteractionTypes.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker, +speech} = state
   {==}
 
 def encapsulated_failed_auth(+state: Services.State, reason: String) ->
   {Services.authentication_calculation(state, Fail{reason}) ==
         Services.Decision{Services.with_settings_open(True{}, Services.with_access(Services.ConnectionLost{Services.connection_ticket(Services.access(state)), reason}, state)), [Services.ScheduleReconnect{Services.connection_ticket(Services.access(state)), 1000n}]} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker, +speech} = state
   {==}
 
 def encapsulated_accepted_auth_reusable(+state: Services.State, +ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
         Services.Decision{Services.with_settings_open(False{}, Services.with_access(Services.Connected{Services.connection_ticket(Services.access(state))}, state)), [Services.SessionReady{}]} : Services.Decision}:
-  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker} = state
+  Services.State{+access, +settings_open, +appearance, +next, +transfers, +preview, +picker, +speech} = state
   Equal.trans(Services.Decision,
-    Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, settings_open, appearance, next, transfers, preview, picker}),
-    authentication_outcome(Services.expected_access(access, ticket), ticket, Services.State{access, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}),
-    Services.authentication_calculation(Services.State{access, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}),
-    authentication_checked(ticket, Services.State{access, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}, Services.expected_access(access, ticket), {==}),
-    Equal.cong(Bool, Services.Decision, owned => authentication_outcome(owned, ticket, Services.State{access, settings_open, appearance, next, transfers, preview, picker}, Done{Unit{}}), Services.expected_access(access, ticket), True{}, owned))
+    Services.step(Services.Authenticated{ticket, Done{Unit{}}}, Services.State{access, settings_open, appearance, next, transfers, preview, picker, speech}),
+    authentication_outcome(Services.expected_access(access, ticket), ticket, Services.State{access, settings_open, appearance, next, transfers, preview, picker, speech}, Done{Unit{}}),
+    Services.authentication_calculation(Services.State{access, settings_open, appearance, next, transfers, preview, picker, speech}, Done{Unit{}}),
+    authentication_checked(ticket, Services.State{access, settings_open, appearance, next, transfers, preview, picker, speech}, Done{Unit{}}, Services.expected_access(access, ticket), {==}),
+    Equal.cong(Bool, Services.Decision, owned => authentication_outcome(owned, ticket, Services.State{access, settings_open, appearance, next, transfers, preview, picker, speech}, Done{Unit{}}), Services.expected_access(access, ticket), True{}, owned))
 
 def encapsulated_accepted_auth(+state: Services.State, ticket: Nat, owned: {Services.expected_access(Services.access(state), ticket) == True{} : Bool}) ->
   {Services.step(Services.Authenticated{ticket, Done{Unit{}}}, state) ==
@@ -690,6 +690,8 @@ def visible_speaker_evidence(+id: Nat, speaker: Conversation.Speaker, +text: Str
     case Conversation.UserSpeech{} D.AfterRecord{task_id, operation_id, plugin, outcome}: {==}
     case Conversation.UserSpeech{} D.ApprovalRecord{task_id, operation_id, call, reviewer, outcome}: {==}
     case Conversation.UserSpeech{} D.ForkResult{task_id, call_id, branch}: {==}
+    case Conversation.UserSpeech{} D.SpeechTranscript{owner, session_id, item_id, speaker, completion, text}: {==}
+    case Conversation.UserSpeech{} D.SpeechDelegationReceipt{owner, session_id, delegation_id, mode, message}: {==}
     case Conversation.AssistantSpeech{} D.UserMessage{body}: {==}
     case Conversation.AssistantSpeech{} D.AssistantMessage{origin, body}: {==}
     case Conversation.AssistantSpeech{} D.FunctionCall{call}: {==}
@@ -705,6 +707,8 @@ def visible_speaker_evidence(+id: Nat, speaker: Conversation.Speaker, +text: Str
     case Conversation.AssistantSpeech{} D.AfterRecord{task_id, operation_id, plugin, outcome}: {==}
     case Conversation.AssistantSpeech{} D.ApprovalRecord{task_id, operation_id, call, reviewer, outcome}: {==}
     case Conversation.AssistantSpeech{} D.ForkResult{task_id, call_id, branch}: {==}
+    case Conversation.AssistantSpeech{} D.SpeechTranscript{owner, session_id, item_id, speaker, completion, text}: {==}
+    case Conversation.AssistantSpeech{} D.SpeechDelegationReceipt{owner, session_id, delegation_id, mode, message}: {==}
 
 
 def structure_evidence(recipe: Composition.Recipe)

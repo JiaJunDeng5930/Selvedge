@@ -83,8 +83,14 @@ def client(+value: J.Json) -> Bool:
 
 def defaults() -> J.Json:
   J.Object{Con{J.Field{"provider", J.Text{"chatgpt"}}, Con{J.Field{"endpoint", J.Text{"https://api.openai.com/v1/responses"}}, Con{J.Field{"auth_file", J.Text{"auth/chatgpt.json"}}, Con{J.Field{"issuer", J.Text{"https://auth.openai.com"}}, Con{J.Field{"timeout_ms", J.Number{"300000"}}, Nil{}}}}}}}
+def audio_contract() -> J.Json:
+  J.Object{Con{J.Field{"client_id", J.Text{"app_EMoamEEZ73f0CkXaXp7hrann"}}, Con{J.Field{"scopes", J.Text{"openid profile email offline_access api.connectors.read api.connectors.invoke"}}, Con{J.Field{"auth_file", J.Text{"auth/chatgpt-audio.json"}}, Con{J.Field{"callback_port", J.Number{"1455"}}, Con{J.Field{"refresh_interval_ms", J.Number{"691200000"}}, Nil{}}}}}}}
+def audio(source: J.Json) -> Bool:
+  J.boolean(J.get(source, "audio"))
+def credential_format_name(source: J.Json) -> J.Json:
+  select(audio(source), J.Text{"selvedge-chatgpt-audio-1"}, J.Text{"selvedge-chatgpt-2"})
 def contract() -> J.Json:
-  J.Object{Con{J.Field{"login_timeout_ms", J.Number{"600000"}}, Con{J.Field{"maximum", J.Number{"1048576"}}, Con{J.Field{"namespace", J.Text{"selvedge"}}, Con{J.Field{"resource", J.Text{"https://api.openai.com/v1"}}, Con{J.Field{"scopes", J.Text{"openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"}}, Con{J.Field{"default", defaults()}, Nil{}}}}}}}}
+  J.Object{Con{J.Field{"login_timeout_ms", J.Number{"600000"}}, Con{J.Field{"maximum", J.Number{"1048576"}}, Con{J.Field{"namespace", J.Text{"selvedge"}}, Con{J.Field{"resource", J.Text{"https://api.openai.com/v1"}}, Con{J.Field{"scopes", J.Text{"openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"}}, Con{J.Field{"default", defaults()}, Con{J.Field{"audio", audio_contract()}, Nil{}}}}}}}}}
 def connection_keys() -> +List<String>:
   Con{"provider", Con{"endpoint", Con{"auth_file", Con{"issuer", Con{"timeout_ms", Nil{}}}}}}
 def drop_slashes(+text: String) -> String:
@@ -214,17 +220,18 @@ def has_all(+value: J.Json, keys: +List<String>) -> Bool:
     case Con{key, rest}: has(value, key) && has_all(value, rest)
 def date_valid(value: J.Json, +observation: J.Json) -> Bool:
   J.is_text(value) && J.is_object(observation) && J.is_text(J.get(observation, "iso"))
-def credential_format(source: J.Json) -> Bool:
+def credential_format(+source: J.Json) -> Bool:
   +value = J.get(source, "value")
-  J.is_object(value) && J.same(J.get(value, "format"), J.Text{"selvedge-chatgpt-2"}) && Nat.is_eq(List.length(&2, J.Field, fields(value)), 14n) && has_all(value, credential_keys())
+  J.is_object(value) && J.same(J.get(value, "format"), credential_format_name(source)) && Nat.is_eq(List.length(&2, J.Field, fields(value)), 14n) && has_all(value, credential_keys())
 def credential_binding(+source: J.Json) -> Bool:
   +value = J.get(source, "value")
   nonempty(J.get(value, "issuer")) && client(J.get(value, "client_id")) && nonempty(J.get(value, "subject")) &&
-    nonempty(J.get(value, "account_id")) && J.same(J.get(value, "account_id"), J.get(source, "identity"))
+    nonempty(J.get(value, "account_id")) &&
+    Bool.pick(Bool, audio(source), J.same(J.get(value, "client_id"), J.get(audio_contract(), "client_id")), J.same(J.get(value, "account_id"), J.get(source, "identity")))
 def credential_content(+source: J.Json) -> Bool:
   +value = J.get(source, "value")
   +dates = J.get(source, "dates")
-  nonempty(J.get(value, "access_token")) && nonempty(J.get(value, "refresh_token")) && nonempty(J.get(value, "id_token")) && scope(J.get(value, "scope")) &&
+  nonempty(J.get(value, "access_token")) && nonempty(J.get(value, "refresh_token")) && nonempty(J.get(value, "id_token")) && Bool.pick(Bool, audio(source), nullable(J.get(value, "scope")), scope(J.get(value, "scope"))) &&
     date_valid(J.get(value, "expires_at"), J.get(dates, "expires_at")) && date_valid(J.get(value, "last_refresh"), J.get(dates, "last_refresh")) &&
     (J.same(J.get(value, "earliest_refresh_at"), J.Null{}) || date_valid(J.get(value, "earliest_refresh_at"), J.get(dates, "earliest_refresh_at"))) &&
     nullable(J.get(value, "name")) && nullable(J.get(value, "email"))
@@ -248,6 +255,10 @@ def registration_admitted(member: Maybe<&1, Categories.Membership<J.Json, (sourc
     case Some{member}: Model.success(J.get(Categories.value(J.Json, (source => Categories.intersection(J.Json, Categories.holds(J.Json, (candidate => registration_binding(candidate))), Categories.holds(J.Json, (candidate => registration_shape(candidate))), source)), member), "value"))
 def registration(source: J.Json) -> J.Json:
   registration_admitted(Categories.admit_intersection(J.Json, (candidate => registration_binding(candidate)), (candidate => registration_shape(candidate)), source))
+def replace(fields: +List<J.Field>, +name: String, +value: J.Json) -> +List<J.Field>:
+  match fields:
+    case Nil{}: Nil{}
+    case Con{J.Field{+key, item}, rest}: Con{J.Field{key, select(String.eq(key, name), value, item)}, replace(rest, name, value)}
 def discovery_url(+url: J.Json, +issuer: J.Json) -> Bool:
   url_shape(url) && J.same(J.get(url, "origin"), J.get(issuer, "origin")) &&
     (String.eq(J.text(J.get(url, "protocol")), "https:") || (String.eq(J.text(J.get(issuer, "protocol")), "http:") && loopback(issuer)))
@@ -261,7 +272,8 @@ def discovery(+source: J.Json) -> J.Json:
   +issuer = J.get(source, "issuer_url")
   +urls = J.get(source, "urls")
   discovery_decision(J.same(J.get(value, "issuer"), J.get(source, "issuer")) &&
-    discovery_url(J.get(urls, "authorization_endpoint"), issuer) && discovery_url(J.get(urls, "token_endpoint"), issuer) && discovery_url(J.get(urls, "jwks_uri"), issuer), value)
+    discovery_url(J.get(urls, "authorization_endpoint"), issuer) && discovery_url(J.get(urls, "token_endpoint"), issuer) && discovery_url(J.get(urls, "jwks_uri"), issuer),
+    select(audio(source), J.Object{replace(fields(value), "authorization_endpoint", J.Text{J.text(J.get(value, "issuer")) ++ "/oauth/authorize"})}, value))
 def strip_epoch_zeros(+text: String) -> String:
   match text:
     case SNil{}: "0"
@@ -314,18 +326,18 @@ def number_positive(value: J.Json) -> Bool:
 def token_grant(+source: J.Json) -> Bool:
   +tokens = J.get(source, "tokens")
   +previous = J.get(source, "previous")
-  nonempty(J.get(tokens, "access_token")) && nonempty(J.get(tokens, "refresh_token")) &&
+  nonempty(J.get(tokens, "access_token")) && nonempty(select(audio(source) && J.same(J.get(tokens, "refresh_token"), J.Null{}), J.get(previous, "refresh_token"), J.get(tokens, "refresh_token"))) &&
     J.is_text(J.get(tokens, "token_type")) && String.eq(String.to_lower(J.text(J.get(tokens, "token_type"))), "bearer") &&
-    number_positive(J.get(tokens, "expires_in")) &&
+    (audio(source) || number_positive(J.get(tokens, "expires_in"))) &&
     (J.is_object(previous) || nonempty(J.get(tokens, "id_token"))) &&
-    scope(select(J.same(J.get(tokens, "scope"), J.Null{}), J.get(previous, "scope"), J.get(tokens, "scope")))
+    (audio(source) || scope(select(J.same(J.get(tokens, "scope"), J.Null{}), J.get(previous, "scope"), J.get(tokens, "scope"))))
 def token_identity_field(+claims: J.Json, previous: J.Json, +claim: String, key: String) -> J.Json:
   select(J.is_object(claims), select(nonempty(J.get(claims, claim)), J.get(claims, claim), J.Null{}), J.get(previous, key))
 def token_record(+source: J.Json, +tokens: J.Json, +claims: J.Json, +previous: J.Json) -> J.Json:
-  J.Object{Con{J.Field{"format", J.Text{"selvedge-chatgpt-2"}}, Con{J.Field{"issuer", J.get(J.get(source, "metadata"), "issuer")}, Con{J.Field{"client_id", J.get(source, "clientId")}, Con{J.Field{"subject", select(J.is_object(claims), J.get(claims, "sub"), J.get(previous, "subject"))}, Con{J.Field{"account_id", J.get(source, "identity")}, Con{J.Field{"name", token_identity_field(claims, previous, "name", "name")}, Con{J.Field{"email", token_identity_field(claims, previous, "email", "email")}, Con{J.Field{"access_token", J.get(tokens, "access_token")}, Con{J.Field{"refresh_token", J.get(tokens, "refresh_token")}, Con{J.Field{"id_token", select(J.same(J.get(tokens, "id_token"), J.Null{}), J.get(previous, "id_token"), J.get(tokens, "id_token"))}, Con{J.Field{"scope", select(J.same(J.get(tokens, "scope"), J.Null{}), J.get(previous, "scope"), J.get(tokens, "scope"))}, Con{J.Field{"expires_at", J.get(J.get(source, "expires"), "iso")}, Con{J.Field{"earliest_refresh_at", J.get(J.get(source, "earliest"), "iso")}, Con{J.Field{"last_refresh", J.get(J.get(source, "now_date"), "iso")}, Nil{}}}}}}}}}}}}}}}}
+  J.Object{Con{J.Field{"format", credential_format_name(source)}, Con{J.Field{"issuer", J.get(J.get(source, "metadata"), "issuer")}, Con{J.Field{"client_id", J.get(source, "clientId")}, Con{J.Field{"subject", select(J.is_object(claims), J.get(claims, "sub"), J.get(previous, "subject"))}, Con{J.Field{"account_id", J.get(source, "identity")}, Con{J.Field{"name", token_identity_field(claims, previous, "name", "name")}, Con{J.Field{"email", token_identity_field(claims, previous, "email", "email")}, Con{J.Field{"access_token", J.get(tokens, "access_token")}, Con{J.Field{"refresh_token", select(audio(source) && J.same(J.get(tokens, "refresh_token"), J.Null{}), J.get(previous, "refresh_token"), J.get(tokens, "refresh_token"))}, Con{J.Field{"id_token", select(J.same(J.get(tokens, "id_token"), J.Null{}), J.get(previous, "id_token"), J.get(tokens, "id_token"))}, Con{J.Field{"scope", select(J.same(J.get(tokens, "scope"), J.Null{}), J.get(previous, "scope"), J.get(tokens, "scope"))}, Con{J.Field{"expires_at", J.get(J.get(source, "expires"), "iso")}, Con{J.Field{"earliest_refresh_at", J.get(J.get(source, "earliest"), "iso")}, Con{J.Field{"last_refresh", J.get(J.get(source, "now_date"), "iso")}, Nil{}}}}}}}}}}}}}}}}
 def token_value(+source: J.Json, +tokens: J.Json, +claims: J.Json, +previous: J.Json) -> J.Json:
   +value = token_record(source, tokens, claims, previous)
-  credential(J.Object{Con{J.Field{"value", value}, Con{J.Field{"identity", J.get(source, "identity")}, Con{J.Field{"dates", J.Object{Con{J.Field{"expires_at", J.get(source, "expires")}, Con{J.Field{"last_refresh", J.get(source, "now_date")}, Con{J.Field{"earliest_refresh_at", J.get(source, "earliest")}, Nil{}}}}}}, Nil{}}}}})
+  credential(J.Object{Con{J.Field{"audio", J.Boolean{audio(source)}}, Con{J.Field{"value", value}, Con{J.Field{"identity", J.get(source, "identity")}, Con{J.Field{"dates", J.Object{Con{J.Field{"expires_at", J.get(source, "expires")}, Con{J.Field{"last_refresh", J.get(source, "now_date")}, Con{J.Field{"earliest_refresh_at", J.get(source, "earliest")}, Nil{}}}}}}, Nil{}}}}}})
 
 def token_earliest(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
@@ -483,10 +495,6 @@ def token_subject(+source: J.Json) -> J.Json:
   token_subject_grant(token_grant(source), source)
 def registration_record(+source: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"format", J.Text{"selvedge-chatgpt-registration-1"}}, Con{J.Field{"issuer", J.get(source, "issuer")}, Con{J.Field{"client_id", J.get(source, "clientId")}, Con{J.Field{"subject", J.get(J.get(source, "registered"), "subject")}, Nil{}}}}}})
-def replace(fields: +List<J.Field>, +name: String, +value: J.Json) -> +List<J.Field>:
-  match fields:
-    case Nil{}: Nil{}
-    case Con{J.Field{+key, item}, rest}: Con{J.Field{key, select(String.eq(key, name), value, item)}, replace(rest, name, value)}
 def registration_subject(+source: J.Json) -> J.Json:
   Model.success(J.Object{replace(fields(J.get(source, "registered")), "subject", J.get(J.get(source, "saved"), "subject"))})
 type CallbackBodyName is Data:
@@ -835,13 +843,48 @@ def host_registration_check(valid: Bool, value: J.Json) -> J.Json:
     case True{}: Model.success(J.get(value, "ext_agent_host_id"))
 def host_registration(source: J.Json) -> J.Json:
   +value = J.get(source, "value")
+  +host_id = J.text(J.get(value, "ext_agent_host_id"))
   host_registration_check(J.is_object(value) && J.same(J.get(value, "format"), J.Text{"selvedge-chatgpt-host-1"}) &&
-    Nat.is_eq(List.length(&2, J.Field, fields(value)), 2n) && nonempty(J.get(value, "ext_agent_host_id")) && uuid_chars(String.to_lower(J.text(J.get(value, "ext_agent_host_id"))), 0n), value)
+    Nat.is_eq(List.length(&2, J.Field, fields(value)), 2n) && String.starts_with(host_id, "urn:uuid:") && uuid_chars(String.to_lower(String.drop(host_id, 9n)), 0n), value)
 def host_registration_record(source: J.Json) -> J.Json:
   Model.success(J.Object{Con{J.Field{"format", J.Text{"selvedge-chatgpt-host-1"}}, Con{J.Field{"ext_agent_host_id", J.get(source, "ext_agent_host_id")}, Nil{}}}})
-def auth_parameters(+source: J.Json) -> J.Json:
+def responses_auth_parameters(+source: J.Json) -> J.Json:
   +registered = J.get(source, "registered")
   Model.success(J.Object{Con{J.Field{"response_type", J.Text{"code"}}, Con{J.Field{"resource", J.get(contract(), "resource")}, Con{J.Field{"scope", J.get(contract(), "scopes")}, Con{J.Field{"redirect_uri", J.get(source, "redirectUri")}, Con{J.Field{"state", J.get(source, "state")}, Con{J.Field{"nonce", J.get(source, "nonce")}, Con{J.Field{"code_challenge", J.get(source, "challenge")}, Con{J.Field{"code_challenge_method", J.Text{"S256"}}, Con{J.Field{"ext_agent_host_id", J.get(source, "ext_agent_host_id")}, Con{J.Field{"client_id", select(J.same(J.get(registered, "client_id"), J.Null{}), J.Text{"dynamic_agent_client"}, J.get(registered, "client_id"))}, project_step(Bool.not(J.is_object(registered)), "agent_name_hint", J.Text{"Selvedge"}, Nil{})}}}}}}}}}}})
+def audio_auth_parameters(+source: J.Json) -> J.Json:
+  Model.success(J.Object{[
+    J.Field{"response_type", J.Text{"code"}},
+    J.Field{"client_id", J.get(audio_contract(), "client_id")},
+    J.Field{"scope", J.get(audio_contract(), "scopes")},
+    J.Field{"redirect_uri", J.get(source, "redirectUri")},
+    J.Field{"state", J.get(source, "state")},
+    J.Field{"nonce", J.get(source, "nonce")},
+    J.Field{"code_challenge", J.get(source, "challenge")},
+    J.Field{"code_challenge_method", J.Text{"S256"}},
+    J.Field{"id_token_add_organizations", J.Text{"true"}},
+    J.Field{"codex_cli_simplified_flow", J.Text{"true"}},
+    J.Field{"originator", J.Text{"selvedge_audio"}}]})
+def auth_parameters_selected(is_audio: Bool, source: J.Json) -> J.Json:
+  match is_audio:
+    case True{}: audio_auth_parameters(source)
+    case False{}: responses_auth_parameters(source)
+def auth_parameters(+source: J.Json) -> J.Json:
+  auth_parameters_selected(audio(source), source)
+def audio_identity_value(valid: Bool, value: J.Json) -> J.Json:
+  match valid:
+    case True{}: Model.success(value)
+    case False{}: Model.failure("ChatGPT audio authorization has no matching account identity; sign in again")
+def audio_identity(+source: J.Json) -> J.Json:
+  +previous = J.get(source, "previous")
+  +claims = J.get(source, "claims")
+  +value = select(J.is_object(claims), J.get(J.get(claims, "https://api.openai.com/auth"), "chatgpt_account_id"), J.get(previous, "account_id"))
+  audio_identity_value(nonempty(value) && (Bool.not(J.is_object(previous)) || J.same(value, J.get(previous, "account_id"))), value)
+def audio_connection_selected(valid: Bool) -> J.Json:
+  match valid:
+    case True{}: Model.success(J.Null{})
+    case False{}: Model.failure("Unknown ChatGPT audio account")
+def audio_connection(source: J.Json) -> J.Json:
+  audio_connection_selected(J.same(J.get(source, "connectionId"), J.Text{"chatgpt-voice"}))
 def unrelated_fields(items: +List<J.Field>, +existing: J.Json) -> +List<J.Field>:
   match items:
     case Nil{}: Nil{}
@@ -902,9 +945,9 @@ def host_saved(+source: J.Json) -> J.Json:
   host_saved_present(truthy(J.get(source, "value")), source)
 def sdk_timeout(+source: J.Json) -> J.Json:
   Model.success(select(J.same(J.get(J.get(source, "profile"), "timeout_ms"), J.Null{}), J.Number{"300000"}, J.get(J.get(source, "profile"), "timeout_ms")))
-def authorization_view(source: J.Json) -> J.Json:
+def authorization_view(+source: J.Json) -> J.Json:
   +credential = J.get(source, "credential")
-  Model.success(J.Object{Con{J.Field{"account_id", J.get(credential, "account_id")}, Con{J.Field{"headers", J.Object{Con{J.Field{"authorization", J.Text{"Bearer " ++ J.text(J.get(credential, "access_token"))}}, Nil{}}}}, Nil{}}}})
+  Model.success(J.Object{Con{J.Field{"account_id", J.get(credential, "account_id")}, Con{J.Field{"headers", J.Object{Con{J.Field{"authorization", J.Text{"Bearer " ++ J.text(J.get(credential, "access_token"))}}, project_step(audio(source), "originator", J.Text{"selvedge_audio"}, Nil{})}}}, Nil{}}}})
 def login_result(+source: J.Json) -> J.Json:
   +saved = J.get(source, "saved")
   Model.success(J.Object{Con{J.Field{"account_id", J.get(saved, "account_id")}, Con{J.Field{"filename", J.get(source, "filename")}, Con{J.Field{"name", J.get(saved, "name")}, Con{J.Field{"email", J.get(saved, "email")}, Nil{}}}}}})
@@ -1277,8 +1320,16 @@ def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
     case True{}: candidate_read(source)
     case False{}: meaning_route_1(String.eq(operation, "account.optional_registration"), operation, source)
 
+def meaning_audio_identity(accepted: Bool, +operation: String, source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: audio_identity(source)
+    case False{}: meaning_route_0(String.eq(operation, "account.candidate_read"), operation, source)
+def meaning_audio_connection(accepted: Bool, +operation: String, source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: audio_connection(source)
+    case False{}: meaning_audio_identity(String.eq(operation, "account.audio_identity"), operation, source)
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  meaning_route_0(String.eq(operation, "account.candidate_read"), operation, source)
+  meaning_audio_connection(String.eq(operation, "account.audio_connection"), operation, source)
 
 def factory(+operation: String) -> Model.Adapter((source => meaning(operation, source))):
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})

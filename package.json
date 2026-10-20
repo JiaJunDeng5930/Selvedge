@@ -19,10 +19,12 @@
     "test:interactive-markdown": "bun run build && python3 scripts/test-interactive-markdown-browser.py --mode all"
   },
   "dependencies": {
+    "acorn": "8.15.0",
     "diff": "9.0.0",
     "gpt-tokenizer": "4.0.0",
+    "impit": "0.14.6",
     "openid-client": "6.8.8",
-    "acorn": "8.15.0"
+    "ws": "8.22.0"
   },
   "packageManager": "bun@1.4.2",
   "workspaces": [

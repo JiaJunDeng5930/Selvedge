@@ -17,6 +17,10 @@ semantic requirements, component refinement and unrelated-state preservation.
 Tests do not recompile hypothetical application extensions or repeat semantic
 traces through HTTP and SQLite.
 
+Audio acceptance uses the running service's public HTTP and browser entry points
+with a real ChatGPT account. Internal media and injected audio fixtures are
+temporary debugging aids because they bypass the production login and transport.
+
 The source gate checks core entries' actual transitive dependencies against
 application and feature ownership, private representation access, and production
 proof coverage. Independent helpers need no duplicate import whitelist. The UI

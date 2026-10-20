@@ -767,7 +767,7 @@ def Rule.directory_entry_evidence():
 
 def picker_closed(+state: Services.State) ->
   {Services.step(Services.CloseDirectoryPicker{}, state) == Services.Decision{Services.replace_directory(state, Services.NoDirectoryPicker{}), Nil{}} : Services.Decision}:
-  Services.State{access, settings, appearance, next, transfers, preview, picker} = state
+  Services.State{access, settings, appearance, next, transfers, preview, picker, +speech} = state
   {==}
 
 def Rule.directory_picker_requirements():
