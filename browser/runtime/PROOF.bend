@@ -295,6 +295,7 @@ def native_context_value_requirement(field: Forms.Field, origin: Context.Origin,
     case Forms.ProjectName{}: {==}
     case Forms.WorkName{}: {==}
     case Forms.CreateWorktree{}: {==}
+    case Forms.TaskEnvironment{}: {==}
     case Forms.TaskTitlePrompt{}: {==}
     case Forms.AgentTitlePrompt{}: {==}
     case Forms.WorkspaceDirectories{}: {==}
@@ -333,6 +334,7 @@ def native_workspace_value_requirement(field: Forms.Field, roots: +List<String>,
     case Forms.ProjectName{}: {==}
     case Forms.WorkName{}: {==}
     case Forms.CreateWorktree{}: {==}
+    case Forms.TaskEnvironment{}: {==}
     case Forms.TaskTitlePrompt{}: {==}
     case Forms.AgentTitlePrompt{}: {==}
     case Forms.WorkspaceDirectories{}: {==}
@@ -371,6 +373,7 @@ def native_model_value_requirement(field: Forms.Field, profile: String, reasonin
     case Forms.ProjectName{}: {==}
     case Forms.WorkName{}: {==}
     case Forms.CreateWorktree{}: {==}
+    case Forms.TaskEnvironment{}: {==}
     case Forms.TaskTitlePrompt{}: {==}
     case Forms.AgentTitlePrompt{}: {==}
     case Forms.WorkspaceDirectories{}: {==}
@@ -445,81 +448,97 @@ def native_edit_checked_requirement(field: Forms.Field, value: Forms.Observed, e
     case Forms.ProjectName{} Forms.ToggleValue{enabled}: {==}
     case Forms.WorkName{} Forms.ToggleValue{enabled}: {==}
     case Forms.CreateWorktree{} Forms.ToggleValue{enabled}: {==}
+    case Forms.TaskEnvironment{} Forms.ToggleValue{enabled}: {==}
     case Forms.TaskTitlePrompt{} Forms.ToggleValue{enabled}: {==}
     case Forms.AgentTitlePrompt{} Forms.ToggleValue{enabled}: {==}
     case Forms.ProjectName{} Forms.TextValue{text}: {==}
     case Forms.WorkName{} Forms.TextValue{text}: {==}
     case Forms.CreateWorktree{} Forms.TextValue{text}: {==}
+    case Forms.TaskEnvironment{} Forms.TextValue{text}: {==}
     case Forms.TaskTitlePrompt{} Forms.TextValue{text}: {==}
     case Forms.AgentTitlePrompt{} Forms.TextValue{text}: {==}
     case Forms.ProjectName{} Forms.CountValue{count}: {==}
     case Forms.WorkName{} Forms.CountValue{count}: {==}
     case Forms.CreateWorktree{} Forms.CountValue{count}: {==}
+    case Forms.TaskEnvironment{} Forms.CountValue{count}: {==}
     case Forms.TaskTitlePrompt{} Forms.CountValue{count}: {==}
     case Forms.AgentTitlePrompt{} Forms.CountValue{count}: {==}
     case Forms.ProjectName{} Forms.TextsValue{values}: {==}
     case Forms.WorkName{} Forms.TextsValue{values}: {==}
     case Forms.CreateWorktree{} Forms.TextsValue{values}: {==}
+    case Forms.TaskEnvironment{} Forms.TextsValue{values}: {==}
     case Forms.TaskTitlePrompt{} Forms.TextsValue{values}: {==}
     case Forms.AgentTitlePrompt{} Forms.TextsValue{values}: {==}
     case Forms.ProjectName{} Forms.WorkspaceValue{workspace}: {==}
     case Forms.WorkName{} Forms.WorkspaceValue{workspace}: {==}
     case Forms.CreateWorktree{} Forms.WorkspaceValue{workspace}: {==}
+    case Forms.TaskEnvironment{} Forms.WorkspaceValue{workspace}: {==}
     case Forms.TaskTitlePrompt{} Forms.WorkspaceValue{workspace}: {==}
     case Forms.AgentTitlePrompt{} Forms.WorkspaceValue{workspace}: {==}
     case Forms.ProjectName{} Forms.ContextValue{preview, reviewers}: {==}
     case Forms.WorkName{} Forms.ContextValue{preview, reviewers}: {==}
     case Forms.CreateWorktree{} Forms.ContextValue{preview, reviewers}: {==}
+    case Forms.TaskEnvironment{} Forms.ContextValue{preview, reviewers}: {==}
     case Forms.TaskTitlePrompt{} Forms.ContextValue{preview, reviewers}: {==}
     case Forms.AgentTitlePrompt{} Forms.ContextValue{preview, reviewers}: {==}
     case Forms.ProjectName{} Forms.ModelValue{profile, reasoning}: {==}
     case Forms.WorkName{} Forms.ModelValue{profile, reasoning}: {==}
     case Forms.CreateWorktree{} Forms.ModelValue{profile, reasoning}: {==}
+    case Forms.TaskEnvironment{} Forms.ModelValue{profile, reasoning}: {==}
     case Forms.TaskTitlePrompt{} Forms.ModelValue{profile, reasoning}: {==}
     case Forms.AgentTitlePrompt{} Forms.ModelValue{profile, reasoning}: {==}
     case Forms.ProjectName{} Forms.DeliveryValue{delivery}: {==}
     case Forms.WorkName{} Forms.DeliveryValue{delivery}: {==}
     case Forms.CreateWorktree{} Forms.DeliveryValue{delivery}: {==}
+    case Forms.TaskEnvironment{} Forms.DeliveryValue{delivery}: {==}
     case Forms.TaskTitlePrompt{} Forms.DeliveryValue{delivery}: {==}
     case Forms.AgentTitlePrompt{} Forms.DeliveryValue{delivery}: {==}
     case Forms.ProjectName{} Forms.StageValue{stage}: {==}
     case Forms.WorkName{} Forms.StageValue{stage}: {==}
     case Forms.CreateWorktree{} Forms.StageValue{stage}: {==}
+    case Forms.TaskEnvironment{} Forms.StageValue{stage}: {==}
     case Forms.TaskTitlePrompt{} Forms.StageValue{stage}: {==}
     case Forms.AgentTitlePrompt{} Forms.StageValue{stage}: {==}
     case Forms.ProjectName{} Forms.PriorityValue{priority}: {==}
     case Forms.WorkName{} Forms.PriorityValue{priority}: {==}
     case Forms.CreateWorktree{} Forms.PriorityValue{priority}: {==}
+    case Forms.TaskEnvironment{} Forms.PriorityValue{priority}: {==}
     case Forms.TaskTitlePrompt{} Forms.PriorityValue{priority}: {==}
     case Forms.AgentTitlePrompt{} Forms.PriorityValue{priority}: {==}
     case Forms.ProjectName{} Forms.OwnerValue{owner}: {==}
     case Forms.WorkName{} Forms.OwnerValue{owner}: {==}
     case Forms.CreateWorktree{} Forms.OwnerValue{owner}: {==}
+    case Forms.TaskEnvironment{} Forms.OwnerValue{owner}: {==}
     case Forms.TaskTitlePrompt{} Forms.OwnerValue{owner}: {==}
     case Forms.AgentTitlePrompt{} Forms.OwnerValue{owner}: {==}
     case Forms.ProjectName{} Forms.ProjectValue{project}: {==}
     case Forms.WorkName{} Forms.ProjectValue{project}: {==}
     case Forms.CreateWorktree{} Forms.ProjectValue{project}: {==}
+    case Forms.TaskEnvironment{} Forms.ProjectValue{project}: {==}
     case Forms.TaskTitlePrompt{} Forms.ProjectValue{project}: {==}
     case Forms.AgentTitlePrompt{} Forms.ProjectValue{project}: {==}
     case Forms.ProjectName{} Forms.AttachmentsValue{files}: {==}
     case Forms.WorkName{} Forms.AttachmentsValue{files}: {==}
     case Forms.CreateWorktree{} Forms.AttachmentsValue{files}: {==}
+    case Forms.TaskEnvironment{} Forms.AttachmentsValue{files}: {==}
     case Forms.TaskTitlePrompt{} Forms.AttachmentsValue{files}: {==}
     case Forms.AgentTitlePrompt{} Forms.AttachmentsValue{files}: {==}
     case Forms.ProjectName{} Forms.AssistanceValue{enabled, profile}: {==}
     case Forms.WorkName{} Forms.AssistanceValue{enabled, profile}: {==}
     case Forms.CreateWorktree{} Forms.AssistanceValue{enabled, profile}: {==}
+    case Forms.TaskEnvironment{} Forms.AssistanceValue{enabled, profile}: {==}
     case Forms.TaskTitlePrompt{} Forms.AssistanceValue{enabled, profile}: {==}
     case Forms.AgentTitlePrompt{} Forms.AssistanceValue{enabled, profile}: {==}
     case Forms.ProjectName{} Forms.OptionalTextValue{text}: {==}
     case Forms.WorkName{} Forms.OptionalTextValue{text}: {==}
     case Forms.CreateWorktree{} Forms.OptionalTextValue{text}: {==}
+    case Forms.TaskEnvironment{} Forms.OptionalTextValue{text}: {==}
     case Forms.TaskTitlePrompt{} Forms.OptionalTextValue{text}: {==}
     case Forms.AgentTitlePrompt{} Forms.OptionalTextValue{text}: {==}
     case Forms.ProjectName{} Forms.NotApplicable{}: {==}
     case Forms.WorkName{} Forms.NotApplicable{}: {==}
     case Forms.CreateWorktree{} Forms.NotApplicable{}: {==}
+    case Forms.TaskEnvironment{} Forms.NotApplicable{}: {==}
     case Forms.TaskTitlePrompt{} Forms.NotApplicable{}: {==}
     case Forms.AgentTitlePrompt{} Forms.NotApplicable{}: {==}
     case Forms.WorkspaceDirectories{} Forms.ToggleValue{enabled}: {==}

@@ -50,9 +50,11 @@ function metadataFields(content) {
 }
 
 async function snapshotSource(definition, environment, key, limits, options) {
+  const workspaceSource = ['workspace_file', 'primary_guidance', 'workspace_guidance', 'workspace_skills'].includes(definition.observer.type);
   const content = definition.observer.type === 'native_text' ? definition.observer.content
     : definition.observer.type === 'config_text' ? environment.config[definition.observer.setting]
-    : (await snapshotContextFile(environment.filename, limits, options))?.content;
+    : (await snapshotContextFile(environment.filename, limits, { ...options,
+      filesystem: workspaceSource ? options.workspaceEnvironment?.filesystem : undefined }))?.content;
   if (content === undefined) return null;
   const metadata = definition.fields.some(field => field.source.type === 'metadata') ? metadataFields(content) : undefined;
   const fields = fieldRecord(definition.fields.map(field => {
@@ -82,7 +84,7 @@ async function mutableConfiguration(config, definitions, limits, options) {
 }
 
 /** Observe the current metadata catalog independently of any task history. */
-export async function observeSkillCatalog(workspace, { home, config, limits, signal } = {}) {
+export async function observeSkillCatalog(workspace, { home, config, limits, signal, environment } = {}) {
   const definitions = boundary('config.context_definitions', {}).filter(definition =>
     definition.observer.type === 'home_skills' || definition.observer.type === 'workspace_skills'
     || (definition.observer.type === 'config_files' && definition.observer.setting === 'skills'));
@@ -90,7 +92,7 @@ export async function observeSkillCatalog(workspace, { home, config, limits, sig
   // can report a failed config_files refresh. Resolve it before observing files.
   const current = await mutableConfiguration(config, definitions, limits, { signal });
   const observations = await observeContextSources({ definitions, bindings: [], settings: { workspace } },
-    { home, config: { ...config, ...current }, limits, signal });
+    { home, config: { ...config, ...current }, limits, signal, environment });
   const failed = observations.find(observation => observation.type === 'failure');
   // DEFENSE: Incomplete or unreadable skill discovery must remain a visible
   // catalog failure rather than publishing a partial list as a complete result.
@@ -100,17 +102,26 @@ export async function observeSkillCatalog(workspace, { home, config, limits, sig
 }
 
 /** Interpret native source descriptors; only the native history operation admits changes. */
-export async function observeContextSources(effect, { home, config, limits, signal, onDiagnostic } = {}) {
+export async function observeContextSources(effect, { home, config, limits, signal, onDiagnostic, environment: workspaceEnvironment } = {}) {
   const installation = await realpath(home);
   const definitions = effect.definitions;
   const bindings = effect.bindings;
-  const options = { signal };
+  const options = { signal, workspaceEnvironment };
   const workspace = effect.settings.workspace.primary_root;
   const configuration = mutableConfiguration(config, definitions, limits, options);
   // DEFENSE: An unreadable configuration must preserve its previous bindings while
   // independent file observations can still proceed.
   const configurationResult = configuration.then(value => ({ value }), error => ({ error }));
   const discover = createContextDiscovery({ home: installation, settings: effect.settings, signal });
+  const candidates = [...new Set(definitions.filter(definition => isContextDiscovery(definition.observer))
+    .flatMap(definition => [...definition.observer.policy.files, ...definition.observer.policy.repository_markers,
+      ...definition.observer.policy.directories]))];
+  const maximumEntries = Math.max(0, ...definitions.filter(definition => isContextDiscovery(definition.observer))
+    .map(definition => definition.observer.policy.max_entries));
+  const discoverWorkspace = workspaceEnvironment
+    ? createContextDiscovery({ home: installation, settings: effect.settings, signal, filesystem: workspaceEnvironment.filesystem,
+      candidates, maximum: maximumEntries })
+    : discover;
   const sourceObservations = new Map();
 
   function failure(key, error) {
@@ -145,7 +156,7 @@ export async function observeContextSources(effect, { home, config, limits, sign
         // DEFENSE: Failed configuration refresh cannot establish which explicitly configured skills to exclude.
         if (configuration.error) throw configuration.error;
       }
-      entries = await discover(source);
+      entries = await (['primary_guidance', 'workspace_guidance', 'workspace_skills'].includes(source.type) ? discoverWorkspace : discover)(source);
       if (skills) {
         const explicitDefinition = definitions.find(definition => definition.observer.type === 'config_files' && definition.observer.setting === 'skills');
         const explicit = new Set();
@@ -185,7 +196,7 @@ export async function observeContextSources(effect, { home, config, limits, sign
     }
   }
 
-  return (await Promise.all(definitions.map(async definition => {
+  try { return (await Promise.all(definitions.map(async definition => {
     const source = definition.observer;
     const previous = bindings.filter(binding => isDeepStrictEqual(binding.key.definition, definition));
     if (['workspace', 'primary_workspace'].includes(definition.scope) && workspace === null) {
@@ -216,5 +227,6 @@ export async function observeContextSources(effect, { home, config, limits, sign
     observations.push(...previous.filter(binding => !keys.some(key => isDeepStrictEqual(binding.key, key)))
       .map(binding => ({ type: 'absent', key: binding.key })));
     return observations;
-  }))).flat();
+  }))).flat(); }
+  finally { await workspaceEnvironment?.filesystem.close(); }
 }

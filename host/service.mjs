@@ -21,7 +21,8 @@ import { withAccountModels } from './chatgpt-models.mjs';
 import { connectionGrants } from './chatgpt-plugin.mjs';
 import { WebRequestStore } from './chatgpt-web-store.mjs';
 import { RemoteControl } from './remote-control.mjs';
-import { observeWorkspaceGit, createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
+import { observeWorkspaceGit } from './worktrees.mjs';
+import { createTaskWorkspace, archiveTaskWorkspace, reconcileTaskWorkspace, rollbackTaskWorkspaceCreation, taskWorkspaceEnvironment, observeCloudRepository } from './task-workspaces.mjs';
 
 /** Interpret committed effects. No task lifecycle or recovery policy lives here. */
 export class CommandNotSubmitted extends Error {
@@ -269,9 +270,9 @@ export class Service extends EventEmitter {
     // Register before observing the checkout or preparing the sandbox: a sibling
     // read/write effect can run while the original process is still starting.
     this.#processSessions.set(key, session);
-    const prepared = this.#managedWorktreeRoot(effect.task_id).then(managedWorktreeRoot =>
-      startBash(effect.call.arguments, this.limits, { signal, execution: effect.execution, managedWorktreeRoot,
-        readOnlyPaths: [this.home], artifactDirectory: path.join(this.home, 'artifacts') }));
+    const prepared = this.#taskWorkspace(effect.task_id, signal).then(({ managedWorktreeRoot, environment }) =>
+      startBash(effect.call.arguments, this.limits, { signal, execution: effect.execution, managedWorktreeRoot, environment,
+        readOnlyPaths: [this.home], ...(environment ? {} : { artifactDirectory: path.join(this.home, 'artifacts') }) }));
     session.ready = prepared.then(({ read, write }) => { session.read = read; session.write = write; },
       error => { session.failure = { code: error.code ?? 'command_start_failed', message: error.message }; });
     try {
@@ -327,23 +328,11 @@ export class Service extends EventEmitter {
         await Promise.all(running.filter((active, index) => active.task === effect.task_id || resources[index]?.root === effect.root)
           .map(active => active.promise));
       }
-      const completion = await (effect.kind === 'worktree_create' ? createManagedWorktree : archiveManagedWorktree)(effect,
-        { home: this.home, limits: this.limits, signal });
+      const completion = await (effect.kind === 'worktree_create' ? createTaskWorkspace : archiveTaskWorkspace)(effect,
+        this.#workspaceOptions(signal));
       // DEFENSE: A filesystem operation may finish after service shutdown; leave its physical receipt for recovery rather than submit a late input.
       if (!this.#closing && !this.#failure) {
-        const failed = boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
-          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
-        let result;
-        try { result = await this.journal.execute(completion); }
-        // DEFENSE: Observed checkout metadata can exceed the input-frame budget; settle failure while retaining the physical checkout.
-        catch (error) {
-          if (!(error instanceof RangeError)) throw error;
-          result = await this.journal.execute(failed);
-        }
-        // DEFENSE: A checkout completion may fit the input while its full resulting decision exceeds the output budget.
-        if (!result.reply.ok && result.reply.error.code === 'output_limit') result = await this.journal.execute(failed);
-        // DEFENSE: The reduced failure itself can be rejected by the output budget; do not leave a rejected settlement unreported.
-        if (!result.reply.ok) throw new Error(`Managed worktree settlement rejected: ${result.reply.error.message}`);
+        await this.#settleWorkspaceCompletion(effect, completion);
       }
       return;
     }
@@ -356,11 +345,13 @@ export class Service extends EventEmitter {
     }
     try {
       if (effect.kind === 'observe_context') {
-        const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal,
+        const { environment } = await this.#taskWorkspace(effect.task_id, signal);
+        const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
           onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
         input = boundary('effect.completion', { effect, result: { observations } });
       } else if (effect.kind === 'chatgpt_exec') {
-        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, readOnlyPaths: [this.home] });
+        const environment = await this.#workspaceEnvironment(effect.execution.workspace);
+        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, environment, readOnlyPaths: [this.home] });
         input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'board_text' || effect.kind === 'task_title') {
         input = boundary('effect.completion', { effect, result: await requestTaskText(effect, this.config, this.home, this.limits, { signal }) });
@@ -402,7 +393,7 @@ export class Service extends EventEmitter {
           if (effect.tool.source.program.kind === 'Process') result = await this.#runProcess(effect, signal);
           else if (effect.tool.source.program.kind === 'ReadImage') {
             const executionOptions = { signal, execution: effect.execution,
-              managedWorktreeRoot: await this.#managedWorktreeRoot(effect.task_id),
+              ...await this.#taskWorkspace(effect.task_id, signal),
               readOnlyPaths: [this.home], home: this.home };
             result = await runReadImage(effect.call.arguments, this.limits, executionOptions);
           } else result = await this.#processTool(effect);
@@ -459,13 +450,62 @@ export class Service extends EventEmitter {
 
   async #worktree(taskId) {
     const result = await this.journal.execute({ kind: 'command', command: { op: 'read_worktree', task_id: taskId } });
-    if (!result.reply.ok) return undefined;
+    if (!result.reply.ok) {
+      if (result.reply.error.code === 'not_found') return undefined;
+      // DEFENSE: A query can exceed its reply budget; losing that observation must not switch a cloud task to local execution.
+      throw new Error(`Task workspace lookup rejected: ${result.reply.error.message}`);
+    }
     return result.reply.result;
   }
 
-  async #managedWorktreeRoot(taskId) {
+  #workspaceOptions(signal) {
+    return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal };
+  }
+
+  async #settleWorkspaceCompletion(effect, completion) {
+    let failed;
+    const submitFailure = async () => {
+      failed ??= effect.kind === 'worktree_create' && effect.backend === 'tencent_cvm' && completion.ok
+        ? rollbackTaskWorkspaceCreation(effect, { ...this.#workspaceOptions(), message: 'Cloud workspace completion exceeds the kernel boundary' })
+        : boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
+          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
+      return this.journal.execute(await failed);
+    };
+    let result;
+    try { result = await this.journal.execute(completion); }
+    // DEFENSE: Observed workspace metadata can exceed the input-frame budget after cloud allocation and setup completed.
+    catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+      result = await submitFailure();
+    }
+    // DEFENSE: A workspace completion can fit the input while its resulting decision exceeds the output budget.
+    if (!result.reply.ok && result.reply.error.code === 'output_limit') result = await submitFailure();
+    // DEFENSE: A reduced failure can still exceed the output budget; the physical rollback receipt must remain available for recovery.
+    if (!result.reply.ok) throw new Error(`Managed worktree settlement rejected: ${result.reply.error.message}`);
+    return result;
+  }
+
+  async #taskWorkspace(taskId, signal) {
     const entry = await this.#worktree(taskId);
-    return entry?.status === 'ready' ? entry.root : undefined;
+    if (!entry) return {};
+    if (entry.backend !== 'local') {
+      // DEFENSE: A CVM archive API call can fail; the resource stays cloud-bound and an unavailable receipt must fail instead of selecting local execution.
+      return { environment: await taskWorkspaceEnvironment(entry, this.#workspaceOptions(signal)) };
+    }
+    return entry.status === 'ready' ? { managedWorktreeRoot: entry.root } : {};
+  }
+
+  async #workspaceEnvironment(workspace) {
+    if (!Array.isArray(workspace?.roots)) return undefined;
+    const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
+    if (!result.reply.ok) throw new Error(`Task workspace lookup rejected: ${result.reply.error.message}`);
+    const contains = (root, candidate) => typeof candidate === 'string' && (candidate === root || candidate.startsWith(root + '/'));
+    const entry = result.reply.result.worktrees.find(entry => entry.backend === 'tencent_cvm' &&
+      workspace.roots.some(root => contains(entry.root, root)));
+    if (!entry) return undefined;
+    // DEFENSE: An explicit workspace selection can combine local roots or roots belonging to different cloud instances.
+    if (workspace.roots.some(root => !contains(entry.root, root))) throw new TypeError('A workspace cannot combine different task environments');
+    return taskWorkspaceEnvironment(entry, this.#workspaceOptions());
   }
 
   async #reconcileWorktrees() {
@@ -474,8 +514,11 @@ export class Service extends EventEmitter {
     if (!result.reply.ok) throw new Error(`Managed worktree recovery query rejected: ${result.reply.error.message}`);
     for (const entry of result.reply.result.worktrees) {
       if (!['creating', 'creating_archived', 'archiving'].includes(entry.status)) continue;
-      const completion = await reconcileManagedWorktree(entry, { home: this.home, limits: this.limits });
-      const settled = await this.journal.execute(completion);
+      const completion = await reconcileTaskWorkspace(entry, this.#workspaceOptions());
+      const settled = entry.backend === 'tencent_cvm'
+        ? await this.#settleWorkspaceCompletion({ ...entry,
+          kind: completion.kind === 'worktree_created' ? 'worktree_create' : 'worktree_archive' }, completion)
+        : await this.journal.execute(completion);
       // DEFENSE: Recovered filesystem metadata must still pass native completion admission and complete-decision limits.
       if (!settled.reply.ok) throw new Error(`Managed worktree recovery rejected: ${settled.reply.error.message}`);
     }
@@ -560,7 +603,15 @@ export class Service extends EventEmitter {
   }
 
   async #observeCommandWorkspace(command) {
+    const selectedSettings = command.settings;
+    if (command.task_id !== undefined && selectedSettings &&
+        (Object.hasOwn(selectedSettings, 'workspace') || Object.hasOwn(selectedSettings, 'project_id'))) {
+      const owner = await this.#worktree(command.task_id);
+      // DEFENSE: A fork request can explicitly select a local path for a task bound to a cloud environment.
+      if (owner?.backend === 'tencent_cvm') throw new TypeError('Cloud task workspaces are fixed; omit workspace and project_id to inherit the environment');
+    }
     let observed = await observeWorkspaceCommand(command, this.limits, {
+      workspaceEnvironment: workspace => this.#workspaceEnvironment(workspace),
       projectWorkspace: async project_id => {
         const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
         return result.reply.ok ? result.reply.result.workspace : undefined;
@@ -574,6 +625,15 @@ export class Service extends EventEmitter {
       const primary = observed.settings.workspace.primary_root ?? observed.settings.workspace.roots[0];
       // DEFENSE: A requested worktree workspace may not be a Git repository with a commit to check out.
       if (!await observeWorkspaceGit(primary)) throw new TypeError('Create worktree requires a Git repository with an initial commit in the primary workspace');
+      if (command.backend === 'tencent_cvm') {
+        let projectPrimary = primary;
+        if (selectedSettings?.project_id !== undefined && selectedSettings.project_id !== null) {
+          const project = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id: selectedSettings.project_id } });
+          if (project.reply.ok) projectPrimary = project.reply.result.workspace.primary_root ?? project.reply.result.workspace.roots[0];
+        }
+        // DEFENSE: A project without a GitHub remote cannot be cloned into a task cloud environment.
+        if (!await observeCloudRepository(projectPrimary)) throw new TypeError('Cloud task workspaces require a GitHub remote in the project primary workspace');
+      }
     }
     return observed;
   }
@@ -833,35 +893,42 @@ export class Service extends EventEmitter {
       return { kind: 'workspace-git', available: await observeWorkspaceGit(primary) };
     }
     if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2) {
+      let environment;
       try {
         let location = observation.path;
         if (location === '') {
           const workspace = await canonicalWorkspace({ roots: [this.project.workspace] });
           location = workspace.primary_root;
         }
-        return await browseDirectories(location, this.limits.frame_bytes);
+        environment = await this.#workspaceEnvironment({ roots: [location] });
+        return await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
       // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
       } catch (error) {
         return { ok: false, error: error.message };
-      }
+      } finally { await environment?.filesystem.close(); }
     }
     if (observation.kind === 'directories' && Object.keys(observation).length === 2 && observation.workspace) {
-      const workspace = await canonicalWorkspace(observation.workspace);
-      const primary = workspace.primary_root ?? workspace.roots[0];
-      const guidance = primary ? await snapshotProject(primary, this.limits) : null;
-      return { kind: 'directories', workspace, guidance };
+      const environment = await this.#workspaceEnvironment(observation.workspace);
+      try {
+        const workspace = await canonicalWorkspace(observation.workspace, { filesystem: environment?.filesystem });
+        const primary = workspace.primary_root ?? workspace.roots[0];
+        const guidance = primary ? await snapshotProject(primary, this.limits, { filesystem: environment?.filesystem }) : null;
+        return { kind: 'directories', workspace, guidance };
+      } finally { await environment?.filesystem.close(); }
     }
     if (observation.kind === 'skill-catalog' && Object.keys(observation).length === 2 && observation.workspace) {
+      let environment;
       try {
-        const workspace = await canonicalWorkspace(observation.workspace);
+        environment = await this.#workspaceEnvironment(observation.workspace);
+        const workspace = await canonicalWorkspace(observation.workspace, { filesystem: environment?.filesystem });
         const skills = await observeSkillCatalog(workspace,
-          { home: this.home, config: this.declaredConfig, limits: this.limits });
+          { home: this.home, config: this.declaredConfig, limits: this.limits, environment });
         return { kind: 'skill-catalog', ok: true, skills };
       // DEFENSE: A selected workspace, configuration or discovered skill file
       // can disappear or deny access while the user is opening the skill menu.
       } catch (error) {
         return { kind: 'skill-catalog', ok: false, error: error.message };
-      }
+      } finally { await environment?.filesystem.close(); }
     }
     // DEFENSE: A client can send an unknown observation kind or fields outside its declared request variant.
     throw new TypeError('Unknown browser observation');

@@ -223,17 +223,17 @@ def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, rea
   +new_profile: String, +new_reasoning: String,
   valid: {E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool},
   found: {E.find_draft(drafts, U.NewTaskEditor{None{}}) ==
-    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, False{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
+    Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, U.CurrentWorkspace{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
   {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{None{}}, U.ChooseModel{new_profile, new_reasoning}}},
       E.Application{program, E.Session{route, drafts, readers, E.Layer{U.ModelPicker{U.NewTaskEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}}) ==
-    E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route, U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, False{}, None{}}, U.Editing{}, directory_entry} <>
+    E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route, U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, U.CurrentWorkspace{}, None{}}, U.Editing{}, directory_entry} <>
         E.without_draft(drafts, U.NewTaskEditor{None{}}), readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}},
       D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}:
   session: E.Session = E.Session{route, drafts, readers, E.Layer{U.ModelPicker{U.NewTaskEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}
   Equal.trans(E.Decision,
     E.manual_creation_edit(E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning), U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
     E.manual_creation_edit(True{}, U.ChooseModel{new_profile, new_reasoning}, E.Application{program, session}),
-    E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route, U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, False{}, None{}}, U.Editing{}, directory_entry} <>
+    E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.Application{program, E.Session{route, U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, U.CurrentWorkspace{}, None{}}, U.Editing{}, directory_entry} <>
         E.without_draft(drafts, U.NewTaskEditor{None{}}), readers, rest, trigger, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive}},
       D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}),
     Equal.cong(Bool, E.Decision,
@@ -243,13 +243,13 @@ def model_choice(program: M.World(), route: U.Route, drafts: +List<U.Draft>, rea
       (found_draft => E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.close_selected_choice(U.ChooseModel{new_profile, new_reasoning}, U.NewTaskEditor{None{}},
         E.edit_found(found_draft, U.ChooseModel{new_profile, new_reasoning}, program, session)))),
       E.find_draft(drafts, U.NewTaskEditor{None{}}),
-      Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, False{}, None{}}, feedback, directory_entry}}, found))
+      Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, U.CurrentWorkspace{}, None{}}, feedback, directory_entry}}, found))
 
 def encapsulated_model_choice(+session: E.Session, +program: M.World(), +trigger: String, initial: String, query: String, +layer_occurrence: Nat, +source_expanded: Bool, +decision_field: Maybe<&2, Forms.Field>, +parameter_buffer: Maybe<&2, String>, +rest: +List<E.Layer>, revision: Nat, +text: U.Text, old_profile: String, old_reasoning: String, context: Context.Configuration, feedback: U.Feedback, +directory_entry: String, +new_profile: String, +new_reasoning: String, valid: {E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool}, observed_layers: {E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest : +List<E.Layer>}, found: {E.find_draft(E.drafts(session), U.NewTaskEditor{None{}}) ==
-        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, False{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
+        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, U.CurrentWorkspace{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>}) ->
   {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{None{}}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, session)) ==
-       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, False{}, None{}}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, U.CurrentWorkspace{}, None{}}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{None{}}), session)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}:
   E.Session{+route, +drafts, +readers, +stored_layers, +old_attention, +navigation, +filter, +now, +next, +pending, +previews, +code_blocks, +next_layer, model_preference, draft_model_manual, workspace_git, interactive} = session
@@ -257,7 +257,7 @@ def encapsulated_model_choice(+session: E.Session, +program: M.World(), +trigger
     Equal.cong(+List<E.Layer>, E.Session, value => E.with_layers(value, session), E.layers(session), E.Layer{U.ModelPicker{U.NewTaskEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest, observed_layers))
   %backwards_layers : {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{None{}}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, _)) ==
-       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, False{}, None{}}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, U.CurrentWorkspace{}, None{}}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(_), U.NewTaskEditor{None{}}), _)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision}
   model_choice(program, route, drafts, readers, trigger, initial, query, layer_occurrence, source_expanded, decision_field, parameter_buffer, rest, old_attention, navigation, filter, now, next, pending, previews, code_blocks, next_layer, model_preference, draft_model_manual, workspace_git, interactive, revision, text, old_profile, old_reasoning, context, feedback, directory_entry, new_profile, new_reasoning, valid, found)
@@ -339,7 +339,7 @@ def preference_selection_refinement(+value: Maybe<&2, E.ModelPreference>, +profi
     case Some{E.ModelPreference{+profile, +reasoning}}:
       preference_selection_if_refinement(E.permitted_preference(D.find_profile(profiles, profile), reasoning), E.ModelPreference{profile, reasoning}, profiles)
 
-def selected_model_session_refinement(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, create_worktree: Bool, session: E.Session, work: Maybe<&2, Nat>) ->
+def selected_model_session_refinement(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, create_worktree: U.TaskWorkspace, session: E.Session, work: Maybe<&2, Nat>) ->
   {E.scoped_model_selection(selection, revision, message, context, feedback, directory_entry, create_worktree, session, work) == Rule.selected_model_session(selection, revision, message, context, feedback, directory_entry, create_worktree, session, work) : E.Session}:
   (selected, effort) = selection
   {==}
@@ -1057,11 +1057,24 @@ def created_work_focus_refused(work: Nat, +application: E.Application, +result: 
     (value => E.expose_created_work_checked(value, work, E.Decision{application, result, runtime, interaction, durable})),
     J.boolean(J.get(result, "ok")), False{}, refused)
 
+def local_task_creation_command_refinement(work: Maybe<&2, Nat>, message: U.Text, profile: String, reasoning: String, context: Context.Configuration, enabled: Bool, now: U32) ->
+  {U.create_local_task(work, enabled, profile, reasoning, U.content(message), Context.settings(context)) == Rule.required_local_creation(work, enabled, profile, reasoning, U.content(message), Context.settings(context)) : M.Command}:
+  match work:
+    case None{}: {==}
+    case Some{id}: {==}
+
+def task_creation_command_refinement(+work: Maybe<&2, Nat>, +message: U.Text, +profile: String, +reasoning: String, +context: Context.Configuration, mode: U.TaskWorkspace, +now: U32) ->
+  {U.command(U.NewTask{message, profile, reasoning, context, mode, work}, now) == Rule.required_task_creation(work, mode, profile, reasoning, U.content(message), Context.settings(context)) : M.Command}:
+  match mode:
+    case U.CloudWorkspace{}: {==}
+    case U.CurrentWorkspace{}: local_task_creation_command_refinement(work, message, profile, reasoning, context, False{}, now)
+    case U.LocalWorktree{}: local_task_creation_command_refinement(work, message, profile, reasoning, context, True{}, now)
+
 def Rule.work_evidence():
   Rule.WorkRequirements{
     work => message => profile => reasoning => context => enabled => {==},
-    work => message => profile => reasoning => context => enabled => now => {==},
-    message => profile => reasoning => context => enabled => now => {==},
+    work => message => profile => reasoning => context => enabled => now => task_creation_command_refinement(Some{work}, message, profile, reasoning, context, enabled, now),
+    message => profile => reasoning => context => enabled => now => task_creation_command_refinement(None{}, message, profile, reasoning, context, enabled, now),
     work => name => now => {==},
     work => route => intent => collapsed => previous => visits => generation => {==},
     work => route => layers => result => application => {==},

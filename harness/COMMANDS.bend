@@ -129,8 +129,8 @@ def project_settings(base: Result<&2, &2, String, Workspace.Selection>, options:
 
 def selected_settings(+options: J.Json, base: Workspace.Selection, profile: D.Profile, +world: M.World()) -> Result<&2, &2, String, Workspace.Selection>:
   Workspace.Selection{context, guidance} = base
-  project_settings(Projects.select(J.get(options, "project_id"), context, guidance, Projects.registry(F.State(), world)),
-    options, profile, configured(settings(world)))
+  FeatureState.bound_workspace_selection(project_settings(Projects.select(J.get(options, "project_id"), context, guidance, Projects.registry(F.State(), world)),
+    options, profile, configured(settings(world))), world)
 
 def start_selection(selection: Result<&2, &2, String, Workspace.Selection>, +profile: D.Profile,
   +reasoning: String, +message: D.UserContent) -> Operation:
@@ -550,7 +550,9 @@ def speech_executable(allowed: Bool, operation: Operation) -> Operation:
 def resolve(command: M.Command, +world: M.World()) -> Operation:
   match command:
     case M.ConfigureTaskExecution{+id, profile, reasoning, sandbox, approval}:
-      executable_operation(FeatureState.execution_allowed(id, world), pending_operation(Bool.not(FeatureState.pending_task(id, world)), configure_execution(T.find(entries(world), id), profile, reasoning, sandbox, approval, world)))
+      executable_operation(FeatureState.execution_allowed(id, world), pending_operation(Bool.not(FeatureState.pending_task(id, world)), configure_execution(T.find(entries(world), id), profile, reasoning,
+        Bool.pick(D.Sandbox, FeatureState.cloud_task(id, world), D.Sandbox{D.WorkspaceWrite{}, True{}}, sandbox),
+        Bool.pick(D.ApprovalPolicy, FeatureState.cloud_task(id, world), D.FullAccess{}, approval), world)))
     case M.CreateIdle{profile, reasoning, options, work, create_worktree}: selected_idle(D.find_profile(configured(settings(world)), profile), reasoning, options, work, create_worktree, world)
     case M.RecordSpeechTranscript{+id, session, item, speaker, completion, text}:
       record_speech_task(T.find(entries(world), id), session, item, speaker, completion, text)
@@ -562,7 +564,10 @@ def resolve(command: M.Command, +world: M.World()) -> Operation:
     case M.Steer{+id, message}: executable_operation(FeatureState.execution_allowed(id, world), steering(T.find(entries(world), id), message))
     case M.Cancel{id, ticket}: cancellation(T.find(entries(world), id), ticket)
     case M.ChangeStatus{+id, +control}: archive_operation(archival_control_allowed(control, id, world), executable_operation(execution_control_allowed(control, id, world), pending_operation(FeatureState.control_allowed(control, id, world), controlled(T.find(entries(world), id), control))))
-    case M.Fork{+id, count, messages, options}: executable_operation(FeatureState.execution_allowed(id, world), configure_branch(branched(T.find(entries(world), id), count, messages, world), options, world))
+    case M.Fork{+id, count, messages, +options}:
+      require(operation => FeatureState.cloud_options_allowed(id, options, world),
+        executable_operation(FeatureState.execution_allowed(id, world), configure_branch(branched(T.find(entries(world), id), count, messages, world), options, world)),
+        "cloud_workspace_fixed", "A cloud task keeps its bound workspace; forks inherit that environment")
     case M.OpenSideConversation{+id, message}:
       executable_operation(FeatureState.execution_allowed(id, world), open_side(T.find(entries(world), id), message, world))
     case M.ReturnSideConversation{+id}:

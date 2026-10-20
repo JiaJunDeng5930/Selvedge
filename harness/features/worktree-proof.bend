@@ -18,18 +18,28 @@ def initialized_task(+found: Maybe<&2, D.Task>, +world: M.World()) ->
     case None{}: {==}
     case Some{task}: {==}
 
-def initialized_world(+id: Nat, +workspace: D.Workspace, +after: M.World(), +reply: J.Json, +effects: +List<M.Effect()>, +world: M.World()) -> M.Decision():
-  C.Decision{State.store(W.put(id, W.Worktree{State.primary_text(workspace), None{}, W.Creating{}, "", ""}, State.registry(after)), after), reply,
-    List.append(&2, M.Effect(), effects, [Effects.FeatureEffect{F.WorktreeEffect{W.CreateTree{id, State.primary_text(workspace), workspace}}}])}
+def initialize_environment(+backend: W.Backend, +found: Maybe<&2, D.Task>, +world: M.World()) ->
+  {State.initialize_environment(backend, found, world) == Spec.initialize_environment(backend, found, world) : M.World()}:
+  match found:
+    case None{}: {==}
+    case Some{task}: {==}
 
-def initialize(+id: Nat, +workspace: D.Workspace, +decision: M.Decision()) ->
-  {State.initialize(id, workspace, decision) == Spec.initialize(id, workspace, decision) : M.Decision()}:
+def initialized_world(+backend: W.Backend, +id: Nat, +workspace: D.Workspace, +after: M.World(), reply: J.Json, effects: +List<M.Effect()>) -> M.Decision():
+  C.Decision{State.store(W.put(id, W.Worktree{State.primary_text(workspace), None{}, W.Creating{}, "", "", backend}, State.registry(after)), after), reply,
+    List.append(&2, M.Effect(), effects, [Effects.FeatureEffect{F.WorktreeEffect{W.CreateTree{id, State.primary_text(workspace), workspace, backend}}}])}
+
+def initialize_backend(+backend: W.Backend, +id: Nat, +workspace: D.Workspace, +decision: M.Decision()) ->
+  {State.initialize_backend(backend, id, workspace, decision) == Spec.initialize_backend(backend, id, workspace, decision) : M.Decision()}:
   match decision:
     case C.Decision{+world, reply, effects}:
       Equal.cong(M.World(), M.Decision(),
-        after => initialized_world(id, workspace, after, reply, effects, world),
-        State.initialized_task(State.task(id, world), world), Spec.initialized_task(State.task(id, world), world),
-        initialized_task(State.task(id, world), world))
+        after => initialized_world(backend, id, workspace, after, reply, effects),
+        State.initialize_environment(backend, State.task(id, world), world), Spec.initialize_environment(backend, State.task(id, world), world),
+        initialize_environment(backend, State.task(id, world), world))
+
+def initialize(+id: Nat, +workspace: D.Workspace, +decision: M.Decision()) ->
+  {State.initialize(id, workspace, decision) == Spec.initialize(id, workspace, decision) : M.Decision()}:
+  initialize_backend(W.Local{}, id, workspace, decision)
 
 def start(
   ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
@@ -38,7 +48,7 @@ def start(
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   +profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
   {Actual.start(~actual_spawn, profile, reasoning, message, selection, world) == Spec.start(~spec_spawn, profile, reasoning, message, selection, world) : M.Decision()}:
-  Workspace.Selection{context, guidance} = selection
+  Workspace.Selection{+context, guidance} = selection
   Equal.trans(M.Decision(),
     State.initialize(D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), actual_spawn(profile, reasoning, message, selection, world)),
     State.initialize(D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spec_spawn(profile, reasoning, message, selection, world)),
@@ -49,8 +59,26 @@ def start(
       creation(profile, reasoning, message, selection, world)),
     initialize(D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spec_spawn(profile, reasoning, message, selection, world)))
 
-def archive_current(+available: Bool, +id: Nat, +source: String, +root: String, +primary: String, +world: M.World()) ->
-  {State.archive_current(available, id, source, root, primary, world) == Spec.archive_current(available, id, source, root, primary, world) : M.Decision()}:
+def start_backend(
+  ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+    {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
+  +backend: W.Backend, +profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
+  {Actual.start_backend(~actual_spawn, backend, profile, reasoning, message, selection, world) == Spec.start_backend(~spec_spawn, backend, profile, reasoning, message, selection, world) : M.Decision()}:
+  Workspace.Selection{+context, guidance} = selection
+  Equal.trans(M.Decision(),
+    State.initialize_backend(backend, D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), actual_spawn(profile, reasoning, message, selection, world)),
+    State.initialize_backend(backend, D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spec_spawn(profile, reasoning, message, selection, world)),
+    Spec.initialize_backend(backend, D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spec_spawn(profile, reasoning, message, selection, world)),
+    Equal.cong(M.Decision(), M.Decision(),
+      decision => State.initialize_backend(backend, D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), decision),
+      actual_spawn(profile, reasoning, message, selection, world), spec_spawn(profile, reasoning, message, selection, world),
+      creation(profile, reasoning, message, selection, world)),
+    initialize_backend(backend, D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spec_spawn(profile, reasoning, message, selection, world)))
+
+def archive_current(+available: Bool, +backend: W.Backend, +id: Nat, +source: String, +root: String, +primary: String, +world: M.World()) ->
+  {State.archive_current(available, backend, id, source, root, primary, world) == Spec.archive_current(available, backend, id, source, root, primary, world) : M.Decision()}:
   match available:
     case False{}: {==}
     case True{}: {==}
@@ -58,8 +86,8 @@ def archive_current(+available: Bool, +id: Nat, +source: String, +root: String, 
 def archive_started(+id: Nat, +value: W.Worktree, +world: M.World()) ->
   {State.archive_started(id, value, world) == Spec.archive_started(id, value, world) : M.Decision()}:
   match value:
-    case W.Worktree{source, None{}, status, message, primary}: {==}
-    case W.Worktree{+source, Some{+root}, status, message, primary}: archive_current(State.root_unused(id, root, world), id, source, root, primary, world)
+    case W.Worktree{source, None{}, status, message, primary, backend}: {==}
+    case W.Worktree{+source, Some{+root}, status, message, primary, backend}: archive_current(State.root_unused(id, root, world), backend, id, source, root, primary, world)
 
 def archive_eligible(+allowed: Bool, +id: Nat, +value: W.Worktree, +world: M.World()) ->
   {State.archive_eligible(allowed, id, value, world) == Spec.archive_eligible(allowed, id, value, world) : M.Decision()}:
@@ -70,13 +98,13 @@ def archive_eligible(+allowed: Bool, +id: Nat, +value: W.Worktree, +world: M.Wor
 def archive_some(+id: Nat, +value: W.Worktree, +world: M.World()) ->
   {State.archive_value(id, Some{value}, world) == Spec.archive_value(id, Some{value}, world) : M.Decision()}:
   match value:
-    case W.Worktree{source, root, W.Creating{}, message, primary}: {==}
-    case W.Worktree{source, root, W.CreatingArchived{}, message, primary}: {==}
-    case W.Worktree{source, root, W.Ready{}, message, primary}: archive_started(id, W.Worktree{source, root, W.Ready{}, message, primary}, world)
-    case W.Worktree{source, root, W.CreateFailed{}, message, primary}: archive_started(id, W.Worktree{source, root, W.CreateFailed{}, message, primary}, world)
-    case W.Worktree{source, root, W.Archiving{}, message, primary}: {==}
-    case W.Worktree{source, root, W.Archived{}, message, primary}: {==}
-    case W.Worktree{source, root, W.ArchiveFailed{}, message, primary}: archive_started(id, W.Worktree{source, root, W.ArchiveFailed{}, message, primary}, world)
+    case W.Worktree{source, root, W.Creating{}, message, primary, backend}: {==}
+    case W.Worktree{source, root, W.CreatingArchived{}, message, primary, backend}: {==}
+    case W.Worktree{source, root, W.Ready{}, message, primary, backend}: archive_started(id, W.Worktree{source, root, W.Ready{}, message, primary, backend}, world)
+    case W.Worktree{source, root, W.CreateFailed{}, message, primary, backend}: archive_started(id, W.Worktree{source, root, W.CreateFailed{}, message, primary, backend}, world)
+    case W.Worktree{source, root, W.Archiving{}, message, primary, backend}: {==}
+    case W.Worktree{source, root, W.Archived{}, message, primary, backend}: {==}
+    case W.Worktree{source, root, W.ArchiveFailed{}, message, primary, backend}: archive_started(id, W.Worktree{source, root, W.ArchiveFailed{}, message, primary, backend}, world)
 
 def archive_value(+id: Nat, +found: Maybe<&2, W.Worktree>, +world: M.World()) ->
   {State.archive_value(id, found, world) == Spec.archive_value(id, found, world) : M.Decision()}:
@@ -89,8 +117,8 @@ def failed_for_status(+was_archived: Bool, +id: Nat, +value: W.Worktree, +root: 
   match was_archived:
     case False{}: {==}
     case True{}:
-      archive_some(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, ""},
-        State.store(W.put(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, ""}, State.registry(world)), world))
+      archive_some(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, "", W.backend(value)},
+        State.store(W.put(id, W.Worktree{W.source_root(value), root, W.CreateFailed{}, message, "", W.backend(value)}, State.registry(world)), world))
 
 def create_failed_found(+found: Maybe<&2, D.Task>, +id: Nat, +value: W.Worktree, +root: Maybe<&2, String>, +message: String, +world: M.World()) ->
   {State.create_failed_found(found, id, value, root, message, world) == Spec.create_failed_found(found, id, value, root, message, world) : M.Decision()}:
@@ -106,7 +134,7 @@ def created_for_status(+was_archived: Bool, +id: Nat, +value: W.Worktree, +root:
   +guidance: D.ProjectContext, +task: D.Task, +world: M.World()) ->
   {State.created_for_status(was_archived, id, value, root, workspace, guidance, task, world) == Spec.created_for_status(was_archived, id, value, root, workspace, guidance, task, world) : M.Decision()}:
   match was_archived:
-    case True{}: archive_started(id, W.Worktree{W.source_root(value), Some{root}, W.Ready{}, "", State.primary_text(workspace)}, world)
+    case True{}: archive_started(id, W.Worktree{W.source_root(value), Some{root}, W.Ready{}, "", State.primary_text(workspace), W.backend(value)}, world)
     case False{}: {==}
 
 def created_success_found(+found: Maybe<&2, D.Task>, +id: Nat, +value: W.Worktree, +root: String, +workspace: D.Workspace, +guidance: D.ProjectContext, +world: M.World()) ->

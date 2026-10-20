@@ -780,7 +780,10 @@ def plan_admission(+source: J.Json) -> J.Json:
   +plan = J.get(source, "plan")
   +options = J.get(source, "options")
   +platform = J.text(J.get(options, "platform"))
-  launch_next(type_outcome_value(Bool.not(has(options, "managedWorktreeRoot")) || paths_valid([J.get(options, "managedWorktreeRoot")]), J.Null{}, "Invalid managed Worktree root"), platform_admission(String.eq(platform, "linux") || String.eq(platform, "darwin"), plan))
+  # DEFENSE: Direct sandbox callers can supply a process mode outside the pipe/PTY contract.
+  launch_next(type_outcome_value(Bool.not(has(options, "mode")) || String.eq(J.text(J.get(options, "mode")), "pipe") ||
+    String.eq(J.text(J.get(options, "mode")), "pty"), J.Null{}, "Invalid Bash process mode"),
+    launch_next(type_outcome_value(Bool.not(has(options, "managedWorktreeRoot")) || paths_valid([J.get(options, "managedWorktreeRoot")]), J.Null{}, "Invalid managed Worktree root"), platform_admission(String.eq(platform, "linux") || String.eq(platform, "darwin"), plan)))
 
 def writable_mode(+writable: Bool, +workspace: J.Json) -> J.Json:
   match writable:
@@ -1093,9 +1096,16 @@ def linux_protected(+project: Bool, +source: J.Json) -> +List<&2, J.Json>:
     case True{}: protected_arguments(J.items(J.get(source, "protectedRoots")))
     case False{}: Nil{}
 
+# Bun already gives a PTY process its controlling-terminal session; a second
+# session would disconnect terminal resize and foreground interrupt delivery.
+def linux_session_options(pty: Bool) -> +List<J.Json>:
+  match pty:
+    case True{}: Nil{}
+    case False{}: [J.Text{"--new-session"}]
+
 def linux_prefix(+source: J.Json) -> J.Json:
   +project = J.boolean(J.get(source, "projectOnly"))
-  J.Array{List.append(&2, J.Json, [J.Text{"--die-with-parent"}, J.Text{"--new-session"}, J.Text{"--unshare-user"}, J.Text{"--unshare-pid"}, J.Text{"--unshare-ipc"}, J.Text{"--unshare-uts"}, J.Text{"--cap-drop"}, J.Text{"ALL"}],
+  J.Array{List.append(&2, J.Json, List.append(&2, J.Json, [J.Text{"--die-with-parent"}], List.append(&2, J.Json, linux_session_options(String.eq(J.text(J.get(J.get(source, "options"), "mode")), "pty")), [J.Text{"--unshare-user"}, J.Text{"--unshare-pid"}, J.Text{"--unshare-ipc"}, J.Text{"--unshare-uts"}, J.Text{"--cap-drop"}, J.Text{"ALL"}])),
     List.append(&2, J.Json, linux_root(project), List.append(&2, J.Json, linux_network(J.boolean(J.get(J.get(J.get(source, "plan"), "sandbox"), "network_access"))), List.append(&2, J.Json, linux_runtime(project, source), List.append(&2, J.Json, bind_arguments(J.items(J.get(source, "bindings"))), List.append(&2, J.Json, linux_protected(project, source), [J.Text{"--proc"}, J.Text{"/proc"}, J.Text{"--dev"}, J.Text{"/dev"}, J.Text{"--seccomp"}, J.Text{"3"}, J.Text{"--chdir"}, J.get(source, "cwd"), J.Text{"--"}, J.Text{"/bin/bash"}, J.Text{"--noprofile"}, J.Text{"--norc"}]))))))}
 
 def darwin_prefix(+source: J.Json) -> J.Json:

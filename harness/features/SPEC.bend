@@ -31,6 +31,11 @@ def work_created(work: Nat, task: Nat, original: M.World(), decision: M.Decision
 
 # The caller supplies the independent task-creation specification. The
 # executable assembler supplies its implementation to feature-execution.
+def workspace_membership(work: Maybe<&2, Nat>, +world: M.World(), decision: M.Decision()) -> M.Decision():
+  match work:
+    case None{}: decision
+    case Some{id}: work_created(id, D.state_next_task(C.local(D.State, F.State(), world)), world, decision)
+
 def meaning(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case O.WorkChange{change}: WorkState.embed(Work.meaning(change, WorkState.registry(world)), world)
@@ -42,6 +47,8 @@ def meaning(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection 
     case O.ConfigureTitles{prompts}: Titles.configure(prompts, world)
     case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeSpec.start(~spawn, profile, reasoning, message, selection, world)
+    case O.StartWorkspace{backend, work, profile, reasoning, message, selection}:
+      workspace_membership(work, world, WorktreeSpec.start_backend(~spawn, backend, profile, reasoning, message, selection, world))
     case O.RetryWorktreeArchive{id}: WorktreeSpec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.meaning(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change(change, world)

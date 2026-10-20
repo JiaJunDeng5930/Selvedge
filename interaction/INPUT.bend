@@ -46,9 +46,30 @@ def delivery_caption(delivery: Delivery) -> String:
     case Send{}: "Send"
     case Steer{}: "Steer"
 
+type TaskWorkspace is Data:
+  CurrentWorkspace{}
+  LocalWorktree{}
+  CloudWorkspace{}
+
+def task_workspace_name(value: TaskWorkspace) -> String:
+  match value:
+    case CurrentWorkspace{}: "current"
+    case LocalWorktree{}: "local"
+    case CloudWorkspace{}: "tencent_cvm"
+
+def task_workspace(enabled: Bool) -> TaskWorkspace:
+  match enabled:
+    case True{}: LocalWorktree{}
+    case False{}: CurrentWorkspace{}
+
+def task_worktree(value: TaskWorkspace) -> Bool:
+  match value:
+    case LocalWorktree{}: True{}
+    case _: False{}
+
 type Body is Data:
   WorkName{work: Nat, name: String}
-  NewTask{message: Text, profile: String, reasoning: String, context: Context.Configuration, create_worktree: Bool, work: Maybe<&2, Nat>}
+  NewTask{message: Text, profile: String, reasoning: String, context: Context.Configuration, workspace_mode: TaskWorkspace, work: Maybe<&2, Nat>}
   Message{task: Nat, message: Text, delivery: Delivery}
   Project{project: Maybe<&2, Nat>, name: String, workspace: D.Workspace, create_worktree: Bool}
   Card{card: Maybe<&2, Nat>, revision: Nat, value: B.Draft, assist: Bool, profile: String, keep_open: Bool}
@@ -80,6 +101,7 @@ type Edit is Data:
   ConfigureContext{change: Context.Change}
   NameProject{name: String}
   ChooseWorktree{enabled: Bool}
+  ChooseTaskWorkspace{mode: TaskWorkspace}
   ConfigureProjectWorkspace{workspace: D.Workspace}
   WriteCard{patch: B.Patch}
   KeepCaptureOpen{enabled: Bool}
@@ -335,16 +357,16 @@ def project_worktree(found: Maybe<&2, D.Project>) -> Bool:
     case None{}: False{}
     case Some{D.Project{name, workspace, guidance, create_worktree}}: create_worktree
 
-def origin_worktree(origin: Context.Origin, world: M.World()) -> Bool:
+def origin_worktree(origin: Context.Origin, world: M.World()) -> TaskWorkspace:
   match origin:
-    case Context.ProjectDefaults{id}: project_worktree(Projects.find(Projects.registry(F.State(), world), id))
-    case _: False{}
+    case Context.ProjectDefaults{id}: task_workspace(project_worktree(Projects.find(Projects.registry(F.State(), world), id)))
+    case _: CurrentWorkspace{}
 
 def apply_edit(change: Edit, body: Body, world: M.World()) -> Result<&2, &2, String, Body>:
   match change body:
     case NameWork{name} WorkName{work, previous}: Done{WorkName{work, name}}
     case EditWorkspace{change} body: apply_workspace(change, body, world)
-    case ChooseWorktree{enabled} NewTask{message, profile, reasoning, context, previous, work}: Done{NewTask{message, profile, reasoning, context, enabled, work}}
+    case ChooseTaskWorkspace{mode} NewTask{message, profile, reasoning, context, previous, work}: Done{NewTask{message, profile, reasoning, context, mode, work}}
     case ChooseWorktree{enabled} Project{id, name, workspace, previous}: Done{Project{id, name, workspace, enabled}}
     case WriteMessage{value} NewTask{old, profile, reasoning, context, create_worktree, work}: Done{NewTask{with_text(text(value), old), profile, reasoning, context, create_worktree, work}}
     case WriteMessage{value} Message{task, old, delivery}: Done{Message{task, with_text(text(value), old), delivery}}
@@ -455,10 +477,15 @@ def task_creation(enabled: Bool, profile: String, reasoning: String, message: D.
     case False{}: M.Create{profile, reasoning, message, settings}
     case True{}: M.FeatureCommand{F.WorktreeCommand{Worktree.Create{profile, reasoning, message, settings}}}
 
-def create_task(work: Maybe<&2, Nat>, create_worktree: Bool, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
+def create_local_task(work: Maybe<&2, Nat>, create_worktree: Bool, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
   match work:
     case None{}: task_creation(create_worktree, profile, reasoning, message, settings)
     case Some{work}: M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, message, settings, create_worktree}}}
+
+def create_task(work: Maybe<&2, Nat>, mode: TaskWorkspace, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
+  match mode:
+    case CloudWorkspace{}: M.FeatureCommand{F.WorktreeCommand{Worktree.CreateWorkspace{Worktree.TencentCvm{}, profile, reasoning, message, settings, work}}}
+    case other: create_local_task(work, task_worktree(other), profile, reasoning, message, settings)
 
 def command(body: Body, now: U32) -> M.Command:
   match body:

@@ -74,10 +74,10 @@ type WorktreeInitialization is Type:
       {D.task_contract(WorktreeState.completed_task(primary, guidance, task)) == WorktreeState.selected_contract(primary, D.task_contract(task)) : D.Contract},
     normalization_contract: @+primary:String -> @+task:D.Task ->
       {D.task_contract(WorktreeState.normalize_task(Some{primary}, task)) == WorktreeState.selected_contract(primary, D.task_contract(task)) : D.Contract},
-    failed_execution: @source:String -> @root:Maybe<&2, String> -> @message:String -> @primary:String ->
-      {WorktreeState.execution_available(Some{WorktreeModel.Worktree{source, root, WorktreeModel.CreateFailed{}, message, primary}}) == False{} : Bool},
-    creating_execution: @source:String -> @message:String ->
-      {WorktreeState.execution_available(Some{WorktreeModel.Worktree{source, None{}, WorktreeModel.Creating{}, message, ""}}) == True{} : Bool},
+    failed_execution: @backend:WorktreeModel.Backend -> @source:String -> @root:Maybe<&2, String> -> @message:String -> @primary:String ->
+      {WorktreeState.execution_available(Some{WorktreeModel.Worktree{source, root, WorktreeModel.CreateFailed{}, message, primary, backend}}) == False{} : Bool},
+    creating_execution: @backend:WorktreeModel.Backend -> @source:String -> @message:String ->
+      {WorktreeState.execution_available(Some{WorktreeModel.Worktree{source, None{}, WorktreeModel.Creating{}, message, "", backend}}) == True{} : Bool},
     failure_status: @+message:String -> @+task:D.Task ->
       {D.task_status(WorktreeState.failure_task(message, task)) == D.Stopped{} : D.Status}
   }
@@ -90,7 +90,7 @@ def ready_worktree_status(status: WorktreeModel.Status) -> Bool:
 def inherited_inside(primary: String, found: Maybe<&2, Finite.Entry(WorktreeModel.Worktree)>) -> Bool:
   match found:
     case None{}: True{}
-    case Some{(owner, WorktreeModel.Worktree{source, Some{root}, status, message, target})}: WorktreeState.path_inside(root, primary)
+    case Some{(owner, WorktreeModel.Worktree{source, Some{root}, status, message, target, backend})}: WorktreeState.path_inside(root, primary)
     case _: False{}
 
 type WorktreeSharing is Type:
@@ -104,10 +104,10 @@ type WorktreeSharing is Type:
       {WorktreeState.choose_effective(True{}, owner, value, rest) == Some{(owner, value)} : Maybe<&2, Finite.Entry(WorktreeModel.Worktree)>},
     skipped_owner: @owner:Nat -> @value:WorktreeModel.Worktree -> @+rest:Maybe<&2, Finite.Entry(WorktreeModel.Worktree)> ->
       {WorktreeState.choose_effective(False{}, owner, value, rest) == rest : Maybe<&2, Finite.Entry(WorktreeModel.Worktree)>},
-    borrowed_root: @+primary:String -> @source:String -> @+root:String -> @status:WorktreeModel.Status -> @message:String -> @target:String ->
-      {WorktreeState.borrowed_candidate(primary, WorktreeModel.Worktree{source, Some{root}, status, message, target}) == WorktreeState.path_inside(root, primary) : Bool},
-    borrowed_missing_root: @primary:String -> @source:String -> @status:WorktreeModel.Status -> @message:String -> @target:String ->
-      {WorktreeState.borrowed_candidate(primary, WorktreeModel.Worktree{source, None{}, status, message, target}) == False{} : Bool},
+    borrowed_root: @backend:WorktreeModel.Backend -> @+primary:String -> @source:String -> @+root:String -> @status:WorktreeModel.Status -> @message:String -> @target:String ->
+      {WorktreeState.borrowed_candidate(primary, WorktreeModel.Worktree{source, Some{root}, status, message, target, backend}) == WorktreeState.path_inside(root, primary) : Bool},
+    borrowed_missing_root: @backend:WorktreeModel.Backend -> @primary:String -> @source:String -> @status:WorktreeModel.Status -> @message:String -> @target:String ->
+      {WorktreeState.borrowed_candidate(primary, WorktreeModel.Worktree{source, None{}, status, message, target, backend}) == False{} : Bool},
     inherited_inside: @+entries:+List<Finite.Entry(WorktreeModel.Worktree)> -> @+primary:String ->
       {inherited_inside(primary, WorktreeState.find_effective(entries, primary)) == True{} : Bool},
     archived_ignored: @owner:Nat -> @root:String -> @task:D.Task ->
@@ -116,19 +116,19 @@ type WorktreeSharing is Type:
       @live:{WorktreeState.archived(status) == False{} : Bool} ->
       {WorktreeState.root_user(status, owner, root, task) ==
         (Bool.not(Nat.is_eq(owner, D.task_id(task))) && WorktreeState.any_root_inside(Workspace.roots(Workspace.workspace(D.contract_context(D.task_contract(task)))), root)) : Bool},
-    archive_root: @source:String -> @+root:String -> @status:WorktreeModel.Status -> @message:String -> @primary:String -> @+owner:Nat -> @+world:M.World() ->
-      {WorktreeState.archive_available(Some{WorktreeModel.Worktree{source, Some{root}, status, message, primary}}, owner, world) ==
+    archive_root: @backend:WorktreeModel.Backend -> @source:String -> @+root:String -> @status:WorktreeModel.Status -> @message:String -> @primary:String -> @+owner:Nat -> @+world:M.World() ->
+      {WorktreeState.archive_available(Some{WorktreeModel.Worktree{source, Some{root}, status, message, primary, backend}}, owner, world) ==
         Bool.not(WorktreeState.uses_root(owner, root, D.state_tasks(C.local(D.State, F.State(), world)))) : Bool},
     archive_missing: @owner:Nat -> @world:M.World() ->
       {WorktreeState.archive_available(None{}, owner, world) == True{} : Bool},
     blocked_root: @+owner:Nat -> @+root:String -> @+world:M.World() ->
       @blocked:{WorktreeState.uses_root(owner, root, D.state_tasks(C.local(D.State, F.State(), world))) == True{} : Bool} ->
       {WorktreeState.root_unused(owner, root, world) == False{} : Bool},
-    workspace_ready: @roots:+List<String> -> @source:String -> @root:String -> @message:String -> @primary:String ->
-      {WorktreeState.workspace_resource_available(roots, WorktreeModel.Worktree{source, Some{root}, WorktreeModel.Ready{}, message, primary}) == True{} : Bool},
-    workspace_protected: @+roots:+List<String> -> @source:String -> @+root:String -> @+status:WorktreeModel.Status -> @message:String -> @primary:String ->
+    workspace_ready: @backend:WorktreeModel.Backend -> @roots:+List<String> -> @source:String -> @root:String -> @message:String -> @primary:String ->
+      {WorktreeState.workspace_resource_available(roots, WorktreeModel.Worktree{source, Some{root}, WorktreeModel.Ready{}, message, primary, backend}) == True{} : Bool},
+    workspace_protected: @backend:WorktreeModel.Backend -> @+roots:+List<String> -> @source:String -> @+root:String -> @+status:WorktreeModel.Status -> @message:String -> @primary:String ->
       @nonready:{ready_worktree_status(status) == False{} : Bool} ->
-      {WorktreeState.workspace_resource_available(roots, WorktreeModel.Worktree{source, Some{root}, status, message, primary}) == Bool.not(WorktreeState.any_root_inside(roots, root)) : Bool},
+      {WorktreeState.workspace_resource_available(roots, WorktreeModel.Worktree{source, Some{root}, status, message, primary, backend}) == Bool.not(WorktreeState.any_root_inside(roots, root)) : Bool},
     unowned_archive: @id:Nat -> @+decision:M.Decision() ->
       {WorktreeState.archive_found(id, None{}, decision) == decision : M.Decision()}
   }

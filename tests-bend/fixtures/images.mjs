@@ -15,7 +15,7 @@ const hasImage = value => value !== null && typeof value === 'object'
   && (value.type === 'input_image' || Object.values(value).some(hasImage));
 
 /** The production service, with only the external OAuth and model HTTP peer replaced. */
-export async function imagesFixture(t, { respond = () => answer('Image request accepted.'), mcp = {}, includeTextProfile = true } = {}) {
+export async function imagesFixture(t, { respond = () => answer('Image request accepted.'), mcp = {}, includeTextProfile = true, configOverrides = {} } = {}) {
   const upstream = await chatgptFixture(t);
   const requests = [];
   upstream.options.respond = async (entry, response) => {
@@ -49,7 +49,7 @@ export async function imagesFixture(t, { respond = () => answer('Image request a
     profiles: includeTextProfile ? {
       text: { provider: 'responses', model: 'text-fixture', endpoint: textBackend.endpoint,
         api_key_env: apiKey, timeout_ms: 5000 },
-    } : {} });
+    } : {}, ...configOverrides });
   const options = { home: upstream.directory, cwd: workspace, config };
   let running = await startServer(options);
   t.after(() => running.close());

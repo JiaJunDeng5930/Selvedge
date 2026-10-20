@@ -66,6 +66,7 @@ def property_choices_agreement(+entry: Forms.Entry, +field: Forms.Field, +value:
     case Forms.ProjectName{} _: choices_agreement(entry, Forms.ProjectName{}, value, groups)
     case Forms.WorkspaceDirectories{} _: choices_agreement(entry, Forms.WorkspaceDirectories{}, value, groups)
     case Forms.CreateWorktree{} _: choices_agreement(entry, Forms.CreateWorktree{}, value, groups)
+    case Forms.TaskEnvironment{} _: choices_agreement(entry, Forms.TaskEnvironment{}, value, groups)
     case Forms.ContextOrigin{} _: choices_agreement(entry, Forms.ContextOrigin{}, value, groups)
     case Forms.SandboxMode{} _: choices_agreement(entry, Forms.SandboxMode{}, value, groups)
     case Forms.NetworkAccess{} _: choices_agreement(entry, Forms.NetworkAccess{}, value, groups)

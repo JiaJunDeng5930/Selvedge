@@ -166,7 +166,7 @@ function outputArtifact(file, filename, limit) {
 function processInputError(code, message) { return Object.assign(new Error(message), { code }); }
 
 /** Start a bounded-output Bash process; reads use absolute Unicode code-point cursors. */
-export function startBash(arguments_, limits, { signal, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot } = {}) {
+export function startBash(arguments_, limits, { signal, artifactDirectory, execution, readOnlyPaths, managedWorktreeRoot, environment } = {}) {
   signal?.throwIfAborted();
   // DEFENSE: A caller can supply malformed UTF-16; preserve its units so native admission can reject it.
   const observedArguments = typeof arguments_?.command === 'string' && !arguments_.command.isWellFormed()
@@ -194,6 +194,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   let inputClose = Promise.resolve();
   let outputClose = Promise.resolve();
   let sessionClose;
+  let environmentClose;
   let writeBusy = false;
   let terminalWrite;
   let readyResolve;
@@ -234,6 +235,10 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     terminalResolve();
   }
   function cleanupGroup() {
+    if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
+      // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
+      reason ??= { code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` };
+    });
     try { killGroup(child); }
     // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
     catch (error) { reason ??= { code: 'process_cleanup_failed', message: error.message }; }
@@ -270,7 +275,9 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   }
   async function execute() {
     try {
-      launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
+      launch = environment
+        ? await environment.prepareBash(arguments_, execution, { signal })
+        : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, mode });
       if (artifactDirectory) {
         boundary('effect.artifact_limit', { arguments: arguments_, limits, options });
         await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -281,18 +288,19 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         }
       }
       signal?.throwIfAborted();
-      child = Bun.spawn([launch.file, ...launch.prefix, '-c', arguments_.command], {
+      // NOTE: Interactive Bash gives its foreground job a separate process group so Ctrl-C does not terminate the sandbox supervisor first.
+      const command = launch.command ?? [...(mode === 'pty' ? ['-i'] : []), '-c', arguments_.command];
+      child = Bun.spawn([launch.file, ...launch.prefix, ...command], {
         cwd: launch.cwd, env: { ...launch.env, ...(mode === 'pty' ? { TERM: 'xterm-256color' } : {}) },
         detached: true, stdio: ['pipe', 'pipe', 'pipe', ...launch.descriptors],
         ...(mode === 'pty' ? { terminal: { cols, rows,
           data(terminal, chunk) { captureChunk(Buffer.from(chunk), stdout, artifacts[0]); },
           drain() { terminalWrite?.resolve(); terminalWrite = undefined; },
-          exit(terminal, code) {
+          exit(terminal) {
             terminalResolve();
             terminalWrite?.reject(processInputError('process_stdin_closed', 'The terminal closed before input was flushed'));
             terminalWrite = undefined;
-            // DEFENSE: PTY read errors are distinct from the subprocess exit status.
-            if (code) stop('output_capture_failed', 'Could not read terminal output');
+            // NOTE: Bun reports normal Linux PTY closure as EIO; child.exited supplies the command's actual exit status.
           },
         } } : {}),
       });
@@ -309,6 +317,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       shellExited = true;
       cleanupGroup();
       await sessionClose;
+      await environmentClose;
       await Promise.all(outputTasks);
       await outputClose;
       await inputClose;
@@ -332,6 +341,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       // DEFENSE: Preparation or spawn can fail after opening artifact handles and sandbox descriptors.
       if (child) { cleanupGroup(); forceOutputClose(); await child.exited; }
       await sessionClose;
+      await environmentClose;
       await outputClose;
       await Promise.allSettled([...artifacts.map(artifact => artifact.close()), launch?.cleanup()]);
       throw error;
@@ -396,12 +406,14 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
 export async function runBash(arguments_, limits, options) { return startBash(arguments_, limits, options).result; }
 
 /** Read image bytes through the Task's filesystem sandbox, then retain their immutable identity. */
-export async function runReadImage(arguments_, limits, { signal, execution, readOnlyPaths, managedWorktreeRoot, home }) {
+export async function runReadImage(arguments_, limits, { signal, execution, readOnlyPaths, managedWorktreeRoot, environment, home }) {
   signal?.throwIfAborted();
   const { path: filename, detail, timeout, maximum } = boundary('effect.image_arguments', { arguments: arguments_ });
-  const launch = await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
   const quoted = "'" + filename.replaceAll("'", "'\"'\"'") + "'";
   const command = `[ -f ${quoted} ] || { printf '%s' 'Image path must be a regular file' >&2; exit 1; }; head -c ${maximum + 1} < ${quoted}`;
+  const launch = environment
+    ? await environment.prepareBash({ command }, execution, { signal })
+    : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot });
   const chunks = [];
   const stderr = capture(4096);
   let bytes = 0;
@@ -411,7 +423,7 @@ export async function runReadImage(arguments_, limits, { signal, execution, read
   const stop = error => { failure ??= error; if (child) killGroup(child); };
   const aborted = () => stop(signal.reason);
   try {
-    child = spawn(launch.file, [...launch.prefix, '-c', command], {
+    child = spawn(launch.file, [...launch.prefix, ...(launch.command ?? ['-c', command])], {
       cwd: launch.cwd, env: launch.env, detached: true,
       stdio: ['ignore', 'pipe', 'pipe', ...launch.descriptors],
     });
@@ -420,7 +432,7 @@ export async function runReadImage(arguments_, limits, { signal, execution, read
     if (signal?.aborted) aborted();
     child.stdout.on('data', chunk => {
       bytes += chunk.length;
-      // DEFENSE: A local image may exceed the upload budget or grow during the sandboxed read.
+      // DEFENSE: An image may exceed the upload budget or grow while its bound environment reads it.
       if (bytes > maximum) { stop(new RangeError('Image exceeds the 10 MiB byte limit')); return; }
       chunks.push(chunk);
     });

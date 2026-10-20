@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 /** Canonicalize an explicit workspace observation; this does not choose task policy. */
-export async function canonicalWorkspace(value) {
+export async function canonicalWorkspace(value, { filesystem = { realpath, stat } } = {}) {
+  const { realpath, stat } = filesystem;
   boundary('effect.workspace_admit', { value });
   const canonical = async root => {
     boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root), value });
@@ -88,9 +89,9 @@ async function runtimeReads(platform) {
  * to unrestricted execution. Policy selection/approval is not implemented here.
  */
 export async function prepareSandbox(plan, { platform = process.platform, architecture = process.arch,
-  readOnlyPaths = [], managedWorktreeRoot, signal } = {}) {
+  readOnlyPaths = [], managedWorktreeRoot, mode = 'pipe', signal } = {}) {
   signal?.throwIfAborted();
-  const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot };
+  const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, mode };
   boundary('effect.sandbox_admit', { plan, options });
   const workspace = await canonicalWorkspace(plan.workspace);
   const source = { plan, options, workspace, root_observations: workspaceObservations(plan.workspace, workspace) };

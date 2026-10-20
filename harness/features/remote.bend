@@ -52,7 +52,7 @@ def named_permission_discriminant(+value: String) -> NamedPermissionName:
     Bool.pick(NamedPermissionName, String.eq(value, "read_task_graph"), NamedPermissionNameRead{},
     Bool.pick(NamedPermissionName, String.eq(value, "create_idle"), NamedPermissionNameCreateIdle{},
     Bool.pick(NamedPermissionName, String.eq(value, "create"), NamedPermissionNameCreate{},
-    Bool.pick(NamedPermissionName, String.eq(value, "create_worktree_task"), NamedPermissionNameCreateWorktreeTask{},
+    Bool.pick(NamedPermissionName, (String.eq(value, "create_worktree_task") || String.eq(value, "create_workspace_task")), NamedPermissionNameCreateWorktreeTask{},
     Bool.pick(NamedPermissionName, String.eq(value, "retry_worktree_archive"), NamedPermissionNameRetryWorktreeArchive{},
     Bool.pick(NamedPermissionName, String.eq(value, "fork"), NamedPermissionNameCreate{},
     Bool.pick(NamedPermissionName, String.eq(value, "send"), NamedPermissionNameRetryWorktreeArchive{},

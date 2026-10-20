@@ -44,6 +44,12 @@ executing repository programs, archive/recovery and interrupted checkout ownersh
 Project task hierarchy, shared-worktree archive permission and Worktree preference
 propagation remain production construction and proof obligations.
 
+Cloud workspace acceptance crosses the public Service commands, the real Tencent
+SDK HTTP transport and an executable SSH boundary fixture. It checks project-script
+ordering, remote Bash input and file bytes, restart-bound archiving, and instance
+cleanup plus retained logs when initialization fails. These fixtures make no paid
+cloud requests and do not establish live CVM availability or SSH reachability.
+
 Hierarchical context discovery keeps one filesystem check for Git boundaries,
 multiple roots, override selection, skill metadata and incomplete scans. Context
 admission, deltas, inherited history and provider selection remain native

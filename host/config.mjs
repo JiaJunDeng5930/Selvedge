@@ -78,6 +78,7 @@ function contextTransport(config, definitions, observer) {
 export function validateConfig(value) {
   const observer = configurationObserver();
   const config = configurationHead(value, observer);
+  config.cloud = profileBoundary('config.cloud', { cloud: value.cloud ?? false });
   config.chatgpt_plugin = connectionConfig(value.chatgpt_plugin);
   config.chatgpt = value.chatgpt === false ? false : accountConfig(value.chatgpt);
   config.reasoning_evaluators = evaluatorConnections(value.reasoning_evaluators);

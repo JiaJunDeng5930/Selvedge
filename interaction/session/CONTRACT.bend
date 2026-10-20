@@ -93,14 +93,19 @@ law task_visibility_stale_work_creation_keeps_the_new_interaction:
   {ExperienceProgram.step(E.CommandCompleted{program, result, E.WorkCreationCompletion{E.selection_generation(session), layer_generation}}, E.from_program(previous, task_visibility_session(expanded, previous, session))) ==
     E.Decision{E.from_program(program, E.retain_previews(task_visibility_session(expanded, previous, session), program)), result, Nil{}, Nil{}, False{}} : E.Decision}
 
+def required_local_creation(work: Maybe<&2, Nat>, enabled: Bool, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
+  match work:
+    case None{}: U.task_creation(enabled, profile, reasoning, message, settings)
+    case Some{work}: M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, message, settings, enabled}}}
+
 type WorkRequirements is Type:
   WorkRequirements{
-    draft_owner: @+work:Maybe<&2, Nat> -> @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @enabled:Bool ->
+    draft_owner: @+work:Maybe<&2, Nat> -> @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @enabled:U.TaskWorkspace ->
       {U.owner(U.NewTask{message, profile, reasoning, context, enabled, work}) == U.NewTaskEditor{work} : U.Editor},
-    member_creation: @+work:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:Bool -> @now:U32 ->
-      {U.command(U.NewTask{message, profile, reasoning, context, enabled, Some{work}}, now) == M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, U.content(message), Context.settings(context), enabled}}} : M.Command},
-    independent_creation: @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:Bool -> @now:U32 ->
-      {U.command(U.NewTask{message, profile, reasoning, context, enabled, None{}}, now) == U.task_creation(enabled, profile, reasoning, U.content(message), Context.settings(context)) : M.Command},
+    member_creation: @+work:Nat -> @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:U.TaskWorkspace -> @now:U32 ->
+      {U.command(U.NewTask{message, profile, reasoning, context, enabled, Some{work}}, now) == required_task_creation(Some{work}, enabled, profile, reasoning, U.content(message), Context.settings(context)) : M.Command},
+    independent_creation: @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration -> @+enabled:U.TaskWorkspace -> @now:U32 ->
+      {U.command(U.NewTask{message, profile, reasoning, context, enabled, None{}}, now) == required_task_creation(None{}, enabled, profile, reasoning, U.content(message), Context.settings(context)) : M.Command},
     rename_owner: @+work:Nat -> @+name:String -> @now:U32 ->
       {U.command(U.WorkName{work, name}, now) == M.FeatureCommand{F.WorkCommand{Work.Rename{work, name}}} : M.Command},
     selection_keeps_previous_location: @+work:Maybe<&2, Nat> -> @+route:U.Route -> @intent:E.NavigationIntent -> @collapsed:+List<Nat> -> @+previous:Maybe<&2, Nat> -> @+visits:+List<E.WorkVisit> -> @+generation:Nat ->
@@ -153,6 +158,12 @@ type WorkRequirements is Type:
 law work_evidence:
   WorkRequirements
 
+def required_task_creation(work: Maybe<&2, Nat>, mode: U.TaskWorkspace, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
+  match mode:
+    case U.CloudWorkspace{}: M.FeatureCommand{F.WorktreeCommand{Worktree.CreateWorkspace{Worktree.TencentCvm{}, profile, reasoning, message, settings, work}}}
+    case U.CurrentWorkspace{}: required_local_creation(work, False{}, profile, reasoning, message, settings)
+    case U.LocalWorktree{}: required_local_creation(work, True{}, profile, reasoning, message, settings)
+
 def model_choice_spec(valid: Bool, +profile: String, +reasoning: String, +application: E.Application) -> E.Decision:
   match valid:
     case True{}: E.remember_manual(U.ChooseModel{profile, reasoning}, E.close_selected_choice(U.ChooseModel{profile, reasoning}, U.NewTaskEditor{None{}}, E.edit(U.NewTaskEditor{None{}}, U.ChooseModel{profile, reasoning}, application)))
@@ -180,7 +191,7 @@ def preference_selection(value: Maybe<&2, E.ModelPreference>, +profiles: +List<D
       E.ModelPreference{profile, reasoning} = selection
       preference_selection_if(E.permitted_preference(D.find_profile(profiles, profile), reasoning), selection, profiles)
 
-def selected_model_session(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, create_worktree: Bool, session: E.Session, work: Maybe<&2, Nat>) -> E.Session:
+def selected_model_session(selection: Sigma<&2, &2, String, (_ => String)>, revision: Nat, message: U.Text, context: Context.Configuration, feedback: U.Feedback, directory_entry: String, create_worktree: U.TaskWorkspace, session: E.Session, work: Maybe<&2, Nat>) -> E.Session:
   (selected, effort) = selection
   E.with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, create_worktree, work}, feedback, directory_entry})
 
@@ -365,10 +376,10 @@ type Requirements is Type:
       @valid:{E.permitted_preference(D.find_profile(Board.profiles(program), new_profile), new_reasoning) == True{} : Bool} ->
       @observed_layers:{E.layers(session) == E.Layer{U.ModelPicker{U.NewTaskEditor{None{}}}, trigger, initial, query, layer_occurrence, source_expanded, None{}, None{}} <> rest : +List<E.Layer>} ->
       @found:{E.find_draft(E.drafts(session), U.NewTaskEditor{None{}}) ==
-        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, False{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
+        Some{U.Draft{revision, U.NewTask{text, old_profile, old_reasoning, context, U.CurrentWorkspace{}, None{}}, feedback, directory_entry}} : Maybe<&2, U.Draft>} ->
       {ExperienceProgram.step(E.UserInput{U.EditDraft{U.NewTaskEditor{None{}}, U.ChooseModel{new_profile, new_reasoning}}},
         E.from_program(program, session)) ==
-       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, False{}, None{}}, U.Editing{}, directory_entry} <>
+       E.remember_manual(U.ChooseModel{new_profile, new_reasoning}, E.Decision{E.from_program(program, E.with_attention(trigger, E.with_layers(rest, E.with_drafts(U.Draft{(revision + 1n : Nat), U.NewTask{text, new_profile, new_reasoning, context, U.CurrentWorkspace{}, None{}}, U.Editing{}, directory_entry} <>
            E.without_draft(E.drafts(session), U.NewTaskEditor{None{}}), session)))),
          D.success(J.Null{}), Nil{}, [E.Attend{trigger}], False{}}) : E.Decision},
     model_choice_complete: @+profile:String -> @+reasoning:String -> @+application:E.Application ->
@@ -391,7 +402,7 @@ type Requirements is Type:
     preference_keeps_tasks: @profile:String -> @reasoning:String -> @+world:M.World() -> @session:E.Session ->
       {E.program(post(E.restore_preference(profile, reasoning, E.from_program(world, session)))) == world : M.World()},
     completed_creation_resets_manual: @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @+result:J.Json -> @+world:M.World() -> @+session:E.Session ->
-      {E.finish_body(U.NewTask{message, profile, reasoning, context, False{}, None{}}, U.Start{}, Nil{}, result, E.from_program(world, session)) ==
+      {E.finish_body(U.NewTask{message, profile, reasoning, context, U.CurrentWorkspace{}, None{}}, U.Start{}, Nil{}, result, E.from_program(world, session)) ==
         E.finish_scoped_task(E.same_work(None{}, E.active_work(session)), None{}, U.Start{}, Nil{}, result, E.from_program(world, session)) : E.Decision},
     rejected_execution_keeps_preference: @task:Nat -> @profile:String -> @reasoning:String -> @remember:Bool -> @+world:M.World() -> @+result:J.Json -> @previous:M.World() -> @+session:E.Session ->
       {E.finish_execution(False{}, task, profile, reasoning, remember, world, result, E.from_program(previous, session)) ==
@@ -905,7 +916,7 @@ law current_worktree_observation_settles:
 
 law prepared_task_retains_worktree_choice:
   @+message:U.Text -> @+profile:String -> @+reasoning:String -> @+context:Context.Configuration ->
-  @+enabled:Bool -> @+work:Maybe<&2, Nat> -> @+observation:Context.DirectoryObservation -> @+now:U32 ->
+  @+enabled:U.TaskWorkspace -> @+work:Maybe<&2, Nat> -> @+observation:Context.DirectoryObservation -> @+now:U32 ->
   {U.prepared_command(U.NewTask{message, profile, reasoning, context, enabled, work}, observation, now) ==
     U.create_task(work, enabled, profile, reasoning, U.content(message), Context.observed_settings(context, observation)) : M.Command}
 
@@ -964,7 +975,7 @@ law task_with_worktree_uses_owned_creation:
 
 law model_selection_preserves_worktree_choice:
   @+message:U.Text -> @profile:String -> @reasoning:String -> @+context:Context.Configuration ->
-  @+enabled:Bool -> @+work:Maybe<&2, Nat> -> @+selected:String -> @+effort:String -> @world:M.World() ->
+  @+enabled:U.TaskWorkspace -> @+work:Maybe<&2, Nat> -> @+selected:String -> @+effort:String -> @world:M.World() ->
   {U.apply_edit(U.ChooseModel{selected, effort}, U.NewTask{message, profile, reasoning, context, enabled, work}, world) ==
     Done{U.NewTask{message, selected, effort, context, enabled, work}} : Result<&2, &2, String, U.Body>}
 
@@ -976,7 +987,7 @@ law saved_worktree_preference_continues_captured_submission:
 
 law ordinary_task_submission_needs_no_git_observation:
   @message:U.Text -> @profile:String -> @reasoning:String -> @context:Context.Configuration -> @work:Maybe<&2, Nat> -> @application:E.Application ->
-  {E.worktree_submission_allowed(U.NewTask{message, profile, reasoning, context, False{}, work}, application) == True{} : Bool}
+  {E.worktree_submission_allowed(U.NewTask{message, profile, reasoning, context, U.CurrentWorkspace{}, work}, application) == True{} : Bool}
 
 law unverified_worktree_preparation_preserves_application:
   @+draft:U.Draft -> @workspace:Maybe<&2, D.Workspace> -> @+application:E.Application ->

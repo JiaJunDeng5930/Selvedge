@@ -353,17 +353,20 @@ def history_data(+item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
 type HistoryContextKindName is Data:
   HistoryContextKindNameContextChange{}
   HistoryContextKindNameReasoningConfiguration{}
+  HistoryContextKindNameEnvironmentNotice{}
   HistoryContextKindNameOther{}
 
 def history_context_kind_discriminant(+value: String) -> HistoryContextKindName:
+  Bool.pick(HistoryContextKindName, String.eq(value, "environment_notice"), HistoryContextKindNameEnvironmentNotice{},
   Bool.pick(HistoryContextKindName, String.eq(value, "context_change"), HistoryContextKindNameContextChange{},
     Bool.pick(HistoryContextKindName, String.eq(value, "reasoning_configuration"), HistoryContextKindNameReasoningConfiguration{},
-    HistoryContextKindNameOther{}))
+    HistoryContextKindNameOther{})))
 
 def history_context_kind_classified(kind: HistoryContextKindName, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:
   match kind:
     case HistoryContextKindNameContextChange{}: Done{message("developer", text(Backend.context_change_text(get(item, "change")))) <> Nil{}}
     case HistoryContextKindNameReasoningConfiguration{}: Done{message("developer", text("Committed reasoning effort for subsequent responses: " ++ J.text(get(item, "effort")))) <> Nil{}}
+    case HistoryContextKindNameEnvironmentNotice{}: Done{message("developer", get(item, "content")) <> Nil{}}
     case HistoryContextKindNameOther{}: history_data(item)
 
 def history_context_kind(kind: String, +item: J.Json) -> Result<&2, &2, String, +List<J.Json>>:

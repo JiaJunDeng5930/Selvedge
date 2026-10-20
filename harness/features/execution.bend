@@ -21,6 +21,11 @@ import ../../features/work/PROGRAM.bend as Work
 import ./work-state.bend as WorkState
 import ./MODEL.bend as F
 
+def workspace_membership(work: Maybe<&2, Nat>, +world: M.World(), decision: M.Decision()) -> M.Decision():
+  match work:
+    case None{}: decision
+    case Some{id}: WorkState.born(id, D.state_next_task(C.local(D.State, F.State(), world)), world, decision)
+
 def realize_calculation(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), operation: O.Operation, +world: M.World()) -> M.Decision():
   match operation:
     case O.WorkChange{change}: WorkState.embed(Work.realize_calculation(change, WorkState.registry(world)), world)
@@ -32,6 +37,8 @@ def realize_calculation(~spawn: D.Profile -> String -> D.UserContent -> Workspac
     case O.ConfigureTitles{prompts}: Titles.configure(prompts, world)
     case O.RemoteChange{change}: RemoteState.embed(change, world)
     case O.StartWorktree{profile, reasoning, message, selection}: WorktreeExec.start(~spawn, profile, reasoning, message, selection, world)
+    case O.StartWorkspace{backend, work, profile, reasoning, message, selection}:
+      workspace_membership(work, world, WorktreeExec.start_backend(~spawn, backend, profile, reasoning, message, selection, world))
     case O.RetryWorktreeArchive{id}: WorktreeExec.retry_archive(id, world)
     case O.ChatGPTChange{change}: ChatGPTState.embed(ChatGPT.realize_calculation(change, ChatGPTState.registry(world)), world)
     case O.BoardChange{change}: Board.change_calculation(change, world)

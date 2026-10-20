@@ -313,6 +313,53 @@ def remote_configuration_checked(disabled: Bool, +source: J.Json) -> J.Json:
 def config_remote(+source: J.Json) -> J.Json:
   remote_configuration_checked(J.same(J.get(source, "remote"), J.Boolean{False{}}), source)
 
+# Cloud credentials are service environment bindings, never configuration fields.
+def cloud_nonempty(+value: J.Json) -> Bool:
+  J.is_text(value) && Bool.not(String.is_empty(J.text(value)))
+
+def cloud_text_fields(fields: +List<String>, +value: J.Json) -> Bool:
+  match fields:
+    case Nil{}: True{}
+    case Con{name, rest}: cloud_nonempty(J.get(value, name)) && cloud_text_fields(rest, value)
+
+def cloud_security_groups(values: +List<J.Json>) -> Bool:
+  match values:
+    case Nil{}: True{}
+    case Con{head, rest}: cloud_nonempty(head) && cloud_security_groups(rest)
+
+def cloud_groups(value: J.Json) -> Bool:
+  match value:
+    case J.Array{Con{head, rest}}: cloud_nonempty(head) && cloud_security_groups(rest)
+    case _: False{}
+
+def cloud_optional_text(+value: J.Json, +name: String) -> Bool:
+  Bool.not(compact_has(value, name)) || cloud_nonempty(J.get(value, name))
+
+def cloud_optional_number(+value: J.Json, +name: String, minimum: String, maximum: String) -> Bool:
+  Bool.not(compact_has(value, name)) || compact_number(J.get(value, name), minimum, maximum)
+
+def cloud_tencent_requirements(+value: J.Json) -> Bool:
+  compact_object(value, ["region", "zone", "image_id", "instance_type", "vpc_id", "subnet_id", "security_group_ids",
+    "key_id", "ssh_private_key", "ssh_user", "ssh_port", "spot_max_price", "internet_max_bandwidth_out", "startup_timeout_ms", "address_type", "api_endpoint"]) &&
+    cloud_text_fields(["region", "zone", "image_id", "instance_type", "vpc_id", "subnet_id", "key_id", "ssh_private_key", "spot_max_price"], value) &&
+    cloud_groups(J.get(value, "security_group_ids")) && cloud_optional_text(value, "ssh_user") && cloud_optional_text(value, "api_endpoint") &&
+    cloud_optional_number(value, "ssh_port", "1", "65535") && cloud_optional_number(value, "internet_max_bandwidth_out", "0", "1000") &&
+    cloud_optional_number(value, "startup_timeout_ms", "1000", "3600000") &&
+    (Bool.not(compact_has(value, "address_type")) || J.same(J.get(value, "address_type"), J.Text{"public"}) || J.same(J.get(value, "address_type"), J.Text{"private"}))
+
+def cloud_requirements(+value: J.Json) -> Bool:
+  compact_object(value, ["backend", "tencent_cvm"]) && J.same(J.get(value, "backend"), J.Text{"tencent_cvm"}) &&
+    cloud_tencent_requirements(J.get(value, "tencent_cvm"))
+
+def cloud_checked(disabled: Bool, +value: J.Json) -> J.Json:
+  match disabled:
+    case True{}: Model.success(J.Boolean{False{}})
+    case False{}: Bool.pick(J.Json, cloud_requirements(value), Model.success(value),
+      Model.failure_code("TypeError", "cloud requires backend tencent_cvm and complete CVM, network, SSH key and spot_max_price settings; credentials belong in the service environment"))
+
+def config_cloud(+source: J.Json) -> J.Json:
+  cloud_checked(J.same(J.get(source, "cloud"), J.Boolean{False{}}) || J.same(J.get(source, "cloud"), J.Null{}), J.get(source, "cloud"))
+
 def configured_instruction(instructions: D.InitialInstructions) -> String:
   D.InitialInstructions{configured, global} = instructions
   configured
@@ -321,7 +368,7 @@ def configured_default() -> String:
   configured_instruction(D.default_instructions())
 
 def config_base_defaults(+source: J.Json) -> J.Json:
-  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}, J.Field{"remote", J.Boolean{False{}}}, J.Field{"compaction", compact_defaults()}]}
+  J.Object{[J.Field{"format", J.Text{"selvedge-bend-config-1"}}, J.Field{"host", J.Text{"127.0.0.1"}}, J.Field{"port", J.Number{"7421"}}, J.Field{"max_fork", J.Number{"4"}}, J.Field{"max_descendants", J.Number{"64"}}, J.Field{"instructions", J.Text{configured_default()}}, J.Field{"profiles", J.Object{[J.Field{"demo", J.Object{[J.Field{"provider", J.Text{"echo"}}, J.Field{"model", J.Text{"echo"}}]}}]}}, J.Field{"mcp", J.Object{[]}}, J.Field{"plugins", J.Object{[]}}, J.Field{"skills", J.Array{[]}}, J.Field{"remote", J.Boolean{False{}}}, J.Field{"cloud", J.Boolean{False{}}}, J.Field{"compaction", compact_defaults()}]}
 def config_context_definitions() -> J.Json:
   Context.definitions_json(ContextKinds.definitions())
 def config_context_observer(+definition: J.Json) -> J.Json:
@@ -379,7 +426,7 @@ def config_head_unknown(+unknown: J.Json, +value: J.Json) -> J.Json:
 def config_configuration_head(+source: J.Json) -> J.Json:
   +value = J.get(source, "value")
   config_guard(config_kind(value, "object"), config_failure("configuration must be an object"),
-    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin", "remote", "compaction"])), value))
+    config_head_unknown(config_unknown(J.items(J.get(value, "fields")), config_context_keys(J.items(config_context_definitions()), ["format", "host", "port", "max_fork", "max_descendants", "profiles", "chatgpt", "mcp", "plugins", "reasoning_evaluators", "chatgpt_plugin", "remote", "compaction", "cloud"])), value))
 def config_context_paths_acc(values: +List<J.Json>, observations: +List<J.Json>, valid: Bool) -> Bool:
   match values observations:
     case Nil{} Nil{}: valid
@@ -743,7 +790,7 @@ def config_meaning_remote(accepted: Bool, +operation: String, +source: J.Json) -
     case True{}: config_remote(source)
     case False{}: config_meaning_context_field(String.eq(operation, "config.context_field"), operation, source)
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  config_meaning_remote(String.eq(operation, "config.remote"), operation, source)
+  Bool.pick(J.Json, String.eq(operation, "config.cloud"), config_cloud(source), config_meaning_remote(String.eq(operation, "config.remote"), operation, source))
 def factory(+operation: String) -> Model.Adapter((source => meaning(operation, source))):
   Model.adapter((source => meaning(operation, source)), (source => meaning(operation, source)), source => {==})
 def run(+operation: String, source: J.Json) -> J.Json:

@@ -189,6 +189,7 @@ def stage_options(values: +List<Board.Stage>) -> +List<Forms.ChoiceValue>:
 
 def field_options(field: Forms.Field, value: Forms.Observed) -> +List<Forms.ChoiceValue>:
   match field:
+    case Forms.TaskEnvironment{}: [option("current", "Current workspace"), option("local", "Local worktree"), option("tencent_cvm", "Tencent Cloud CVM")]
     case Forms.SandboxMode{}: [option("workspace-write", "Workspace write"), option("read-only", "Read only")]
     case Forms.ContextOrigin{}: origin_options(value)
     case Forms.ApprovalReviewer{}: Nil{}

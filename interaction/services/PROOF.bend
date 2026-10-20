@@ -22,7 +22,7 @@ import ../TYPES.bend as InteractionTypes
 import ../presentation/SURFACE.bend as SurfaceTypes
 
 def draft_composer_context(+message: U.Text, profile: String, reasoning: String, +config: Context.Configuration, scene: V.EditorScene, +world: M.World()) ->
-  {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config, False{}, None{}}, scene, world)) ==
+  {Rule.composer_context(View.composer_scene(U.NewTask{message, profile, reasoning, config, U.CurrentWorkspace{}, None{}}, scene, world)) ==
     Some{Context.DraftExecution{Context.preview(config, world)}} : Maybe<&2, Context.Observation>}:
   V.EditorScene{identity, revision, groups, sections, assessment, submit, feedback, pending} = scene
   {==}

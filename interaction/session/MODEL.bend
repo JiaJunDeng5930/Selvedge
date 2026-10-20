@@ -472,7 +472,7 @@ def close_selected_choice(change: U.Edit, editor: U.Editor, result: Decision) ->
 
 def scoped_new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin, work: Maybe<&2, Nat>) -> U.Body:
   (profile, reasoning) = profile
-  U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin), False{}, work}
+  U.NewTask{U.initial_text(""), profile, reasoning, Context.defaults(origin), U.CurrentWorkspace{}, work}
 
 def new_task(profile: Sigma<&2, &2, String, (_ => String)>, origin: Context.Origin) -> U.Body:
   scoped_new_task(profile, origin, None{})
@@ -582,8 +582,8 @@ def git_observation_current(current: Nat, ticket: Nat, primary: String, actual: 
 
 def disable_unavailable_worktree(available: Bool, found: Maybe<&2, U.Draft>, session: Session) -> Session:
   match available found:
-    case False{} Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, enabled, work}, feedback, entry}}:
-      with_draft(session, U.Draft{revision, U.NewTask{message, profile, reasoning, context, False{}, work}, feedback, entry})
+    case False{} Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, U.LocalWorktree{}, work}, feedback, entry}}:
+      with_draft(session, U.Draft{revision, U.NewTask{message, profile, reasoning, context, U.CurrentWorkspace{}, work}, feedback, entry})
     case _ _: session
 
 def settle_workspace_git(current: Bool, +primary: String, +available: Bool, application: Application) -> Decision:
@@ -1273,7 +1273,7 @@ def preferred_selection(+value: Maybe<&2, ModelPreference>, +profiles: +List<D.P
     case None{}: first_profile(profiles)
     case Some{+selection}: preferred_if(valid_preference(selection, profiles), selection, profiles)
 
-def scoped_model_selection(+selection: Sigma<&2, &2, String, (_ => String)>, +revision: Nat, +message: U.Text, +context: Context.Configuration, +feedback: U.Feedback, +directory_entry: String, create_worktree: Bool, +session: Session, work: Maybe<&2, Nat>) -> Session:
+def scoped_model_selection(+selection: Sigma<&2, &2, String, (_ => String)>, +revision: Nat, +message: U.Text, +context: Context.Configuration, +feedback: U.Feedback, +directory_entry: String, create_worktree: U.TaskWorkspace, +session: Session, work: Maybe<&2, Nat>) -> Session:
   (selected, effort) = selection
   with_draft(session, U.Draft{revision, U.NewTask{message, selected, effort, context, create_worktree, work}, feedback, directory_entry})
 
@@ -1640,10 +1640,15 @@ def worktree_project_preference(found: Maybe<&2, D.Project>, id: Nat, +enabled: 
     case Some{D.Project{name, roots, guidance, previous}}: worktree_preference_changed(UX.same_worktree_choice(enabled, previous), id, enabled)
     case None{}: None{}
 
+def workspace_project_preference(mode: U.TaskWorkspace, found: Maybe<&2, D.Project>, id: Nat) -> Maybe<&2, M.Command>:
+  match mode:
+    case U.CloudWorkspace{}: None{}
+    case other: worktree_project_preference(found, id, U.task_worktree(other))
+
 def worktree_preference_command(body: U.Body, world: M.World()) -> Maybe<&2, M.Command>:
   match body:
     case U.NewTask{message, profile, reasoning, Context.Configuration{Context.ProjectDefaults{+id}, workspace, sandbox, approval}, enabled, work}:
-      worktree_project_preference(Projects.find(Projects.registry(F.State(), world), id), id, enabled)
+      workspace_project_preference(enabled, Projects.find(Projects.registry(F.State(), world), id), id)
     case _: None{}
 
 def worktree_preference_available(available: Bool, body: U.Body, world: M.World()) -> Maybe<&2, M.Command>:
@@ -1653,7 +1658,7 @@ def worktree_preference_available(available: Bool, body: U.Body, world: M.World(
 
 def worktree_submission_allowed(body: U.Body, +application: Application) -> Bool:
   match body:
-    case U.NewTask{message, profile, reasoning, context, True{}, work}:
+    case U.NewTask{message, profile, reasoning, context, U.LocalWorktree{}, work}:
       worktree_available(application) && workspace_git_matches(workspace_git(session(application)), preview_primary(Context.preview(context, program(application))))
     case _: True{}
 

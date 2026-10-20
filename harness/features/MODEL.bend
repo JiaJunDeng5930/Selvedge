@@ -244,6 +244,7 @@ def root_environment(command: Command) -> Bool:
   match command:
     case WorkCommand{Work.CreateTask{work, profile, reasoning, message, settings, create_worktree}}: True{}
     case WorktreeCommand{Worktree.Create{profile, reasoning, message, settings}}: True{}
+    case WorktreeCommand{Worktree.CreateWorkspace{backend, profile, reasoning, message, settings, work}}: True{}
     case TaskGraphCommand{TaskGraph.Create{work, declaration}}: True{}
     case TaskGraphCommand{TaskGraph.Update{id, declaration}}: True{}
     case _: False{}
@@ -260,6 +261,7 @@ def workspace_observation(kind: CommandKind, +command: J.Json) -> WorkspaceObser
     case WorkKind{WorkCodec.Write{WorkCodec.CreateTaskKind{}}}:
       WorkspaceTaskSettings{True{}, J.same(J.get(command, "create_worktree"), J.Boolean{True{}})}
     case WorktreeKind{WorktreeCodec.Write{}}: WorkspaceTaskSettings{True{}, True{}}
+    case WorktreeKind{WorktreeCodec.WorkspaceWrite{}}: WorkspaceTaskSettings{True{}, True{}}
     case BoardKind{BoardCodec.Write{BoardCodec.SaveAgentKind{}}}: WorkspaceTaskSettings{False{}, False{}}
     case TaskGraphKind{TaskGraphCodec.Write{TaskGraphCodec.CreateKind{}}}: WorkspaceTaskGraph{}
     case TaskGraphKind{TaskGraphCodec.Write{TaskGraphCodec.UpdateKind{}}}: WorkspaceTaskGraph{}

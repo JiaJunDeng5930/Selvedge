@@ -221,10 +221,13 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 `delete_project` are native commands. Task creation/fork accepts a `settings`
 object with `project_id`, `workspace`, `sandbox` and `approval`.
 
-For a primary workspace with a Git commit, the New task workspace menu offers
-**Create worktree**. Each project saves this choice in its `create_worktree`
-setting, which can also be changed in project settings. The command API exposes
-`create_worktree_task` with the same fields as `create`.
+The New task form's **Task environment** selector offers **Current workspace**,
+**Local worktree** and **Tencent Cloud CVM**. A project's `create_worktree` setting
+supplies the local default and remains editable in project settings. Selecting a
+cloud environment does not change that project default. The command API exposes
+`create_worktree_task` for local checkouts and `create_workspace_task` with
+`backend: "local"` or `backend: "tencent_cvm"`; both use the ordinary task fields,
+and the unified command accepts an optional `work_id`.
 Managed checkouts live under `<service home>/worktrees`, start at detached HEAD,
 and include tracked edits and untracked files that Git does not ignore.
 The service home must be outside the source Git repository so its private state
@@ -236,6 +239,64 @@ Forked tasks can share the checkout. Archive those tasks before archiving the
 task that owns it.
 Git commands that write shared repository metadata continue to follow the task's
 sandbox and approval settings.
+
+Cloud tasks clone the GitHub remote of their Project's primary Workspace into
+`/workspace/selvedge/<task id>/repository` on a dedicated Tencent Cloud CVM spot
+instance. The checkout uses the main Workspace's current HEAD commit, which must
+already be pushed to GitHub; local uncommitted, untracked and ignored files are
+not copied. A primary Workspace below the repository root keeps the same relative
+working directory in the cloud. The repository must contain `.selvedge/env.sh`;
+Selvedge runs it with Bash from the checkout root and starts the task only after
+it succeeds. A missing GitHub remote, unavailable commit, missing script or failed
+initialization fails task startup. Initialization logs remain under
+`<service home>/cloud-workspaces/<journal namespace>/task-<task id>.log`.
+
+Bash file access (including image files), its process sessions and project guidance
+use the bound cloud environment. Process reads retain the ordinary bounded output window; write large
+logs into cloud project files and read them with Bash. Cloud Bash has Full Access.
+The model receives a reminder that MCP
+paths can still refer to the local host. Archiving the owning task destroys its
+cloud instance through the same workspace recycling entry used by local
+worktrees. Initialization failure also destroys the instance; a failed cleanup
+remains visible and can be retried through `retry_worktree_archive`. Forks share
+the environment, so archive borrowers before its owner. To use voice with a cloud
+task, create the task first and then start voice in its conversation.
+
+Enable the Tencent backend in the service home's `config.json`:
+
+```json
+{
+  "cloud": {
+    "backend": "tencent_cvm",
+    "tencent_cvm": {
+      "region": "ap-guangzhou",
+      "zone": "ap-guangzhou-3",
+      "image_id": "img-EXAMPLE",
+      "instance_type": "SA5.MEDIUM2",
+      "vpc_id": "vpc-EXAMPLE",
+      "subnet_id": "subnet-EXAMPLE",
+      "security_group_ids": ["sg-EXAMPLE"],
+      "key_id": "skey-EXAMPLE",
+      "ssh_private_key": "/absolute/path/to/cvm-key",
+      "spot_max_price": "0.60"
+    }
+  }
+}
+```
+
+Set `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY` in the service process;
+`TENCENTCLOUD_TOKEN` supplies an optional session token. Private repositories use
+`GITHUB_TOKEN`. These credentials are not model context or clone URL parameters.
+The host needs OpenSSH and access to the configured instance's SSH port. The
+Linux image must already provide Bash, Git, `setsid` and an SSH server accepting
+`key_id`. The SSH user must be able to create `/workspace`; `ssh_user` defaults
+to `root`. The setup script must leave Python 3 available for filesystem reads.
+
+Optional Tencent settings are `ssh_port` (22), `address_type` (`"public"` or
+`"private"`, default `"public"`), `internet_max_bandwidth_out` (5 Mbps),
+`startup_timeout_ms` (600000) and `api_endpoint` (an explicit Tencent API endpoint
+URL). Use a security group and network path that allow the host to reach SSH.
+Omit `cloud`, or set it to `false`, to leave cloud creation unconfigured.
 
 Approval policy has three modes. **Full Access** runs Bash without isolation.
 **Ask for Approval** keeps ordinary commands sandboxed and shows an exact-command

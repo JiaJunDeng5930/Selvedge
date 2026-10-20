@@ -869,11 +869,31 @@ def speech_activity(activity: Speech.Activity, editor: U.Editor, revision: Nat, 
        speech_control(parent, "speaker", speech_mute_label(output_muted, "Unmute speaker", "Mute speaker"), Speech.ToggleOutputMute{}, True{}),
        speech_control(parent, "end", "End voice", Speech.Cancel{}, True{})]
 
+def cloud_task_draft(found: Maybe<&2, U.Draft>) -> Bool:
+  match found:
+    case Some{U.Draft{revision, U.NewTask{message, profile, reasoning, context, U.CloudWorkspace{}, work}, feedback, entry}}: True{}
+    case _: False{}
+
+def cloud_task_editor(editor: U.Editor, state: InteractionTypes.State) -> Bool:
+  cloud_task_draft(E.find_draft(E.drafts(E.session(Core.application(state))), editor))
+
+def speech_activity_for_editor(cloud: Bool, activity: Speech.Activity, +editor: U.Editor, revision: Nat, +parent: Identity.Key, +speech: Speech.State) -> +List<SurfaceTypes.Node>:
+  match cloud activity:
+    case True{} Speech.Idle{}:
+      speech_control(parent, "dictate", "Dictate", Speech.BeginDictation{editor, revision}, Speech.can_begin(speech, False{})) <>
+        speech_notice("Create the cloud task before starting voice", "cloud-voice", parent)
+    case _ activity: speech_activity(activity, editor, revision, parent, speech)
+
+def task_environment_nodes(+editor: U.Editor, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  match editor:
+    case U.NewTaskEditor{work}: [field_node(OperationParameters.FieldScene{OperationParameters.TaskEnvironment{}, "Task environment", OperationParameters.Choice{}}, editor, parent, state, Nil{})]
+    case _: Nil{}
+
 def speech_controls(+editor: U.Editor, revision: Nat, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   +speech = Services.speech(Core.services(state))
   [region(parent, "speech-controls", "Speech input", SurfaceTypes.Toolbar{},
     List.append(&2, SurfaceTypes.Node, speech_choices(Speech.connections(speech), Speech.selected(speech), parent, Speech.free(speech)),
-      List.append(&2, SurfaceTypes.Node, speech_activity(Speech.activity(speech), editor, revision, parent, speech),
+      List.append(&2, SurfaceTypes.Node, speech_activity_for_editor(cloud_task_editor(editor, state), Speech.activity(speech), editor, revision, parent, speech),
         List.append(&2, SurfaceTypes.Node, speech_notice(Speech.notice(speech), "notice", parent),
           List.append(&2, SurfaceTypes.Node, speech_notice(Speech.live_text(speech), "live", parent),
             [speech_control(parent, "refresh", "Refresh audio connections", Speech.Refresh{}, Speech.free(speech))])))))]
@@ -886,7 +906,7 @@ def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +
       List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, UX.action(identity, revision, pending), key, state),
         [SurfaceTypes.Node{key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, key, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, key, state), file_field(identity, Identity.Part{key, "attachments"}, state)),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, task_environment_nodes(identity, key, state), List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, key, state), file_field(identity, Identity.Part{key, "attachments"}, state))),
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), action_feedback_nodes(identity, feedback, key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}])
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -897,7 +917,7 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: In
       List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, UX.action(identity, revision, pending), composer_key, state),
         [SurfaceTypes.Node{composer_key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, composer_key, state), file_field(identity, Identity.Part{composer_key, "attachments"}, state)),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, task_environment_nodes(identity, composer_key, state), List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, composer_key, state), file_field(identity, Identity.Part{composer_key, "attachments"}, state))),
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, composer_key, state), action_feedback_nodes(identity, feedback, composer_key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, composer_key, state)]))}])
 
 def approval_value(value: J.Json) -> String:
@@ -1392,13 +1412,13 @@ def worktree_status_label_discriminant(+value: String) -> WorktreeStatusLabelNam
 
 def worktree_status_label_classified(status: WorktreeStatusLabelName) -> String:
   match status:
-    case WorktreeStatusLabelNameCreating{}: "Creating worktree…"
-    case WorktreeStatusLabelNameCreatingArchived{}: "Creating worktree before archiving…"
-    case WorktreeStatusLabelNameReady{}: "Worktree ready"
-    case WorktreeStatusLabelNameCreateFailed{}: "Worktree creation failed"
-    case WorktreeStatusLabelNameArchiving{}: "Archiving worktree…"
-    case WorktreeStatusLabelNameArchived{}: "Worktree archived"
-    case WorktreeStatusLabelNameArchiveFailed{}: "Worktree archive failed"
+    case WorktreeStatusLabelNameCreating{}: "Creating workspace…"
+    case WorktreeStatusLabelNameCreatingArchived{}: "Creating workspace before archiving…"
+    case WorktreeStatusLabelNameReady{}: "Workspace ready"
+    case WorktreeStatusLabelNameCreateFailed{}: "Workspace creation failed"
+    case WorktreeStatusLabelNameArchiving{}: "Archiving workspace…"
+    case WorktreeStatusLabelNameArchived{}: "Workspace archived"
+    case WorktreeStatusLabelNameArchiveFailed{}: "Workspace archive failed"
     case WorktreeStatusLabelNameOther{}: ""
 
 def worktree_status_label(status: String) -> String:
@@ -1410,7 +1430,7 @@ def worktree_fact(+identity: String, label: String, value: String, parent: Ident
 def worktree_diagnostic(message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match message:
     case "": Nil{}
-    case other: [SurfaceTypes.Node{Identity.Part{parent, "worktree/error"}, "worktree/error", "Worktree", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{other}, Nil{}}]
+    case other: [SurfaceTypes.Node{Identity.Part{parent, "worktree/error"}, "worktree/error", "Workspace", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{other}, Nil{}}]
 
 type WorktreeFeedbackStatusName is Data:
   WorktreeFeedbackStatusNameCreating{}
@@ -1430,11 +1450,11 @@ def worktree_feedback_status_discriminant(+value: String) -> WorktreeFeedbackSta
 
 def worktree_feedback_status_classified(status: WorktreeFeedbackStatusName, message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match status:
-    case WorktreeFeedbackStatusNameCreating{}: [worktree_fact("worktree/status", "Worktree", "Creating worktree…", parent)]
-    case WorktreeFeedbackStatusNameCreatingArchived{}: [worktree_fact("worktree/status", "Worktree", "Creating worktree before archiving…", parent)]
-    case WorktreeFeedbackStatusNameArchiving{}: [worktree_fact("worktree/status", "Worktree", "Archiving worktree…", parent)]
-    case WorktreeFeedbackStatusNameCreateFailed{}: worktree_diagnostic("Worktree creation failed: " ++ message, parent)
-    case WorktreeFeedbackStatusNameArchiveFailed{}: worktree_diagnostic("Worktree archive failed: " ++ message, parent)
+    case WorktreeFeedbackStatusNameCreating{}: [worktree_fact("worktree/status", "Workspace", "Creating workspace…", parent)]
+    case WorktreeFeedbackStatusNameCreatingArchived{}: [worktree_fact("worktree/status", "Workspace", "Creating workspace before archiving…", parent)]
+    case WorktreeFeedbackStatusNameArchiving{}: [worktree_fact("worktree/status", "Workspace", "Archiving workspace…", parent)]
+    case WorktreeFeedbackStatusNameCreateFailed{}: worktree_diagnostic("Workspace creation failed: " ++ message, parent)
+    case WorktreeFeedbackStatusNameArchiveFailed{}: worktree_diagnostic("Workspace archive failed: " ++ message, parent)
     case WorktreeFeedbackStatusNameOther{}: Nil{}
 
 def worktree_feedback_status(status: String, message: String, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
@@ -1463,9 +1483,9 @@ def worktree_detail_admitted(present: Bool, +value: J.Json, +parent: Identity.Ke
   match present:
     case False{}: Nil{}
     case True{}:
-      List.append(&2, SurfaceTypes.Node, [worktree_fact("worktree/status", "Worktree status", worktree_status_label(J.text(J.get(value, "status"))), parent),
+      List.append(&2, SurfaceTypes.Node, [worktree_fact("worktree/status", "Workspace status", worktree_status_label(J.text(J.get(value, "status"))), parent),
         worktree_fact("worktree/source", "Source repository", J.text(J.get(value, "source_root")), parent),
-        worktree_fact("worktree/root", "Managed worktree", J.text(J.get(value, "root")), parent)], List.append(&2, SurfaceTypes.Node, worktree_diagnostic(J.text(J.get(value, "message")), parent), worktree_archive_retry(J.text(J.get(value, "status")), J.natural_or(J.natural(J.get(value, "task_id")), 0n), parent, state)))
+        worktree_fact("worktree/root", "Managed workspace", J.text(J.get(value, "root")), parent)], List.append(&2, SurfaceTypes.Node, worktree_diagnostic(J.text(J.get(value, "message")), parent), worktree_archive_retry(J.text(J.get(value, "status")), J.natural_or(J.natural(J.get(value, "task_id")), 0n), parent, state)))
 
 def worktree_details(+observation: J.Json, parent: Identity.Key, state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   worktree_detail_admitted(J.boolean(J.get(observation, "ok")), J.get(observation, "result"), parent, state)
@@ -2227,7 +2247,9 @@ def worktree_field_label(editor: U.Editor) -> String:
     case _: "Create worktree for new tasks"
 
 def worktree_field(+editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> SurfaceTypes.Node:
-  field_node(OperationParameters.FieldScene{OperationParameters.CreateWorktree{}, worktree_field_label(editor), OperationParameters.Choice{}}, editor, parent, state, Nil{})
+  match editor:
+    case U.NewTaskEditor{work}: field_node(OperationParameters.FieldScene{OperationParameters.TaskEnvironment{}, "Task environment", OperationParameters.Choice{}}, editor, parent, state, Nil{})
+    case _: field_node(OperationParameters.FieldScene{OperationParameters.CreateWorktree{}, worktree_field_label(editor), OperationParameters.Choice{}}, editor, parent, state, Nil{})
 
 def activity_original_expression(subject: Experience.Subject, +edit: Experience.ProjectEdit, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   Experience.Subject{+editor, field} = subject
