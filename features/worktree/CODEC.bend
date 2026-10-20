@@ -213,7 +213,7 @@ def entry_json(task_id: Nat, value: W.Worktree) -> J.Json:
   W.Worktree{source_root, root, status, message, target_primary, backend} = value
   J.Object{[J.Field{"task_id", J.nat(task_id)}, J.Field{"backend", J.Text{W.backend_name(backend)}}, J.Field{"source_root", J.Text{source_root}},
     J.Field{"root", D.optional_string(root)}, J.Field{"status", J.Text{status_name(status)}},
-    J.Field{"message", D.content_json(message)}, J.Field{"target_primary", J.Text{target_primary}}]}
+    J.Field{"message", J.Text{message}}, J.Field{"target_primary", J.Text{target_primary}}]}
 
 def entry_items(values: +List<Finite.Entry(W.Worktree)>) -> +List<J.Json>:
   match values:
