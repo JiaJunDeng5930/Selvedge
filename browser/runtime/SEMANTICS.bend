@@ -179,7 +179,7 @@ def origin(input: Web.Input) -> String:
     case _: ""
 
 def empty() -> M.World():
-  M.initial()
+  M.initial(M.initial_requests())
 
 def code_key(source: Code.Source, ordinal: Nat) -> String:
   Code.dom_key(Code.Identity{source, ordinal})

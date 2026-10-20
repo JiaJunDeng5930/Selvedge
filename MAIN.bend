@@ -24,4 +24,4 @@ def Host.receive(max_bytes: U32) -> IO(Result<&1, &1, U32 & String, Maybe<&2, +L
 def main() -> IO(Unit):
   do IO<Unit>:
     packet : Maybe<&2, +List<String>> <- IO.try(Maybe<&2, +List<String>>, Host.receive(D.frame_bytes()))
-    serve(packet, M.initial())
+    serve(packet, M.initial(M.initial_requests()))

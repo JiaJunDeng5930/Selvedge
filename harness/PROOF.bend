@@ -2,6 +2,8 @@ import ./search/PROOF.bend as SearchProof
 import ./conversation/speech-proof.bend as SpeechProof
 import Base
 import ./tools/discovery-proof.bend as DiscoveryProof
+import ./initial-catalog-proof.bend as CatalogProof
+import ./tools/MODEL.bend as Tools
 import ./tasks/PROOF.bend as TaskProof
 import ./features/PROOF.bend as FrameProof
 import ../bendlib/component.bend as C
@@ -23,6 +25,7 @@ import ./protocol/COMMIT.bend as Commit
 import ./protocol/commit-proof.bend as CommitProof
 import ../bendlib/categories.bend as Categories
 import ./execution/notifications.bend as Notifications
+import ./approval/HOOKS.bend as Hooks
 
 def board_frame(value: Board.State, world: M.World()) ->
   {F.modules(C.rest(D.State, F.State(), BoardState.store(value, world))) == F.modules(C.rest(D.State, F.State(), world)) : F.Modules()}:
@@ -129,8 +132,31 @@ def Laws.delivery_observation_effects(durable, decision, previous, silent):
 
 # Local proof obligations for the safety boundary. No runtime policy lives here.
 
+def initial_catalog_routes() -> {Hooks.routes(Tools.catalog_requests(M.initial_requests()), Nil{}) == True{} : Bool}:
+  CatalogProof.routes(M.initial_requests())
+
+def initial_catalog_unique() -> {I.unique_tools(Tools.catalog_requests(M.initial_requests())) == True{} : Bool}:
+  CatalogProof.unique(M.initial_requests(), {==})
+
+def initial_environment_valid(+catalog: +List<D.Tool>,
+  routed: {Hooks.routes(catalog, Nil{}) == True{} : Bool}, unique: {I.unique_tools(catalog) == True{} : Bool}) ->
+  {I.environment(D.state_environment(D.initial_state(catalog))) == True{} : Bool}:
+  Equal.trans(Bool, I.environment(D.state_environment(D.initial_state(catalog))),
+    I.unique_tools(catalog) && True{} && True{} && True{}, True{},
+    Equal.cong(Bool, Bool, accepted => accepted && True{} && I.unique_tools(catalog) && True{} && True{} && True{},
+      Hooks.routes(catalog, Nil{}), True{}, routed),
+    Equal.cong(Bool, Bool, accepted => accepted && True{} && True{} && True{}, I.unique_tools(catalog), True{}, unique))
+
+def initial_world_with_valid_environment(+requests: +List<Tools.Request>,
+  valid: {I.environment(D.state_environment(D.initial_state(Tools.catalog_requests(requests)))) == True{} : Bool}) ->
+  {I.world(M.initial(requests)) == True{} : Bool}:
+  Equal.cong(Bool, Bool, accepted => accepted && True{} && True{} && True{} && True{} && True{},
+    I.environment(D.state_environment(D.initial_state(Tools.catalog_requests(requests)))), True{}, valid)
+
 def Laws.initial_world_valid():
-  {==}
+  # Keep schema admission opaque while composing the production catalog with the initial state.
+  initial_world_with_valid_environment(M.initial_requests(),
+    initial_environment_valid(Tools.catalog_requests(M.initial_requests()), initial_catalog_routes(), initial_catalog_unique()))
 
 def Laws.transition_admitted(world, input):
   Commit.evidence(world, P.construct_transition(input, world))

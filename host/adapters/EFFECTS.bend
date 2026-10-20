@@ -1972,20 +1972,63 @@ def meaning_route_0(+accepted: Bool, +operation: String, +source: J.Json) -> J.J
     case True{}: response_text(source, True{})
     case False{}: meaning_route_1(String.eq(operation, "effect.task_text_text"), operation, source)
 
+def meaning_route_48(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: worktree_recovery_effect(source)
+    case False{}: meaning_route_0(String.eq(operation, "effect.approval_text"), operation, source)
+
+def meaning_route_47(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: worktree_workspace(source)
+    case False{}: meaning_route_48(String.eq(operation, "effect.worktree_recovery_effect"), operation, source)
+
+def meaning_route_46(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: worktree_receipt(source)
+    case False{}: meaning_route_47(String.eq(operation, "effect.worktree_workspace"), operation, source)
+
+def meaning_route_45(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: worktree_path_admission(source)
+    case False{}: meaning_route_46(String.eq(operation, "effect.worktree_receipt"), operation, source)
+
+def meaning_route_44(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: worktree_locations(source)
+    case False{}: meaning_route_45(String.eq(operation, "effect.worktree_path"), operation, source)
+
+def meaning_route_43(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: workspace_command_observed(source)
+    case False{}: meaning_route_44(String.eq(operation, "effect.worktree_locations"), operation, source)
+
+def meaning_route_42(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: workspace_settings(source)
+    case False{}: meaning_route_43(String.eq(operation, "effect.workspace_command_observed"), operation, source)
+
+def meaning_route_41(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: workspace_command(source)
+    case False{}: meaning_route_42(String.eq(operation, "effect.workspace_settings"), operation, source)
+
+def meaning_route_40(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: message_image_match(source)
+    case False{}: meaning_route_41(String.eq(operation, "effect.workspace_command"), operation, source)
+
+def meaning_route_39(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: message_images(source)
+    case False{}: meaning_route_40(String.eq(operation, "effect.message_image_match"), operation, source)
+
+def meaning_route_38(+accepted: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match accepted:
+    case True{}: image_arguments(source)
+    case False{}: meaning_route_39(String.eq(operation, "effect.message_images"), operation, source)
+
 def meaning(+operation: String, +source: J.Json) -> J.Json:
-  match operation:
-    case "effect.image_arguments": image_arguments(source)
-    case "effect.message_images": message_images(source)
-    case "effect.message_image_match": message_image_match(source)
-    case "effect.workspace_command": workspace_command(source)
-    case "effect.workspace_settings": workspace_settings(source)
-    case "effect.workspace_command_observed": workspace_command_observed(source)
-    case "effect.worktree_locations": worktree_locations(source)
-    case "effect.worktree_path": worktree_path_admission(source)
-    case "effect.worktree_receipt": worktree_receipt(source)
-    case "effect.worktree_workspace": worktree_workspace(source)
-    case "effect.worktree_recovery_effect": worktree_recovery_effect(source)
-    case +operation: meaning_route_0(String.eq(operation, "effect.approval_text"), operation, source)
+  meaning_route_38(String.eq(operation, "effect.image_arguments"), operation, source)
 
 def family(+operation: String) -> Model.Adapter(source => meaning(operation, source)):
   Model.adapter(source => meaning(operation, source), source => meaning(operation, source), source => {==})

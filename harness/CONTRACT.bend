@@ -170,7 +170,7 @@ law interactions:
   InputMeaning()
 
 def StateMachine() -> Type:
-  {I.world(M.initial()) == True{} : Bool} &
+  {I.world(M.initial(M.initial_requests())) == True{} : Bool} &
     (@+state:M.World() -> @input:M.Input -> {I.world(state) == True{} : Bool} -> {I.world(P.next(state, input)) == True{} : Bool})
 
 law task_machine:

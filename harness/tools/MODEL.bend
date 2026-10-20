@@ -237,33 +237,42 @@ def catalog_constructed(member: Maybe<&1, Categories.Membership<Observation, aut
 def catalog_entry(request: Request) -> +List<D.Tool>:
   catalog_constructed(construct(request))
 
-def catalog(max_fork: Nat) -> +List<D.Tool>:
-  List.append(&2, D.Tool, catalog_entry(Request{"discover_tools", "Find external MCP and plugin tools by keywords, or load their complete definitions with exact names. External function declarations are a lightweight directory, not parameter definitions. Call this before using an unfamiliar external tool; copy its parameters from the result. names bypasses search and the result limit. Without query or names, returns a bounded directory page. Use offset for later pages. Definitions remain in ordinary tool results; rediscover after compaction if needed.", Native.Discover{}}),
-  List.append(&2, D.Tool, catalog_entry(Request{"create_task", "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.",
+def catalog_requests(requests: +List<Request>) -> +List<D.Tool>:
+  match requests:
+    case Nil{}: Nil{}
+    case Con{request, rest}:
+      List.append(&2, D.Tool, catalog_entry(request), catalog_requests(rest))
+
+def requests(max_fork: Nat) -> +List<Request>:
+  [Request{"discover_tools", "Find external MCP and plugin tools by keywords, or load their complete definitions with exact names. External function declarations are a lightweight directory, not parameter definitions. Call this before using an unfamiliar external tool; copy its parameters from the result. names bypasses search and the result limit. Without query or names, returns a bounded directory page. Use offset for later pages. Definitions remain in ordinary tool results; rediscover after compaction if needed.", Native.Discover{}},
+   Request{"create_task", "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.",
     Native.Create{Native.TextArgument{"profile", "Configured model profile", True{}, ""},
       Native.TextArgument{"reasoning", "Reasoning effort; defaults to the selected profile", False{}, "default"},
-      Native.TextArgument{"message", "Initial nonempty user request", True{}, ""}, Native.SettingsArgument{"settings", False{}}}}),
-  List.append(&2, D.Tool, catalog_entry(Request{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
-    Native.Fork{Native.RequiredNumber{"child_count", "Number of children", 1, U32.from_nat(max_fork)}, Native.TextsArgument{"messages", "Initial child message", False{}}, Native.SettingsArgument{"settings", False{}}}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"search_history", "Search user and assistant messages across tasks by a literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Returns bounded snippets and 0-based message_index; use read_task with after=message_index to read the original message.",
+      Native.TextArgument{"message", "Initial nonempty user request", True{}, ""}, Native.SettingsArgument{"settings", False{}}}},
+   Request{"fork_task", "Fork this task. The caller receives 0 and each child receives its one-based branch number.",
+    Native.Fork{Native.RequiredNumber{"child_count", "Number of children", 1, U32.from_nat(max_fork)}, Native.TextsArgument{"messages", "Initial child message", False{}}, Native.SettingsArgument{"settings", False{}}}},
+   Request{"search_history", "Search user and assistant messages across tasks by a literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Returns bounded snippets and 0-based message_index; use read_task with after=message_index to read the original message.",
       Native.Observe{Native.Search{Native.TextArgument{"query", "Literal keyword or phrase, 1..240 characters", True{}, ""},
         Native.OptionalNumber{"project_id", "Optional project identity", 0, 4294967295, Native.ConstantDefault{0n}},
         Native.OptionalNumber{"work_id", "Optional Work identity", 0, 4294967295, Native.ConstantDefault{0n}},
         Native.OptionalNumber{"after", "Result offset", 0, 4294967295, Native.ConstantDefault{0n}},
-        Native.OptionalNumber{"limit", "Maximum results", 1, 50, Native.ConstantDefault{20n}}}}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
-    Native.Observe{Native.Read{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.OptionalNumber{"after", "Exclusive history offset", 0, 4294967295, Native.ConstantDefault{0n}}, Native.OptionalNumber{"limit", "Maximum messages", 1, 100, Native.ConstantDefault{100n}}}}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
-    Native.Send{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.TextArgument{"message", "Nonempty message", True{}, ""}}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
-    Native.Archive{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"bash", "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied (at most 30 minutes).",
-    Native.Process{}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"read_process", "Read available incremental output from this task's Bash operation while running or after completion. Use next_cursor from the previous read. Output is bounded and explicitly marks discarded content. Call on demand; do not poll automatically.",
-      Native.ProcessRead{}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
-      Native.ProcessWrite{}}),
-    List.append(&2, D.Tool, catalog_entry(Request{"read_image", "Read a local PNG, JPEG, GIF or WebP image in this task's sandbox and return visual content to the model. Relative paths use the task workspace. Images are snapshotted before use; maximum 10 MiB. detail defaults to auto.",
-    Native.ReadImage{}}),
-    catalog_entry(Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
-    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}}))))))))))))
+        Native.OptionalNumber{"limit", "Maximum results", 1, 50, Native.ConstantDefault{20n}}}}},
+   Request{"read_task", "Read a bounded page of another task's history and its current lifecycle.",
+    Native.Observe{Native.Read{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.OptionalNumber{"after", "Exclusive history offset", 0, 4294967295, Native.ConstantDefault{0n}}, Native.OptionalNumber{"limit", "Maximum messages", 1, 100, Native.ConstantDefault{100n}}}}},
+   Request{"send_message_to_task", "Commit a user message to another task, or queue it while that task is busy or frozen.",
+    Native.Send{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}, Native.TextArgument{"message", "Nonempty message", True{}, ""}}},
+   Request{"archive_task", "Archive a task permanently and cancel its outstanding external work.",
+    Native.Archive{Native.RequiredNumber{"task_id", "Task identity", 0, 4294967295}}},
+   Request{"bash", "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. A running or awaiting_approval status is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification BEFORE executing it. A failed command may have partial effects: there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied (at most 30 minutes).",
+    Native.Process{}},
+   Request{"read_process", "Read available incremental output from this task's Bash operation while running or after completion. Use next_cursor from the previous read. Output is bounded and explicitly marks discarded content. Call on demand; do not poll automatically.",
+      Native.ProcessRead{}},
+   Request{"write_process", "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable.",
+      Native.ProcessWrite{}},
+   Request{"read_image", "Read a local PNG, JPEG, GIF or WebP image in this task's sandbox and return visual content to the model. Relative paths use the task workspace. Images are snapshotted before use; maximum 10 MiB. detail defaults to auto.",
+    Native.ReadImage{}},
+   Request{"cancel_operation", "Cancel one in-flight operation, not the task or its other work. Use an operation_id from a running status or read_task. Cancellation cannot undo side effects already performed.",
+    Native.Cancel{Native.OptionalNumber{"task_id", "Task identity; defaults to this task", 0, 4294967295, Native.CallerDefault{}}, Native.RequiredNumber{"operation_id", "Task identity", 0, 4294967295}}}]
+
+def catalog(max_fork: Nat) -> +List<D.Tool>:
+  catalog_requests(requests(max_fork))

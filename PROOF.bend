@@ -75,7 +75,7 @@ import ./browser/controls/PROOF.bend as ControlsProof
 # Bind the execution interface to its production operations and proofs.
 def execution_operations() -> Model.ExecutionOperations<M.World(), M.Decision()>:
   Model.ExecutionOperations{
-      M.initial(), world => Invariants.world(world), input => world => Program.transition(input, world),
+      M.initial(M.initial_requests()), world => Invariants.world(world), input => world => Program.transition(input, world),
       input => world => Concepts.interaction_specification(input, world), decision => Program.decision_world(decision),
       decision => Program.decision_reply(decision), decision => Program.decision_effects(decision), input => M.durable(input),
       events => state => Program.replay(events, state)}

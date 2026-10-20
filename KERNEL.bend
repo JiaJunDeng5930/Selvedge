@@ -5,7 +5,7 @@ import ./harness/transport/MODEL.bend as Interface
 import ./bendlib/json.bend as J
 
 def initial() -> M.World():
-  M.initial()
+  M.initial(M.initial_requests())
 
 def packet(tokens: +List<String>, world: M.World()) -> Interface.Output:
   Frontend.packet(tokens, world)

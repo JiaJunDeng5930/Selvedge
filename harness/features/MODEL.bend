@@ -179,11 +179,11 @@ def task_graph_specs(specs: +List<TaskGraphCodec.Spec>) -> +List<CommandSpec>:
     case Con{TaskGraphCodec.Spec{name, description, kind, schema}, rest}:
       CommandSpec{name, description, TaskGraphKind{kind}, schema} <> task_graph_specs(rest)
 
-def task_graph_tools(specs: +List<TaskGraphCodec.Spec>) -> +List<D.Tool>:
+def task_graph_requests(specs: +List<TaskGraphCodec.Spec>) -> +List<Tools.Request>:
   match specs:
     case Nil{}: Nil{}
     case Con{TaskGraphCodec.Spec{+name, description, kind, schema}, rest}:
-      List.append(&2, D.Tool, Tools.catalog_entry(Tools.Request{name, description, Native.Feature{name, schema}}), task_graph_tools(rest))
+      Tools.Request{name, description, Native.Feature{name, schema}} <> task_graph_requests(rest)
 
 def work_specs(specs: +List<WorkCodec.Spec>) -> +List<CommandSpec>:
   match specs:
@@ -192,22 +192,24 @@ def work_specs(specs: +List<WorkCodec.Spec>) -> +List<CommandSpec>:
       CommandSpec{name, description, WorkKind{kind}, schema} <> work_specs(rest)
 
 
-def work_tools(specs: +List<WorkCodec.Spec>) -> +List<D.Tool>:
+def work_requests(specs: +List<WorkCodec.Spec>) -> +List<Tools.Request>:
   match specs:
     case Nil{}: Nil{}
     case Con{WorkCodec.Spec{+name, description, kind, schema}, rest}:
-      List.append(&2, D.Tool, Tools.catalog_entry(Tools.Request{name, description, Native.Feature{name, schema}}), work_tools(rest))
+      Tools.Request{name, description, Native.Feature{name, schema}} <> work_requests(rest)
 
 
-def read_current_task_tools() -> +List<D.Tool>:
-  Tools.catalog_entry(Tools.Request{"read_current_task",
+def read_current_task_requests() -> +List<Tools.Request>:
+  [Tools.Request{"read_current_task",
     "Read this calling Task's identity, lifecycle and optional work_id. When work_id is present, use read_work to discover its Task graph IDs.",
-    Native.Observe{Native.Read{Native.Caller{}, Native.Constant{0n}, Native.Constant{1n}}}})
+    Native.Observe{Native.Read{Native.Caller{}, Native.Constant{0n}, Native.Constant{1n}}}}]
 
+def native_requests(+settings_schema: J.Json) -> +List<Tools.Request>:
+  List.append(&2, Tools.Request, task_graph_requests(TaskGraphCodec.specifications(settings_schema)),
+    List.append(&2, Tools.Request, work_requests(WorkCodec.specifications(settings_schema)), read_current_task_requests()))
 
-def native_catalog(+settings_schema: J.Json) -> +List<D.Tool>:
-  List.append(&2, D.Tool, task_graph_tools(TaskGraphCodec.specifications(settings_schema)),
-    List.append(&2, D.Tool, work_tools(WorkCodec.specifications(settings_schema)), read_current_task_tools()))
+def native_catalog(settings_schema: J.Json) -> +List<D.Tool>:
+  Tools.catalog_requests(native_requests(settings_schema))
 
 
 def worktree_specs(specs: +List<WorktreeCodec.Spec>) -> +List<CommandSpec>:
