@@ -189,7 +189,7 @@ export async function build(options = {}) {
 
   await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
 
-  // Heavy extraction and JS linking run one target at a time within the 4 GiB environment.
+  // Extraction and JS linking run one target at a time to bound concurrent memory use.
   for (const name of selected) {
     const target = targets[name];
     const filename = `theories/${target.module.replaceAll('.', '/')}.v`;

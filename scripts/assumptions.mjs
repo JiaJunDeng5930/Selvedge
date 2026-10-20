@@ -29,8 +29,15 @@ export async function auditAssumptions({ prefixes = [] } = {}) {
     if (/^\s*(?:Axiom|Axioms|Admitted)\b/m.test(source) || /\badmit\s*[.;]/.test(source)) {
       throw new Error(`Unchecked proof declaration or tactic in ${filename}`);
     }
-    for (const match of source.matchAll(/^\s*(?:Theorem|Lemma|Corollary|Proposition|Fact)\s+([A-Za-z_][A-Za-z_0-9']*)\b/gm)) {
-      declarations.push({ module, name: `${module}.${match[1]}` });
+    // Vendored RecordEta checks a theorem inside __test; its name includes that module.
+    const scopes = [];
+    for (const match of source.matchAll(/^\s*(?:(Module|Section)\s+(?:(?:Import|Export|Type)\s+)?([A-Za-z_][A-Za-z_0-9']*)\s*\.|End\s+([A-Za-z_][A-Za-z_0-9']*)\s*\.|(?:Theorem|Lemma|Corollary|Proposition|Fact)\s+([A-Za-z_][A-Za-z_0-9']*)\b)/gm)) {
+      if (match[1]) scopes.push({ kind: match[1], name: match[2] });
+      else if (match[3]) scopes.pop();
+      else {
+        const namespace = scopes.filter(scope => scope.kind === 'Module').map(scope => scope.name);
+        declarations.push({ module, name: [module, ...namespace, match[4]].join('.') });
+      }
     }
   }
   if (!declarations.length) throw new Error('No checked theorem declarations found for assumption audit');

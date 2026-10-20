@@ -6,6 +6,9 @@ node_modules/
 *.vok
 *.glob
 .*.aux
+.lia.cache
+.nia.cache
+__pycache__/
 _build/
 host/public/generated/
 plugins/selvedge-chatgpt/generated/
