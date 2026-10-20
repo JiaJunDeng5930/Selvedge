@@ -32,11 +32,11 @@ def initialize(+id: Nat, +workspace: D.Workspace, +decision: M.Decision()) ->
         initialized_task(State.task(id, world), world))
 
 def start(
-  ~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+  ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
-  +profile: D.Profile, +reasoning: String, +message: String, +selection: Workspace.Selection, +world: M.World()) ->
+  +profile: D.Profile, +reasoning: String, +message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) ->
   {Actual.start(~actual_spawn, profile, reasoning, message, selection, world) == Spec.start(~spec_spawn, profile, reasoning, message, selection, world) : M.Decision()}:
   Workspace.Selection{context, guidance} = selection
   Equal.trans(M.Decision(),

@@ -156,8 +156,28 @@ def request_has_opaque_acc(value: J.Json, found: Bool) -> Bool:
       request_has_opaque_acc(J.Array{tail}, request_has_opaque_acc(head, found))
     case J.Object{Con{J.Field{+name, +value}, tail}}:
       request_has_opaque_acc(J.Object{tail}, request_has_opaque_acc(value,
-        found || (String.eq(name, "encrypted_content") && J.is_text(value) && Bool.not(String.eq(J.text(value), "")))))
+        found || (String.eq(name, "image_asset") && J.is_object(value)) || (String.eq(name, "encrypted_content") && J.is_text(value) && Bool.not(String.eq(J.text(value), "")))))
     case _: found
+
+def choose_nat(condition: Bool, yes: Nat, no: Nat) -> Nat:
+  match condition:
+    case True{}: yes
+    case False{}: no
+
+def request_image_count(value: J.Json) -> Nat:
+  match value:
+    case J.Array{Con{head, tail}}: Nat.add(request_image_count(head), request_image_count(J.Array{tail}))
+    case J.Object{Con{J.Field{name, +value}, tail}}:
+      Nat.add(choose_nat(String.eq(name, "image_asset") && J.is_object(value), 1n, 0n),
+        Nat.add(request_image_count(value), request_image_count(J.Object{tail})))
+    case _: 0n
+
+def request_has_images(value: J.Json) -> Bool:
+  match value:
+    case J.Array{Con{head, tail}}: request_has_images(head) || request_has_images(J.Array{tail})
+    case J.Object{Con{J.Field{name, +value}, tail}}:
+      (String.eq(name, "image_asset") && J.is_object(value)) || request_has_images(value) || request_has_images(J.Object{tail})
+    case _: False{}
 
 def request_has_opaque(value: J.Json) -> Bool:
   request_has_opaque_acc(value, False{})
@@ -173,10 +193,21 @@ def measurement_plan(remote: Bool, +source: J.Json) -> J.Json:
     case True{}: Model.success(J.Object{[J.Field{"action", J.Text{"remote"}}]})
     case False{}: measurement_local(source)
 
+# NOTE: Codex's account client estimates non-original images at ceil(7373 / 4) tokens; the private account transport does not promise the public token-count route.
+def account_image_estimate(+source: J.Json) -> J.Json:
+  Model.success(J.Object{[J.Field{"action", J.Text{"local"}}, J.Field{"scope", J.get(source, "scope")},
+    J.Field{"input_tokens", J.nat(Nat.add(J.utf8_length(J.stringify(J.get(source, "request"))), Nat.mul(1844n, request_image_count(J.get(source, "request")))))},
+    J.Field{"tokenizer", J.Text{"codex_image_estimate"}}]})
+
+def measurement_image_account(estimate: Bool, +source: J.Json) -> J.Json:
+  match estimate:
+    case True{}: account_image_estimate(source)
+    case False{}: measurement_plan(Nat.is_le(natural(J.get(source, "bytes")), choose_nat(request_has_images(J.get(source, "request")), 33554432n, natural(J.get(J.get(source, "limits"), "frame_bytes")))), source)
+
 def measurement_request(valid: Bool, +source: J.Json) -> J.Json:
   match valid:
     case False{}: Model.failure("Context measurement requires the complete encoded request")
-    case True{}: measurement_plan(Nat.is_le(natural(J.get(source, "bytes")), natural(J.get(J.get(source, "limits"), "frame_bytes"))), source)
+    case True{}: measurement_image_account(String.eq(J.text(J.get(J.get(source, "profile"), "provider")), "chatgpt") && request_has_images(J.get(source, "request")), source)
 
 def unsupported_route(+source: J.Json) -> Bool:
   Bool.not(J.same(J.get(source, "code"), J.Text{"model_not_found"})) &&

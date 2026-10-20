@@ -27,9 +27,9 @@ def created(+work: Maybe<&2, Nat>, +key: String, +id: Nat, +previous: +List<G.Re
   admitted(J.boolean(J.get(reply, "ok")), work, key, id, previous, before, world, reply, effects)
 
 # Full decisions are the interaction premise, including effects and failures.
-def birth(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+def birth(~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   +progress: Spec.Births, +node: O.GraphNode) ->
   {Actual.birth(~actual_spawn, progress, node) == Spec.birth(~spec_spawn, progress, node) : Spec.Births}:
@@ -47,9 +47,9 @@ def birth(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection ->
           creation(profile, reasoning, message, selection, world)),
         created(work, key, Actual.next_task(world), previous, effects, spec_spawn(profile, reasoning, message, selection, world)))
 
-def births_from(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+def births_from(~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   nodes: +List<O.GraphNode>, +progress: Spec.Births) ->
   {Actual.births_from(~actual_spawn, nodes, progress) == Spec.births_from(~spec_spawn, nodes, progress) : Spec.Births}:
@@ -81,9 +81,9 @@ def failed_installation(+id: Nat, +declaration: G.Declaration, +reply: J.Json, +
   match declaration:
     case G.Declaration{name, nodes, rules}: {==}
 
-def install(~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+def install(~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   +id: Nat, +work: Maybe<&2, Nat>, +declaration: G.Declaration, +nodes: +List<O.GraphNode>, +world: M.World()) ->
   {Actual.install(~actual_spawn, id, work, declaration, nodes, world) == Spec.install(~spec_spawn, id, work, declaration, nodes, world) : M.Decision()}:

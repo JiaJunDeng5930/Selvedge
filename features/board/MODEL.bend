@@ -609,6 +609,20 @@ def prompt(id: Nat, draft: Draft, instructions: String) -> String:
   instructions ++ "\n\nBoard card SV-" ++ Nat.show(1n+id) ++ ": " ++ title ++ "\n\n" ++ description ++
     "\n\nAttached files (read only when needed):" ++ attachment_prompt(attachments)
 
+def attachment_image(visual: Bool, id: String, mime: String, bytes: U32, rest: +List<D.ContentPart>) -> +List<D.ContentPart>:
+  match visual:
+    case True{}: D.ImagePart{D.ImageAsset{id, mime, bytes}, D.ImageAuto{}} <> rest
+    case False{}: rest
+
+def attachment_images(files: +List<Attachment>) -> +List<D.ContentPart>:
+  match files:
+    case Nil{}: Nil{}
+    case Con{Attachment{id, name, +mime, path, bytes}, rest}:
+      attachment_image(String.starts_with(mime, "image/"), id, mime, bytes, attachment_images(rest))
+
+def prompt_content(id: Nat, +draft: Draft, instructions: String) -> D.UserContent:
+  D.UserContent{D.TextPart{prompt(id, draft, instructions)} <> attachment_images(attachments(draft))}
+
 def identifier(id: Nat) -> String:
   "SV-" ++ Nat.show(1n+id)
 

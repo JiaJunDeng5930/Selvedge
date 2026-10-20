@@ -31,7 +31,7 @@ type Editor is Data:
   TitlePromptEditor{}
 
 type Text is Data:
-  Text{value: String}
+  Text{value: String, images: +List<B.Attachment>}
 
 type ReadingIntent is Data:
   FollowLatest{}
@@ -74,6 +74,7 @@ type Edit is Data:
   ConfirmDirectory{}
   EditWorkspace{change: Context.WorkspaceEdit}
   WriteMessage{message: Text}
+  WriteImages{images: +List<B.Attachment>}
   ChooseDelivery{delivery: Delivery}
   ChooseModel{profile: String, reasoning: String}
   ConfigureContext{change: Context.Change}
@@ -196,7 +197,7 @@ def approval_outcome(allow: Bool, reason: String) -> D.ApprovalOutcome:
 def direct_command(action: Action) -> Maybe<&2, M.Command>:
   match action:
     case CreateWork{}: Some{M.FeatureCommand{F.WorkCommand{Work.Create{""}}}}
-    case BeginSideConversation{task}: Some{M.OpenSideConversation{task, ""}}
+    case BeginSideConversation{task}: Some{M.OpenSideConversation{task, D.text_content("")}}
     case ReturnSideConversation{task}: Some{M.ReturnSideConversation{task}}
     case ControlTask{task, control}: Some{M.ChangeStatus{task, control}}
     case CancelOperation{task, operation}: Some{M.Cancel{task, operation}}
@@ -231,11 +232,41 @@ def same_editor(left: Editor, right: Editor) -> Bool:
   String.eq(editor_key(left), editor_key(right))
 
 def text(value: Text) -> String:
-  Text{value} = value
+  Text{value, images} = value
   value
 
 def initial_text(value: String) -> Text:
-  Text{value}
+  Text{value, Nil{}}
+
+def images(value: Text) -> +List<B.Attachment>:
+  Text{value, images} = value
+  images
+
+def with_text(value: String, previous: Text) -> Text:
+  Text{value, images(previous)}
+
+def with_images(files: +List<B.Attachment>, previous: Text) -> Text:
+  Text{text(previous), files}
+
+def image_parts(files: +List<B.Attachment>) -> +List<D.ContentPart>:
+  match files:
+    case Nil{}: Nil{}
+    case Con{B.Attachment{id, name, mime, path, bytes}, rest}:
+      D.ImagePart{D.ImageAsset{id, mime, bytes}, D.ImageAuto{}} <> image_parts(rest)
+
+def content(value: Text) -> D.UserContent:
+  Text{value, images} = value
+  D.UserContent{D.TextPart{value} <> image_parts(images)}
+
+def has_content(value: Text) -> Bool:
+  D.content_nonempty(content(value))
+
+def attachments(body: Body) -> +List<B.Attachment>:
+  match body:
+    case NewTask{message, profile, reasoning, context, create_worktree, work}: images(message)
+    case Message{task, message, delivery}: images(message)
+    case Card{card, revision, B.Draft{title, description, stage, priority, owner, project, labels, files}, assist, profile, keep_open}: files
+    case _: Nil{}
 
 def work_graph_editor(graph: Maybe<&2, Nat>, work: Nat) -> Editor:
   match graph:
@@ -314,8 +345,10 @@ def apply_edit(change: Edit, body: Body, world: M.World()) -> Result<&2, &2, Str
     case EditWorkspace{change} body: apply_workspace(change, body, world)
     case ChooseWorktree{enabled} NewTask{message, profile, reasoning, context, previous, work}: Done{NewTask{message, profile, reasoning, context, enabled, work}}
     case ChooseWorktree{enabled} Project{id, name, workspace, previous}: Done{Project{id, name, workspace, enabled}}
-    case WriteMessage{value} NewTask{old, profile, reasoning, context, create_worktree, work}: Done{NewTask{value, profile, reasoning, context, create_worktree, work}}
-    case WriteMessage{value} Message{task, old, delivery}: Done{Message{task, value, delivery}}
+    case WriteMessage{value} NewTask{old, profile, reasoning, context, create_worktree, work}: Done{NewTask{with_text(text(value), old), profile, reasoning, context, create_worktree, work}}
+    case WriteMessage{value} Message{task, old, delivery}: Done{Message{task, with_text(text(value), old), delivery}}
+    case WriteImages{files} NewTask{message, profile, reasoning, context, create_worktree, work}: Done{NewTask{with_images(files, message), profile, reasoning, context, create_worktree, work}}
+    case WriteImages{files} Message{task, message, delivery}: Done{Message{task, with_images(files, message), delivery}}
     case ChooseDelivery{value} Message{task, message, old}: Done{Message{task, message, value}}
     case ChooseModel{profile, reasoning} NewTask{message, old_profile, old_reasoning, context, create_worktree, work}:
       Done{NewTask{message, profile, reasoning, context, create_worktree, work}}
@@ -376,10 +409,13 @@ def project_command(id: Maybe<&2, Nat>, name: String, workspace: J.Json, guidanc
     case None{}: M.CreateProject{name, workspace, guidance, J.Boolean{create_worktree}}
     case Some{id}: M.UpdateProject{id, Some{name}, workspace, guidance, J.Boolean{create_worktree}}
 
-def message_command(delivery: Delivery, task: Nat, message: String) -> M.Command:
+def message_content_command(delivery: Delivery, task: Nat, message: D.UserContent) -> M.Command:
   match delivery:
     case Send{}: M.Send{task, message}
     case Steer{}: M.Steer{task, message}
+
+def message_command(delivery: Delivery, task: Nat, message: String) -> M.Command:
+  message_content_command(delivery, task, D.text_content(message))
 
 def side_conversation_question_checked(enabled: Bool, suffix: String) -> Maybe<&2, String>:
   match enabled:
@@ -390,10 +426,13 @@ def side_conversation_question(value: String) -> Maybe<&2, String>:
   +trimmed = String.trim(value)
   side_conversation_question_checked(String.eq(trimmed, "/side") || String.starts_with(trimmed, "/side ") || String.starts_with(trimmed, "/side\n") || String.starts_with(trimmed, "/side\t"), String.drop(trimmed, 5n))
 
-def composer_message_command(question: Maybe<&2, String>, delivery: Delivery, task: Nat, message: String) -> M.Command:
+def composer_content_command(question: Maybe<&2, String>, delivery: Delivery, task: Nat, message: Text) -> M.Command:
   match question:
-    case None{}: message_command(delivery, task, message)
-    case Some{question}: M.OpenSideConversation{task, question}
+    case None{}: message_content_command(delivery, task, content(message))
+    case Some{question}: M.OpenSideConversation{task, content(with_text(question, message))}
+
+def composer_message_command(question: Maybe<&2, String>, delivery: Delivery, task: Nat, message: String) -> M.Command:
+  composer_content_command(question, delivery, task, initial_text(message))
 
 def graph_payload(parsed: Maybe<&2, J.Json>) -> J.Json:
   match parsed:
@@ -410,12 +449,12 @@ def graph_command(graph: Maybe<&2, Nat>, parsed: Maybe<&2, J.Json>, work: Maybe<
     case None{}: M.FeatureCommand{F.TaskGraphCommand{Graph.Create{work, GraphCodec.declaration(graph_payload(parsed))}}}
     case Some{id}: M.FeatureCommand{F.TaskGraphCommand{Graph.Update{id, GraphCodec.declaration(graph_payload(parsed))}}}
 
-def task_creation(enabled: Bool, profile: String, reasoning: String, message: String, settings: J.Json) -> M.Command:
+def task_creation(enabled: Bool, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
   match enabled:
     case False{}: M.Create{profile, reasoning, message, settings}
     case True{}: M.FeatureCommand{F.WorktreeCommand{Worktree.Create{profile, reasoning, message, settings}}}
 
-def create_task(work: Maybe<&2, Nat>, create_worktree: Bool, profile: String, reasoning: String, message: String, settings: J.Json) -> M.Command:
+def create_task(work: Maybe<&2, Nat>, create_worktree: Bool, profile: String, reasoning: String, message: D.UserContent, settings: J.Json) -> M.Command:
   match work:
     case None{}: task_creation(create_worktree, profile, reasoning, message, settings)
     case Some{work}: M.FeatureCommand{F.WorkCommand{Work.CreateTask{work, profile, reasoning, message, settings, create_worktree}}}
@@ -423,13 +462,13 @@ def create_task(work: Maybe<&2, Nat>, create_worktree: Bool, profile: String, re
 def command(body: Body, now: U32) -> M.Command:
   match body:
     case WorkName{work, name}: M.FeatureCommand{F.WorkCommand{Work.Rename{work, name}}}
-    case NewTask{message, profile, reasoning, context, create_worktree, work}: create_task(work, create_worktree, profile, reasoning, text(message), Context.settings(context))
-    case Message{task, +message, delivery}: composer_message_command(side_conversation_question(text(message)), delivery, task, text(message))
+    case NewTask{message, profile, reasoning, context, create_worktree, work}: create_task(work, create_worktree, profile, reasoning, content(message), Context.settings(context))
+    case Message{task, +message, delivery}: composer_content_command(side_conversation_question(text(message)), delivery, task, message)
     case Project{id, name, workspace, create_worktree}: project_command(id, name, D.workspace_json(workspace), J.Null{}, create_worktree)
     case Card{id, revision, value, assist, profile, keep_open}: M.FeatureCommand{F.BoardCommand{card_command(id, revision, value, assist, profile, now)}}
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
       M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.settings(context), concurrency}}}}
-    case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.settings(context)}
+    case Fork{task, count, messages, context}: M.Fork{task, count, D.text_contents(messages), Context.settings(context)}
     case Compact{task, summary}: M.Compact{task, summary}
     case TaskGraph{graph, declaration, parsed, work}: graph_command(graph, parsed, work)
     case TitlePrompts{revision, prompts}: M.FeatureCommand{F.TitleCommand{Titles.Configure{revision, prompts}}}
@@ -452,13 +491,13 @@ def required_workspace(body: Body) -> Maybe<&2, D.Workspace>:
 
 def prepared_command(body: Body, observation: Context.DirectoryObservation, now: U32) -> M.Command:
   match body:
-    case NewTask{message, profile, reasoning, context, create_worktree, work}: create_task(work, create_worktree, profile, reasoning, text(message), Context.observed_settings(context, observation))
+    case NewTask{message, profile, reasoning, context, create_worktree, work}: create_task(work, create_worktree, profile, reasoning, content(message), Context.observed_settings(context, observation))
     case Project{id, name, previous, create_worktree}:
       Context.DirectoryObservation{workspace, guidance} = observation
       project_command(id, name, D.workspace_json(workspace), D.project_json(guidance), create_worktree)
     case Agent{id, +revision, name, profile, reasoning, instructions, context, concurrency}:
       M.FeatureCommand{F.BoardCommand{B.SaveAgent{id, B.AgentProfile{revision, name, profile, reasoning, instructions, Context.observed_settings(context, observation), concurrency}}}}
-    case Fork{task, count, messages, context}: M.Fork{task, count, messages, Context.observed_settings(context, observation)}
+    case Fork{task, count, messages, context}: M.Fork{task, count, D.text_contents(messages), Context.observed_settings(context, observation)}
     case other: command(other, now)
 
 def creation_origin(origin: Context.Origin) -> Bool:

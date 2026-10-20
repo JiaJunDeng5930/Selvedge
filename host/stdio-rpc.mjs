@@ -33,9 +33,9 @@ export class StdioRpc extends EventEmitter {
 
   get available() { return this.#decide('rpc.available'); }
 
-  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128 } = {}) {
+  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128, prepareIncoming } = {}) {
     super();
-    Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending });
+    Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending, prepareIncoming });
     this.stderr = capture(limits.tool_output_bytes);
     this.#child = spawn(config.command, config.args ?? [], {
       cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
@@ -119,6 +119,14 @@ export class StdioRpc extends EventEmitter {
   }
 
   #message(message) {
+    if (this.prepareIncoming) {
+      this.prepareIncoming(message).then(value => this.#admitMessage(value)).catch(error => this.#fail(error));
+      return;
+    }
+    this.#admitMessage(message);
+  }
+
+  #admitMessage(message) {
     const decision = this.#decide('rpc.message', { message });
     const execute = {
       ignore: () => {},

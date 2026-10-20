@@ -1,4 +1,5 @@
 import Base
+import ../../harness/DOMAIN.bend as D
 import ./MODEL.bend as W
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
@@ -39,8 +40,8 @@ def specifications(task_settings: J.Json) -> +List<Spec>:
       command_schema([J.Field{"work_id", integer_schema()}, J.Field{"name", text_schema()}], [J.Text{"work_id"}, J.Text{"name"}])},
    Spec{"create_work_task", "Create a root Task and record its immutable Work ownership atomically; optionally create a managed worktree.", Write{CreateTaskKind{}},
       command_schema([J.Field{"work_id", integer_schema()}, J.Field{"profile", text_schema()}, J.Field{"reasoning", text_schema()},
-        J.Field{"message", text_schema()}, J.Field{"settings", task_settings}, J.Field{"create_worktree", boolean_schema()}],
-        [J.Text{"work_id"}, J.Text{"profile"}, J.Text{"message"}])},
+        J.Field{"message", D.content_schema("Initial user request")}, J.Field{"images", D.images_schema()}, J.Field{"settings", task_settings}, J.Field{"create_worktree", boolean_schema()}],
+        [J.Text{"work_id"}, J.Text{"profile"}])},
    Spec{"list_works", "Observe Works with their derived Task IDs and associated Task graph IDs.", Read{WorksKind{}},
       command_schema(Nil{}, Nil{})},
    Spec{"read_work", "Observe one Work with its derived Task IDs and associated Task graph IDs.", Read{WorkKind{}},
@@ -80,9 +81,9 @@ def valid(kind: WriteKind, +body: J.Json) -> Bool:
     case CreateKind{}: Schema.keys(body, ["op", "name"]) && operation_matches(body, "create_work") && optional_text(body, "name")
     case RenameKind{}: Schema.keys(body, ["op", "work_id", "name"]) && operation_matches(body, "rename_work") &&
       natural(J.get(body, "work_id")) && J.is_text(J.get(body, "name"))
-    case CreateTaskKind{}: Schema.keys(body, ["op", "work_id", "profile", "reasoning", "message", "settings", "create_worktree"]) &&
+    case CreateTaskKind{}: Schema.keys(body, ["op", "work_id", "profile", "reasoning", "message", "images", "settings", "create_worktree"]) &&
       operation_matches(body, "create_work_task") && natural(J.get(body, "work_id")) && J.is_text(J.get(body, "profile")) &&
-      optional_text(body, "reasoning") && J.is_text(J.get(body, "message")) && optional_settings(body) && optional_boolean(body, "create_worktree")
+      optional_text(body, "reasoning") && D.content_valid(D.user_content(J.get(body, "message"), J.get(body, "images"))) && optional_settings(body) && optional_boolean(body, "create_worktree")
 
 def entry_valid(kind: EntryKind, +body: J.Json) -> Bool:
   match kind:
@@ -103,7 +104,7 @@ def construct(kind: WriteKind, +body: J.Json) -> W.Command:
     case CreateKind{}: W.Create{J.text(J.get(body, "name"))}
     case RenameKind{}: W.Rename{number(J.get(body, "work_id")), J.text(J.get(body, "name"))}
     case CreateTaskKind{}: W.CreateTask{number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
-      J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")), settings(J.get(body, "settings")),
+      J.text_or(J.get(body, "reasoning"), "default"), D.user_content(J.get(body, "message"), J.get(body, "images")), settings(J.get(body, "settings")),
       J.boolean(J.get(body, "create_worktree"))}
 
 def query(kind: ReadKind, body: J.Json) -> W.Query:
@@ -119,7 +120,7 @@ def command_json(input: W.Command) -> J.Json:
     case W.Create{name}: command("create_work", [J.Field{"name", J.Text{name}}])
     case W.Rename{id, name}: command("rename_work", [J.Field{"work_id", J.nat(id)}, J.Field{"name", J.Text{name}}])
     case W.CreateTask{work, profile, reasoning, message, settings, create_worktree}: command("create_work_task", [J.Field{"work_id", J.nat(work)},
-      J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}, J.Field{"settings", settings},
+      J.Field{"profile", J.Text{profile}}, J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", D.content_json(message)}, J.Field{"settings", settings},
       J.Field{"create_worktree", J.Boolean{create_worktree}}])
 
 def query_json(input: W.Query) -> J.Json:

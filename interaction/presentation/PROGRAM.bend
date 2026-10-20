@@ -329,19 +329,31 @@ def field_value(state: InteractionTypes.State, editor: U.Editor, field: Operatio
   drafts = E.drafts(observed_session)
   observed_field(E.find_draft(drafts, editor), field, world)
 
+def attachment_image_checked(visible: Bool, file: B.Attachment, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  match visible:
+    case True{}:
+      B.Attachment{id, name, mime, path, bytes} = file
+      [SurfaceTypes.Node{Identity.Part{parent, "image"}, "attachment/image", "Image", SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{D.content_markdown(D.UserContent{[D.ImagePart{D.ImageAsset{id, mime, bytes}, D.ImageAuto{}}]})}, Nil{}}]
+    case False{}: Nil{}
+
+def attachment_image(+file: B.Attachment, parent: Identity.Key) -> +List<SurfaceTypes.Node>:
+  B.Attachment{id, name, mime, path, bytes} = file
+  attachment_image_checked(String.starts_with(mime, "image/"), file, parent)
+
+
 def attachment_nodes(files: +List<B.Attachment>, +editor: U.Editor, +parent: Identity.Key) -> +List<SurfaceTypes.Node>:
   match files:
     case Nil{}: Nil{}
-    case Con{B.Attachment{+id, +name, mime, path, bytes}, rest}:
-      SurfaceTypes.Node{Identity.Entity{parent, "attachment", id}, id, name, SurfaceTypes.Section{}, SurfaceTypes.Region{}, [product_action(Identity.Entity{parent, "attachment", id}, "preview", "Preview " ++ name, InteractionTypes.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, Identity.encode(Identity.Part{Identity.Entity{parent, "attachment", id}, "preview"})}}, True{}),
-         product_action(Identity.Entity{parent, "attachment", id}, "remove", "Remove " ++ name, InteractionTypes.RemoveAttachment{editor, id}, True{})]} <> attachment_nodes(rest, editor, parent)
+    case Con{B.Attachment{+id, +name, +mime, +path, +bytes}, rest}:
+      SurfaceTypes.Node{Identity.Entity{parent, "attachment", id}, id, name, SurfaceTypes.Section{}, SurfaceTypes.Region{}, List.append(&2, SurfaceTypes.Node, attachment_image(B.Attachment{id, name, mime, path, bytes}, Identity.Entity{parent, "attachment", id}), [product_action(Identity.Entity{parent, "attachment", id}, "preview", "Preview " ++ name, InteractionTypes.ServiceInput{Services.OpenPreview{B.Attachment{id, name, mime, path, bytes}, Identity.encode(Identity.Part{Identity.Entity{parent, "attachment", id}, "preview"})}}, True{}),
+         product_action(Identity.Entity{parent, "attachment", id}, "remove", "Remove " ++ name, InteractionTypes.RemoveAttachment{editor, id}, True{})])} <> attachment_nodes(rest, editor, parent)
 
 def transfer_controls(+ticket: Nat, value: Services.Transfer, +parent: Identity.Key, connected: Bool) -> +List<SurfaceTypes.Node>:
   match value:
-    case Services.Uploading{editor, file}:
-      [product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Cancel upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
-    case Services.UploadFailed{editor, file, reason}:
-      [product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", InteractionTypes.ServiceInput{Services.RetryUpload{ticket}}, connected),
+    case Services.Uploading{editor, Services.SelectedFile{handle, +name, mime, bytes}}:
+      [SurfaceTypes.Node{Identity.Entity{parent, "upload", Nat.show(ticket)}, "attachment/uploading", "Uploading " ++ name, SurfaceTypes.Content{}, SurfaceTypes.ReadOnly{"Uploading " ++ name}, Nil{}}, product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Cancel upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
+    case Services.UploadFailed{editor, Services.SelectedFile{handle, name, mime, bytes}, +reason}:
+      [SurfaceTypes.Node{Identity.Entity{parent, "upload", Nat.show(ticket)}, "attachment/failed", "Upload failed", SurfaceTypes.Alert{}, SurfaceTypes.ReadOnly{name ++ ": " ++ reason}, Nil{}}, product_action(parent, "retry-upload/" ++ Nat.show(ticket), "Retry upload", InteractionTypes.ServiceInput{Services.RetryUpload{ticket}}, connected),
        product_action(parent, "cancel-upload/" ++ Nat.show(ticket), "Remove failed upload", InteractionTypes.ServiceInput{Services.CancelUpload{ticket}}, True{})]
 
 def transfer_node(owned: Bool, ticket: Nat, value: Services.Transfer, parent: Identity.Key, connected: Bool) -> +List<SurfaceTypes.Node>:
@@ -360,12 +372,21 @@ def files_observed(value: OperationParameters.Observed) -> +List<B.Attachment>:
     case OperationParameters.AttachmentsValue{files}: files
     case _: Nil{}
 
+def draft_attachments(found: Maybe<&2, U.Draft>) -> +List<B.Attachment>:
+  match found:
+    case Some{draft}: U.attachments(U.contents(draft))
+    case None{}: Nil{}
+
+def editor_attachments(editor: U.Editor, state: InteractionTypes.State) -> +List<B.Attachment>:
+  draft_attachments(E.find_draft(E.drafts(E.session(Core.application(state))), editor))
+
+
 def file_field(+editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   +observed_services = Core.services(state)
   +access = Services.access(observed_services)
   +transfers = Services.transfers(observed_services)
   SurfaceTypes.Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", SurfaceTypes.Field{}, SurfaceTypes.ReceiveFile{editor, Services.connected(access)}, Nil{}} <>
-    List.append(&2, SurfaceTypes.Node, attachment_nodes(files_observed(field_value(state, editor, OperationParameters.CardAttachments{})), editor, parent), transfer_nodes(transfers, editor, parent, Services.connected(access)))
+    List.append(&2, SurfaceTypes.Node, attachment_nodes(editor_attachments(editor, state), editor, parent), transfer_nodes(transfers, editor, parent, Services.connected(access)))
 
 def workspace_value(value: Context.WorkspaceValue) -> D.Workspace:
   match value:
@@ -857,7 +878,7 @@ def expected_composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +
       List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, UX.action(identity, revision, pending), key, state),
         [SurfaceTypes.Node{key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, key, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, key, state),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, key, state), file_field(identity, Identity.Part{key, "attachments"}, state)),
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), action_feedback_nodes(identity, feedback, key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}])
 
 def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
@@ -868,7 +889,7 @@ def composer(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: In
       List.append(&2, SurfaceTypes.Node, composer_creation_context(creation_context, UX.action(identity, revision, pending), composer_key, state),
         [SurfaceTypes.Node{composer_key, "composer/" ++ U.editor_key(identity), "Message", SurfaceTypes.Composer{}, SurfaceTypes.ActionUnit{UX.action(identity, revision, pending)},
           field_node(OperationParameters.FieldScene{OperationParameters.MessageText{}, "Message", OperationParameters.Multiline{}}, identity, composer_key, state, Nil{}) <>
-            List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, composer_key, state),
+            List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, speech_controls(identity, revision, composer_key, state), file_field(identity, Identity.Part{composer_key, "attachments"}, state)),
             List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, canonical_explanation(UX.action(identity, revision, pending), assessment, submit, composer_key, state), action_feedback_nodes(identity, feedback, composer_key)), [action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, composer_key, state)]))}])
 
 def approval_value(value: J.Json) -> String:
@@ -3054,17 +3075,21 @@ def settings(view: InteractionTypes.Settings) -> +List<SurfaceTypes.Node>:
   InteractionTypes.Settings{open, access, appearance, open_action, close_action, connect_action} = view
   settings_visible(open, close_action, connect_action)
 
-def preview_controls(file: B.Attachment, ready: Bool) -> +List<SurfaceTypes.Node>:
+def preview_controls(file: B.Attachment, ready: Bool, contents: +List<SurfaceTypes.Node>) -> +List<SurfaceTypes.Node>:
   [SurfaceTypes.Node{Identity.Place{"/layers/attachment-preview"}, "attachment-preview", "Attachment preview", SurfaceTypes.Dialog{},
     SurfaceTypes.LayerRegion{InteractionTypes.ServiceInput{Services.ClosePreview{}}, True{}, True{}},
-    [dialog_actions(Identity.Place{"/layers/attachment-preview"}, [product_action(Identity.Place{"/layers/attachment-preview"}, "download", "Download", InteractionTypes.ServiceInput{Services.Download{file}}, ready)])]}]
+    List.append(&2, SurfaceTypes.Node, contents,
+      [dialog_actions(Identity.Place{"/layers/attachment-preview"}, [product_action(Identity.Place{"/layers/attachment-preview"}, "download", "Download", InteractionTypes.ServiceInput{Services.Download{file}}, ready)])])}]
+
+def preview_status(+message: String, role: SurfaceTypes.Role) -> +List<SurfaceTypes.Node>:
+  [SurfaceTypes.Node{Identity.Part{Identity.Place{"/layers/attachment-preview"}, "status"}, "attachment-preview/status", message, role, SurfaceTypes.ReadOnly{message}, Nil{}}]
 
 def preview(value: Services.Preview) -> +List<SurfaceTypes.Node>:
   match value:
     case Services.NoPreview{}: Nil{}
-    case Services.LoadingPreview{ticket, file, trigger}: preview_controls(file, False{})
-    case Services.ReadyPreview{file, resource, image, trigger}: preview_controls(file, True{})
-    case Services.FailedPreview{file, reason, trigger}: preview_controls(file, False{})
+    case Services.LoadingPreview{ticket, file, trigger}: preview_controls(file, False{}, preview_status("Loading preview…", SurfaceTypes.Content{}))
+    case Services.ReadyPreview{+file, resource, image, trigger}: preview_controls(file, True{}, attachment_image(file, Identity.Place{"/layers/attachment-preview"}))
+    case Services.FailedPreview{file, reason, trigger}: preview_controls(file, False{}, preview_status(reason, SurfaceTypes.Alert{}))
 
 def directory_visit(parent: Identity.Key, id: String, label: String, path: String) -> SurfaceTypes.Node:
   product_action(parent, id, label, InteractionTypes.ServiceInput{Services.VisitDirectory{path}}, True{})
@@ -3262,6 +3287,17 @@ def interactive_boolean(value: Bool) -> String:
     case True{}: "true"
     case False{}: "false"
 
+def attachment_field_binding(field: OperationParameters.Field, editor: U.Editor, file: Services.SelectedFile) -> Maybe<&2, InteractionTypes.Input>:
+  match field:
+    case OperationParameters.MessageText{}: Some{InteractionTypes.ServiceInput{Services.AddFile{editor, file}}}
+    case OperationParameters.CardDescription{}: Some{InteractionTypes.ServiceInput{Services.AddFile{editor, file}}}
+    case _: None{}
+
+def edit_attachment_binding(entry: OperationParameters.Entry, field: OperationParameters.Field, editor: U.Editor, file: Services.SelectedFile) -> Maybe<&2, InteractionTypes.Input>:
+  match entry:
+    case OperationParameters.DisplayOnly{}: None{}
+    case _: attachment_field_binding(field, editor, file)
+
 def bind(meaning: SurfaceTypes.Meaning, gesture: SurfaceTypes.Gesture) -> Maybe<&2, InteractionTypes.Input>:
   match meaning gesture:
     case SurfaceTypes.InteractiveNode{+node} SurfaceTypes.Change{OperationParameters.Text{raw}}:
@@ -3283,6 +3319,8 @@ def bind(meaning: SurfaceTypes.Meaning, gesture: SurfaceTypes.Gesture) -> Maybe<
     case SurfaceTypes.HistorySearchQuery{query} SurfaceTypes.Press{}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.Activate{U.SubmitHistorySearch{0n}}}}}
     case SurfaceTypes.HistorySearchQuery{query} SurfaceTypes.Search{next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.WriteHistoryQuery{next}}}}
     case SurfaceTypes.HistorySearchScope{project, value, choices} SurfaceTypes.Change{OperationParameters.Text{next}}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.ChooseHistoryScope{project, next}}}}
+    case SurfaceTypes.Edit{editor, field, entry, value, choices} SurfaceTypes.Attach{file}:
+      edit_attachment_binding(entry, field, editor, file)
     case SurfaceTypes.SearchChoices{query} SurfaceTypes.Search{+next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.SearchChoices{next}}}}
     case SurfaceTypes.BoardSearch{+filter} SurfaceTypes.Search{+next}: Some{InteractionTypes.ApplicationInput{E.UserInput{U.FilterBoard{with_search(next, filter)}}}}
     case SurfaceTypes.ReceiveFile{+editor, +enabled} SurfaceTypes.Attach{file}: when_available(enabled, InteractionTypes.ServiceInput{Services.AddFile{editor, file}})

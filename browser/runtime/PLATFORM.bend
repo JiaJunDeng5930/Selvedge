@@ -1,3 +1,4 @@
+import ../../features/board/MODEL.bend as B
 import ../editor/skill-mention.bend as Mention
 import ../../interaction/services/CONTEXT.bend as Context
 import ../../harness/COMMANDS.bend as Commands
@@ -271,8 +272,8 @@ def focus_revision(scope_changed: Bool, effects: +List<E.Effect>, ticket: Nat) -
 
 def empty_message(body: U.Body) -> Bool:
   match body:
-    case U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}: String.eq(text, "")
-    case U.Message{task, U.Text{text}, delivery}: String.eq(text, "")
+    case U.NewTask{U.Text{text, images}, profile, reasoning, context, create_worktree, work}: String.eq(text, "") && List.is_empty(&2, B.Attachment, images)
+    case U.Message{task, U.Text{text, images}, delivery}: String.eq(text, "") && List.is_empty(&2, B.Attachment, images)
     case _: False{}
 
 def clear_selection(clear: Bool, editor: Editor.Editor) -> Editor.Editor:
@@ -406,8 +407,8 @@ def observed_focus(platform: Platform, inside: Bool, identity: Focus.Target, cor
 # Skill discovery observes the editor's actual workspace independently of history.
 def message_text(found: Maybe<&2, U.Draft>) -> String:
   match found:
-    case Some{U.Draft{revision, U.NewTask{U.Text{text}, profile, reasoning, context, create_worktree, work}, feedback, directory}}: text
-    case Some{U.Draft{revision, U.Message{task, U.Text{text}, delivery}, feedback, directory}}: text
+    case Some{U.Draft{revision, U.NewTask{U.Text{text, images}, profile, reasoning, context, create_worktree, work}, feedback, directory}}: text
+    case Some{U.Draft{revision, U.Message{task, U.Text{text, images}, delivery}, feedback, directory}}: text
     case _: ""
 
 def editor_text(+owner: U.Editor, +core: InteractionTypes.State) -> String:
@@ -476,7 +477,7 @@ def accept_mention_insert(insertion: Mention.Insertion, +editor: Editor.Editor, 
   Platform{readers, editors, focused, ticket, reduced, capacity, scope} = platform
   +range : Physical.Selection = Physical.Selection{caret, caret, "none"}
   +next_editor : Editor.Editor = Editor.Editor{key, range, composing, Mention.dismiss(mentions)}
-  +decision : Decision = after_core(Product.step(Product.InterfaceInput{InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{owner, U.WriteMessage{U.Text{text}}}}}}, core),
+  +decision : Decision = after_core(Product.step(Product.InterfaceInput{InteractionTypes.ApplicationInput{E.UserInput{U.EditDraft{owner, U.WriteMessage{U.Text{text, Nil{}}}}}}}, core),
     Platform{readers, save_editor(editors, owner, next_editor), focused, ticket, reduced, capacity, scope})
   with_selection_effect(SetEditorSelection{Mention.field(mentions), range}, decision)
 

@@ -18,6 +18,8 @@ import ./browser/runtime/MODEL.bend as Browser
 import ./browser/layout/natural-size.bend as NaturalSize
 import ./browser/appearance/FONT.bend as F
 import ./interaction/services/MODEL.bend as Services
+import ./interaction/STATE.bend as Interaction
+import ./bendlib/association-map.bend as Finite
 import ./interaction/conversation/CODE.bend as Code
 import ./interaction/interactive_markdown/TYPES.bend as Interactive
 import ./interaction/interactive_markdown/SCENE.bend as InteractiveScene
@@ -26,6 +28,19 @@ import ./bendlib/json.bend as J
 
 def native_editors(state: Browser.State) -> +List<Editor.Editor>:
   Platform.editors(Platform.platform(Web.application(Legacy.web(Browser.legacy(state)))))
+
+def transfer_file_handle(transfer: Services.Transfer) -> String:
+  match transfer:
+    case Services.Uploading{editor, Services.SelectedFile{handle, name, mime, bytes}}: handle
+    case Services.UploadFailed{editor, Services.SelectedFile{handle, name, mime, bytes}, reason}: handle
+
+def transfer_file_handles(transfers: +List<Finite.Entry(Services.Transfer)>) -> +List<String>:
+  match transfers:
+    case Nil{}: Nil{}
+    case Con{(ticket, transfer), rest}: transfer_file_handle(transfer) <> transfer_file_handles(rest)
+
+def file_handles(state: Browser.State) -> +List<String>:
+  transfer_file_handles(Services.transfers(Interaction.services(Platform.core(Web.application(Legacy.web(Browser.legacy(state)))))))
 
 def with_editor_overlays(editors: +List<Editor.Editor>, publication: Browser.Publication) -> Browser.Publication:
   match publication:

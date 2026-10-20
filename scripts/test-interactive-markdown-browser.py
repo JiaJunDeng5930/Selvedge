@@ -65,7 +65,7 @@ def capture_failure(page, fixture, artifacts, errors, failure):
 
 
 class Fixture:
-    def __init__(self):
+    def __init__(self, fixture_script='tests-bend/fixtures/interactive-markdown.mjs'):
         bun = os.environ.get('BUN_BIN') or shutil.which('bun')
         # DEFENSE: A developer machine can lack the Bun executable needed by the real service fixture.
         if not bun:
@@ -73,7 +73,7 @@ class Fixture:
         self.log = tempfile.TemporaryFile(mode='w+')
         self.proc = None
         try:
-            self.proc = subprocess.Popen([bun, 'tests-bend/fixtures/interactive-markdown.mjs'], cwd=ROOT,
+            self.proc = subprocess.Popen([bun, fixture_script], cwd=ROOT,
                                          stdout=subprocess.PIPE, stderr=self.log, text=True)
             # DEFENSE: A failed or stalled service subprocess may never publish its loopback address.
             if not select.select([self.proc.stdout], [], [], 30)[0]:
@@ -432,9 +432,10 @@ def side_conversation_boundaries(page, fixture, artifacts):
     returned_input = fixture.call('/status')['requests'][returned_request]['input']['input']
     transfer = next(item['content'] for item in returned_input
                     if item.get('role') == 'user' and 'Side reflection with a local note.' in str(item.get('content')))
-    assert 'inspect-parent' in transfer, 'Return lost the new tool conversation'
+    transfer_text = json.dumps(transfer, ensure_ascii=False)
+    assert 'inspect-parent' in transfer_text, 'Return lost the new tool conversation'
     for administrative in ['side_conversation', 'side_return_cursor', 'task_lifecycle', 'Its parent is task #']:
-        assert administrative not in transfer, 'Side runtime context leaked into returned content: ' + administrative
+        assert administrative not in transfer_text, 'Side runtime context leaked into returned content: ' + administrative
     fixture.finish(returned_request, text='Parent received the side reflection.')
     fixture.idle(parent)
     assert any('task_lifecycle' in json.dumps(message) and message.get('change', {}).get('type') == 'amend'

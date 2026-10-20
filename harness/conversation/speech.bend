@@ -37,8 +37,8 @@ def record(session: String, item: String, speaker: D.SpeechSpeaker, completion: 
 
 def delivered(steer: Bool, text: String, task: D.Task) -> D.Task:
   match steer:
-    case True{}: Tasks.steer(text, task)
-    case False{}: Tasks.receive(text, task)
+    case True{}: Tasks.steer(D.text_content(text), task)
+    case False{}: Tasks.receive(D.text_content(text), task)
 
 # The ordinary input is accepted before its receipt is appended. Both are one
 # immutable task value in the command's single committed journal decision.

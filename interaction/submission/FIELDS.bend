@@ -166,7 +166,7 @@ def edit(field: Field, value: Value) -> Maybe<&2, U.Edit>:
     case TaskTitlePrompt{} Text{text}: Some{U.WriteTaskTitlePrompt{text}}
     case AgentTitlePrompt{} Text{text}: Some{U.WriteAgentTitlePrompt{text}}
     case ContinueCapture{} Toggle{enabled}: Some{U.KeepCaptureOpen{enabled}}
-    case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text}}}
+    case MessageText{} Text{text}: Some{U.WriteMessage{U.Text{text, Nil{}}}}
     case CreateWorktree{} Toggle{enabled}: Some{U.ChooseWorktree{enabled}}
     case ProjectName{} Text{text}: Some{U.NameProject{text}}
     case WorkspaceDirectories{} WorkspaceChange{Context.AddRoot{path}}: Some{U.EditWorkspace{Context.AddRoot{path}}}

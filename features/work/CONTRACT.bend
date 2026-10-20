@@ -1,4 +1,5 @@
 import Base
+import ../../harness/DOMAIN.bend as D
 import ./MODEL.bend as W
 import ./PROGRAM.bend as Actual
 import ./SPEC.bend as Spec
@@ -12,19 +13,19 @@ type TaskCreation is Type:
     constructed: @+body:J.Json ->
       {Codec.construct(Codec.CreateTaskKind{}, body) ==
         W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
-          J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")),
+          J.text_or(J.get(body, "reasoning"), "default"), D.user_content(J.get(body, "message"), J.get(body, "images")),
           Codec.settings(J.get(body, "settings")), J.boolean(J.get(body, "create_worktree"))} : W.Command},
-    encoded: @+work:Nat -> @+profile:String -> @+reasoning:String -> @+message:String -> @+settings:J.Json -> @+create_worktree:Bool ->
+    encoded: @+work:Nat -> @+profile:String -> @+reasoning:String -> @+message:D.UserContent -> @+settings:J.Json -> @+create_worktree:Bool ->
       {Codec.command_json(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}) ==
         J.Object{[J.Field{"op", J.Text{"create_work_task"}}, J.Field{"work_id", J.nat(work)}, J.Field{"profile", J.Text{profile}},
-          J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", J.Text{message}}, J.Field{"settings", settings},
+          J.Field{"reasoning", J.Text{reasoning}}, J.Field{"message", D.content_json(message)}, J.Field{"settings", settings},
           J.Field{"create_worktree", J.Boolean{create_worktree}}]} : J.Json},
     omitted_worktree: @+body:J.Json -> @absent:{J.get(body, "create_worktree") == J.Null{} : J.Json} ->
       {Codec.construct(Codec.CreateTaskKind{}, body) ==
         W.CreateTask{Codec.number(J.get(body, "work_id")), J.text(J.get(body, "profile")),
-          J.text_or(J.get(body, "reasoning"), "default"), J.text(J.get(body, "message")),
+          J.text_or(J.get(body, "reasoning"), "default"), D.user_content(J.get(body, "message"), J.get(body, "images")),
           Codec.settings(J.get(body, "settings")), False{}} : W.Command},
-    delegated: @work:Nat -> @profile:String -> @reasoning:String -> @message:String -> @settings:J.Json -> @create_worktree:Bool -> @state:W.State ->
+    delegated: @work:Nat -> @profile:String -> @reasoning:String -> @message:D.UserContent -> @settings:J.Json -> @create_worktree:Bool -> @state:W.State ->
       {W.resolve(W.CreateTask{work, profile, reasoning, message, settings, create_worktree}, state) ==
         W.Refuse{"task_creation_boundary", "Create Work Tasks through the harness feature operation."} : W.Resolution}}
 

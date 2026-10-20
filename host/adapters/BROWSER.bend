@@ -430,6 +430,35 @@ def host_stream_step(+source: J.Json) -> J.Json:
 def link(source: J.Json) -> J.Json:
   Model.execute(link_calculation, link_adapter(), source)
 
+# DEFENSE: Model-authored Markdown can contain remote tracking URLs or active schemes;
+# only immutable images already uploaded to this host are loaded automatically.
+def image_id(text: String) -> Bool:
+  match text:
+    case SNil{}: True{}
+    case SCon{Chr{+code}, rest}:
+      ((U32.is_ge(code, 48) && U32.is_le(code, 57)) ||
+       (U32.is_ge(code, 97) && U32.is_le(code, 102))) && image_id(rest)
+
+def image_selected(allowed: Bool, raw: String) -> J.Json:
+  match allowed:
+    case False{}: J.Null{}
+    case True{}: J.Text{raw}
+
+def image_calculation(+source: J.Json) -> J.Json:
+  +raw = J.text(J.get(source, "raw"))
+  image_selected(J.is_text(J.get(source, "raw")) &&
+    String.starts_with(raw, "/api/board/attachments/") &&
+    Nat.is_eq(String.length(raw), 87n) && image_id(String.drop(raw, 23n)), raw)
+
+def image_adapter() -> Model.Adapter((source => image_calculation(source))):
+  Model.adapter((source => image_calculation(source)), (source => image_calculation(source)), source => {==})
+
+def image(source: J.Json) -> J.Json:
+  Model.execute((candidate => image_calculation(candidate)), image_adapter(), source)
+
+law image_correspondence:
+  @source:J.Json -> {image(source) == image_calculation(source) : J.Json}
+
 def stream_step(+source: J.Json) -> J.Json:
   Model.execute((candidate => stream_step_calculation(candidate)), stream_adapter(), source)
 
@@ -498,8 +527,13 @@ def run_link(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
     case True{}: Model.success(link(source))
     case False{}: run_stream(String.eq(operation, "browser.stream_step"), operation, source)
 
+def run_image(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match selected:
+    case True{}: Model.success(image(source))
+    case False{}: run_link(String.eq(operation, "browser.link"), operation, source)
+
 def run(+operation: String, source: J.Json) -> J.Json:
-  run_link(String.eq(operation, "browser.link"), operation, source)
+  run_image(String.eq(operation, "browser.image"), operation, source)
 
 
 def meaning_host_stream(selected: Bool, operation: String, source: J.Json) -> J.Json:
@@ -517,8 +551,13 @@ def meaning_link(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
     case True{}: Model.success(link_calculation(source))
     case False{}: meaning_stream(String.eq(operation, "browser.stream_step"), operation, source)
 
+def meaning_image(selected: Bool, +operation: String, +source: J.Json) -> J.Json:
+  match selected:
+    case True{}: Model.success(image_calculation(source))
+    case False{}: meaning_link(String.eq(operation, "browser.link"), operation, source)
+
 def meaning(+operation: String, source: J.Json) -> J.Json:
-  meaning_link(String.eq(operation, "browser.link"), operation, source)
+  meaning_image(String.eq(operation, "browser.image"), operation, source)
 
 law complete_correspondence:
   @operation:String -> @source:J.Json -> {run(operation, source) == meaning(operation, source) : J.Json}

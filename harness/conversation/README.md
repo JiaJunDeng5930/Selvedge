@@ -8,6 +8,11 @@ Start with [MODEL.bend](MODEL.bend), [PROGRAM.bend](PROGRAM.bend), [CONTRACT.ben
 selection belongs to [context](../context/README.md), so observing the conversation
 does not replace its original records with a compressed input.
 
+`DOMAIN.UserContent` carries ordered text and image parts. Images use immutable
+content identities in the attachment vault; provider adapters resolve and verify
+the bytes when constructing a request. `CODEC.message_json` exposes the complete
+content while `DOMAIN.content_markdown` supplies conversation previews.
+
 Model replies retain immutable producer task, accepted request ticket, explicit provider part, and frozen output mode. Native provider context stays intact under this outer provenance. [origin-contract.bend](origin-contract.bend) specifies the complete conversion and [origin-proof.bend](origin-proof.bend) binds it to the production task commit; preview coordinates use that same pending request.
 
 [TITLE.bend](TITLE.bend) owns the shared task-title prompt, structured output

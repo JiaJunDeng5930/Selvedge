@@ -150,7 +150,7 @@ def execution_summary(task: D.Task, model_value: D.Model, context: D.TaskContext
         J.Field{"profile", J.Text{profile}}, J.Field{"provider", J.Text{provider}}, J.Field{"model", J.Text{model}}, J.Field{"reasoning", J.Text{reasoning}},
         J.Field{"status", J.Text{D.status_name(status)}}, J.Field{"controls", D.controls(status)},
         J.Field{"phase", J.Text{phase_name(phase)}}, J.Field{"cursor", J.nat(D.history_length(history))},
-        J.Field{"queued", J.nat(List.length(&2, String, queued))},
+        J.Field{"queued", J.nat(List.length(&2, D.UserContent, queued))},
         J.Field{"operations", J.Array{Ops.summaries(operations)}},
         J.Field{"plugins", D.plugins_json(plugins)}, J.Field{"settings", D.task_context_json(context)},
         J.Field{"max_fork", J.nat(max_fork)}, J.Field{"max_descendants", J.nat(max_descendants)}]}
@@ -169,7 +169,7 @@ def page(+task: D.Task, +after: Nat, +limit: Nat) -> J.Json:
     J.Field{"cursor", J.nat(length)}, J.Field{"has_more", J.Boolean{Nat.is_lt(Nat.add(after, limit), length)}},
     J.Field{"messages", J.Array{messages_json(messages)}}]}
 
-def user_messages(inputs: +List<String>) -> +List<D.Message>:
+def user_messages(inputs: +List<D.UserContent>) -> +List<D.Message>:
   match inputs:
     case Nil{}: Nil{}
     case Con{text, rest}: D.UserMessage{text} <> user_messages(rest)
@@ -192,7 +192,7 @@ def promote_when(status: D.Status, phase: D.Phase, task: D.Task) -> D.Task:
 def promote(+task: D.Task) -> D.Task:
   promote_when(D.task_status(task), D.task_phase(task), task)
 
-def receive_when(status: D.Status, phase: D.Phase, text: String, task: D.Task) -> D.Task:
+def receive_when(status: D.Status, phase: D.Phase, text: D.UserContent, task: D.Task) -> D.Task:
   match status phase:
     case D.Archived{} _: task
     case D.Frozen{} _: D.queue_message(text, task)
@@ -204,7 +204,7 @@ def receive_when(status: D.Status, phase: D.Phase, text: String, task: D.Task) -
       D.queue_message(text, D.with_status(D.Active{}, task))
     case _ _: D.queue_message(text, task)
 
-def receive(text: String, +task: D.Task) -> D.Task:
+def receive(text: D.UserContent, +task: D.Task) -> D.Task:
   receive_when(D.task_status(task), D.task_phase(task), text, task)
 
 def has_call(calls: +List<D.Call>, +id: String) -> Bool:
@@ -414,7 +414,7 @@ def steering_status(status: D.Status) -> D.Status:
     case D.Stopped{}: D.Active{}
     case other: other
 
-def steer(text: String, task: D.Task) -> D.Task:
+def steer(text: D.UserContent, task: D.Task) -> D.Task:
   D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   D.Task{id, lineage, contract, current, steering_status(status),
     D.HistoryNode{interrupted_history(phase, history), D.UserMessage{text}}, queued,

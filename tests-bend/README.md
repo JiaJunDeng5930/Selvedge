@@ -75,6 +75,23 @@ and [feature assembly evidence](../harness/features/laws.bend).
 titles use the ordinary host model transport and journal, without another
 feature-specific HTTP/SQLite trace.
 
+Image checks send authenticated uploads, task messages, board attachments,
+`read_image` calls and standard MCP image results through the production service
+to a local ChatGPT OAuth/model HTTP peer. They inspect the actual image bytes in
+requests, retain a local read's snapshot after its source file is deleted and the
+journal is reopened, and reject
+unsupported backends without dropping the image. A valid PNG larger than 3 MiB
+exercises the image payload budget beyond the ordinary 4 MiB protocol frame.
+After the production build, the Chromium probe verifies new-task paste,
+image-only continuation, loaded image pixels and rendering after restart:
+
+```sh
+BUN_BIN=/path/to/bun CHROMIUM_BIN=/path/to/chromium python3 scripts/test-images-browser.py
+```
+
+It requires Python Playwright and saves failures under
+`.workpad/images-browser-results`; no live model account is used.
+
 Interactive Markdown keeps focused checks for parser completion notifications,
 buffered storage writes and failures, live sparse SSE coordinates, legal SSE
 frames crossing HTTP backpressure, and the reproduced V8 stack overflow on

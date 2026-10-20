@@ -328,10 +328,10 @@ type Coordination is Type:
       {D.task_operations(Ops.completed(operation, value, error, task)) == Ops.remove(D.task_operations(task), Ops.ticket(operation)) : +List<D.Operation()>},
     settlement_notifies: @operation:D.Operation() -> @value:J.Json -> @error:Bool -> @task:D.Task ->
       {D.task_notified(Ops.completed(operation, value, error, task)) == True{} : Bool},
-    steering_rights: @message:String -> @task:D.Task ->
+    steering_rights: @message:D.UserContent -> @task:D.Task ->
       {D.task_operations(T.steer(message, task)) == D.task_operations(task) : +List<D.Operation()>},
-    steering_queue: @message:String -> @task:D.Task ->
-      {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<String>},
+    steering_queue: @message:D.UserContent -> @task:D.Task ->
+      {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<D.UserContent>},
     abandonment: @task:D.Task -> {D.task_operations(Ops.abandoned(task)) == Nil{} : +List<D.Operation()>},
     publication: @task:D.Task ->
       {D.task_operations(Ops.publish(task)) == Std.map(~D.Operation(), ~D.Operation(), ~Ops.announce, D.task_operations(task)) : +List<D.Operation()>},
@@ -341,7 +341,7 @@ type Coordination is Type:
       {Ops.result(Ops.announce(operation), value, error) ==
         D.OperationResult{Ops.ticket(operation), T.call_id(Ops.call(operation)), T.call_name(Ops.call(operation)), value, error} : D.Message},
     pending_model: @id:Nat -> @lineage:+List<Nat> -> @contract:D.Contract -> @current:D.ExecutionConfiguration -> @status:D.Status ->
-      @history:D.History -> @queued:+List<String> -> @ticket:Nat -> @allowed:+List<String> -> @mode:D.OutputMode ->
+      @history:D.History -> @queued:+List<D.UserContent> -> @ticket:Nat -> @allowed:+List<String> -> @mode:D.OutputMode ->
       @operations:+List<D.Operation()> -> @notified:Bool -> @operation:D.Operation() -> @value:J.Json -> @error:Bool ->
       {D.task_phase(T.complete_operation(operation, value, error,
         D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed, mode}, operations, notified})) ==

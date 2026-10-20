@@ -38,9 +38,9 @@ import ../../bendlib/component.bend as C
 # Task creation is an actual interaction boundary. Its complete-decision proof
 # is an explicit premise; no callback silently substitutes for that premise.
 def meaning(
-  ~actual_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~spec_spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
-  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:String -> @+selection:Workspace.Selection -> @+world:M.World() ->
+  ~actual_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~spec_spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+  ~creation: @+profile:D.Profile -> @+reasoning:String -> @+message:D.UserContent -> @+selection:Workspace.Selection -> @+world:M.World() ->
     {actual_spawn(profile, reasoning, message, selection, world) == spec_spawn(profile, reasoning, message, selection, world) : M.Decision()},
   operation: O.Operation, +world: M.World()) ->
   {Actual.realize_calculation(~actual_spawn, operation, world) == Spec.meaning(~spec_spawn, operation, world) : M.Decision()}:
@@ -113,14 +113,14 @@ def react_outputs(~actual_send: Nat -> String -> @+world:M.World() -> M.Decision
   {Actual.react_outputs(~actual_send, source, outputs, world) == Spec.react_outputs(~required_send, source, outputs, world) : M.Decision()}:
   GraphProof.react_outputs(~actual_send, ~required_send, ~sending, source, outputs, world)
 
-def command_calculation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def command_calculation(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   construction: Categories.Construction<Resolution.CommandRequest, Resolution.Resolution>) -> M.Decision():
   Categories.Construction{Resolution.CommandRequest{command, +world}, resolution} = construction
   Actual.resolution_calculation(~spawn, Resolution.resolve(~start, command, world), world)
 
-def command_equation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def command_equation(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   member: Resolution.ConstructedCommand(~start)) ->
   {Actual.realize(~start, ~spawn, member) == command_calculation(~start, ~spawn, Categories.value(
     Categories.Construction<Resolution.CommandRequest, Resolution.Resolution>,
@@ -129,8 +129,8 @@ def command_equation(~start: String -> String -> String -> J.Json -> @+world:M.W
   Equal.cong(Resolution.Resolution, M.Decision(), value => Actual.resolution_calculation(~spawn, value, world),
     resolution, Resolution.resolve(~start, command, world), evidence)
 
-def constructed_command_equation(~start: String -> String -> String -> J.Json -> @+world:M.World() -> Resolution.Start,
-  ~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
+def constructed_command_equation(~start: String -> String -> D.UserContent -> J.Json -> @+world:M.World() -> Resolution.Start,
+  ~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(),
   +command: F.Command, +world: M.World()) ->
   {Actual.realize(~start, ~spawn, Resolution.construct_command(~start, command, world)) ==
     Actual.resolution_calculation(~spawn, Resolution.resolve(~start, command, world), world) : M.Decision()}:

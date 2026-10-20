@@ -20,7 +20,8 @@ def unresolved_call_cannot_enter_source(+history: D.History, +whole: D.History, 
   Equal.cong(Bool, Bool, present => present && Actual.settled_calls(history, whole), Actual.has_output(whole, id), False{}, missing)
 
 # A selected complete window replaces one captured prefix. In particular, no
-# record retained inside that window is independently appended from the prefix.
+# textual dialogue from that window is independently appended from the prefix.
+# Fixed task context and immutable image references remain model input.
 def prefix_snapshot(+snapshot: +List<J.Json>, +tail: +List<J.Json>) ->
   {Actual.prefix(List.length(&2, J.Json, snapshot), List.append(&2, J.Json, snapshot, tail)) == snapshot : +List<J.Json>}:
   match snapshot:
@@ -166,3 +167,20 @@ def actual_scan_skips_incompatible_replacement(+message: J.Json, +tail: +List<J.
     Equal.cong(Spec.Selection, Spec.Selection, selected => Actual.latest(tail, scope, 1n+position, selected),
       Spec.event_kind("context_replacement", message, position, scope, previous), previous,
       incompatible_replacement_keeps_selection(message, position, scope, previous, incompatible)))
+
+# This production binding preserves the original image blocks, including detail,
+# rather than a textual pathname or a claim made by the generated summary.
+def replacement_retains_user_images(+content: J.Json, +rest: +List<J.Json>) ->
+  {Actual.fixed_kind("user", J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", content}]}, rest) ==
+    Spec.retained_images(Spec.message_image_parts(content), rest) : +List<J.Json>}:
+  {==}
+
+def replacement_retains_read_images(+content: J.Json, +rest: +List<J.Json>) ->
+  {Actual.fixed_kind("function_output", J.Object{[J.Field{"role", J.Text{"function_output"}}, J.Field{"content", content}]}, rest) ==
+    Spec.retained_images(Spec.message_image_parts(content), rest) : +List<J.Json>}:
+  {==}
+
+def replacement_retains_delayed_read_images(+content: J.Json, +rest: +List<J.Json>) ->
+  {Actual.fixed_kind("operation_result", J.Object{[J.Field{"role", J.Text{"operation_result"}}, J.Field{"content", content}]}, rest) ==
+    Spec.retained_images(Spec.message_image_parts(content), rest) : +List<J.Json>}:
+  {==}

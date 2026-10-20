@@ -1,6 +1,7 @@
 import Base
 import ../../bendlib/json.bend as J
 import ../../harness/conversation/PROGRAM.bend as Conversation
+import ../../harness/DOMAIN.bend as Domain
 import ./MODEL.bend as Model
 import ./ACCOUNTS.bend as Accounts
 
@@ -234,7 +235,9 @@ def task_assistant(+message: J.Json) -> Bool:
     (J.same(J.get(message, "role"), J.Text{"model_context"}) && Conversation.provider_assistant(J.get(message, "content")))
 def task_content(+message: J.Json) -> J.Json:
   select(J.same(J.get(message, "role"), J.Text{"model_context"}),
-    J.Text{Conversation.provider_text(J.get(message, "content"))}, J.get(message, "content"))
+    J.Text{Conversation.provider_text(J.get(message, "content"))},
+    select(J.same(J.get(message, "role"), J.Text{"user"}),
+      J.Text{Domain.content_text(Domain.user_content(J.get(message, "content"), J.Null{}))}, J.get(message, "content")))
 def initial_history_item(+message: J.Json) -> +List<J.Json>:
   +role = select(task_assistant(message), J.Text{"assistant"},
     select(J.same(J.get(message, "role"), J.Text{"speech_transcript"}), J.get(message, "speaker"), J.get(message, "role")))

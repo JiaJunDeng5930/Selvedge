@@ -67,7 +67,7 @@ def request_title(text: String, fallback: Unit -> String) -> String:
 def first_request(messages: +List<D.Message>, fallback: String) -> String:
   match messages:
     case Nil{}: fallback
-    case Con{D.UserMessage{text}, rest}: request_title(String.trim(text), unused => first_request(rest, fallback))
+    case Con{D.UserMessage{text}, rest}: request_title(String.trim(D.content_text(text)), unused => first_request(rest, fallback))
     case Con{other, rest}: first_request(rest, fallback)
 
 def title(+task: D.Task) -> String:

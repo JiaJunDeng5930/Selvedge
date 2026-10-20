@@ -131,15 +131,17 @@ def replacement_source(selection: Spec.Selection) -> Maybe<&2, Nat>:
 
 type FixedKindName is Data:
   FixedKindNameTaskContext{}
+  FixedKindNameImage{}
   FixedKindNameOther{}
 
 def fixed_kind_discriminant(+value: String) -> FixedKindName:
   Bool.pick(FixedKindName, String.eq(value, "task_context"), FixedKindNameTaskContext{},
-    FixedKindNameOther{})
+    Bool.pick(FixedKindName, String.eq(value, "user") || String.eq(value, "function_output") || String.eq(value, "operation_result"), FixedKindNameImage{}, FixedKindNameOther{}))
 
 def fixed_kind_classified(kind: FixedKindName, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:
   match kind:
     case FixedKindNameTaskContext{}: message <> rest
+    case FixedKindNameImage{}: Spec.retained_images(Spec.message_image_parts(J.get(message, "content")), rest)
     case FixedKindNameOther{}: rest
 
 def fixed_kind(kind: String, message: J.Json, rest: +List<J.Json>) -> +List<J.Json>:

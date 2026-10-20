@@ -76,6 +76,13 @@ export async function chatgptFixture(t) {
       }
       assert.equal(request.headers.authorization, `Bearer opaque-access-${marker}`);
       requests.push(entry);
+      if (options.respond) {
+        const chunks = [];
+        for await (const chunk of request) chunks.push(chunk);
+        const raw = Buffer.concat(chunks).toString('utf8');
+        entry.body = raw ? JSON.parse(raw) : undefined;
+        return options.respond(entry, response);
+      }
       request.resume();
       jsonResponse(response, { error: 'fixture rejection' }, 401);
     // DEFENSE: OAuth/model HTTP parsing and fixture assertions can fail; retain the failure and close the waiting client.

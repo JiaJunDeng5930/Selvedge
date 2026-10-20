@@ -21,6 +21,14 @@ which facts have a presentation. Rendering and encoding failures have Bend-owned
 screens. The static HTML loading/error text only covers loading the compiled
 program itself.
 
+Message fields and file controls share the declared `SelectFiles` binding. The
+adapter turns file selection, pasted clipboard images and dropped files into
+opaque handles; the existing upload service owns progress and settlement. Images
+use the same authenticated content-addressed attachment vault as the task board.
+Markdown's `browser.image` admission loads those vault URLs as native images and
+reports decoded dimensions back through ordinary content measurement; other image
+URLs remain explicit links.
+
 Stream notifications retain their order through the Bend adapter. Consecutive
 text observations can share a publication; commit and stream lifecycle boundaries
 flush earlier observations first. Notification turns yield so native input and

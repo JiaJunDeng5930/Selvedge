@@ -96,12 +96,22 @@ const renderer = new Renderer(root, {
       }
       case 'ConfirmText': commit(Bend.confirm_text(binding.key, event.key, bool(event.isComposing || composing || event.keyCode === 229), bool(event.ctrlKey), bool(event.altKey), bool(event.shiftKey), bool(event.metaKey), state)); break;
       case 'EditToggle': commit(Bend.edit_toggle(binding.key, bool(node.checked), state)); break;
-      case 'SelectFiles':
-        for (const file of node.files) {
+      case 'SelectFiles': {
+        const transfer = event.clipboardData ?? event.dataTransfer;
+        const selected = transfer ? [...transfer.files] : [...node.files];
+        if (transfer && !selected.length) {
+          for (const item of transfer.items) if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file) selected.push(file);
+          }
+        }
+        for (const file of selected) {
           const handle = crypto.randomUUID(); files.set(handle, file);
           commit(Bend.attach(binding.key, bendValue('interaction/services/MODEL.SelectedFile', { handle, name: file.name, mime: file.type, bytes: file.size }), state));
         }
-        node.value = ''; break;
+        if (node.type === 'file') node.value = '';
+        break;
+      }
       case 'DragCard': dragged = binding.key; event.dataTransfer?.setData('text/plain', binding.key); break;
       case 'DropCard': if (dragged) commit(Bend.place(dragged, binding.key, state)); dragged = null; break;
       case 'SelectDestination': if (node.value) { captureAnchor(binding.key, node); commit(Bend.place(binding.key, node.value, state)); } break;
@@ -353,6 +363,11 @@ function commit(decision) {
   render();
   for (const effect of list(decision.effects)) void execute(effect);
   if (namespaceChanged) product(bendValue('interaction/MODEL.SpeechObserved', { input: bendValue('interaction/speech/MODEL.Released') }));
+  if (files.size) {
+    // Failed uploads retain their native File for explicit retry until Bend releases the transfer.
+    const retained = new Set(list(Bend.file_handles(state)));
+    for (const handle of files.keys()) if (!retained.has(handle)) files.delete(handle);
+  }
 }
 function step(input) { commit(Bend.step(input, state)); }
 function native(input) { step(bendValue('browser/runtime/SEMANTICS.Native', { input })); }
@@ -667,7 +682,6 @@ async function service(effect) {
         break;
       } finally { transfers.delete(effect.ticket); }
       product(bendValue('interaction/MODEL.Uploaded', { ticket: effect.ticket, result: result(true, bendValue('features/board/MODEL.Attachment', body.result)) }));
-      files.delete(effect.file.handle);
       break;
     }
     case 'CancelTransfer': transfers.get(effect.ticket)?.abort(); transfers.delete(effect.ticket); break;

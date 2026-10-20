@@ -16,14 +16,14 @@ def excluded_source(+source: S.Source, +query: String, +project: Maybe<&2, Nat>,
 
 # This index includes invisible records in the original history. It is not the
 # position in filtered search results or in the current model context.
-def latest_user_location(+previous: D.History, +summary: J.Json, +query: String, +text: String, +newer: String,
-  found: {Actual.matches(query, text) == True{} : Bool}) ->
-  {Actual.scan_history(D.HistoryNode{previous, D.UserMessage{text}}, (1n + D.history_length(previous) : Nat), summary, query, newer) ==
-    Actual.hit(summary, D.history_length(previous), "user", text, query, Actual.first_readable(previous), newer) <>
-      Actual.scan_history(previous, D.history_length(previous), summary, query, String.take(text, S.context_characters())) : +List<J.Json>}:
-  Equal.cong(Bool, +List<J.Json>, accepted => Actual.keep_hit(accepted, summary, D.history_length(previous), "user", text, query, previous, newer,
-      Actual.scan_history(previous, D.history_length(previous), summary, query, String.take(text, S.context_characters()))),
-    Actual.matches(query, text), True{}, found)
+def latest_user_location(+previous: D.History, +summary: J.Json, +query: String, +content: D.UserContent, +newer: String,
+  found: {Actual.matches(query, D.content_text(content)) == True{} : Bool}) ->
+  {Actual.scan_history(D.HistoryNode{previous, D.UserMessage{content}}, (1n + D.history_length(previous) : Nat), summary, query, newer) ==
+    Actual.hit(summary, D.history_length(previous), "user", D.content_text(content), query, Actual.first_readable(previous), newer) <>
+      Actual.scan_history(previous, D.history_length(previous), summary, query, String.take(D.content_text(content), S.context_characters())) : +List<J.Json>}:
+  Equal.cong(Bool, +List<J.Json>, accepted => Actual.keep_hit(accepted, summary, D.history_length(previous), "user", D.content_text(content), query, previous, newer,
+      Actual.scan_history(previous, D.history_length(previous), summary, query, String.take(D.content_text(content), S.context_characters()))),
+    Actual.matches(query, D.content_text(content)), True{}, found)
 
 def hidden_context_keeps_original_offset(previous: D.History, remaining: Nat, summary: J.Json, query: String, newer: String, context: D.HistoryContext) ->
   {Actual.scan_history(D.HistoryNode{previous, D.ContextMessage{context}}, (1n + remaining : Nat), summary, query, newer) ==

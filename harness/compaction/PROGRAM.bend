@@ -16,8 +16,21 @@ def start_choice(native: Bool, state: M.State) -> M.State:
     case True{}: state
     case False{}: to_portable(state)
 
-def start(history: J.Json, raw: J.Json, provider: String, method: String, input_tokens: Nat, +window: Nat, +reserve: Nat) -> M.State:
-  start_choice(String.eq(provider, "chatgpt") && String.eq(method, "auto") && Nat.is_le(Nat.add(input_tokens, reserve), window),
+# Native compaction can echo materialized image URLs into its result. Keep image
+# bytes outside the pure history by summarizing text and retaining image assets.
+def contains_image(value: J.Json) -> Bool:
+  match value:
+    case J.Array{Con{head, tail}}: contains_image(head) || contains_image(J.Array{tail})
+    case J.Object{Con{J.Field{+name, +value}, tail}}:
+      (String.eq(name, "type") && (J.same(value, J.Text{"image"}) || J.same(value, J.Text{"input_image"}))) ||
+        contains_image(value) || contains_image(J.Object{tail})
+    case _: False{}
+
+def source_has_images(history: J.Json, raw: J.Json) -> Bool:
+  contains_image(history) || contains_image(raw)
+
+def start(+history: J.Json, +raw: J.Json, provider: String, method: String, input_tokens: Nat, +window: Nat, +reserve: Nat) -> M.State:
+  start_choice(Bool.not(source_has_images(history, raw)) && String.eq(provider, "chatgpt") && String.eq(method, "auto") && Nat.is_le(Nat.add(input_tokens, reserve), window),
     M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve})
 
 def method_text(source: M.Source) -> String:

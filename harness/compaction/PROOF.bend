@@ -5,10 +5,25 @@ import ./PROGRAM.bend as P
 import ./CONTRACT.bend as Rule
 
 def Rule.native_start_retains_raw_source():
-  +history => +raw => +input => +window => +reserve => fits =>
+  +history => +raw => +input => +window => +reserve => without_images => fits =>
+    Equal.trans(M.State,
+      P.start(history, raw, "chatgpt", "auto", input, window, reserve),
+      P.start_choice(Nat.is_le(Nat.add(input, reserve), window), M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve}),
+      M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve},
+      Equal.cong(Bool, M.State,
+        images => P.start_choice(Bool.not(images) && True{} && True{} && Nat.is_le(Nat.add(input, reserve), window),
+          M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve}),
+        P.source_has_images(history, raw), False{}, without_images),
+      Equal.cong(Bool, M.State,
+        native => P.start_choice(native, M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve}),
+        Nat.is_le(Nat.add(input, reserve), window), True{}, fits))
+
+def Rule.image_source_uses_portable_compaction():
+  +history => +raw => +provider => +method => +input => +window => +reserve => images =>
     Equal.cong(Bool, M.State,
-      native => P.start_choice(native, M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve}),
-      Nat.is_le(Nat.add(input, reserve), window), True{}, fits)
+      observed => P.start_choice(Bool.not(observed) && String.eq(provider, "chatgpt") && String.eq(method, "auto") &&
+        Nat.is_le(Nat.add(input, reserve), window), M.State{M.NativeSource{history, raw}, 0n, "", window, window, reserve}),
+      P.source_has_images(history, raw), True{}, images)
 
 def Rule.native_to_portable_preserves_source():
   history => raw => cursor => carry => width => window => reserve => {==}

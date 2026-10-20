@@ -126,11 +126,19 @@ def string_enum_allowed(schema: J.Json, text: String) -> Bool:
 type Check is Data:
   CheckValue{schema: J.Json, value: J.Json}
   CheckElements{schema: J.Json, values: +List<J.Json>}
+  CheckAlternatives{schemas: +List<J.Json>, value: J.Json}
   CheckFields{properties: J.Json, values: +List<J.Field>}
 
 def check(fuel: Nat, job: Check) -> Bool:
   match fuel job:
     case 0n _: False{}
+    case 1n+p CheckValue{J.Object{Con{J.Field{"anyOf", J.Array{schemas}}, rest}}, value}:
+      check(p, CheckAlternatives{schemas, value})
+    case 1n+p CheckValue{J.Object{Con{J.Field{"description", description}, Con{J.Field{"anyOf", J.Array{schemas}}, rest}}}, value}:
+      check(p, CheckAlternatives{schemas, value})
+    case 1n+p CheckAlternatives{Nil{}, value}: False{}
+    case 1n+ +p CheckAlternatives{Con{schema, rest}, +value}:
+      check(p, CheckValue{schema, value}) || check(p, CheckAlternatives{rest, value})
     case 1n+p CheckValue{+schema, J.Text{text}}:
       allowed_type(schema, "string") && string_enum_allowed(schema, text)
     case 1n+p CheckValue{+schema, J.Number{lexeme}}:
@@ -214,6 +222,7 @@ def property_requirements(properties: J.Json, required: J.Json) -> Bool:
     case _: False{}
 
 type Definition is Data:
+  AlternativesDefinition{values: +List<J.Json>}
   SchemaDefinition{value: J.Json}
   PropertiesDefinition{value: J.Json, seen: +List<String>}
 
@@ -275,6 +284,13 @@ def definition(fuel: Nat, jobs: Maybe<&2, +List<Definition>>) -> Bool:
     case 0n _: False{}
     case 1n+p None{}: False{}
     case 1n+p Some{Nil{}}: True{}
+    case 1n+p Some{Con{AlternativesDefinition{Nil{}}, rest}}: definition(p, Some{rest})
+    case 1n+p Some{Con{AlternativesDefinition{Con{value, values}}, rest}}:
+      definition(p, Some{SchemaDefinition{value} <> AlternativesDefinition{values} <> rest})
+    case 1n+p Some{Con{SchemaDefinition{J.Object{Con{J.Field{"anyOf", J.Array{Con{first, values}}}, Nil{}}}}, rest}}:
+      definition(p, Some{AlternativesDefinition{first <> values} <> rest})
+    case 1n+p Some{Con{SchemaDefinition{J.Object{Con{J.Field{"description", J.Text{description}}, Con{J.Field{"anyOf", J.Array{Con{first, values}}}, Nil{}}}}}, rest}}:
+      definition(p, Some{AlternativesDefinition{first <> values} <> rest})
     case 1n+p Some{Con{SchemaDefinition{+value}, rest}}:
       optional_text(J.get(value, "title")) && optional_text(J.get(value, "description")) &&
         definition_shape(J.text(J.get(value, "type")), value) &&

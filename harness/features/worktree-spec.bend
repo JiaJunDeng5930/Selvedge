@@ -144,6 +144,6 @@ def initialize(+id: Nat, +workspace: D.Workspace, decision: M.Decision()) -> M.D
   C.Decision{State.store(W.put(id, W.Worktree{source, None{}, W.Creating{}, "", ""}, State.registry(next)), next), reply,
     List.append(&2, M.Effect(), effects, [Effects.FeatureEffect{F.WorktreeEffect{W.CreateTree{id, source, workspace}}}])}
 
-def start(~spawn: D.Profile -> String -> String -> Workspace.Selection -> @+world:M.World() -> M.Decision(), profile: D.Profile, reasoning: String, message: String, +selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+def start(~spawn: D.Profile -> String -> D.UserContent -> Workspace.Selection -> @+world:M.World() -> M.Decision(), profile: D.Profile, reasoning: String, message: D.UserContent, +selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   Workspace.Selection{context, guidance} = selection
   initialize(D.state_next_task(C.local(D.State, F.State(), world)), Workspace.workspace(context), spawn(profile, reasoning, message, selection, world))

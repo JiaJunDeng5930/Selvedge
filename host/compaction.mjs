@@ -1,15 +1,15 @@
 import { boundary } from './public/model-boundary.mjs';
-import { providerSession, prepareProviderRequest, requestProviderJSON, requestProviderSSE, responseBody } from './providers.mjs';
+import { providerSession, prepareModelRequest, requestProviderJSON, requestProviderSSE, responseBody } from './providers.mjs';
 import { compactionSettings } from './config.mjs';
 
 async function measured(session, prepared, limits, options, window_tokens) {
   const { request, bytes } = prepared;
-  const plan = boundary('backend.compaction_measurement_plan', { scope: session.scope,
+  const plan = boundary('backend.compaction_measurement_plan', { scope: session.scope, profile: session.profile,
     request, bytes, limits, window_tokens });
   if (plan.action === 'local') return plan;
   const body = boundary('backend.compaction_meter_request', { request });
   let response;
-  try { response = await requestProviderJSON(session, '/input_tokens', prepareProviderRequest(body), limits, options); }
+  try { response = await requestProviderJSON(session, '/input_tokens', await prepareModelRequest(body, session.home, limits), limits, options); }
   catch (error) {
     // DEFENSE: A Responses endpoint can reject the optional input_tokens route; native admission permits a UTF-8 bound only for readable requests.
     const fallback = boundary('backend.compaction_meter_fallback', {
@@ -33,7 +33,7 @@ export async function observeModelRequest(effect, config, home, limits, options 
   const request = boundary('backend.compaction_model_request', { effect, profile: session.profile });
   const settings = compactionSettings(config);
   const target = settings.targets.find(value => value.profile === effect.model.profile);
-  const observation = await measured(session, prepareProviderRequest(request), limits, options, target.window_tokens);
+  const observation = await measured(session, await prepareModelRequest(request, home, limits), limits, options, target.window_tokens);
   return { ...observation, window_tokens: target.window_tokens,
     output_reserve_tokens: target.output_reserve_tokens, now: Date.now() };
 }
@@ -50,7 +50,7 @@ export async function requestCompaction(effect, config, home, limits, options = 
   const request = effect.plan.method === 'native'
     ? boundary('backend.compaction_request', { request: encoded })
     : boundary('backend.compaction_portable_request', { effect, request: encoded });
-  const prepared = prepareProviderRequest(request);
+  const prepared = await prepareModelRequest(request, home, limits);
   const observation = await measured(session, prepared, limits, options, effect.plan.window_tokens);
   if (boundary('backend.compaction_budget', { ...observation, plan: effect.plan }) === 'resize') {
     return { action: 'resize' };

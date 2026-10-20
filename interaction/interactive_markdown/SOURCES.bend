@@ -66,7 +66,7 @@ def task_value( +found: Maybe<&2, Domain.Task>, +world: Harness.World()) -> J.Js
         J.Field{"phase", J.Text{phase_name(Domain.task_phase(task))}},
         J.Field{"working", J.Boolean{Conversation.working(Domain.task_phase(task), Domain.task_operations(task))}},
         J.Field{"awaitingHuman", J.Boolean{awaiting_human(Domain.task_operations(task))}},
-        J.Field{"pendingMessages", J.nat(List.length(&2, String, Domain.task_queue(task)))},
+        J.Field{"pendingMessages", J.nat(List.length(&2, Domain.UserContent, Domain.task_queue(task)))},
         J.Field{"operations", J.Array{operations(Domain.task_operations(task))}},
         J.Field{"statusLabel", J.Text{Conversation.status(task)}}]}
 

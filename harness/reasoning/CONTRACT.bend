@@ -68,7 +68,7 @@ type ReasoningBoundary is Type:
         Protocol.matching(ticket, expected, Protocol.ReasoningResult{task, revision, outcome}) : Protocol.ResolvedEvent},
     archived_completion: @phase:D.Phase -> @task:D.Task -> @ticket:Nat -> @outcome:R.Outcome ->
       {Protocol.reasoning_phase(D.Archived{}, phase, task, ticket, outcome) == Protocol.Ignore{} : Protocol.ResolvedEvent},
-    new_input: @history:D.History -> @text:String -> @owner:Nat ->
+    new_input: @history:D.History -> @text:D.UserContent -> @owner:Nat ->
       {Context.lease(D.HistoryNode{history, D.UserMessage{text}}, owner) == R.NoLease{} : R.Lease},
     tool_failure: @history:D.History -> @call:String -> @value:J.Json -> @owner:Nat ->
       {Context.lease(D.HistoryNode{history, D.FunctionOutput{call, value, True{}}}, owner) == R.NoLease{} : R.Lease},

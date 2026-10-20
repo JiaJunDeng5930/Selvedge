@@ -276,6 +276,17 @@ export class Markdown {
       const entry = stack.pop();
       delete entry.node.dataset.pending;
       if (stack.length === 1) { entry.node.dataset.stable = 'true'; this.stableBlocks++; }
+      if (entry.type === smd.IMAGE && entry.imageURL) {
+        const image = document.createElement('img');
+        image.alt = entry.node.textContent;
+        image.src = entry.imageURL;
+        image.decoding = 'async';
+        image.addEventListener('load', () => options.onChange?.(), { once: true });
+        entry.node.className = 'markdown-image';
+        entry.node.setAttribute('href', entry.imageURL);
+        entry.node.removeAttribute('aria-label');
+        entry.node.replaceChildren(image);
+      }
       const kind = [smd.CODE_BLOCK, smd.CODE_FENCE].includes(entry.type) ? 'code'
         : [smd.EQUATION_BLOCK, smd.EQUATION_INLINE].includes(entry.type) ? 'math' : null;
       if (kind === 'math' && !completed) {
@@ -335,6 +346,9 @@ export class Markdown {
       },
       set_attr: (_, attr, value) => {
         const node = stack.at(-1).node;
+        if (attr === smd.SRC && stack.at(-1).type === smd.IMAGE) {
+          stack.at(-1).imageURL = boundary('browser.image', { raw: value });
+        }
         if ([smd.HREF, smd.SRC].includes(attr)) {
           const href = safeHref(value);
           if (href) { node.setAttribute('href', href); node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }

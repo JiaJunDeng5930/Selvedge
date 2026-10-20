@@ -1283,14 +1283,22 @@ def composer_enclosure_children(nodes: +List<SurfaceTypes.Node>) -> Maybe<&2, +L
         case SurfaceTypes.Composer{}: Some{children}
         case _: composer_enclosure_children(rest)
 
+def expected_composer_attachments(+editor: U.Editor, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
+  +services = Core.services(state)
+  +connected = Services.connected(Services.access(services))
+  SurfaceTypes.Node{Identity.Part{parent, "add"}, "attachment/add", "Add attachment", SurfaceTypes.Field{}, SurfaceTypes.ReceiveFile{editor, connected}, Nil{}} <>
+    List.append(&2, SurfaceTypes.Node,
+      Model.attachment_nodes(Model.editor_attachments(editor, state), editor, parent),
+      Model.transfer_nodes(Services.transfers(services), editor, parent, connected))
+
 def expected_composer_enclosure_children(view: Maybe<&2, V.ComposerScene>, +parent: Identity.Key, +state: InteractionTypes.State) -> Maybe<&2, +List<SurfaceTypes.Node>>:
   match view:
     case None{}: None{}
     case Some{V.ComposerScene{+identity, +revision, message, phase, creation_context, execution_controls, context, +assessment, +submit, feedback, +pending}}:
       +key : Identity.Key = Identity.Entity{parent, "composer", U.editor_key(identity)}
       Some{Model.field_node(Forms.FieldScene{Forms.MessageText{}, "Message", Forms.Multiline{}}, identity, key, state, Nil{}) <>
-        List.append(&2, SurfaceTypes.Node, Model.speech_controls(identity, revision, key, state),
-        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), Model.action_feedback_nodes(identity, feedback, key)), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}
+        List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.speech_controls(identity, revision, key, state), expected_composer_attachments(identity, Identity.Part{key, "attachments"}, state)),
+          List.append(&2, SurfaceTypes.Node, List.append(&2, SurfaceTypes.Node, Model.canonical_explanation(UX.action(identity, revision, pending), assessment, submit, key, state), Model.action_feedback_nodes(identity, feedback, key)), [Model.action_footer(execution_controls, UX.action(identity, revision, pending), assessment, submit, key, state)]))}
 
 def expected_committed_permission_summary(context: Maybe<&2, Context.EffectiveContext>, +parent: Identity.Key, +state: InteractionTypes.State) -> +List<SurfaceTypes.Node>:
   match context:
@@ -2224,7 +2232,7 @@ type BoundaryRequirements is Type:
     task_prepared: @+text:U.Text -> @profile:String -> @reasoning:String ->
       @+config:Context.Configuration -> @+observation:Context.DirectoryObservation -> @now:U32 -> @+work:Maybe<&2, Nat> -> @+create_worktree:Bool ->
       {U.prepared_command(U.NewTask{text, profile, reasoning, config, create_worktree, work}, observation, now) ==
-        U.create_task(work, create_worktree, profile, reasoning, U.text(text), Context.observed_settings(config, observation)) : M.Command},
+        U.create_task(work, create_worktree, profile, reasoning, U.content(text), Context.observed_settings(config, observation)) : M.Command},
     settings_observations: @+config:Context.Configuration -> @+workspace:D.Workspace ->
       @+guidance:D.ProjectContext ->
       settings_observations_law(config, workspace, guidance),

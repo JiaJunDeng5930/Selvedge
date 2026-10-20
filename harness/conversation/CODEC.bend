@@ -29,7 +29,7 @@ def message_json(message: D.Message) -> J.Json:
         J.Field{"call", call_json(call)}, J.Field{"reviewer", D.approval_reviewer_json(reviewer)},
         J.Field{"content", D.approval_outcome_json(outcome)}]}
     case D.UserMessage{text}:
-      J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", J.Text{text}}]}
+      J.Object{[J.Field{"role", J.Text{"user"}}, J.Field{"content", D.content_json(text)}]}
     case D.AssistantMessage{origin, text}:
       J.Object{[J.Field{"role", J.Text{"assistant"}}, J.Field{"origin", D.output_origin_json(origin)}, J.Field{"content", J.Text{text}}]}
     case D.FunctionCall{call}:

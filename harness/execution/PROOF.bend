@@ -319,13 +319,13 @@ def settlement_notifies(+operation: D.Operation(), value: J.Json, error: Bool, +
   notification_sticky(D.with_operations(Ops.remove(D.task_operations(task), Ops.ticket(operation)),
     D.append_message(Ops.result(operation, value, error), task)))
 
-def steering_rights(message: String, +task: D.Task) ->
+def steering_rights(message: D.UserContent, +task: D.Task) ->
   {D.task_operations(T.steer(message, task)) == D.task_operations(task) : +List<D.Operation()>}:
   D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
-def steering_queue(message: String, +task: D.Task) ->
-  {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<String>}:
+def steering_queue(message: D.UserContent, +task: D.Task) ->
+  {D.task_queue(T.steer(message, task)) == D.task_queue(task) : +List<D.UserContent>}:
   D.Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   {==}
 
@@ -350,7 +350,7 @@ def later_output(+operation: D.Operation(), +value: J.Json, +error: Bool) ->
   {==}
 
 def pending_model(id: Nat, lineage: +List<Nat>, contract: D.Contract, current: D.ExecutionConfiguration, status: D.Status,
-  history: D.History, queued: +List<String>, +ticket: Nat, +allowed: +List<String>, +mode: D.OutputMode, operations: +List<D.Operation()>,
+  history: D.History, queued: +List<D.UserContent>, +ticket: Nat, +allowed: +List<String>, +mode: D.OutputMode, operations: +List<D.Operation()>,
   notified: Bool, operation: D.Operation(), value: J.Json, error: Bool) ->
   {D.task_phase(T.complete_operation(operation, value, error,
     D.Task{id, lineage, contract, current, status, history, queued, D.ModelPending{ticket, allowed, mode}, operations, notified})) ==

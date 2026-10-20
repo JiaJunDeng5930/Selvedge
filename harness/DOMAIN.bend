@@ -605,6 +605,10 @@ def fork_settings_schema() -> J.Json:
   Schema.object([J.Field{"workspace", workspace_schema()}, J.Field{"sandbox", sandbox_schema()},
     J.Field{"approval", approval_schema()}, J.Field{"project_id", task_id_schema()}], Nil{})
 
+def image_detail_schema() -> J.Json:
+  J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"auto"}, J.Text{"low"}, J.Text{"high"}]}}]}
+
+
 def process_schema() -> J.Json:
   Schema.object([J.Field{"command", string_schema("Command to run")},
       J.Field{"timeout_ms", integer_schema("Optional deadline in milliseconds; omitted means no deadline", 100, 1800000)},
@@ -630,6 +634,10 @@ def process_write_schema() -> J.Json:
     J.Field{"cols", integer_schema("New PTY columns; supply with rows", 1, 65535)},
     J.Field{"rows", integer_schema("New PTY rows; supply with cols", 1, 65535)}],
     [J.Text{"operation_id"}])
+def image_schema() -> J.Json:
+  Schema.object([J.Field{"path", string_schema("Local image path, relative to the task workspace or absolute")},
+      J.Field{"detail", image_detail_schema()}],
+    [J.Text{"path"}])
 
 
 type Contract is Data:
@@ -756,10 +764,191 @@ def speech_completion_name(completion: SpeechCompletion) -> String:
     case SpeechCompleted{}: "completed"
     case SpeechInterrupted{}: "interrupted"
 
+# Image identity is the digest of immutable bytes in the host attachment vault.
+# The pure model carries references; a provider request resolves and verifies bytes.
+type ImageAsset is Data:
+  ImageAsset{id: String, mime: String, bytes: U32}
+
+type ImageDetail is Data:
+  ImageAuto{}
+  ImageLow{}
+  ImageHigh{}
+
+type ContentPart is Data:
+  TextPart{text: String}
+  ImagePart{image: ImageAsset, detail: ImageDetail}
+
+type UserContent is Data:
+  UserContent{parts: +List<ContentPart>}
+
+def image_detail_name(detail: ImageDetail) -> String:
+  match detail:
+    case ImageAuto{}: "auto"
+    case ImageLow{}: "low"
+    case ImageHigh{}: "high"
+
+def image_detail(+value: String) -> ImageDetail:
+  Bool.pick(ImageDetail, String.eq(value, "low"), ImageLow{},
+    Bool.pick(ImageDetail, String.eq(value, "high"), ImageHigh{}, ImageAuto{}))
+
+def image_asset_json(image: ImageAsset) -> J.Json:
+  ImageAsset{id, mime, bytes} = image
+  J.Object{[J.Field{"id", J.Text{id}}, J.Field{"mime", J.Text{mime}}, J.Field{"bytes", J.Number{U32.show(bytes)}}]}
+
+def image_size(value: J.Json) -> U32:
+  match value:
+    case J.Text{text}: Schema.number_or(U32.read(text), 0)
+    case other: Schema.number_or(Schema.number(other), 0)
+
+def image_asset(+value: J.Json) -> ImageAsset:
+  ImageAsset{J.text(J.get(value, "id")), J.text(J.get(value, "mime")), image_size(J.get(value, "bytes"))}
+
+def content_part_json(part: ContentPart) -> J.Json:
+  match part:
+    case TextPart{text}: J.Object{[J.Field{"type", J.Text{"text"}}, J.Field{"text", J.Text{text}}]}
+    case ImagePart{image, detail}: J.Object{[J.Field{"type", J.Text{"image"}}, J.Field{"image", image_asset_json(image)},
+      J.Field{"detail", J.Text{image_detail_name(detail)}}]}
+
+def content_parts_json(parts: +List<ContentPart>) -> +List<J.Json>:
+  match parts:
+    case Nil{}: Nil{}
+    case Con{part, rest}: content_part_json(part) <> content_parts_json(rest)
+
+def content_json(content: UserContent) -> J.Json:
+  UserContent{parts} = content
+  J.Array{content_parts_json(parts)}
+
+def text_content(text: String) -> UserContent:
+  UserContent{[TextPart{text}]}
+
+def content_parts_text(parts: +List<ContentPart>) -> String:
+  match parts:
+    case Nil{}: ""
+    case Con{TextPart{text}, rest}: text ++ content_parts_text(rest)
+    case Con{ImagePart{ImageAsset{id, mime, bytes}, detail}, rest}:
+      "\n[Image]\n" ++ content_parts_text(rest)
+
+def content_text(content: UserContent) -> String:
+  UserContent{parts} = content
+  content_parts_text(parts)
+
+def content_texts(contents: +List<UserContent>) -> +List<String>:
+  match contents:
+    case Nil{}: Nil{}
+    case Con{content, rest}: content_text(content) <> content_texts(rest)
+
+def content_parts_markdown(parts: +List<ContentPart>) -> String:
+  match parts:
+    case Nil{}: ""
+    case Con{TextPart{text}, rest}: text ++ content_parts_markdown(rest)
+    case Con{ImagePart{ImageAsset{id, mime, bytes}, detail}, rest}:
+      "\n![Image](/api/board/attachments/" ++ id ++ ")\n" ++ content_parts_markdown(rest)
+
+def content_markdown(content: UserContent) -> String:
+  UserContent{parts} = content
+  content_parts_markdown(parts)
+
+def content_parts_nonempty(parts: +List<ContentPart>) -> Bool:
+  match parts:
+    case Nil{}: False{}
+    case Con{TextPart{text}, rest}: nonempty(text) || content_parts_nonempty(rest)
+    case Con{ImagePart{image, detail}, rest}: True{}
+
+def content_nonempty(content: UserContent) -> Bool:
+  UserContent{parts} = content
+  content_parts_nonempty(parts)
+
+def image_parts(values: +List<J.Json>) -> +List<ContentPart>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: ImagePart{image_asset(value), ImageAuto{}} <> image_parts(rest)
+
+def content_parts(values: +List<J.Json>) -> +List<ContentPart>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{+value, rest}:
+      Bool.pick(ContentPart, String.eq(J.text(J.get(value, "type")), "image"),
+        ImagePart{image_asset(J.get(value, "image")), image_detail(J.text(J.get(value, "detail")))},
+        TextPart{J.text(J.get(value, "text"))}) <> content_parts(rest)
+
+def user_content(message: J.Json, images: J.Json) -> UserContent:
+  match message:
+    case J.Array{parts}: UserContent{List.append(&2, ContentPart, content_parts(parts), image_parts(J.items(images)))}
+    case other: UserContent{TextPart{J.text(other)} <> image_parts(J.items(images))}
+
+def content_items(values: +List<J.Json>) -> +List<UserContent>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: user_content(value, J.Null{}) <> content_items(rest)
+
+def text_contents(values: +List<String>) -> +List<UserContent>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: text_content(value) <> text_contents(rest)
+
+def content_values(values: +List<UserContent>) -> +List<J.Json>:
+  match values:
+    case Nil{}: Nil{}
+    case Con{value, rest}: content_json(value) <> content_values(rest)
+
+def image_asset_schema() -> J.Json:
+  Schema.object([J.Field{"id", string_schema("SHA-256 identity of immutable image bytes")},
+    J.Field{"mime", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"image/png"}, J.Text{"image/jpeg"}, J.Text{"image/gif"}, J.Text{"image/webp"}]}}]}},
+    J.Field{"bytes", integer_schema("Stored image size", 1, 10485760)}], [J.Text{"id"}, J.Text{"mime"}, J.Text{"bytes"}])
+
+def image_reference_schema() -> J.Json:
+  Schema.object([J.Field{"id", string_schema("Image attachment identity")}, J.Field{"name", string_schema("Original filename")},
+    J.Field{"mime", string_schema("Stored media type")}, J.Field{"path", string_schema("Stored attachment path")},
+    J.Field{"bytes", J.Object{[J.Field{"anyOf", J.Array{[integer_schema("Stored image size", 1, 10485760), string_schema("Stored image size") ]}}]} }],
+    [J.Text{"id"}, J.Text{"mime"}, J.Text{"bytes"}])
+
+
+def content_part_schema() -> J.Json:
+  J.Object{[J.Field{"anyOf", J.Array{[
+    Schema.object([J.Field{"type", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"text"}]}}]}},
+      J.Field{"text", string_schema("User text")}], [J.Text{"type"}, J.Text{"text"}]),
+    Schema.object([J.Field{"type", J.Object{[J.Field{"type", J.Text{"string"}}, J.Field{"enum", J.Array{[J.Text{"image"}]}}]}},
+      J.Field{"image", image_asset_schema()}, J.Field{"detail", image_detail_schema()}], [J.Text{"type"}, J.Text{"image"}])]}}]}
+
+def content_schema(description: String) -> J.Json:
+  J.Object{[J.Field{"description", J.Text{description}}, J.Field{"anyOf", J.Array{[string_schema("User text"),
+    J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", content_part_schema()}]}]}}]}
+
+def images_schema() -> J.Json:
+  J.Object{[J.Field{"type", J.Text{"array"}}, J.Field{"items", image_reference_schema()}]}
+
+def valid_image_asset(+value: J.Json) -> Bool:
+  Schema.valid(image_asset_schema(), image_asset_json(image_asset(value))) && Nat.is_eq(String.length(J.text(J.get(value, "id"))), 64n) &&
+    chatgpt_account_hash_digits(J.text(J.get(value, "id")))
+
+def valid_image_part(+value: J.Json) -> Bool:
+  Schema.valid(content_part_schema(), value) && String.eq(J.text(J.get(value, "type")), "image") && valid_image_asset(J.get(value, "image"))
+
+def content_image_parts(parts: +List<ContentPart>) -> +List<ContentPart>:
+  match parts:
+    case Nil{}: Nil{}
+    case Con{TextPart{text}, rest}: content_image_parts(rest)
+    case Con{ImagePart{image, detail}, rest}: ImagePart{image, detail} <> content_image_parts(rest)
+
+def content_parts_valid(parts: +List<ContentPart>) -> Bool:
+  match parts:
+    case Nil{}: True{}
+    case Con{TextPart{text}, rest}: content_parts_valid(rest)
+    case Con{ImagePart{image, detail}, rest}: valid_image_asset(image_asset_json(image)) && content_parts_valid(rest)
+
+def content_valid(content: UserContent) -> Bool:
+  UserContent{+parts} = content
+  content_parts_valid(parts) && Nat.is_le(List.length(&2, ContentPart, content_image_parts(parts)), 4n)
+
+def contents_valid(contents: +List<UserContent>) -> Bool:
+  match contents:
+    case Nil{}: True{}
+    case Con{content, rest}: content_valid(content) && contents_valid(rest)
+
 type Message is Data:
   SpeechTranscript{owner: Nat, session_id: String, item_id: String, speaker: SpeechSpeaker, completion: SpeechCompletion, text: String}
   SpeechDelegationReceipt{owner: Nat, session_id: String, delegation_id: String, mode: String, message: String}
-  UserMessage{text: String}
+  UserMessage{content: UserContent}
   AssistantMessage{origin: OutputOrigin, text: String}
   FunctionCall{call: Call}
   FunctionOutput{call_id: String, value: J.Json, error: Bool}
@@ -774,6 +963,18 @@ type Message is Data:
   AfterRecord{task_id: Nat, operation_id: Nat, plugin: PluginRef, outcome: AfterOutcome}
   ApprovalRecord{task_id: Nat, operation_id: Nat, call: Call, reviewer: ApprovalReviewer, outcome: ApprovalOutcome}
   ForkResult{task_id: Nat, call_id: String, branch: Nat}
+
+def message_images(message: Message) -> +List<ContentPart>:
+  match message:
+    case UserMessage{UserContent{parts}}: content_image_parts(parts)
+    case FunctionOutput{call, value, error}: content_image_parts(content_parts(J.items(J.get(value, "content"))))
+    case OperationResult{ticket, call, tool, value, error}: content_image_parts(content_parts(J.items(J.get(value, "content"))))
+    case _: Nil{}
+
+def messages_images(messages: +List<Message>) -> +List<ContentPart>:
+  match messages:
+    case Nil{}: Nil{}
+    case Con{message, rest}: List.append(&2, ContentPart, message_images(message), messages_images(rest))
 
 # A model may produce ordered answers, invocations, and opaque continuation data.
 # It cannot construct user messages or tool results. Continuation data is retained
@@ -905,7 +1106,7 @@ type ExecutionConfiguration is Data:
 
 type Task is Data:
   Task{id: Nat, lineage: +List<Nat>, contract: Contract, current: ExecutionConfiguration, status: Status,
-    history: History, queued: +List<String>, phase: Phase,
+    history: History, queued: +List<UserContent>, phase: Phase,
     operations: +List<Operation()>, notified: Bool}
 
 def task_id(task: Task) -> Nat:
@@ -990,7 +1191,7 @@ def task_phase(task: Task) -> Phase:
   Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   phase
 
-def task_queue(task: Task) -> +List<String>:
+def task_queue(task: Task) -> +List<UserContent>:
   Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
   queued
 
@@ -1037,7 +1238,7 @@ def execution_idle(phase: Phase) -> Bool:
     case Idle{}: True{}
     case _: False{}
 
-def execution_queue_empty(queued: +List<String>) -> Bool:
+def execution_queue_empty(queued: +List<UserContent>) -> Bool:
   match queued:
     case Nil{}: True{}
     case Con{message, rest}: False{}
@@ -1265,17 +1466,17 @@ def initial_contract_history(instructions: InitialInstructions, project: Project
 def initialize_idle_history(instructions: InitialInstructions, project: ProjectContext, +task: Task) -> Task:
   with_history(initial_contract_history(instructions, project, task_contract(task), task_history(task)), task)
 
-def initialize_contract(instructions: InitialInstructions, project: ProjectContext, message: String, contract: Contract, +task: Task) -> Task:
+def initialize_contract(instructions: InitialInstructions, project: ProjectContext, message: UserContent, contract: Contract, +task: Task) -> Task:
   Contract{Model{profile, reasoning}, tools, max_fork, max_descendants, plugins, context} = contract
   with_history(HistoryNode{HistoryNode{initial_source_history(instructions, project, task_history(task)),
     ContextMessage{TaskSettings{context, profile_key(profile), reasoning}}}, UserMessage{message}}, task)
 
-def initialize_history(instructions: InitialInstructions, project: ProjectContext, message: String, +task: Task) -> Task:
+def initialize_history(instructions: InitialInstructions, project: ProjectContext, message: UserContent, +task: Task) -> Task:
   initialize_contract(instructions, project, message, task_contract(task), task)
 
-def queue_message(text: String, task: Task) -> Task:
+def queue_message(text: UserContent, task: Task) -> Task:
   Task{id, lineage, contract, current, status, history, queued, phase, operations, notified} = task
-  Task{id, lineage, contract, current, status, history, List.append(&2, String, queued, [text]), phase, operations, notified}
+  Task{id, lineage, contract, current, status, history, List.append(&2, UserContent, queued, [text]), phase, operations, notified}
 
 type Environment is Data:
   Environment{catalog: +List<Tool>, profiles: +List<Profile>, max_fork: Nat, max_descendants: Nat, project: ProjectContext, plugins: +List<Plugin>, instructions: InitialInstructions}

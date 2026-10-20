@@ -190,7 +190,7 @@ def user_requests(count: Nat, history: D.History) -> +List<J.Json>:
     case 0n _: Nil{}
     case _ D.EmptyHistory{}: Nil{}
     case 1n+rest D.HistoryNode{previous, D.UserMessage{text}}:
-      J.Text{String.take(text, 4096n)} <> user_requests(rest, previous)
+      J.Text{String.take(D.content_text(text), 4096n)} <> user_requests(rest, previous)
     case count D.HistoryNode{previous, other}: user_requests(count, previous)
 
 def instructions() -> String:

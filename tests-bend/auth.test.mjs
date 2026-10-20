@@ -42,7 +42,7 @@ test('concurrent account refresh rotates once and a repeated HTTP rejection stop
   assert.equal(JSON.parse(await readFile(filename(upstream), 'utf8')).refresh_token, 'fixture-refresh-renewed-1');
   const effect = { kind: 'model', task_id: 1, ticket: 2,
     model: { profile: 'fixture', provider: 'chatgpt', name: 'fixture', reasoning: 'medium' },
-    history: [{ role: 'user', content: 'hello' }], tools: [], callable: [] };
+    history: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }], tools: [], callable: [] };
   const limits = { frame_bytes: 4 * 1024 * 1024, provider_checkpoint_limit_bytes: 262144,
     model_retry: { delays_ms: [], statuses: [], max_retry_after_ms: 0 } };
   await assert.rejects(requestModel(effect, { profiles: { fixture: upstream.profile } }, upstream.directory, limits), /HTTP 401/);

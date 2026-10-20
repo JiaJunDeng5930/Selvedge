@@ -15,7 +15,7 @@ import ../../bendlib/json.bend as J
 import ../../bendlib/equality.bend as Same
 import ../../bendlib/equality-proof.bend as EqualityProof
 
-def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
+def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, D.UserContent>) ->
   {D.task_context(Commands.child(id, parent, call, branch, remaining, message)) == D.task_context(parent) : D.TaskContext}:
   D.Task{parent_id, lineage,
     D.Contract{creation_model, tools, max_fork, max_descendants, plugins, D.TaskContext{workspace, creation_sandbox, creation_approval, project_id}},
@@ -23,7 +23,7 @@ def inherited(id:Nat, +parent:D.Task, call:String, branch:Nat, remaining:+List<D
     status, history, queued, phase, operations, notified} = parent
   {==}
 
-def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, String>) ->
+def no_rights(id:Nat, parent:D.Task, call:String, branch:Nat, remaining:+List<D.Attempt>, message:Maybe<&2, D.UserContent>) ->
   {D.task_operations(Commands.child(id, parent, call, branch, remaining, message)) == Nil{} : +List<D.Operation()>}:
   D.Task{parent_id, lineage, contract, current, status, history, queued, phase, operations, notified} = parent
   {==}

@@ -1,4 +1,5 @@
 import Base
+import ../../harness/DOMAIN.bend as D
 import ../../bendlib/json.bend as J
 import ../../bendlib/association-map.bend as Finite
 
@@ -11,7 +12,7 @@ type State is Data:
 type Command is Data:
   Create{name: String}
   Rename{id: Nat, name: String}
-  CreateTask{work: Nat, profile: String, reasoning: String, message: String, settings: J.Json, create_worktree: Bool}
+  CreateTask{work: Nat, profile: String, reasoning: String, message: D.UserContent, settings: J.Json, create_worktree: Bool}
 
 type Query is Data:
   ListWorks{}

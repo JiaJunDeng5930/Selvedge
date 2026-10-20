@@ -178,11 +178,26 @@ export class Renderer {
     node.addEventListener('input', event => { if (session('browser/runtime/native-fields.InputObserved').deliver) textInput(event); });
     node.addEventListener('change', event => {
       if (!session('browser/runtime/native-fields.InputObserved').deliver) return;
-      dispatch('EditToggle', event); dispatch('SelectFiles', event); dispatch('SelectDestination', event);
+      dispatch('EditToggle', event);
+      if (node.type === 'file') dispatch('SelectFiles', event);
+      dispatch('SelectDestination', event);
     });
     node.addEventListener('dragstart', event => dispatch('DragCard', event));
-    node.addEventListener('dragover', event => { if (record.bindings.some(binding => bendTag(binding) === 'DropCard')) event.preventDefault(); });
-    node.addEventListener('drop', event => { event.preventDefault(); dispatch('DropCard', event); });
+    const fileTransfer = event => {
+      const transfer = event.clipboardData ?? event.dataTransfer;
+      return transfer && ([...transfer.files].length || [...transfer.items].some(item => item.kind === 'file'));
+    };
+    const acceptsFiles = event => !node.disabled && record.bindings.some(binding => bendTag(binding) === 'SelectFiles') && fileTransfer(event);
+    node.addEventListener('paste', event => {
+      if (acceptsFiles(event)) { event.preventDefault(); dispatch('SelectFiles', event); }
+    });
+    node.addEventListener('dragover', event => {
+      if (acceptsFiles(event) || record.bindings.some(binding => bendTag(binding) === 'DropCard')) event.preventDefault();
+    });
+    node.addEventListener('drop', event => {
+      if (acceptsFiles(event)) { event.preventDefault(); dispatch('SelectFiles', event); }
+      else if (record.bindings.some(binding => bendTag(binding) === 'DropCard')) { event.preventDefault(); dispatch('DropCard', event); }
+    });
   }
   children(parent, values, path, namespace) {
     const expected = new Set();

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 export async function home(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-service-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  return directory;
+  return realpath(directory);
 }
 
 export async function taskIdle(service, taskId = 0) {

@@ -67,7 +67,7 @@ def reject(world: M.World(), code: String, message: String) -> M.Decision():
 def id_result(id: Nat) -> J.Json:
   J.Object{[J.Field{"task_id", J.nat(id)}]}
 
-def execute_start_environment(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
+def execute_start_environment(profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
   match selection world environment_value:
     case Workspace.Selection{context, guidance} C.Frame{+task_state, +board} D.Environment{catalog, profiles, max_fork, max_descendants, project, plugins, instructions}:
       tasks = D.state_tasks(task_state)
@@ -78,7 +78,7 @@ def execute_start_environment(profile: D.Profile, reasoning: String, message: St
       task = D.initialize_history(instructions, guidance, message, task)
       respond(C.Frame{D.with_state_next_task(1n+next_task, D.with_state_tasks(List.append(&2, D.Task, tasks, [task]), task_state)), board}, id_result(next_task))
 
-def execute_start(profile: D.Profile, reasoning: String, message: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
+def execute_start(profile: D.Profile, reasoning: String, message: D.UserContent, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   execute_start_environment(profile, reasoning, message, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
 
 def execute_start_idle_environment(profile: D.Profile, reasoning: String, selection: Workspace.Selection, world: M.World(), environment_value: D.Environment) -> M.Decision():
@@ -95,7 +95,7 @@ def execute_start_idle_environment(profile: D.Profile, reasoning: String, select
 def execute_start_idle(profile: D.Profile, reasoning: String, selection: Workspace.Selection, +world: M.World()) -> M.Decision():
   execute_start_idle_environment(profile, reasoning, selection, world, D.state_environment(C.local(D.State, F.State(), world)))
 
-def execute_delivery(text: String, +task: D.Task, world: M.World()) -> M.Decision():
+def execute_delivery(text: D.UserContent, +task: D.Task, world: M.World()) -> M.Decision():
   respond(store(T.receive(text, task), world), id_result(D.task_id(task)))
 
 def change_to(next: D.Status, +task: D.Task, world: M.World()) -> M.Decision():
@@ -118,11 +118,11 @@ def query(request: M.Query, world: M.World()) -> J.Json:
 def observe(request: M.Query, +world: M.World()) -> M.Decision():
   C.Decision{world, query(request, world), Nil{}}
 
-def child(id: Nat, parent: D.Task, call_id: String, branch: Nat, remaining: +List<D.Attempt>, message: Maybe<&2, String>) -> D.Task:
+def child(id: Nat, parent: D.Task, call_id: String, branch: Nat, remaining: +List<D.Attempt>, message: Maybe<&2, D.UserContent>) -> D.Task:
   Commands.child(id, parent, call_id, branch, remaining, message)
 
 def children(count: Nat, +next_id: Nat, +branch: Nat, +parent: D.Task, +call_id: String,
-  +remaining: +List<D.Attempt>, +messages: +List<String>) -> Commands.Children:
+  +remaining: +List<D.Attempt>, +messages: +List<D.UserContent>) -> Commands.Children:
   Commands.children(count, next_id, branch, parent, call_id, remaining, messages)
 
 def ids(tasks: +List<D.Task>) -> +List<J.Json>:
@@ -142,7 +142,7 @@ def summary_request(task: D.Task, world: M.World()) -> M.Decision():
 def execute_checkpoint(summary: String, task: D.Task, world: M.World()) -> M.Decision():
   Compaction.supplied(summary, task, world)
 
-def execute_branch(+task: D.Task, +count: Nat, +messages: +List<String>, selection: Workspace.Selection, world: M.World()) -> M.Decision():
+def execute_branch(+task: D.Task, +count: Nat, +messages: +List<D.UserContent>, selection: Workspace.Selection, world: M.World()) -> M.Decision():
   C.Frame{+task_state, +board} = world
   +next_task = D.state_next_task(task_state)
   +next_ticket = D.state_next_ticket(task_state)
@@ -151,14 +151,14 @@ def execute_branch(+task: D.Task, +count: Nat, +messages: +List<String>, selecti
   commit_fork(children(count, next_task, 1n, Commands.selected_parent(selection, parent), T.call_id(call), Nil{}, messages), call, Nil{}, parent,
     C.Frame{D.with_state_next_ticket(1n+next_ticket, task_state), board})
 
-def execute_open_side(+parent: D.Task, message: String, world: M.World()) -> M.Decision():
+def execute_open_side(+parent: D.Task, message: D.UserContent, world: M.World()) -> M.Decision():
   C.Frame{+task_state, board} = world
   +id = D.state_next_task(task_state)
   child = Side.opened(id, parent, message)
   respond(C.Frame{D.with_state_next_task(1n+id, D.with_state_tasks(List.append(&2, D.Task, D.state_tasks(task_state), [child]), task_state)), board},
     J.Object{[J.Field{"task_id", J.nat(id)}, J.Field{"parent_task_id", J.nat(D.task_id(parent))}]})
 
-def execute_return_side(+side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, transcript: String, world: M.World()) -> M.Decision():
+def execute_return_side(+side: D.Task, +parent: D.Task, +after: Nat, +through: Nat, transcript: D.UserContent, world: M.World()) -> M.Decision():
   respond(store(D.append_context(D.SideReturnCursor{D.task_id(side), through}, side), store(T.receive(transcript, parent), world)),
     J.Object{[J.Field{"task_id", J.nat(D.task_id(parent))}, J.Field{"side_task_id", J.nat(D.task_id(side))},
       J.Field{"after", J.nat(after)}, J.Field{"through", J.nat(through)}]})
@@ -219,7 +219,7 @@ def apply_command(command: M.Command, +world: M.World()) -> M.Decision():
   realize(Commands.construct_command(command, world))
 
 def output_send(target: Nat, message: String, +world: M.World()) -> M.Decision():
-  apply_command(M.Send{target, message}, world)
+  apply_command(M.Send{target, D.text_content(message)}, world)
 
 def accepted(yes: Bool) -> J.Json:
   J.Object{[J.Field{"accepted", J.Boolean{yes}}]}
