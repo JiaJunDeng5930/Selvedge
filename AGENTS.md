@@ -1,7 +1,7 @@
 # Working on Selvedge
 
-Read README.md and the README for the domain you change. Start with the product
-requirement, then inspect the owning Gallina definitions and requirements.
+Read README.md, then inspect the owning Gallina definitions and requirements.
+Read the domain README when one exists. Start with the product requirement.
 Correct a specification that does not express the goal; never weaken a real
 requirement merely to obtain a proof or a passing test.
 
