@@ -1,3 +1,4 @@
+import ./editor/skill-mention.bend as Mention
 import Base
 import ../harness/MODEL.bend as M
 import ../interaction/MODEL.bend as Product
@@ -75,7 +76,7 @@ def RetainedEntry(found: Maybe<&2, U.Draft>) -> Type:
 def Retained(drafts: +List<U.Draft>, editors: +List<Editor.Editor>) -> Type:
   match editors:
     case Nil{}: Unit
-    case Con{Editor.Editor{+owner, selection, composing}, rest}:
+    case Con{Editor.Editor{+owner, selection, composing, mentions}, rest}:
       RetainedEntry(E.find_draft(drafts, owner)) & Retained(drafts, rest)
 
 type Size is Data:
@@ -193,14 +194,14 @@ type Reading is Type:
 type Editing is Type:
   Editing{
     ime_entry: @owner:U.Editor -> @selection:Physical.Selection -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
-      @core:InteractionTypes.State -> @platform:Platform.Platform ->
-      @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}} : Editor.Editor} ->
+      @core:InteractionTypes.State -> @platform:Platform.Platform -> @mentions:Mention.State ->
+      @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, True{}, mentions} : Editor.Editor} ->
       {Platform.step(Platform.EditorInput{owner, Editor.Enter{shift, alt, modified}}, Platform.from_core(core, platform)) ==
         Platform.Decision{Platform.unchanged(core),
-          with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}}), Nil{}} : Platform.Decision},
+          with_saved_editor(platform, owner, Editor.Editor{owner, selection, True{}, mentions}), Nil{}} : Platform.Decision},
     ready_enter: @owner:U.Editor -> @selection:Physical.Selection -> @modified:Bool -> @core:InteractionTypes.State ->
-      @platform:Platform.Platform ->
-      @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}} : Editor.Editor} ->
+      @platform:Platform.Platform -> @mentions:Mention.State ->
+      @editor_observed:{platform_editors(platform, owner) == Editor.Editor{owner, selection, False{}, mentions} : Editor.Editor} ->
       @enabled:{Platform.editor_enabled(core, owner, platform_capacity(platform)) == True{} : Bool} ->
       @permitted:{Focus.permits_composer(platform_scope(platform)) == True{} : Bool} ->
       {Model.platform_product(Platform.step(Platform.EditorInput{owner, Editor.Enter{False{}, False{}, modified}},

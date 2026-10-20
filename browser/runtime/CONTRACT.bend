@@ -2,6 +2,7 @@ import ../appearance/DESIGN.bend as Design
 import ../../interaction/conversation/OUTPUT.bend as Live
 import ../controls/NAVIGATION.bend as Navigation
 import ../../interaction/experience/MODEL.bend as UXTypes
+import ../editor/skill-mention.bend as Mention
 import Base
 import ../model-rules.bend as WebRules
 import ../../interaction/IDENTITY.bend as UIIdentity
@@ -2024,16 +2025,16 @@ def required_submission_clear(body: U.Body) -> Bool:
 
 def required_editor_reconciliation(found: Maybe<&2, U.Draft>, editor: Editor.Editor) -> Editor.Editor:
   match found editor:
-    case Some{U.Draft{revision, body, U.Accepted{submitted, result}, directory}} Editor.Editor{+owner, +selection, +composing}:
+    case Some{U.Draft{revision, body, U.Accepted{submitted, result}, directory}} Editor.Editor{+owner, +selection, +composing, +mentions}:
       Bool.pick(Editor.Editor, required_submission_clear(body),
-        Editor.Editor{owner, NativeGeometry.Selection{0n, 0n, "none"}, False{}}, Editor.Editor{owner, selection, composing})
+        Editor.Editor{owner, NativeGeometry.Selection{0n, 0n, "none"}, False{}, Mention.clear(mentions)}, Editor.Editor{owner, selection, composing, mentions})
     case ignored retained: retained
 
 def required_editors(editors: +List<Editor.Editor>, +drafts: +List<U.Draft>) -> +List<Editor.Editor>:
   match editors:
     case Nil{}: Nil{}
-    case Con{Editor.Editor{+owner, selection, composing}, rest}:
-      required_editor_reconciliation(E.find_draft(drafts, owner), Editor.Editor{owner, selection, composing}) <> required_editors(rest, drafts)
+    case Con{Editor.Editor{+owner, selection, composing, mentions}, rest}:
+      required_editor_reconciliation(E.find_draft(drafts, owner), Editor.Editor{owner, selection, composing, mentions}) <> required_editors(rest, drafts)
 
 def required_platform_commit(decision: InteractionTypes.Decision, platform: Platform.Platform) -> Platform.Decision:
   InteractionTypes.Decision{+core, +reply, +runtime, +interaction, +services, +durable} = decision

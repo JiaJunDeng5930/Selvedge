@@ -325,7 +325,7 @@ export class Markdown {
         node.dataset.pending = 'true';
         stack.push({ node, type, equation });
       },
-      end_token: () => close(true),
+      end_token: (_, completed = true) => close(completed),
       add_text: (_, text) => {
         const node = stack.at(-1).node;
         // Append to the same text node, preserving selection and bounding the

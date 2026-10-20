@@ -16,6 +16,12 @@ sends its new content to the parent; later returns send only later content.
 Side instructions and tracked parent status updates are excluded. The existing
 `read_task` tool can inspect the parent, or any other Task, by ID.
 
+Type `@` in a new Task or conversation message to search available skills by
+name or description. Select with the arrow keys and Enter or Tab, or click a
+result; Escape dismisses the list. Selection inserts a Markdown reference to the
+skill's exact `SKILL.md` path. Skills use the message's workspace, including before
+the first Task is created, and their instructions remain an ordinary model tool read.
+
 Model tasks generate a short title in the background from the first
 nonempty user request. The request-derived title remains visible until generation
 finishes. **Settings → 标题生成** edits the Task board and Agent conversation

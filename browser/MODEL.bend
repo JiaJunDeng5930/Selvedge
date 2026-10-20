@@ -119,6 +119,10 @@ def deferred_platform_effects(source: +List<Platform.Effect>, surface: Unit -> S
       PlatformEffect{Platform.ApplyReading{task, generation, effect}} <> deferred_platform_effects(rest, surface)
     case Con{Platform.Clipboard{block, effect}, rest}:
       PlatformEffect{Platform.Clipboard{block, effect}} <> deferred_platform_effects(rest, surface)
+    case Con{Platform.ObserveSkillCatalog{key, ticket, workspace_key, workspace}, rest}:
+      PlatformEffect{Platform.ObserveSkillCatalog{key, ticket, workspace_key, workspace}} <> deferred_platform_effects(rest, surface)
+    case Con{Platform.SetEditorSelection{key, selection}, rest}:
+      PlatformEffect{Platform.SetEditorSelection{key, selection}} <> deferred_platform_effects(rest, surface)
 
 def environment_root(environment: Design.Environment) -> Nat:
   Design.Environment{viewport, system_dark, root_font_size_milli} = environment

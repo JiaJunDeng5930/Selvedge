@@ -100,6 +100,8 @@ def resolved_effect_delivery(+effect: Platform.Effect, +surface: SurfaceTypes.Su
       focus_delivery_policy(ticket, InterfaceView.focus_target(surface, Focus.scope_target(previous, current, surface)))
     case Platform.ApplyReading{task, generation, effect}: {==}
     case Platform.Clipboard{block, effect}: {==}
+    case Platform.ObserveSkillCatalog{key, ticket, workspace_key, workspace}: {==}
+    case Platform.SetEditorSelection{key, selection}: {==}
 
 def platform_effect_delivery(+source: +List<Platform.Effect>, +surface: SurfaceTypes.Surface) ->
   {Model.platform_effects(source, surface) == Rule.delivered_effects(source, surface) : +List<Model.Effect>}:
@@ -130,6 +132,12 @@ def deferred_effect_delivery(+source: +List<Platform.Effect>, +surface: SurfaceT
         Model.deferred_platform_effects(rest, (_ => surface)), Rule.delivered_effects(rest, surface), deferred_effect_delivery(rest, surface))
     case Con{Platform.Clipboard{+block, +effect}, +rest}:
       Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.PlatformEffect{Platform.Clipboard{block, effect}} <> tail),
+        Model.deferred_platform_effects(rest, (_ => surface)), Rule.delivered_effects(rest, surface), deferred_effect_delivery(rest, surface))
+    case Con{Platform.ObserveSkillCatalog{+key, +ticket, +workspace_key, +workspace}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.PlatformEffect{Platform.ObserveSkillCatalog{key, ticket, workspace_key, workspace}} <> tail),
+        Model.deferred_platform_effects(rest, (_ => surface)), Rule.delivered_effects(rest, surface), deferred_effect_delivery(rest, surface))
+    case Con{Platform.SetEditorSelection{+key, +selection}, +rest}:
+      Equal.cong(+List<Model.Effect>, +List<Model.Effect>, (tail => Model.PlatformEffect{Platform.SetEditorSelection{key, selection}} <> tail),
         Model.deferred_platform_effects(rest, (_ => surface)), Rule.delivered_effects(rest, surface), deferred_effect_delivery(rest, surface))
 
 def Rule.production_commit_complete(decision, generation, environment, font):

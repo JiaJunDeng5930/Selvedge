@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, realpath, symlink, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { observeContextSources } from '../host/context-sources.mjs';
+import { observeContextSources, observeSkillCatalog } from '../host/context-sources.mjs';
 import { snapshotProject } from '../host/project.mjs';
 import { boundary } from '../host/public/model-boundary.mjs';
 import { home } from './support.mjs';
@@ -70,4 +70,14 @@ test('filesystem discovery respects Git-file boundaries and retains an accepted 
   assert.ok(failed.filter(item => item.key?.type === 'directory_guidance').every(item => item.type === 'failure'));
   assert.ok(failed.some(item => item.type === 'present' && item.snapshot.key.type === 'global_agents'
     && item.snapshot.value.fields.content === 'Independent global update'));
+
+  const catalog = () => observeSkillCatalog(settings.workspace, { home: state, config, limits });
+  const skills = await catalog();
+  assert.equal(skills.length, 3);
+  assert.equal(skills.filter(item => item.name === 'fixture').length, 3);
+  assert.equal(skills.find(item => item.path === automatic).applies_to, nested);
+  assert.equal(JSON.stringify(skills).includes('PRIVATE-SKILL-BODY'), false);
+  await unlink(automatic);
+  await symlink(explicit, automatic);
+  await assert.rejects(catalog, /symbolic link|too many levels|ELOOP/i);
 });

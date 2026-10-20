@@ -161,7 +161,8 @@ export class Renderer {
       this.composing.delete(node);
       if (session('browser/runtime/native-fields.CompositionEnded').deliver) textInput(event);
     });
-    node.addEventListener('pointerdown', () => {
+    node.addEventListener('pointerdown', event => {
+      if (node.getAttribute('data-retain-focus') === 'true') event.preventDefault();
       if (bendTag(record.fieldSession?.session) === 'SupersededTail') session('browser/runtime/native-fields.InputStarted');
     });
     for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('browser/runtime/native-fields.InputStarted'));

@@ -1,5 +1,6 @@
 import ../../interaction/experience/PROGRAM.bend as UX
 import ../../interaction/experience/MODEL.bend as UXTypes
+import ./skill-mention.bend as Mention
 import Base
 import ../../interaction/INPUT.bend as U
 import ./MODEL.bend as Model
@@ -19,8 +20,9 @@ law composing_enter:
   for modified: Bool
   for enabled: Bool
   for pending: Bool
-  {Model.step(Model.Editor{owner, selection, True{}}, Model.Enter{shift, alt, modified}, enabled, pending) ==
-    Model.Decision{Model.Editor{owner, selection, True{}}, False{}} : Model.Decision}
+  for mentions: Mention.State
+  {Model.step(Model.Editor{owner, selection, True{}, mentions}, Model.Enter{shift, alt, modified}, enabled, pending) ==
+    Model.Decision{Model.Editor{owner, selection, True{}, mentions}, False{}} : Model.Decision}
 
 law native_composition_retains_default:
   @keyboard:String -> @key_code:U32 -> @shift:Bool -> @alt:Bool -> @modified:Bool ->
@@ -56,3 +58,19 @@ type BindingRequirements is Type:
 
 law binding_evidence:
   BindingRequirements
+
+law mention_composition_retains_default:
+  @keyboard:String -> @key_code:U32 -> @shift:Bool -> @alt:Bool -> @modified:Bool -> @editor:Model.Editor ->
+  {Model.native_mentions(Model.KeyObservation{keyboard, True{}, key_code, shift, alt, modified}, editor) ==
+    Model.NativeKey{None{}, False{}} : Model.NativeKey}
+
+law mention_ime_retains_default:
+  @keyboard:String -> @composing:Bool -> @shift:Bool -> @alt:Bool -> @modified:Bool -> @editor:Model.Editor ->
+  {Model.native_mentions(Model.KeyObservation{keyboard, composing, 229, shift, alt, modified}, editor) ==
+    Model.NativeKey{None{}, False{}} : Model.NativeKey}
+
+law selected_reference_preserves_surrounding_text:
+  @+text:String -> @+start:Nat -> @+end:Nat -> @query:String -> @+skill:Mention.Skill ->
+  {Mention.insert(text, Mention.Trigger{start, end, query}, skill) ==
+    Mention.Insertion{String.take(text, start) ++ (Mention.reference(skill) ++ Mention.separator(String.drop(text, end))) ++ String.drop(text, end),
+      (start + String.length(Mention.reference(skill) ++ Mention.separator(String.drop(text, end))) : Nat)} : Mention.Insertion}
