@@ -20,7 +20,6 @@ Definition acknowledged (accepted : bool) (value : Selvedge.Kernel.State.world) 
  Selvedge.Kernel.State.accept (JObject [("accepted", JBool accepted)]) value effects.
 Definition commit (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
  acknowledged true (store (with_entry id entry (registry value)) value) (map Selvedge.Kernel.State.MaintainContext effects).
-Definition allocate (value : Selvedge.Kernel.State.world) := Selvedge.Kernel.State.with_ticket (N.succ (Selvedge.Kernel.State.world_next_ticket value)) value.
 Definition configured_target (task : task) (value : Selvedge.Features.CompactionTypes.state) :=
  find (fun target => String.eqb (target_key target) (profile_key (task_current_profile task)))
   (policy_targets (maintenance_policy value)).
@@ -70,21 +69,21 @@ Definition failed (id : N) (task : task) (entry : entry) (reason : string) (valu
   (set entry_cache_deadline (fun _ => 0) (with_job NoJob (with_measurement (MeasurementFailed (capture_task task value)) entry))) in
  commit id entry (Selvedge.Kernel.State.put_task id task value) [].
 Definition begin_scope (id : N) (input : capture) (purpose : option reason) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- let ticket := Selvedge.Kernel.State.world_next_ticket value in
+ let '(ticket, allocated) := Selvedge.Kernel.State.allocate_ticket value in
  let entry := match purpose with
  | None => with_measurement (Measuring ticket input InspectScope) entry
  | Some purpose => with_measurement Unmeasured (with_job (Preparing ticket input purpose InspectScope) entry) end in
- commit id entry (allocate value) [Scope id ticket input].
+ commit id entry allocated [Scope id ticket input].
 Definition dispatch_compact (id : N) (task : task) (input : capture) (purpose : reason) (target : target)
  (progress : compaction_state) (scope : string) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- let ticket := Selvedge.Kernel.State.world_next_ticket value in
+ let '(ticket, allocated) := Selvedge.Kernel.State.allocate_ticket value in
  let limit := Limits.frame_bytes / 4 in
  let available := limit - Selvedge.Features.CompactionCodec.compact_metadata_bytes id ticket input target scope in
  match Selvedge.Kernel.CompactionPlan.fit_transport progress available with
  | Some fitted =>
    if Selvedge.Kernel.CompactionPlan.transport_fits fitted available &&
      (N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.compact_json id ticket input target fitted scope))) <=? limit)
-   then commit id (with_job (Compacting ticket input purpose fitted scope) entry) (allocate value)
+   then commit id (with_job (Compacting ticket input purpose fitted scope) entry) allocated
     [Compact id ticket input target fitted scope]
    else failed id task entry "The configured compaction request exceeds the transport budget" value
  | None => failed id task entry "Compaction history is not valid UTF-8" value end.
@@ -110,7 +109,7 @@ Definition force_portable (id : N) (task : task) (scope : string) (entry : entry
      else commit id (with_job (Resuming input Blocking) entry) value [] end end.
 Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : option reason)
  (candidate : option (artifact * list message)) (entry : entry) (value : Selvedge.Kernel.State.world) :=
- let ticket := Selvedge.Kernel.State.world_next_ticket value in
+ let '(ticket, allocated) := Selvedge.Kernel.State.allocate_ticket value in
  let entry := match purpose, candidate with
  | Some purpose, Some (candidate, preview) => with_job (Validating ticket input purpose candidate preview (InspectCount scope)) entry
  | Some purpose, None => with_job (Preparing ticket input purpose (InspectCount scope)) entry
@@ -118,15 +117,15 @@ Definition measured_call (id : N) (task : task) (input : capture) (scope : strin
  let measured_input := match candidate with Some (_,preview) => set captured_history (fun _ => preview) input | None => input end in
  let effect := Measure id ticket measured_input scope (match candidate with Some _ => true | None => false end) in
  if N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.effect_json effect))) <=? Limits.frame_bytes / 4
- then commit id entry (allocate value) [effect]
+ then commit id entry allocated [effect]
  else force_portable id task scope entry value.
 Definition begin_validation (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if relevant input task value then
  let preview := ContextSelection.adopt (captured_history input) candidate (task_history task) in
- let ticket := Selvedge.Kernel.State.world_next_ticket value in
+ let '(ticket, allocated) := Selvedge.Kernel.State.allocate_ticket value in
  commit id (with_measurement Unmeasured (with_job (Validating ticket input purpose candidate preview InspectScope) entry))
-  (allocate value) [Scope id ticket input]
+  allocated [Scope id ticket input]
  else commit id (with_job NoJob entry) value [].
 Definition finish_measure (id : N) (task : task) (input : capture) (scope : string) (tokens : N) (budget : token_budget)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
@@ -380,10 +379,10 @@ Definition supplied (id : N) (task : task) (summary : string) (value : Selvedge.
 Definition manual (id : N) (task : task) (value : Selvedge.Kernel.State.world) :=
  let entry := current_entry id (registry value) in
  if job_pending (entry_job entry) then acknowledged false value [] else
- let ticket := Selvedge.Kernel.State.world_next_ticket value in
+ let '(ticket, allocated) := Selvedge.Kernel.State.allocate_ticket value in
  let waiting := with_activity (ObservingContext ticket) task in
  let result := commit id (with_measurement Unmeasured (with_job (Resuming (capture_task task value) Manual) entry))
-  (allocate (Selvedge.Kernel.State.put_task id waiting value)) (cancellations id entry) in
+  (Selvedge.Kernel.State.put_task id waiting allocated) (cancellations id entry) in
  Selvedge.Kernel.State.Decision (Selvedge.Kernel.State.decision_world result) (Selvedge.Kernel.State.decision_reply result)
   (Selvedge.Kernel.State.decision_effects result ++ [Selvedge.Kernel.State.ObserveContext id ticket waiting])%list.
 Definition command (command : Selvedge.Generated.Commands.command) (_caller : option N) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=

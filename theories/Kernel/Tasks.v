@@ -286,17 +286,18 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
       if invoked && negb (native_settings_bound settings selected (task_current_settings task) value) then
        reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value else
       let settings := selected in
-      let invocation := Call ("manual-fork-" ++ number_text (world_next_ticket value)) "fork_task"
+      let '(ticket, allocated) := allocate_ticket value in
+      let invocation := Call ("manual-fork-" ++ number_text ticket) "fork_task"
         (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) in
       let parent := if invoked then task else append_history [FunctionCall invocation] task in
-      let children := fork_children (N.to_nat count) id parent messages settings value in
+      let children := fork_children (N.to_nat count) id parent messages settings
+        (if invoked then value else allocated) in
       let children := if invoked then children else
-        with_ticket (N.succ (world_next_ticket value))
-        (with_tasks (Numbers.indexed (fun child task =>
+        with_tasks (Numbers.indexed (fun child task =>
           if N.leb (next_task value) child then with_activity WantsModel
            (append_history [ForkReceipt child invocation (N.succ (child-next_task value)%N)] task)
           else if N.eqb child id then with_activity WantsModel (append_history [ForkReceipt id invocation 0] parent)
-          else task) 0 (world_tasks children)) children) in
+          else task) 0 (world_tasks children)) children in
       accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children []
     end
    else reject "fork_unavailable" "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value

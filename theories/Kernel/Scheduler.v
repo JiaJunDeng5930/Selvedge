@@ -43,7 +43,7 @@ Definition continue_after_calls (task : task) :=
  (if unseen_model_input task || existsb process_needs_model (task_operations task) then WantsModel else Idle) task.
 Definition start_external (id : N) (tool : tool) (invocation : call) (remaining : list call) (task : task) (value : world) :=
  if N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit then
- let ticket := world_next_ticket value in
+ let '(ticket, allocated) := allocate_ticket value in
  let settings := task_current_settings task in
  let elevated := String.eqb (call_name invocation) "bash" &&
    String.eqb (text_default "sandbox_permissions" (call_arguments invocation) "use_default") "require_escalated" in
@@ -51,22 +51,22 @@ Definition start_external (id : N) (tool : tool) (invocation : call) (remaining 
  match settings_approval settings with
  | AskForApproval =>
    let operation := Operation ticket invocation false (AwaitingApproval ticket HumanReviewer) in
-   acknowledged (with_ticket (N.succ ticket) (put_task id (append_operation operation remaining task) value))
+   acknowledged (put_task id (append_operation operation remaining task) allocated)
  | ReviewWith reviewer =>
      let operation := Operation ticket invocation false (AwaitingApproval ticket (ModelReviewer reviewer)) in
      accept (JObject [("accepted",JBool true)])
-      (with_ticket (N.succ ticket) (put_task id (append_operation operation remaining task) value))
+      (put_task id (append_operation operation remaining task) allocated)
       [RequestApproval id ticket reviewer invocation task]
  | FullAccess =>
    let operation := Operation ticket invocation false (Elevated ticket HumanReviewer) in
    accept (JObject [("accepted",JBool true)])
-    (with_ticket (N.succ ticket) (put_task id (append_operation operation remaining task) value))
+    (put_task id (append_operation operation remaining task) allocated)
     [ExecuteTool id ticket ticket tool invocation settings ElevatedAccess]
  end
  else
  let operation := Operation ticket invocation false (Executing ticket) in
  accept (JObject [("accepted",JBool true)])
-  (with_ticket (N.succ ticket) (put_task id (append_operation operation remaining task) value))
+  (put_task id (append_operation operation remaining task) allocated)
   [ExecuteTool id ticket ticket tool invocation settings DefaultAccess]
  else call_failure id invocation "The task's live operation limit has been reached" remaining task value.
 Definition external_tool (tool : tool) :=
@@ -106,9 +106,8 @@ Definition internal_result (id : N) (invocation : call) (remaining : list call)
  match Callbacks.after_plugins task with
  | [] => acknowledged (put_task id (call_result invocation result error remaining task) value)
  | _ =>
-   let ticket := world_next_ticket value in
+   let '(ticket, value) := allocate_ticket value in
    let operation := Operation ticket invocation false (Executing ticket) in
-   let value := with_ticket (N.succ ticket) value in
    match task_lifecycle task with
    | Archived =>
      (* DEFENSE: archive_task can archive its own caller before returning;
@@ -157,9 +156,9 @@ Definition before_hook_step (execute : executor) (id : N) (tool : tool) (invocat
  | [] => execute_checked_call execute id tool invocation remaining task value
  | plugin :: rest =>
    if Capabilities.hook_available Capabilities.BeforeTool plugin (environment_plugins (world_environment value)) then
-   let ticket := world_next_ticket value in
+   let '(ticket, allocated) := allocate_ticket value in
    accept (JObject [("accepted",JBool true)])
-    (with_ticket (N.succ ticket) (put_task id (with_activity (CheckingHook ticket plugin invocation rest remaining) task) value))
+    (put_task id (with_activity (CheckingHook ticket plugin invocation rest remaining) task) allocated)
     [CheckTool id ticket plugin tool invocation]
    else acknowledged (put_task id (call_result invocation
     (State.failure "hook_unavailable" "A required frozen plugin revision is unavailable; the tool was not dispatched")
@@ -171,31 +170,31 @@ Definition start_call (execute : executor) (id : N) (invocation : call) (remaini
  | Some tool => before_hook_step execute id tool invocation (before_plugins task) remaining task value
  end.
 Definition emit_model (id : N) (model : profile) (task : task) (value : world) :=
- let ticket := world_next_ticket value in
+ let '(ticket, allocated) := allocate_ticket value in
  let callable := Capabilities.callable task (world_environment value) in
  let waiting := with_activity (AskingModel ticket callable (output_mode_for task))
   (with_model_cursor (List.length (task_history task)) task) in
  accept (JObject [("accepted",JBool true)])
-  (with_ticket (N.succ ticket) (put_task id waiting value)) [RequestModel id ticket model waiting "" 0].
+  (put_task id waiting allocated) [RequestModel id ticket model waiting "" 0].
 Definition ready_model (id : N) (task : task) (value : world) :=
  match Reasoning.next id task with
  | Reasoning.Fixed model => emit_model id model task value
  | Reasoning.Reuse model remaining => emit_model id model (Reasoning.generation id model remaining task) value
  | Reasoning.Evaluate =>
-   let ticket := world_next_ticket value in
+   let '(ticket, allocated) := allocate_ticket value in
    accept (JObject [("accepted",JBool true)])
-    (with_ticket (N.succ ticket) (put_task id
-      (with_activity (EvaluatingReasoning ticket (List.length (task_history task))) task) value))
+    (put_task id
+      (with_activity (EvaluatingReasoning ticket (List.length (task_history task))) task) allocated)
     [RequestReasoning id ticket (task_current_profile task) task]
  end.
 Definition granted_operation (id : N) (operation : operation) (task : task) (value : world) :=
  match operation_stage operation, find_tool (call_name (operation_call operation)) (contract_tools (task_contract task)) with
  | Granted reviewer, Some tool =>
    if Capabilities.available (environment_tools (world_environment value)) tool then
-   let ticket := world_next_ticket value in
+   let '(ticket, allocated) := allocate_ticket value in
    let running := Operation (operation_id operation) (operation_call operation) (operation_announced operation) (Elevated ticket reviewer) in
    accept (JObject [("accepted",JBool true)])
-    (with_ticket (N.succ ticket) (put_task id (Callbacks.wake_after_result (with_operations (replace_operation running (task_operations task)) task)) value))
+    (put_task id (Callbacks.wake_after_result (with_operations (replace_operation running (task_operations task)) task)) allocated)
     [ExecuteTool id ticket (operation_id operation) tool (operation_call operation) (task_current_settings task) ElevatedAccess]
    else acknowledged (put_task id (settle_operation operation (State.failure "approval_expired" "The tool capability changed before the one-operation grant could be used") true task) value)
  | Granted _, None => acknowledged (put_task id (settle_operation operation (State.failure "unknown_tool" "The granted tool is not in the frozen task contract") true task) value)
@@ -211,11 +210,11 @@ Definition after_hooks_step (id : N) (operation : operation) (task : task) (valu
  | AfterHooksReady [] result error => acknowledged (put_task id (settle_operation operation result error task) value)
  | AfterHooksReady (plugin :: rest) result error =>
    if Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value)) then
-   let ticket := world_next_ticket value in
+   let '(ticket, allocated) := allocate_ticket value in
    let waiting := Operation (operation_id operation) (operation_call operation) (operation_announced operation)
     (AwaitingAfterHook ticket plugin rest result error) in
    accept (JObject [("accepted",JBool true)])
-    (with_ticket (N.succ ticket) (put_task id (with_operations (replace_operation waiting (task_operations task)) task) value))
+    (put_task id (with_operations (replace_operation waiting (task_operations task)) task) allocated)
     [CheckResult id ticket (operation_id operation) plugin (operation_call operation) result error]
    else let task := append_history [AfterReceipt id (operation_id operation) plugin
      (Inputs.after_json (Inputs.AfterFailure "The frozen result-processing plugin revision is unavailable"))] task in
@@ -237,9 +236,9 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
    | Some operation => Some (operation_step id operation task value)
    | None => match phase with
      | WantsModel => let task := publish_operations task in
-       let ticket := world_next_ticket value in
+       let '(ticket, allocated) := allocate_ticket value in
        Some (accept (JObject [("accepted",JBool true)])
-        (with_ticket (N.succ ticket) (put_task id (with_activity (ObservingContext ticket) task) value))
+        (put_task id (with_activity (ObservingContext ticket) task) allocated)
         [ObserveContext id ticket task])
      | ReadyForModel => Some (ready_model id task value)
      | ReadyForHooks invocation pending remaining => Some (ready_hooks execute id invocation pending remaining task value)
