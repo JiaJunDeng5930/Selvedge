@@ -2,7 +2,7 @@ From Selvedge.Features Require Import WorkspaceBinding.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs.
-From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain ContextUpdates Tasks.
+From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain Codec ContextUpdates Tasks.
 Import ListNotations.
 
 Theorem constructed_snapshots_obey_the_declared_source : forall definition identity revision fields snapshot,
