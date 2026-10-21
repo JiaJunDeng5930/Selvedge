@@ -56,10 +56,10 @@ Definition observed_creation_roots (caller : task_settings) (value : world) :=
  workspace_roots (settings_workspace caller) ++
  workspace_roots (settings_workspace (creation_defaults (world_environment value))) ++
  List.concat (map (fun project => if project_deleted project then [] else workspace_roots (project_workspace project)) (world_projects value)).
-Definition native_settings_bound (options : option json) (selected caller : task_settings) (value : world) :=
+Definition native_creation_allowed (options : option json) (selected caller : task_settings) (value : world) :=
  let no_guidance := match options with None => true | Some options =>
    match field "guidance" options with None => true | Some _ => false end end in
- Workspace.settings_bound selected caller && no_guidance &&
+ Workspace.may_delegate selected caller && no_guidance &&
  forallb (fun root => existsb (String.eqb root) (observed_creation_roots caller value))
    (workspace_roots (settings_workspace selected)).
 Definition initial_project_guidance (settings : task_settings) :=
@@ -283,7 +283,7 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
     match resolve_settings (task_current_profile task) settings (task_current_settings task) value with
     | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
     | Some selected =>
-      if invoked && negb (native_settings_bound settings selected (task_current_settings task) value) then
+      if invoked && negb (Workspace.may_delegate selected (task_current_settings task)) then
        reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value else
       let settings := selected in
       let '(ticket, allocated) := allocate_ticket value in

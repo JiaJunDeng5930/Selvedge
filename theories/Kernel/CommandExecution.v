@@ -22,7 +22,7 @@ Definition create_in_context (name : string) (effort : option string) (contents 
    | Some caller => match resolve_for_profile name settings (task_current_settings caller) value with
      | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
      | Some selected =>
-       if native_settings_bound settings selected (task_current_settings caller) value then
+       if native_creation_allowed settings selected (task_current_settings caller) value then
        Tasks.create_with_defaults name effort contents None idle selected value
        else reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value
      end

@@ -8,11 +8,11 @@ Open Scope list_scope.
 Lemma unobserved_roots_fail_native_admission : forall options selected caller value root,
  In root (workspace_roots (settings_workspace selected)) ->
  ~ In root (Tasks.observed_creation_roots caller value) ->
- Tasks.native_settings_bound options selected caller value = false.
+ Tasks.native_creation_allowed options selected caller value = false.
 Proof.
  intros options selected caller value root Member Unknown.
- destruct (Tasks.native_settings_bound options selected caller value) eqn:Admitted; [|reflexivity].
- unfold Tasks.native_settings_bound in Admitted.
+ destruct (Tasks.native_creation_allowed options selected caller value) eqn:Admitted; [|reflexivity].
+ unfold Tasks.native_creation_allowed in Admitted.
  apply andb_true_iff in Admitted as [_ Roots].
  apply forallb_forall with (x:=root) in Roots; [|exact Member].
  apply existsb_exists in Roots as [known [Known Equal]].
@@ -31,13 +31,39 @@ Proof.
  rewrite (unobserved_roots_fail_native_admission options selected (task_current_settings caller) value root Member Unknown).
  split; reflexivity.
 Qed.
-Theorem native_calls_cannot_supply_guidance_observations : forall source selected caller value guidance,
+Theorem native_creation_cannot_supply_guidance_observations : forall source selected caller value guidance,
  field "guidance" source = Some guidance ->
- Tasks.native_settings_bound (Some source) selected caller value = false.
+ Tasks.native_creation_allowed (Some source) selected caller value = false.
 Proof.
- intros; unfold Tasks.native_settings_bound; rewrite H.
- destruct (Workspace.settings_bound selected caller); reflexivity.
+ intros; unfold Tasks.native_creation_allowed; rewrite H.
+ destruct (Workspace.may_delegate selected caller); reflexivity.
 Qed.
+
+(* Native fork runs while its caller's model calls are pending. Unlike creation,
+   it delegates an already resolved selection and does not observe directories. *)
+Theorem a_full_access_native_fork_accepts_any_resolved_child_settings :
+ forall id count messages options value task selected remaining,
+ find_task id value = Some task ->
+ task_lifecycle task = Running (PendingCalls remaining) [] ->
+ TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) = true ->
+ TaskConstraints.fork_messages_valid count (List.length messages) = true ->
+ Tasks.ancestors_fit (id :: task_lineage task) count value = true ->
+ Tasks.resolve_settings (task_current_profile task) options (task_current_settings task) value = Some selected ->
+ settings_approval (task_current_settings task) = FullAccess ->
+ bool_default "ok" (decision_reply (Tasks.fork_with_caller true id count messages options value)) false = true /\
+ decision_world (Tasks.fork_with_caller true id count messages options value) =
+   Tasks.fork_children (N.to_nat count) id task messages selected value.
+Proof.
+ intros id count messages options value task selected remaining
+   Found Pending Count Messages Capacity Resolved Full.
+ unfold Tasks.fork_with_caller; rewrite Found.
+ unfold task_status; rewrite Pending, orb_true_r.
+ cbn [String.eqb negb andb].
+ rewrite Count, Messages, Capacity, Resolved.
+ unfold Workspace.may_delegate; rewrite Full; cbn [negb andb].
+ destruct (allocate_ticket value); split; reflexivity.
+Qed.
+
 (* No catalog-membership premise is needed: the actual authorization request
    carries the reviewer frozen in task settings, including across reloads. *)
 Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation remaining task value reviewer,

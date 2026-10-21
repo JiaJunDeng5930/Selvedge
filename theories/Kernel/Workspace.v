@@ -23,9 +23,6 @@ Definition root_within (root bound : string) :=
  String.eqb bound "/" || String.eqb root bound || String.prefix (String.append bound "/") root.
 Definition workspace_bound (child parent : workspace) :=
  forallb (fun root => existsb (root_within root) (workspace_roots parent)) (workspace_roots child).
-Definition sandbox_bound (child parent : sandbox) :=
- (match sandbox_access parent, sandbox_access child with ReadOnly, WorkspaceWrite => false | _,_ => true end) &&
- (negb (sandbox_network child) || sandbox_network parent).
 Definition approval_bound (child parent : approval_policy) :=
  match parent, child with
  | FullAccess,_ => true
@@ -35,8 +32,20 @@ Definition approval_bound (child parent : approval_policy) :=
  | _,_ => false end.
 Definition same_resource (first second : option N) :=
  match first,second with None,None=>true | Some owner,Some other=>N.eqb owner other | _,_=>false end.
-Definition settings_bound (child parent : task_settings) :=
- same_resource (settings_resource child) (settings_resource parent) &&
- workspace_bound (settings_workspace child) (settings_workspace parent) &&
- sandbox_bound (settings_sandbox child) (settings_sandbox parent) &&
- approval_bound (settings_approval child) (settings_approval parent).
+Definition writes_no_broader (child parent : sandbox) (child_space parent_space : workspace) :=
+ match sandbox_access child, sandbox_access parent with
+ | ReadOnly, _ => true
+ | WorkspaceWrite, WorkspaceWrite => workspace_bound child_space parent_space
+ | _, _ => false
+ end.
+(* FullAccess authorizes unrestricted delegation. Otherwise only write roots
+   are bounded: selecting another read-only root does not confer write access. *)
+Definition may_delegate (child parent : task_settings) :=
+ match settings_approval parent with
+ | FullAccess => true
+ | approval =>
+   (negb (sandbox_network (settings_sandbox child)) || sandbox_network (settings_sandbox parent)) &&
+   writes_no_broader (settings_sandbox child) (settings_sandbox parent)
+     (settings_workspace child) (settings_workspace parent) &&
+   approval_bound (settings_approval child) approval
+ end.
