@@ -70,7 +70,7 @@ Definition job_arguments_json job := Schema.encode ChatgptArguments.argument_dec
 Record connection_state := ConnectionState { sharing_grants : list connection_grant;
  sharing_jobs : list (N * connection_job); sharing_next : N }.
 Record title_settings := TitleSettings { title_revision : N; title_task_prompt : string; title_agent_prompt : string }.
-Inductive title_state := Untitled | TitlePending (ticket : N) (selected : profile) (prompt : string) | Named (text : string) | TitleFailed (reason : string).
+Inductive title_state := TitlePending (ticket : N) (selected : profile) (prompt : string) | Named (text : string) | TitleFailed (reason : string).
 Record title_entry := TitleEntry { title_task : N; title_value : title_state }.
 Record state := State {
  feature_board : board;

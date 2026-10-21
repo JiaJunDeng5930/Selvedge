@@ -155,9 +155,17 @@ Definition run (id revision:N) (supplied:option string) (caller:option N) (value
  if bool_default "ok" (decision_reply created) false then
  let updated:=Selvedge.Features.Domain.Card (N.succ revision) (with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card)) (Some (Selvedge.Kernel.State.next_task value)) false (Selvedge.Features.Domain.card_created card) now Selvedge.Features.Domain.NoEnrichment "" (Selvedge.Features.Domain.card_pinned card) in
  Selvedge.Kernel.State.Decision (put id updated (decision_world created)) (Selvedge.Kernel.State.success (JObject [("card_id",number id);("task_id",number (Selvedge.Kernel.State.next_task value));("revision",number (N.succ revision))])) (decision_effects created) else created end)).
+Definition agent_name_valid (name:string) := nonempty name && limited name 160.
+Definition agent_profile_valid (profile:string) := nonempty profile && limited profile 1024.
+Definition agent_reasoning_valid (reasoning:string) := nonempty reasoning && limited reasoning 64.
+Definition agent_instructions_valid (instructions:string) := limited instructions 100000.
+Definition agent_concurrency_valid (capacity:N) := N.leb 1 capacity && N.leb capacity 64.
 Definition valid_agent (agent:Selvedge.Features.Domain.board_agent) (value:world) :=
- nonempty (Selvedge.Features.Domain.agent_name agent) && limited (Selvedge.Features.Domain.agent_name agent) 160 && nonempty (Selvedge.Features.Domain.agent_profile agent) && limited (Selvedge.Features.Domain.agent_profile agent) 1024 &&
- nonempty (Selvedge.Features.Domain.agent_reasoning agent) && limited (Selvedge.Features.Domain.agent_reasoning agent) 64 && limited (Selvedge.Features.Domain.agent_instructions agent) 100000 && N.leb 1 (Selvedge.Features.Domain.agent_concurrency agent) && N.leb (Selvedge.Features.Domain.agent_concurrency agent) 64 &&
+ agent_name_valid (Selvedge.Features.Domain.agent_name agent) &&
+ agent_profile_valid (Selvedge.Features.Domain.agent_profile agent) &&
+ agent_reasoning_valid (Selvedge.Features.Domain.agent_reasoning agent) &&
+ agent_instructions_valid (Selvedge.Features.Domain.agent_instructions agent) &&
+ agent_concurrency_valid (Selvedge.Features.Domain.agent_concurrency agent) &&
  match Tasks.find_profile (Selvedge.Features.Domain.agent_profile agent) (environment_profiles (world_environment value)) with None=>false | Some profile=>
  match Tasks.selected_reasoning (Some (Selvedge.Features.Domain.agent_reasoning agent)) profile,Tasks.resolve_settings profile (Some (Selvedge.Features.Domain.agent_settings agent)) (Tasks.creation_defaults (world_environment value)) value with Some _,Some _=>true | _,_=>false end end.
 Definition save_agent (supplied:string) (expected:N) (name profile reasoning instructions:string) (settings:option json) (capacity:N) (value:world) :=
@@ -184,7 +192,7 @@ Definition settings (automatic:bool) (profile:string) (value:world) :=
  (store (Selvedge.Features.Domain.Board (Selvedge.Features.Domain.board_cards b) (Selvedge.Features.Domain.board_order b) (Selvedge.Features.Domain.board_agents b) (Selvedge.Features.Domain.board_agent_order b) automatic profile) value) []
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.
 Definition regenerate (id revision:N) (supplied:option string) (profile:string) (value:world) := at_clock supplied value (fun now=>with_card id revision value (fun card=>
- if mutable card value && unlinked card then request_text id card profile true value else Selvedge.Kernel.State.reject "card_locked" "A running, archived or already-generating card cannot start another title request" value)).
+ if mutable card value then request_text id card profile true value else Selvedge.Kernel.State.reject "card_locked" "A running, archived or already-generating card cannot start another title request" value)).
 Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
  | Selvedge.Generated.Commands.Cmd_create_card p=>Some (create_card (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (Selvedge.Generated.Commands.create_card_status p) (Selvedge.Generated.Commands.create_card_priority p) (Selvedge.Generated.Commands.create_card_assignee p) (Selvedge.Generated.Commands.create_card_project p) (Selvedge.Generated.Commands.create_card_labels p) (Selvedge.Generated.Commands.create_card_attachments p)) (Selvedge.Generated.Commands.create_card_observed_at p) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") value)
  | Selvedge.Generated.Commands.Cmd_update_card p=>Some (update_card (Selvedge.Generated.Commands.update_card_card_id p) (Selvedge.Generated.Commands.update_card_revision p) (Selvedge.Generated.Commands.update_card_observed_at p) (Patch (Selvedge.Generated.Commands.update_card_title p) (Selvedge.Generated.Commands.update_card_description p) (Selvedge.Generated.Commands.update_card_status p) (Selvedge.Generated.Commands.update_card_priority p) (Selvedge.Generated.Commands.update_card_assignee p) (Selvedge.Generated.Commands.update_card_project p) (Selvedge.Generated.Commands.update_card_labels p) (Selvedge.Generated.Commands.update_card_attachments p)) value)

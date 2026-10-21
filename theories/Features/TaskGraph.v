@@ -11,31 +11,67 @@ Definition lookup (id:N) (value:world) := match registry_at id (registry value) 
 Definition store (id:N) (graph:Selvedge.Features.Domain.task_graph) (value:world) :=
  Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graphs (if N.eqb id (N.of_nat (List.length (registry value))) then registry value++[Some graph] else replace id (Some graph) (registry value)) (world_features value)) value.
 Definition resolve (key:string) (nodes:list Selvedge.Features.Domain.resolved_node) := option_map Selvedge.Features.Domain.node_task (find (fun node=>String.eqb key (Selvedge.Features.Domain.node_key node)) nodes).
+Definition maximum_message_depth : nat := 8.
+Definition maximum_message_nodes : nat := 64.
+Definition maximum_rule_actions : nat := 8.
 Fixpoint parse_message (depth:nat) (source:json) :option Selvedge.Features.Domain.graph_message := match depth with O=>None | S rest=>
  match string_field "kind" source with
  | Some "output"=>if Worktree.shape [Field "kind" KText] source then Some Selvedge.Features.Domain.GraphOutput else None
  | Some "literal"=>if Worktree.shape [Field "kind" KText;Field "value" KText] source then option_map Selvedge.Features.Domain.GraphLiteral (string_field "value" source) else None
  | Some "concat"=>if Worktree.shape [Field "kind" KText;Field "parts" (KArray KJson)] source then
- match array_field "parts" source with Some parts=>if Nat.leb (List.length parts) 64 then option_map Selvedge.Features.Domain.GraphConcat (traverse (parse_message rest) parts) else None | None=>None end else None
+ match array_field "parts" source with Some parts=>if Nat.leb (List.length parts) maximum_message_nodes then option_map Selvedge.Features.Domain.GraphConcat (traverse (parse_message rest) parts) else None | None=>None end else None
  | _=>None end end.
 Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := match message with
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition parse_action (source:json) :option Selvedge.Features.Domain.graph_action :=
  if Worktree.shape [Field "target" KText;Field "message" KJson] source then match string_field "target" source,field "message" source with
- | Some target,Some input=>match parse_message 8 input with Some message=>if Nat.leb (message_size message) 64 then Some (Selvedge.Features.Domain.GraphAction target message) else None | None=>None end | _,_=>None end else None.
+ | Some target,Some input=>match parse_message maximum_message_depth input with Some message=>if Nat.leb (message_size message) maximum_message_nodes then Some (Selvedge.Features.Domain.GraphAction target message) else None | None=>None end | _,_=>None end else None.
 Definition parse_rule (source:json) :option Selvedge.Features.Domain.graph_rule :=
  if Worktree.shape [Field "key" KText;Field "source" KText;Field "actions" (KArray KJson)] source then
  match string_field "key" source,string_field "source" source,array_field "actions" source with
- | Some key,Some source,Some actions=>if Nat.leb (List.length actions) 8 then option_map (Selvedge.Features.Domain.GraphRule key source) (traverse parse_action actions) else None | _,_,_=>None end else None.
+ | Some key,Some source,Some actions=>if Nat.leb (List.length actions) maximum_rule_actions then option_map (Selvedge.Features.Domain.GraphRule key source) (traverse parse_action actions) else None | _,_,_=>None end else None.
 Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node := match natural_field "task_id" source with
  | Some id=>if Worktree.shape [Field "key" KText;Field "task_id" KNatural] source then option_map (fun key=>Selvedge.Features.Domain.ExistingNode key id) (string_field "key" source) else None
  | None=>if Worktree.shape [Field "key" KText;Field "profile" (KOptional KText);Field "reasoning" (KOptional KText);Field "message" (KOptional KText);Field "settings" (KOptional KJson)] source then
  match string_field "key" source with Some key=>Some (Selvedge.Features.Domain.SpawnNode key (text_default "profile" source "") (text_default "reasoning" source "default") [TextPart (text_default "message" source "")] (match field "settings" source with Some settings=>settings | None=>JObject [] end)) | None=>None end else None end.
 Definition node_key (node:Selvedge.Features.Domain.graph_node) := match node with Selvedge.Features.Domain.ExistingNode key _|Selvedge.Features.Domain.SpawnNode key _ _ _ _=>key end.
 Definition unique (keys:list string) := forallb nonempty keys && Schema.unique_names keys.
+Fixpoint message_depth (depth:nat) (message:Selvedge.Features.Domain.graph_message) :bool :=
+ match depth with O=>false | S remaining=>match message with
+ | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>true
+ | Selvedge.Features.Domain.GraphConcat parts=>forallb (message_depth remaining) parts
+ end end.
+Definition valid_message (message:Selvedge.Features.Domain.graph_message) :=
+ message_depth maximum_message_depth message && Nat.leb (message_size message) maximum_message_nodes.
 Definition valid_declaration (name:string) (nodes:list Selvedge.Features.Domain.graph_node) (rules:list Selvedge.Features.Domain.graph_rule) :=
  let keys:=map node_key nodes in nonempty name && Utf8.well_formed name && Nat.leb (List.length nodes) 32 && Nat.leb (List.length rules) 32 && unique keys && unique (map Selvedge.Features.Domain.rule_key rules) &&
- forallb (fun rule=>existsb (String.eqb (Selvedge.Features.Domain.rule_source rule)) keys && forallb (fun action=>existsb (String.eqb (Selvedge.Features.Domain.action_target action)) keys) (Selvedge.Features.Domain.rule_actions rule)) rules.
+ forallb (fun rule=>existsb (String.eqb (Selvedge.Features.Domain.rule_source rule)) keys &&
+ Nat.leb (List.length (Selvedge.Features.Domain.rule_actions rule)) maximum_rule_actions &&
+ forallb (fun action=>existsb (String.eqb (Selvedge.Features.Domain.action_target action)) keys &&
+   valid_message (Selvedge.Features.Domain.action_message action)) (Selvedge.Features.Domain.rule_actions rule)) rules.
+Record declaration := Declaration { declaration_name:string;
+ declaration_nodes:list Selvedge.Features.Domain.graph_node;
+ declaration_rules:list Selvedge.Features.Domain.graph_rule }.
+Definition admissible (value:declaration) :=
+ valid_declaration (declaration_name value) (declaration_nodes value) (declaration_rules value)=true.
+Definition checked_declaration := { value:declaration | admissible value }.
+Definition construct (value:declaration) :option checked_declaration.
+Proof.
+ destruct (valid_declaration (declaration_name value) (declaration_nodes value)
+   (declaration_rules value)) eqn:checked.
+ - exact (Some (exist _ value checked)).
+ - exact None.
+Defined.
+(** Arrangements compose declarations; admission checks their combined keys,
+    references and bounds. No new execution case is required for a new graph. *)
+Definition compose (name:string) (left right:declaration) :=
+ Declaration name (declaration_nodes left++declaration_nodes right)
+   (declaration_rules left++declaration_rules right).
+Definition paired (name:string) (tests implementation:Selvedge.Features.Domain.graph_node)
+ (rule:string) (message:Selvedge.Features.Domain.graph_message) :=
+ Declaration name [tests;implementation]
+ [Selvedge.Features.Domain.GraphRule rule (node_key tests)
+   [Selvedge.Features.Domain.GraphAction (node_key implementation) message]].
 Definition work_valid (owner:option N) (value:world) := match owner with None=>true | Some id=>match Work.lookup id value with Some _=>true | None=>false end end.
 Definition task_in_work (owner:option N) (id:N) (value:world) := match owner with None=>true | Some expected=>match Work.task_owner id value with Some actual=>N.eqb expected actual | None=>false end end.
 Inductive births := Born (value:world) (nodes:list Selvedge.Features.Domain.resolved_node) (effects:list Selvedge.Kernel.State.effect) | BirthFailed (reply:json).
@@ -47,16 +83,22 @@ Definition birth (owner:option N) (caller:option N) (node:Selvedge.Features.Doma
  let created:=Worktree.create_in_work owner (fun current=>Worktree.create_selected profile (Some effort) contents (Some settings) false caller None current) value in
  if bool_default "ok" (decision_reply created) false then Born (decision_world created) (previous++[Selvedge.Features.Domain.ResolvedNode key (Selvedge.Kernel.State.next_task value)]) (effects++decision_effects created)
  else BirthFailed (decision_reply created) end end.
-Definition install (id:N) (owner:option N) (name:string) (nodes:list Selvedge.Features.Domain.graph_node) (rules:list Selvedge.Features.Domain.graph_rule) (caller:option N) (original:world) :=
- match fold_left (fun progress node=>birth owner caller node progress) nodes (Born original [] []) with
+Definition invalid_declaration (value:world) :=
+ Selvedge.Kernel.State.reject "invalid_task_graph" "Task graph names and keys must be nonempty and unique, every reference must resolve, and declaration bounds must hold" value.
+Definition install (id:N) (owner:option N) (checked:checked_declaration) (caller:option N) (original:world) :=
+ if work_valid owner original then
+ let declaration:=proj1_sig checked in
+ match fold_left (fun progress node=>birth owner caller node progress) (declaration_nodes declaration) (Born original [] []) with
  | BirthFailed reply=>Selvedge.Kernel.State.Decision original reply []
- | Born value resolved effects=>let graph:=Selvedge.Features.Domain.TaskGraph name resolved rules [] in let installed:=store id graph value in
+ | Born value resolved effects=>let graph:=Selvedge.Features.Domain.TaskGraph (declaration_name declaration) resolved (declaration_rules declaration) [] in let installed:=store id graph value in
  let owned:=match owner with None=>installed | Some owner=>Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graph_owners ((id,owner)::filter (fun entry=>negb (N.eqb id (fst entry))) (Selvedge.Features.Domain.feature_graph_owners (world_features installed))) (world_features installed)) installed end in
- Selvedge.Kernel.State.accept (Observation.graph_json id graph) owned effects end.
+ Selvedge.Kernel.State.accept (Observation.graph_json id graph) owned effects end
+ else invalid_declaration original.
 Definition declare (id:N) (owner:option N) (name:string) (node_sources rule_sources:list json) (caller:option N) (value:world) :=
  match traverse parse_node node_sources,traverse parse_rule rule_sources with Some nodes,Some rules=>
- if valid_declaration name nodes rules && work_valid owner value then install id owner name nodes rules caller value
- else Selvedge.Kernel.State.reject "invalid_task_graph" "Task graph names and keys must be nonempty and unique, every reference must resolve, and declaration bounds must hold" value
+ match construct (Declaration name nodes rules) with
+ | Some checked=>install id owner checked caller value
+ | None=>invalid_declaration value end
  | _,_=>Selvedge.Kernel.State.reject "invalid_task_graph" "Invalid Task graph declaration fields" value end.
 Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
  | Selvedge.Generated.Commands.Cmd_list_task_graphs _=>Some (Selvedge.Kernel.State.success (JObject [("graphs",JArray (Observation.present_values Observation.graph_json (registry value)))]))

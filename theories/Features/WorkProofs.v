@@ -1,7 +1,7 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import State Numbers.
-From Selvedge.Features Require Import Domain Work WorkUIPatch.
+From Selvedge.Kernel Require Import State Numbers LifecycleProofs.
+From Selvedge.Features Require Import Domain State Work WorkUIPatch.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
 Module K:=Selvedge.Kernel.State.
@@ -50,3 +50,26 @@ Theorem nearest_ancestor_owns_work : forall value child parent lineage owner,
  F.association parent (F.feature_task_owners value)=Some owner ->
  F.owner_id child (parent::lineage) value=Some owner.
 Proof. intros. unfold F.owner_id. rewrite H. cbn [F.lineage_owner]. now rewrite H0. Qed.
+
+(** An admitted exact-context patch changes the one Work-owned source and
+    increments its revision. It cannot rewrite membership or Task execution. *)
+Theorem admitted_patch_updates_shared_source : forall value id previous patch source,
+ Work.lookup id value=Some previous ->
+ N.ltb (F.work_ui_revision previous) 4294967295=true ->
+ WorkUIPatch.apply (F.work_ui_source previous) patch=WorkUIPatch.Done source ->
+ let updated:=decision_world (Work.patch_work id patch (F.work_ui_revision previous) value) in
+ Work.lookup id updated=Some (F.Work (F.work_name previous) source (N.succ (F.work_ui_revision previous))) /\
+ F.feature_task_owners (world_features updated)=F.feature_task_owners (world_features value) /\
+ F.feature_graph_owners (world_features updated)=F.feature_graph_owners (world_features value) /\
+ world_tasks updated=world_tasks value.
+Proof.
+ intros value id previous patch source found available applied.
+ cbv zeta. unfold Work.patch_work. rewrite found,available,N.eqb_refl,applied.
+ cbn [decision_world]. split.
+ - unfold Work.lookup in *. change
+   (registry_at id (replace id (F.Work (F.work_name previous) source
+     (N.succ (F.work_ui_revision previous))) (F.feature_works (world_features value)))=
+     Some (F.Work (F.work_name previous) source (N.succ (F.work_ui_revision previous)))).
+   now apply registry_replace_selected with previous.
+ - repeat split; reflexivity.
+Qed.

@@ -36,7 +36,8 @@ endpoint. The offline demo and adaptive task profiles are not drafting profiles.
 **Settings → 标题生成** edits **Task 看板标题提示词** independently of the
 **Agent 会话标题提示词** used by ordinary conversations. Both retain the shared
 schema and normalization. Linked conversations generate their own names;
-renaming a card preserves its conversation's title.
+renaming a card preserves its conversation's title. An idle linked card can
+regenerate its board title without changing its linked conversation.
 
 Use the paperclip, paste files into the editor, or drop files onto the form.
 Uploads use authenticated storage. Cards support at most four attachments, with
@@ -45,7 +46,8 @@ are downloaded. Submission waits for uploads. Stored references are checked
 again at the service boundary; arbitrary local paths cannot substitute for uploads.
 
 Use `bun host/cli.mjs describe` for the live API fields. The authoritative board
-command definitions are in the [feature definitions](../theories/Features/).
+command declarations are in [Commands.v](../theories/Kernel/Commands.v);
+[Board.v](../theories/Features/Board.v) owns their board behavior.
 
 `bun run check` checks the production proofs and build boundaries;
 `bun run test` runs the focused runtime and host integration suite.
