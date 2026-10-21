@@ -166,9 +166,7 @@ async function session(t, bash, scenario, { ownership = false, settings = { appr
     settings: { workspace: { roots: [directory], primary_root: directory }, ...settings } });
   assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
   return { service, directory, upstream, async settled() {
-    // This waits for a complete sequence of real model/tool turns; individual
-    // OS observations above keep their separate five-second bounds.
-    try { await taskIdle(service, created.reply.result.task_id, 20_000); }
+    try { await taskIdle(service, created.reply.result.task_id); }
     // DEFENSE: A model fixture assertion can prevent the asynchronous task from settling; report its original cause.
     finally { assert.deepEqual(upstream.failures, []); }
     assert.equal(finished, true, 'The model must complete every process interaction');

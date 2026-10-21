@@ -11,8 +11,10 @@ export async function home(t) {
   return realpath(directory);
 }
 
-export async function taskIdle(service, taskId = 0, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
+export async function taskIdle(service, taskId = 0) {
+  // These scenarios include multiple model/tool roundtrips before becoming idle;
+  // their physical IO deadlines are asserted separately.
+  const deadline = Date.now() + 20_000;
   let page;
   do {
     const result = await service.command({ op: 'read', task_id: taskId });
