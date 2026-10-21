@@ -102,8 +102,8 @@ def main():
                     expect(page.get_by_role('button', name=other, exact=True).filter(visible=True)).to_have_count(0)
                 page.screenshot(path=str(screenshots / 'search-results.png'), full_page=False)
                 result.click()
-                anchor = page.locator('[data-reading-task="' + str(target['task_id']) + '"] '
-                                      '[data-message-index="' + str(target['message_index']) + '"]').filter(visible=True)
+                anchor = page.locator('[data-reading-anchor="task/' + str(target['task_id']) +
+                                      '/history/' + str(target['message_index']) + '"]').filter(visible=True)
                 expect(anchor).to_contain_text(marker)
                 expect(anchor).to_be_in_viewport(ratio=.25)
                 page.screenshot(path=str(screenshots / 'original-message.png'), full_page=False)
@@ -112,7 +112,7 @@ def main():
                 request = fixture.request(continuation)
                 streamed = 'New live response while reading the original message. ' * 80
                 fixture.emit(request, streamed)
-                page.wait_for_function('''text => Array.from(document.querySelectorAll('[data-reading-task]'))
+                page.wait_for_function('''text => Array.from(document.querySelectorAll('[data-reading-root]'))
                   .some(node => !node.closest('[inert]') && node.textContent.includes(text))''',
                                        arg=streamed[:100])
                 expect(anchor).to_be_in_viewport(ratio=.25)

@@ -277,7 +277,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     try {
       launch = environment
         ? await environment.prepareBash(arguments_, execution, { signal })
-        : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, mode });
+        : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, processMode: mode });
       if (artifactDirectory) {
         boundary('effect.artifact_limit', { arguments: arguments_, limits, options });
         await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -288,8 +288,10 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         }
       }
       signal?.throwIfAborted();
-      // NOTE: Interactive Bash gives its foreground job a separate process group so Ctrl-C does not terminate the sandbox supervisor first.
-      const command = launch.command ?? [...(mode === 'pty' ? ['-i'] : []), '-c', arguments_.command];
+      // The PTY foreground job owns signals; the sandbox supervisor stays outside its process group.
+      const command = launch.command ?? (mode === 'pty'
+        ? ['-c', 'set -m; "$@"; exit "$?"', 'selvedge-pty', '/bin/bash', '--noprofile', '--norc', '-c', arguments_.command]
+        : ['-c', arguments_.command]);
       child = Bun.spawn([launch.file, ...launch.prefix, ...command], {
         cwd: launch.cwd, env: { ...launch.env, ...(mode === 'pty' ? { TERM: 'xterm-256color' } : {}) },
         detached: true, stdio: ['pipe', 'pipe', 'pipe', ...launch.descriptors],
@@ -300,7 +302,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
             terminalResolve();
             terminalWrite?.reject(processInputError('process_stdin_closed', 'The terminal closed before input was flushed'));
             terminalWrite = undefined;
-            // NOTE: Bun reports normal Linux PTY closure as EIO; child.exited supplies the command's actual exit status.
+            // Bun reports normal Linux PTY closure as EIO; child.exited supplies the command's actual exit status.
           },
         } } : {}),
       });

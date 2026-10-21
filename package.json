@@ -2,37 +2,23 @@
   "name": "selvedge",
   "private": true,
   "type": "module",
-  "engines": {
-    "bun": ">=1.4.2"
-  },
+  "engines": { "bun": ">=1.4.2" },
   "scripts": {
     "build": "bun scripts/build.mjs",
     "start": "bun run build && bun host/cli.mjs server",
-    "test": "bun scripts/test.mjs",
     "check": "bun scripts/check.mjs",
-    "check:components": "bun scripts/check-components.mjs",
-    "index": "bun scripts/agents-index.mjs update",
-    "index:check": "bun scripts/agents-index.mjs check",
-    "bench": "bun scripts/build.mjs && bun scripts/benchmark.mjs",
-    "build:native": "bun scripts/build.mjs --native",
-    "verify": "bun scripts/validate.mjs",
-    "test:interactive-markdown": "bun run build && python3 scripts/test-interactive-markdown-browser.py --mode all"
+    "test": "bun scripts/test.mjs",
+    "bench": "bun scripts/benchmark.mjs",
+    "verify": "bun run check && bun run test"
   },
   "dependencies": {
-    "acorn": "8.15.0",
     "diff": "9.0.0",
     "gpt-tokenizer": "4.0.0",
     "impit": "0.14.6",
     "openid-client": "6.8.8",
-    "tencentcloud-sdk-nodejs-cvm": "4.1.316",
-    "ws": "8.22.0"
+    "tencentcloud-sdk-nodejs-cvm": "4.1.316", "ws": "8.22.0"
   },
+  "devDependencies": { "@modelcontextprotocol/sdk": "1.31.0", "jose": "6.2.12" },
   "packageManager": "bun@1.4.2",
-  "workspaces": [
-    "plugins/selvedge-chatgpt",
-    "relay"
-  ],
-  "devDependencies": {
-    "jose": "6.2.12"
-  }
+  "workspaces": ["plugins/selvedge-chatgpt", "relay"]
 }

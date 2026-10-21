@@ -1,154 +1,261 @@
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { compiler, compilerEnvironment, compilerInvocation, expectedVersion } from './toolchain.mjs';
-import { checkBundle } from './import-stdlib.mjs';
-import { checkRelations } from './import-relations.mjs';
-import { checkMaps } from './import-maps.mjs';
-import { checkComponents, bendSources, entrySources } from './check-components.mjs';
-import { compileJavaScript, compileJavaScriptBatch } from './compile-javascript.mjs';
-import { prepareUiVerification } from './ui-verification.mjs';
-import { buildModel } from '../plugins/selvedge-chatgpt/scripts/build-model.mjs';
+import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
+export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const buildDirectory = path.join(root, '.build');
+const digest = value => createHash('sha256').update(value).digest('hex');
+const stateFile = path.join(buildDirectory, 'build-state.json');
+const flags = ['-w', '-register-all,-extraction-default-directory', '-Q', 'theories', 'Selvedge'];
+const productionTargets = ['kernel', 'host', 'browser', 'interaction'];
+export const targets = {
+  commands: { module: 'Generated.Commands', model: 'CommandsModel', entry: ['decode','encode'], global: '__selvedgeCommands', exported: 'decode' },
+  kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'packet', 'world_json'], global: '__selvedgeKernel' },
+  host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },
+  browser: { module: 'Browser.Runtime', model: 'BrowserModel', entry: ['call'], global: '__selvedgeBrowser', exported: 'browserCall' },
+  interaction: { module: 'Interaction.Application', model: 'InteractionModel', entry: ['call'], global: '__selvedgeInteraction', exported: 'interactionCall' }
+};
+export const jsonEntries = {
+  selvedge_parse_json: 'Foundation.TextJson.parse_json',
+  selvedge_render_json: 'Foundation.TextJson.render_json'
+};
 
-async function timed(label, action) {
-  const started = performance.now();
-  const result = await action();
-  console.log(`${label} (${((performance.now() - started) / 1000).toFixed(2)}s).`);
-  return result;
-}
-
-async function entryRequest(entry, output, { publicSource = entry, namespacePrefix = '' } = {}) {
-  // Root entry definitions are public wrappers; import aliases are not compiler names.
-  const source = await readFile(path.join(root, publicSource), 'utf8');
-  const names = [...source.matchAll(/^def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/gm)].map(match => match[1]);
-  // DEFENSE: An edited public entry can remove every wrapper and would otherwise produce an empty runtime interface.
-  if (!names.length) throw new Error(`No public Bend wrappers in ${publicSource}`);
-  return { entry, exports: Object.fromEntries(names.map(name => [name, `${namespacePrefix}${name}`])), output, sourceRoot: root };
-}
-
-async function productionInputs(verification) {
-  const sources = await bendSources(root);
-  const hash = createHash('sha256');
-  // Generated verification/runtime entries are hidden from bendSources. Bind
-  // their assembly and the ownership policy along with all production sources.
-  for (const name of [...sources, verification.entry, verification.runtimeEntry, 'components.json'].sort()) {
-    const bytes = await readFile(path.join(root, name));
-    hash.update(JSON.stringify([name, bytes.length])).update('\0').update(bytes).update('\0');
-  }
-  return { sources, fingerprint: hash.digest('hex') };
-}
-
-async function nativeIdentity(bend, compileArguments) {
-  const compilerPath = Bun.which(bend);
-  // DEFENSE: The selected native compiler can disappear from PATH between its version check and executable hashing.
-  if (!compilerPath) throw new Error(`Cannot resolve native Bend compiler: ${bend}`);
-  const compilerBytes = await readFile(compilerPath);
-  const hash = createHash('sha256');
-  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-  const configuration = { entry: compileArguments[0], arguments: compileArguments,
-    platform: process.platform, architecture: process.arch, compilerVersion: expectedVersion };
-  // Length-tagged records keep arbitrary source bytes distinct from cache metadata.
-  function record(kind, name, bytes) {
-    hash.update(JSON.stringify([kind, name, bytes.length])).update('\0').update(bytes).update('\0');
-  }
-  record('configuration', '', Buffer.from(JSON.stringify(configuration)));
-  record('compiler', 'bend', compilerBytes);
-  const sources = [];
-  for (const filename of await entrySources(root, configuration.entry)) {
-    const bytes = await readFile(path.join(root, filename));
-    record('source', filename, bytes);
-    sources.push({ path: filename, sha256: digest(bytes) });
-  }
-  return { fingerprint: hash.digest('hex'), ...configuration,
-    compiler: { path: compilerPath, version: expectedVersion, sha256: digest(compilerBytes) }, sources };
-}
-
-export async function build({ native = false, force = false } = {}) {
-  console.log(await checkComponents(root));
-  const bend = compiler();
-  await checkBundle();
-  await checkRelations();
-  await checkMaps();
-  const verification = prepareUiVerification(root);
-  const inputs = await productionInputs(verification);
-
-  const hostOutput = 'host/public/generated/host-model.mjs';
-  const requests = [
-    await entryRequest('KERNEL.bend', '.build/kernel-model.mjs'),
-    await entryRequest(verification.runtimeEntry, 'host/public/generated/browser-model.mjs', {
-      publicSource: 'BROWSER.bend', namespacePrefix: verification.browserPrefix,
-    }),
-    { entry: 'HOST.bend', exports: { run: 'run' }, output: hostOutput, sourceRoot: root },
-    { entry: 'plugins/selvedge-chatgpt/MODEL.bend', exports: { run: 'run' }, output: 'plugins/selvedge-chatgpt/generated/model.mjs', sourceRoot: root },
-  ];
-  if (force) for (const request of requests) await rm(path.resolve(root, `${request.output}.json`), { force: true });
-  const [kernel, browser, host] = await timed('Production JavaScript compilation', async () => {
-    const [kernel, browser] = await compileJavaScriptBatch({
-      prefix: verification.entry, requests: requests.slice(0, 2), verify: true,
-    });
-    // The shared compiler exits before host/plugin emission, releasing the full
-    // proof book and browser IR instead of retaining them across every backend.
-    const host = await compileJavaScript(requests[2]);
-    await compileJavaScript(requests[3]);
-    return [kernel, browser, host];
+export async function run(command, args, options = {}) {
+  const output = await new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd: root, ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const chunks = [];
+    child.stdout.on('data', chunk => chunks.push(chunk));
+    child.stderr.on('data', chunk => chunks.push(chunk));
+    child.on('error', reject);
+    child.on('close', code => resolve({ code, text: Buffer.concat(chunks).toString() }));
   });
-  console.log(`Bend JavaScript kernel ${kernel.cached ? 'is current' : 'built'} (${kernel.fingerprint.slice(0, 12)}).`);
-  console.log(`Bend JavaScript browser ${browser.cached ? 'is current' : 'built'} (${browser.fingerprint.slice(0, 12)}).`);
-  console.log(`Bend JavaScript host ${host.cached ? 'is current' : 'built'} (${host.fingerprint.slice(0, 12)}).`);
-  await timed('Plugin JavaScript compilation', () => buildModel());
-
-  // DEFENSE: Source or assembly edits between the checked batch and isolated host/plugin compilation must not publish one build identity for different inputs.
-  if ((await productionInputs(verification)).fingerprint !== inputs.fingerprint) {
-    throw new Error('Production sources changed between proof checking and JavaScript emission; retry with stable sources');
+  if (output.code !== 0) {
+    await mkdir(path.join(buildDirectory, 'logs'), { recursive: true });
+    const filename = path.join(buildDirectory, 'logs', `${path.basename(command)}-${Date.now()}.log`);
+    await writeFile(filename, output.text);
+    throw new Error(`${command} failed (${output.code}); full output: ${filename}\n${output.text.slice(-5000)}`);
   }
-  const backend = 'bend-javascript';
-  const kernelManifest = JSON.parse(await readFile(`${kernel.output}.json`, 'utf8'));
-  const javascriptCompiler = kernelManifest.compiler;
-  const hash = createHash('sha256').update(`Bend ${expectedVersion}\0${backend}\0`)
-    .update(JSON.stringify(javascriptCompiler)).update('\0').update(kernel.fingerprint).update('\0').update(browser.fingerprint).update('\0').update(host.fingerprint).update('\0');
-  hash.update(inputs.fingerprint);
-  const fingerprint = hash.digest('hex');
-  const directory = path.join(root, '.build');
-  await mkdir(directory, { recursive: true });
-  // Publish build identity only after all production libraries have compiled successfully.
-  await writeFile(path.join(directory, 'kernel.json'), JSON.stringify({
-    compiler: expectedVersion, fingerprint, backend, javascriptCompiler,
-    sources: inputs.sources, models: { kernel: kernel.fingerprint, browser: browser.fingerprint, host: host.fingerprint },
-  }, null, 2) + '\n');
-
-  if (native) {
-    const compileArguments = ['MAIN.bend', '-o', '.build/selvedge-kernel'];
-    const identity = await nativeIdentity(bend, compileArguments);
-    let previous;
-    // DEFENSE: A first build or interrupted manifest write leaves no usable native cache identity.
-    try { previous = JSON.parse(await readFile(path.join(directory, 'native.json'), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
-    const output = path.join(directory, 'selvedge-kernel');
-    let outputSha256;
-    // DEFENSE: The optional executable can be absent before its first build or after cache cleanup.
-    try { outputSha256 = createHash('sha256').update(await readFile(output)).digest('hex'); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-    // DEFENSE: Missing, edited or stale native cache artifacts must be rebuilt from the current compiler and source bytes.
-    if (previous?.fingerprint !== identity.fingerprint || previous.outputSha256 !== outputSha256 || force) {
-      const invocation = compilerInvocation(bend, compileArguments);
-      const result = spawnSync(invocation.command, invocation.args, { cwd: root, stdio: 'inherit', env: { ...compilerEnvironment(), BEND_NO_TELEMETRY: '1' } });
-      // DEFENSE: The native compiler launcher can fail to start because the OS refuses its process.
-      if (result.error) throw result.error;
-      // DEFENSE: The native compiler can exit unsuccessfully or be terminated before producing its executable.
-      if (result.status !== 0) throw new Error(`Native Bend compilation failed (${result.status})`);
-      await writeFile(path.join(directory, 'native.json'), JSON.stringify({ ...identity,
-        outputSha256: createHash('sha256').update(await readFile(output)).digest('hex'),
-      }, null, 2) + '\n');
-      console.log(`Built optional native Bend kernel ${identity.fingerprint.slice(0, 12)}.`);
-    } else console.log(`Optional native Bend kernel is current (${identity.fingerprint.slice(0, 12)}).`);
+  return output.text;
+}
+const exists = filename => stat(path.join(root, filename)).then(() => true, error => {
+  // DEFENSE: A missing build artifact requires compilation; other filesystem errors are real failures.
+  if (error.code === 'ENOENT') return false;
+  throw error;
+});
+async function fingerprint(filename) {
+  return await exists(filename) ? digest(await readFile(path.join(root, filename))) : null;
+}
+async function writeChanged(filename, value) {
+  const previous = await exists(filename) ? await readFile(path.join(root, filename), 'utf8') : null;
+  if (previous !== value) {
+    await mkdir(path.dirname(path.join(root, filename)), { recursive: true });
+    await writeFile(path.join(root, filename), value);
   }
-  return { kernel, browser, host, fingerprint };
+}
+async function sourceFiles(directory = 'theories') {
+  const entries = await readdir(path.join(root, directory), { withFileTypes: true });
+  return (await Promise.all(entries.map(entry => {
+    const filename = `${directory}/${entry.name}`;
+    return entry.isDirectory() ? sourceFiles(filename) : filename.endsWith('.v') ? [filename] : [];
+  }))).flat().sort();
+}
+async function dependencies(files, recursive = false) {
+  const graph = new Map();
+  let pending = files;
+  while (pending.length) {
+    const output = await run('coqdep', ['-Q', 'theories', 'Selvedge', ...pending]);
+    for (const line of output.split('\n')) {
+      const [left, right] = line.split(':');
+      if (!left?.includes('.vo ') && !left?.endsWith('.vo')) continue;
+      const target = left.split(/\s+/).find(value => value.endsWith('.vo'));
+      if (!target) continue;
+      const filename = target.slice(0, -1);
+      graph.set(filename, (right ?? '').trim().split(/\s+/).filter(value => value.endsWith('.vo')).map(value => value.slice(0, -1)));
+    }
+    pending = recursive ? [...new Set([...graph.values()].flat().filter(file => !graph.has(file)))] : [];
+  }
+  return graph;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  await build({ native: process.argv.includes('--native'), force: process.argv.includes('--force') });
+// Module checks and extraction have separate limits because their memory profiles differ.
+function limitConcurrency(limit) {
+  let active = 0;
+  const queue = [];
+  return async action => {
+    if (active >= limit) await new Promise(resolve => queue.push(resolve));
+    else active++;
+    try { return await action(); }
+    finally {
+      const resume = queue.shift();
+      if (resume) resume(); else active--;
+    }
+  };
+}
+
+export async function build(options = {}) {
+  const { modules = [], check = false } = options;
+  const selected = [...new Set(options.selected ?? (modules.length ? [] : productionTargets))];
+  const allModules = !modules.length && (check || options.selected === undefined);
+  const moduleFiles = modules.map(name => {
+    if (!/^[A-Za-z_][A-Za-z_0-9']*(?:\.[A-Za-z_][A-Za-z_0-9']*)*$/.test(name)) throw new Error(`Invalid Rocq module: ${name}`);
+    return `theories/${name.replaceAll('.', '/')}.v`;
+  });
+  const roots = [...selected.map(name => {
+    if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
+    return `theories/${targets[name].module.replaceAll('.', '/')}.v`;
+  }), ...moduleFiles];
+  await mkdir(buildDirectory, { recursive: true });
+  for (const filename of moduleFiles) if (!await exists(filename)) throw new Error(`Requested Rocq module is missing: ${filename}`);
+  for (const name of selected) {
+    if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
+    const filename = `theories/${targets[name].module.replaceAll('.', '/')}.v`;
+    if (name !== 'commands' && !await exists(filename)) {
+      throw new Error(`Production entry ${filename} is missing; the full migration build is incomplete`);
+    }
+  }
+  const versions = await Promise.all([
+    run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
+    run('opam', ['var', 'rocq-metarocq-template:version']),
+    run('ocamlfind', ['query', '-format', '%v', 'zarith']), run('bun', ['--version'])
+  ]);
+  const pins = JSON.parse(await readFile(path.join(root, 'toolchain.json'), 'utf8'));
+  if (!versions[0].includes(`version ${pins.rocq}`) || versions[1].trim() !== pins.ocaml || versions[2].trim() !== pins.js_of_ocaml
+      || versions[3].trim() !== pins['metarocq-template'] || versions[4].trim() !== pins.zarith) {
+    throw new Error('Toolchain does not match toolchain.json; run scripts/bootstrap.sh');
+  }
+  const stubsDirectory = '.build/deps/zarith_stubs_js';
+  for (const [name, expected] of Object.entries(pins.zarith_stubs_js_sha256)) {
+    const filename = `${stubsDirectory}/${name}`;
+    if (!await exists(filename)) throw new Error('Pinned Zarith JS runtime is missing; run scripts/bootstrap.sh');
+    if (digest(await readFile(path.join(root, filename))) !== expected) throw new Error(`Zarith JS runtime checksum mismatch: ${filename}`);
+  }
+  const identity = digest(JSON.stringify([versions[0], flags]));
+  const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, await readFile(fileURLToPath(import.meta.url), 'utf8'), await readFile(path.join(root, 'runtime/Extraction.v'), 'utf8')]));
+  const state = await exists('.build/build-state.json') ? JSON.parse(await readFile(stateFile, 'utf8')) : {};
+  const next = {};
+  let compiled = 0;
+  const pending = new Map();
+  const graphInputs = async () => allModules
+    ? (await sourceFiles()).filter(file => !file.startsWith('theories/Derive/'))
+    : (await Promise.all(roots.map(async file => await exists(file) ? file : null))).filter(Boolean);
+  let graph = await dependencies(await graphInputs(), !allModules);
+  const withModuleSlot = limitConcurrency(4);
+  async function compile(filename) {
+    if (pending.has(filename)) return pending.get(filename);
+    const promise = (async () => {
+      const imported = graph.get(filename) ?? [];
+      await Promise.all(imported.map(compile));
+      const key = digest(JSON.stringify([identity, await readFile(path.join(root, filename), 'utf8'), imported.map(file => next[file])]));
+      const artifact = filename.slice(0, -1) + 'vo';
+      const actual = await fingerprint(artifact);
+      // DEFENSE: A direct rocq compilation followed by restoring the source can leave a different .vo behind the cached source key.
+      if (state[filename] !== key || actual === null || state[`artifact:${artifact}`] !== actual) {
+        await withModuleSlot(() => run('rocq', ['c', ...flags, filename]));
+        compiled++;
+      }
+      next[filename] = key;
+      next[`artifact:${artifact}`] = await fingerprint(artifact);
+    })();
+    pending.set(filename, promise);
+    return promise;
+  }
+
+  const reachable = new Set();
+  const requested = [...roots];
+  while (requested.length) {
+    const filename = requested.pop();
+    if (reachable.has(filename)) continue;
+    reachable.add(filename);
+    requested.push(...(graph.get(filename) ?? []));
+  }
+  if (allModules || reachable.has('theories/Generated/Commands.v')) {
+    await compile('theories/Kernel/Commands.v');
+    const generator = 'theories/Derive/Commands.v';
+    const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), await readFile(path.join(root, generator), 'utf8'), next['theories/Kernel/Commands.v']]));
+    const generatedPath = 'theories/Generated/Commands.v';
+    const generatedCurrent = await fingerprint(generatedPath);
+    if (check || state.generator !== generatorKey || generatedCurrent !== state.generatedSource) {
+      const output = await run('rocq', ['c', ...flags, generator]);
+      const match = /SELVDERIVE_BEGIN\r?\n([\s\S]*?)SELVDERIVE_END/.exec(output);
+      if (!match) throw new Error('MetaRocq command generator did not produce its delimited source');
+      const generated = `(* Generated by MetaRocq from Kernel.Commands.command_specs. Do not edit. *)\n${match[1].trimEnd()}\n`;
+      if (check && generatedCurrent && generatedCurrent !== digest(generated)) throw new Error('Generated command source is stale; run bun run build');
+      await writeChanged(generatedPath, generated);
+    }
+    next.generator = generatorKey;
+    next.generatedSource = await fingerprint(generatedPath);
+    graph = await dependencies(await graphInputs(), !allModules);
+  }
+  if (selected.length) await compile('theories/Foundation/TextJson.v');
+  if (allModules) await Promise.all([...graph.keys()].map(compile));
+  else await Promise.all(roots.map(compile));
+
+  await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
+
+  const withTargetSlot = limitConcurrency(2);
+  await Promise.all(selected.map(name => withTargetSlot(async () => {
+    const target = targets[name];
+    const filename = `theories/${target.module.replaceAll('.', '/')}.v`;
+    const runtime = name === 'commands' ? await readFile(path.join(root, 'runtime/commands_runtime.ml'), 'utf8')
+      : name === 'kernel' ? await readFile(path.join(root, 'runtime/kernel_runtime.ml'), 'utf8')
+      : (await readFile(path.join(root, 'runtime/call_runtime.ml.in'), 'utf8')).replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global).replaceAll('@ENTRY@', `selvedge_${name}_call`);
+    const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, await readFile(path.join(root, 'runtime/json_io.ml'), 'utf8')]));
+    const output = `.build/${name}-model.mjs`;
+    const runtimeOutput = `.build/${name}-runtime.js`;
+    const actual = await Promise.all([fingerprint(output), fingerprint(runtimeOutput)]);
+    const expected = state[`target:${name}:artifacts`];
+    // DEFENSE: A partial build-directory cleanup can retain the ES module while removing or replacing its imported runtime.
+    if (state[`target:${name}`] === key && actual.every(value => value !== null)
+        && expected?.every((value, index) => value === actual[index])) {
+      if (['host','browser','interaction'].includes(name)) {
+        await writeChanged(`host/public/generated/${name}-model.mjs`, await readFile(path.join(root, output), 'utf8'));
+        await writeChanged(`host/public/generated/${name}-runtime.js`, await readFile(path.join(root, `.build/${name}-runtime.js`), 'utf8'));
+      }
+      next[`target:${name}`] = key;
+      next[`target:${name}:artifacts`] = actual;
+      return;
+    }
+    const directory = `.build/extracted/${name}`;
+    await mkdir(path.join(root, directory), { recursive: true });
+    const aliases = target.entry.map(entry => `Definition selvedge_${name}_${entry} := Selvedge.${target.module}.${entry}.`).join('\n');
+    const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
+    const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nExtraction "${directory}/${target.model}.ml" ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
+    const extractionFile = `.build/Extract${target.model}.v`;
+    await writeChanged(extractionFile, extraction);
+    await run('rocq', ['c', ...flags, extractionFile]);
+    await writeChanged(`${directory}/json_io.ml`, await readFile(path.join(root, 'runtime/json_io.ml'), 'utf8'));
+    await writeChanged(`${directory}/entry.ml`, runtime);
+    const ocaml = ['ocamlc', '-package', 'zarith,js_of_ocaml', '-I', directory];
+    await run('ocamlfind', [...ocaml, '-c', `${directory}/${target.model}.mli`]);
+    await run('ocamlfind', [...ocaml, '-c', `${directory}/${target.model}.ml`]);
+    await run('ocamlfind', [...ocaml, '-c', `${directory}/json_io.ml`]);
+    await run('ocamlfind', [...ocaml, '-c', `${directory}/entry.ml`]);
+    await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, `${directory}/${target.model}.cmo`, `${directory}/json_io.cmo`, `${directory}/entry.cmo`]);
+    await run('js_of_ocaml', ['--target-env', 'browser', '-o', `.build/${name}-runtime.js`, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
+    const exports = name === 'kernel'
+      ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\n'
+      : `export const ${target.exported} = runtime.${name === 'commands' ? 'decode' : 'call'};\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
+    await writeChanged(output, `import './${name}-runtime.js';\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`);
+    if (['host','browser','interaction'].includes(name)) {
+      const publicDirectory = 'host/public/generated';
+      await writeChanged(`${publicDirectory}/${name}-model.mjs`, await readFile(path.join(root, output), 'utf8'));
+      await writeChanged(`${publicDirectory}/${name}-runtime.js`, await readFile(path.join(root, `.build/${name}-runtime.js`), 'utf8'));
+    }
+    next[`target:${name}`] = key;
+    next[`target:${name}:artifacts`] = await Promise.all([fingerprint(output), fingerprint(runtimeOutput)]);
+    console.log(`extracted ${name}`);
+  })));
+  await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
+  console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const targetIndex = process.argv.indexOf('--target');
+  const moduleIndex = process.argv.indexOf('--module');
+  if (targetIndex >= 0 && moduleIndex >= 0) throw new Error('Choose --target or --module, not both');
+  const selected = targetIndex < 0 ? undefined : process.argv[targetIndex + 1].split(',');
+  const modules = moduleIndex < 0 ? [] : process.argv[moduleIndex + 1].split(',');
+  await build({ selected, modules, check: process.argv.includes('--check') });
 }

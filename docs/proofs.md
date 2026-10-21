@@ -1,99 +1,57 @@
-# Operational model and local proof boundaries
+# Semantic guarantees and execution boundaries
 
-The root [MODEL.bend](../MODEL.bend) is the default model context. Its
-`Execution`, `Application`, and `Display` records carry operations and universal
-properties of those exact fields, with category evidence indexed directly by the
-callable operation records. `SystemModel` connects them through one hidden
-`World`, with nested packages hiding the other state and result carriers. Generic
-clients use operations, projections, observations, and proof fields; they cannot
-match an abstract state carrier as a concrete implementation constructor.
-Commands and observations retain their transparent public vocabulary.
+A useful guarantee rules out a concrete violation of the product requirement.
+Equality with a wrapper's own computation does not establish that requirement.
+Read the owning requirement and its theorem together, and verify that the theorem
+constrains the definition reached by the production extraction entry.
 
-The root [PROOF.bend](../PROOF.bend) supplies the concrete instance using actual
-production functions and existing evidence. Full-result equations retain the
-reply and effect obligations of the underlying contracts; equality of a state
-projection alone would not establish them. The package supplies a surface for
-reasoning without opening representations, while the concrete proof providers
-remain responsible for their representation-specific obligations. This does not
-claim compiler-enforced privacy for all existing modules. See
-[ADR 0032](adr/0032-operational-model-abstraction.md) for the rationale.
+## Construction, checking and external input
 
-The component-local providers `../harness/tasks/PROOF.bend` and `../harness/reasoning/PROOF.bend`
-quantify over unknown surrounding state and effect types. The application
-reasoning provider reuses those proof values. `../harness/features/laws.bend` composes
-feature refinement with explicit evidence for task creation, and
-`../harness/LOCALITY.bend` binds update and preservation guarantees to production dispatch,
-storage functions. `../harness/features/PROOF.bend` supplies board storage evidence.
+Indexed field values, command payloads and lifecycle constructors rule out
+specific internal combinations. They do not establish that arbitrary external
+JSON is valid. The checked admission definitions must accept or reject that data
+before it becomes a domain value. Shared declarations supply structural facts;
+owner-specific requirements still govern authorization, correlation and business
+behavior.
 
-Task storage's production `update_state` specializes the abstract
-`Tasks.update_carrier` computation to the domain model's task observation and
-write operation. Its provider proves the complete required update and frame
-preservation for arbitrary surrounding state; client proofs use that storage
-operation instead of expanding its concrete task list reconstruction.
-These guarantees concern the specified update and unrelated state. A later
-replacement needs evidence for the behavior required
-by its clients; equality to an earlier implementation is not an additional goal.
+A generic theorem supplies a guarantee only after its premises are instantiated
+for the actual exported operations. An abstract contract with no checked
+production instance is incomplete evidence. A proof of a decoder's field shape
+is not a proof that an accepted command has the intended effect.
 
-The locality, interaction and browser contracts group specified properties by responsibility;
-their assembly still requires every group's evidence. Grouping is a reading
-boundary, not an optional proof tier. Public clauses quantify whole private
-states and use observations and intended updates. Representation-specific
-providers may destructure those states to discharge the original equations;
-their source paths are explicit owners in `../components.json`. This does not
-make every client proof independent of representation. The source ownership gate
-checks private construction and patterns, while the proof gate retains complete
-decisions, completion correlation and ordered effects. The focused source-scanner
-regression exercises alias and multiline syntax without recompiling extension copies.
+## What kernel checking establishes
 
-Preservation is scoped to the component operation that owns it. A law quantifying
-over all future feature events while freezing their entire state would prevent
-legitimate extensions.
+Rocq checks the stated propositions about Gallina definitions. Review both the
+proposition's requirement and its premises. Important production results must
+have an explicit assumptions audit; an absence of the word `Axiom` in local
+files does not by itself exclude imported assumptions.
 
-The root [PROOF.bend](../PROOF.bend) also retains the `CONCEPTS.Harness`
-composition and imports all production providers. [CONCEPTS.bend](../CONCEPTS.bend)
-is a detailed evidence-composition entry rather than the overall operational model. Local proof units group complete responsibilities beside
-their owning concepts. A concept's `PROOF.bend` retains the aggregate evidence its
-clients need; it need not import every local provider if that would create a
-backedge. Contract composition still requires each responsibility's evidence.
+MetaRocq derives declarations from the common domain descriptions. Generated
+source is checked again by Rocq and is not maintained by hand. Generation alone
+is not evidence of business correctness, and Template metaprogramming is not a
+claim that the OCaml or JavaScript compilation pipeline is verified.
 
-[Layout](../browser/layout/README.md) separates geometry, allocation, measured
-size and source correspondence, and renderer realization.
-[Document](../browser/document/README.md) separates source validity, rendered
-observations and content presentation.
-[Presentation](../interaction/presentation/README.md) separates semantic scenes
-from surface composition and interaction. Follow those guides to the executable
-contracts and their providers rather than treating file size as a proof boundary.
+## What execution adds
 
-The public vocabularies in [interaction/TYPES.bend](../interaction/TYPES.bend),
-[presentation/MODEL.bend](../interaction/presentation/MODEL.bend) and
-[presentation/SURFACE.bend](../interaction/presentation/SURFACE.bend) are independent
-of their calculating implementations. Validation used by production remains in
-production modules; a caller does not import open laws merely to compute validity.
+Standard Rocq extraction and js_of_ocaml are trusted translation steps. Numeric
+extraction mappings and their JavaScript runtime support are part of that trust
+boundary. Domain JSON parse/render functions are extracted from Gallina.
+Internal parsed host values can instead enter through a generic converter into
+the same extracted OCaml JSON type and domain entry. The converter, its
+JavaScript standard-library operations and the compilation pipeline remain
+trusted; raw text admission still uses the Gallina parser. Exact-number and
+Unicode execution probes exercise the resulting artifact rather than a second
+implementation of its intended behavior.
 
-[PROOF.bend](../features/board/PROOF.bend) constructs the production board refinement and callback
-evidence declared in [features/board/CONTRACT.bend](../features/board/CONTRACT.bend).
-Proof discovery resolves each law's module and declaration identity and requires
-one complete, unique provider for that identity. Provider filenames do not define
-the binding. Bend rejects using an unfilled law as live proof evidence. Modules
-consume sibling laws through their declared interfaces, not sibling-private helper
-functions. Imports must preserve the dependency order between those providers.
+Bun Workers, SQLite, HTTP, process execution, browser DOM and remote providers
+remain physical boundaries. A committed effect is a checked request to an
+interpreter, not evidence that a filesystem, model or network obeyed that request.
+The host must preserve commit-before-dispatch order and feed observations back
+through the admitted completion protocol. Source-origin and request identities
+must survive those exchanges without being inferred from display positions.
 
-The trace module proves only the application's tape/fold correspondence and
-one-step correspondence. Simulation, partition and invariant lifting come from
-the original Stdlib iterator certificates. Imported evidence is rebound through
-pointwise application when the checker does not identify two function names;
-this does not assume function extensionality.
-
-The association-map deletion proof is generated from the original ExtLib proof,
-not maintained as another project induction. Consuming an operation right is a
-domain value adapter applied to that theorem. Result routing, error ownership and
-which product component changes remain domain obligations: a generic map or
-simulation theorem cannot choose those meanings for the application.
-
-`scripts/verify-proof.mjs` requires the pinned compiler's pure-success report.
-Unsafe or foreign dependencies, missing evidence and unexpected reports fail
-both ordinary checks and cached builds. MAIN owns native external IO.
-[Browser PLATFORM.bend](../browser/runtime/PLATFORM.bend) defines the browser effect
-boundary. Pure model evidence does not establish the concrete platform
-interpreter's behavior; focused boundary and end-to-end checks exercise selected
-physical paths, with their scope recorded in [the test guide](../tests-bend/README.md).
+Public end-to-end tests exercise selected concrete failures across those
+boundaries. They do not establish every external behavior, model quality,
+scheduler fairness or unbounded resource availability. Build measurements apply
+to the measured project and workload; small extraction experiments do not
+establish whole-project build performance.

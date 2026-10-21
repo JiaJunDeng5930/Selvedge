@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import { stringifyJson } from './codec.mjs';
-import { emitJsonTokens } from './public/json-tokens.mjs';
-import { boundary, observeJson } from './public/model-boundary.mjs';
+import { boundary } from './public/model-boundary.mjs';
 import { readText, sseEvents, requestJson } from './network.mjs';
 import { prepareModelRequest, requestHeaders } from './model-request.mjs';
 import { WebRequestStore, retainedRequest } from './chatgpt-web-store.mjs';
@@ -10,7 +9,7 @@ const digest = value => createHash('sha256').update(stringifyJson(value)).digest
 const requestOwner = effect => boundary('web.owner', { effect });
 
 function nativeJson(text) {
-  return boundary('web.decode', { observation: observeJson(text), text });
+  return boundary('web.decode', { text });
 }
 
 function failure(code, record, status) {
@@ -35,8 +34,7 @@ function validateResource(value, body, model, tools) {
 
 async function exchange(record, body, model, tools, token, store, limits, lifetime, { onSnapshot, onRetry }, index) {
   // A newly prepared receipt has no response yet; the native exchange selects fetching before cached-response decoding.
-  const start = boundary('web.exchange_start', { record, body, model, tools, index,
-    response_observation: record.response === null ? null : observeJson(record.response) });
+  const start = boundary('web.exchange_start', { record, body, model, tools, index });
   if (start.action === 'cached') return start.resource;
   const send = async () => {
     const response = await fetch(record.endpoint, { method: 'POST', redirect: 'error', signal: lifetime,
@@ -58,8 +56,8 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
   if (!response.ok) {
     if (boundary('web.http', { record, status: response.status }).reject) store.reject(record);
     const text = await readText(response.body, limits.frame_bytes);
-    const observation = observeJson(text);
-    const value = observation.error ? undefined : boundary('web.decode', { observation, text });
+    const decoded = boundary('web.http_json', { response: { ok: false, status: response.status }, text });
+    const value = decoded.present ? decoded.value : undefined;
     throw failure(value?.error?.code, record, response.status);
   }
   let contentType;
@@ -73,13 +71,7 @@ async function exchange(record, body, model, tools, token, store, limits, lifeti
     terminal = validateResource(nativeJson(await readText(response.body, limits.frame_bytes)), body, model, tools);
   } else if (contentType === 'sse') {
     for await (const frame of sseEvents(response.body, limits.frame_bytes)) {
-      const observation = observeJson(frame.data);
-      const event = boundary('web.frame', { frame, observation });
-      const tokens = [];
-      emitJsonTokens(event, token => tokens.push(token));
-      // NOTE: Capture the actual external parser output, including its object-key semantics.
-      const parsed_observation = { text: frame.data, tokens };
-      const source = { frame, observation, parsed_observation, record, body, model, tools, index };
+      const source = { frame, record, body, model, tools, index };
       const header = boundary('web.event_header', source);
       if (header.action === 'stop') break;
       if (header.response_id) store.identify(record, header.response_id);
@@ -148,7 +140,7 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
     if (options.receipt) output.push({ type: 'context', part: 2, value: boundary('web.receipt', {
       effect: request, profile, resource: terminal, record: active, deferred,
       input_hash: digest(request.history), output_count: output.length, contract, binding, store_identity: store.identity,
-      tools, body_observation: nativeJson(active.body), response_observation: nativeJson(active.response),
+      tools,
     }) });
     return output;
   } catch (error) {

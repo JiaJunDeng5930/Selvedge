@@ -1,4 +1,4 @@
-// Bend marks the native targets whose layout should keep them exposed.
+// The extracted model marks the native targets whose layout should keep them exposed.
 // Scrolling alone does not change this signature or move keyboard focus.
 export function createLayoutRevealer(root) {
   let previous = new Map();

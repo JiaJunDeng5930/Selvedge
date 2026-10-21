@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { boundary } from '../generated/model-boundary.mjs';
 import { interpretCredential } from '../generated/opaque-credentials.mjs';
-import { parseJson, observeJson } from '../generated/json-tokens.mjs';
+import { parseJson } from '../generated/json-tokens.mjs';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
@@ -76,7 +76,7 @@ export function callTool(config, tool, arguments_, { signal } = {}) {
       response.on('end', () => {
         try {
           const text = utf8Decoder.decode(Buffer.concat(chunks));
-          const reply = boundary('plugin.http_response', { tool, text, observation: observeJson(text), status: response.statusCode,
+          const reply = boundary('plugin.http_response', { tool, text, status: response.statusCode,
             status_text: String(response.statusCode), content_type: response.headers['content-type'] ?? '' });
           resolve(reply);
         // DEFENSE: HTTP reply bytes can be invalid UTF-8/JSON or violate the admitted MCP response contract; reject this tool call.

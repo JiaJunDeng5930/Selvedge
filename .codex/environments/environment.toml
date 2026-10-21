@@ -2,7 +2,7 @@ version = 1
 name = "Selvedge"
 
 [setup]
-script = "bash scripts/setup-worktree.sh"
+script = "bash scripts/bootstrap.sh"
 
 [[actions]]
 name = "Run server"
@@ -18,8 +18,3 @@ command = "bun run test"
 name = "Check"
 icon = "tool"
 command = "bun run check"
-
-[[actions]]
-name = "Verify all"
-icon = "test"
-command = "bun run verify"

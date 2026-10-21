@@ -1,25 +1,35 @@
-import { run } from './generated/host-model.mjs';
-import { emitJsonTokens, parseJson } from './json-tokens.mjs';
-export { observeJson } from './json-tokens.mjs';
+import { call, callStructured } from './generated/host-model.mjs';
+import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 
-/** Shared token ABI; only the outer adapter envelope controls rejection. */
-export function boundary(operation, source) {
-  const tokens = [];
-  emitJsonTokens(source, token => tokens.push(token));
-  let list = { $: 'Nil' };
-  for (let index = tokens.length - 1; index >= 0; index--) {
-    list = { $: 'Con', head: tokens[index], tail: list };
-  }
-  const result = parseJson(run(operation, list));
-  if (result.ok) return result.value;
-  const ErrorConstructor = result.code === 'TypeError' ? TypeError
-    : result.code === 'RangeError' ? RangeError
-    : result.code === 'SyntaxError' ? SyntaxError
-    : Error;
-  const error = new ErrorConstructor(result.error);
-  if (Object.hasOwn(result, 'code')
-    && !['TypeError', 'RangeError', 'SyntaxError', 'Error'].includes(result.code)) {
-    error.code = result.code;
-  }
+function result(text) {
+  const envelope = parseJson(text);
+  if (envelope.ok) return envelope.value;
+  const constructors = { TypeError, RangeError, SyntaxError, Error };
+  const ErrorType = constructors[envelope.code] ?? Error;
+  const error = new ErrorType(envelope.error);
+  if (!Object.hasOwn(constructors, envelope.code)) error.code = envelope.code;
   throw error;
 }
+
+// Canonicalize through the shared JSON codec before constructing the same domain JSON type.
+function numberText(value) {
+  if (value instanceof JsonNumber) return value.source;
+  if (typeof value === 'number') return JSON.stringify(value);
+  return undefined;
+}
+const cachedOperations = new Set(['config.configuration_head', 'config.context_transport']);
+const lastResults = new Map();
+
+export function invoke(entry, operation, source) {
+  const input = stringifyJson(source);
+  const cacheable = entry === call && cachedOperations.has(operation);
+  const previous = cacheable ? lastResults.get(operation) : undefined;
+  // Only complete immutable input/output text is retained; callers receive a fresh parsed value.
+  const output = previous && previous.input === input ? previous.output
+    : entry === call ? callStructured(operation, parseJson(input), numberText)
+    : entry(operation, input);
+  const value = result(output);
+  if (cacheable && (!previous || previous.input !== input)) lastResults.set(operation, { input, output });
+  return value;
+}
+export const boundary = (operation, source) => invoke(call, operation, source);

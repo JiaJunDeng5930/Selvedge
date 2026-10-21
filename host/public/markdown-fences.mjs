@@ -1,7 +1,7 @@
 import * as smd from './vendor/streaming-markdown.mjs';
 import { PacedText } from './markdown.mjs';
 
-/** Observe the pinned Markdown parser; eligibility and DSL meaning belong to Bend. */
+/** Observe the pinned Markdown parser; eligibility and DSL meaning belong to the extracted model. */
 export class MarkdownFenceObserver {
   constructor(options = {}) {
     this.options = options;

@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { Kernel } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
 
-export const journalFormat = 'selvedge-bend-journal-8';
+export const journalFormat = 'selvedge-rocq-journal-2';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
@@ -90,7 +90,7 @@ export class Journal extends EventEmitter {
       this.#database.exec('COMMIT');
     // DEFENSE: A nonempty database can have an obsolete or foreign schema; accept only the current journal schema.
     } else if (objects.length !== Object.keys(schema).length || objects.some(row => normalize(row.sql) !== normalize(schema[row.name] ?? ''))) {
-      throw new Error('The database does not have the current Selvedge Bend journal schema');
+      throw new Error('The database does not have the current Selvedge Rocq journal schema');
     }
     const entries = this.#database.prepare('SELECT key, value FROM meta ORDER BY key').all();
     // DEFENSE: Existing databases can have unknown formats or damaged namespace metadata; they must fail without conversion.
@@ -99,7 +99,7 @@ export class Journal extends EventEmitter {
       this.namespace = entries[1].value;
       return;
     }
-    throw new Error('The database does not have the current Selvedge Bend journal format');
+    throw new Error('The database does not have the current Selvedge Rocq journal format');
   }
 
   #poison(error) {

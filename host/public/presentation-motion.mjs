@@ -1,4 +1,4 @@
-/** Lifecycle observation for the finite motion vocabulary authored by Bend. */
+/** Lifecycle observation for the finite motion vocabulary authored by the extracted model. */
 export class PresentationMotion {
   constructor(root) {
     this.root = root;

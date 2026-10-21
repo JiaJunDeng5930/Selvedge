@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { encodeBendValue } from './public/bend-value.mjs';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES, MAX_REMOTE_CONTROLLERS,
   assertRelayUrl, parseRemoteFrame, encodeRemoteFrame,
@@ -333,15 +332,15 @@ export class RemoteConnector {
 
   #snapshot() {
     const snapshot = this.#service.browserSnapshot();
-    return { incarnation: this.#incarnation, namespace: snapshot.namespace, sequence: snapshot.sequence, program: encodeBendValue(snapshot.program),
-      streams: encodeBendValue(this.#service.browserStreams()), notice_sequence: this.#noticeSequence };
+    return { incarnation: this.#incarnation, namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
+      streams: this.#service.browserStreams(), notice_sequence: this.#noticeSequence };
   }
 
   async #request(session, id, connection, request) {
     try {
       if (request.method === 'command') {
         const result = await this.#service.remoteCommand(connection.controllerId, connection.grantEpoch, request.params);
-        if (connection.active) this.#send(session, { type: 'response', connection_id: id, response: { id: request.id, result: encodeBendValue(result) } });
+        if (connection.active) this.#send(session, { type: 'response', connection_id: id, response: { id: request.id, result: result } });
         return;
       }
       const allowed = await this.#authorize(session, connection, () => {
@@ -377,7 +376,7 @@ export class RemoteConnector {
     let event;
     let bytes;
     try {
-      event = { incarnation: this.#incarnation, notice_sequence: sequence, notice: encodeBendValue(notice) };
+      event = { incarnation: this.#incarnation, notice_sequence: sequence, notice: notice };
       bytes = Buffer.byteLength(encodeRemoteFrame(event));
     // DEFENSE: A committed notice can exceed the remote frame budget; close instead of buffering an undeliverable observation.
     } catch { this.#disconnect(session, 'observation_frame_rejected'); return; }

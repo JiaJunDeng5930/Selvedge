@@ -21,7 +21,7 @@ bun run check
 bun run test
 ```
 
-The default suite includes one focused [Durable Object hibernation regression](../tests-bend/relay.test.mjs).
+The default suite includes one focused [Durable Object hibernation regression](../tests/relay.test.mjs).
 Its [runtime fixture](test/runtime.mjs) runs the production Worker and deployment
 bindings in local workerd through Miniflare, including real WebSocket upgrades,
 socket attachments and stored grants. It checks forwarding and an unspent ticket

@@ -3,12 +3,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { stringifyJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { adaptivePolicy } from './reasoning-config.mjs';
-import { boundary, observeJson } from './public/model-boundary.mjs';
+import { boundary } from './public/model-boundary.mjs';
 
-const evaluatorToolOutputTokens = 1000;
-const evaluatorResponseBytes = 65_536;
+const evaluatorContract = boundary('evaluator.contract', {});
+const evaluatorToolOutputTokens = evaluatorContract.tool_output_tokens;
+const evaluatorResponseBytes = evaluatorContract.response_bytes;
 const tokenizerOptions = { disallowedSpecial: new Set() };
-const omittedMiddle = '\n[Tool output preview: middle omitted]\n';
 
 function evaluatorOperation(operation, source) {
   return boundary(`evaluator.${operation}`, source);
@@ -19,15 +19,15 @@ export function outputTokens(text) {
   return text ? Math.max(countTokens(text, tokenizerOptions), countTokens(JSON.stringify(text), tokenizerOptions)) : 0;
 }
 
-function preview(text, budget, originalCost, originalEncoded) {
-  const source = { text, budget, original_cost: originalCost, original_observation: observeJson(originalEncoded) };
+function preview(text, budget, originalCost) {
+  const source = { text, budget, original_cost: originalCost };
   let tokens;
   let completion = { ...source }, completionKind = 'start';
   let state = evaluatorOperation('preview_start', completion);
   while (state.action !== 'done') {
     switch (state.action) {
       case 'marker':
-        source.marker_cost = outputTokens(omittedMiddle);
+        source.marker_cost = outputTokens(state.text);
         completion = { ...source };
         state = evaluatorOperation('preview_start', completion);
         break;
@@ -66,11 +66,10 @@ function budgetConstruction(outputs, maximum) {
     const planned = allocation[index];
     const output = outputs[index];
     const observed = planned.action === 'original' ? { result: { action: 'done', text_action: 'original', text: null } }
-      : preview(output.text, planned.budget, outputTokens(output.text), entry.text.encoded);
+      : preview(output.text, planned.budget, outputTokens(output.text));
     const text = observed.result.text_action === 'original' ? output.text : observed.result.text;
     return { ...observed, index, original_cost: entries[index].cost, budget: planned.budget,
-      sent_tokens: outputTokens(text), selected_encoded: JSON.stringify(text),
-      selected_observation: observed.result.text_action === 'preview' ? observeJson(JSON.stringify(text)) : null };
+      sent_tokens: outputTokens(text), selected_encoded: JSON.stringify(text) };
   });
   const construction = { ...source, allocation, previews };
   const plan = evaluatorOperation('budget_finish', construction);
@@ -98,22 +97,7 @@ export function decisionRequest(effect, evaluator) {
 }
 
 function retryPlan(source) {
-  let plan = evaluatorOperation('retry', source);
-  switch (plan.action) {
-    case 'observe_numeric':
-    case 'observe_date': {
-      let date, now;
-      const milliseconds = plan.action === 'observe_numeric' ? Number(source.retry_after) * 1000
-        : (date = Date.parse(source.retry_after)) - (now = Date.now());
-      plan = evaluatorOperation('retry', { ...source, phase: 'observed', observation: {
-        retry_after: source.retry_after, attempt: source.attempt, kind: plan.action,
-        date: Number.isFinite(date) ? date : null, now: now ?? null,
-        finite: Number.isFinite(milliseconds), milliseconds: Number.isFinite(milliseconds) ? milliseconds : null,
-        minus_limit: String(milliseconds - 5000), minus_floor: String(milliseconds - 100),
-      } });
-      break;
-    }
-  }
+  const plan = evaluatorOperation('retry', { ...source, now: Date.now() });
   // DEFENSE: An evaluator retry can exceed its attempt/deadline budget or return an excessive Retry-After; the admitted plan must fail visibly.
   if (plan.action === 'fail') throw new Error(plan.error);
   return plan;
@@ -166,10 +150,7 @@ export async function requestReasoning(effect, config, limits, { signal } = {}) 
       continue;
     }
     const text = await readText(response.body, evaluatorResponseBytes);
-    const observation = observeJson(text);
-    // DEFENSE: An evaluator can return malformed JSON; report a protocol failure without copying its body into task diagnostics.
-    if (observation.error) throw new Error('Jev returned an invalid JSON response');
     deadline.throwIfAborted();
-    return evaluatorOperation('decision', { ...original, mode: 'parsed', text, observation });
+    return evaluatorOperation('decision', { ...original, mode: 'parsed', text });
   }
 }

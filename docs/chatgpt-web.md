@@ -138,8 +138,8 @@ The audited input is `codex-chatgpt-web/docs/protocol.md` at source revision
 `bd38e5df4a9ef16662627f71bd62749f7f883cd42b694dbba571c8531db204b6`,
 and its `runtime/response-resource.schema.json`.
 
-`tests-bend/chatgpt-web.test.mjs` uses a strict independent loopback protocol
+`tests/chatgpt-web.test.mjs` uses a strict independent loopback protocol
 fixture, actual SQLite, native effects, process sandboxes, restart, cancellation
 and concurrent tool completion. These checks do not access a commercial account
 or claim that browser behavior, the remote service, HTTP, SQLite or the OS is
-proved by Bend.
+proved by the pure semantic model.

@@ -1,305 +1,235 @@
 import { Markdown } from './markdown.mjs';
-import { bendTag, bendValue } from './bend-value.mjs';
+import { MarkdownFenceObserver } from './markdown-fences.mjs';
+import { stringifyJson } from './json-tokens.mjs';
 
-export function list(value) {
-  const result = [];
-  while (value.$ === 'Con') { result.push(value.head); value = value.tail; }
-  return result;
+const booleanProperties = new Set(['disabled', 'checked', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus', 'open']);
+const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 'text', 'g']);
+const svgNamespace = 'http://www.w3.org/2000/svg';
+
+function unmount(node) {
+  if (node.nodeType === 1) {
+    const dialogs = Array.from(node.querySelectorAll('dialog[open]'));
+    if (node.localName === 'dialog' && node.open) dialogs.unshift(node);
+    // Closing a native dialog restores its previously focused element before detachment.
+    for (const dialog of dialogs) dialog.close();
+  }
+  node.remove();
 }
-const svg = 'http://www.w3.org/2000/svg';
-const booleans = new Set(['disabled', 'checked', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus']);
+function reconcile(parent, children) {
+  const retained = new Set(children);
+  // Remove replaced text before ordering so unchanged editor ancestors never move.
+  for (const child of Array.from(parent.childNodes)) if (!retained.has(child)) unmount(child);
+  let cursor = parent.firstChild;
+  for (const child of children) {
+    if (cursor === child) cursor = cursor.nextSibling;
+    else parent.insertBefore(child, cursor);
+  }
+}
 
-/** Execute the document vocabulary without interpreting product roles. */
+/** Interpret the checked document without deciding product roles or commands. */
 export class Renderer {
-  constructor(root, callbacks, { isolated = false } = {}) {
+  constructor(root, callbacks = {}, { isolated = false } = {}) {
     this.root = root;
     this.callbacks = callbacks;
+    this.isolated = isolated;
     this.records = new Map();
     this.targets = new Map();
     this.composing = new WeakSet();
-    this.deferred = [];
-    this.document = null;
-    this.generation = null;
-    this.isolated = isolated;
     this.disposed = false;
-    this.presentationPending = false;
   }
   target(key) {
-    if (key === '@document/root') return this.isolated ? this.root : this.root.ownerDocument.documentElement;
-    return this.targets.get(key) ?? this.records.get(key)?.node;
+    return key === '@document/root' ? this.root.ownerDocument.documentElement
+      : this.targets.get(key) ?? this.records.get(key)?.node;
   }
-  ownedTarget(key) {
-    const node = this.target(key);
-    return node;
+  fieldSession(record, event, value) {
+    if (!this.callbacks.fieldSession || !record.attributes.has('value') || !('value' in record.node)) return { deliver: true };
+    const identity = stringifyJson({ key: record.key, kind: record.metadata.kind,
+      schema: record.metadata.schema, value_kind: record.metadata.value_kind,
+      action: record.metadata.action, injection: record.metadata.injection, options: record.metadata.options });
+    let decision;
+    if (!record.fieldSession) decision = this.callbacks.fieldSession({ identity, value: record.attributes.get('value') });
+    else decision = this.callbacks.fieldSession({ state: record.fieldSession, event, ...(value === undefined ? {} : { value }) });
+    record.fieldSession = decision.state;
+    if (decision.replace && record.node.value !== decision.state.canonical) record.node.value = decision.state.canonical;
+    return decision;
   }
-  targetBounds(key, origin) {
-    const box = this.ownedTarget(key).getBoundingClientRect();
-    const content = origin.getBoundingClientRect();
-    return { left: box.left - content.left, top: box.top - content.top, width: box.width, height: box.height };
-  }
-  async whenSettled() {
-    while (!this.disposed) {
-      const instances = [...this.records.values()].flatMap(record => record.markdown ? [record.markdown] : []);
-      if ((await Promise.all(instances.map(markdown => markdown.whenSettled()))).some(done => !done) || this.disposed) return false;
-      // NOTE: Parser-owned anchors must exist before declarative portals and target properties can be replayed.
-      if (this.document) this.render(this.document, this.generation);
-      const current = [...this.records.values()].flatMap(record => record.markdown ? [record.markdown] : []);
-      if (current.length === instances.length && current.every((markdown, index) => markdown === instances[index])) return true;
-    }
-    return false;
-  }
-  async whenCaughtUp() {
-    if (this.disposed) return false;
-    const prefixes = [...this.records.values()].flatMap(record => record.markdown
-      ? [{ markdown: record.markdown, length: record.text.length }] : []);
-    if ((await Promise.all(prefixes.map(({ markdown, length }) => markdown.whenCaughtUp(length)))).some(done => !done)
-        || this.disposed) return false;
-    if (this.document) this.render(this.document, this.generation);
-    return !this.disposed;
-  }
-  dispose() {
-    this.disposed = true;
-    for (const record of this.records.values()) record.markdown?.dispose();
-    this.records.clear(); this.targets.clear(); this.document = null;
-    this.root.replaceChildren();
-  }
-  properties(record, attributes, styles) {
+  properties(record, properties, styles) {
     const node = record.node;
-    const next = new Map(list(attributes).map(value => [value.name, value.value]));
-    for (const name of record.attributes?.keys() ?? []) {
+    const next = new Map(properties.map(({ name, value }) => [name, value]));
+    for (const name of record.attributes.keys()) {
       if (!next.has(name)) {
         node.removeAttribute(name);
-        if (booleans.has(name)) node[name] = false;
+        if (booleanProperties.has(name)) node[name] = false;
       }
     }
     for (const [name, value] of next) {
-      if (name === 'value' && 'value' in node) continue;
-      if (booleans.has(name)) {
-        if (name === 'checked' && this.presentationPending && record.fieldSession) continue;
+      if (name === 'value' && 'value' in node) {
+        if (this.isolated && node.value !== value) node.value = value;
+      } else if (booleanProperties.has(name)) {
         const enabled = value !== 'false';
-        if (node[name] !== enabled) node[name] = enabled;
-        if (enabled && !node.hasAttribute(name)) node.setAttribute(name, '');
-        if (!enabled && node.hasAttribute(name)) node.removeAttribute(name);
+        node[name] = enabled;
+        if (enabled) node.setAttribute(name, ''); else node.removeAttribute(name);
       } else if (node.getAttribute(name) !== value) node.setAttribute(name, value);
     }
-    const declarations = list(styles).map(value => [value.name, value.value]);
-    const styleSource = JSON.stringify(declarations);
-    const nextStyles = new Map(declarations);
-    if (record.styleSource !== styleSource) {
-      for (const name of record.styles?.keys() ?? []) if (!nextStyles.has(name)) node.style.removeProperty(name);
-      // NOTE: Replay source order because normalized CSSOM values and shorthand/logical declarations interact.
-      for (const [name, value] of declarations) node.style.setProperty(name, value);
-      record.styleSource = styleSource;
-    }
+    const nextStyles = new Map(styles.map(({ name, value }) => [name, value]));
+    for (const name of record.styles.keys()) if (!nextStyles.has(name)) node.style.removeProperty(name);
+    for (const [name, value] of nextStyles) if (record.styles.get(name) !== value) node.style.setProperty(name, value);
     record.attributes = next;
+    if (next.has('value') && 'value' in node && !this.isolated && this.callbacks.fieldSession) {
+      const identity = stringifyJson({ key: record.key, kind: record.metadata.kind,
+        schema: record.metadata.schema, value_kind: record.metadata.value_kind,
+        action: record.metadata.action, injection: record.metadata.injection, options: record.metadata.options });
+      if (record.fieldSession) this.fieldSession(record, 'rebind', identity);
+      this.fieldSession(record, 'synchronize', next.get('value'));
+    }
     record.styles = nextStyles;
   }
-  replaceValue(record, value) {
-    const node = record.node;
-    if (!('value' in node) || node.value === value) return;
-    const active = node === node.ownerDocument.activeElement;
-    const selection = active && typeof node.selectionStart === 'number'
-      ? [node.selectionStart, node.selectionEnd, node.selectionDirection] : null;
-    node.value = value;
-    if (selection) node.setSelectionRange(Math.min(selection[0], value.length), Math.min(selection[1], value.length), selection[2]);
-  }
-  fieldSession(record, event) {
-    record.fieldSession ??= this.callbacks.fieldSessionInitial();
-    const decision = this.callbacks.fieldSessionStep(event, record.fieldSession);
-    record.fieldSession = decision.record;
-    if (decision.replace && decision.record.canonical.$ === 'Some') this.replaceValue(record, decision.record.canonical.value);
-    return decision;
-  }
-  controlledValue(record) {
-    if (!record.attributes.has('value') || !('value' in record.node)) return;
-    if (!this.isolated && this.presentationPending && record.fieldSession) return;
-    const value = record.attributes.get('value');
-    // Isolated measurement documents have no user editing sessions.
-    if (this.isolated) { this.replaceValue(record, value); return; }
-    this.fieldSession(record, bendValue('browser/runtime/native-fields.Synchronize', { value }));
-  }
-  synchronizeFields(updates) {
-    for (const update of list(updates)) {
-      const record = this.records.get(update.key);
-      // DEFENSE: A publication may remove a field before this generation's native synchronization effects are applied.
-      if (!record || !this.root.contains(record.node)) continue;
-      if (bendTag(update) === 'SetIdentity') {
-        if (!this.isolated) this.fieldSession(record, bendValue('browser/runtime/native-fields.Rebind', { identity: update.identity }));
-      } else if (bendTag(update) === 'SetValue') {
-        record.attributes.set('value', update.value);
-        this.controlledValue(record);
-      } else if (bendTag(update) === 'SetEnabled') {
-        record.node.disabled = !update.enabled;
-        if (update.enabled) record.node.removeAttribute('disabled');
-        else record.node.setAttribute('disabled', '');
-      } else if (bendTag(update) === 'SetChecked') {
-        if (record.node.checked !== update.checked) record.node.checked = update.checked;
-        if (update.checked) { record.attributes.set('checked', 'true'); record.node.setAttribute('checked', ''); }
-        else { record.attributes.delete('checked'); record.node.removeAttribute('checked'); }
+  listeners(record) {
+    const { node } = record;
+    const dispatch = (kind, event) => {
+      for (const binding of record.events.filter(binding => binding.kind === kind)) {
+        this.callbacks.event?.(binding, event, record.key, node, record.generation);
       }
-    }
-  }
-  rejectFieldBuffer(key, value) {
-    const record = this.records.get(key);
-    // DEFENSE: Rejection feedback can arrive after its native field is removed; isolated measurement probes have no editable draft.
-    if (this.isolated || !record || !this.root.contains(record.node)) return;
-    record.attributes.set('value', value);
-    this.fieldSession(record, bendValue('browser/runtime/native-fields.Reject', { value }));
-  }
-  events(record, bindings) {
-    record.bindings = list(bindings);
-    if (record.bound) return;
-    record.bound = true;
-    const node = record.node;
-    const dispatch = (kind, native) => {
-      for (const event of record.bindings) if (bendTag(event) === kind) this.callbacks.event(event, native, node, this.composing.has(node));
     };
-    const textInput = event => { dispatch('EditText', event); dispatch('EditStructuredText', event); };
-    const session = event => this.isolated ? { deliver: false } : this.fieldSession(record, bendValue(event));
-    node.addEventListener('compositionstart', () => { this.composing.add(node); session('browser/runtime/native-fields.CompositionStarted'); });
-    node.addEventListener('compositionend', event => {
-      this.composing.delete(node);
-      if (session('browser/runtime/native-fields.CompositionEnded').deliver) textInput(event);
+    node.addEventListener('click', event => dispatch('activate', event));
+    node.addEventListener('input', event => {
+      if (node.tagName === 'SELECT' || !this.fieldSession(record, 'input_observed').deliver) return;
+      if (node.type === 'checkbox') dispatch('toggle', event);
+      else dispatch('edit', event);
+    });
+    node.addEventListener('change', event => {
+      if (!this.fieldSession(record, 'input_observed').deliver) return;
+      if (node.tagName === 'SELECT') dispatch('edit', event);
+      if (node.type === 'file') dispatch('files', event);
+    });
+    node.addEventListener('submit', event => { event.preventDefault(); dispatch('submit', event); });
+    node.addEventListener('compositionstart', () => { this.composing.add(node); this.fieldSession(record, 'composition_started'); });
+    node.addEventListener('compositionend', event => { this.composing.delete(node); if (this.fieldSession(record, 'composition_ended').deliver) dispatch('edit', event); });
+    node.addEventListener('keydown', event => {
+      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') this.fieldSession(record, 'input_started');
+      this.callbacks.key?.(event, record.key, node, record);
     });
     node.addEventListener('pointerdown', event => {
-      if (node.getAttribute('data-retain-focus') === 'true') event.preventDefault();
-      if (bendTag(record.fieldSession?.session) === 'SupersededTail') session('browser/runtime/native-fields.InputStarted');
+      if (record.fieldSession?.session === 'superseded_tail') this.fieldSession(record, 'input_started');
+      this.callbacks.reading?.('pointer', event, record.key, node);
     });
-    for (const event of ['paste', 'drop', 'cut']) node.addEventListener(event, () => session('browser/runtime/native-fields.InputStarted'));
-    node.addEventListener('click', event => {
-      if (node.type === 'file') session('browser/runtime/native-fields.InputStarted');
-      if (record.bindings.some(binding => bendTag(binding) === 'Activate')) event.preventDefault();
-      dispatch('Activate', event); dispatch('PlaceCard', event);
-    });
-    node.addEventListener('keydown', event => {
-      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') session('browser/runtime/native-fields.InputStarted');
-      dispatch('ConfirmText', event);
-    });
-    node.addEventListener('input', event => { if (session('browser/runtime/native-fields.InputObserved').deliver) textInput(event); });
-    node.addEventListener('change', event => {
-      if (!session('browser/runtime/native-fields.InputObserved').deliver) return;
-      dispatch('EditToggle', event);
-      if (node.type === 'file') dispatch('SelectFiles', event);
-      dispatch('SelectDestination', event);
-    });
-    node.addEventListener('dragstart', event => dispatch('DragCard', event));
-    const fileTransfer = event => {
+    for (const type of ['paste', 'drop', 'cut']) node.addEventListener(type, () => this.fieldSession(record, 'input_started'));
+    node.addEventListener('focusin', event => this.callbacks.focus?.(event, record.key, node));
+    node.addEventListener('wheel', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
+    node.addEventListener('touchmove', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
+    node.addEventListener('scroll', event => this.callbacks.reading?.('anchor', event, record.key, node), { passive: true });
+    const transferredFiles = event => {
       const transfer = event.clipboardData ?? event.dataTransfer;
-      return transfer && ([...transfer.files].length || [...transfer.items].some(item => item.kind === 'file'));
+      return transfer && Array.from(transfer.files ?? []);
     };
-    const acceptsFiles = event => !node.disabled && record.bindings.some(binding => bendTag(binding) === 'SelectFiles') && fileTransfer(event);
     node.addEventListener('paste', event => {
-      if (acceptsFiles(event)) { event.preventDefault(); dispatch('SelectFiles', event); }
+      const files = transferredFiles(event);
+      if (files?.length && record.events.some(binding => binding.kind === 'files')) {
+        event.preventDefault(); dispatch('files', event);
+      }
     });
     node.addEventListener('dragover', event => {
-      if (acceptsFiles(event) || record.bindings.some(binding => bendTag(binding) === 'DropCard')) event.preventDefault();
+      if (record.events.some(binding => binding.kind === 'files')) event.preventDefault();
     });
     node.addEventListener('drop', event => {
-      if (acceptsFiles(event)) { event.preventDefault(); dispatch('SelectFiles', event); }
-      else if (record.bindings.some(binding => bendTag(binding) === 'DropCard')) { event.preventDefault(); dispatch('DropCard', event); }
+      if (transferredFiles(event)?.length && record.events.some(binding => binding.kind === 'files')) {
+        event.preventDefault(); dispatch('files', event);
+      }
     });
   }
-  children(parent, values, path, namespace) {
-    const expected = new Set();
-    let index = 0;
-    list(values).forEach((value, descriptorIndex) => {
-      const node = this.node(value, `${path}/${descriptorIndex}`, namespace);
-      if (!node) return;
-      expected.add(node);
-      // NOTE: Recursive construction can reparent siblings and invalidate a saved cursor.
-      const reference = parent.childNodes[index] ?? null;
-      if (node !== reference) parent.insertBefore(node, reference);
-      index++;
-    });
-    for (const node of [...parent.childNodes]) if (!expected.has(node)) node.remove();
-  }
-  node(value, path, namespace) {
-    if (bendTag(value) === 'Portal' || bendTag(value) === 'TargetProperties') { this.deferred.push(value); return null; }
-    const key = value.key ?? path;
-    const kind = bendTag(value) === 'Element' ? `${namespace ?? ''}:${value.tag}` : value.$;
-    let record = this.records.get(key);
-    if (record && record.kind !== kind) {
-      record.markdown?.dispose();
-      for (const target of record.targets ?? []) this.targets.delete(target);
-      record.node.remove(); this.records.delete(key); record = null;
-    }
-    if (!record) {
-      let node;
-      if (bendTag(value) === 'Text') node = this.root.ownerDocument.createTextNode(value.value);
-      else if (bendTag(value) === 'Markdown') { node = this.root.ownerDocument.createElement('div'); node.className = 'markdown'; }
-      else {
-        const ns = value.tag === 'svg' ? svg : namespace;
-        node = ns ? this.root.ownerDocument.createElementNS(ns, value.tag) : this.root.ownerDocument.createElement(value.tag);
-      }
-      record = { node, kind, key };
-      this.records.set(key, record);
-    }
-    this.used.add(key);
-    if (bendTag(value) === 'Text') { if (record.node.data !== value.value) record.node.data = value.value; }
-    else if (bendTag(value) === 'Element') {
-      this.properties(record, value.attributes, value.styles);
-      this.events(record, value.events);
-      this.children(record.node, value.children, key, record.node.namespaceURI === svg && value.tag !== 'foreignObject' ? svg : undefined);
-      this.controlledValue(record);
-    } else {
-      if (bendTag(value.native_owner) === 'Some') record.node.dataset.nativeContentOwner = value.native_owner.value;
-      else delete record.node.dataset.nativeContentOwner;
-      const source = bendTag(value.source) === 'Some' ? value.source.value : null;
-      const owner = source ? this.callbacks.codeKey(source, 0n) : null;
-      const complete = this.callbacks.markdownComplete(source);
-      if (!record.markdown || record.owner !== owner || !value.value.startsWith(record.text)
-          || record.markdown.buffer.done && (record.text !== value.value || !complete)) {
-        record.markdown?.dispose();
-        for (const target of record.targets ?? []) this.targets.delete(target);
-        record.node.replaceChildren(); record.targets = [];
-        // NOTE: Parsing is paced; retain the publication that supplied this parser's input.
-        record.parseGeneration = this.generation;
-        record.markdown = new Markdown(record.node, {
-          smooth: false,
-          codeKey: source ? ordinal => this.callbacks.codeKey(source, ordinal) : undefined,
-          codeSource: source ? (ordinal, text) => {
-            const generation = record.parseGeneration;
-            if (generation !== null) this.callbacks.codeSource(source, ordinal, text, generation, record.text);
-          } : undefined,
-          target: (target, node) => { this.targets.set(target, node); record.targets.push(target); },
-          onChange: () => this.callbacks.changed?.(),
-        });
-        record.text = '';
-        record.owner = owner;
-      }
-      record.parseGeneration = this.generation;
-      const suffix = value.value.slice(record.text.length);
-      record.text = value.value;
-      if (suffix) record.markdown.append(suffix);
-      if (complete && !record.markdown.buffer.done) record.markdown.finish();
-    }
-    return record.node;
-  }
-  render(document, generation = null) {
+  render(document, generation = 0) {
     this.document = document;
     this.generation = generation;
-    this.used = new Set(); this.deferred = [];
-    if (!this.isolated) this.root.ownerDocument.title = document.title;
-    const node = this.node(document.root, 'root');
-    if (this.root.firstChild !== node) this.root.replaceChildren(node);
-    for (let index = 0; index < this.deferred.length; index++) {
-      const value = this.deferred[index];
+    this.targets.clear();
+    const used = new Set();
+    const portals = [];
+    const create = (value, path) => {
+      if (value.kind === 'text') return this.root.ownerDocument.createTextNode(value.value);
+      if (value.kind === 'portal') { portals.push({ value, path }); return null; }
+      const key = value.key || path;
+      used.add(key);
+      let record = this.records.get(key);
+      const tag = value.kind === 'markdown' ? 'div' : value.tag;
+      if (record && record.tag !== tag) {
+        record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); record = null;
+      }
+      if (!record) {
+        const node = svgTags.has(tag)
+          ? this.root.ownerDocument.createElementNS(svgNamespace, tag)
+          : this.root.ownerDocument.createElement(tag);
+        record = { key, tag, node, attributes: new Map(), styles: new Map(), events: [], markdownTargets: new Map() };
+        this.records.set(key, record);
+        if (!this.isolated) this.listeners(record);
+      }
+      record.generation = generation;
+      record.metadata = value.metadata;
+      this.targets.set(key, record.node);
+      if (value.kind === 'markdown') {
+        record.node.className = 'markdown';
+        record.metadata = value.metadata;
+        if (!record.markdown || !value.value.startsWith(record.text)) {
+          record.markdown?.dispose(); record.markdownTargets.clear(); record.node.replaceChildren();
+          record.markdown = new Markdown(record.node, { onChange: () => this.callbacks.layout?.(),
+            codeKey: ordinal => this.callbacks.codeKey?.(key, ordinal),
+            codeSource: (ordinal, text) => this.callbacks.codeSource?.(key, ordinal, text),
+            target: (target, node) => { record.markdownTargets.set(target, node); this.targets.set(target, node); } });
+          record.text = '';
+        }
+        record.markdown.append(value.value.slice(record.text.length));
+        record.text = value.value;
+        for (const [target, node] of record.markdownTargets) this.targets.set(target, node);
+        if (value.complete) record.markdown.finish();
+        if (value.metadata.origin && value.metadata.epoch !== undefined && value.metadata.revision !== undefined) {
+          record.fences ??= new MarkdownFenceObserver({ onFence: observed =>
+            this.callbacks.fence?.(record.metadata, observed) });
+          record.fences.sync({ text: value.value, epoch: stringifyJson(value.metadata.epoch),
+            revision: value.metadata.revision, ending: value.metadata.ending ?? (value.complete ? 'complete' : 'open') });
+        }
+      } else {
+        record.events = value.events.map(binding => ({ ...binding, injection: value.metadata.injection }));
+        this.properties(record, value.attributes, value.styles);
+        const children = value.children.map((child, index) => create(child, `${key}/${index}`)).filter(Boolean);
+        // Retained native editors keep their selection and composition session.
+        reconcile(record.node, children);
+        if (record.tag === 'select' && record.attributes.has('value') && 'value' in record.node && !this.composing.has(record.node)
+            && record.node.value !== record.attributes.get('value')) record.node.value = record.attributes.get('value');
+      }
+      return record.node;
+    };
+    const root = create(document.root, '@root');
+    reconcile(this.root, [root]);
+    for (const { value, path } of portals) {
       const target = this.target(value.target);
-      // DEFENSE: Markdown parser pacing can leave a declared portal anchor unpublished during this render.
-      if (!target) continue;
-      if (bendTag(value) === 'Portal') this.children(target, value.children, value.key, target.namespaceURI === svg ? svg : undefined);
-      else {
-        let record = this.records.get(value.key);
-        if (!record || record.node !== target) { record = { node: target, kind: 'TargetProperties', key: value.key }; this.records.set(value.key, record); }
-        this.used.add(value.key); this.properties(record, value.attributes, value.styles);
-        this.controlledValue(record);
+      if (target) reconcile(target, value.children.map((child, index) => create(child, `${path}/${index}`)).filter(Boolean));
+    }
+    for (const [key, record] of this.records) {
+      if (!used.has(key)) { record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); }
+    }
+    for (const record of this.records.values()) {
+      if (record.tag === 'dialog' && record.node.open && !record.node.matches(':modal')) {
+        record.node.open = false;
+        record.node.showModal();
       }
     }
-    for (const [key, record] of this.records) if (!this.used.has(key)) {
-      record.markdown?.dispose();
-      for (const target of record.targets ?? []) this.targets.delete(target);
-      if (record.kind !== 'TargetProperties') record.node.remove();
-      this.records.delete(key);
-    }
+    this.root.ownerDocument.title = document.title;
+  }
+  restoreField(key, value) {
+    const record = this.records.get(key);
+    // DEFENSE: The owning scene may have removed a field before its rejection reaches the native publication.
+    if (!record) return;
+    this.fieldSession(record, 'reject', value);
+  }
+  async whenSettled() {
+    const results = await Promise.all(Array.from(this.records.values(), record => record.markdown?.whenSettled() ?? true));
+    return !this.disposed && results.every(Boolean);
+  }
+  async whenCaughtUp() {
+    const results = await Promise.all(Array.from(this.records.values()).flatMap(record => [record.markdown?.whenCaughtUp() ?? true, record.fences?.whenCaughtUp() ?? true]));
+    return !this.disposed && results.every(Boolean);
+  }
+  dispose() {
+    this.disposed = true;
+    for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
+    reconcile(this.root, []); this.records.clear(); this.targets.clear();
   }
 }

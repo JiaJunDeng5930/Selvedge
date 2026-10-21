@@ -1,8 +1,7 @@
 # Plugins and hooks
 
-The extension entry is `../harness/approval/HOOKS.bend`, bound by `CONCEPTS.Extensibility`. Plugins are
-trusted local executables speaking newline-delimited UTF-8 JSON-RPC 2.0 over stdio.
-They do not need to be JavaScript modules or share a runtime with the Bend binary.
+Plugins are trusted local executables speaking newline-delimited UTF-8 JSON-RPC 2.0 over stdio.
+They do not need to be JavaScript modules or share a runtime with the extracted kernel.
 The included Bun example only demonstrates that wire contract.
 
 ## Configure and run
@@ -91,7 +90,7 @@ outcome may already have happened.
 
 ## One before-tool protocol
 
-Before source classification or argument validation, Bend commits a `CheckTool`
+Before source classification or argument validation, the kernel commits a tool authorization check
 effect and a task-local pending ticket. The host sends `beforeTool` with:
 
 ```json
@@ -110,7 +109,7 @@ exactly `{"decision":"allow"}`, `{"decision":"rewrite","arguments":{...}}`, or
 object. The host can report exceptions, malformed replies, unavailable revisions
 and timeouts.
 
-See [HOOKS.bend](../harness/approval/HOOKS.bend) for the authoritative authorization-record semantics.
+The [kernel definitions](../theories/Kernel/) own authorization-record semantics.
 
 Cancellation is advisory for the plugin process: the callback may already have
 performed its own effects, which Selvedge cannot roll back.
@@ -158,7 +157,7 @@ Excluding audit records from model context does not provide confidential erasure
 authorized history reads, including `read_task`, can expose audit records.
 A confidentiality policy must also govern those reads and any external artifacts.
 
-See [RESULTS.bend](../harness/protocol/RESULTS.bend) and [PROGRAM.bend](../harness/protocol/PROGRAM.bend) for the authoritative result-processing and completion-admission semantics.
+The [kernel definitions](../theories/Kernel/) own result processing and completion admission.
 
 ## Post-commit observations
 
@@ -213,12 +212,10 @@ does not block their own transport handlers for `beforeTool` or `afterTool`.
 ## Trust and verification
 
 Plugins execute with the user's OS permissions and inherited environment. Do not
-install untrusted executables expecting a sandbox. The native proof boundary
-establishes gate placement, call identity, ordered task-bound authorization,
-absorption of denial, result-chain routing, immutable execution error flags,
-receipt preservation, complete transition refinement and observer non-interference
-with core state/replies/effects. It does not prove a callback's policy correct or
-certify arbitrary external processes. Tests run real fixture processes and
-loopback providers, check SQLite commit-before-callback, exercise denial/rewrite,
-internal fork, MCP, extension tools, interruption/recovery, oversized payloads,
-bounded observers.
+install untrusted executables expecting a sandbox. Kernel theorems constrain
+particular authorization, callback and history operations under their stated
+premises; [the proof boundary](proofs.md) describes their scope. Plugin policy,
+physical process behavior and observer delivery remain external obligations.
+Public end-to-end tests use fixture processes and loopback providers to exercise
+commit-before-callback, denial/rewrite, internal fork, MCP, extension tools,
+interruption/recovery, oversized payloads and bounded observers.

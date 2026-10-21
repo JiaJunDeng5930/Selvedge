@@ -1,12 +1,10 @@
 import http from 'node:http';
-import { boundary, observeJson } from './public/model-boundary.mjs';
+import { boundary } from './public/model-boundary.mjs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { encodeBendValue } from './public/bend-value.mjs';
-import { emitJsonTokens } from './public/json-tokens.mjs';
 import { Service, CommandNotSubmitted } from './service.mjs';
-import { stringifyJson, parseJson } from './codec.mjs';
+import { stringifyJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
 import { saveBoardAttachment, readBoardAttachment } from './board-files.mjs';
@@ -24,7 +22,7 @@ async function publicAssets(directory, prefix = '') {
     } else if (entry.isFile()) {
       const extension = path.extname(entry.name);
       const contentType = extension === '.html' ? 'text/html; charset=utf-8'
-        : extension === '.mjs' ? 'text/javascript; charset=utf-8'
+        : ['.mjs', '.js'].includes(extension) ? 'text/javascript; charset=utf-8'
         : extension === '.css' ? 'text/css; charset=utf-8' : null;
       if (contentType) assets.set(`/${file}`, [file, contentType]);
     }
@@ -292,11 +290,7 @@ export async function startServer(options) {
           if (!bodyObserved) {
             const maximum = ['account_refresh', 'audio_login'].includes(plan.action) ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
             const text = await readText(request, maximum);
-            const parsed = parseJson(text);
-            const tokens = [];
-            emitJsonTokens(parsed, token => tokens.push(token));
-            Object.assign(source, { text, observation: observeJson(text),
-              parsed_observation: { text, tokens }, target: plan.action });
+            Object.assign(source, { text, target: plan.action });
             bodyObserved = true;
             plan = decide('http.body');
             break;
@@ -338,18 +332,18 @@ export async function startServer(options) {
               return;
             case 'browser_command': {
               const result = await service.browserCommand(body.command);
-              json(response, boundary('http.reply_status', result), { ...result, program: encodeBendValue(result.program) });
+              json(response, boundary('http.reply_status', { reply: result.reply }), { ...result, program: result.program });
               return;
             }
             case 'command': {
               // Public commands are resolved by the service's native command boundary.
               const result = await service.command(body);
-              json(response, boundary('http.reply_status', result), { sequence: result.sequence, ...result.reply });
+              json(response, boundary('http.reply_status', { reply: result.reply }), { sequence: result.sequence, ...result.reply });
               return;
             }
             case 'connection_command': {
               const result = await service.command(connectionCommand(Number(connectionId), body));
-              json(response, boundary('http.reply_status', result), { sequence: result.sequence, ...result.reply });
+              json(response, boundary('http.reply_status', { reply: result.reply }), { sequence: result.sequence, ...result.reply });
               return;
             }
           }
@@ -357,7 +351,7 @@ export async function startServer(options) {
         }
         case 'browser_state': {
           const snapshot = service.browserSnapshot();
-          json(response, 200, { ...snapshot, program: encodeBendValue(snapshot.program) });
+          json(response, 200, { ...snapshot, program: snapshot.program });
           return;
         }
         case 'describe':

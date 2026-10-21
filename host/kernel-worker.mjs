@@ -1,26 +1,24 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { pathToFileURL } from 'node:url';
 
-const { default: model } = await import(pathToFileURL(workerData.module).href);
+const model = await import(pathToFileURL(workerData.module).href);
 let world = model.initial();
-parentPort.on('message', ({ frame: bytes, snapshot }) => {
+let projectedWorld;
+let projection;
+parentPort.on('message', ({ text: input, snapshot }) => {
   try {
-    // The native frame already defines the generic JSON token vocabulary.
-    const frame = Buffer.from(bytes);
-    const tokens = [];
-    for (let offset = 4; offset < frame.length;) {
-      const length = frame.readUInt32BE(offset);
-      offset += 4;
-      tokens.push(frame.subarray(offset, offset + length).toString('utf8'));
-      offset += length;
-    }
-    let list = { $: 'Nil' };
-    for (let index = tokens.length - 1; index >= 0; index--) list = { $: 'Con', head: tokens[index], tail: list };
-    const output = model.packet(list, world);
-    const text = model.show(model.envelope(output));
-    world = model.state(output);
-    parentPort.postMessage(snapshot ? { text, program: world } : { text });
-  // DEFENSE: Compiled JavaScript can fail at runtime, including the reproduced large-text stack overflow; the owner must reject the pending transition.
+    const output = model.packet(input, world);
+    world = output.world;
+    const text = output.envelope;
+    if (snapshot) {
+      // Extracted worlds are immutable; the same opaque handle has the same projection.
+      if (world !== projectedWorld) {
+        projection = model.observe(world);
+        projectedWorld = world;
+      }
+      parentPort.postMessage({ text, programText: projection });
+    } else parentPort.postMessage({ text });
+  // DEFENSE: A failed extracted transition retires this worker; its uncommitted world must never serve another input.
   } catch (error) {
     parentPort.postMessage({ error: error.message });
   }

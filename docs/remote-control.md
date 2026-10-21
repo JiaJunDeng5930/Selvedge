@@ -7,7 +7,7 @@ port, VPS, public host IP or purchased domain is needed. A Cloudflare account an
 a deployed relay are required. This change does not include a phone interface.
 
 The executable authorization and receipt model starts at
-[features/remote](../features/remote/README.md). The shared wire definitions and
+[remote feature](../theories/Features/Remote.v). The shared wire definitions and
 endpoint rules live in [remote/protocol.mjs](../remote/protocol.mjs); the deployment
 package is [relay](../relay/README.md). TLS terminates at Cloudflare, so Cloudflare
 can see relayed messages. This is not end-to-end encryption.
@@ -131,7 +131,7 @@ lost response. The native receipt is committed with the command decision;
 WebSocket delivery alone is not a commit acknowledgment. Protocol constants and
 shape checks in [protocol.mjs](../remote/protocol.mjs) are authoritative.
 
-The [focused regression suite](../tests-bend/README.md) exercises the actual
+The [focused regression suite](../tests/README.md) exercises the actual
 WebSocket transport, service journal and local Cloudflare Worker runtime. The
 loopback HTTP/WebSocket mode exists only for explicit test setup; production
 configuration requires an HTTPS origin on port 443.
@@ -141,7 +141,6 @@ Run the repository's ordinary proof/build checks and remote integration tests:
 ```bash
 bun run check
 bun run test
-bun run index:check
 ```
 
 These local checks do not deploy resources or validate a particular Cloudflare

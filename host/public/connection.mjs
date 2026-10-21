@@ -1,6 +1,6 @@
 import { EventFrames } from './events.mjs';
 
-/** Observe one authenticated connection. Retry and failure admission belong to Bend. */
+/** Observe one authenticated connection. Retry and failure admission belong to the extracted model. */
 export async function observeConnection({ request, fetchEvents, signal, sequence, snapshot, ready, notice,
   current = () => !signal.aborted, namespace = () => null, refreshNeeded = () => true, publish = () => {} }) {
   const initial = await request('/api/browser/state', signal, true);
@@ -88,7 +88,7 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
       if (!subscribed()) return;
       if (received === flushSignal) { flushStreams(); continue; }
       reading = null;
-      // DEFENSE: The service can stop or close its SSE response; report disconnection so Bend owns recovery.
+      // DEFENSE: The service can stop or close its SSE response; report disconnection so the extracted model owns recovery.
       if (received.done) { flushStreams(); throw new Error('Event connection ended'); }
       frames.write(decoder.decode(received.value, { stream: true }));
     }

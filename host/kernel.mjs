@@ -1,11 +1,11 @@
 import { Worker } from 'node:worker_threads';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { encodeFrame, parseJson } from './codec.mjs';
+import { encodeInput, parseJson } from './codec.mjs';
 
 const defaultModule = fileURLToPath(new URL('../.build/kernel-model.mjs', import.meta.url));
 
-/** One serialized conversation with the compiled pure Bend worker. */
+/** One serialized conversation with the extracted Rocq program worker. */
 export class Kernel {
   #worker;
   #tail = Promise.resolve();
@@ -25,12 +25,14 @@ export class Kernel {
       const pending = this.#pending;
       this.#pending = undefined;
       clearTimeout(pending.timer);
-      pending.resolve({ ...message, value: parseJson(message.text) });
+      const { programText, ...result } = message;
+      pending.resolve({ ...result, value: parseJson(message.text),
+        ...(programText === undefined ? {} : { program: parseJson(programText) }) });
     });
     this.#worker.on('error', error => this.#fail(error));
     this.exited = new Promise(resolve => this.#worker.once('exit', code => {
       // DEFENSE: OS/runtime Worker termination outside close leaves the current world unavailable.
-      if (!this.#closing || this.#pending) this.#fail(new Error(`Bend worker exited (${code})`));
+      if (!this.#closing || this.#pending) this.#fail(new Error(`Rocq worker exited (${code})`));
       resolve({ code, signal: null });
     }));
   }
@@ -64,7 +66,7 @@ export class Kernel {
   }
 
   #request(input, snapshot) {
-    const frame = encodeFrame(input, this.maximum);
+    const text = encodeInput(input, this.maximum);
     const result = this.#tail.then(() => {
       // DEFENSE: A queued request can reach its turn after an earlier transition failed or shutdown started.
       if (this.#failure) throw this.#failure;
@@ -73,7 +75,7 @@ export class Kernel {
         // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
         this.#pending = { resolve, reject, timer };
-        this.#worker.postMessage({ frame, snapshot });
+        this.#worker.postMessage({ text, snapshot });
       });
     });
     // DEFENSE: The request's returned promise reports its failure; the queue must still admit close and reject later callers explicitly.

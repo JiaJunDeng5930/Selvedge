@@ -16,13 +16,7 @@ test:
     bun run test
 
 check:
-    bun run verify
-
-agents-index:
-    bun run index
-
-agents-index-check:
-    bun run index:check
+    bun run check
 
 bench:
     bun run bench

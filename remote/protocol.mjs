@@ -1,3 +1,5 @@
+import { parseJson, stringifyJson } from '../host/public/json-tokens.mjs';
+
 export const REMOTE_PROTOCOL_VERSION = 1;
 // NOTE: The native complete decision is bounded to 4 MiB; encoded observations
 // and their surrounding wire envelope need additional room.
@@ -177,12 +179,12 @@ export function parseRemoteFrame(data, validator) {
   }
   let value;
   // DEFENSE: A text WebSocket frame may contain malformed JSON; reject the frame before dispatch.
-  try { value = JSON.parse(data); } catch { throw protocolError('Invalid JSON frame'); }
+  try { value = parseJson(data); } catch { throw protocolError('Invalid JSON frame'); }
   return validator(value);
 }
 
 export function encodeRemoteFrame(value) {
-  const encoded = JSON.stringify(value);
+  const encoded = stringifyJson(value);
   // DEFENSE: A committed world snapshot or streamed observation can exceed the remote frame budget.
   if (encoded.length > MAX_REMOTE_FRAME_BYTES
       || encoder.encode(encoded).byteLength > MAX_REMOTE_FRAME_BYTES) {
