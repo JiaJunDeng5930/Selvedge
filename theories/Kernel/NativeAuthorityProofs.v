@@ -108,3 +108,23 @@ Proof.
  rewrite NoOutput. unfold Callbacks.settle_model; rewrite Unseen.
  unfold with_activity; rewrite Phase; reflexivity.
 Qed.
+
+(** These certificates concern the catalog consumed by the actual native
+    dispatcher: no declaration disappears and no tool name shadows another. *)
+Theorem production_native_names_are_unique :
+ NoDup (map Selvedge.Kernel.Domain.tool_name Selvedge.Kernel.NativeTools.catalog).
+Proof. vm_compute. repeat (apply NoDup_cons; [simpl; intuition discriminate|]); apply NoDup_nil. Qed.
+Theorem production_native_bindings_are_registered : forall binding,
+ In binding Selvedge.Kernel.NativeTools.bindings ->
+ exists specification, In specification Selvedge.Kernel.Commands.command_specs /\
+ Selvedge.Foundation.Schema.command_name specification = Selvedge.Kernel.NativeTools.binding_command binding.
+Proof.
+ intros binding member.
+ assert (registered:forallb (fun binding=>existsb
+   (fun specification=>String.eqb (Selvedge.Kernel.NativeTools.binding_command binding)
+     (Selvedge.Foundation.Schema.command_name specification))
+   Selvedge.Kernel.Commands.command_specs) Selvedge.Kernel.NativeTools.bindings=true) by (vm_compute;reflexivity).
+ apply forallb_forall with (x:=binding) in registered; [|exact member].
+ apply existsb_exists in registered as [specification [present equal]].
+ exists specification;split;[exact present|]. apply String.eqb_eq in equal;congruence.
+Qed.

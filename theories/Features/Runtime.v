@@ -34,7 +34,8 @@ Definition schedules (command:Selvedge.Generated.Commands.command) :bool := matc
  | Selvedge.Generated.Commands.Cmd_configure_title_settings _ | Selvedge.Generated.Commands.Cmd_read_title_settings _
  | Selvedge.Generated.Commands.Cmd_remote_enable _ | Selvedge.Generated.Commands.Cmd_remote_disable _ | Selvedge.Generated.Commands.Cmd_remote_grant _
  | Selvedge.Generated.Commands.Cmd_remote_revoke _ | Selvedge.Generated.Commands.Cmd_remote_status _ => false | _=>true end.
-Definition can_schedule_task := Compaction.can_schedule_task.
+Definition can_schedule_task (id:N) (value:world) :=
+ Worktree.execution_ready id value && Compaction.can_schedule_task id value.
 Definition finish (result:decision) := Selvedge.Features.Compaction.attach (Board.finish result).
 Definition model_context_limit (id ticket:N) (value:world) :decision := Compaction.model_context_limit id ticket value.
 

@@ -19,7 +19,8 @@ Definition context_change_valid change := is_object change &&
   else if String.eqb (str change "type") "remove" then
     parsed (ContextProtocol.self_key (get change "key")) && nonempty (get change "base_revision") else false.
 Definition context_valid kind message :=
-  if String.eqb kind "context_change" then context_change_valid (get message "change")
+  if String.eqb kind "environment_notice" then is_text (get message "content")
+  else if String.eqb kind "context_change" then context_change_valid (get message "change")
   else if String.eqb kind "settings" then is_object (get message "content") &&
     nonempty (get message "profile") && nonempty (get message "reasoning")
   else if String.eqb kind "reasoning_configuration" then nonempty (get message "effort")
@@ -75,6 +76,7 @@ Definition context_item value profile : outcome (list json) :=
   let kind := str value "type" in
   (* DEFENSE: Persisted task_context values are decoded before becoming model instructions. *)
   if negb (context_valid kind value) then reject "Malformed or unsupported task context message"
+  else if String.eqb kind "environment_notice" then Accepted [message "developer" (get value "content")]
   else if String.eqb kind "context_change" then Accepted [message "developer" (JString (context_change_text (get value "change")))]
   else if String.eqb kind "reasoning_configuration" then
     Accepted (if account profile then [message "developer" (JString

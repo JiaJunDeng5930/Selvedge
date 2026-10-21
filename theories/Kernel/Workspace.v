@@ -31,7 +31,10 @@ Definition approval_bound (child parent : approval_policy) :=
  | ReviewWith _, AskForApproval => true
  | ReviewWith parent, ReviewWith child => Domain.same_profile child parent
  | _,_ => false end.
+Definition same_resource (first second : option N) :=
+ match first,second with None,None=>true | Some owner,Some other=>N.eqb owner other | _,_=>false end.
 Definition settings_bound (child parent : task_settings) :=
+ same_resource (settings_resource child) (settings_resource parent) &&
  workspace_bound (settings_workspace child) (settings_workspace parent) &&
  sandbox_bound (settings_sandbox child) (settings_sandbox parent) &&
  approval_bound (settings_approval child) (settings_approval parent).

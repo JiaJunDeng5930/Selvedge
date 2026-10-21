@@ -1,15 +1,23 @@
 # Migration behavior changes
 
-The reference product is commit `242dba9`. Task execution, image inputs, history
-search, persistent Work interfaces, remote control and browser interactions
-remain migration responsibilities. A checked module does not establish that its
-complete public workflow has passed acceptance.
+The reference product is commit `acfbe86`, including cloud task environments added
+after the original `242dba9` migration snapshot. Task execution, image inputs,
+history search, persistent Work interfaces, remote control and browser
+interactions remain migration responsibilities. A checked module does not
+establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-1`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-2`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 
 These deliberate changes correct ambiguities or defects at the old boundaries:
+
+- Managed-resource identity is retained in frozen task settings. Independent child
+  tasks can inherit a cloud environment without a fork lineage. Execution uses
+  that identity rather than choosing a cloud resource from a matching path.
+- The current journal rejects earlier Rocq journal formats. Journal rows replay
+  inputs and compare decisions; the backend and resource-binding fields change
+  those decisions, so an older journal cannot preserve the new replay contract.
 
 - Raw HTTP command admission and provider function arguments use the extracted
   domain parser and reject duplicate object members. Stdio JSON-RPC retains its
@@ -33,8 +41,9 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
   member order. Reordering the same fields does not create a different request.
 - Late, unknown or completed ChatGPT job results remain rejected and now leave
   the journal sequence and unrelated task scheduling unchanged.
-- Selecting a Project inherits its managed-worktree default. Changing that
-  checkbox for a single new Task no longer modifies the Project's shared default.
+- Selecting a Project inherits its managed-worktree default. Choosing an
+  environment for a single new Task does not modify the Project's shared default;
+  edit that default explicitly in Project settings.
 - Browser layout uses native CSS geometry, including fractional dimensions,
   instead of the old saturated integer pixel allocator. Narrow navigation keeps
   commands reachable through scrolling. Charts reject mixed numeric/categorical

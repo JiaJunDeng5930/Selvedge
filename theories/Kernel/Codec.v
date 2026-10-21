@@ -43,7 +43,8 @@ Definition settings_json (value : task_settings) := JObject [
  ("workspace", workspace_json (settings_workspace value));
  ("sandbox", sandbox_json (settings_sandbox value));
  ("approval", approval_json (settings_approval value));
- ("project_id", optional_number (settings_project value))].
+ ("project_id", optional_number (settings_project value));
+ ("workspace_resource", optional_number (settings_resource value))].
 Definition parse_workspace (value : json) : option workspace :=
  match Schema.decode Workspace.workspace_schema value with None => None | Some _ =>
  match array_field "roots" value with
@@ -112,7 +113,8 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
        | None | Some JNull => if guidance_member workspace (settings_guidance fallback) then settings_guidance fallback else JNull
        | Some guidance => guidance end in
      if guidance_member workspace guidance then
-     Some (Settings workspace project sandbox approval guidance (settings_worktree fallback)) else None
+     Some (Settings workspace project sandbox approval guidance (settings_worktree fallback)
+       (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)) else None
    | _,_,_ => None end else None
  | _ => None end end end.
 Definition profile_json (value : profile) := profile_metadata value.
@@ -213,6 +215,7 @@ Definition origin_json (origin : output_origin) := JObject [
 Definition message_json (owner : N) (value : message) :=
  match value with
  | InstructionMessage source value => JObject [("role", JString source); ("content", value)]
+ | EnvironmentNotice text => JObject [("role",JString "task_context"); ("type",JString "environment_notice"); ("content",JString text)]
  | ReasoningConfigurationMessage effort => JObject [("role",JString "task_context"); ("type",JString "reasoning_configuration"); ("effort",JString effort)]
  | SettingsMessage settings profile reasoning => JObject [("role",JString "task_context"); ("type",JString "settings"); ("content",settings_json settings); ("profile",JString profile); ("reasoning",JString reasoning)]
  | UserMessage parts => JObject [("role", JString "user"); ("content", content_json parts)]

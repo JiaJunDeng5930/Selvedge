@@ -17,11 +17,31 @@ async function snapshotGuidance(directory, kind, limits, options) {
   return null;
 }
 
-export async function snapshotContextFile(filename, limits, { signal } = {}) {
+export async function snapshotContextFile(filename, limits, { signal, filesystem } = {}) {
   signal?.throwIfAborted();
   const maximum = limits.project_context_bytes;
   // DEFENSE: Configured skill paths and discovered guidance paths must fit the native source identity limit.
   if (Buffer.byteLength(filename) > 4096) throw new Error('Instruction path exceeds the model boundary');
+  if (filesystem) {
+    let before;
+    try { before = await filesystem.lstat(filename); }
+    catch (error) {
+      // DEFENSE: Guidance is optional and can disappear during a cloud filesystem observation.
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+    // DEFENSE: Repository guidance may name a symbolic link, device or directory in the cloud environment.
+    if (!before.isFile() || before.isSymbolicLink()) throw new Error('The path must resolve to a regular file without symbolic links');
+    // DEFENSE: Cloud guidance must obey the same model context byte budget as local files.
+    if (before.size > maximum) throw new Error(`File exceeds ${maximum} bytes; use bounded Bash reads`);
+    const bytes = await filesystem.readFile(filename, { signal, maximum, noFollow: true });
+    const after = await filesystem.lstat(filename);
+    // DEFENSE: An editor or Bash operation can replace cloud guidance while it is being read.
+    if (bytes.length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs) {
+      throw new Error('File changed while being read; read it again');
+    }
+    return contextSnapshot(filename, bytes);
+  }
   let file;
   try { file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW); }
   catch (error) {
@@ -49,19 +69,23 @@ export async function snapshotContextFile(filename, limits, { signal } = {}) {
       throw new Error('File changed while being read; read it again');
     }
     const bytes = buffer.subarray(0, length);
-    // DEFENSE: Guidance and skill files are externally editable; their content contract excludes NUL and invalid UTF-8.
-    if (bytes.includes(0)) throw new Error('File contains NUL bytes; use a binary-aware tool');
-    let instructions;
-    // DEFENSE: TextDecoder rejects invalid UTF-8 in external instruction files rather than replacing bytes.
-    try { instructions = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-    catch { throw new Error('File is not valid UTF-8'); }
-    return { path: filename, revision: createHash('sha256').update(bytes).digest('hex'), content: instructions };
+    return contextSnapshot(filename, bytes);
   } finally { await file.close(); }
+}
+
+function contextSnapshot(filename, bytes) {
+  // DEFENSE: Guidance and skill files are externally editable; their content contract excludes NUL and invalid UTF-8.
+  if (bytes.includes(0)) throw new Error('File contains NUL bytes; use a binary-aware tool');
+  let instructions;
+  // DEFENSE: TextDecoder rejects invalid UTF-8 in external instruction files rather than replacing bytes.
+  try { instructions = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch { throw new Error('File is not valid UTF-8'); }
+  return { path: filename, revision: createHash('sha256').update(bytes).digest('hex'), content: instructions };
 }
 
 /** Observe guidance before a birth command; the journal owns the snapshot. */
 export async function snapshotProject(cwd, limits, options) {
-  const workspace = await realpath(cwd);
+  const workspace = await (options?.filesystem?.realpath ?? realpath)(cwd);
   const snapshot = await snapshotGuidance(workspace, 'project_guidance', limits, options);
   return { workspace, path: snapshot?.path ?? '', revision: snapshot?.revision ?? 'absent', instructions: snapshot?.content ?? '' };
 }

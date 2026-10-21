@@ -34,6 +34,10 @@ let layoutFrame = null;
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
 
+function taskObservation(effect, fields) {
+  return effect.task_id === undefined ? fields : { ...fields, task_id: effect.task_id };
+}
+
 async function request(url, options = {}) {
   const response = await fetch(url, { ...options, credentials: 'same-origin' });
   const text = await response.text();
@@ -427,7 +431,7 @@ async function execute(effect) {
     case 'abort_upload': transfers.get(ticketKey(effect.ticket))?.abort(); return;
     case 'skill_catalog': {
       try {
-        const body = await post('/api/browser/observation', { kind: 'skill-catalog', workspace: effect.workspace });
+        const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'skill-catalog', workspace: effect.workspace }));
         if (body.ok) dispatch({ type: 'skill_catalog', editor: effect.editor, ticket: effect.ticket, skills: body.skills });
         else dispatch({ type: 'skill_catalog_failed', editor: effect.editor, ticket: effect.ticket, error: body.error });
       } catch (error) {
@@ -437,17 +441,17 @@ async function execute(effect) {
       return;
     }
     case 'observe_directories': return settled('directories_completed', effect.ticket, async () => {
-      const body = await post('/api/browser/observation', { kind: 'directories', workspace: effect.workspace });
+      const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'directories', workspace: effect.workspace }));
       if (body.ok === false) throw new Error(body.error);
       return body;
     });
     case 'workspace_git': return settled('workspace_git_completed', effect.ticket, async () => {
-      const body = await post('/api/browser/observation', { kind: 'workspace-git', primary: effect.primary });
+      const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'workspace-git', primary: effect.primary }));
       if (body.ok === false) throw new Error(body.error);
       return body.available;
     });
     case 'list_directory': return settled('directory_listed', effect.ticket, async () => {
-      const body = await post('/api/browser/observation', { kind: 'browse-directories', path: effect.path });
+      const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'browse-directories', path: effect.path }));
       if (body.ok === false) throw new Error(body.error);
       return body;
     });

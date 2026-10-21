@@ -76,7 +76,7 @@ Definition required_rights command : option Selvedge.Features.Domain.rights := m
  | Selvedge.Generated.Commands.Cmd_fork p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.fork_settings p)) false)
  | Selvedge.Generated.Commands.Cmd_create_idle p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.create_idle_settings p) ||
      match Selvedge.Generated.Commands.create_idle_create_worktree p with Some enabled=>enabled | None=>false end) false)
- | Selvedge.Generated.Commands.Cmd_create_worktree_task _ | Selvedge.Generated.Commands.Cmd_create_task_graph _ | Selvedge.Generated.Commands.Cmd_update_task_graph _
+ | Selvedge.Generated.Commands.Cmd_create_workspace_task _ | Selvedge.Generated.Commands.Cmd_create_worktree_task _ | Selvedge.Generated.Commands.Cmd_create_task_graph _ | Selvedge.Generated.Commands.Cmd_update_task_graph _
  | Selvedge.Generated.Commands.Cmd_delete_task_graph _ => Some (Selvedge.Features.Domain.Rights false true true false)
  | Selvedge.Generated.Commands.Cmd_retry_worktree_archive _ | Selvedge.Generated.Commands.Cmd_send _ | Selvedge.Generated.Commands.Cmd_steer _ | Selvedge.Generated.Commands.Cmd_cancel_operation _
  | Selvedge.Generated.Commands.Cmd_freeze _ | Selvedge.Generated.Commands.Cmd_unfreeze _ | Selvedge.Generated.Commands.Cmd_stop _ | Selvedge.Generated.Commands.Cmd_interrupt _ | Selvedge.Generated.Commands.Cmd_archive _

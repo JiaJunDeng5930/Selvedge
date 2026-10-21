@@ -14,8 +14,9 @@ bash scripts/bootstrap.sh
 bun run start
 ```
 
-See [usage](docs/usage.md) for projects, model connections, tools, compaction and
-voice conversations. [Task boards](docs/task-board.md), [plugins](docs/plugins.md),
+See [usage](docs/usage.md) for projects, local and cloud task environments, model
+connections, tools, compaction and voice conversations.
+[Task boards](docs/task-board.md), [plugins](docs/plugins.md),
 [remote control](docs/remote-control.md), [ChatGPT Web](docs/chatgpt-web.md), and
 [adaptive reasoning](docs/adaptive-reasoning.md) describe those user workflows.
 

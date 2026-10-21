@@ -5,7 +5,8 @@ const maximumPathBytes = 4096;
 const maximumEntries = 512;
 
 /** Observe folder names only; selecting workspace roots remains a native command. */
-export async function browseDirectories(location, maximumBytes) {
+export async function browseDirectories(location, maximumBytes, { filesystem = { readdir, realpath, stat } } = {}) {
+  const { readdir, realpath, stat } = filesystem;
   try {
     // DEFENSE: The browser supplies this path; reject malformed or oversized navigation requests.
     if (typeof location !== 'string' || !path.isAbsolute(location) || location.includes('\0') ||

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool Ascii NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
-From Selvedge.Kernel Require Import Commands.
+From Selvedge.Kernel Require Import Commands WorkspaceBackend.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction Require Import Codec Identity Attachments.
 Import ListNotations.
@@ -27,9 +27,28 @@ Definition concrete_permission_fields := map(fun f=>let spec:=specification f in
  match field_kind spec with KOptional k=>if String.eqb(field_name spec)"reviewer_profile"then f else FormField(Schema.Field(field_name spec)k)(label f)""(widget f)|_=>f end)permission_fields.
 Definition model_fields := [FormField(Field "profile" KText)"Model" "The model used for this task." "profile";
   text_input "reasoning" "Reasoning effort"].
+Inductive task_workspace := CurrentWorkspace | ManagedWorkspace (backend:WorkspaceBackend.backend).
+Definition managed_workspace_names := match WorkspaceBackend.declaration with
+ |KEnum first rest=>first::rest|_=>[] end.
+Definition task_workspace_kind := KEnum "current" managed_workspace_names.
+Definition task_workspace_name choice := match choice with
+ |CurrentWorkspace=>"current"|ManagedWorkspace backend=>WorkspaceBackend.name backend end.
+Definition task_workspace_value (value:denote task_workspace_kind) : task_workspace.
+Proof.
+ destruct value as [value member].
+ destruct(String.eqb value "current")eqn:current.
+ - exact CurrentWorkspace.
+ - refine(ManagedWorkspace(WorkspaceBackend.of_value(exist _ value _))).
+   simpl in member. destruct member as [same|member].
+   + subst value. rewrite String.eqb_refl in current. discriminate.
+   + exact member.
+Defined.
+Definition task_workspace_field := FormField(Field "task_environment" task_workspace_kind)
+ "Task environment" "Cloud Bash uses Full Access; MCP tools remain on the host." "select".
+Definition new_task_fields : list form_field := [multiline "message" "Task"]++model_fields++context_fields.
 Definition form_fields (e:editor) : list form_field :=
   match e with
-  | NewTask _=>[multiline "message" "Task"]++model_fields++context_fields++[bool_input "create_worktree" "Create worktree"]
+  | NewTask _=>new_task_fields++[task_workspace_field]
   | Message _=>[multiline "message" "Message";select_input "delivery" "Send as" "send"["steer"]]++model_fields++concrete_permission_fields
   | Project _=>[text_input "name" "Name";optional_input "primary_root" "Primary directory" KText "directory";
       FormField(Field "roots"(KArray KText))"Working directories" "Project directories." "lines";
@@ -56,6 +75,21 @@ Definition new_draft e :=
   match e as e return draft with
   |TaskGraph id work=>Draft(TaskGraph id work)0(@FCons (Schema.Field "declaration" KJson) [] (encode graph_fields(defaults graph_fields)) FNil)[][]Editing
   |e=>Draft e 0 (defaults(form_schema e))[][]Editing end.
+Fixpoint skip_fields (prefix suffix:schema) : fields(List.app prefix suffix)->fields suffix :=
+ match prefix as prefix return fields(List.app prefix suffix)->fields suffix with
+ |[]=>fun values=>values
+ |_::rest=>fun values=>skip_fields rest suffix(tail values) end.
+Definition new_task_workspace work (v:fields(form_schema(NewTask work))) :=
+ task_workspace_value(head(skip_fields(map specification new_task_fields)[specification task_workspace_field]v)).
+Definition selected_workspace d :=
+ match d with Draft e _ v _ _ _=>
+  match e as e return fields(form_schema e)->task_workspace with
+  |NewTask work=>fun values=>new_task_workspace work values
+  |_=>fun _=>CurrentWorkspace end v end.
+Definition local_worktree d := match selected_workspace d with
+ |ManagedWorkspace WorkspaceBackend.Local=>true|_=>false end.
+Definition cloud_workspace d := match selected_workspace d with
+ |ManagedWorkspace backend=>WorkspaceBackend.cloud backend|CurrentWorkspace=>false end.
 Definition data d := encode(form_schema(owner d))(values d).
 Definition get name d := value_or JNull(lookup_field name(values d)).
 Definition read_text name d := value_or ""(as_string(get name d)).
@@ -128,8 +162,12 @@ Definition command d :=
   let fs:=object_fields(data d)in
   match owner d with
   | NewTask work=>let fields:=[("profile",get "profile" d);("reasoning",get "reasoning" d);("message",content(read_text "message" d)(attachments d));("settings",settings d)]in
-    match work with Some w=>record "create_work_task"(("work_id",number w)::("create_worktree",get "create_worktree" d)::fields)
-    |None=>record(if read_flag "create_worktree" d then "create_worktree_task" else "create")fields end
+    match selected_workspace d with
+    |ManagedWorkspace WorkspaceBackend.TencentCvm=>record "create_workspace_task"
+      (present "work_id"(optional_id work)(("backend",JString(WorkspaceBackend.name WorkspaceBackend.TencentCvm))::fields))
+    |selection=>match work with
+      |Some w=>record "create_work_task"(("work_id",number w)::("create_worktree",JBool(local_worktree d))::fields)
+      |None=>record(match selection with CurrentWorkspace=>"create"|ManagedWorkspace _=>"create_worktree_task"end)fields end end
   | Message task=>message_command task d
   | Project id=>record(match id with None=>"create_project"|Some _=>"update_project"end)
       (present "project_id"(optional_id id)[("name",get "name" d);("workspace",workspace d);("create_worktree",get "create_worktree" d)])
@@ -165,7 +203,7 @@ Definition decode_feedback j := match string_field "kind" j with Some "editing"=
 Definition encode_draft d := JObject[("editor",encode_editor(owner d));("revision",number(revision d));("values",data d);("attachments",JArray(map encode_attachment(attachments d)));("raw",JArray(map(fun p=>JObject[("field",JString(fst p));("value",JString(snd p))])(raw_fields d)));("feedback",encode_feedback(status d))].
 Definition decode_draft j :=
   e<-bind(field "editor" j)decode_editor;;r<-natural_field "revision" j;;
-  v<-bind(field "values" j)(decode(form_schema e));;a<-list_field decode_attachment "attachments" j;;raw<-list_field(fun p=>n<-string_field "field" p;;s<-string_field "value" p;;Some(n,s)) "raw" j;;f<-bind(field "feedback" j)decode_feedback;;Some(Draft e r v a raw f).
+  v<-bind(field "values" j)(Schema.decode(form_schema e));;a<-list_field decode_attachment "attachments" j;;raw<-list_field(fun p=>n<-string_field "field" p;;s<-string_field "value" p;;Some(n,s)) "raw" j;;f<-bind(field "feedback" j)decode_feedback;;Some(Draft e r v a raw f).
 
 Theorem form_field_names_unique : forall e, unique_names(map field_name(form_schema e))=true.
 Proof. intros e;destruct e;reflexivity. Qed.

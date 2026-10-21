@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection.
-From Selvedge.Features Require Import Domain Observation CompactionCodec.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection WorkspaceBackend.
+From Selvedge.Features Require Import Domain Observation CompactionCodec WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -110,11 +110,12 @@ Definition world_json (value : world) :=
  ("worktrees", JArray (map worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", remote_json (Selvedge.Features.Domain.feature_remote features))].
 Definition history_json (id : N) (task : task) := JArray (map (message_json id) (task_history task)).
-Definition effect_json (value : effect) : json :=
+Definition effect_json (state : world) (value : effect) : json :=
  match value with
  | ObserveContext id ticket task => JObject [
    ("kind", JString "observe_context"); ("task_id", number id); ("ticket", number ticket);
-   ("settings", settings_json (task_current_settings task)); ("definitions", definitions_json);
+   ("settings", settings_json (task_current_settings task));
+   ("resource", WorkspaceBinding.execution (task_current_settings task) state); ("definitions", definitions_json);
    ("bindings", JArray (map Context.snapshot_json (ContextUpdates.bindings (task_history task))))]
  | RequestModel id ticket model task scope reserve =>
    let source := ContextSelection.history_json id (task_history task) in
@@ -122,7 +123,8 @@ Definition effect_json (value : effect) : json :=
    JObject [
    ("kind", JString "model"); ("task_id", number id); ("ticket", number ticket);
    ("model", model_json model); ("output_mode", JString (match task_activity task with AskingModel _ _ mode => output_mode_name mode | _ => "plain" end));
-   ("settings", settings_json (task_current_settings task)); ("sampling", Reasoning.sampling model (task_current_profile task));
+   ("settings", settings_json (task_current_settings task));
+   ("resource", WorkspaceBinding.execution (task_current_settings task) state); ("sampling", Reasoning.sampling model (task_current_profile task));
    ("history", JArray (if (0 <? reserve)%N then ContextSelection.assemble selected source scope else ContextSelection.portable_messages source));
    ("context_selected", JBool (0 <? reserve)%N);
    ("context_scope", JString scope); ("context_replacement_source", match selected with
@@ -138,6 +140,7 @@ Definition effect_json (value : effect) : json :=
    ("kind", JString "tool"); ("task_id", number id); ("ticket", number ticket);
    ("operation_id", number operation); ("tool", tool_json tool); ("call", call_json call);
    ("execution", JObject [("workspace", workspace_json (settings_workspace settings));
+      ("resource", WorkspaceBinding.execution settings state);
       ("sandbox", sandbox_json (settings_sandbox settings)); ("access", JString (match access with DefaultAccess => "sandboxed" | ElevatedAccess => "unrestricted" end))])]
  | RequestApproval id ticket profile call task => JObject [
    ("kind", JString "approval"); ("task_id", number id); ("ticket", number ticket);
@@ -157,9 +160,9 @@ Definition effect_json (value : effect) : json :=
  | CancelTask id => JObject [("kind", JString "cancel"); ("task_id", number id)]
  | CancelTicket id ticket => JObject [("kind", JString "cancel_ticket"); ("task_id", number id); ("ticket", number ticket)]
  | ContinueScheduling => JObject [("kind", JString "continue")]
- | CreateWorktree id root workspace => JObject [("kind", JString "worktree_create"); ("task_id", number id);
+ | CreateWorktree id root workspace backend => JObject [("kind", JString "worktree_create"); ("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id);
    ("source_root", JString root); ("workspace", workspace_json workspace)]
- | ArchiveWorktree id source root => JObject [("kind", JString "worktree_archive"); ("task_id", number id); ("root", JString root); ("source_root", JString source)]
+ | ArchiveWorktree id source root backend => JObject [("kind", JString "worktree_archive"); ("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id); ("root", JString root); ("source_root", JString source)]
  | SuggestTitle id ticket profile prompt => JObject [
    ("kind", JString "task_title"); ("task_id", number id); ("ticket", number ticket);
    ("model", model_json profile); ("prompt", JString prompt)]
@@ -169,11 +172,11 @@ Definition effect_json (value : effect) : json :=
  | RunConnectionJob id job => JObject [
    ("kind", JString "chatgpt_exec"); ("operation_id", number id);
    ("arguments", Selvedge.Features.Domain.job_arguments_json job); ("execution", JObject [
-    ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));
+    ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));("resource",JNull);("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));
     ("access",JString "sandboxed");("scope",JString "project")])]
  | CancelConnectionJob id => JObject [("kind", JString "chatgpt_cancel"); ("operation_id", number id)]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_json request
  end.
 Definition envelope (durable : bool) (value : decision) := JObject [
  ("durable", JBool durable); ("reply", decision_reply value);
- ("effects", JArray (map effect_json (decision_effects value)))].
+ ("effects", JArray (map (effect_json (decision_world value)) (decision_effects value)))].

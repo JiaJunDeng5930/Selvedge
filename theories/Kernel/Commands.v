@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Kernel Require Import WorkspaceBackend.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -92,6 +93,7 @@ Definition command_specs : list command_spec := [
   Command "read_work_ui" [];
   Command "apply_work_ui_patch" [req "patch" KText; req "revision" KNatural];
   Command "create_worktree_task" creation_fields;
+  Command "create_workspace_task" (req "backend" WorkspaceBackend.declaration :: creation_fields ++ [opt "work_id" KNatural]);
   Command "list_worktrees" [];
   Command "read_worktree" task_identity;
   Command "retry_worktree_archive" task_identity

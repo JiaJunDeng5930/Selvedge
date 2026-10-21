@@ -67,8 +67,8 @@ Inductive service_effect :=
 | Authenticate(ticket:N) | Reconnect(ticket:N)(milliseconds:N)
 | SaveAppearance(value:appearance) | Upload(ticket:N)(request:upload_request) | AbortUpload(ticket:N)
 | FetchPreview(ticket:N)(file:attachment) | ReleasePreview(url:string) | DownloadFile(file:attachment)
-| ObserveDirectories(ticket:N)(workspace:json) | ObserveWorkspaceGit(ticket:N)(primary:string)
-| ListDirectory(ticket:N)(path:string) | DirectoryChosen(owner:editor)(path:string) | Focus(trigger:string).
+| ObserveDirectories(ticket:N)(workspace:json)(owner:editor) | ObserveWorkspaceGit(ticket:N)(primary:string)(owner:editor)
+| ListDirectory(ticket:N)(path:string)(owner:editor) | DirectoryChosen(owner:editor)(path:string) | Focus(trigger:string).
 Record service_result := ServiceResult { service_state:services; service_effects:list service_effect; attached:option(editor*attachment) }.
 Definition keep s := ServiceResult s [] None.
 Definition effects s es := ServiceResult s es None.
@@ -94,7 +94,7 @@ Definition finish_upload t result s :=
   | _=>keep s end.
 Definition release_preview s := match preview s with Loaded _ _ url=>[ReleasePreview url]|_=>[]end.
 Definition begin_directory e path trigger s := let t:=next_ticket s in
-  effects(with_next(N.succ t)(with_directory(Loading t (DirectoryRequest e path trigger))path s))[ListDirectory t path].
+  effects(with_next(N.succ t)(with_directory(Loading t (DirectoryRequest e path trigger))path s))[ListDirectory t path e].
 Definition service_step input s :=
   match input with
   | WorkspaceGitCompleted t outcome => keep(with_workspace_git(settle t outcome(workspace_git s))s)
@@ -152,9 +152,9 @@ Definition encode_effect e :=
   | FetchPreview t a=>effect "preview"[("ticket",number t);("file",encode_attachment a)]
   | ReleasePreview url=>effect "release_preview"[("url",JString url)]
   | DownloadFile a=>effect "download"[("file",encode_attachment a)]
-  | ObserveDirectories t workspace=>effect "observe_directories"[("ticket",number t);("workspace",workspace)]
-  | ObserveWorkspaceGit t primary=>effect "workspace_git"[("ticket",number t);("primary",JString primary)]
-  | ListDirectory t p=>effect "list_directory"[("ticket",number t);("path",JString p)]
+  | ObserveDirectories t workspace e=>effect "observe_directories"(task_observation_fields e[("ticket",number t);("workspace",workspace)])
+  | ObserveWorkspaceGit t primary e=>effect "workspace_git"(task_observation_fields e[("ticket",number t);("primary",JString primary)])
+  | ListDirectory t p e=>effect "list_directory"(task_observation_fields e[("ticket",number t);("path",JString p)])
   | DirectoryChosen e p=>effect "directory_chosen"[("editor",encode_editor e);("path",JString p)]
   | Focus t=>effect "focus"[("key",JString t)]end.
 Definition decode_outcome {A} (decode:json->option A) (j:json) : option(sum string A):=

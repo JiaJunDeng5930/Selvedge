@@ -9,6 +9,11 @@ Inductive editor :=
 | Compact (task : N) | TaskGraph (id work : option N)
 | WorkName (work : N) | TitlePrompts.
 
+Definition editor_task (e:editor) : option N := match e with
+ |Message task|Fork task|Compact task=>Some task|_=>None end.
+Definition task_observation_fields e fields := match editor_task e with
+ |Some task=>("task_id",JNumber(show_natural task))::fields|None=>fields end.
+
 Definition optional_id (id : option N) : json :=
   match id with None => JNull | Some id => JNumber (show_natural id) end.
 Definition encode_editor (e : editor) : json :=

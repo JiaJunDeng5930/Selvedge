@@ -1164,7 +1164,32 @@ Proof. intros; reflexivity. Qed.
 Theorem create_worktree_task_settings_field : forall payload, lookup_field "settings" (create_worktree_task_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_worktree_task_schema (Field "" KJson))) (create_worktree_task_settings payload)).
 Proof. intros; reflexivity. Qed.
 
-Definition list_worktrees_schema := command_fields (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition create_workspace_task_schema := command_fields (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Theorem create_workspace_task_schema_declaration : create_workspace_task_schema = [Field "backend" (KEnum "local" ["tencent_cvm"]); Field "profile" KText; Field "reasoning" (KOptional KText); Field "message" (KOptional KJson); Field "images" (KOptional (KArray KJson)); Field "settings" (KOptional KJson); Field "work_id" (KOptional KNatural)].
+Proof. reflexivity. Qed.
+Record create_workspace_task_payload : Type := Build_create_workspace_task { create_workspace_task_backend : denote (KEnum "local" ["tencent_cvm"]); create_workspace_task_profile : denote KText; create_workspace_task_reasoning : denote (KOptional KText); create_workspace_task_message : denote (KOptional KJson); create_workspace_task_images : denote (KOptional (KArray KJson)); create_workspace_task_settings : denote (KOptional KJson); create_workspace_task_work_id : denote (KOptional KNatural) }.
+Definition create_workspace_task_from_fields (values : fields create_workspace_task_schema) : create_workspace_task_payload := Build_create_workspace_task (head values) (head (tail values)) (head (tail (tail values))) (head (tail (tail (tail values)))) (head (tail (tail (tail (tail values))))) (head (tail (tail (tail (tail (tail values)))))) (head (tail (tail (tail (tail (tail (tail values))))))).
+Definition create_workspace_task_to_fields (payload : create_workspace_task_payload) : fields create_workspace_task_schema := (@FCons (Field "backend" (KEnum "local" ["tencent_cvm"])) _ (create_workspace_task_backend payload) (@FCons (Field "profile" KText) _ (create_workspace_task_profile payload) (@FCons (Field "reasoning" (KOptional KText)) _ (create_workspace_task_reasoning payload) (@FCons (Field "message" (KOptional KJson)) _ (create_workspace_task_message payload) (@FCons (Field "images" (KOptional (KArray KJson))) _ (create_workspace_task_images payload) (@FCons (Field "settings" (KOptional KJson)) _ (create_workspace_task_settings payload) (@FCons (Field "work_id" (KOptional KNatural)) _ (create_workspace_task_work_id payload) FNil))))))).
+Definition decode_create_workspace_task (source : json) : option create_workspace_task_payload := option_map create_workspace_task_from_fields (Schema.decode create_workspace_task_schema source).
+Definition encode_create_workspace_task (payload : create_workspace_task_payload) : json := Schema.encode create_workspace_task_schema (create_workspace_task_to_fields payload).
+Theorem create_workspace_task_payload_roundtrip : forall payload, create_workspace_task_from_fields (create_workspace_task_to_fields payload) = payload.
+Proof. intros []; reflexivity. Qed.
+Theorem create_workspace_task_backend_field : forall payload, lookup_field "backend" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_backend payload)).
+Proof. intros; reflexivity. Qed.
+Theorem create_workspace_task_profile_field : forall payload, lookup_field "profile" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_profile payload)).
+Proof. intros; reflexivity. Qed.
+Theorem create_workspace_task_reasoning_field : forall payload, lookup_field "reasoning" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_reasoning payload)).
+Proof. intros; reflexivity. Qed.
+Theorem create_workspace_task_message_field : forall payload, lookup_field "message" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_message payload)).
+Proof. intros; reflexivity. Qed.
+Theorem create_workspace_task_images_field : forall payload, lookup_field "images" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_images payload)).
+Proof. intros; reflexivity. Qed.
+Theorem create_workspace_task_settings_field : forall payload, lookup_field "settings" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 5 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_settings payload)).
+Proof. intros; reflexivity. Qed.
+Theorem create_workspace_task_work_id_field : forall payload, lookup_field "work_id" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 6 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_work_id payload)).
+Proof. intros; reflexivity. Qed.
+
+Definition list_worktrees_schema := command_fields (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])).
 Theorem list_worktrees_schema_declaration : list_worktrees_schema = [].
 Proof. reflexivity. Qed.
 Definition list_worktrees_payload : Type := unit.
@@ -1175,7 +1200,7 @@ Definition encode_list_worktrees (payload : list_worktrees_payload) : json := Sc
 Theorem list_worktrees_payload_roundtrip : forall payload, list_worktrees_from_fields (list_worktrees_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
 
-Definition read_worktree_schema := command_fields (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition read_worktree_schema := command_fields (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])).
 Theorem read_worktree_schema_declaration : read_worktree_schema = [Field "task_id" KNatural].
 Proof. reflexivity. Qed.
 Record read_worktree_payload : Type := Build_read_worktree { read_worktree_task_id : denote KNatural }.
@@ -1188,7 +1213,7 @@ Proof. intros []; reflexivity. Qed.
 Theorem read_worktree_task_id_field : forall payload, lookup_field "task_id" (read_worktree_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_worktree_schema (Field "" KJson))) (read_worktree_task_id payload)).
 Proof. intros; reflexivity. Qed.
 
-Definition retry_worktree_archive_schema := command_fields (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Definition retry_worktree_archive_schema := command_fields (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])).
 Theorem retry_worktree_archive_schema_declaration : retry_worktree_archive_schema = [Field "task_id" KNatural].
 Proof. reflexivity. Qed.
 Record retry_worktree_archive_payload : Type := Build_retry_worktree_archive { retry_worktree_archive_task_id : denote KNatural }.
@@ -1345,6 +1370,8 @@ Inductive command : Type :=
 
 | Cmd_create_worktree_task (payload : create_worktree_task_payload)
 
+| Cmd_create_workspace_task (payload : create_workspace_task_payload)
+
 | Cmd_list_worktrees (payload : list_worktrees_payload)
 
 | Cmd_read_worktree (payload : read_worktree_payload)
@@ -1496,6 +1523,8 @@ if String.eqb name "read_work_ui" then option_map Cmd_read_work_ui (decode_read_
 if String.eqb name "apply_work_ui_patch" then option_map Cmd_apply_work_ui_patch (decode_apply_work_ui_patch source) else
 
 if String.eqb name "create_worktree_task" then option_map Cmd_create_worktree_task (decode_create_worktree_task source) else
+
+if String.eqb name "create_workspace_task" then option_map Cmd_create_workspace_task (decode_create_workspace_task source) else
 
 if String.eqb name "list_worktrees" then option_map Cmd_list_worktrees (decode_list_worktrees source) else
 
@@ -1655,11 +1684,13 @@ Definition declared_command (value : command) : command_spec := match value with
 
 | Cmd_create_worktree_task _ => List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_list_worktrees _ => List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_create_workspace_task _ => List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_read_worktree _ => List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_list_worktrees _ => List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
-| Cmd_retry_worktree_archive _ => List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])
+| Cmd_read_worktree _ => List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
+| Cmd_retry_worktree_archive _ => List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
 end.
 
@@ -1806,6 +1837,8 @@ Definition declared_payload (value : command) : list (string * json) := match va
 | Cmd_apply_work_ui_patch payload => encode_fields (apply_work_ui_patch_to_fields payload)
 
 | Cmd_create_worktree_task payload => encode_fields (create_worktree_task_to_fields payload)
+
+| Cmd_create_workspace_task payload => encode_fields (create_workspace_task_to_fields payload)
 
 | Cmd_list_worktrees payload => encode_fields (list_worktrees_to_fields payload)
 
@@ -1959,11 +1992,13 @@ Definition encode (value : command) : json := match value with
 
 | Cmd_create_worktree_task payload => Schema.encode_declared (List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])) (create_worktree_task_to_fields payload)
 
-| Cmd_list_worktrees payload => Schema.encode_declared (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])) (list_worktrees_to_fields payload)
+| Cmd_create_workspace_task payload => Schema.encode_declared (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])) (create_workspace_task_to_fields payload)
 
-| Cmd_read_worktree payload => Schema.encode_declared (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])) (read_worktree_to_fields payload)
+| Cmd_list_worktrees payload => Schema.encode_declared (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])) (list_worktrees_to_fields payload)
 
-| Cmd_retry_worktree_archive payload => Schema.encode_declared (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])) (retry_worktree_archive_to_fields payload)
+| Cmd_read_worktree payload => Schema.encode_declared (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])) (read_worktree_to_fields payload)
+
+| Cmd_retry_worktree_archive payload => Schema.encode_declared (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])) (retry_worktree_archive_to_fields payload)
 
 end.
 
@@ -2118,6 +2153,8 @@ Ltac command_payload_case handler := match goal with
 | [payload : apply_work_ui_patch_payload |- _] => handler apply_work_ui_patch_schema apply_work_ui_patch_to_fields apply_work_ui_patch_from_fields Cmd_apply_work_ui_patch payload
 
 | [payload : create_worktree_task_payload |- _] => handler create_worktree_task_schema create_worktree_task_to_fields create_worktree_task_from_fields Cmd_create_worktree_task payload
+
+| [payload : create_workspace_task_payload |- _] => handler create_workspace_task_schema create_workspace_task_to_fields create_workspace_task_from_fields Cmd_create_workspace_task payload
 
 | [payload : list_worktrees_payload |- _] => handler list_worktrees_schema list_worktrees_to_fields list_worktrees_from_fields Cmd_list_worktrees payload
 

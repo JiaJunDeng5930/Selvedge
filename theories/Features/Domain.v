@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Features Require Import Titles CompactionTypes.
-From Selvedge.Kernel Require Import Domain ChatgptArguments.
+From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend.
 Import ListNotations.
 
 Inductive board_stage := Backlog | Todo | InProgress | InReview | Completed | Blocked.
@@ -39,7 +39,10 @@ Inductive tree_phase := TreeCreating (archived : bool)
  | TreeArchiving (root primary : string)
  | TreeArchiveFailed (root primary reason : string)
  | TreeArchived (root : option string) (primary : string).
-Record worktree := Worktree { worktree_task : N; worktree_source : string; worktree_phase : tree_phase }.
+Record worktree := Worktree { worktree_task : N; worktree_source : string; worktree_phase : tree_phase;
+ worktree_backend : WorkspaceBackend.backend }.
+Definition with_worktree_phase (phase : tree_phase) (value : worktree) :=
+ Worktree (worktree_task value) (worktree_source value) phase (worktree_backend value).
 Definition worktree_state (value:worktree) := match worktree_phase value with
  | TreeCreating false=>Creating | TreeCreating true=>CreatingArchived | TreeReady _ _=>Ready
  | TreeCreateFailed _ _=>CreationFailed | TreeArchiving _ _=>Archiving

@@ -42,11 +42,13 @@ isolation fails closed, rather than falling back to an ordinary host shell.
 `delete_project` are native commands. Task creation/fork accepts a `settings`
 object with `project_id`, `workspace`, `sandbox` and `approval`.
 
-For a primary workspace with a Git commit, the New task workspace menu offers
-**Create worktree**. Selecting a project initializes this choice from its
-`create_worktree` setting. Changing the checkbox applies only to the task being
-created; change the shared default in project settings. The command API exposes
-`create_worktree_task` with the same fields as `create`.
+When the primary workspace has a Git commit, the New task dialog lets you choose
+the current workspace, a local Git worktree, or Tencent Cloud CVM.
+A project's `create_worktree` preference initializes the local choice; changing
+the choice affects only the task being created. The programmatic local entry is
+`create_worktree_task`; `create_workspace_task` additionally accepts the typed
+`backend` name `local` or `tencent_cvm`. Both use the existing task startup and
+archive lifecycle.
 Managed checkouts live under `<service home>/worktrees`, start at detached HEAD,
 and include tracked edits and untracked files that Git does not ignore.
 The service home must be outside the source Git repository so its private state
@@ -84,6 +86,61 @@ defaults or parent context. For example, `{"project_id": 0}` selects project 0's
 workspace for a new task; `{"workspace": {"roots": []}}` explicitly selects no
 workspace roots. The same fields are available through the CLI and command API.
 
+
+### Cloud task workspaces
+
+Configure a CVM image, network and SSH key in the service configuration:
+
+```json
+{
+  "cloud": {
+    "backend": "tencent_cvm",
+    "tencent_cvm": {
+      "region": "ap-shanghai",
+      "zone": "ap-shanghai-2",
+      "image_id": "img-example",
+      "instance_type": "S5.LARGE8",
+      "vpc_id": "vpc-example",
+      "subnet_id": "subnet-example",
+      "security_group_ids": ["sg-example"],
+      "key_id": "skey-example",
+      "ssh_private_key": "/absolute/path/to/cvm-key",
+      "spot_max_price": "0.5"
+    }
+  }
+}
+```
+
+Set `TENCENTCLOUD_SECRET_ID` and `TENCENTCLOUD_SECRET_KEY` in the service
+environment; `TENCENTCLOUD_TOKEN` is optional. Credentials do not belong in the
+configuration object. Optional settings are `ssh_user` (default `root`),
+`ssh_port` (22), `address_type` (`public` or `private`),
+`internet_max_bandwidth_out` (5), `startup_timeout_ms` (600000), and a custom
+`api_endpoint`. The service host must be able to reach the selected SSH address.
+
+The selected project needs a GitHub remote and a pushed commit. Commit
+`.selvedge/env.sh` with the project's installation steps. Cloud startup clones
+the committed revision, runs this script, and then binds the task to the ready
+environment. Git, Bash, setsid and SSH access must be available in the image; the
+setup script must leave Python 3 available for file observations. Private repositories
+use `GITHUB_TOKEN` from the service environment through an ephemeral clone
+credential helper; it is removed before the setup script runs.
+
+Cloud Bash uses Full Access. Bash, process sessions, file observations and image
+reads use the task's bound environment; local MCP servers remain host services.
+The model receives an environment notice describing that distinction. Forked
+tasks share the same bound resource. Archiving a child does not destroy its
+owner's instance, and an instance cannot be recycled while another task uses it.
+
+To use voice with a cloud task, create the task first, then start voice in its
+conversation.
+
+Failed setup reclaims its allocation and retains the setup log under
+`<service home>/cloud-workspaces/<journal namespace>/task-<id>.log`. If reclamation
+fails, the task retains the failure and resource association;
+`retry_worktree_archive` retries cleanup. Restart recovery reconciles the
+persisted allocation receipt with the same task resource.
+Archiving the owning task recycles its cloud instance after active IO has settled.
 
 ## Use it on a project
 

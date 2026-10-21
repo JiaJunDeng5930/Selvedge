@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { cp, lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { shellQuote } from './cloud-environments.mjs';
+import { readControlRecord } from './control-records.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { snapshotProject } from './project.mjs';
 import { boundary } from './public/model-boundary.mjs';
@@ -13,7 +15,16 @@ const maximumGitOutput = 64 * 1024 * 1024;
 // NOTE: Allow all 32 bounded Workspace roots and their JSON escaping to round-trip.
 const maximumReceiptBytes = 1024 * 1024;
 
-async function git(cwd, arguments_, { signal, encoding = 'utf8' } = {}) {
+async function git(cwd, arguments_, { signal, encoding = 'utf8', environment } = {}) {
+  if (environment) {
+    const script = 'for name in "${!GIT_@}"; do unset "$name"; done; exec "$@"';
+    const command = ['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-C', cwd, ...arguments_];
+    const observed = await environment.execute(`bash --noprofile --norc -c ${shellQuote(script)} selvedge-git ${command.map(shellQuote).join(' ')}`,
+      { signal, maxBuffer: maximumGitOutput, timeout: 120_000 });
+    // DEFENSE: Git reports nonrepository and unborn-HEAD observations through its nonzero exit status.
+    if (observed.exit_code !== 0) throw Object.assign(new Error(observed.stderr), { code: observed.exit_code });
+    return observed.stdout;
+  }
   // DEFENSE: Inherited GIT_DIR/GIT_WORK_TREE and related selectors must not redirect the selected repository.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
   const { stdout } = await execute('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
@@ -33,7 +44,7 @@ async function worktreeGitConfiguration(repository, signal) {
 }
 
 /** Observe the primary directory, including primaries below a repository root. */
-export async function observeWorkspaceGit(primary, { signal } = {}) {
+export async function observeWorkspaceGit(primary, { signal, environment } = {}) {
   signal?.throwIfAborted();
   try {
     boundary('effect.root_admit', { root: primary, absolute: typeof primary === 'string' && path.isAbsolute(primary) });
@@ -43,9 +54,9 @@ export async function observeWorkspaceGit(primary, { signal } = {}) {
     throw error;
   }
   try {
-    const root = await realpath(primary);
-    if ((await git(root, ['rev-parse', '--is-inside-work-tree'], { signal })).trim() !== 'true') return false;
-    await git(root, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal });
+    const root = await (environment?.filesystem.realpath ?? realpath)(primary);
+    if ((await git(root, ['rev-parse', '--is-inside-work-tree'], { signal, environment })).trim() !== 'true') return false;
+    await git(root, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal, environment });
     return true;
   } catch (error) {
     signal?.throwIfAborted();
@@ -69,26 +80,8 @@ async function locations(home, taskId) {
 }
 
 async function readReceipt(files, taskId, sourceRoot) {
-  const file = await open(files.receipt, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
-  try {
-    const facts = await file.stat();
-    // DEFENSE: Persisted receipt paths can be externally replaced by oversized or special files.
-    if (!facts.isFile() || facts.size > maximumReceiptBytes) throw new Error('Invalid managed worktree receipt');
-    const buffer = Buffer.alloc(facts.size + 1);
-    let length = 0;
-    while (length < buffer.length) {
-      const { bytesRead } = await file.read(buffer, length, buffer.length - length, length);
-      if (!bytesRead) break;
-      length += bytesRead;
-    }
-    const after = await file.stat();
-    // DEFENSE: Concurrent external edits must not produce a receipt assembled from different file revisions.
-    if (length !== facts.size || after.size !== facts.size || after.mtimeMs !== facts.mtimeMs || after.ctimeMs !== facts.ctimeMs) {
-      throw new Error('Managed worktree receipt changed while being read');
-    }
-    const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)));
-    return boundary('effect.worktree_receipt', { files, value, task_id: taskId, source_root: sourceRoot });
-  } finally { await file.close(); }
+  const value = await readControlRecord(files.receipt, { maximumBytes: maximumReceiptBytes, label: 'managed worktree receipt' });
+  return boundary('effect.worktree_receipt', { files, value, task_id: taskId, source_root: sourceRoot });
 }
 
 async function saveReceipt(filename, value) {

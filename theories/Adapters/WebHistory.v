@@ -26,6 +26,7 @@ Definition history_item item : outcome (list json) :=
   else if String.eqb role "task_context" then
     if negb (BackendHistory.context_valid (str item "type") item) then reject "Malformed or unsupported task context message"
     else match str item "type" with
+    | "environment_notice" => Accepted [message "developer" (get item "content")]
     | "context_change" => Accepted [message "developer" (JString (BackendHistory.context_change_text (get item "change")))]
     | "reasoning_configuration" => Accepted [message "developer" (JString ("Committed reasoning effort for subsequent responses: " ++ str item "effort"))]
     | _ => history_data item end

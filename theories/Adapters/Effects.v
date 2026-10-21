@@ -1,9 +1,14 @@
 From Stdlib Require Import String List Bool.
-From Selvedge.Adapters Require Import Common EffectCallbacks Processes TextEndpoints Workspaces SandboxPolicy Seatbelt Sandbox Attachments.
+From Selvedge.Adapters Require Import Common EffectCallbacks Processes TextEndpoints Workspaces CloudWorkspaces SandboxPolicy Seatbelt Sandbox Attachments.
 Import ListNotations.
 Open Scope string_scope.
 
 Definition handlers : list (string * (json -> json)) := [
+  ("effect.cloud_backend",CloudConfiguration.require_cloud);
+  ("effect.cloud_repository",CloudWorkspaces.repository);
+  ("effect.cloud_remote_names",CloudWorkspaces.remote_names);
+  ("effect.cloud_receipt",CloudWorkspaces.receipt);
+  ("effect.cloud_workspace",CloudWorkspaces.workspace);
   ("effect.artifact_limit",Attachments.artifact_limit);
   ("effect.attachment",Attachments.attachment);
   ("effect.attachment_budget",Attachments.attachment_budget);

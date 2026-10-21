@@ -1,3 +1,5 @@
+From Selvedge.Features Require Import WorkspaceBinding.
+From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import ContextTypes Context Domain ContextUpdates JsonProofs Tasks.
@@ -83,6 +85,15 @@ Proof.
  exists value; repeat split; assumption.
 Qed.
 
-Theorem omitted_project_selection_preserves_the_frozen_settings : forall model settings value,
- Tasks.resolve_settings model None settings value = Some settings.
-Proof. reflexivity. Qed.
+Theorem omitted_project_selection_preserves_environment_binding : forall model settings value,
+ exists selected, Tasks.resolve_settings model None settings value = Some selected /\
+ settings_workspace selected = settings_workspace settings /\
+ settings_project selected = settings_project settings /\
+ settings_resource selected = settings_resource settings.
+Proof.
+ intros model settings value.
+ exists (WorkspaceBinding.normalize_settings settings value). split; [reflexivity|].
+ unfold WorkspaceBinding.normalize_settings.
+ destruct (WorkspaceBinding.resolve settings value) as [tree|]; [|repeat split;reflexivity].
+ destruct (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree));repeat split;reflexivity.
+Qed.

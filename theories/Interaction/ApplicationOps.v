@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Import Commands Streams Codec.
@@ -23,7 +24,7 @@ Definition encode_effect e:=match e with
 |Service e=>Services.encode_effect e|Audio e=>Speech.encode_effect e
 |Focus key=>JObject[("type",JString "focus");("key",JString key)]
 |ScrollTo t i=>JObject[("type",JString "scroll_to_message");("task_id",number t);("message_index",number i);("key",JString(history_key t i))]
-|LanguageEffect e=>Selvedge.Interaction.Interactive.Types.encode_effect e|LoadSkills e t w=>JObject[("type",JString "skill_catalog");("editor",encode_editor e);("ticket",number t);("workspace",w)]
+|LanguageEffect e=>Selvedge.Interaction.Interactive.Types.encode_effect e|LoadSkills e t w=>JObject(task_observation_fields e[("type",JString "skill_catalog");("editor",encode_editor e);("ticket",number t);("workspace",w)])
 |SelectionBytes key p=>JObject[("type",JString "selection_bytes");("key",JString key);("start",number p);("end",number p)] end.
 Definition encode_result r:=JObject[("state",encode_state(resulting_state r));("effects",JArray(map encode_effect(emitted r)));("reply",reply r)].
 Definition queue_command c purpose s :=
@@ -143,9 +144,11 @@ Definition edited_field name value d world :=
   changed <- workspace_after_edit name changed;;
   changed <- edited_sandbox name changed world;;
   changed <- match owner changed with NewTask _=>if String.eqb name "project_id"then
-    restore_field "create_worktree"(JBool(match natural(get "project_id" changed)with
-      Some id=>match find_project id world with Some project=>flag "create_worktree" project|None=>false end
-      |None=>false end))changed else Some changed
+    restore_field "task_environment"(JString(task_workspace_name(match natural(get "project_id" changed)with
+      Some id=>match find_project id world with
+       |Some project=>if flag "create_worktree" project then ManagedWorkspace WorkspaceBackend.Local else CurrentWorkspace
+       |None=>CurrentWorkspace end
+      |None=>CurrentWorkspace end)))changed else Some changed
     |_=>Some changed end;;
   if String.eqb name "profile" then
     match ModelSelection.observed_profile world (read_text "profile" changed) with
@@ -164,6 +167,9 @@ Definition edit e name value world s :=
 Definition draft_workspace d world :=
  match owner d with
  |Message task=>t<-find_task task world;;settings<-field "settings" t;;field "workspace" settings
+ |Fork task=>match field "workspace"(Forms.settings d)with Some workspace=>Some workspace|None=>
+   match natural(get "project_id" d)with Some id=>p<-find_project id world;;field "workspace" p
+   |None=>t<-find_task task world;;settings<-field "settings" t;;field "workspace" settings end end
  |Project _=>Some(workspace d)
  |_=>match field "workspace"(Forms.settings d)with Some workspace=>Some workspace|None=>
    match natural(get "project_id" d)with Some id=>p<-find_project id world;;field "workspace" p
@@ -176,7 +182,7 @@ Definition workspace_git_available d world services :=
 Definition domain_obstruction world services d :=
  match owner d with
  |NewTask _|Agent _=>if ModelSelection.valid_preference world(read_text "profile" d,read_text "reasoning" d)then
-   match owner d with NewTask _=>if read_flag "create_worktree" d&&negb(workspace_git_available d world services)
+   match owner d with NewTask _=>if local_worktree d&&negb(workspace_git_available d world services)
     then Some "Wait for Git verification of the primary workspace before creating a worktree."else None|_=>None end
    else Some "Choose an available model and reasoning effort"
  |_=>None end.
@@ -188,6 +194,7 @@ Definition obstruction world services d :=
  match service_obstruction services d with Some reason=>Some reason|None=>
   match intrinsic_obstruction d with Some reason=>Some reason|None=>domain_obstruction world services d end end.
 Definition voice_obstruction world services d :=
+ if cloud_workspace d then Some "Create the cloud task before starting voice" else
  match service_obstruction services d with Some reason=>Some reason|None=>
   match raw_fields d with (name,_)::_=>Some(String.append "Correct the value of " name)
   |[]=>domain_obstruction world services d end end.
@@ -202,7 +209,7 @@ Definition begin_preparation d workspace s :=
  let services:=service_state s in let t:=Services.next_ticket services in
  let pending:=Preparation t d(generation(navigation_state s))in
  effects(with_services(Services.with_next(N.succ t)(with_preparations(pending::preparations services)services))s)
-   [Service(ObserveDirectories t workspace)].
+   [Service(ObserveDirectories t workspace(owner d))].
 Definition submit now e world s :=
   let original:=s in
   match ensure e world s with None=>reject "UnknownEditor" "This editor cannot be submitted" s

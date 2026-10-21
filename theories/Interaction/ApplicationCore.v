@@ -26,7 +26,7 @@ Definition refresh_workspace_git e world r :=
    if same_request then r else
     let ticket:=Services.next_ticket services in
     Result(with_services(Services.with_next(N.succ ticket)(with_workspace_git(Loading ticket(e,primary))services))s)
-      (emitted r++[Service(ObserveWorkspaceGit ticket primary)])(reply r)
+      (emitted r++[Service(ObserveWorkspaceGit ticket primary e)])(reply r)
   end|_=>r end.
 Definition refresh_active_workspace world r :=
  let s:=resulting_state r in
@@ -36,6 +36,21 @@ Definition refresh_active_workspace world r :=
   |Conversation task=>refresh_workspace_git(Message task)world r|_=>r end end.
 Definition catalog_for e world s:=match find(catalog_owned e)(skill_catalogs(authoring_state s)),workspace_for e world s with
  |Some(Loaded _ request values),Some workspace=>if Json.equal workspace(skill_workspace request)then values else []|_,_=>[]end.
+(* DEFENSE: a Git reply can outlive its editor or primary workspace selection. *)
+Definition reset_unavailable_local input world previous r :=
+ match input,workspace_git(service_state previous)with
+ |WorkspaceGitCompleted ticket(inr false),Loading expected(e,primary)=>
+   if N.eqb ticket expected then
+    match find_draft e(resulting_state r)with
+    |Some d=>let matching:=match draft_workspace d world with
+      |Some workspace=>String.eqb primary(value_or ""(string_field "primary_root" workspace))
+      |None=>false end in
+      if local_worktree d&&matching then
+       let changed:=edit e "task_environment"(JString "current")world(resulting_state r)in
+       Result(resulting_state changed)(emitted r++emitted changed)(reply changed)
+      else r
+    |None=>r end else r
+ |_,_=>r end.
 Definition load_skills e world s:=
   match workspace_for e world s with None=>reject "WorkspaceUnavailable" "Choose an available workspace before loading skills" s
   |Some workspace=>let a:=authoring_state s in let t:=next a in
@@ -150,7 +165,7 @@ Definition edit_application e name value world s:=
 Definition begin_voice_new e world s:=match e,ensure e world s with
 |NewTask work,Some(d,s)=>
  match voice_obstruction world(service_state s)d with None=>
-  let command:=JObject(present "work_id"(optional_id work)[("op",JString "create_idle");("profile",get "profile" d);("reasoning",get "reasoning" d);("settings",Forms.settings d);("create_worktree",get "create_worktree" d)])in
+   let command:=JObject(present "work_id"(optional_id work)[("op",JString "create_idle");("profile",get "profile" d);("reasoning",get "reasoning" d);("settings",Forms.settings d);("create_worktree",JBool(local_worktree d))])in
   match decode_command command_specs command with None=>reject "InvalidCommand" "The voice task does not match the creation protocol" s
   |Some command=>speech(BeginNewVoice e(revision d)(generation(navigation_state s))command)world s end
  |Some reason=>reject "SubmissionBlocked" reason s end
@@ -190,7 +205,8 @@ Definition local_step now input world s : option result :=
   |ServiceInput input=>let r:=service input world s in
       Some(match input with
        |Authenticated _ (inr _)=>if connected(service_state s)then r else refresh_active_workspace world r
-       |ChooseDirectory=>refresh_active_workspace world r|_=>r end)|SpeechInput input=>Some(speech input world s)
+       |ChooseDirectory=>refresh_active_workspace world r
+       |WorkspaceGitCompleted _ _=>reset_unavailable_local input world s r|_=>r end)|SpeechInput input=>Some(speech input world s)
   |OpenConfiguration e trigger=>Some(open_configuration e trigger world s)
   |ApplyConfiguration e=>Some(apply_configuration e world s)
   |InspectSource e name trigger=>Some(inspect_source e name trigger s)

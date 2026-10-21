@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Context.
 Import ListNotations.
@@ -96,14 +96,14 @@ Definition base_defaults (instructions : string) :=
     ("instructions",JString instructions);("profiles",JObject [("demo",JObject
       [("provider",JString "echo");("model",JString "echo")])]);
     ("mcp",JObject []);("plugins",JObject []);("skills",JArray []);
-    ("remote",JBool false);("compaction",compaction_defaults)].
+    ("remote",JBool false);("cloud",JBool false);("compaction",compaction_defaults)].
 Definition defaults (definitions : json) (instructions : string) :=
   let base := base_defaults instructions in
   JObject (object_fields base ++ map (fun d => (context_setting d,context_fallback d))
     (filter (fun d => context_configured d && negb (has base (context_setting d))) (items definitions))).
 Definition configuration_keys (definitions : json) : list string :=
   ["format";"host";"port";"max_fork";"max_descendants";"profiles";"chatgpt";"mcp";
-   "plugins";"reasoning_evaluators";"chatgpt_plugin";"remote";"compaction"] ++
+   "plugins";"reasoning_evaluators";"chatgpt_plugin";"remote";"cloud";"compaction"] ++
   map context_setting (filter context_configured (items definitions)).
 Definition configuration_head (definitions : json) (instructions : string) (source : json) :=
   let value := get source "value" in
@@ -307,5 +307,6 @@ Definition call (definitions : json) (instructions : string) (legal_budget : N -
   else if String.eqb operation "config.evaluator_entry" then success (evaluator_entry source)
   else if String.eqb operation "config.adaptive_policy" then success (adaptive_policy source)
   else if String.eqb operation "config.auto_preset" then success (auto_preset source)
+  else if String.eqb operation "config.cloud" then CloudConfiguration.call source
   else if String.eqb operation "config.remote" then remote source
   else err ("Unknown host model operation: " ++ operation).

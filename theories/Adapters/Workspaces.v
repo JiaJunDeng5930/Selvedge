@@ -61,9 +61,9 @@ Definition plan (command : json) : workspace_plan :=
   let op := str command "op" in
   (* DEFENSE: Commands are observed before native admission; unknown operations must not trigger filesystem reads. *)
   if negb (known_command op) then WorkspacePlan false false []
-  else if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"save_board_agent"] then
-    WorkspacePlan (existsb (String.eqb op) ["create";"create_idle";"create_work_task";"create_worktree_task"])
-      (String.eqb op "create_worktree_task" ||
+  else if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
+    WorkspacePlan (existsb (String.eqb op) ["create";"create_idle";"create_work_task";"create_worktree_task";"create_workspace_task"])
+      (String.eqb op "create_worktree_task" || String.eqb op "create_workspace_task" ||
         (existsb (String.eqb op) ["create_idle";"create_work_task"] && boolean_field command "create_worktree"))
       (select_settings TaskWorkspace true (get command "settings"))
   else if existsb (String.eqb op) ["create_project";"update_project"] then

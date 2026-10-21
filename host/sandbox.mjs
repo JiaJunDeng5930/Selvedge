@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 /** Canonicalize an explicit workspace observation; this does not choose task policy. */
-export async function canonicalWorkspace(value) {
+export async function canonicalWorkspace(value, { filesystem = { realpath, stat } } = {}) {
+  const { realpath, stat } = filesystem;
   boundary('effect.workspace_admit', { value });
   const canonical = async root => {
     boundary('effect.root_admit', { root, absolute: typeof root === 'string' && path.isAbsolute(root), value });

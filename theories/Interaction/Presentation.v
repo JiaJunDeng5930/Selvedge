@@ -76,6 +76,7 @@ Definition field_keys : list (string * (editor -> string)) := [
   ("approval", fun e => "approval-policy");
   ("reviewer_profile", fun e => "approval-reviewer");
   ("create_worktree", fun e => "create-worktree");
+  ("task_environment", fun e => "task-environment");
   ("delivery", fun e => "delivery-intent");
   ("name", fun e => match e with WorkName _=>"work-name"|Project _=>"project-name"|Agent _=>"agent-name"|_=>"name"end);
   ("title", fun e => "card-title");
@@ -132,6 +133,11 @@ Definition field_applies d world s name :=
 Definition attachment_field e:=match e with NewTask _|Message _=>Some "message"|Card _=>Some "description"|_=>None end.
 Definition can_attach e:=match attachment_field e with Some _=>true|None=>false end.
 Definition attach_action e:=invoke(Input.ServiceInput(AddFile e(SelectedFile "" "" "" 0))).
+Definition workspace_option_caption value :=
+ if String.eqb value "current"then "Current workspace"else
+ if String.eqb value(WorkspaceBackend.name WorkspaceBackend.Local)then "Local worktree"else "Tencent Cloud CVM".
+Definition workspace_options := map(fun value=>option_node(JString value)(workspace_option_caption value))
+ ("current"::managed_workspace_names).
 Definition field_scene d world s f :=
   let name:=field_name(specification f)in let key:=editor_key(owner d)++"/"++name in
   let efforts:=ModelSelection.reasoning_values world(model_key d world s)in
@@ -140,7 +146,8 @@ Definition field_scene d world s f :=
   let kind:=if select then Scene.Select_role else if String.eqb(widget f)"checkbox"then Scene.Checkbox_role else Scene.Field_role in
   let options:=if reasoning then map(fun value=>option_node(JString value)value)efforts else
    if String.eqb(widget f)"profile"then (match Schema.field_kind(specification f)with KOptional _=>option_node(JString "")"继承默认值"::profile_choices world|_=>profile_choices world end)
-   else if String.eqb(widget f)"project"then project_options world else kind_options(Schema.field_kind(specification f))world in
+   else if String.eqb(widget f)"project"then project_options world
+   else if String.eqb name "task_environment"then workspace_options else kind_options(Schema.field_kind(specification f))world in
   let options:=if select then preserve_selected(field_value f d world s)options else options in
   node kind key[("disabled",JsonProperty(JBool(field_disabled(owner d)name world || (String.eqb name "create_worktree" && worktree_unavailable d world s))));("specification",FieldProperty(specification f));("keys",KeyProperty(if String.eqb name "message"then mention_keys(owner d)world s else []));("attrs",JsonProperty(JObject[("data-field",JString(field_key(owner d)name));("data-object-owner",JString(field_owner_key(owner d)name))]));("label",JsonProperty(JString(label f)));("value",JsonProperty(field_value f d world s));("value_kind",JsonProperty(JString(kind_name(Schema.field_kind(specification f)))));("action",InputProperty(edit_action(owner d)name));
     ("file_action",InputProperty(if connected(service_state s) && (match attachment_field(owner d)with Some target=>String.eqb name target|None=>false end)then attach_action(owner d)else UiAction None));
@@ -182,8 +189,10 @@ Definition form_scene e world s :=
   let control_nodes := ((if can_attach e then [node Scene.Field_role(editor_key e++"/upload")[("disabled",JsonProperty(JBool(negb(connected(service_state s)))));("label",JsonProperty(JString "Attach files"));("attrs",JsonProperty(JObject[("type",JString "file");("multiple",JString "true")]));("action",InputProperty(attach_action e))][]]else [])++
    (if can_speak e then [button(editor_key e++"/dictate")"Dictate"(invoke(Input.SpeechInput(BeginDictation (e) (revision d))))(negb(free(speech_state s)));
       button(editor_key e++"/skills")"Skills"(invoke(Input.LoadSkills (e)))false]else [])++
-   (match e with NewTask _=>[button(editor_key e++"/voice-new")"Start voice task"(invoke(Input.BeginVoiceNew e))(negb(free(speech_state s))||match voice_obstruction world(service_state s)d with Some _=>true|None=>false end)]|_=>[]end)++
-   (if existsb(fun f=>String.eqb(field_name(specification f))"create_worktree")(form_fields e)&&worktree_unavailable d world s
+   (match e with NewTask _=>if cloud_workspace d then
+      [text_node(editor_key e++"/cloud-voice")"Create the cloud task before starting voice"]else
+      [button(editor_key e++"/voice-new")"Start voice task"(invoke(Input.BeginVoiceNew e))(negb(free(speech_state s))||match voice_obstruction world(service_state s)d with Some _=>true|None=>false end)]|_=>[]end)++
+   (if (local_worktree d || existsb(fun f=>String.eqb(field_name(specification f))"create_worktree")(form_fields e))&&worktree_unavailable d world s
     then [text_node(editor_key e++"/worktree-availability")"工作区的 Git 能力尚未确认，或此目录不可创建工作树。"]else [])++
    (match e with Message task=>[button(editor_key e++"/configure")(execution_summary task world)(invoke(Input.OpenConfiguration e(editor_key e++"/configure")))false]|_=>[]end)++
    (match e with TitlePrompts=>[button "title-prompts/reset" "Reset title prompts"(invoke(Input.ResetTitlePrompts))false]|_=>[]end)++
@@ -346,7 +355,7 @@ Definition worktree_scene task world s:=
   [group("worktree/"++show_natural task)
    ([text_node("worktree/"++show_natural task++"/state")(text "status" tree++": "++text "message" tree)]++
     if String.eqb(text "status" tree)"archive_failed"then
-     [button("worktree/"++show_natural task++"/retry")"Retry worktree archive"(command_action "retry_worktree_archive"[("task_id",number task)])(negb(connected(service_state s)))]else [])]else []|None=>[]end)(items "worktrees" world).
+     [button("worktree/"++show_natural task++"/retry")"Retry workspace archive"(command_action "retry_worktree_archive"[("task_id",number task)])(negb(connected(service_state s)))]else [])]else []|None=>[]end)(items "worktrees" world).
 Definition source_pairs key values := map(fun '(name,value)=>text_node(key++"/"++name)(name++"："++value_or ""(as_string value)))(object_fields values).
 Definition context_source_scene index snapshot :=
  let key:="context-source/"++show_natural index in

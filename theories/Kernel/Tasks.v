@@ -1,3 +1,4 @@
+From Selvedge.Features Require Import WorkspaceBinding.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities.
@@ -26,22 +27,25 @@ Definition creation_defaults (environment : environment) :=
  | JString root => Workspace [root] (Some root)
  | value => match parse_workspace value with Some workspace => workspace | None => default_workspace end end in
  Settings workspace None (settings_sandbox default_settings)
-  (settings_approval default_settings) project false.
+  (settings_approval default_settings) project false None.
 Definition resolve_settings (model : profile) (source : option json) (fallback : task_settings) (value : world) :=
  let raw := match source with Some raw => raw | None => JNull end in
  let base := match field "project_id" raw with
  | None => Some fallback
  | Some JNull => Some (Settings (settings_workspace fallback) None (settings_sandbox fallback)
-    (settings_approval fallback) (settings_guidance fallback) (settings_worktree fallback))
+    (settings_approval fallback) (settings_guidance fallback) (settings_worktree fallback) (settings_resource fallback))
  | Some source => match natural source with
    | None => None
    | Some id => match registry_at id (world_projects value) with
      | Some project => if project_deleted project then None else
        Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
-        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project))
+        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) None)
      | None => None end end
  end in
- match base with Some base => parse_settings model (environment_profiles (world_environment value)) raw base | None => None end.
+ match base with
+ | Some base => match parse_settings model (environment_profiles (world_environment value)) raw base with
+   | Some settings => Some (WorkspaceBinding.normalize_settings settings value) | None => None end
+ | None => None end.
 Definition resolve_for_profile (name : string) (source : option json) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
  | Some model => resolve_settings model source fallback value | None => None end.
@@ -307,7 +311,7 @@ Definition open_side (id : N) (contents : content) (value : world) :=
     (append_task (fork_child id task contents (task_current_settings task) true) value) []
    else reject "descendant_limit" "The parent task has no remaining descendant capacity" value
  end.
-Definition configure_execution (id : N) (name reasoning : string) (sandbox : Domain.sandbox)
+Definition configure_execution_with (normalize : task_settings -> task_settings) (id : N) (name reasoning : string) (sandbox : Domain.sandbox)
  (approval_source : json) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
@@ -321,8 +325,8 @@ Definition configure_execution (id : N) (name reasoning : string) (sandbox : Dom
        | None => reject "invalid_approval" "The approval reviewer must be an existing fixed-reasoning profile" value
        | Some approval =>
        let current := task_current_settings task in
-       let settings := Settings (settings_workspace current) (settings_project current)
-        sandbox approval (settings_guidance current) (settings_worktree current) in
+       let settings := normalize (Settings (settings_workspace current) (settings_project current)
+        sandbox approval (settings_guidance current) (settings_worktree current) (settings_resource current)) in
        let same := Domain.same_profile chosen (task_current_profile task) &&
          Json.equal (settings_json settings) (settings_json (task_current_settings task)) in
        let updated := with_execution chosen settings task in
@@ -333,3 +337,5 @@ Definition configure_execution (id : N) (name reasoning : string) (sandbox : Dom
      end end
    else reject "task_busy" "Execution settings require a quiescent unarchived task" value
  end.
+
+Definition configure_execution := configure_execution_with (fun settings=>settings).
