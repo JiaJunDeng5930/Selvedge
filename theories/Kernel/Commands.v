@@ -22,7 +22,7 @@ Definition connection_operation := connection_project ++ [req "operation_id" KNa
 (** These declarations own public command names and fields. The schema
     interpreter and MetaRocq derivation consume this same list. *)
 Definition command_specs : list command_spec := [
-  Command "configure_task_execution" (task_identity ++ [req "profile" KText; req "reasoning" KText; req "sandbox" KJson; req "approval" KJson]);
+  Command "configure_task_execution" (task_identity ++ [opt "profile" KText; opt "reasoning" KText; opt "sandbox" KJson; opt "approval" KJson]);
   Command "create" creation_fields;
   Command "create_idle" ([req "profile" KText; opt "reasoning" KText; opt "settings" KJson; opt "work_id" KNatural; opt "create_worktree" KBool]);
   Command "send" (task_identity ++ content_fields);

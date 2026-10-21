@@ -313,30 +313,62 @@ Definition open_side (id : N) (contents : content) (value : world) :=
     (append_task (fork_child id task contents (task_current_settings task) true) value) []
    else reject "descendant_limit" "The parent task has no remaining descendant capacity" value
  end.
-Definition configure_execution_with (normalize : task_settings -> task_settings) (id : N) (name reasoning : string) (sandbox : Domain.sandbox)
- (approval_source : json) (value : world) :=
+(* The wire approval DTO names its reviewer. An explicit selection can replace
+   the frozen profile behind that same key, so wire equality is insufficient. *)
+Definition same_approval (left right : approval_policy) :=
+ match left, right with
+ | FullAccess, FullAccess | AskForApproval, AskForApproval => true
+ | ReviewWith reviewer_left, ReviewWith reviewer_right => Domain.same_profile reviewer_left reviewer_right
+ | _, _ => false end.
+
+(* Resetting effort uses the captured definition, even after the catalog changes.
+   An omitted effort still retains the task's current selection. *)
+Definition execution_reasoning (effort : option string) (current : profile) :=
+ match effort with
+ | Some "default" => match parse_profile (profile_metadata current) with
+   | Some configured => Some (with_reasoning (profile_reasoning configured) current)
+   | None => None end
+ | _ => selected_reasoning effort current
+ end.
+
+Definition configure_execution_with (normalize : task_settings -> task_settings) (id : N)
+ (name reasoning : option string) (sandbox_source approval_source : option json) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some task =>
    if quiescent task && negb (String.eqb (task_status task) "archived") then
-   match find_profile name (environment_profiles (world_environment value)) with
+   let current := task_current_settings task in
+   let model := match name with
+    | None => Some (task_current_profile task)
+    | Some name => find_profile name (environment_profiles (world_environment value)) end in
+   match model with
    | None => reject "profile_not_found" "The configured model profile does not exist" value
-   | Some profile => match selected_reasoning (Some reasoning) profile with
+   | Some profile => match execution_reasoning reasoning profile with
      | None => reject "invalid_reasoning" "The selected reasoning effort is unavailable" value
-     | Some chosen => match parse_approval profile (environment_profiles (world_environment value)) approval_source with
-       | None => reject "invalid_approval" "The approval reviewer must be an existing fixed-reasoning profile" value
-       | Some approval =>
-       let current := task_current_settings task in
-       let settings := normalize (Settings (settings_workspace current) (settings_project current)
-        sandbox approval (settings_guidance current) (settings_worktree current) (settings_resource current)) in
-       let same := Domain.same_profile chosen (task_current_profile task) &&
-         Json.equal (settings_json settings) (settings_json (task_current_settings task)) in
-       let updated := with_execution chosen settings task in
-       let updated := if same then updated else append_history [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)] updated in
-       accept (JObject [("task_id", number id)]) (put_task id updated value)
-        (if same then [] else [ResetModelSession id])
+     | Some chosen =>
+       match match sandbox_source with
+        | None => Some (settings_sandbox current)
+        | Some source => parse_sandbox_patch (settings_sandbox current) source end with
+       | None => reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value
+       | Some sandbox =>
+         match match approval_source with
+          | None => Some (settings_approval current)
+          | Some source => parse_approval chosen (environment_profiles (world_environment value)) source end with
+         | None => reject "invalid_approval" "The approval reviewer must be an existing fixed-reasoning profile" value
+         | Some approval =>
+           let settings := normalize (Settings (settings_workspace current) (settings_project current)
+            sandbox approval (settings_guidance current) (settings_worktree current) (settings_resource current)) in
+           let same := Domain.same_profile chosen (task_current_profile task) &&
+             Json.equal (settings_json settings) (settings_json current) &&
+             same_approval (settings_approval settings) (settings_approval current) in
+           let updated := with_execution chosen settings task in
+           let updated := if same then updated else append_history [SettingsMessage settings (profile_key chosen) (profile_reasoning chosen)] updated in
+           accept (JObject [("task_id", number id)]) (put_task id updated value)
+            (if same then [] else [ResetModelSession id])
+         end
        end
-     end end
+     end
+   end
    else reject "task_busy" "Execution settings require a quiescent unarchived task" value
  end.
 

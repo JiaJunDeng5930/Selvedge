@@ -128,13 +128,12 @@ Definition create_in_work (work:option N) (run:world->decision) (value:world) :=
 Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
  | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>
    if WorkspaceBinding.cloud_task (Selvedge.Generated.Commands.configure_task_execution_task_id p) value then
-   Some (match parse_sandbox (Selvedge.Generated.Commands.configure_task_execution_sandbox p) with
-    | Some sandbox=>Tasks.configure_execution_with WorkspaceBinding.cloud_settings
+   Some (Tasks.configure_execution_with WorkspaceBinding.cloud_settings
       (Selvedge.Generated.Commands.configure_task_execution_task_id p)
       (Selvedge.Generated.Commands.configure_task_execution_profile p)
-      (Selvedge.Generated.Commands.configure_task_execution_reasoning p) sandbox
-      (Selvedge.Generated.Commands.configure_task_execution_approval p) value
-    | None=>Selvedge.Kernel.State.reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value end)
+      (Selvedge.Generated.Commands.configure_task_execution_reasoning p)
+      (Selvedge.Generated.Commands.configure_task_execution_sandbox p)
+      (Selvedge.Generated.Commands.configure_task_execution_approval p) value)
    else None
  | Selvedge.Generated.Commands.Cmd_create p=>Some (CommandExecution.with_content (Selvedge.Generated.Commands.create_message p) (Selvedge.Generated.Commands.create_images p)
    (fun contents=>create_selected (Selvedge.Generated.Commands.create_profile p) (Selvedge.Generated.Commands.create_reasoning p) contents (Selvedge.Generated.Commands.create_settings p) false caller None value) value)

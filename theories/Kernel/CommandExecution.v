@@ -152,11 +152,12 @@ Definition execute (command : Selvedge.Generated.Commands.command) (caller : opt
  | Selvedge.Generated.Commands.Cmd_open_side_conversation request => Some (with_content (Selvedge.Generated.Commands.open_side_conversation_message request) (Selvedge.Generated.Commands.open_side_conversation_images request)
    (fun contents => Tasks.open_side (Selvedge.Generated.Commands.open_side_conversation_task_id request) contents value) value)
  | Selvedge.Generated.Commands.Cmd_return_side_conversation request => Some (return_side (Selvedge.Generated.Commands.return_side_conversation_task_id request) value)
- | Selvedge.Generated.Commands.Cmd_configure_task_execution request => Some (match parse_sandbox (Selvedge.Generated.Commands.configure_task_execution_sandbox request) with
-   | Some sandbox => configure_execution (Selvedge.Generated.Commands.configure_task_execution_task_id request)
-     (Selvedge.Generated.Commands.configure_task_execution_profile request) (Selvedge.Generated.Commands.configure_task_execution_reasoning request)
-     sandbox (Selvedge.Generated.Commands.configure_task_execution_approval request) value
-   | None => reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value end)
+ | Selvedge.Generated.Commands.Cmd_configure_task_execution request => Some (configure_execution
+     (Selvedge.Generated.Commands.configure_task_execution_task_id request)
+     (Selvedge.Generated.Commands.configure_task_execution_profile request)
+     (Selvedge.Generated.Commands.configure_task_execution_reasoning request)
+     (Selvedge.Generated.Commands.configure_task_execution_sandbox request)
+     (Selvedge.Generated.Commands.configure_task_execution_approval request) value)
  | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) value)
  | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) value)
  | Selvedge.Generated.Commands.Cmd_delete_project request => Some (delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value)

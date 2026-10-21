@@ -83,6 +83,13 @@ the initial voice context. The old audio adapter checked only the role and could
 read non-message reasoning or compaction records as speech; this classification
 now follows the same message definition as the conversation view.
 
+Live execution updates change only explicitly supplied fields. Omitted model and
+reviewer selections retain their captured configurations, including after catalog
+replacement or removal. Explicit `reasoning: "default"` restores the captured
+model's configured effort. This corrects the old whole-settings update path,
+which reselected unedited configurations; explicit same-key reviewer changes now
+also produce the corresponding settings history.
+
 JSON numeric lexemes and domain integers remain exact across the JavaScript
 boundary. Text is UTF-8; native string length means byte length where Gallina
 strings are used. This representation change does not permit truncating numbers
