@@ -23,8 +23,11 @@ Definition request_excerpt (text : string) : string :=
   String.substring O (request_excerpt_end request_scalars text O) text.
 Definition user_requests (history : list message) : list json :=
   map (fun parts => JString (request_excerpt (content_text parts)))
-    (firstn request_limit (rev (fold_right (fun message rest =>
-      match message with UserMessage parts => parts :: rest | _ => rest end) [] history))).
+    (fold_left (fun requests message =>
+      match message with
+      | UserMessage parts => firstn request_limit (parts :: requests)
+      | _ => requests
+      end) history []).
 Definition reason_bytes : N := 2048%N.
 Definition valid_reason (text : string) :=
   Utf8.well_formed text && Utf8.no_nul text &&
