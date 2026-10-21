@@ -100,7 +100,8 @@ permission admission and command classification are defined by the native
 feature and harness assembly; local service administration stays on the host.
 
 Managed Git worktrees use the same native lifecycle as local tasks.
-`create_worktree_task` requires both `control` and `configure`; `list_worktrees`
+`create_worktree_task` and `create_workspace_task` require both `control` and
+`configure`; `list_worktrees`
 and `read_worktree` require `read`, and `retry_worktree_archive` requires
 `control`. Keep the service home outside the source Git repository so private
 service state is excluded from checkout copies. Worktree creation and archiving
