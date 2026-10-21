@@ -1,9 +1,50 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith Arith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Import Domain Images.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+
+Lemma admitted_content_has_bounded_images : forall parts accepted,
+  admit_content parts = Some accepted ->
+  (image_count accepted <= message_image_limit)%nat.
+Proof.
+ intros parts accepted admitted. unfold admit_content in admitted.
+ destruct (Nat.leb (image_count parts) message_image_limit) eqn:bounded; [|discriminate].
+ inversion admitted; subst. now apply Nat.leb_le.
+Qed.
+
+Theorem parsed_content_has_bounded_images : forall source content,
+  parse_content source = Some content ->
+  (image_count content <= message_image_limit)%nat.
+Proof.
+ intros source content accepted. unfold parse_content in accepted.
+ destruct source; try discriminate;
+   try (eapply admitted_content_has_bounded_images; exact accepted).
+ destruct (traverse parse_content_part values); [|discriminate].
+ eapply admitted_content_has_bounded_images; exact accepted.
+Qed.
+
+Theorem valid_content_array_is_preserved : forall values content,
+  traverse parse_content_part values = Some content ->
+  (image_count content <= message_image_limit)%nat ->
+  parse_content (JArray values) = Some content.
+Proof.
+ intros values content parsed bounded. unfold parse_content. rewrite parsed.
+ unfold admit_content. apply Nat.leb_le in bounded. now rewrite bounded.
+Qed.
+
+Theorem parsed_user_content_has_bounded_images : forall source content,
+  parse_user_content source = Some content ->
+  (image_count content <= message_image_limit)%nat.
+Proof.
+ intros source content accepted. unfold parse_user_content in accepted.
+ repeat match type of accepted with
+ | context [match ?parsed with Some _ => _ | None => _ end] =>
+     destruct parsed; try discriminate
+ end.
+ eapply admitted_content_has_bounded_images; exact accepted.
+Qed.
 
 Definition valid_asset (image : image_asset) : Prop :=
   valid_identifier image.(image_id) = true /\ In image.(image_mime) mime_types /\

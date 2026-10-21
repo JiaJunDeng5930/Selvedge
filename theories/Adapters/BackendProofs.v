@@ -6,6 +6,43 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Theorem public_completed_response_preserves_durable_output : forall source first rest,
+  str (get source "event") "type" = "response.completed" ->
+  str (get (get source "event") "response") "status" = "completed" ->
+  get (get (get source "event") "response") "output" = JArray (first :: rest) ->
+  str (get (Api.call "backend.stream_step" source) "value") "action" = "terminal" /\
+  get (get (Api.call "backend.stream_step" source) "value") "output" = JArray (first :: rest).
+Proof.
+ intros source first rest kind completed output.
+ change (str (get (BackendResponses.stream_step source) "value") "action" = "terminal" /\
+   get (get (BackendResponses.stream_step source) "value") "output" = JArray (first :: rest)).
+ unfold BackendResponses.stream_step,step. rewrite kind. cbn.
+ rewrite completed,String.eqb_refl. unfold terminal_action. rewrite output. cbn [is_array items].
+ destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); split; reflexivity.
+Qed.
+
+Theorem public_nonterminal_events_cannot_release_durable_output : forall source,
+  str (get source "event") "type" <> "response.completed" ->
+  str (get (Api.call "backend.stream_step" source) "value") "action" <> "terminal".
+Proof.
+ intros source nonterminal.
+ change (str (get (BackendResponses.stream_step source) "value") "action" <> "terminal").
+ unfold BackendResponses.stream_step,step.
+ destruct (String.eqb (str (get source "event") "type") "response.output_text.delta");
+   [destruct (is_text (get (get source "event") "delta") &&
+      canonical_natural (get (get source "event") "output_index"))|];
+   try (destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate).
+ destruct (String.eqb (str (get source "event") "type") "response.output_item.done").
+ - destruct (canonical_natural (get (get source "event") "output_index") &&
+     is_object (get (get source "event") "item"));
+     try (destruct (conflict _ _ _));
+     destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate.
+ - apply String.eqb_neq in nonterminal. rewrite nonterminal.
+   destruct (existsb (String.eqb (str (get source "event") "type"))
+     ["error";"response.failed";"response.incomplete"]);
+     destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate.
+Qed.
+
 Theorem public_frozen_account_rejects_another_identity : forall source,
   text (get (get source "profile") "bound_account_id") <> "" ->
   JsonObjects.equivalent (get (get source "profile") "bound_account_id")
