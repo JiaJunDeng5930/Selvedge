@@ -152,10 +152,14 @@ class Fixture:
             print(log, file=sys.stderr)
 
 
-def navigate_task_id(page, task_id):
-    page.locator('button[data-key="task/' + str(task_id) + '"]').filter(visible=True).click(timeout=15000)
-    expect(page.get_by_role('button', name='Task details', exact=True)).to_be_visible()
-    expect(page.locator('textarea[data-key="message/' + str(task_id) + '/message"]').filter(visible=True)).to_be_visible()
+def navigate_task_id(page, fixture, task_id):
+    title = fixture.command(op='read', task_id=task_id)['task']['title']
+    # A side conversation can retain its parent's title; use the exposed Task identity to select the intended row.
+    row = page.get_by_role('navigation', name='Tasks', exact=True).locator(f'button[id="navigation/task/{task_id}"]')
+    expect(row).to_contain_text(title)
+    row.click(timeout=15000)
+    expect(page.get_by_role('main').get_by_role('button', name='Task details', exact=True).first).to_be_visible()
+    expect(page.get_by_role('main').get_by_role('combobox', name='Message', exact=True).filter(visible=True).first).to_be_visible()
 
 
 def document_contains_marker(page, marker):
@@ -183,7 +187,7 @@ def calculator_boundaries(page, fixture):
     title = 'Interactive calculator browser fixture'
     created = fixture.command(op='create', profile='interactive', message=title)
     request = fixture.request(title)
-    navigate_task_id(page, created['task_id'])
+    navigate_task_id(page, fixture, created['task_id'])
     prefix = '''## Calculator
 
 ```selvedge-ui
@@ -223,7 +227,7 @@ def calculator_boundaries(page, fixture):
     expect(note).to_have_value('中文输入')
     expect(page.get_by_text('After the interactive block.', exact=True).filter(visible=True)).to_be_visible()
     page.reload(wait_until='domcontentloaded')
-    navigate_task_id(page, created['task_id'])
+    navigate_task_id(page, fixture, created['task_id'])
     expect(page.get_by_role('slider', name='Seats', exact=True)).to_have_value('9', timeout=20000)
     expect(page.get_by_role('textbox', name='Note', exact=True).filter(visible=True)).to_have_value('中文输入')
     print(json.dumps({'boundary': 'actual provider streaming → committed controls, native slider/IME and reload restoration', 'passed': True}))
@@ -273,7 +277,7 @@ def action_boundaries(page, fixture):
     fixture.emit(request, code)
     fixture.finish(request)
     fixture.idle(task)
-    navigate_task_id(page, task)
+    navigate_task_id(page, fixture, task)
     submit = page.get_by_role('button', name='Send chosen count', exact=True).filter(visible=True)
     submit.click()
     reply = fixture.request('Chosen count: 2')
@@ -284,7 +288,7 @@ def action_boundaries(page, fixture):
 
 
 def namespace_boundaries(page, fixture, parent):
-    navigate_task_id(page, parent)
+    navigate_task_id(page, fixture, parent)
     page.set_viewport_size({'width': 900, 'height': 800})
     expect(page.get_by_text('Private calculator namespace marker', exact=True).filter(visible=True)).to_be_visible()
     restarted = fixture.call('/restart', {'differentNamespace': True})
@@ -317,7 +321,7 @@ def authorization_boundaries(page, fixture):
 ```
 '''.replace('GRAPH_ID', str(graph['graph_id'])))
     fixture.finish(request)
-    navigate_task_id(page, task)
+    navigate_task_id(page, fixture, task)
     projection = page.get_by_text(re.compile('^Revoked projection: ')).filter(visible=True)
     expect(projection).to_be_visible(timeout=20000)
     marker = projection.inner_text()
@@ -338,15 +342,15 @@ def side_conversation_boundaries(page, fixture, artifacts):
     title = 'Concurrent side conversation browser fixture'
     parent = fixture.command(op='create', profile='interactive', message=title)['task_id']
     parent_request = fixture.request(title)
-    navigate_task_id(page, parent)
-    composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+    navigate_task_id(page, fixture, parent)
+    composer = page.get_by_role('combobox', name='Message', exact=True).filter(visible=True)
     composer.fill('/side')
     composer.press('Enter')
     expect(page.get_by_text(re.compile(r'^Side conversation · task #')).filter(visible=True)).to_be_visible()
     tasks = fixture.command(op='list')['tasks']
     side = next(task['id'] for task in tasks if task['parent'] == parent)
     assert not fixture.call('/status')['requests'][parent_request]['closed'], 'Opening a side cancelled the parent request'
-    composers = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+    composers = page.get_by_role('combobox', name='Message', exact=True).filter(visible=True)
     expect(composers).to_have_count(2)
     side_composer = composers.last
     side_composer.fill('Inspect the parent before reflecting on its approach.')
@@ -388,12 +392,16 @@ def side_conversation_boundaries(page, fixture, artifacts):
     side_form = side_composer.locator('xpath=ancestor::form').bounding_box()
     side_panel = page.get_by_role('complementary', name='Side conversation', exact=True).bounding_box()
     form_bottom = side_form['y'] + side_form['height']
-    assert abs(form_bottom - (side_panel['y'] + side_panel['height'])) <= 1, 'Side composer is not docked to its panel'
+    content_bottom = page.get_by_role('complementary', name='Side conversation', exact=True).evaluate("""panel => {
+      const style = getComputedStyle(panel);
+      return panel.getBoundingClientRect().bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom);
+    }""")
+    assert abs(form_bottom - content_bottom) <= 1, 'Side composer is not docked to its panel content edge'
     allocation_bottom = page.get_by_role('complementary', name='Side conversation', exact=True).evaluate("""panel => {
       const allocation = panel.parentElement, style = getComputedStyle(allocation);
       return allocation.getBoundingClientRect().bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom);
     }""")
-    assert abs(form_bottom - allocation_bottom) <= 1, 'Side composer is not docked to the allocated content bottom'
+    assert abs(side_panel['y'] + side_panel['height'] - allocation_bottom) <= 1, 'Side panel does not fill its allocated content area'
     assert form_bottom <= page.viewport_size['height'], 'Side composer escaped the viewport bottom'
     assert side_form['x'] <= side_box['x'] and side_box['x'] + side_box['width'] <= side_form['x'] + side_form['width']
     assert side_form['y'] <= side_box['y'] and side_box['y'] + side_box['height'] <= form_bottom
@@ -410,10 +418,10 @@ def side_conversation_boundaries(page, fixture, artifacts):
     page.screenshot(path=str(artifacts / 'side-mobile.png'))
     page.set_viewport_size({'width': 1440, 'height': 1000})
     page.get_by_role('button', name='关闭', exact=True).filter(visible=True).click()
-    expect(page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)).to_have_count(1)
+    expect(page.get_by_role('combobox', name='Message', exact=True).filter(visible=True)).to_have_count(1)
     assert fixture.command(op='read', task_id=parent)['task']['queued'] == 0, 'Closing a side returned content'
     assert not fixture.call('/status')['requests'][parent_request]['closed']
-    navigate_task_id(page, side)
+    navigate_task_id(page, fixture, side)
     page.get_by_role('button', name='追加回 task #' + str(parent), exact=True).filter(visible=True).click()
     deadline = time.monotonic() + 15
     while fixture.command(op='read', task_id=parent)['task']['queued'] != 1:
@@ -433,7 +441,7 @@ def side_conversation_boundaries(page, fixture, artifacts):
     fixture.idle(parent)
     assert any('task_lifecycle' in json.dumps(message) and message.get('change', {}).get('type') == 'amend'
                for message in fixture.command(op='read', task_id=side)['messages'])
-    navigate_task_id(page, parent)
+    navigate_task_id(page, fixture, parent)
     held_commands = []
     def hold_side_creation(route):
         if route.request.post_data_json['command']['op'] == 'open_side_conversation':
@@ -442,22 +450,22 @@ def side_conversation_boundaries(page, fixture, artifacts):
             route.continue_()
     page.route('**/api/browser/command', hold_side_creation)
     try:
-        composer = page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)
+        composer = page.get_by_role('combobox', name='Message', exact=True).filter(visible=True)
         composer.fill('/side')
         composer.press('Enter')
         deadline = time.monotonic() + 15
         while not held_commands:
             assert time.monotonic() < deadline, 'No side creation crossed the browser command boundary'
             page.wait_for_timeout(50)
-        navigate_task_id(page, side)
+        navigate_task_id(page, fixture, side)
         response = held_commands[0].fetch()
         assert response.ok
         held_commands[0].fulfill(response=response)
     finally:
         page.unroute('**/api/browser/command', hold_side_creation)
-    expect(page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)).to_have_count(1)
-    navigate_task_id(page, parent)
-    expect(page.get_by_role('textbox', name='Message', exact=True).filter(visible=True)).to_have_value('')
+    expect(page.get_by_role('combobox', name='Message', exact=True).filter(visible=True)).to_have_count(1)
+    navigate_task_id(page, fixture, parent)
+    expect(page.get_by_role('combobox', name='Message', exact=True).filter(visible=True)).to_have_value('')
     fixture.call('/restart', {})
     before = fixture.command(op='read', task_id=parent)['cursor']
     replayed = fixture.call('/command', {'op': 'return_side_conversation', 'task_id': side})

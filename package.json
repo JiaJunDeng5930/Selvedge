@@ -18,7 +18,7 @@
     "openid-client": "6.8.8",
     "tencentcloud-sdk-nodejs-cvm": "4.1.316", "ws": "8.22.0"
   },
-  "devDependencies": { "@modelcontextprotocol/sdk": "1.31.0", "jose": "6.2.12" },
+  "devDependencies": { "@modelcontextprotocol/sdk": "1.31.0", "jose": "6.2.12", "playwright-core": "1.64.1" },
   "packageManager": "bun@1.4.2",
   "workspaces": ["plugins/selvedge-chatgpt", "relay"]
 }

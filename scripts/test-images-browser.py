@@ -9,6 +9,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import time
@@ -73,7 +74,7 @@ def visible_images(page, count):
 
 
 def message_composer(page):
-    return page.locator('textarea[data-key$="/message"]:not([inert] textarea)').filter(visible=True)
+    return page.get_by_role('main').get_by_role('combobox', name=re.compile(r'^(Task|Message)$')).filter(visible=True).first
 
 
 def image_boundaries(page, fixture, artifacts):
@@ -95,7 +96,7 @@ def image_boundaries(page, fixture, artifacts):
     model_request(fixture, 1, 1)
     task = fixture.command(op='list')['tasks'][0]['id']
     fixture.idle(task)
-    driver.navigate_task_id(page, task)
+    driver.navigate_task_id(page, fixture, task)
     visible_images(page, 1)
 
     composer = message_composer(page)
@@ -110,7 +111,7 @@ def image_boundaries(page, fixture, artifacts):
 
     fixture.call('/restart', {})
     page.reload(wait_until='domcontentloaded')
-    driver.navigate_task_id(page, task)
+    driver.navigate_task_id(page, fixture, task)
     visible_images(page, 2)
     message_composer(page).fill('Read both saved images again.')
     message_composer(page).press('Enter')

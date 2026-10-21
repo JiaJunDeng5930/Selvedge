@@ -12,6 +12,7 @@ async function sources(directory) {
 }
 await build({ check: true });
 await auditAssumptions();
+await run('bun', ['scripts/check-web-vendor.mjs']);
 const scripts = (await Promise.all(['host', 'scripts', 'remote', 'relay', 'plugins', 'tests'].map(sources))).flat();
 let cursor = 0;
 await Promise.all(Array.from({ length: 4 }, async () => {
