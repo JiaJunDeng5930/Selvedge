@@ -183,6 +183,8 @@ Definition native_input (description:Schema.kind)(incoming:json):json:=match des
 |KOptional KBool,JString "true"=>JBool true|KOptional KBool,JString "false"=>JBool false
 |KOptional KText,JString ""=>JNull
 |_,value=>value end.
+Definition choice_input(e:Identity.editor)(field:Fields.field)(choice:Fields.choice_value):json:=
+ native_input(kind e field)(JString(Fields.choice_value_of choice)).
 Definition decode_input e field incoming := Schema.decode_value(kind e field)(native_input(kind e field)(edit_value field incoming)).
 Definition native_checked (field:Fields.field)(value:Fields.observed):option bool:=match value with
 |ToggleValue enabled=>Some enabled|AssistanceValue enabled _=>Some enabled

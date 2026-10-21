@@ -233,22 +233,13 @@ Definition observe_assessment snapshot state e:assessment e:=
    |None=>obstruction "The draft does not yet form a command."end end end end).
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
-Definition choice_input {e}(subject:Model.subject e)(choice:Fields.choice_value):json:=
- let raw:=Fields.choice_value_of choice in
- match subject_kind subject with
- |KBool=>JBool(String.eqb raw "true")
- |KNatural=>JNumber raw
- |KOptional KNatural=>if String.eqb raw ""then JNull else JNumber raw
- |KOptional KBool=>if String.eqb raw ""then JNull else JBool(String.eqb raw "true")
- |KOptional _=>if String.eqb raw ""then JNull else JString raw
- |_=>JString raw end.
 Definition assignment_shape_available snapshot state {e}(assignment:assignment e):bool:=
  let subject:=assignment_subject assignment in
  let incoming:=Schema.encode_value(subject_kind subject)(assignment_value assignment)in
  Parameters.editable e(subject_declaration subject) &&
  match entry snapshot state subject with
  |Fields.DisplayOnly=>false
- |Fields.Choice=>existsb(fun choice=>Json.equal incoming(choice_input subject choice))(choices snapshot state subject)
+ |Fields.Choice=>existsb(fun choice=>Json.equal incoming(Parameters.choice_input e(subject_declaration subject)choice))(choices snapshot state subject)
  |Fields.PositiveInteger=>match Codec.natural incoming with Some count=>N.ltb 0 count|None=>false end
  |_=>match subject_declaration subject with
    |Fields.ReasoningEffort=>match observe_subject snapshot state subject,as_string incoming with
@@ -320,7 +311,7 @@ Definition selected_value snapshot state {e}(subject:subject e)incoming:bool:=
  |_=>Json.equal incoming(Parameters.native_value(subject_declaration subject)(observe_subject snapshot state subject))end.
 Definition alternative_from_choice snapshot state {e}(subject:Model.subject e)(choice:Fields.choice_value):option(alternative e subject):=
  if Parameters.editable e(subject_declaration subject)then
- let incoming:=choice_input subject choice in
+ let incoming:=Parameters.choice_input e(subject_declaration subject)choice in
  value<-Schema.decode_value(subject_kind subject)incoming;;
  let assignment:=Activity.Assignment subject value in
  let current:=State.current_draft state e in

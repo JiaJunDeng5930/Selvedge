@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require Import Identity Appearance Graphics CodeSource CodeBlock DocumentPublication Audit.
 From Selvedge.Interaction.Experience Require Model Activity.
-From Selvedge.Interaction.Submission Require Fields.
+From Selvedge.Interaction.Submission Require Fields Parameters.
 From Selvedge.Interaction.Interactive Require Presentation.
 From Selvedge.Interaction.Presentation Require Roles Information Composition Gesture.
 From Selvedge.Interaction.Presentation Require Import Model.
@@ -386,6 +386,24 @@ Definition map_actions {A B} (f : A -> B) (value : surface A) : surface B :=
   Surface (workspace_key value) (main_key value)
     (map (map_node f) (base value)) (map (map_node f) (overlays value)) (surface_appearance value).
 
+(** Enumerate only the finite observations already declared by a native control.
+    Text receivers remain open; current parameter Apply actions are explicit nodes. *)
+Definition receiver_actions {A}(receive:json->option A)(values:list json):list A:=
+ fold_right(fun value rest=>match receive value with
+ |Some action=>action::rest|None=>rest end)[] values.
+
+Definition edit_actions {A e}(subject:UX.subject e)(value:edit_control A):list A:=
+ match editing_entry value,editing_input value with
+ |Fields.DisplayOnly,_|_,None=>[]
+ |_,Some receive=>
+   let field:=UX.subject_declaration subject in
+   let inputs:=match editing_entry value with
+   |Fields.Choice=>map(Parameters.choice_input e field)(editing_choices value)
+   |_=>match Parameters.native_checked field(editing_observation value)with
+     |Some _=>[JBool false;JBool true]|None=>[]end
+   end in receiver_actions receive inputs
+ end.
+
 Definition meaning_actions {A}(content:meaning A):list A:=match content with
 |SettingEntry _ _ action|ActionCommit _ _ action|SupportingControl _ _ _ action
 |PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
@@ -396,6 +414,9 @@ Definition meaning_actions {A}(content:meaning A):list A:=match content with
 |InteractiveTable table=>fold_right(fun column rest=>match Components.column_sort column with
   |Some action=>action::rest|None=>rest end)[](Components.table_columns table)
 |EnterDirectory _ _ _ (Some confirm)=>[confirm]
+|Edit _ subject value=>edit_actions subject value
+|BoardProfile _ _ choices _ receive=>
+ receiver_actions receive(map(fun choice=>JString(Fields.choice_value_of choice))choices)
 |_=>[]end.
 Fixpoint node_actions {A}(value:node A):list A:=
  let 'Node _ _ _ _ content children:=value in
