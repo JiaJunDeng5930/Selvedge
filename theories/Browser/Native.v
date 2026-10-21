@@ -75,6 +75,32 @@ Definition refresh_needed (source_namespace : string) (source_sequence : N)
   negb (String.eqb source_namespace (namespace state) &&
     (N.leb source_sequence (sequence state)) && sources_fresh).
 
+(** A logical document may be presented simultaneously in independent physical
+    views. IO observes candidates; this rule selects a target without changing
+    the logical editor, task or source authority. *)
+Record target_observation := TargetObservation {
+  target_key : string; target_aliases : list string; target_view : string
+}.
+Definition resolve_target (requested preferred_view : string)
+    (candidates : list target_observation) : option string :=
+  match find (fun candidate => String.eqb requested (target_key candidate)) candidates with
+  | Some candidate => Some (target_key candidate)
+  | None =>
+    let aliases := filter (fun candidate => existsb (String.eqb requested) (target_aliases candidate)) candidates in
+    match find (fun candidate => String.eqb preferred_view (target_view candidate)) aliases with
+    | Some candidate => Some (target_key candidate)
+    | None => option_map target_key (hd_error aliases)
+    end
+  end.
+
+(* DEFENSE: resizing can remove an activity's original trigger before it closes.
+   Its return effect explicitly supplies another real target; ordinary focus has no fallback. *)
+Definition resolve_focus_target requested fallback preferred_view candidates :=
+  match resolve_target requested preferred_view candidates with
+  | Some key => Some key
+  | None => resolve_target fallback preferred_view candidates
+  end.
+
 Definition cycle (backward : bool) (current : string) (targets : list string) : option string :=
   let ordered := if backward then rev targets else targets in
   let fix after (xs : list string) :=

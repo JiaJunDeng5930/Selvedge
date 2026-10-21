@@ -124,12 +124,14 @@ Definition move_mention backward skills state :=
   | Suggesting value selected => Suggesting value
       (move_index backward selected (List.length (candidates (query value) skills)))
   | _ => state end.
-Definition highlighted skills state :=
+Definition highlighted_choice skills state :=
   match state with
   | Suggesting value selected =>
       let matches := candidates (query value) skills in
-      nth_error matches (selected mod List.length matches)
+      let index := selected mod List.length matches in
+      option_map (fun skill => (index, skill)) (nth_error matches index)
   | _ => None end.
+Definition highlighted skills state := option_map snd (highlighted_choice skills state).
 Definition choose_mention index skills state :=
   match state with
   | Suggesting value _ => option_map (fun chosen => (value, chosen))

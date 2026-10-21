@@ -83,15 +83,35 @@ Definition snapshot_call source :=
       (admit_snapshot (if bool_value "authenticating" source then Authentication else ExistingSession)
         expected incoming cursor state))
   | _, _, _, _ => invalid "Snapshot requires request scope and namespace/sequence observations" end.
+Fixpoint text_observations (values : list json) : option (list string) :=
+  match values with
+  | [] => Some []
+  | JString value :: rest => option_map (cons value) (text_observations rest)
+  | _ => None end.
+Definition target_observation (value : json) : option Native.target_observation :=
+  match string_field "key" value, array_field "aliases" value, string_field "view" value with
+  | Some key, Some aliases, Some view => option_map (fun aliases => TargetObservation key aliases view) (text_observations aliases)
+  | _, _, _ => None end.
+Fixpoint target_observations (values : list json) : option (list Native.target_observation) :=
+  match values with
+  | [] => Some []
+  | value :: rest => match target_observation value, target_observations rest with
+      | Some value, Some rest => Some (value :: rest) | _, _ => None end
+  end.
+Definition resolve_target_call (source : json) : json :=
+  match string_field "target" source, string_field "view" source, array_field "candidates" source with
+  | Some target, Some view, Some candidates =>
+      match target_observations candidates with
+      | Some candidates => success (match (match string_field "fallback" source with
+          | Some fallback => resolve_focus_target target fallback view candidates
+          | None => resolve_target target view candidates end) with
+          | Some key => JString key | None => JNull end)
+      | None => invalid "Physical target candidates require key, aliases and view" end
+  | _, _, _ => invalid "Target resolution requires target, view and observed candidates" end.
 Definition focus_call (source : json) : json :=
   match string_field "current" source, array_field "targets" source with
   | Some current, Some targets =>
-      let fix texts (xs : list json) :=
-        match xs with
-        | [] => Some []
-        | JString key :: rest => option_map (cons key) (texts rest)
-        | _ => None end in
-      match texts targets with
+      match text_observations targets with
       | Some targets => success
           (match cycle (bool_value "backward" source) current targets with
           Some key => JString key | None => JNull end)
@@ -158,6 +178,7 @@ Definition call (operation : string) (source : json) : json :=
   | "publication" => publication_call source
   | "snapshot" => snapshot_call source
   | "focus_cycle" => focus_call source
+  | "resolve_target" => resolve_target_call source
   | "reading" => reading_call source
   | "code_initial" => CodeBlock.code_block_call "initial" source
   | "code_step" => CodeBlock.code_block_call "step" source

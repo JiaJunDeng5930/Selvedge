@@ -132,6 +132,9 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
    | _,_,_ => None end else None
  | _ => None end end end.
 Definition profile_json (value : profile) := profile_metadata value.
+Definition reviewer_json (value : reviewer) := match value with
+ | HumanReviewer => JObject [("kind",JString "human")]
+ | ModelReviewer profile => JObject [("kind",JString "model");("profile",profile_json profile)] end.
 Definition model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString (profile_reasoning value));
@@ -259,7 +262,7 @@ Definition message_json (owner : N) (value : message) :=
  | SpeechDelegation owner session delegation mode text => JObject [("role", JString "speech_delegation_receipt"); ("task_id", number owner);
    ("session_id", JString session); ("delegation_id", JString delegation); ("mode", JString mode); ("content", JString text)]
  | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", outcome)]
- | ApprovalReceipt owner operation call outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", call_json call); ("content", outcome)]
+ | ApprovalReceipt owner operation call reviewed_by outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", call_json call); ("reviewer", reviewer_json reviewed_by); ("content", outcome)]
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
    ("operation_id",number operation);("call",call_json invocation);("content",result);("is_error",JBool error)]
  | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]

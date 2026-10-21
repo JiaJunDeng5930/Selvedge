@@ -30,3 +30,12 @@ and local-storage completion are correlated with their model-issued identities.
 is not tracked. Run the browser tests through the real service fixtures in
 `scripts/test-*-browser.py`; a synthetic page that substitutes a model is not an
 acceptance test.
+
+
+The renderer maintains physical DOM identities independently of logical document
+and editor ownership. Logical focus and reading requests are resolved by the
+extracted browser rules against observed native targets. Responsive navigation
+uses one real header; native dialog order follows the declared scene order.
+Anchored dialogs use their captured trigger and CSS anchor positioning. Native
+modal inertness also governs layout reveal and animation, without introducing a
+second application navigation or viewport state.

@@ -115,18 +115,20 @@ Definition step namespace lagged now world input s :=
    |_=>reject "UnsupportedInput" "This interaction input has no reducer" s end end in
  let next:=Documents.synchronize_documents namespace lagged world(resulting_state result)in
  let pruned:=prune_documents namespace lagged world before next in
- append_result(append_result result pruned)(refresh_language namespace lagged revoked world(resulting_state pruned)).
+ refresh_preflight now world
+   (append_result(append_result result pruned)(refresh_language namespace lagged revoked world(resulting_state pruned))).
 
 Definition interactive_portals namespace lagged world s :=
  let environment:=Documents.environment namespace lagged world s in
  fold_right(fun block scenes=>let owner:=Selvedge.Interaction.Interactive.State.block_owner block in
-   match Documents.portal_target namespace owner world s,
-     Selvedge.Interaction.Interactive.Language.observe_owner owner(current_language_state namespace world s)environment with
-   |Some target,Some scene=>
-     Scene.Container Scene.CPortal("interactive/"++Selvedge.Interaction.Interactive.Types.owner_key owner++"/"++show_natural(Selvedge.Interaction.Interactive.Types.epoch owner))
-      [("target",JString target)]None
-      [Scene.map_actions Input.Interactive scene]::scenes
-   |_,_=>scenes end)[](Selvedge.Interaction.Interactive.State.blocks(interactive_state s)).
+   match Selvedge.Interaction.Interactive.Language.observe_owner owner(current_language_state namespace world s)environment with
+   |Some scene=>map(fun '(view,target)=>
+     let portal:=Scene.Container Scene.CPortal
+      ("interactive/"++Selvedge.Interaction.Interactive.Types.owner_key owner++"/"++show_natural(Selvedge.Interaction.Interactive.Types.epoch owner))
+      [("target",JString target)]None [Scene.map_actions Input.Interactive scene]in
+     match view with EmptyString=>portal|_=>Scene.scope view(Input.scope_triggers view)portal end)
+      (Documents.portal_targets namespace owner world s)++scenes
+   |None=>scenes end)[](Selvedge.Interaction.Interactive.State.blocks(interactive_state s)).
 Definition observe namespace lagged now world s :=
  Scene.Container Scene.CGroup "semantic-application" []None
   (Presentation.observe namespace now world s::interactive_portals namespace lagged world s).

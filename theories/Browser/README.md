@@ -27,3 +27,36 @@ storage, media devices, HTTP and SSE are external effects. The proofs do not
 claim that those implementations or remote services obey the model. Native
 completion tickets and the committed world determine whether their observations
 are admitted by the owning interaction operation.
+
+
+`Appearance` retains the authored SVG symbols and the independent motor-target,
+writing-line and clearance dimensions. Button scenes declare their symbol; the
+browser does not infer product meaning from a key or caption.
+
+One viewport observation supplies two allocations: workspace navigation and the
+currently present supporting regions. A temporary supporting dialog therefore
+does not collapse otherwise viable desktop navigation. The responsive projection
+renders one branch of each alternative. Its compact task drawer contains the same
+header and task tree, while a higher activity retains the foreground scope.
+Native modal dialogs supply background inertness, cancellation and focus isolation.
+
+Physical view occurrences scope DOM identities and ID references. They retain the
+same logical editor, document and source authority. `Native.resolve_target` first
+honors a physical key, then chooses an observed logical alias in the active view.
+Scene-declared focus aliases also keep responsive return targets available.
+Anchored menus refer to their actual trigger and use native CSS anchor positioning.
+Graph templates remain in fixed, internally scrollable node enclosures; their
+owning `Plot` calculation changes geometry without shrinking native controls.
+Chart canvases retain their drawing dimensions inside a horizontal scrollport.
+
+The foreign host sends canonical command-assessment requests unchanged and returns
+ticketed observations. Superseded requests release their fetch resources. The
+interaction service owns admission, correlation, stale observations and explicit
+retry. Physical visibility and reduced-motion observations pause animation through
+a separate native attribute; resource freshness remains a semantic scene attribute.
+
+The checked target-resolution and compact-navigation statements concern the native
+document that is actually extracted. Browser layout, CSS anchors, intrinsic text
+measurement, modal behavior and font shaping execute in the browser engine; their
+physical behavior is exercised through Chromium. No retired Bend pixel allocator
+or compiler object representation remains in the runtime.

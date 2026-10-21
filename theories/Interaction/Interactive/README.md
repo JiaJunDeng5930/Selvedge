@@ -34,6 +34,9 @@ Preview and interrupted documents cannot perform authored external actions or
 persist a snapshot. Complete documents may request restoration once before an
 edit. Storage returns an explicit missing observation or raw text; the Gallina
 JSON parser and snapshot validator admit the entire canonical payload atomically.
+View ownership is checked against a trial using all restored roots: a hidden
+conditional view may stay dormant, while an explicitly removed repeated item
+rejects the complete entry.
 Edits invalidate an outstanding restoration. Snapshots exclude raw buffers,
 source observations, pending actions and derived values.
 
@@ -44,7 +47,13 @@ steps. Browser storage, clipboard, navigation and command execution are external
 effects; their physical success is reported through correlated callbacks rather
 than established by a pure proof.
 
-Migration deliberately corrects two old behaviors: expression errors retain the
-budget they consumed, and graph panning admits negative displacement. Graph zoom
-and fit retain the original range and step behavior. Build and migration decisions
-are recorded in the repository ADRs rather than duplicated here.
+Graph templates remain inside their positioned nodes, including their local
+controls. Node state and connection rules also have a readable list equivalent.
+Fit uses a single column; zoom returns to the stable grid. Viewport state belongs
+to the logical document, while each main or side presentation has separate DOM
+keys and native editing sessions.
+
+Migration corrects three old behaviors: expression errors retain their consumed
+budget, graph panning admits negative displacement, and minimum node enclosures
+do not overlap at low zoom. Graph zoom and fit retain their range and step behavior.
+Build and migration decisions are recorded in repository ADRs.

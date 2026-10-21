@@ -14,6 +14,7 @@ import { createPhysicalMeasurer } from './physical-measurement.mjs';
 const surface = document.getElementById('surface');
 const files = new Map();
 const transfers = new Map();
+const assessments = new Map();
 const resources = new Set();
 const timers = new Set();
 const readings = new Map();
@@ -133,10 +134,11 @@ function registerFiles(action, selected) {
   }
 }
 const renderer = new Renderer(surface, {
+  resolveTarget(source) { return browser('resolve_target', source); },
   fieldSession(source) { return browser('field_session', source); },
   event(binding, event, key, node, generation) {
     if (!admitted(generation)) return;
-    if (binding.kind === 'activate') { event.preventDefault(); sendAction(binding.action); }
+    if (binding.kind === 'activate' || binding.kind === 'dismiss') { event.preventDefault(); sendAction(binding.action); }
     else if (binding.kind === 'submit') sendAction(binding.action);
     else if (binding.kind === 'edit') {
       let value = node.value;
@@ -170,7 +172,9 @@ const renderer = new Renderer(surface, {
     }
     const dialog = node.closest('dialog[open],[aria-modal="true"]');
     if (dialog && event.key === 'Tab') {
-      const targets = Array.from(dialog.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex="0"]'));
+      const targets = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
+        target.tabIndex >= 0 && !target.matches(':disabled') && !target.closest('[inert],[hidden]') &&
+        target.getClientRects().length && getComputedStyle(target).visibility !== 'hidden');
       const keys = targets.map((_, index) => String(index));
       const next = browser('focus_cycle', { current: String(targets.indexOf(event.target)), targets: keys, backward: event.shiftKey });
       if (next !== null) { event.preventDefault(); targets[Number(next)].focus(); }
@@ -287,13 +291,14 @@ function layoutReading() {
 function dismiss(event) {
   // DEFENSE: An inner menu can consume Escape before it reaches the enclosing dialog.
   if (event.defaultPrevented) return;
-  const modal = Array.from(renderer.records.values()).filter(record => record.events.some(binding => binding.kind === 'dismiss')).at(-1);
-  if (!modal || !admitted(modal.generation)) return;
+  const modal = renderer.modalRecord();
+  const dismissal = modal?.events.find(binding => binding.kind === 'dismiss');
+  if (!dismissal || !admitted(modal.generation)) return;
   if (event.type === 'keydown' && event.key === 'Escape' || event.type === 'pointerdown' && (!modal.node.contains(event.target) || event.target === modal.node && (() => {
     const box = modal.node.getBoundingClientRect();
     return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
   })())) {
-    event.preventDefault(); dispatch(modal.events.find(binding => binding.kind === 'dismiss').action);
+    event.preventDefault(); dispatch(dismissal.action);
   }
 }
 document.addEventListener('keydown', dismiss);
@@ -400,6 +405,22 @@ async function settled(type, ticket, work) {
     dispatch({ type, ticket, ok: false, error: error.message });
   }
 }
+async function assessCommand(effect) {
+  const key = ticketKey(effect.request.editor);
+  assessments.get(key)?.abort();
+  const controller = new AbortController();
+  assessments.set(key, controller);
+  try {
+    const value = await post('/api/assess', effect.request, controller.signal);
+    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: true, value });
+  } catch (error) {
+    // DEFENSE: A newer draft assessment or page teardown cancels this superseded request.
+    if (controller.signal.aborted) return;
+    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: false, error: error.message });
+  } finally {
+    if (assessments.get(key) === controller) assessments.delete(key);
+  }
+}
 async function execute(effect) {
   switch (effect.type) {
     case 'authenticate': return authenticate(effect);
@@ -408,6 +429,7 @@ async function execute(effect) {
       timers.add(timer); return;
     }
     case 'command': return settled('completed', effect.ticket, () => requestCommand(effect.command));
+    case 'assess_command': return assessCommand(effect);
     case 'save_appearance':
       try { localStorage.setItem('selvedge-appearance', effect.value); }
       // DEFENSE: Browser privacy settings or storage quotas can reject a local preference write.
@@ -470,17 +492,18 @@ async function execute(effect) {
     }
     case 'focus': {
       const generation = publication.semantic;
-      if (!renderer.target(effect.key)) await renderer.whenCaughtUp();
-      if (admitted(generation)) renderer.target(effect.key)?.focus({ preventScroll: true });
+      const target = () => renderer.resolveTarget(effect.key, { fallback: effect.fallback });
+      if (!target()) await renderer.whenCaughtUp();
+      if (admitted(generation)) target()?.focus({ preventScroll: true });
       return;
     }
     case 'follow_latest': {
-      const node = renderer.target(effect.key);
-      if (node) readingStep(effect.key, node, 'follow');
+      const node = renderer.resolveTarget(effect.key, { modal: false });
+      if (node) readingStep(node.dataset.key, node, 'follow');
       return;
     }
     case 'scroll_to_message': {
-      const target = renderer.target(effect.key);
+      const target = renderer.resolveTarget(effect.key, { modal: false });
       if (target) {
         const root = target.closest('[data-reading-root="true"]');
         if (root) {
@@ -491,7 +514,7 @@ async function execute(effect) {
       }
       return;
     }
-    case 'selection_bytes': applyByteSelection(renderer.target(effect.key), integral(effect.start), integral(effect.end)); return;
+    case 'selection_bytes': applyByteSelection(renderer.resolveTarget(effect.key), integral(effect.start), integral(effect.end)); return;
     case 'clipboard': await navigator.clipboard.writeText(effect.text); return;
     case 'audio_login': return audio.execute('BeginAudioLogin', effect);
     case 'audio_capabilities': return audio.execute('LoadCapabilities', effect);
@@ -563,6 +586,7 @@ window.addEventListener('pagehide', () => {
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) entry.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
+  for (const controller of assessments.values()) controller.abort();
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
 }, { once: true });

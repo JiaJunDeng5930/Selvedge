@@ -98,6 +98,7 @@ Inductive speaker := UserSpeaker | AssistantSpeaker.
 Inductive speech_completion := SpeechCompleted | SpeechInterrupted.
 Inductive output_mode := PlainOutput | InteractiveOutput.
 Record output_origin := OutputOrigin { origin_producer : N; origin_operation : N; origin_part : N; origin_mode : output_mode }.
+Inductive reviewer := HumanReviewer | ModelReviewer (profile : profile).
 Inductive message :=
 | InstructionMessage (source : string) (value : json)
 | SettingsMessage (settings : task_settings) (profile reasoning : string)
@@ -116,12 +117,11 @@ Inductive message :=
 | SpeechTranscript (owner : N) (session item : string) (who : speaker) (completion : speech_completion) (text : string)
 | SpeechDelegation (owner : N) (session delegation mode text : string)
 | HookReceipt (owner : N) (invocation : call) (plugin outcome : json)
-| ApprovalReceipt (owner operation : N) (invocation : call) (outcome : json)
+| ApprovalReceipt (owner operation : N) (invocation : call) (reviewed_by : reviewer) (outcome : json)
 | ToolReceipt (owner operation : N) (invocation : call) (result : json) (error : bool)
 | AfterReceipt (owner operation : N) (plugin outcome : json)
 | ForkReceipt (owner : N) (invocation : call) (branch : N).
 
-Inductive reviewer := HumanReviewer | ModelReviewer (profile : profile).
 Inductive operation_state :=
 | Executing (ticket : N)
 | AwaitingApproval (ticket : N) (reviewer_value : reviewer)
@@ -197,7 +197,7 @@ Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cur
 (* Only committed input not included in the latest actual model request can
    demand a later inference; model output and administrative receipts do not. *)
 Definition unseen_model_input (value : task) := existsb (fun item => match item with
- | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ => true | _ => false end)
+ | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ _ => true | _ => false end)
  (skipn (task_model_cursor value) (task_history value)).
 Definition with_queued (queued : list content) (value : task) := set task_queued (fun _ => queued) value.
 Definition with_execution (chosen : profile) (settings : task_settings) (value : task) :=

@@ -1,12 +1,15 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Interaction Require Import Codec Identity Services Speech ApplicationState Input SkillMention.
+From Selvedge.Interaction Require Import Codec Identity Services Speech ApplicationState Input SkillMention Activities.
+From Selvedge.Interaction Require CommandAssessment.
 Import ListNotations.
 Open Scope string_scope.
 Definition record_input kind props:=JObject(("type",JString kind)::props).
 Definition ticket_input kind t:=record_input kind[("ticket",number t)].
 Definition encode_outcome {A} (encode:A->json) (outcome:sum string A):=match outcome with inl error=>[("ok",JBool false);("error",JString error)]|inr value=>[("ok",JBool true);("value",encode value)]end.
 Definition encode_service_input input:=match input with
+|CommandAssessed t outcome=>record_input "command_assessed"(("ticket",number t)::encode_outcome CommandAssessment.encode_observation outcome)
+|RetryAssessment e=>record_input "retry_assessment"[("editor",encode_editor e)]
 |WorkspaceGitCompleted t outcome=>record_input "workspace_git_completed"(("ticket",number t)::encode_outcome JBool outcome)
 |RestoreModelPreference raw=>record_input "model_preference_restored"[("value",JString raw)]
 |StorageProblem message=>record_input "storage_problem"[("message",JString message)]
@@ -49,24 +52,34 @@ Definition encode_input i:=match i with
 |BeginVoiceNew e=>record_input "begin_voice_new"[("editor",encode_editor e)]
 |SelectSharedTask work task=>record_input "select_shared_task"[("work_id",number work);("value",optional_id task)]
 |Navigate r=>record_input "navigate"[("route",encode_route r)]|SelectWork w=>record_input "select_work"[("work",optional_id w)]|CreateWork=>record_input "create_work"[]
+|MenuAction subject key occurrence=>record_input "menu_action"[("subject",encode_menu_subject subject);("key",JString key);("occurrence",number occurrence)]
+|RetryMenuAssessment subject key occurrence=>record_input "retry_menu_assessment"[("subject",encode_menu_subject subject);("key",JString key);("occurrence",number occurrence)]
+|OpenObjectActions subject trigger=>record_input "open_object_actions"[("subject",encode_menu_subject subject);("trigger",JString trigger)]
+|OpenNavigation kind trigger=>record_input "open_navigation"[("navigation",JString(navigation_panel_name kind));("trigger",JString trigger)]
+|RepairSubject e revision name trigger=>record_input "repair_subject"[("editor",encode_editor e);("revision",number revision);("field",JString name);("trigger",JString trigger)]
+|OpenActivity e request trigger=>record_input "open_activity"[("editor",encode_editor e);("request",encode_request request);("trigger",JString trigger)]
+|ActivityView occurrence view=>record_input "activity_view"[("occurrence",number occurrence);("view",encode_view view)]
+|ActivitySelect occurrence name value=>record_input "activity_select"[("occurrence",number occurrence);("field",JString name);("value",value)]
+|ActivitySearch occurrence query=>record_input "activity_search"[("occurrence",number occurrence);("value",JString query)]
+|ActivityParameter occurrence buffer=>record_input "activity_parameter"[("occurrence",number occurrence);("value",JString buffer)]
+|ActivityComplete occurrence=>record_input "activity_complete"[("occurrence",number occurrence)]
+|ActivityWorkspaceChange occurrence change=>record_input "activity_workspace"[("occurrence",number occurrence);("change",encode_workspace_change change)]
 |OpenEditor e trigger=>record_input "open_editor"[("editor",encode_editor e);("trigger",JString trigger)]
 |Edit e name value selection=>record_input "edit"(("editor",encode_editor e)::("field",JString name)::("value",value)::match selection with None=>[]|Some(a,b,c)=>[("selection",JObject[("start",number a);("end",number b);("composing",JBool c)])]end)
-|RetryWorkspace e=>record_input "retry_workspace"[("editor",encode_editor e)]
+|RetryWorkspace e trigger=>record_input "retry_workspace"[("editor",encode_editor e);("trigger",JString trigger)]
 |DirectoriesCompleted t outcome=>record_input "directories_completed"(("ticket",number t)::encode_outcome (fun value=>value) outcome)
-|Submit e=>record_input "submit"[("editor",encode_editor e)]
+|Submit e trigger=>record_input "submit"[("editor",encode_editor e);("trigger",JString trigger)]
 |RemoveAttachment e id=>record_input "remove_attachment"[("editor",encode_editor e);("id",JString id)]
 |Command c=>record_input "command"[("command",encode_command c)]
 |Completed t r=>record_input "completed"(("ticket",number t)::encode_outcome(fun j=>j)r)
 |ServiceInput s=>encode_service_input s|SpeechInput s=>encode_speech_input s
-|OpenConfiguration e trigger=>record_input "open_configuration"[("editor",encode_editor e);("trigger",JString trigger)]
-|ApplyConfiguration e=>record_input "apply_configuration"[("editor",encode_editor e)]
 |InspectSource e name trigger=>record_input "inspect_source"[("editor",encode_editor e);("field",JString name);("trigger",JString trigger)]
 |ClosePanel=>record_input "close_panel"[]
 |OpenInformation kind subject trigger=>record_input "open_information"[("kind",JString kind);("subject",subject);("trigger",JString trigger)]
 |Confirm=>record_input "confirm"[]
-|Input.Confirmation c caption destination trigger=>record_input "confirmation"[("command",encode_command c);("caption",JString caption);("route",encode_route destination);("trigger",JString trigger)]
-|BeginSide t=>record_input "begin_side"[("task_id",number t)]
-|ShowSide t=>record_input "show_side"[("task_id",number t)]|CloseSide=>record_input "close_side"[]
+|Input.Confirmation c trigger=>record_input "confirmation"[("command",encode_command c);("trigger",JString trigger)]
+|BeginSide t trigger=>record_input "begin_side"[("task_id",number t);("trigger",JString trigger)]
+|ShowSide t trigger=>record_input "show_side"[("task_id",number t);("trigger",JString trigger)]|CloseSide=>record_input "close_side"[]
 |NavigationExpanded e=>record_input "navigation_expanded"[("value",JBool e)]
 |WriteHistoryQuery q=>record_input "write_history_query"[("value",JString q)]
 |ChooseHistoryScope p w=>record_input "choose_history_scope"[("project",JBool p);("value",optional_id w)]

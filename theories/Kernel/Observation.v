@@ -17,13 +17,10 @@ Definition operation_stage_name (value : operation) := match operation_stage val
  | Executing _ => "executing" | Elevated _ _ => "elevated_executing"
  | AwaitingApproval _ _ => "approval_pending" | Granted _ => "approval_granted"
  | AfterHooksReady _ _ _ | AwaitingAfterHook _ _ _ _ _ => "result_pending" end.
-Definition reviewer_json (value : reviewer) := match value with
- | HumanReviewer => JObject [("kind",JString "human")]
- | ModelReviewer profile => JObject [("kind",JString "model");("profile",profile_json profile)] end.
 Definition operation_summary (settings : task_settings) (value : operation) := JObject [
  ("call",call_json (operation_call value));("context",settings_json settings);
  ("reviewer",match operation_stage value with
- | AwaitingApproval _ reviewer | Granted reviewer | Elevated _ reviewer => reviewer_json reviewer | _ => JNull end);
+ | AwaitingApproval _ reviewer | Granted reviewer | Elevated _ reviewer => Codec.reviewer_json reviewer | _ => JNull end);
  ("operation_id", number (operation_id value)); ("call_id", JString (call_id (operation_call value)));
  ("tool", JString (call_name (operation_call value))); ("status", JString (operation_status value));
  ("stage",JString (operation_stage_name value));

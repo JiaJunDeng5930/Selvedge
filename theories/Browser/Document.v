@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
-From Selvedge.Browser Require Import Native.
+From Selvedge.Browser Require Import Native Appearance.
 From Selvedge.Interaction Require Export Scene.
 From Selvedge.Interaction Require Import Graphics.
 Import ListNotations.
@@ -151,7 +151,7 @@ Definition graphic_primitive (key : string) (index : nat) (value : Graphics.prim
 Definition render_graphic (key label : string) (value : Graphics.plot json) : node :=
   Element key "svg" [Property "data-key" key; Property "role" "img"; Property "aria-label" label;
       Property "viewBox" ("0 0 " ++ show_natural (Npos (Graphics.width value)) ++ " " ++ show_natural (Npos (Graphics.height value)))]
-    [Property "inline-size" "100%"; Property "block-size" "auto"; Property "max-block-size" "36rem"] []
+    [Property "inline-size" "100%"; Property "block-size" "var(--graphic-block-size,auto)"; Property "max-block-size" "var(--graphic-max-block-size,36rem)"] []
     (map (fun indexed => graphic_primitive key (fst indexed) (snd indexed))
       (combine (seq O (List.length (Graphics.primitives value))) (Graphics.primitives value))) JNull.
 
@@ -160,9 +160,9 @@ Definition allowed_attributes : list string :=
      "draggable"; "data-card-id"; "data-card-revision"; "data-card-observed-at"; "data-drop-status"; "data-card-before"; "data-field"; "data-object-owner";
      "min"; "max"; "step"; "rows"; "cols"; "accept"; "multiple"; "required";
      "target"; "rel"; "alt"; "width"; "height"; "tabindex";
-     "aria-label"; "aria-labelledby"; "aria-describedby"; "aria-expanded";
-     "aria-controls"; "aria-selected"; "aria-live"; "aria-current"; "aria-modal";
-     "data-owner"; "data-layout"; "data-reveal-on-layout"; "data-reading-root"; "data-reading-anchor"; "data-interactive-motion"; "data-interactive-motion-glyph"; "data-interactive-transition"; "data-interactive-stale"; "data-sources-fresh"].
+     "aria-label"; "aria-hidden"; "aria-labelledby"; "aria-describedby"; "aria-autocomplete"; "aria-activedescendant"; "aria-expanded";
+     "aria-controls"; "aria-selected"; "aria-pressed"; "aria-haspopup"; "aria-live"; "aria-current"; "aria-modal";
+     "data-owner"; "data-retain-focus"; "data-subject"; "data-action"; "data-code"; "data-logical-key"; "data-view"; "data-focus-alias"; "data-anchor"; "data-anchor-focus"; "data-layout"; "data-expanded"; "data-drawer-open"; "data-selected"; "data-reveal-on-layout"; "data-reading-root"; "data-reading-anchor"; "data-motion-paused"; "data-interactive-motion"; "data-interactive-motion-glyph"; "data-interactive-transition"; "data-interactive-stale"; "data-sources-fresh"].
 Definition allowed_attribute (name : string) : bool :=
   existsb (String.eqb name) allowed_attributes.
 Definition decode_properties (source : json) : list property :=
@@ -183,6 +183,8 @@ Definition admitted_link (url : string) : bool :=
   starts_with "mailto:" url || starts_with "#" url ||
   (starts_with "/" url && negb (starts_with "//" url)).
 Definition observation_properties (system_dark : bool) (source : json) : list property :=
+  match string_field "layout" source with
+  | Some layout => [Property "data-layout" layout] | None => [] end ++
   match string_field "value_kind" source with
   | Some kind => [Property "data-value-kind" kind] | None => [] end ++
   match string_field "appearance" source with
@@ -231,53 +233,152 @@ Definition application_styles : list property := typography_styles ++
    Property "--native-focus-ring" "var(--app-color-border-focus)";
    Property "--native-focus-width" (show_natural focus_width ++ "px");
    Property "--native-focus-offset" ("-" ++ show_natural (focus_width + focus_inset) ++ "px");
-   Property "--native-disabled-opacity" "40%"].
+   Property "--native-disabled-opacity" "40%";
+   Property "--native-writing-lines" (show_nat Appearance.initial_writing_lines);
+   Property "--native-clearance" (scaled_pixels (N.of_nat Appearance.clearance_pixels));
+   Property "--native-icon-size" (scaled_pixels (N.of_nat Appearance.icon_pixels))].
+
+Definition render_symbol (key : string) (value : Appearance.symbol) : node :=
+  Element (key ++ "/icon") "svg"
+    [Property "viewBox" "0 0 20 20"; Property "aria-hidden" "true";
+     Property "focusable" "false"; Property "data-icon" (Appearance.symbol_name value)]
+    [Property "inline-size" "var(--native-icon-size)"; Property "block-size" "var(--native-icon-size)";
+     Property "flex-shrink" "0"; Property "pointer-events" "none"] []
+    [Element (key ++ "/icon/path") "path"
+      ([Property "d" (Appearance.symbol_path value)] ++
+       match Appearance.symbol_paint value with
+       | Appearance.Filled => [Property "fill" "currentColor"]
+       | Appearance.Outline => [Property "fill" "none"; Property "stroke" "currentColor";
+           Property "stroke-width" "1.4"; Property "stroke-linecap" "round"; Property "stroke-linejoin" "round"] end)
+      [] [] [] JNull] JNull.
+Definition caption_nodes (key label : string) (source : json) : list node :=
+  let caption := Element (key ++ "/caption") "span" [Property "class" "control-caption"] [] [] [TextNode label] JNull in
+  match Appearance.find_symbol (optional_text "icon" source) with
+  | None => [caption]
+  | Some symbol => [render_symbol key symbol; caption]
+  end.
+(* Artwork expansion is irrelevant to renderer termination and event proofs.
+   Extraction still executes this checked definition and its symbol declaration. *)
+Opaque caption_nodes.
 Definition reading_styles (attributes : json) : list property :=
   if existsb (fun p => String.eqb (property_name p) "data-reading-root" &&
                        String.eqb (property_value p) "true") (decode_properties attributes) then
     [Property "flex" "1"; Property "min-block-size" "8lh"; Property "overflow" "auto"]
   else [].
 Definition navigation_columns : nat := 15.
+Definition navigation_rail_columns : nat := 4.
 Definition main_columns : nat := 20.
 Definition workspace_padding : nat := 1.
 Definition workspace_gap : nat := 1.
 Definition rem_length (units : nat) := show_natural (N.of_nat units) ++ "rem".
+Definition observed_number_style (source : json) (field_name css_name unit : string) : list property :=
+  match number_field field_name source with
+  | Some value => [Property css_name (value ++ unit)] | None => [] end.
+Definition component_styles (source : json) : list property :=
+  (match string_field "gap" source with
+   | Some "none" => [Property "gap" "0"]
+   | Some "sm" => [Property "gap" (scaled_pixels 6)]
+   | Some "md" => [Property "gap" (scaled_pixels 12)]
+   | Some "lg" => [Property "gap" (scaled_pixels 18)] | _ => [] end) ++
+  match optional_text "tone" source with
+  | "accent" => [Property "color" "var(--color-token-text-link-foreground)"]
+  | "success" => [Property "color" "var(--interactive-tone-success)"]
+  | "warning" => [Property "color" "var(--color-token-editor-warning-foreground)"]
+  | "danger" => [Property "color" "var(--interactive-tone-danger)"]
+  | "muted" => [Property "color" "var(--color-token-text-secondary)"] | _ => [] end.
 Definition layout_styles (mode : presentation) (source : json) : list property :=
   match optional_text "layout" source with
-  | "workspace" => [Property "flex-direction" (match mode with Simultaneous => "row" | Sequential => "column" end);
-      Property "padding" (rem_length workspace_padding); Property "gap" (rem_length workspace_gap); Property "block-size" "100dvh";
+  | "workspace" => [Property "display" "grid"; Property "grid-template-rows" "auto minmax(0,1fr)";
+      Property "padding" "0"; Property "gap" "0"; Property "block-size" "100dvh";
       Property "overflow" "hidden"] ++ application_styles
+  | "workspace-navigation" => [Property "display" "contents"]
+  | "supporting-header" => [Property "flex-direction" "row"; Property "align-items" "center";
+      Property "gap" "var(--native-clearance)"; Property "flex-shrink" "0";
+      Property "position" "sticky"; Property "top" "0"; Property "z-index" "2";
+      Property "background" "var(--app-color-background-surface)"]
+  | "navigation-header" => [Property "flex-direction" "row"; Property "align-items" "center";
+      Property "padding" "0.5rem"; Property "gap" "0.5rem"; Property "min-inline-size" "0"]
+  | "global-navigation" => [Property "padding" "0.5rem"; Property "min-block-size" "0"; Property "overflow" "auto"]
+  | "task-navigation" => [Property "gap" "0"; Property "min-block-size" "0"; Property "overflow" "auto"; Property "padding" "0.75rem"]
+  | "responsive-alternative" => [Property "flex" "1"; Property "min-inline-size" "0"]
+  | "simultaneous-only" => [Property "flex-direction" "row"; Property "overflow" "auto"; Property "align-items" "center"]
+  | "sequential-only" => [Property "flex-direction" "row"]
+  | "task-branch" => [Property "gap" "0"]
+  | "project-task-group" => [Property "gap" "0"; Property "margin-block-start" "1rem"]
+  | "project-tasks" => [Property "gap" "0"; Property "padding-inline-start" "var(--native-clearance)"]
+  | "task-row" | "project-row" => [Property "flex-direction" "row"; Property "align-items" "center";
+      Property "gap" "0"; Property "border-radius" "6px";
+      Property "--native-button-border" "0"; Property "--native-button-padding" "4px";
+      Property "--native-button-background" "transparent"]
+  | "chart-viewport" => [Property "overflow" "auto"; Property "display" "block";
+      Property "block-size" "240px"]
+  | "graph-viewport" => [Property "overflow" "auto"; Property "min-block-size" "12rem";
+      Property "block-size" "420px"; Property "display" "block"]
+  | "graph-canvas" => [Property "position" "relative"; Property "display" "block";
+      Property "--graphic-block-size" "100%"; Property "--graphic-max-block-size" "none"] ++
+      observed_number_style source "width" "inline-size" "px" ++
+      observed_number_style source "height" "block-size" "px"
+  | "graph-edges" => [Property "position" "absolute"; Property "inset" "0";
+      Property "inline-size" "100%"; Property "block-size" "100%"; Property "display" "block"]
+  | "graph-node" => [Property "position" "absolute"; Property "z-index" "1"; Property "overflow" "auto"] ++
+      observed_number_style source "x" "left" "px" ++ observed_number_style source "y" "top" "px" ++
+      observed_number_style source "width" "inline-size" "px" ++ observed_number_style source "height" "block-size" "px"
+  | "skill-option" => [Property "flex-direction" "column"; Property "align-items" "stretch";
+      Property "gap" "2px"; Property "padding" "8px 12px"; Property "border-radius" "6px"]
+  | "anchored-listbox" => [Property "position" "fixed"; Property "inset" "auto";
+      Property "position-area" "top span-right"; Property "position-try-fallbacks" "flip-block,flip-inline,flip-block flip-inline";
+      Property "margin" "0 0 6px 0"; Property "padding" "4px"; Property "list-style" "none";
+      Property "inline-size" "anchor-size(width,min(32rem,calc(100dvw - 32px)))";
+      Property "max-inline-size" "calc(100dvw - 24px)"; Property "max-block-size" "min(18rem,45dvh)";
+      Property "overflow" "auto"; Property "z-index" "1000";
+      Property "background" "var(--app-color-background-surface)";
+      Property "border" "1px solid var(--app-color-border-heavy)"; Property "border-radius" "10px";
+      Property "box-shadow" "0 6px 24px #0002"; Property "--native-button-border" "0";
+      Property "--native-button-background" "transparent"]
+  | "anchored-menu" => [Property "position" "fixed"; Property "inset" "auto";
+      Property "margin" "0"; Property "position-area" "bottom span-right";
+      Property "position-try-fallbacks" "flip-block,flip-inline,flip-block flip-inline";
+      Property "inline-size" "max-content"; Property "max-inline-size" "min(24rem,calc(100dvw - 2 * var(--native-clearance)))";
+      Property "max-block-size" "calc(100dvh - 2 * var(--native-clearance))";
+      Property "padding" "var(--native-clearance)"]
+  | "motion-wrapper" => [Property "flex-direction" "row"; Property "flex-wrap" "nowrap";
+      Property "align-items" "center"; Property "gap" (scaled_pixels 6)]
   | "row" => [Property "flex-direction" "row"; Property "flex-wrap" "wrap"]
   | "column" => [Property "flex-direction" "column"]
   | "fill" => [Property "flex" "1"; Property "min-block-size" "0"]
-  | "grid" => [Property "display" "grid"; Property "grid-template-columns" "repeat(auto-fit,minmax(min(18rem,100%),1fr))"]
+  | "grid" => [Property "display" "grid"; Property "grid-template-columns" (match number_field "columns" source with
+        | Some count => "repeat(" ++ count ++ ",minmax(0,1fr))"
+        | None => "repeat(auto-fit,minmax(min(18rem,100%),1fr))" end)]
   | _ => []
   end.
 Definition role_properties (role : kind) (key label value : string)
     (disabled checked : bool) : list property :=
-  [Property "data-key" key; Property "data-kind" (kind_name role)] ++
+  [Property "id" key; Property "data-key" key; Property "data-kind" (kind_name role)] ++
   (if String.eqb label "" then [] else [Property "aria-label" label]) ++
   (match role with
    | Field | Select | OptionView => [Property "value" value]
    | Button => [Property "type" "button"]
    | Checkbox => [Property "type" "checkbox"; Property "checked" (if checked then "true" else "false")]
-   | Dialog => [Property "open" "true"] | _ => [] end) ++
+   | Dialog => [Property "open" "true"]
+   | Main => [Property "tabindex" "-1"] | _ => [] end) ++
   (if disabled then [Property "disabled" "true"] else []).
 Definition base_styles (role : kind) : list property :=
   match role with
   | Group | Header | Navigation | Main | Aside | Section | Dialog | Form =>
       [Property "display" "flex"; Property "flex-direction" "column";
        Property "min-inline-size" "0"; Property "gap" "0.75rem"]
-  | Button => [Property "font" "inherit"; Property "padding" "4px 8px";
-      Property "min-block-size" (scaled_pixels 32);
-      Property "--native-rest-background" "var(--app-color-background-button-tertiary)";
+  | Button => [Property "font" "inherit"; Property "padding" "var(--native-button-padding,4px 8px)";
+      Property "min-inline-size" (scaled_pixels (N.of_nat Appearance.motor_target_pixels));
+      Property "min-block-size" (scaled_pixels (N.of_nat Appearance.motor_target_pixels));
+      Property "display" "inline-flex"; Property "align-items" "center"; Property "gap" "0.5rem";
+      Property "--native-rest-background" "var(--native-button-background,var(--app-color-background-button-tertiary))";
       Property "--native-rest-color" "var(--app-color-text-foreground)";
       Property "--native-hover-background" "var(--app-color-background-button-tertiary-hover)";
       Property "--native-pressed-background" "var(--app-color-background-button-tertiary-active)";
-      Property "border" "1px solid var(--app-color-border-heavy)"; Property "border-radius" "8px";
+      Property "border" "var(--native-button-border,1px solid var(--app-color-border-heavy))"; Property "border-radius" "8px";
       Property "text-align" "start"]
   | Field | Select => [Property "font" "inherit"; Property "min-inline-size" "0";
-      Property "padding" "6px 8px"; Property "min-block-size" (scaled_pixels 32);
+      Property "padding" "6px 8px"; Property "min-block-size" (scaled_pixels (N.of_nat Appearance.motor_target_pixels));
       Property "background" "var(--app-color-background-surface)";
       Property "color" "var(--app-color-text-foreground)"; Property "border" "1px solid var(--app-color-border-heavy)";
       Property "border-radius" "8px"]
@@ -288,33 +389,34 @@ Definition base_styles (role : kind) : list property :=
   | _ => []
   end.
 
-Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene) : node :=
-  match value with
-  | GraphicScene key label plot => render_graphic key label plot
-  | Scene role key label value disabled checked multiline action attributes source children =>
-    let rendered := map (render_scene mode system_dark) children in
-    match role with
-    | Markdown => MarkdownNode key value (optional_bool "complete" source)
-        (optional_json "source" source) (optional_json "owner" source) source
-    | Portal => PortalNode key (optional_text "target" source) rendered
-    | _ => let control := Element key (tag role multiline)
+Definition render_control (mode : presentation) (system_dark : bool) (role : kind)
+    (key label value : string) (disabled checked multiline : bool)
+    (action attributes source : json) (rendered : list node) : node :=
+  let control := Element key (tag role multiline)
         (role_properties role key label value disabled checked ++
+         (if String.eqb (optional_text "icon" source) "" then [] else [Property "title" label]) ++
+         (match role with Field => if multiline then
+           [Property "rows" (show_nat Appearance.initial_writing_lines)] else [] | _ => [] end) ++
          observation_properties system_dark source ++ resource_properties role source ++ decode_properties attributes)
-        (base_styles role ++ layout_styles mode source ++ reading_styles attributes)
+        (base_styles role ++ layout_styles mode source ++ component_styles source ++ reading_styles attributes)
         (if disabled then [] else
           match string_field "type" attributes with
           | Some "file" => [EventBinding ChooseFiles action]
           | _ => bindings role true action ++
             match field "file_action" source with
             | Some file_action => [EventBinding ChooseFiles file_action] | None => [] end ++
-            match role, field "dismiss_action" source with
-            | Dialog, Some dismiss_action | Aside, Some dismiss_action => [EventBinding Dismiss dismiss_action] | _, _ => [] end
+            match role, mode, field "dismiss_action" source with
+            | Dialog, _, Some dismiss_action | Aside, Sequential, Some dismiss_action => [EventBinding Dismiss dismiss_action] | _, _, _ => [] end
           end)
         (match role with
-         | Text => [TextNode value]
+         | Text | Code => [TextNode value]
+         | Icon => match Appearance.find_symbol (optional_text "icon" source) with
+             | Some symbol => [render_symbol key symbol]
+             | None => [TextNode label] end
          | _ => (if String.eqb label "" then [] else
            match role with
-           | Button | Link | Header | Heading | OptionView | Code | Icon => [TextNode label]
+           | Button | Link => caption_nodes key label source
+           | Header | Heading | OptionView | Icon => [TextNode label]
            | _ => [] end) ++ rendered
          end) source in
       match role with
@@ -329,12 +431,6 @@ Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene)
              (match role with Select => [] | _ => rendered end) ++
              (if String.eqb (optional_text "help" source) "" then [] else
                [Element (key ++ "/help") "small" [] [] [] [TextNode (optional_text "help" source)] JNull])) source
-      | Navigation => match control with
-          Element key tag attrs styles events children metadata =>
-            Element key tag attrs (styles ++ [Property "inline-size" (match mode with Simultaneous => rem_length navigation_columns | Sequential => "100%" end); Property "flex-shrink" "0";
-              Property "max-block-size" (match mode with Simultaneous => "100%" | Sequential => "25dvh" end);
-              Property "overflow" "auto"]) events children metadata
-          | other => other end
       | Main => match control with
           Element key tag attrs styles events children metadata =>
             Element key tag attrs (styles ++ [Property "flex" "1"; Property "min-block-size" "0"; Property "overflow" "auto";
@@ -353,8 +449,96 @@ Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene)
                  Property "box-sizing" "border-box"; Property "padding" (rem_length workspace_padding)]) events children metadata
             end
           | other => other end
-      | _ => control end
+      | _ => control end.
+
+Definition render_scene_contents (mode : presentation) (system_dark : bool) (value : scene)
+    (rendered : list node) : node :=
+  match value with
+  | GraphicScene key label plot => render_graphic key label plot
+  | Scene role key label value disabled checked multiline action attributes source _ =>
+    match role with
+    | Markdown => MarkdownNode key value (optional_bool "complete" source)
+        (optional_json "source" source) (optional_json "owner" source) source
+    | Portal => PortalNode key (optional_text "target" source) rendered
+    | _ => render_control mode system_dark role key label value disabled checked multiline
+        action attributes source rendered
     end
+  end.
+
+Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene) : node :=
+  match value with
+  | GraphicScene key label plot => render_graphic key label plot
+  | Scene _ _ _ _ _ _ _ _ _ _ children =>
+      render_scene_contents mode system_dark value (map (render_scene mode system_dark) children)
+  end.
+
+Definition node_metadata (value : node) : json :=
+  match value with Element _ _ _ _ _ _ metadata | MarkdownNode _ _ _ _ _ metadata => metadata | _ => JNull end.
+Definition node_layout (value : node) := optional_text "layout" (node_metadata value).
+Definition node_children (value : node) :=
+  match value with Element _ _ _ _ _ children _ | PortalNode _ _ children => children | _ => [] end.
+Definition visible_in (mode : presentation) (value : node) : bool :=
+  match node_layout value, mode with
+  | "simultaneous-only", Sequential | "sequential-only", Simultaneous => false
+  | _, _ => true end.
+Definition tree_expanded (value : node) : bool :=
+  String.eqb (optional_text "data-expanded" (optional_json "attrs" (node_metadata value))) "true".
+Definition tree_drawer_open (value : node) : bool :=
+  String.eqb (optional_text "data-drawer-open" (optional_json "attrs" (node_metadata value))) "true".
+Definition task_navigation_scope (key : string) (header tree : node) : node :=
+  let scope := key ++ "/scope" in
+  Element scope "dialog"
+    [Property "id" scope; Property "data-key" scope; Property "data-kind" "dialog";
+     Property "data-layout" "task-navigation-scope"; Property "open" "true";
+     Property "aria-label" (optional_text "label" (node_metadata tree))]
+    [Property "display" "grid"; Property "grid-template-rows" "auto minmax(0,1fr)";
+     Property "position" "fixed"; Property "inset" "0"; Property "inline-size" "100%";
+     Property "block-size" "100dvh"; Property "max-inline-size" "none"; Property "max-block-size" "none";
+     Property "margin" "0"; Property "padding" "0"; Property "border" "0"; Property "overflow" "hidden"]
+    (match field "dismiss_action" (node_metadata tree) with
+     | Some action => [EventBinding Dismiss action] | None => [] end)
+    [header; tree] (JObject [("layout", JString "task-navigation-scope")]).
+Definition navigation_content mode key rail header tree : list node :=
+  match mode with
+  | Simultaneous => [rail; header] ++ if tree_expanded tree || tree_drawer_open tree then [tree] else []
+  | Sequential => if tree_drawer_open tree then [task_navigation_scope key header tree] else [header]
+  end.
+Definition rendered_support (value : node) : bool :=
+  match value with Element _ "aside" _ _ _ _ _ => true | _ => false end.
+Definition visible_task_tree (value : node) : bool :=
+  String.eqb (node_layout value) "workspace-navigation" &&
+    existsb (fun child => String.eqb (node_layout child) "task-navigation") (node_children value).
+Definition workspace_columns mode children : string :=
+  match mode with
+  | Sequential => "minmax(0,1fr)"
+  | Simultaneous => rem_length navigation_rail_columns ++ " " ++
+      (if existsb visible_task_tree children then rem_length navigation_columns ++ " " else "") ++
+      "minmax(0,1fr)" ++
+      String.concat "" (repeat (" minmax(" ++ rem_length main_columns ++ ",1fr)")
+        (List.length (filter rendered_support children)))
+  end.
+
+(* Physical projection changes placement, never the semantic identity of retained controls.
+   In a compact task drawer the original header belongs to the drawer's focus scope. *)
+Fixpoint project_navigation (mode : presentation) (value : node) {struct value} : node :=
+  match value with
+  | Element key tag attrs styles events children metadata =>
+    let projected := filter (visible_in mode) (map (project_navigation mode) children) in
+    let arranged := match optional_text "layout" metadata, projected with
+      | "workspace-navigation", [rail; header; tree] => navigation_content mode key rail header tree
+      | _, _ => projected end in
+    let workspace := String.eqb (optional_text "layout" metadata) "workspace" in
+    Element key tag
+      (attrs ++ if workspace then
+        [Property "data-presentation" (match mode with Simultaneous => "simultaneous" | Sequential => "sequential" end)] else [])
+      (styles ++ if workspace then
+        [Property "grid-template-columns" (workspace_columns mode arranged);
+         Property "--navigation-rail-width" (rem_length navigation_rail_columns);
+         Property "--task-navigation-width" (rem_length navigation_columns)] else [])
+      events arranged metadata
+  | PortalNode key target children => PortalNode key target
+      (filter (visible_in mode) (map (project_navigation mode) children))
+  | other => other
   end.
 
 Definition property_json (value : property) := JObject
@@ -377,22 +561,26 @@ Fixpoint node_json (value : node) : json :=
        ("events", JArray (map event_json events)); ("children", JArray (map node_json children)); ("metadata", metadata)]
   end.
 Definition workspace_allocation (font_pixels : nat) :=
-  Allocation (navigation_columns * font_pixels) (main_columns * font_pixels) O
+  Allocation (navigation_columns * font_pixels) (main_columns * font_pixels) (navigation_rail_columns * font_pixels)
     ((2 * workspace_padding + workspace_gap) * font_pixels).
-Fixpoint has_aside (value:scene) : bool :=
+Fixpoint supporting_count (value:scene) : nat :=
  match value with
- | GraphicScene _ _ _ => false
+ | GraphicScene _ _ _ => O
  | Scene role _ _ _ _ _ _ _ _ _ children =>
-   match role with Aside => true | _ => existsb has_aside children end
+   (match role with Aside => 1 | _ => O end) +
+     fold_right Nat.add O (map supporting_count children)
  end.
 Definition scene_allocation font_pixels scene :=
  let requirements:=workspace_allocation font_pixels in
  Allocation (navigation_minimum requirements) (content_minimum requirements)
-   (if has_aside scene then (main_columns + workspace_gap) * font_pixels else O)
+   (rail_width requirements + supporting_count scene * (main_columns + workspace_gap) * font_pixels)
    (gap_width requirements).
 Definition document (viewport font_pixels : nat) (system_dark : bool) (source : json) : json :=
   match decode_scene source with
-  | Some scene => let mode:=allocate viewport (scene_allocation font_pixels scene) in success (JObject [("title", JString "Selvedge");
-      ("root", node_json (render_scene mode system_dark scene))])
+  | Some scene =>
+      let navigation_mode := allocate viewport (workspace_allocation font_pixels) in
+      let supporting_mode := allocate viewport (scene_allocation font_pixels scene) in
+      success (JObject [("title", JString "Selvedge");
+        ("root", node_json (project_navigation navigation_mode (render_scene supporting_mode system_dark scene)))])
   | None => failure "TypeError" "Browser scene has an invalid kind or children"
   end.

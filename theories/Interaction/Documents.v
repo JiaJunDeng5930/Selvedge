@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Utf8.
 From Selvedge.Kernel Require Import Conversation Streams.
-From Selvedge.Interaction Require Import Codec Identity Origin Services ApplicationState ApplicationOps.
+From Selvedge.Interaction Require Import Codec Identity Origin Services ApplicationState ApplicationOps Navigation.
 From Selvedge.Interaction.Interactive Require Import Types.
 From Selvedge.Interaction.Interactive Require Bounds.
 Import ListNotations.
@@ -167,7 +167,15 @@ Definition portal_target namespace owner world s:=
  |Some doc=>match owner_ordinal namespace doc owner with
    |Some ordinal=>Some(fence_target(key namespace doc)ordinal)|None=>None end
  |None=>option_map work_ui_target(shared_work namespace owner world s)end.
-Definition visible_owner namespace owner world s:=match portal_target namespace owner world s with Some _=>true|None=>false end.
+Definition portal_targets namespace owner world s:=
+ match find_document namespace owner world s with
+ |Some doc=>match owner_ordinal namespace doc owner with
+   |Some ordinal=>map(fun view=>(task_view_scope view,fence_target(key namespace doc)ordinal))
+     (filter(fun view=>N.eqb(task_view_task view)(viewer doc))(Navigation.visible_task_views s))
+   |None=>[]end
+ |None=>match shared_work namespace owner world s with
+   |Some work=>[(EmptyString,work_ui_target work)]|None=>[]end end.
+Definition visible_owner namespace owner world s:=match portal_targets namespace owner world s with []=>false|_=>true end.
 
 Record fence_observation:=FenceObservation {
  observation_key:string;observation_origin:output_origin;observation_viewer:N;observation_namespace:string;

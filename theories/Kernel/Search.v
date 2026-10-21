@@ -30,7 +30,7 @@ Definition snippet (query text : string) :=
  | None => "" end.
 Definition readable (message : message) :=
  let wire := Codec.message_json 0 message in
- match json_message_role wire,json_message_text wire with
+ match json_message_role wire,as_string (json_message_content wire) with
  | Some role,Some text => if existsb (String.eqb role) ["user";"assistant"] then Some (role,text) else None
  | _,_ => None end.
 Fixpoint newer_context (messages : list message) : list (message * string) * string :=

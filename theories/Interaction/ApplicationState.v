@@ -4,19 +4,31 @@ From Selvedge.Kernel Require Import Commands Streams.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction.Interactive Require Types State Codec.
 From Selvedge.Interaction.Interactive Require Bounds.
-From Selvedge.Interaction Require Import Codec Identity Services Forms Speech SkillMention Resource Origin.
+From Selvedge.Interaction Require Import Codec Identity Services Forms Speech SkillMention Resource Origin Activities.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Definition public_command := command_value command_specs.
-Inductive panel := EditorPanel(e:editor)(trigger:string) | InformationPanel(kind:string)(subject:json)(trigger:string)
-| Confirmation(command:public_command)(caption:string)(destination:route)(trigger:string).
-Record navigation := Navigation { location:route; active_work:option N; visits:list(option N*route); expanded:bool; generation:N; layers:list panel; side_task:option N }.
-Inductive pending_purpose := DraftSubmission(snapshot:draft)(navigation_generation:N)
-| ConfigurationSubmission(snapshot:draft)(navigation_generation:N)
+Inductive panel := ActivityPanel(e:editor)(request:activity_request)(view:view_intent)(occurrence:N)(trigger:string)
+| NavigationPanel(kind:navigation_panel)(trigger:string)
+| ObjectActionsPanel(subject:menu_subject)(trigger:string)
+| InformationPanel(kind:string)(subject:json)(trigger:string)
+| Confirmation(command:public_command)(caption:string)(destination:route)(trigger:string)(feedback:option string).
+Definition panel_trigger value := match value with
+ |ActivityPanel _ _ _ _ trigger|NavigationPanel _ trigger|ObjectActionsPanel _ trigger
+ |InformationPanel _ _ trigger|Confirmation _ _ _ trigger _=>trigger end.
+Record side_presentation := SideWindow { window_task:N; window_trigger:string }.
+Definition encode_side value := match value with None=>JNull|Some window=>JObject[("task",number(window_task window));("trigger",JString(window_trigger window))]end.
+Definition decode_side source := match source with JNull=>Some None|_=>task<-natural_field "task" source;;trigger<-string_field "trigger" source;;Some(Some(SideWindow task trigger))end.
+Record navigation := Navigation { location:route; active_work:option N; visits:list(option N*route); expanded:bool; generation:N; layers:list panel; side_window:option side_presentation }.
+Definition side_task n := option_map window_task(side_window n).
+Inductive pending_purpose := DraftSubmission(snapshot:draft)(navigation_generation:N)(trigger:string)
+| ConfirmationSubmission(navigation_generation:N)
+| ActivitySelection(snapshot:draft)(view_occurrence:N)
+| ProjectPreference(snapshot:draft)(prepared:public_command)(navigation_generation:N)(trigger:string)
 | LanguageSubmission(owner:Selvedge.Interaction.Interactive.Types.owner)(path:string)(language_ticket:N)
-| SideCreation(parent navigation_generation:N)
+| SideCreation(parent navigation_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N) | WorkCreation(navigation_generation:N) | ExecutionSelection | DirectSubmission.
 Record pending := Pending { ticket:N; accepted_command:public_command; purpose:pending_purpose }.
 Record search := Search { keyword:string; project_filter:option N; work_filter:option N; search_result:option json }.
@@ -85,7 +97,7 @@ Definition find_draft e s := find(fun d=>same_editor e(owner d))(drafts(authorin
 Definition save_draft d s := let a:=authoring_state s in with_authoring(Authoring(d::filter(fun old=>negb(same_editor(owner d)(owner old)))(drafts a))(next a)(awaiting a)(history_search a)(skill_catalogs a)(mentions a))s.
 Definition set_pending ps n s := let a:=authoring_state s in with_authoring(Authoring(drafts a)n ps(history_search a)(skill_catalogs a)(mentions a))s.
 Definition set_search search s := let a:=authoring_state s in with_authoring(Authoring(drafts a)(next a)(awaiting a)search(skill_catalogs a)(mentions a))s.
-Definition editor_pending e s := existsb(fun p=>match purpose p with DraftSubmission d _=>same_editor e(owner d)|_=>false end)(awaiting(authoring_state s)).
+Definition editor_pending e s := existsb(fun p=>match purpose p with DraftSubmission d _ _|ProjectPreference d _ _ _|ActivitySelection d _=>same_editor e(owner d)|_=>false end)(awaiting(authoring_state s)).
 Definition visible_tasks s :=
   let primary:=match location(navigation_state s)with Conversation t=>[t]|_=>[]end in
   match side_task(navigation_state s)with None=>primary|Some t=>if existsb(N.eqb t)primary then primary else primary++[t]end.
@@ -93,33 +105,45 @@ Definition find_world field_name id_key id world := find(fun j=>match natural_fi
 Definition find_task id world := find_world "tasks" "id" id world.
 Definition find_project id world := find_world "projects" "project_id" id world.
 Definition find_work id world := find_world "works" "work_id" id world.
-Definition first_profile world := match items "profiles" world with []=>None|p::_=>string_field "key" p end.
+Definition first_profile world := match Activities.model_catalog world with []=>None|profile::_=>Some(Selvedge.Kernel.Domain.profile_key profile)end.
 Definition profile_choices world := map(fun p=>JObject[("value",value_or JNull(field "key" p));("label",JString(text "name" p))])(items "profiles" world).
 Definition task_belongs work task world := match find_task task world with Some found=>match work with None=>true|Some w=>match natural_field "work_id" found with Some id=>N.eqb w id|None=>false end end|None=>false end.
 Definition record_visit (work:option N) (r:route) (visits:list(option N*route)) := (work,r)::filter(fun v=>negb(match work,fst v with None,None=>true|Some a,Some b=>N.eqb a b|_,_=>false end))visits.
 Definition same_scope a b:=match a,b with None,None=>true|Some a,Some b=>N.eqb a b|_,_=>false end.
+Definition information_panel_key (kind:string) (subject:json) : string :=
+ String.append "panel/" (String.append kind
+  (if String.eqb kind "task_details"then match natural_field(if String.eqb kind "task_details"then "task_id"else "card_id")subject with
+   |Some task=>String.append "/task/"(show_natural task)|None=>""end else "")).
 Definition encode_panel p := match p with
-|EditorPanel e trigger=>JObject[("kind",JString "editor");("editor",encode_editor e);("trigger",JString trigger)]
+|ActivityPanel e request view occurrence trigger=>JObject[("kind",JString "activity");("editor",encode_editor e);("request",encode_request request);("view",encode_view view);("occurrence",number occurrence);("trigger",JString trigger)]
+|ObjectActionsPanel subject trigger=>JObject[("kind",JString "object_actions");("subject",encode_menu_subject subject);("trigger",JString trigger)]
+|NavigationPanel kind trigger=>JObject[("kind",JString "navigation");("navigation",JString(navigation_panel_name kind));("trigger",JString trigger)]
 |InformationPanel kind subject trigger=>JObject[("kind",JString kind);("subject",subject);("trigger",JString trigger)]
-|Confirmation c caption destination trigger=>JObject[("kind",JString "confirmation");("command",encode_command c);("caption",JString caption);("destination",encode_route destination);("trigger",JString trigger)]end.
+|Confirmation c caption destination trigger feedback=>JObject[("kind",JString "confirmation");("command",encode_command c);("caption",JString caption);("destination",encode_route destination);("trigger",JString trigger);("feedback",match feedback with None=>JNull|Some reason=>JString reason end)]end.
 Definition decode_panel j := trigger<-string_field "trigger" j;;match string_field "kind" j with
-|Some "editor"=>e<-bind(field "editor" j)decode_editor;;Some(EditorPanel e trigger)
-|Some "confirmation"=>c<-bind(field "command" j)(decode_command command_specs);;caption<-string_field "caption" j;;r<-bind(field "destination" j)decode_route;;Some(Confirmation c caption r trigger)
+|Some "activity"=>e<-bind(field "editor" j)decode_editor;;request<-bind(field "request" j)decode_request;;view<-bind(field "view" j)decode_view;;occurrence<-natural_field "occurrence" j;;Some(ActivityPanel e request view occurrence trigger)
+|Some "object_actions"=>subject<-bind(field "subject" j)decode_menu_subject;;Some(ObjectActionsPanel subject trigger)
+|Some "navigation"=>kind<-bind(string_field "navigation" j)decode_navigation_panel;;Some(NavigationPanel kind trigger)
+|Some "confirmation"=>c<-bind(field "command" j)(decode_command command_specs);;caption<-string_field "caption" j;;r<-bind(field "destination" j)decode_route;;feedback<-field "feedback" j;;feedback<-(match feedback with JNull=>Some None|JString reason=>Some(Some reason)|_=>None end);;Some(Confirmation c caption r trigger feedback)
 |Some kind=>subject<-field "subject" j;;Some(InformationPanel kind subject trigger)|_=>None end.
-Definition encode_navigation n := JObject[("route",encode_route(location n));("work",optional_id(active_work n));("visits",JArray(map(fun v=>JObject[("work",optional_id(fst v));("route",encode_route(snd v))])(visits n)));("expanded",JBool(expanded n));("generation",number(generation n));("layers",JArray(map encode_panel(layers n)));("side",optional_id(side_task n))].
+Definition encode_navigation n := JObject[("route",encode_route(location n));("work",optional_id(active_work n));("visits",JArray(map(fun v=>JObject[("work",optional_id(fst v));("route",encode_route(snd v))])(visits n)));("expanded",JBool(expanded n));("generation",number(generation n));("layers",JArray(map encode_panel(layers n)));("side",encode_side(side_window n))].
 Definition decode_visit j := w<-id_field "work" j;;r<-bind(field "route" j)decode_route;;Some(w,r).
-Definition decode_navigation j := r<-bind(field "route" j)decode_route;;w<-id_field "work" j;;vs<-list_field decode_visit "visits" j;;e<-bool_field "expanded" j;;g<-natural_field "generation" j;;ls<-list_field decode_panel "layers" j;;side<-id_field "side" j;;Some(Navigation r w vs e g ls side).
-Definition encode_purpose p:=match p with DraftSubmission d g=>JObject[("kind",JString "draft");("draft",encode_draft d);("generation",number g)]
-|ConfigurationSubmission d g=>JObject[("kind",JString "configuration");("draft",encode_draft d);("generation",number g)]
-|SideCreation parent g=>JObject[("kind",JString "side");("parent",number parent);("generation",number g)]
+Definition decode_navigation j := r<-bind(field "route" j)decode_route;;w<-id_field "work" j;;vs<-list_field decode_visit "visits" j;;e<-bool_field "expanded" j;;g<-natural_field "generation" j;;ls<-list_field decode_panel "layers" j;;side<-bind(field "side" j)decode_side;;Some(Navigation r w vs e g ls side).
+Definition encode_purpose p:=match p with DraftSubmission d g trigger=>JObject[("kind",JString "draft");("draft",encode_draft d);("generation",number g);("trigger",JString trigger)]
+|ProjectPreference d prepared g trigger=>JObject[("kind",JString "project_preference");("draft",encode_draft d);("command",encode_command prepared);("generation",number g);("trigger",JString trigger)]
+|ConfirmationSubmission occurrence=>JObject[("kind",JString "confirmation");("generation",number occurrence)]
+|ActivitySelection d occurrence=>JObject[("kind",JString "activity_selection");("draft",encode_draft d);("occurrence",number occurrence)]
+|SideCreation parent g trigger=>JObject[("kind",JString "side");("parent",number parent);("generation",number g);("trigger",JString trigger)]
 |SearchSubmission q p w=>JObject[("kind",JString "search");("query",JString q);("project",optional_id p);("work",optional_id w)]
 |LanguageSubmission owner path ticket=>JObject[("kind",JString "language");("owner",Selvedge.Interaction.Interactive.Types.encode_owner owner);("path",JString path);("ticket",number ticket)]
 |WorkCreation g=>JObject[("kind",JString "work");("generation",number g)]
 |ExecutionSelection=>JObject[("kind",JString "execution_selection")]|DirectSubmission=>JObject[("kind",JString "direct")]end.
 Definition decode_purpose j:=match string_field "kind" j with
-|Some "draft"=>d<-bind(field "draft" j)decode_draft;;g<-natural_field "generation" j;;Some(DraftSubmission d g)
-|Some "configuration"=>d<-bind(field "draft" j)decode_draft;;g<-natural_field "generation" j;;Some(ConfigurationSubmission d g)
-|Some "side"=>p<-natural_field "parent" j;;g<-natural_field "generation" j;;Some(SideCreation p g)
+|Some "draft"=>d<-bind(field "draft" j)decode_draft;;g<-natural_field "generation" j;;trigger<-string_field "trigger" j;;Some(DraftSubmission d g trigger)
+|Some "project_preference"=>d<-bind(field "draft" j)decode_draft;;prepared<-bind(field "command" j)(decode_command command_specs);;g<-natural_field "generation" j;;trigger<-string_field "trigger" j;;Some(ProjectPreference d prepared g trigger)
+|Some "confirmation"=>option_map ConfirmationSubmission(natural_field "generation" j)
+|Some "activity_selection"=>d<-bind(field "draft" j)decode_draft;;occurrence<-natural_field "occurrence" j;;Some(ActivitySelection d occurrence)
+|Some "side"=>p<-natural_field "parent" j;;g<-natural_field "generation" j;;trigger<-string_field "trigger" j;;Some(SideCreation p g trigger)
 |Some "search"=>q<-string_field "query" j;;p<-id_field "project" j;;w<-id_field "work" j;;Some(SearchSubmission q p w)
 |Some "language"=>owner<-bind(field "owner" j)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" j;;ticket<-natural_field "ticket" j;;Some(LanguageSubmission owner path ticket)
 |Some "work"=>option_map WorkCreation(natural_field "generation" j)|Some "execution_selection"=>Some ExecutionSelection|Some "direct"=>Some DirectSubmission|_=>None end.
@@ -136,3 +160,7 @@ Definition decode_disclosure j:=match j with JArray[a;b;JBool c]=>a<-natural a;;
 Definition decode_reader j:=t<-natural_field "task_id" j;;ds<-list_field decode_disclosure "disclosures" j;;Some(Reader t ds).
 Definition encode_state s:=JObject[("navigation",encode_navigation(navigation_state s));("authoring",encode_authoring(authoring_state s));("services",encode_services(service_state s));("speech",encode_speech(speech_state s));("streams",Streams.state_json(stream_state s));("readers",JArray(map encode_reader(readers s)));("interactive",Selvedge.Interaction.Interactive.Codec.encode_state(interactive_state s));("board_filter",BoardFilter.encode(board_selection s));("retention",encode_retention(document_retention s));("collapsed_projects",JArray(map number(collapsed_projects s)))].
 Definition decode_state j:=n<-bind(field "navigation" j)decode_navigation;;a<-bind(field "authoring" j)decode_authoring;;sv<-bind(field "services" j)decode_services;;sp<-bind(field "speech" j)decode_speech;;ps<-bind(field "streams" j)Streams.decode_state;;rs<-list_field decode_reader "readers" j;;im<-bind(field "interactive" j)Selvedge.Interaction.Interactive.Codec.decode_state;;f<-field "board_filter" j;;docs<-bind(field "retention" j)decode_retention;;groups<-list_field natural "collapsed_projects" j;;Some(State n a sv sp ps rs im(BoardFilter.decode f)docs groups).
+
+Definition confirmation_pending s :=
+ existsb(fun pending=>match purpose pending with ConfirmationSubmission occurrence=>
+  N.eqb occurrence(generation(navigation_state s))|_=>false end)(awaiting(authoring_state s)).

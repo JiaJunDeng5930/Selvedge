@@ -1,16 +1,17 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
 
 Inductive editor :=
-| NewTask (work : option N) | Message (task : N) | Project (id : option N)
+| NewTask (work : option N) | Message (task : N) | Execution (task : N) | Project (id : option N)
 | Card (id : option N) | Agent (id : option N) | Fork (task : N)
 | Compact (task : N) | TaskGraph (id work : option N)
 | WorkName (work : N) | TitlePrompts.
 
 Definition editor_task (e:editor) : option N := match e with
- |Message task|Fork task|Compact task=>Some task|_=>None end.
+ |Message task|Execution task|Fork task|Compact task=>Some task|_=>None end.
 Definition task_observation_fields e fields := match editor_task e with
  |Some task=>("task_id",JNumber(show_natural task))::fields|None=>fields end.
 
@@ -20,6 +21,7 @@ Definition encode_editor (e : editor) : json :=
   let record kind id work := JObject [("kind",JString kind);("id",optional_id id);("work",optional_id work)] in
   match e with
   | NewTask w => record "new_task" None w | Message t => record "message" (Some t) None
+  | Execution t => record "execution" (Some t) None
   | Project i => record "project" i None | Card i => record "card" i None
   | Agent i => record "agent" i None | Fork t => record "fork" (Some t) None
   | Compact t => record "compact" (Some t) None | TaskGraph i w => record "graph" i w
@@ -32,6 +34,7 @@ Definition decode_editor (j : json) : option editor :=
   match string_field "kind" j, id_field "id" j, id_field "work" j with
   | Some "new_task", Some None, Some w => Some (NewTask w)
   | Some "message", Some (Some t), Some None => Some (Message t)
+  | Some "execution", Some (Some t), Some None => Some (Execution t)
   | Some "project", Some i, Some None => Some (Project i)
   | Some "card", Some i, Some None => Some (Card i)
   | Some "agent", Some i, Some None => Some (Agent i)
@@ -49,12 +52,34 @@ Definition id_text id := match id with None => "new" | Some n => show_natural n 
 Definition editor_key (e : editor) : string :=
   match e with
   | NewTask w => "new-task/" ++ id_text w | Message t => "message/" ++ show_natural t
+  | Execution t => "execution/" ++ show_natural t
   | Project i => "project/" ++ id_text i | Card i => "card/" ++ id_text i
   | Agent i => "agent/" ++ id_text i | Fork t => "fork/" ++ show_natural t
   | Compact t => "compact/" ++ show_natural t
   | TaskGraph i w => "graph/" ++ id_text i ++ "/work/" ++ id_text w
   | WorkName w => "work/" ++ show_natural w | TitlePrompts => "title-prompts"
   end.
+Inductive task_view := PrimaryTask(task:N)|SideTask(task:N).
+Definition task_view_task view := match view with PrimaryTask task|SideTask task=>task end.
+Definition task_view_scope view := match view with
+ |PrimaryTask task=>"main-task/"++show_natural task|SideTask task=>"side-task/"++show_natural task end.
+
+Definition task_view_key view logical := String.append(task_view_scope view)(String.append "/" logical).
+
+Inductive menu_subject := TaskActions(task:N)|ProjectActions(project:N)|CardActions(card:N)|AgentActions(agent:N)|GraphActions(graph:N).
+Definition menu_identity subject := match subject with
+ |TaskActions id=>("task",id)|ProjectActions id=>("project",id)|CardActions id=>("card",id)|AgentActions id=>("agent",id)|GraphActions id=>("graph",id)end.
+Definition menu_key subject := let '(kind,id):=menu_identity subject in "actions/"++kind++"/"++show_natural id.
+Definition encode_menu_subject subject := let '(kind,id):=menu_identity subject in
+ JObject[("kind",JString kind);("id",number id)].
+Definition decode_menu_subject value := id<-natural_field "id" value;;match string_field "kind" value with
+ |Some "task"=>Some(TaskActions id)|Some "project"=>Some(ProjectActions id)
+ |Some "card"=>Some(CardActions id)|Some "agent"=>Some(AgentActions id)|Some "graph"=>Some(GraphActions id)|_=>None end.
+
+Inductive navigation_panel := GlobalMenu | WorkOverview | TasksDrawer.
+Definition navigation_panel_name value := match value with GlobalMenu => "global" | WorkOverview => "works" | TasksDrawer => "tasks" end.
+Definition decode_navigation_panel name := match name with "global" => Some GlobalMenu | "works" => Some WorkOverview | "tasks" => Some TasksDrawer | _ => None end.
+
 Inductive route := Start | Conversation (task : N) | Projects | ProjectHome (id:N)
 | Board | Agents | Graphs | HistorySearch | SharedUI (work:N) (task:option N).
 Definition encode_route r :=

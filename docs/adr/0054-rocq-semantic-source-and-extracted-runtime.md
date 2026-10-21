@@ -1,7 +1,7 @@
 # 0054: Rocq semantic source and extracted runtime
 
 Date: 2026-10-20
-Status: Accepted
+Status: Accepted; Task creation preference decision superseded by [ADR 0062](0062-preserve-activity-and-navigation-contracts.md)
 
 ## Context
 

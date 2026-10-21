@@ -6,27 +6,35 @@ From Selvedge.Interaction Require Import Codec Identity Attachments.
 Import ListNotations.
 Open Scope string_scope.
 
-Record form_field := FormField { specification:field_spec; label:string; help:string; widget:string }.
-Definition text_input name caption := FormField(Field name KText)caption "" "text".
-Definition multiline name caption := FormField(Field name KText)caption "" "textarea".
-Definition select_input name caption first rest := FormField(Field name(KEnum first rest))caption "" "select".
-Definition optional_input name caption kind widget := FormField(Field name(KOptional kind))caption "Use the inherited value when empty." widget.
-Definition bool_input name caption := FormField(Field name KBool)caption "" "checkbox".
-Definition natural_input name caption := FormField(Field name KNatural)caption "" "number".
-Definition json_input name caption := FormField(Field name KJson)caption "" "json".
+Inductive field_meaning := Scalar | ProjectSelection | PrimaryDirectory | DirectoryCollection | DirectoryEntry
+| ProfileSelection | ReasoningSelection | FilesystemSelection | NetworkSelection
+| ApprovalSelection | ReviewerSelection | DeliverySelection | TaskEnvironmentSelection | ProjectWorktreePreference.
+Definition argument_label(name:string):string :=match name with
+ |"command"=>"Command"|"justification"=>"Reason"|_=>name end.
+
+Record form_field := FormField { specification:field_spec; label:string; help:string; widget:string;
+  meaning:field_meaning }.
+Definition text_input name caption := FormField(Field name KText)caption "" "text" Scalar.
+Definition multiline name caption := FormField(Field name KText)caption "" "textarea" Scalar.
+Definition select_input name caption first rest := FormField(Field name(KEnum first rest))caption "" "select" Scalar.
+Definition optional_input name caption kind widget role := FormField(Field name(KOptional kind))caption "Use the inherited value when empty." widget role.
+Definition bool_input name caption := FormField(Field name KBool)caption "" "checkbox" Scalar.
+Definition natural_input name caption := FormField(Field name KNatural)caption "" "number" Scalar.
+Definition json_input name caption := FormField(Field name KJson)caption "" "json" Scalar.
 Definition context_fields :=
- [optional_input "project_id" "Defaults from" KNatural "project";
-  optional_input "primary_root" "Primary directory" KText "directory";
-  FormField(Field "roots"(KArray KText))"Working directories" "Additional directories available to this task." "lines";
-  optional_input "sandbox" "Filesystem access" (KEnum "workspace-write" ["read-only"])"select";
-  optional_input "network_access" "Network access" KBool "checkbox";
-  optional_input "approval" "Approval policy" (KEnum "ask-for-approval" ["full-access";"approval-for-me"])"select";
-  optional_input "reviewer_profile" "Reviewing model" KText "profile"].
+ [optional_input "project_id" "Project" KNatural "project" ProjectSelection;
+  optional_input "primary_root" "Primary directory" KText "directory" PrimaryDirectory;
+  FormField(Field "roots"(KOptional(KArray KText)))"Working directories" "An inherited workspace or an explicitly chosen directory collection." "lines" DirectoryCollection;
+  FormField(Field "directory_entry" KText)"Add directory" "Add or clear this entry before completing workspace editing." "directory" DirectoryEntry;
+  optional_input "sandbox" "Filesystem access" (KEnum "workspace-write" ["read-only"])"select" FilesystemSelection;
+  optional_input "network_access" "Network access" KBool "checkbox" NetworkSelection;
+  optional_input "approval" "Execution policy" (KEnum "ask-for-approval" ["full-access";"approval-for-me"])"select" ApprovalSelection;
+  optional_input "reviewer_profile" "Reviewing model" KText "profile" ReviewerSelection].
 Definition permission_fields := filter(fun f=>existsb(String.eqb(field_name(specification f)))["sandbox";"network_access";"approval";"reviewer_profile"])context_fields.
 Definition concrete_permission_fields := map(fun f=>let spec:=specification f in
- match field_kind spec with KOptional k=>if String.eqb(field_name spec)"reviewer_profile"then f else FormField(Schema.Field(field_name spec)k)(label f)""(widget f)|_=>f end)permission_fields.
-Definition model_fields := [FormField(Field "profile" KText)"Model" "The model used for this task." "profile";
-  text_input "reasoning" "Reasoning effort"].
+ match field_kind spec with KOptional k=>if String.eqb(field_name spec)"reviewer_profile"then f else FormField(Schema.Field(field_name spec)k)(label f)""(widget f)(meaning f)|_=>f end)permission_fields.
+Definition model_fields := [FormField(Field "profile" KText)"Model" "The model used for this task." "profile" ProfileSelection;
+  FormField(Field "reasoning" KText)"Reasoning effort" "" "text" ReasoningSelection].
 Inductive task_workspace := CurrentWorkspace | ManagedWorkspace (backend:WorkspaceBackend.backend).
 Definition managed_workspace_names := match WorkspaceBackend.declaration with
  |KEnum first rest=>first::rest|_=>[] end.
@@ -44,31 +52,35 @@ Proof.
    + exact member.
 Defined.
 Definition task_workspace_field := FormField(Field "task_environment" task_workspace_kind)
- "Task environment" "Cloud Bash uses Full Access; MCP tools remain on the host." "select".
+ "Task environment" "Cloud Bash uses Full Access; MCP tools remain on the host." "select" TaskEnvironmentSelection.
 Definition new_task_fields : list form_field := [multiline "message" "Task"]++model_fields++context_fields.
 Definition form_fields (e:editor) : list form_field :=
   match e with
   | NewTask _=>new_task_fields++[task_workspace_field]
-  | Message _=>[multiline "message" "Message";select_input "delivery" "Send as" "send"["steer"]]++model_fields++concrete_permission_fields
-  | Project _=>[text_input "name" "Name";optional_input "primary_root" "Primary directory" KText "directory";
-      FormField(Field "roots"(KArray KText))"Working directories" "Project directories." "lines";
-      bool_input "create_worktree" "Create worktree for new tasks"]
+  | Message _=>[multiline "message" "Message";FormField(Field "delivery"(KEnum "send"["steer"]))"Send as" "" "select" DeliverySelection]
+  | Execution _=>model_fields++concrete_permission_fields
+  | Project _=>[text_input "name" "Name";optional_input "primary_root" "Primary directory" KText "directory" PrimaryDirectory;
+      FormField(Field "roots"(KArray KText))"Working directories" "Project directories." "lines" DirectoryCollection;
+      FormField(Field "directory_entry" KText)"Add directory" "Add or clear this entry before saving." "directory" DirectoryEntry;
+      FormField(Field "create_worktree" KBool)"Create worktree for new tasks" "" "checkbox" ProjectWorktreePreference]
   | Card _=>[text_input "title" "Title";multiline "description" "Description";
       select_input "status" "Stage"(Domain.stage_name Domain.Backlog)(map Domain.stage_name(tl Domain.stages));
       select_input "priority" "Priority"(Domain.priority_name Domain.NoPriority)(map Domain.priority_name(tl Domain.priorities));
       text_input "assignee" "Assignee";text_input "project" "Project";
-      FormField(Field "labels"(KArray KText))"Labels" "One label per line." "lines";
+      FormField(Field "labels"(KArray KText))"Labels" "One label per line." "lines" Scalar;
       natural_input "revision" "Revision";bool_input "assisted" "Assist with title and description";
       text_input "draft_profile" "Assistance model";bool_input "keep_open" "Create another after saving"]
   | Agent _=>[text_input "name" "Name";multiline "instructions" "Instructions";
       natural_input "concurrency" "Concurrent tasks";natural_input "revision" "Revision"]++model_fields++context_fields
-  | Fork _=>[natural_input "child_count" "Number of tasks";FormField(Field "messages"(KArray KText))"Initial messages" "One request per branch." "lines"]++context_fields
-  | Compact _=>[optional_input "summary" "Summary override" KText "textarea"]
+  | Fork _=>[natural_input "child_count" "Number of tasks";FormField(Field "messages"(KArray KText))"Initial messages" "One request per branch." "lines" Scalar]++context_fields
+  | Compact _=>[optional_input "summary" "Summary override" KText "textarea" Scalar]
   | TaskGraph _ _=>[json_input "declaration" "Declaration"]
   | WorkName _=>[text_input "name" "Name"]
   | TitlePrompts=>[natural_input "revision" "Revision";multiline "task_prompt" "Task 看板标题提示词";multiline "agent_prompt" "Agent 会话标题提示词"]
   end.
 Definition form_schema e := map specification(form_fields e).
+Definition workspace_editor e := existsb(fun field=>match meaning field with DirectoryCollection=>true|_=>false end)(form_fields e).
+Definition editor_can_submit e := match e with Execution _=>false|_=>true end.
 Inductive feedback := Editing | Accepted(reply:json) | Rejected(reason:string) | WorkspaceRejected(reason:string).
 Record draft := Draft { owner:editor; revision:N; values:fields(form_schema owner); attachments:list attachment; raw_fields:list(string*string); status:feedback }.
 Definition new_draft e :=
@@ -109,6 +121,7 @@ Definition lines text:=if String.eqb text ""then []else lines_from "" text.
 Fixpoint raw_value (k:kind) (raw:json) : json :=
   match k,raw with
   |KNatural,JString s|KInteger,JString s|KDecimal,JString s=>JNumber s
+  |KOptional(KArray KText),JString s=>JArray(map JString(lines s))
   |KOptional _,JString ""=>JNull
   |KOptional k,raw=>raw_value k raw
   |KArray KText,JString s=>JArray(map JString(lines s))
@@ -123,6 +136,10 @@ Definition raw_text name d := match find(fun p=>String.eqb name(fst p))(raw_fiel
 Definition content text images := JArray
   (JObject[("type",JString "text");("text",JString text)]::map(fun a=>JObject[("type",JString "image");
     ("image",JObject[("id",JString(asset_id a));("mime",JString(asset_mime a));("bytes",number(asset_bytes a))]);("detail",JString "auto")])images).
+Definition workspace_inheritable e := existsb(fun field=>
+  String.eqb(field_name(specification field))"roots" &&
+  match field_kind(specification field)with KOptional _=>true|_=>false end)(form_fields e).
+Definition workspace_inherited d := workspace_inheritable(owner d)&&Json.equal(get "roots" d)JNull.
 Definition workspace_after_edit name d :=
  let roots:=read_list "roots" d in let primary:=get "primary_root" d in
  if String.eqb name "primary_root"then
@@ -131,17 +148,22 @@ Definition workspace_after_edit name d :=
   |JNull=>match roots with []=>Some d|first::_=>restore_field "primary_root" first d end
   |_=>None end
  else if String.eqb name "roots"then
+  if workspace_inherited d then restore_field "primary_root" JNull d else
   if existsb(Json.equal primary)roots then Some d else
    restore_field "primary_root"(match roots with []=>JNull|first::_=>first end)d
  else Some d.
 Definition workspace d := JObject[("roots",JArray(read_list "roots" d));("primary_root",get "primary_root" d)].
+Definition workspace_override d := if workspace_inherited d then None else Some(workspace d).
+Definition choose_workspace roots primary d := restore_fields[("roots",JArray roots);("primary_root",primary)]d.
+Definition use_inherited_workspace d :=
+  if workspace_inheritable(owner d)then restore_fields[("roots",JNull);("primary_root",JNull)]d else None.
 Definition present (name:string) value rest := match value with JNull=>rest|_=> (name,value)::rest end.
 Definition settings d :=
   let approval:=read_text "approval" d in
   let policy:=match get "approval" d with JNull=>JNull|_=>JObject
     (present "reviewer_profile" (get "reviewer_profile" d)[("mode",JString approval)])end in
   let sandbox:=match get "sandbox" d with JNull=>JNull|v=>JObject[("mode",v);("network_access",JBool(read_flag "network_access" d))]end in
-  let workspace:=match get "primary_root" d,read_list "roots" d with JNull,[]=>JNull|_,_=>workspace d end in
+  let workspace:=value_or JNull(workspace_override d)in
   JObject(present "project_id"(get "project_id" d)(present "workspace" workspace(present "sandbox" sandbox(present "approval" policy [])))).
 Definition ascii_space c := existsb(Ascii.eqb c)[" "%char;Ascii.ascii_of_nat 9;Ascii.ascii_of_nat 10;Ascii.ascii_of_nat 13].
 Fixpoint trim_start s := match s with String c rest=>if ascii_space c then trim_start rest else s|EmptyString=>s end.
@@ -157,6 +179,10 @@ Definition message_command task d :=
   match side_question body with
   | Some question=>JObject[("op",JString "open_side_conversation");("task_id",number task);("message",content question(attachments d))]
   | None=>JObject[("op",JString(read_text "delivery" d));("task_id",number task);("message",content body(attachments d))]end.
+Definition execution_fields_command task d:=JObject[("op",JString "configure_task_execution");("task_id",number task);
+ ("profile",get "profile" d);("reasoning",get "reasoning" d);
+ ("sandbox",JObject[("mode",get "sandbox" d);("network_access",get "network_access" d)]);
+ ("approval",JObject(present "reviewer_profile"(get "reviewer_profile" d)[("mode",get "approval" d)]))].
 Definition command d :=
   let record op fields:=JObject(("op",JString op)::fields)in
   let fs:=object_fields(data d)in
@@ -169,6 +195,7 @@ Definition command d :=
       |Some w=>record "create_work_task"(("work_id",number w)::("create_worktree",JBool(local_worktree d))::fields)
       |None=>record(match selection with CurrentWorkspace=>"create"|ManagedWorkspace _=>"create_worktree_task"end)fields end end
   | Message task=>message_command task d
+  | Execution task=>execution_fields_command task d
   | Project id=>record(match id with None=>"create_project"|Some _=>"update_project"end)
       (present "project_id"(optional_id id)[("name",get "name" d);("workspace",workspace d);("create_worktree",get "create_worktree" d)])
   | Card id=>record(match id with None=>"create_card"|Some _=>"update_card"end)
@@ -181,23 +208,8 @@ Definition command d :=
   | WorkName work=>record "rename_work"[("work_id",number work);("name",get "name" d)]
   | TitlePrompts=>record "configure_title_settings"fs
   end.
-Definition execution_command task d:=JObject[("op",JString "configure_task_execution");("task_id",number task);
- ("profile",get "profile" d);("reasoning",get "reasoning" d);
- ("sandbox",JObject[("mode",get "sandbox" d);("network_access",get "network_access" d)]);
- ("approval",JObject(present "reviewer_profile"(get "reviewer_profile" d)[("mode",get "approval" d)]))].
+Definition execution_command := execution_fields_command.
 Definition has_message d := negb(String.eqb(trim(read_text "message" d))"") || negb(Nat.eqb(List.length(attachments d))0).
-Definition intrinsic_obstruction d : option string :=
-  match raw_fields d with (name,_)::_=>Some(String.append "Correct the value of " name)|[]=>
-  match owner d with
-  | NewTask _=>if has_message d then if String.eqb(read_text "profile" d)"" then Some "Select a model"else None else Some "Enter a message or attach an image"
-  | Message _=>if has_message d then None else Some "Enter a message or attach an image"
-  | Project _=>if String.eqb(trim(read_text "name" d))"" then Some "Enter a project name"else None
-  | Agent _=>if String.eqb(trim(read_text "name" d))"" then Some "Enter an agent name"else
-      if String.eqb(read_text "profile" d)"" then Some "Select a model"else
-      if match natural(get "concurrency" d)with Some n=>N.eqb n 0|None=>true end then Some "Concurrency must be positive"else None
-  | Fork _=>if match natural(get "child_count" d)with Some n=>N.eqb n 0|None=>true end then Some "Choose at least one branch"else None
-  | TaskGraph _ _=>if String.eqb(trim(text "name"(get "declaration" d)))"" then Some "Enter a graph name"else None
-  | _=>None end end.
 Definition encode_feedback f := match f with Editing=>JObject[("kind",JString "editing")]|Accepted r=>JObject[("kind",JString "accepted");("value",r)]|Rejected e=>JObject[("kind",JString "rejected");("error",JString e)]|WorkspaceRejected e=>JObject[("kind",JString "workspace_rejected");("error",JString e)]end.
 Definition decode_feedback j := match string_field "kind" j with Some "editing"=>Some Editing|Some "accepted"=>option_map Accepted(field "value" j)|Some "rejected"=>option_map Rejected(string_field "error" j)|Some "workspace_rejected"=>option_map WorkspaceRejected(string_field "error" j)|_=>None end.
 Definition encode_draft d := JObject[("editor",encode_editor(owner d));("revision",number(revision d));("values",data d);("attachments",JArray(map encode_attachment(attachments d)));("raw",JArray(map(fun p=>JObject[("field",JString(fst p));("value",JString(snd p))])(raw_fields d)));("feedback",encode_feedback(status d))].

@@ -149,3 +149,54 @@ Fixpoint map_actions {A B}(f:A->B)(value:scene A):scene B:=match value with
 |FieldView role key spec value props input keys children=>FieldView role key spec value props(option_map(fun '(i,a)=>(i,f a))input)(map(fun p=>(fst p,f(snd p)))keys)(map(map_actions f)children)
 |FieldWithFiles key spec value props input files keys children=>FieldWithFiles key spec value props
  (option_map(fun '(i,a)=>(i,f a))input)(f files)(map(fun p=>(fst p,f(snd p)))keys)(map(map_actions f)children)end.
+
+(** Native ID references separate arbitrary UTF-8 paths into ASCII components. *)
+Fixpoint key_component value :=match value with EmptyString=>EmptyString|String character rest=>
+ String.append(Numbers.show_natural(N.of_nat(Ascii.nat_of_ascii character)))
+  (String.append "-"(key_component rest))end.
+Definition scoped_key scope key := String.append scope(String.append "/" key).
+Fixpoint scoped_references scope start value := match value with
+|EmptyString=>EmptyString
+|String character rest=>
+ let whitespace:=existsb(Ascii.eqb character)
+  [Ascii.ascii_of_nat 32;Ascii.ascii_of_nat 9;Ascii.ascii_of_nat 10;Ascii.ascii_of_nat 13]in
+ if whitespace then String character(scoped_references scope true rest)
+ else String.append(if start then String.append scope "/"else "")
+  (String character(scoped_references scope false rest))
+end.
+Definition scope_attribute scope '(name,value) :=
+ (name,if existsb(String.eqb name)["for";"aria-controls";"aria-labelledby";"aria-describedby";"aria-activedescendant"]
+  then match value with JString references=>JString(scoped_references scope true references)|other=>other end
+  else if String.eqb name "data-anchor"then match value with JString key=>JString(scoped_key scope key)|other=>other end
+  else value).
+Definition scoped_properties scope key props :=
+ let original:=match field "attrs"(JObject props)with None=>JObject[]|Some attrs=>attrs end in
+ let attrs:=match original with
+ |JObject attrs=>JObject(Json.set_field "data-logical-key"(JString key)
+   (Json.set_field "data-view"(JString scope)(map(scope_attribute scope)attrs)))
+ |other=>other end in
+ Json.set_field "attrs" attrs props.
+Definition scoped_portal scope props :=map(fun '(name,value)=>
+ (name,if String.eqb name "target"then match value with
+  JString target=>JString(scoped_key scope target)|other=>other end else value))props.
+
+(** Physical presentation identity does not create another task, editor or
+    document owner. Only native keys, references and captured triggers move. *)
+Fixpoint scope {A} (view:string)(action:A->A)(value:scene A):scene A:=
+ let key:=scoped_key view in
+ let props:=scoped_properties view in
+ let children:=map(scope view action)in
+ let keys:=fun values=>map(fun '(name,input)=>(name,action input))values in
+ match value with
+ |GraphicView name attributes drawing=>GraphicView(key name)(props name attributes)(Graphics.map_keys (scoped_key view)(Graphics.map_actions action drawing))
+ |Container role name attributes dismiss values=>Container role(key name)
+   (match role with CPortal=>scoped_portal view(props name attributes)|_=>props name attributes end)
+   (option_map action dismiss)(children values)
+ |Content role name attributes values=>Content role(key name)(props name attributes)(children values)
+ |ActionButton name attributes input disabled values=>ActionButton(key name)(props name attributes)(option_map action input)disabled(children values)
+ |FormView name attributes input values=>FormView(key name)(props name attributes)(option_map action input)(children values)
+ |FieldView role name spec value attributes input shortcuts values=>FieldView role(key name)spec value(props name attributes)
+   (option_map(fun '(injection,input)=>(injection,action input))input)(keys shortcuts)(children values)
+ |FieldWithFiles name spec value attributes input files shortcuts values=>FieldWithFiles(key name)spec value(props name attributes)
+   (option_map(fun '(injection,input)=>(injection,action input))input)(action files)(keys shortcuts)(children values)
+ end.

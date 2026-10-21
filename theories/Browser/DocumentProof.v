@@ -23,7 +23,7 @@ Theorem disabled_controls_have_no_bindings : forall mode system_dark role key la
   target_events key (render_scene mode system_dark (Scene role key label value true checked multiline action attrs source children)) = Some [].
 Proof.
   intros; destruct role; try discriminate;
-  cbn [native_control render_scene target_events];
+  cbn [native_control render_scene render_scene_contents render_control target_events];
   unfold role_properties; cbn;
   repeat rewrite String.eqb_refl; reflexivity.
 Qed.
@@ -66,3 +66,38 @@ Proof.
   simpl in contained; destruct contained as [same | [same | impossible]];
     [subst property; exact local | subst property; discriminate | contradiction].
 Qed.
+
+
+(** The compact drawer encloses the retained header and tree in one actual
+    dialog. A renderer that leaves the header in the inert background fails it. *)
+Theorem compact_task_navigation_keeps_its_header :
+  forall key tag attrs styles events metadata rail header tree,
+  optional_text "layout" metadata = "workspace-navigation" ->
+  visible_in Native.Sequential (project_navigation Native.Sequential rail) = true ->
+  visible_in Native.Sequential (project_navigation Native.Sequential header) = true ->
+  visible_in Native.Sequential (project_navigation Native.Sequential tree) = true ->
+  tree_drawer_open (project_navigation Native.Sequential tree) = true ->
+  exists scope_key scope_attrs scope_styles scope_events scope_metadata,
+    node_children (project_navigation Native.Sequential
+      (Element key tag attrs styles events [rail; header; tree] metadata)) =
+    [Element scope_key "dialog" scope_attrs scope_styles scope_events
+      [project_navigation Native.Sequential header; project_navigation Native.Sequential tree] scope_metadata].
+Proof.
+  intros key tag attrs styles events metadata rail header tree layout rail_visible header_visible tree_visible expanded.
+  cbn [project_navigation node_children map filter].
+  rewrite rail_visible, header_visible, tree_visible; cbn.
+  rewrite layout; cbn [navigation_content]; rewrite expanded.
+  cbn [task_navigation_scope]; do 5 eexists; reflexivity.
+Qed.
+
+Theorem desktop_tree_preference_does_not_open_a_compact_dialog : forall key rail header tree,
+  tree_drawer_open tree = false ->
+  navigation_content Native.Sequential key rail header tree = [header].
+Proof. intros key rail header tree closed; unfold navigation_content; now rewrite closed. Qed.
+
+Theorem narrow_only_controls_are_absent_from_wide_navigation : forall value,
+  node_layout value = "sequential-only" -> visible_in Native.Simultaneous value = false.
+Proof. intros value layout; unfold visible_in; rewrite layout; reflexivity. Qed.
+Theorem wide_only_controls_are_absent_from_narrow_navigation : forall value,
+  node_layout value = "simultaneous-only" -> visible_in Native.Sequential value = false.
+Proof. intros value layout; unfold visible_in; rewrite layout; reflexivity. Qed.

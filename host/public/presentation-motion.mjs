@@ -15,13 +15,14 @@ export class PresentationMotion {
   }
   refresh() {
     const current = new Set(this.root.querySelectorAll('[data-interactive-motion]'));
+    const modal = this.root.querySelector('dialog:modal');
     for (const node of this.nodes) if (!current.has(node)) this.observer.unobserve(node);
     for (const node of current) {
       if (!this.nodes.has(node)) this.observer.observe(node);
       const disabled = this.reduced.matches || document.visibilityState !== 'visible'
-        || this.visible.get(node) === false || this.root.dataset.sourcesFresh === 'false'
-        || Boolean(node.closest('[hidden],[aria-hidden="true"],[inert]'));
-      node.dataset.motionPaused = String(disabled);
+        || this.visible.get(node) === false
+        || Boolean(node.closest('[hidden],[aria-hidden="true"],[inert]')) || Boolean(modal && !modal.contains(node));
+      node.dataset.nativeMotionPaused = String(disabled);
     }
     this.nodes = current;
   }

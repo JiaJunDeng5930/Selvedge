@@ -34,10 +34,13 @@ Definition encode_primitive{A}(encode_action:A->json)(p:primitive A):json:=
  | Hitbox key x y width height label action=>pack "hitbox"(position x y++[("key",JString key);("width",extent width);("height",extent height);("label",JString label);("action",encode_action action)])end.
 Definition encode{A}encode_action(p:plot A):json:=JObject[("width",extent(Npos p.(width)));("height",extent(Npos p.(height)));
  ("primitives",JArray(map(encode_primitive encode_action)p.(primitives)))].
-Definition map_primitive{A B}(f:A->B)(p:primitive A):primitive B:=match p with
+Definition map_primitive_with_key{A B}(key:string->string)(f:A->B)(p:primitive A):primitive B:=match p with
  |Line x y u v t=>Line x y u v t|Rectangle x y w h t=>Rectangle x y w h t|Circle x y r t=>Circle x y r t|Label x y text t=>Label x y text t
- |Hitbox key x y w h label a=>Hitbox key x y w h label(f a)end.
+ |Hitbox identity x y w h label a=>Hitbox(key identity)x y w h label(f a)end.
+Definition map_primitive{A B}(f:A->B):primitive A->primitive B:=map_primitive_with_key(fun key=>key)f.
 Definition map_actions{A B}(f:A->B)(p:plot A):plot B:=Plot p.(width)p.(height)(map(map_primitive f)p.(primitives)).
+Definition map_keys{A}(key:string->string)(p:plot A):plot A:=
+ Plot p.(width)p.(height)(map(map_primitive_with_key key(fun action=>action))p.(primitives)).
 Definition opt_bind{A B}(value:option A)(f:A->option B):=match value with Some v=>f v|None=>None end.
 Notation "x <-o a ;; b" :=(opt_bind a(fun x=>b))(at level 100,a at next level,right associativity).
 Definition decode_tone source:=name <-o string_field "tone"source;;

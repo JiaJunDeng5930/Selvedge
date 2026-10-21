@@ -18,16 +18,16 @@ Definition decode_action value:=kind <- string_field "kind"value;;match kind wit
  |"copy"=>text <- string_field "text"value;;Some(Copy text)|"navigate"=>text <- string_field "text"value;;Some(Navigate text)|_=>None end.
 Definition encode_view(value:view_state):json:=match value with
  |SourceView open=>JObject[("kind",JString "source");("open",JBool open)]
- |GraphView zoom x y selected=>JObject[("kind",JString "graph");("zoom",JString(Decimal.text zoom));("x",JString(Decimal.text x));("y",JString(Decimal.text y));("selected",JString selected)]
+ |GraphView zoom x y fit selected=>JObject[("kind",JString "graph");("zoom",JString(Decimal.text zoom));("x",JString(Decimal.text x));("y",JString(Decimal.text y));("fit",JBool fit);("selected",JString selected)]
  |TableView column descending page=>JObject[("kind",JString "table");("column",optional_text column);("descending",JBool descending);("page",JNumber(show_nat page))]end.
 Definition decimal_field name value:=text <- string_field name value;;Decimal.parse text.
 Definition decode_view value:=kind <- string_field "kind"value;;match kind with
  |"source"=>open <- bool_field "open"value;;Some(SourceView open)
- |"graph"=>zoom <- decimal_field "zoom"value;;x <- decimal_field "x"value;;y <- decimal_field "y"value;;selected <- string_field "selected"value;;
+ |"graph"=>zoom <- decimal_field "zoom"value;;x <- decimal_field "x"value;;y <- decimal_field "y"value;;fit <- bool_field "fit"value;;selected <- string_field "selected"value;;
    if Z.leb (Z.quot Decimal.scale 4)(Decimal.units zoom)&&Z.leb(Decimal.units zoom)(2*Decimal.scale)&&
       Z.leb(-2000*Decimal.scale)(Decimal.units x)&&Z.leb(Decimal.units x)(2000*Decimal.scale)&&
       Z.leb(-2000*Decimal.scale)(Decimal.units y)&&Z.leb(Decimal.units y)(2000*Decimal.scale)
-   then Some(GraphView zoom x y selected)else None
+   then Some(GraphView zoom x y fit selected)else None
  |"table"=>column <- field "column"value;;column <- decode_optional_text column;;descending <- bool_field "descending"value;;page <- number_field "page"value;;page <- parse_nat page;;
    if Nat.leb page Bounds.collection_items then Some(TableView column descending page)else None|_=>None end.
 Definition encode_views views:=JArray(map(fun kv=>JObject[("path",JString(fst kv));("value",encode_view(snd kv))])views).

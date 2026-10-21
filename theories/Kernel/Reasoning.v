@@ -55,7 +55,7 @@ Definition trailing_configuration (history : list message) :=
  fold_left (fun previous entry => match entry with
  | ReasoningConfigurationMessage _ => true
  | ReasoningRecord _ _ _ _ | HookReceipt _ _ _ _ | AfterReceipt _ _ _ _
- | ApprovalReceipt _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
+ | ApprovalReceipt _ _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
  | _ => false end) history false.
 Definition generation (owner : N) (model : profile) (remaining : N) (task : task) :=
  let effort := profile_reasoning model in

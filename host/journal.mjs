@@ -7,7 +7,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { Kernel } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
 
-export const journalFormat = 'selvedge-rocq-journal-3';
+export const journalFormat = 'selvedge-rocq-journal-4';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',

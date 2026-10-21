@@ -35,11 +35,51 @@ export class Renderer {
     this.records = new Map();
     this.targets = new Map();
     this.composing = new WeakSet();
+    this.modal = null;
     this.disposed = false;
+    this.anchorFocus = () => queueMicrotask(() => this.refreshAnchors());
+    if (!isolated) {
+      root.addEventListener('focusin', this.anchorFocus);
+      root.addEventListener('focusout', this.anchorFocus);
+    }
   }
   target(key) {
     return key === '@document/root' ? this.root.ownerDocument.documentElement
       : this.targets.get(key) ?? this.records.get(key)?.node;
+  }
+  resolveTarget(key, { modal = true, fallback } = {}) {
+    const scope = modal && this.modalRecord()?.node || this.root;
+    const preferredView = this.root.ownerDocument.activeElement?.closest('[data-view]')?.dataset.view ?? '';
+    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(node =>
+      !node.closest('[inert],[hidden]') && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
+    if (scope.dataset?.key) nodes.unshift(scope);
+    const resolved = this.callbacks.resolveTarget({ target: key, view: preferredView, ...(fallback === undefined ? {} : { fallback }),
+      candidates: nodes.map(node => ({ key: node.dataset.key,
+        aliases: [node.dataset.logicalKey, node.dataset.focusAlias].filter(value => value !== undefined),
+        view: node.dataset.view ?? '' })) });
+    return resolved === null ? null : this.target(resolved);
+  }
+  modalRecord() {
+    return this.modal?.matches(':modal') ? this.records.get(this.modal.dataset.key) : null;
+  }
+  refreshAnchors() {
+    for (const anchor of this.root.querySelectorAll('[data-native-anchor-owner]')) anchor.removeAttribute('data-native-anchor-owner');
+    for (const positioned of this.root.querySelectorAll('[data-anchor]')) {
+      const anchor = this.target(positioned.dataset.anchor);
+      // DEFENSE: resizing can remove a trigger's responsive branch while its activity remains open.
+      if (!anchor?.isConnected) {
+        positioned.style.removeProperty('position-anchor');
+        continue;
+      }
+      const name = '--selvedge-anchor-' + CSS.escape(positioned.dataset.key);
+      anchor.style.anchorName = name;
+      positioned.style.positionAnchor = name;
+      if (positioned.dataset.anchorFocus === 'true') {
+        positioned.hidden = anchor !== this.root.ownerDocument.activeElement;
+        anchor.setAttribute('aria-expanded', String(!positioned.hidden));
+      }
+      if (!positioned.hidden) anchor.dataset.nativeAnchorOwner = 'true';
+    }
   }
   fieldSession(record, event, value) {
     if (!this.callbacks.fieldSession || !record.attributes.has('value') || !('value' in record.node)) return { deliver: true };
@@ -56,6 +96,11 @@ export class Renderer {
   properties(record, properties, styles) {
     const node = record.node;
     const next = new Map(properties.map(({ name, value }) => [name, value]));
+    // The document projection has already resolved appearance. Upstream token
+    // aliases use :root, including content physically mounted through portals.
+    if (!this.isolated && next.get('data-layout') === 'workspace' && next.has('data-theme')) {
+      this.root.ownerDocument.documentElement.setAttribute('data-theme', next.get('data-theme'));
+    }
     for (const name of record.attributes.keys()) {
       if (!next.has(name)) {
         node.removeAttribute(name);
@@ -103,6 +148,7 @@ export class Renderer {
       if (node.type === 'file') dispatch('files', event);
     });
     node.addEventListener('submit', event => { event.preventDefault(); dispatch('submit', event); });
+    node.addEventListener('cancel', event => { event.preventDefault(); dispatch('dismiss', event); });
     node.addEventListener('compositionstart', () => { this.composing.add(node); this.fieldSession(record, 'composition_started'); });
     node.addEventListener('compositionend', event => { this.composing.delete(node); if (this.fieldSession(record, 'composition_ended').deliver) dispatch('edit', event); });
     node.addEventListener('keydown', event => {
@@ -110,6 +156,7 @@ export class Renderer {
       this.callbacks.key?.(event, record.key, node, record);
     });
     node.addEventListener('pointerdown', event => {
+      if (node.dataset.retainFocus === 'true') event.preventDefault();
       if (record.fieldSession?.session === 'superseded_tail') this.fieldSession(record, 'input_started');
       this.callbacks.reading?.('pointer', event, record.key, node);
     });
@@ -138,6 +185,7 @@ export class Renderer {
     });
   }
   render(document, generation = 0) {
+    const active = this.root.ownerDocument.activeElement;
     this.document = document;
     this.generation = generation;
     this.targets.clear();
@@ -205,10 +253,25 @@ export class Renderer {
     for (const [key, record] of this.records) {
       if (!used.has(key)) { record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); }
     }
-    for (const record of this.records.values()) {
-      if (record.tag === 'dialog' && record.node.open && !record.node.matches(':modal')) {
-        record.node.open = false;
-        record.node.showModal();
+    if (!this.isolated) {
+      // DOM order is the declared layer order; retained-record insertion order can differ after resizing.
+      const dialogs = Array.from(this.root.querySelectorAll('dialog[open]'));
+      this.refreshAnchors();
+      const top = dialogs.at(-1) ?? null;
+      if (this.modal !== top && this.modal?.isConnected && this.modal.matches(':modal')) {
+        const previous = this.modal;
+        previous.close();
+        if (dialogs.includes(previous)) previous.open = true;
+      }
+      this.modal = top;
+      if (top && !top.matches(':modal')) {
+        top.open = false;
+        top.showModal();
+      }
+      // Moving a retained header into its native drawer must not discard its focused control.
+      if (active?.isConnected && active !== this.root.ownerDocument.activeElement &&
+          (!top || top.contains(active)) && !active.closest('[inert]') && !active.disabled) {
+        active.focus({ preventScroll: true });
       }
     }
     this.root.ownerDocument.title = document.title;
@@ -228,8 +291,10 @@ export class Renderer {
     return !this.disposed && results.every(Boolean);
   }
   dispose() {
+    this.root.removeEventListener('focusin', this.anchorFocus);
+    this.root.removeEventListener('focusout', this.anchorFocus);
     this.disposed = true;
     for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
-    reconcile(this.root, []); this.records.clear(); this.targets.clear();
+    reconcile(this.root, []); this.records.clear(); this.targets.clear(); this.modal = null;
   }
 }

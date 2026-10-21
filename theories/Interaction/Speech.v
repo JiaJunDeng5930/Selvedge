@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Kernel Require Import Commands.
-From Selvedge.Interaction Require Import Codec Identity Services.
+From Selvedge.Interaction Require Import Codec Identity Services Forms.
 Import ListNotations.
 Open Scope string_scope.
 Record connection := Connection { connection_id:string; connection_label:string; asr:bool; voice:bool }.
@@ -37,7 +37,9 @@ Definition result s es:=SpeechResult s es None.
 Definition free s:=match current s with Idle=>true|_=>false end.
 Definition release s:=match active_ticket(current s)with Some t=>[Release t]|None=>[]end.
 Definition begin_dictation e revision s :=
-  if free s then match eligible false s with
+  (* DEFENSE: Native inputs can name settings editors with no message field;
+     recording there cannot produce an insertable transcript. *)
+  if existsb(fun field=>String.eqb "message"(field_name field))(Forms.form_schema e) && free s then match eligible false s with
   |Some _=>let t:=next s in result(with_next(N.succ t)(with_activity(Acquiring t e revision)(with_notice "" s)))[RecordAudio t e]
   |None=>keep(with_notice "Select a connection with speech recognition" s)end else keep s.
 Definition begin_voice task s :=
@@ -126,3 +128,20 @@ Definition decode_input j := match string_field "type" j with
   |Some "audio_failed"=>t<-natural_field "ticket" j;;s<-string_field "error" j;;Some(Failed t s)
   |Some "audio_ended"=>t<-natural_field "ticket" j;;s<-string_field "error" j;;Some(Ended t s)
   |Some "audio_released"=>Some Released|_=>None end.
+
+Theorem cancellation_releases_owned_microphone s :
+ speech_effects(speech_step Cancel s)=release s /\
+ current(speech_state(speech_step Cancel s))=Idle.
+Proof. destruct s;cbn;simpl;split;reflexivity. Qed.
+
+Theorem matching_transcription_retains_capture cs selected next ticket capture notice live text :
+ let result:=speech_step(Transcribed ticket text)(Speech cs selected next(Transcribing ticket capture)notice live)in
+ current(speech_state result)=Retained capture text /\
+ transcript result=Some(capture,text) /\ speech_effects result=[Release ticket].
+Proof. cbn;rewrite N.eqb_refl;repeat split;reflexivity. Qed.
+
+Theorem stale_transcription_preserves_capture s selected next expected ticket capture notice live text :
+ N.eqb ticket expected=false ->
+ speech_step(Transcribed ticket text)(Speech s selected next(Transcribing expected capture)notice live)=
+ keep(Speech s selected next(Transcribing expected capture)notice live).
+Proof. intro stale;cbn;rewrite stale;reflexivity. Qed.

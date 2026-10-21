@@ -733,7 +733,7 @@ export class Service extends EventEmitter {
   #audioAdmission(kind, observations) {
     const plan = boundary('http.audio', { kind, ...observations });
     // DEFENSE: Authenticated clients can exceed the native audio resource contract or name another browser's live session.
-    if (!plan.allowed) throw new TypeError(plan.message);
+    if (!plan.allowed) throw new TypeError(plan.error);
     return plan;
   }
 

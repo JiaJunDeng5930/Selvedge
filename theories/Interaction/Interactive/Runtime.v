@@ -83,17 +83,17 @@ Definition decimal_clamp low high value := Decimal.checked (Z.max low (Z.min hig
 Definition zoom_step:=Decimal.parse "0.25".
 Definition view_update command props previous : option view_state :=
  match props.(description).(component_role),previous with
- | Graph,GraphView zoom x y selected=>
-   let zoom_value value:=clamped <- decimal_clamp (Z.quot Decimal.scale 4) (2*Decimal.scale) value;;Some(GraphView clamped x y selected)in
+ | Graph,GraphView zoom x y fit selected=>
+   let zoom_value value:=clamped <- decimal_clamp (Z.quot Decimal.scale 4) (2*Decimal.scale) value;;Some(GraphView clamped x y false selected)in
    match command with
    | ZoomIn=>delta <- zoom_step;;v <- Decimal.binary "+" zoom delta;;zoom_value v
    | ZoomOut=>delta <- zoom_step;;v <- Decimal.binary "-" zoom delta;;zoom_value v
    | Pan dx dy=>dx <- Decimal.parse dx;;dy <- Decimal.parse dy;;x <- Decimal.binary "+" x dx;;y <- Decimal.binary "+" y dy;;
      x <- decimal_clamp (-2000*Decimal.scale)(2000*Decimal.scale)x;;
-     y <- decimal_clamp (-2000*Decimal.scale)(2000*Decimal.scale)y;;Some(GraphView zoom x y selected)
-   | Fit=>Some(GraphView Decimal.one Decimal.zero Decimal.zero selected)
+     y <- decimal_clamp (-2000*Decimal.scale)(2000*Decimal.scale)y;;Some(GraphView zoom x y fit selected)
+   | Fit=>Some(GraphView Decimal.one Decimal.zero Decimal.zero true selected)
    | SelectNode id=>if existsb(fun node=>match string_field "identity"node with Some actual=>String.eqb actual id|_=>false end)(property_array "nodes"props)
-     then Some(GraphView zoom x y id)else None
+     then Some(GraphView zoom x y fit id)else None
    | _=>None end
  | Table,TableView column descending page=>match command with
    | SortColumn id=>if property_bool false "sortable" props then
@@ -165,7 +165,7 @@ Definition reduce (visible:owner->bool) input b environment :=
  | Restore _ definition callback_revision payload=>
    let p:=prepared b environment in
    if Snapshot.restore_admitted b p definition callback_revision then
-     let '(next,output):=Snapshot.restore b p definition callback_revision payload in
+     let '(next,output):=Snapshot.restore b p environment definition callback_revision payload in
      let '(next,_,_):=refresh visible next environment in(next,output)
    else(b,[])
  | _=>let '(next,output,persist):=match input with

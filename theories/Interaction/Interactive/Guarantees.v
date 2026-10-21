@@ -41,6 +41,40 @@ Theorem settled_feedback_ignored path ticket ok message b expected previous_ok p
  Runtime.settle_feedback path ticket ok message b = b.
 Proof. intro settled. unfold Runtime.settle_feedback. rewrite settled. reflexivity. Qed.
 
+Theorem matching_feedback_settles_and_preserves_state visible who path ticket occurrence action ok message b environment :
+ State.feedback_at path b = Some(FeedbackEntry path (Waiting ticket occurrence action)) ->
+ mounted_at path occurrence b.(State.mounts)=true ->
+ let next:=fst(Runtime.reduce visible(Feedback who path ticket ok message)b environment)in
+ State.feedback_at path next=Some(FeedbackEntry path(Answered ticket ok message)) /\
+ (next.(State.locals),next.(State.sources),next.(State.views),next.(State.mounts),next.(State.source),next.(State.syntax),
+  next.(State.next_ticket),next.(State.next_occurrence),next.(State.revision),next.(State.restore_state))=
+ (b.(State.locals),b.(State.sources),b.(State.views),b.(State.mounts),b.(State.source),b.(State.syntax),
+  b.(State.next_ticket),b.(State.next_occurrence),b.(State.revision),b.(State.restore_state)).
+Proof.
+ intros pending mounted. cbn -[Runtime.settle_feedback State.feedback_at State.set_feedback].
+ unfold Runtime.settle_feedback. rewrite pending,N.eqb_refl,mounted. cbn -[State.set_feedback State.feedback_at].
+ unfold State.feedback_at,State.set_feedback,State.with_feedbacks.
+ destruct b;cbn -[String.eqb];rewrite String.eqb_refl;split;reflexivity.
+Qed.
+
+Theorem entry_matching_feedback visible state environment who path ticket occurrence action ok message b :
+ State.find_block who state.(blocks)=Some b ->
+ State.feedback_at path b=Some(FeedbackEntry path(Waiting ticket occurrence action)) ->
+ mounted_at path occurrence b.(State.mounts)=true ->
+ exists next,
+ Runtime.step_visible visible(Feedback who path ticket ok message)state environment=
+   Decision(State(State.replace_block next state.(blocks)))[] /\
+ State.feedback_at path next=Some(FeedbackEntry path(Answered ticket ok message)) /\
+ (next.(State.locals),next.(State.sources),next.(State.views),next.(State.mounts),next.(State.source),next.(State.syntax),
+  next.(State.next_ticket),next.(State.next_occurrence),next.(State.revision),next.(State.restore_state))=
+ (b.(State.locals),b.(State.sources),b.(State.views),b.(State.mounts),b.(State.source),b.(State.syntax),
+  b.(State.next_ticket),b.(State.next_occurrence),b.(State.revision),b.(State.restore_state)).
+Proof.
+ intros found pending mounted. exists(Runtime.settle_feedback path ticket ok message b). split.
+ - unfold Runtime.step_visible,Runtime.input_owner. rewrite found. reflexivity.
+ - exact(matching_feedback_settles_and_preserves_state visible who path ticket occurrence action ok message b environment pending mounted).
+Qed.
+
 Theorem wrong_ticket_ignored path ticket ok message b expected occurrence action :
  State.feedback_at path b = Some(FeedbackEntry path (Waiting expected occurrence action)) ->
  N.eqb ticket expected=false -> Runtime.settle_feedback path ticket ok message b=b.
@@ -56,12 +90,13 @@ Proof.
  rewrite edited. simpl. repeat rewrite andb_false_r. reflexivity.
 Qed.
 
-Theorem restore_issues_no_authored_effect b prepared definition callback_revision payload :
- no_authored(snd(Snapshot.restore b prepared definition callback_revision payload))=true.
+Theorem restore_issues_no_authored_effect b prepared environment definition callback_revision payload :
+ no_authored(snd(Snapshot.restore b prepared environment definition callback_revision payload))=true.
 Proof.
  unfold Snapshot.restore. destruct(Snapshot.restore_admitted b prepared definition callback_revision); simpl; [|reflexivity].
  destruct payload as[raw|]; simpl;try reflexivity.
- destruct(Codec.bind(TextJson.parse_json raw)(fun entry=>Codec.bind(field "payload"entry)(Snapshot.decode _ _)))as[[restored_locals restored_views]|];reflexivity.
+ destruct(TextJson.parse_json raw)as[entry|];try reflexivity.
+ destruct(Codec.bind(field "payload"entry)(Snapshot.decode _ _))as[admitted|];[destruct admitted as[[restored_locals restored_views] valid]|];reflexivity.
 Qed.
 
 Theorem forbidden_external_action_issues_no_effect event_id b environment :

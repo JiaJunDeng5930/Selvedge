@@ -1,7 +1,7 @@
 # 0058: Native browser layout with one semantic scene
 
 Date: 2026-10-20
-Status: Accepted
+Status: Accepted; narrow navigation substitution superseded by [ADR 0062](0062-preserve-activity-and-navigation-contracts.md)
 
 ## Context
 

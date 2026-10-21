@@ -64,7 +64,7 @@ Fixpoint locate fuel nodes parts : option descriptor :=
  end.
 Definition describe prepared path := parts <- parse_path path;;locate 4096 prepared.(visual) parts.
 Definition accepts description value := match description,value with
- | GraphDescriptor,GraphView _ _ _ _ => true
+ | GraphDescriptor,GraphView _ _ _ _ _ => true
  | TableDescriptor columns,TableView column _ _ => match column with
    | None=>true|Some id=>existsb(String.eqb id)columns end
  | _,_=>false end.

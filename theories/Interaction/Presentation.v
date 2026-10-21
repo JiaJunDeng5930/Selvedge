@@ -6,38 +6,11 @@ From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require Documents.
 From Selvedge.Interaction Require Import Codec Identity Resource Services Forms Speech ApplicationState ApplicationOps Origin Input InputCodecs Scene ApplicationCore SkillMention.
 From Selvedge.Interaction Require Audit.
+From Selvedge.Interaction Require Export SceneBuilders.
+From Selvedge.Interaction Require ObjectActions Navigation ActivityPresentation Experience ExperienceObservation ExperienceAssessment Activities.
 Import ListNotations.
 Open Scope string_scope.
 
-Record ui_action := UiAction { action_input:option Input.input }.
-Definition invoke i:=UiAction(Some i).
-Inductive presentation_property := JsonProperty(value:json)|InputProperty(value:ui_action)|FieldProperty(value:field_spec)|KeyProperty(values:list(string*Input.input)).
-Coercion JsonProperty : json >-> presentation_property.
-Coercion InputProperty : ui_action >-> presentation_property.
-Definition scene_data_key name:=match name with
-|"label"=>Some Scene.Label|"value"=>Some Scene.Value|"attrs"=>Some Scene.Attributes|"disabled"=>Some Scene.Disabled|"checked"=>Some Scene.Checked|"multiline"=>Some Scene.Multiline|"options"=>Some Scene.Options|"help"=>Some Scene.Help|"invalid"=>Some Scene.Invalid|"role"=>Some Scene.Role|"value_kind"=>Some Scene.ValueKind|"url"=>Some Scene.Url|"complete"=>Some Scene.Complete|"origin"=>Some Scene.Origin|"document_key"=>Some Scene.DocumentKey|"epoch"=>Some Scene.Epoch|"revision"=>Some Scene.Revision|"ending"=>Some Scene.Ending|"appearance"=>Some Scene.Appearance|"layout"=>Some Scene.Layout|"target"=>Some Scene.Target|_=>None end.
-Definition scene_property role '(name,value):list(Scene.property Input.input):=
- match value with
- |FieldProperty spec=>[Scene.Specification spec]
- |KeyProperty keys=>[Scene.KeyActions keys]
- |JsonProperty value=>match scene_data_key name with Some key=>[Scene.Data key value]|None=>[]end
- |InputProperty value=>match action_input value with None=>[]|Some input=>
-   if String.eqb name "dismiss_action"then [Scene.Dismiss input]else
-   if String.eqb name "file_action"then [Scene.Files input]else
-   [Scene.Bind(match role with Scene.Field|Scene.Select|Scene.Checkbox=>Scene.Supply
-      (match input with ServiceInput(AddFile _ _)=>Scene.FileInjection|Input.Interactive _=>Scene.InteractiveValueInjection|_=>Scene.ValueInjection end)input
-      |_=>Scene.Activate input end)]end end.
-Definition node role key (props:list(string*presentation_property))(children:list(Scene.scene Input.input)):=
- Scene.make role key(flat_map(scene_property(proj1_sig role))props)children.
-Definition text_node key text := node Scene.Text_role key[("value",JsonProperty(JString text))] [].
-Definition heading key text := node Scene.Heading_role key[("label",JsonProperty(JString text))] [].
-Definition group key children := node Scene.Group_role key [] children.
-Definition command_action op props := UiAction(option_map Input.Command(decode_command command_specs(JObject(("op",JString op)::props)))).
-Definition history_action task index:=UiAction(match natural task,natural index with Some task,Some index=>Some(Input.OpenHistoryMessage task index)|_,_=>None end).
-Definition button key caption input disabled := Scene.ActionButton key[("label",JString caption)](action_input input)disabled[].
-Definition navigation_action r := invoke(Input.Navigate r).
-Definition editor_button key caption e := button key caption(invoke(Input.OpenEditor e key))false.
-Definition edit_action e name := invoke(Input.Edit e name JNull None).
 Definition optional_label id := match id with None=>"All Tasks"|Some id=>"Work #"++show_natural id end.
 Fixpoint join_text delimiter xs := match xs with []=>""|[x]=>x|x::xs=>x++delimiter++join_text delimiter xs end.
 Definition option_node value caption := JObject[("value",value);("label",JString caption)].
@@ -49,19 +22,8 @@ Fixpoint kind_options k (world:json) := match k with
 |KOptional k=>option_node(JString "")"Use default"::kind_options k world
 |_=>[]end.
 Fixpoint kind_name k :=match k with KText=>"text"|KBool=>"bool"|KNatural=>"natural"|KInteger=>"integer"|KDecimal=>"decimal"|KJson=>"json"|KArray KText=>"array_text"|KArray _=>"json"|KOptional k=>kind_name k|KEnum _ _=>"text"end.
-Definition observed_task_field task name world:=
- t<-find_task task world;;
- match name with
- |"profile"|"reasoning"=>field name t
- |"sandbox"|"network_access"=>settings<-field "settings" t;;sandbox<-field "sandbox" settings;;field(if String.eqb name "sandbox"then "mode"else "network_access")sandbox
- |"approval"|"reviewer_profile"=>settings<-field "settings" t;;policy<-field "approval" settings;;
-   if String.eqb name "approval"then field "mode" policy else Some(value_or JNull(field "reviewer_profile" policy))
- |_=>None end.
-Definition displayed_value f d world s:=
- let name:=field_name(specification f)in
- match owner d with Message task=>if configuration_active(owner d)s then get name d else match observed_task_field task name world with Some value=>value|None=>get name d end|_=>get name d end.
-Definition field_value f d world s := match raw_text(field_name(specification f))d with Some s=>JString s|None=>
-  match Schema.field_kind(specification f),displayed_value f d world s with
+Definition field_value f d (world:json)(s:ApplicationState.state) := match raw_text(field_name(specification f))d with Some s=>JString s|None=>
+  match Schema.field_kind(specification f),get(field_name(specification f))d with
   |KArray KText,JArray xs=>JString(join_text(String(Ascii.ascii_of_nat 10)"")(map(fun j=>value_or ""(as_string j))xs))
   |KOptional _,JNull=>JString ""|_,v=>v end end.
 Definition field_keys : list (string * (editor -> string)) := [
@@ -108,10 +70,30 @@ Definition field_owner_key e name:=
 Definition mention_keys e world s:=match mention_for e s with Suggesting _ _=>
  List.app [("ArrowDown",Input.SkillMove e false);("ArrowUp",Input.SkillMove e true);("Escape",Input.SkillDismiss e)] (
  match highlighted(catalog_for e world s)(mention_for e s)with None=>[]|Some skill=>[("Enter",Input.SkillSelected e(skill_path skill));("Tab",Input.SkillSelected e(skill_path skill))]end)|_=>[]end.
-Definition mention_suggestions e world s:=match mention_for e s with Suggesting trigger _=>
- node Scene.ListView_role(editor_key e++"/skill-suggestions")[("role",JsonProperty(JString "listbox"))]
-  (map(fun skill=>button(editor_key e++"/skill/"++skill_path skill)(skill_name skill)(invoke(Input.SkillSelected e(skill_path skill)))false)(mention_candidates(catalog_for e world s)(mention_for e s)))
- |_=>group(editor_key e++"/skill-suggestions")[]end.
+Definition skill_option_key e index skill := editor_key e++"/skill/"++Scene.key_component(skill_path skill)++"/"++show_natural(N.of_nat index).
+Definition mention_attributes e world s :=
+ let options:=mention_candidates(catalog_for e world s)(mention_for e s)in
+ List.app [("role",JString "combobox");("aria-autocomplete",JString "list");
+  ("aria-haspopup",JString "listbox");("aria-expanded",JString(match options with []=>"false"|_=>"true"end));
+  ("aria-controls",JString(editor_key e++"/skill-suggestions"))]
+ (match highlighted_choice(catalog_for e world s)(mention_for e s)with None=>[]|Some(index,skill)=>
+  [("aria-activedescendant",JString(skill_option_key e index skill))]end).
+Definition mention_suggestions e world s :=
+ let options:=mention_candidates(catalog_for e world s)(mention_for e s)in
+ match options with []=>group(editor_key e++"/skill-suggestions")[]|_=>
+ node Scene.ListView_role(editor_key e++"/skill-suggestions")
+  [("layout",JsonProperty(JString "anchored-listbox"));("attrs",JsonProperty(JObject
+   [("role",JString "listbox");("data-anchor",JString(editor_key e++"/message"));("data-anchor-focus",JString "true")]))]
+  (map(fun '(index,skill)=>let selected:=match highlighted_choice(catalog_for e world s)(mention_for e s)with
+   Some(current,_)=>Nat.eqb current index|None=>false end in
+   Scene.ActionButton(skill_option_key e index skill)
+    [("label",JString(skill_name skill));("help",JString(skill_description skill));("layout",JString "skill-option");("attrs",JObject
+      [("role",JString "option");("tabindex",JString "-1");("aria-selected",JString(if selected then "true"else "false"));
+       ("data-retain-focus",JString "true");("data-reveal-on-layout",JString(if selected then "true"else "false"))])]
+    (Some(Input.SkillSelected e(skill_path skill)))false
+    [node Scene.Text_role(skill_option_key e index skill++"/description")[("value",JsonProperty(JString(skill_description skill)));("attrs",JsonProperty(JObject[("class",JString "skill-description")]))][];
+     node Scene.Text_role(skill_option_key e index skill++"/path")[("value",JsonProperty(JString(skill_path skill)));("attrs",JsonProperty(JObject[("class",JString "skill-path")]))][]])(combine(seq 0(List.length options))options))
+ end.
 Definition field_disabled e name world:=match e with
  |Card(Some id)=>match find_world "cards" "card_id" id(value_or JNull(field "board" world))with None=>true|Some card=>
   if String.eqb name "keep_open"then false else
@@ -121,14 +103,7 @@ Definition worktree_unavailable d world s := negb(workspace_git_available d worl
 Definition preserve_selected selected options :=
  if Json.equal selected(JString "") || Json.equal selected JNull || existsb(fun choice=>Json.equal selected(value_or JNull(field "value" choice)))options
  then options else option_node selected("当前选择已不可用："++value_or ""(as_string selected))::options.
-Definition model_key d world s := match owner d with
- |Message task=>if configuration_active(owner d)s then read_text "profile" d else value_or(read_text "profile" d)(bind(observed_task_field task "profile" world)as_string)
- |_=>read_text "profile" d end.
-Definition field_applies d world s name :=
- let observed name:=match owner d with Message task=>if configuration_active(owner d)s then get name d else value_or(get name d)(observed_task_field task name world)|_=>get name d end in
- if String.eqb name "reviewer_profile"then Json.equal(observed "approval")(JString "approval-for-me")else
- if String.eqb name "network_access"then negb(Json.equal(observed "approval")(JString "full-access"))else
- if String.eqb name "sandbox"then negb(Json.equal(observed "approval")(JString "full-access"))else
+Definition field_applies d name :=
  if String.eqb name "draft_profile"then read_flag "assisted" d else true.
 Definition attachment_field e:=match e with NewTask _|Message _=>Some "message"|Card _=>Some "description"|_=>None end.
 Definition can_attach e:=match attachment_field e with Some _=>true|None=>false end.
@@ -140,7 +115,7 @@ Definition workspace_options := map(fun value=>option_node(JString value)(worksp
  ("current"::managed_workspace_names).
 Definition field_scene d world s f :=
   let name:=field_name(specification f)in let key:=editor_key(owner d)++"/"++name in
-  let efforts:=ModelSelection.reasoning_values world(model_key d world s)in
+  let efforts:=ModelSelection.reasoning_values world(read_text "profile" d)in
   let reasoning:=String.eqb name "reasoning" && negb(match efforts with []=>true|_=>false end)in
   let select:=reasoning||String.eqb(widget f)"select"||String.eqb(widget f)"profile"||String.eqb(widget f)"project"in
   let kind:=if select then Scene.Select_role else if String.eqb(widget f)"checkbox"then Scene.Checkbox_role else Scene.Field_role in
@@ -149,43 +124,53 @@ Definition field_scene d world s f :=
    else if String.eqb(widget f)"project"then project_options world
    else if String.eqb name "task_environment"then workspace_options else kind_options(Schema.field_kind(specification f))world in
   let options:=if select then preserve_selected(field_value f d world s)options else options in
-  node kind key[("disabled",JsonProperty(JBool(field_disabled(owner d)name world || (String.eqb name "create_worktree" && worktree_unavailable d world s))));("specification",FieldProperty(specification f));("keys",KeyProperty(if String.eqb name "message"then mention_keys(owner d)world s else []));("attrs",JsonProperty(JObject[("data-field",JString(field_key(owner d)name));("data-object-owner",JString(field_owner_key(owner d)name))]));("label",JsonProperty(JString(label f)));("value",JsonProperty(field_value f d world s));("value_kind",JsonProperty(JString(kind_name(Schema.field_kind(specification f)))));("action",InputProperty(edit_action(owner d)name));
+  node kind key[("disabled",JsonProperty(JBool(field_disabled(owner d)name world || (String.eqb name "create_worktree" && worktree_unavailable d world s))));("specification",FieldProperty(specification f));("keys",KeyProperty(if String.eqb name "message"then mention_keys(owner d)world s else []));("attrs",JsonProperty(JObject([("data-field",JString(field_key(owner d)name));("data-object-owner",JString(field_owner_key(owner d)name))]++if String.eqb name "message"then mention_attributes(owner d)world s else [])));("label",JsonProperty(JString(label f)));("value",JsonProperty(field_value f d world s));("value_kind",JsonProperty(JString(kind_name(Schema.field_kind(specification f)))));("action",InputProperty(edit_action(owner d)name));
     ("file_action",InputProperty(if connected(service_state s) && (match attachment_field(owner d)with Some target=>String.eqb name target|None=>false end)then attach_action(owner d)else UiAction None));
     ("multiline",JsonProperty(JBool(existsb(String.eqb(widget f))["textarea";"lines";"json";"graph_nodes";"graph_rules"])));
     ("options",JsonProperty(JArray options));("help",JsonProperty(JString(help f)));("invalid",JsonProperty(JBool(match raw_text name d with Some _=>true|None=>false end)))]
     (List.app (if String.eqb name "message"then [mention_suggestions(owner d)world s]else
       if existsb(String.eqb name)["roots";"primary_root";"project_id";"sandbox";"network_access";"approval";"reviewer_profile"]then
        [button(key++"/source")"查看来源"(invoke(Input.InspectSource(owner d)name(key++"/source")))false]else []) (if String.eqb(widget f)"directory"then [button(key++"/browse")"Browse"(invoke(Input.ServiceInput(OpenDirectory (owner d) (read_text name d) (key++"/browse"))))false]else [])).
-Definition feedback_scene d :=match status d with Editing=>[]|Accepted _=>[text_node(editor_key(owner d)++"/feedback")"Saved"]
-|WorkspaceRejected reason=>[text_node(editor_key(owner d)++"/feedback")reason;button(editor_key(owner d)++"/workspace-retry")"重试工作区准备"(invoke(Input.RetryWorkspace(owner d)))false]
-|Rejected reason=>[node Scene.Text_role(editor_key(owner d)++"/feedback")[("value",JsonProperty(JString reason));("role",JsonProperty(JString "alert"))][]]end.
 Definition upload_scene d s :=map(fun upload=>match upload with
 |Loading t r=>group("upload/"++show_natural t)[text_node("upload/"++show_natural t++"/name")(file_name(upload_file r));button("upload/"++show_natural t++"/cancel")"Cancel upload"(invoke(Input.ServiceInput(CancelUpload t)))false]
 |Resource.Failed t r error=>group("upload/"++show_natural t)[text_node("upload/"++show_natural t++"/error")error;button("upload/"++show_natural t++"/retry")"Retry upload"(invoke(Input.ServiceInput(RetryUpload t)))(negb(connected(service_state s)));button("upload/"++show_natural t++"/cancel")"Remove"(invoke(Input.ServiceInput(CancelUpload t)))false]
 |_=>group "unused-upload"[]end)
   (filter(fun r=>match upload_owner r with Some e=>same_editor(owner d)e|None=>false end)(uploads(service_state s))).
 Definition image_scene key id caption:=node Scene.Image_role key[("url",JsonProperty(JString("/api/board/attachments/"++id)));("label",JsonProperty(JString caption))][].
-Definition message_images key message:=
- map(fun part=>let image:=value_or JNull(field "image" part)in
-  image_scene(key++"/image/"++text "id" image)(text "id" image)"Image")
- (filter(fun part=>String.eqb(text "type" part)"image"&&passive_mime(text "mime"(value_or JNull(field "image" part))))(items "content" message)).
 Definition attachment_scene d :=map(fun a=>group(editor_key(owner d)++"/attachment/"++asset_id a)
  ((if passive_image a then [image_scene(editor_key(owner d)++"/attachment/"++asset_id a++"/image")(asset_id a)(asset_name a)]else [])++[button(editor_key(owner d)++"/attachment/"++asset_id a++"/preview")("Preview "++asset_name a)(invoke(Input.ServiceInput(OpenPreview (a) (editor_key(owner d)++"/attachment/"++asset_id a++"/preview"))))false;
   button(editor_key(owner d)++"/attachment/"++asset_id a++"/remove")"Remove attachment"(invoke(Input.RemoveAttachment (owner d) (asset_id a)))false]))(attachments d).
 Definition can_speak e:=match e with NewTask _|Message _=>true|_=>false end.
-Definition execution_summary task world := match find_task task world with
- |None=>"配置模型与权限"
- |Some task=>let profile:=text "profile" task in
-  let name:=match find(fun candidate=>String.eqb(text "key" candidate)profile)(items "profiles" world)with
-   |Some selected=>text "name" selected|None=>profile++"（已不可用）"end in
-  let mode:=value_or ""(bind(bind(field "settings" task)(field "approval"))(string_field "mode"))in
-  let permissions:=if String.eqb mode "full-access"then "完全访问"else if String.eqb mode "approval-for-me"then "自动审核"else "询问"in
-  name++" · "++text "reasoning" task++" · "++permissions end.
+Definition execution_entries task world :=
+ match initialize(Execution task)world with
+ |None=>[]
+ |Some observed=>List.app(ActivityPresentation.property_entry observed world true ExperienceObservation.ModelFamily)
+   (ActivityPresentation.property_entry observed world true ExperienceObservation.PermissionFamily)
+ end.
 Definition form_scene e world s :=
+  (* Accepting a message clears its Send action; the initiating composer remains
+     the return point when its side conversation is closed. *)
+  let submission_trigger:=editor_key e++match e with Message _=>"/message"|_=>"/submit"end in
   let d:=value_or(new_draft e)(option_map fst(ensure e world s))in
-  let blocked:=match obstruction world(service_state s)d with Some _=>true|None=>editor_pending e s end in
+  let assessed:=ExperienceAssessment.assess_draft d world(service_state s)(editor_pending e s)in
+  let blocked:=negb(Experience.can_prepare assessed)in
   let caption:=match e with Message _=>if String.eqb(read_text "delivery" d)"steer"then "Steer"else "Send"|NewTask _=>"Start task"|Fork _=>"Fork task"|Compact _=>"Compact history"|_=>"Save"end in
-  let field_nodes := (map(field_scene d world s)(filter(fun f=>negb(String.eqb(field_name(specification f))"revision") && (match e with Message _=>existsb(String.eqb(field_name(specification f)))["message";"delivery"]|_=>true end) && field_applies d world s(field_name(specification f)))(form_fields e))++attachment_scene d++upload_scene d s)%list in
+  let composer_fields:=filter(fun f=>String.eqb(field_name(specification f))"message" ||
+    match meaning f with Scalar|TaskEnvironmentSelection=>true|_=>false end)(form_fields e)in
+  let ordinary_fields:=filter(fun f=>negb(String.eqb(field_name(specification f))"revision")&&field_applies d(field_name(specification f))&&
+    match meaning f with Scalar|ProjectWorktreePreference|TaskEnvironmentSelection=>true|_=>false end)(form_fields e)in
+  let field_nodes := ((match e with
+   |NewTask _=>ActivityPresentation.property_entry d world false ExperienceObservation.ProjectFamily++
+     ActivityPresentation.property_entry d world false ExperienceObservation.WorkspaceFamily++
+     map(field_scene d world s)composer_fields++
+     ActivityPresentation.property_entry d world false ExperienceObservation.ModelFamily++
+     ActivityPresentation.property_entry d world false ExperienceObservation.PermissionFamily
+   |Message task=>map(field_scene d world s)(filter(fun f=>String.eqb(field_name(specification f))"message")(form_fields e))++
+     execution_entries task world++
+     ActivityPresentation.property_entry d world true ExperienceObservation.DeliveryFamily
+   |_=>map(field_scene d world s)ordinary_fields++
+     flat_map(ActivityPresentation.property_entry d world false)
+      [ExperienceObservation.ProjectFamily;ExperienceObservation.WorkspaceFamily;ExperienceObservation.ModelFamily;ExperienceObservation.PermissionFamily;ExperienceObservation.DeliveryFamily]end)++attachment_scene d++upload_scene d s)%list in
   let control_nodes := ((if can_attach e then [node Scene.Field_role(editor_key e++"/upload")[("disabled",JsonProperty(JBool(negb(connected(service_state s)))));("label",JsonProperty(JString "Attach files"));("attrs",JsonProperty(JObject[("type",JString "file");("multiple",JString "true")]));("action",InputProperty(attach_action e))][]]else [])++
    (if can_speak e then [button(editor_key e++"/dictate")"Dictate"(invoke(Input.SpeechInput(BeginDictation (e) (revision d))))(negb(free(speech_state s)));
       button(editor_key e++"/skills")"Skills"(invoke(Input.LoadSkills (e)))false]else [])++
@@ -194,37 +179,54 @@ Definition form_scene e world s :=
       [button(editor_key e++"/voice-new")"Start voice task"(invoke(Input.BeginVoiceNew e))(negb(free(speech_state s))||match voice_obstruction world(service_state s)d with Some _=>true|None=>false end)]|_=>[]end)++
    (if (local_worktree d || existsb(fun f=>String.eqb(field_name(specification f))"create_worktree")(form_fields e))&&worktree_unavailable d world s
     then [text_node(editor_key e++"/worktree-availability")"工作区的 Git 能力尚未确认，或此目录不可创建工作树。"]else [])++
-   (match e with Message task=>[button(editor_key e++"/configure")(execution_summary task world)(invoke(Input.OpenConfiguration e(editor_key e++"/configure")))false]|_=>[]end)++
    (match e with TitlePrompts=>[button "title-prompts/reset" "Reset title prompts"(invoke(Input.ResetTitlePrompts))false]|_=>[]end)++
-   feedback_scene d++[button(editor_key e++"/submit")caption(invoke(Input.Submit (e)))blocked]++
-   match obstruction world(service_state s)d with None=>[]|Some reason=>[text_node(editor_key e++"/obstruction")reason]end)%list in
-  node Scene.Form_role(editor_key e)[("attrs",JsonProperty(JObject[("tabindex",JString "-1")]));("action",InputProperty(invoke(Input.Submit (e))));("label",JsonProperty(JString caption))]
+   feedback_scene d++ActivityPresentation.assessment_scene assessed++[button(editor_key e++"/submit")caption(invoke(Input.Submit e submission_trigger))blocked])%list in
+  node Scene.Form_role(editor_key e)[("attrs",JsonProperty(JObject[("tabindex",JString "-1")]));("action",InputProperty(invoke(Input.Submit e submission_trigger)));("label",JsonProperty(JString caption))]
   (field_nodes ++ match e with
    |Message _=>[node Scene.Group_role(editor_key e++"/controls")[("layout",JsonProperty(JString "row"))]control_nodes]
    |_=>control_nodes end).
-Definition task_title t :=let title:=text "title" t in if String.eqb title ""then "Task #"++text "id" t else title.
+Definition task_title := Navigation.task_title.
 Definition task_id t :=natural_field "id" t.
-Definition task_button t :=match task_id t with None=>group "invalid-task"[]|Some id=>button("task/"++show_natural id)(let title:=text "title" t in if String.eqb title ""then "Task #"++show_natural id else title)(navigation_action(Conversation id))false end.
+Definition task_button_at prefix current t :=match task_id t with None=>group(prefix++"/invalid-task")[]|Some id=>
+ let key:=prefix++"/task/"++show_natural id in
+ let selected:=Navigation.route_selected current(Conversation id)in
+ node Scene.Group_role(key++"/row")[("layout",JsonProperty(JString "task-row"));
+  ("attrs",JsonProperty(JObject[("data-selected",JString(if selected then "true"else "false"))]))]
+ [Scene.ActionButton key[("label",JString(Navigation.task_title t));("icon",JString(Navigation.task_status_icon t));
+  ("attrs",JObject([("aria-label",JString(Navigation.task_title t++", "++Navigation.task_status_caption t));
+    ("title",JString(Navigation.task_title t++" · "++Navigation.task_status_caption t))]++
+    if selected then [("aria-current",JString "page")]else []))]
+   (Some(Input.Navigate(Conversation id)))false[];
+  icon_button(key++"/more")"More" "more-dots"(invoke(Input.OpenObjectActions(TaskActions id)(key++"/more")))false]end.
+Definition task_button current := task_button_at "navigation" current.
 Definition task_parent task:=match field "parent" task with Some value=>value_or None(decode_id value)|None=>None end.
-Definition task_forest tasks:=
+Definition task_forest current tasks:=
  map snd(fold_right(fun task pending=>match natural_field "id" task with None=>pending|Some id=>
    let children:=filter(fun entry=>match fst entry with Some parent=>N.eqb id parent|None=>false end)pending in
    let roots:=filter(fun entry=>match fst entry with Some parent=>negb(N.eqb id parent)|None=>true end)pending in
-   (task_parent task,group("task-tree/"++show_natural id)(task_button task::map snd children))::roots end)
+   (task_parent task,node Scene.Group_role("task-tree/"++show_natural id)[("layout",JsonProperty(JString "task-branch"))](task_button current task::map snd children))::roots end)
    ([]:list(option N*Scene.scene Input.input))tasks).
-Definition task_project task:=bind(field "settings" task)(natural_field "project_id").
+Definition task_project := Navigation.task_project.
 Definition project_task_group world s project:=match natural_field "project_id" project with None=>group "invalid-project"[]|Some id=>
- let tasks:=filter(fun task=>same_scope(Some id)(task_project task)&&match natural_field "id" task with Some task=>task_belongs(active_work(navigation_state s))task world|None=>false end)(items "tasks" world)in
- group("navigation/project/"++show_natural id)
-  ([button("navigation/project/"++show_natural id++"/open")(text "name" project)(navigation_action(ProjectHome id))false;
-    button("navigation/project/"++show_natural id++"/new")"New task"(invoke(Input.BeginProjectTask id))false;
-    button("navigation/project/"++show_natural id++"/toggle")"Toggle project tasks"(invoke(Input.ToggleProjectGroup id))false;
-    editor_button("navigation/project/"++show_natural id++"/edit")"Edit project"(Project(Some id))]++
-   if existsb(N.eqb id)(collapsed_projects s)then []else task_forest tasks)end.
+ let key:="navigation/project/"++show_natural id in
+ let tasks:=Navigation.project_navigation_tasks id(active_work(navigation_state s))world in
+ let selected:=same_scope(Some id)(Navigation.active_project world s)in
+ let closed:=existsb(N.eqb id)(collapsed_projects s)in
+ node Scene.Group_role key[("layout",JsonProperty(JString "project-task-group"))]
+  [node Scene.Group_role(key++"/row")[("layout",JsonProperty(JString "project-row"));
+    ("attrs",JsonProperty(JObject[("data-selected",JString(if selected then "true"else "false"))]))]
+    [Scene.ActionButton(key++"/toggle")[("label",JString "Toggle project tasks");("icon",JString(if closed then "chevron-right"else "chevron-down"));
+       ("attrs",JObject[("aria-expanded",JString(if closed then "false"else "true"));("aria-controls",JString(key++"/tasks"))])]
+      (Some(Input.ToggleProjectGroup id))false[];
+     Scene.ActionButton(key++"/open")[("label",JString(text "name" project));("icon",JString "folder");
+       ("attrs",JObject[("aria-pressed",JString(if selected then "true"else "false"))])](Some(Input.BeginProjectTask id))false[];
+     icon_button(key++"/new")"New task" "plus"(invoke(Input.BeginProjectTask id))false;
+     icon_button(key++"/more")"More" "more-dots"(invoke(Input.OpenObjectActions(ProjectActions id)(key++"/more")))false];
+   node Scene.Group_role(key++"/tasks")[("layout",JsonProperty(JString "project-tasks"))](if closed then []else task_forest(location(navigation_state s))tasks)]end.
 Definition navigation_tasks world s : list(Scene.scene Input.input):=
- map(project_task_group world s)(items "projects" world)++
+ map(project_task_group world s)(Navigation.projects_in_navigation(active_work(navigation_state s))world)++
  [heading "independent-task-heading" "Independent tasks";
-  group "independent-task-tree"(task_forest(filter(fun task=>match task_project task,natural_field "id" task with None,Some id=>task_belongs(active_work(navigation_state s))id world|_,_=>false end)(items "tasks" world)))].
+  group "independent-task-tree"(task_forest(location(navigation_state s))(filter(fun task=>match task_project task,natural_field "id" task with None,Some id=>task_belongs(active_work(navigation_state s))id world|_,_=>false end)(items "tasks" world)))].
 Definition work_button work caption s :=
  let selected:=same_scope work(active_work(navigation_state s))in
  Scene.ActionButton(work_tab_key work)
@@ -232,26 +234,82 @@ Definition work_button work caption s :=
     (("aria-pressed",JString(if selected then "true"else "false"))::
      if selected then [("data-reveal-on-layout",JString "true")]else []))]
   (Some(Input.SelectWork work))false[].
-Definition navigation_scene world s :=let n:=navigation_state s in
-  node Scene.Navigation_role "navigation"[("label",JsonProperty(JString "Navigation"));("attrs",JsonProperty(JObject[("aria-label",JString "Main navigation")]))]
-  ([heading "brand" "Selvedge";
-    button "navigation-toggle"(if expanded n then "Collapse Task sidebar"else "Expand Task sidebar")(invoke(Input.NavigationExpanded (negb(expanded n))))false;
-    button "nav/new-task" "新建对话"(navigation_action Start)false;
-    button "nav/projects" "项目"(navigation_action Projects)false;
-    button "nav/board" "任务看板"(navigation_action Board)false;
-    button "nav/agents" "智能体"(navigation_action Agents)false;
-    button "nav/graphs" "Task graphs"(navigation_action Graphs)false;
-    button "nav/search" "搜索对话"(navigation_action HistorySearch)false;
-    button "nav/settings" "Settings"(invoke(Input.ServiceInput OpenSettings))false;
-    node Scene.Navigation_role "work-switcher"[("label",JsonProperty(JString "Works"))]
-     (work_button None "All Tasks" s::
-      map(fun w=>match natural_field "work_id" w with None=>group "invalid-work"[]|Some id=>work_button(Some id)(text "name" w)s end)(items "works" world)++
-      [button "work/create" "New Work"(invoke(Input.CreateWork))(negb(connected(service_state s)))]) ]++
-    (match active_work n with None=>[]|Some work=>[group "work/tabs"
-      [button "work/tasks" "Tasks"(navigation_action Start)false;
-       button "work/shared-ui" "Shared UI"(navigation_action(SharedUI work None))false;
-       editor_button "work/name" "Rename Work"(WorkName work)]]end)
-   ++if expanded n then [node Scene.ListView_role "task-tree"[("label",JsonProperty(JString "Tasks"))](navigation_tasks world s)]else []).
+Definition destination_button prefix current (destination:Navigation.destination) :=
+ Scene.ActionButton(prefix++Navigation.destination_key destination)
+  [("label",JString(Navigation.destination_label destination));("icon",JString(Navigation.destination_icon destination));("attrs",JObject
+    (if Navigation.route_selected current(Navigation.destination_route destination)
+      then [("aria-current",JString "page")]else []))]
+  (Some(Input.Navigate(Navigation.destination_route destination)))false[].
+Definition global_navigation prefix (world:json) s :=
+ node Scene.Navigation_role (prefix++"global-navigation")[("layout",JsonProperty(JString "global-navigation"));("label",JsonProperty(JString "Main navigation"))]
+  (heading (prefix++"brand") "Selvedge"::map(destination_button prefix(location(navigation_state s)))Navigation.global_destinations++
+   [Scene.ActionButton (prefix++"nav/settings")[("label",JString "Settings");("icon",JString "settings");
+    ("attrs",JObject(if String.eqb prefix ""then [("data-focus-alias",JString "settings-return")]else []))]
+    (Some(Input.ServiceInput OpenSettings))false[]]).
+Definition work_switcher world s :=
+ let work:=active_work(navigation_state s)in
+ node Scene.Group_role "work-switcher"[("layout",JsonProperty(JString "responsive-alternative"))]
+  [node Scene.Navigation_role "work-tabs"[("layout",JsonProperty(JString "simultaneous-only"));("label",JsonProperty(JString "Works"))]
+    (work_button None "All Tasks" s::
+     map(fun w=>match natural_field "work_id" w with None=>group "invalid-work"[]|Some id=>work_button(Some id)(text "name" w)s end)(items "works" world)++
+     [button "work/create" "New Work"(invoke(Input.CreateWork))(negb(connected(service_state s)))]);
+   node Scene.Group_role "compact-work-switcher"[("layout",JsonProperty(JString "sequential-only"))]
+    [Scene.ActionButton(work_tab_key work)
+      [("label",JString(Navigation.work_label work world));("attrs",JObject[("aria-haspopup",JString "dialog")])]
+      (Some(Input.OpenNavigation WorkOverview(work_tab_key work)))false
+      [text_node "current-work-summary"(Navigation.work_summary work world)]]].
+Definition navigation_header world s :=
+ let n:=navigation_state s in
+ node Scene.Header_role "navigation-header"[("layout",JsonProperty(JString "navigation-header"))]
+  [node Scene.Group_role "compact-global-menu"[("layout",JsonProperty(JString "sequential-only"))]
+    [Scene.ActionButton "global-navigation-toggle"
+      [("label",JString "Global menu");("icon",JString "menu-lines");("attrs",JObject[("aria-haspopup",JString "dialog");("data-focus-alias",JString "settings-return")])]
+      (Some(Input.OpenNavigation GlobalMenu "global-navigation-toggle"))false[]];
+   work_switcher world s;
+   let drawer:=Navigation.tasks_drawer_open s in
+   let beside:=expanded n||drawer in
+   node Scene.Group_role "task-navigation-toggle-placement"[("layout",JsonProperty(JString "responsive-alternative"))]
+    [node Scene.Group_role "task-navigation-toggle-beside"[("layout",JsonProperty(JString "simultaneous-only"))]
+      [Scene.ActionButton "navigation-toggle"
+       [("label",JString(if beside then "Collapse Task sidebar"else "Expand Task sidebar"));
+        ("icon",JString(if beside then "sidebar-close"else "sidebar"));
+        ("attrs",JObject[("aria-expanded",JString(if beside then "true"else "false"));("aria-controls",JString "task-tree")])]
+       (Some(Input.NavigationExpanded(negb beside)))false[]];
+     node Scene.Group_role "task-navigation-toggle-drawer"[("layout",JsonProperty(JString "sequential-only"))]
+      [Scene.ActionButton "navigation-toggle"
+       [("label",JString(if drawer then "Close Task list"else "Open Task list"));
+        ("icon",JString(if drawer then "sidebar-close"else "sidebar"));
+        ("attrs",JObject[("aria-expanded",JString(if drawer then "true"else "false"));("aria-controls",JString "task-tree");("aria-haspopup",JString "dialog")])]
+       (Some(if drawer then Input.ClosePanel else Input.OpenNavigation TasksDrawer "navigation-toggle"))false[]]]].
+Definition task_navigation world s :=
+ let n:=navigation_state s in
+ node Scene.Navigation_role "task-tree"
+  [("layout",JsonProperty(JString "task-navigation"));("label",JsonProperty(JString "Tasks"));
+   ("attrs",JsonProperty(JObject[("data-expanded",JString(if expanded n then "true"else "false"));("data-drawer-open",JString(if Navigation.tasks_drawer_open s then "true"else "false"))]));
+   ("dismiss_action",InputProperty(invoke Input.ClosePanel))]
+  ([icon_button "nav/new-task" "新建对话" "plus"(navigation_action Start)false]++
+   (match active_work n with None=>[]|Some work=>[group "work/tabs"
+    [button "work/tasks" "Tasks"(navigation_action Start)false;
+     button "work/shared-ui" "Shared UI"(navigation_action(SharedUI work None))false;
+     editor_button "work/name" "Rename Work"(WorkName work)]]end)++navigation_tasks world s).
+Definition navigation_scene world s :=
+ node Scene.Group_role "navigation"[("layout",JsonProperty(JString "workspace-navigation"))]
+  [global_navigation "" world s;navigation_header world s;task_navigation world s].
+Definition work_overview world s :=
+ let choices:=Navigation.work_choices world in
+ node Scene.Dialog_role "work-overview"
+  [("label",JsonProperty(JString "Works"));("dismiss_action",InputProperty(invoke Input.ClosePanel))]
+  (heading "work-overview/title" "Works"::
+   map(fun work=>Scene.ActionButton(Navigation.work_overview_key work)
+    [("label",JString(Navigation.work_label work world));("attrs",JObject
+      [("aria-pressed",JString(if same_scope work(active_work(navigation_state s))then "true"else "false"))])]
+    (Some(Input.SelectWork work))false[text_node(Navigation.work_overview_key work++"/summary")(Navigation.work_summary work world)])choices++
+   [button "work-overview/create" "New Work"(invoke Input.CreateWork)(negb(connected(service_state s)));
+    button "work-overview/close" "Close"(invoke Input.ClosePanel)false]).
+Definition global_navigation_dialog world s :=
+ node Scene.Dialog_role "global-navigation-dialog"
+  [("label",JsonProperty(JString "Global navigation"));("dismiss_action",InputProperty(invoke Input.ClosePanel))]
+  [global_navigation "global-navigation-dialog/" world s;button "global-navigation/close" "Close"(invoke Input.ClosePanel)false].
 Definition history_text message :=value_or ""(Conversation.json_message_text message).
 Definition audit_failed := Audit.failed.
 Definition audit_titles : list (string * (json -> string)) := [
@@ -259,19 +317,21 @@ Definition audit_titles : list (string * (json -> string)) := [
   ("function_output", fun message => "Tool output");
   ("operation_result", fun message => text "tool" message);
   ("hook_record", fun message => "Tool permission check");
-  ("approval_record", fun message => "Tool approval");
+  ("approval_record", fun message => "Approval: "++text "decision"(value_or JNull(field "content" message)));
   ("after_record", fun message => "Tool result processing");
   ("fork_result", fun message => "Task fork");
   ("context_replacement", fun message => "Context compacted");
-  ("reasoning_record", fun message => "Reasoning configuration");
+  ("reasoning_record", fun message => "Reasoning: "++text "effort"(value_or JNull(field "content" message)));
   ("error", fun message => history_text message);
-  ("task_context", fun message => "Task configuration")
+  ("task_context", fun message => if String.eqb(text "type" message)"reasoning_configuration"then "Reasoning changed to "++text "effort" message else "Task configuration");
+  ("model_context", fun _ => "Model activity");
+  ("tool_receipt", fun message => text "name"(value_or JNull(field "call" message)))
 ].
 Definition audit_title message:=match find (fun entry => String.eqb (fst entry) (text "role" message)) audit_titles with
-  | Some (_, render) => render message | None => (text "role" message)
+  | Some (_, render) => render message | None => "Conversation event"
   end.
 Definition audit_expanded task index message s:=match find(fun reader=>N.eqb task(reading_task reader))(readers s)with
- |None=>audit_failed message|Some reader=>match find(fun '(group,occurrence,_)=>N.eqb index group&&N.eqb occurrence 0)(disclosures reader)with Some(_,_,open)=>open|None=>audit_failed message end end.
+ |None=>audit_failed message|Some reader=>match find(fun '(group,occurrence,_)=>N.eqb index group)(disclosures reader)with Some(_,_,open)=>open|None=>audit_failed message end end.
 Definition message_scene namespace task index message s :=
   let anchor:=history_key task(N.of_nat index) in
   let source:=history_text message in
@@ -281,13 +341,13 @@ Definition message_scene namespace task index message s :=
   node Scene.Section_role anchor[("attrs",JsonProperty(JObject[("data-reading-anchor",JString anchor)]))]
     (if existsb(String.eqb(value_or ""(Conversation.json_message_role message)))["user";"assistant"]then
       [text_node(anchor++"/role")(value_or "event"(Conversation.json_message_role message));
-       node Scene.Markdown_role key(("value",JsonProperty(JString source))::("complete",JsonProperty(JBool true))::observed)[]]++message_images anchor message
+       node Scene.Markdown_role key(("value",JsonProperty(JString source))::("complete",JsonProperty(JBool true))::observed)[]]
      else let open:=audit_expanded task(N.of_nat index)message s in
       [button(anchor++"/disclose")(audit_title message)(invoke(Input.SetDisclosure task(N.of_nat index)0(negb open)))false]++
       if open then [node Scene.Code_role(anchor++"/detail")[("value",JsonProperty(JString(render_json message)))][]]else []).
 Definition activity_expanded task group attention s :=
  match find(fun reader=>N.eqb task(reading_task reader))(readers s)with
- |Some reader=>match find(fun '(id,occurrence,_)=>N.eqb group id&&N.eqb attention occurrence)(disclosures reader)with
+ |Some reader=>match find(fun '(id,occurrence,_)=>N.eqb group id)(disclosures reader)with
    |Some(_,_,open)=>open|None=>negb(N.eqb attention 0)end
  |None=>negb(N.eqb attention 0)end.
 Definition activity_summary entries :=
@@ -322,7 +382,7 @@ Definition live_scene namespace viewer world output s :=
 Definition parameter_text value:=match value with JString text=>text|_=>render_json value end.
 Definition operation_parameters key arguments:=match arguments with
  |JObject fields=>map(fun '(name,value)=>group(key++"/argument/"++name)
-   [text_node(key++"/argument/"++name++"/label")name;text_node(key++"/argument/"++name++"/value")(parameter_text value)])fields
+   [text_node(key++"/argument/"++name++"/label")(Forms.argument_label name);text_node(key++"/argument/"++name++"/value")(parameter_text value)])fields
  |_=>[text_node(key++"/arguments")(parameter_text arguments)]end.
 Definition operation_scene task operation s:=
  let id:=value_or (0%N)(natural_field "operation_id" operation)in
@@ -393,17 +453,15 @@ Definition conversation_scene namespace task world s :=
     [heading("conversation/"++show_natural task++"/title")(text "title" found);
      text_node("conversation/"++show_natural task++"/status")(text "status" found);
      node Scene.Group_role("conversation/"++show_natural task++"/controls")[("layout",JsonProperty(JString "row"))]
-       (map(fun control=>button("task/"++show_natural task++"/"++control)control(command_action control[("task_id",number task)])(negb(connected(service_state s))))
-         (map(fun j=>value_or ""(as_string j))(items "controls" found))++
-        [button("task/"++show_natural task++"/details")"Task details"
+       ([button("task/"++show_natural task++"/details")"Task details"
           (invoke(Input.OpenInformation "task_details"(JObject[("task_id",number task)])("task/"++show_natural task++"/details")))false;
-         button("task/"++show_natural task++"/latest")"Return to latest"
-          (invoke(Input.FollowLatest task))false;
-         editor_button("task/"++show_natural task++"/fork")"Fork"(Fork task);
-         editor_button("task/"++show_natural task++"/compact")"Compact history"(Compact task);
-         button("task/"++show_natural task++"/side")"Side conversation"(invoke(Input.BeginSide task))(negb(connected(service_state s)));
-         button("task/"++show_natural task++"/return-side")(match natural_field "parent" found with Some parent=>("追加回 task #"++show_natural parent)%string|None=>"追加回上级 task"end)(command_action "return_side_conversation"[("task_id",number task)])(negb(connected(service_state s)));
-         button("task/"++show_natural task++"/voice")"Start voice"(invoke(Input.SpeechInput(BeginVoice (task))))(negb(free(speech_state s)))]);
+         button("task/"++show_natural task++"/more")"More"(invoke(Input.OpenObjectActions(TaskActions task)("task/"++show_natural task++"/more")))false;
+         button("task/"++show_natural task++"/latest")"Return to latest"(invoke(Input.FollowLatest task))false]++
+        (match natural_field "side_parent" found with None=>[]|Some parent=>
+         [button("task/"++show_natural task++"/return-side")("追加回 task #"++show_natural parent)
+          (command_action "return_side_conversation"[("task_id",number task)])(negb(connected(service_state s)));
+          button("task/"++show_natural task++"/show-side")"打开侧窗口"(invoke(Input.ShowSide task("task/"++show_natural task++"/show-side")))false]end)++
+        [button("task/"++show_natural task++"/voice")"Start voice"(invoke(Input.SpeechInput(BeginVoice task)))(negb(free(speech_state s)))]);
      node Scene.Group_role("conversation/"++show_natural task++"/history")[("attrs",JsonProperty(JObject[("data-reading-root",JString "true")]))]
        (history_scenes namespace task 0(items "history" found)s++flat_map(fun output=>live_scene namespace task world output s)(filter(fun o=>N.eqb task(output_task o))(active_previews world s)));
      group("conversation/"++show_natural task++"/operations")(map(fun operation=>operation_scene task operation s)(items "operations" found));
@@ -412,15 +470,43 @@ Definition conversation_scene namespace task world s :=
      group("task/"++show_natural task++"/worktree")(worktree_scene task world s);
      form_scene(Message task)world s]
   end.
-Definition projects_scene world s:=group "projects"(heading "projects/title" "项目"::editor_button "projects/new" "New project"(Project None)::map(fun p=>match natural_field "project_id" p with None=>group "invalid-project"[]|Some id=>group("project/"++show_natural id)
- [heading("project/"++show_natural id++"/name")(text "name" p);editor_button("project/"++show_natural id++"/edit")"Edit project"(Project(Some id));button("project/"++show_natural id++"/delete")"Delete project"(command_action "delete_project"[("project_id",number id)])(negb(connected(service_state s)))]end)(items "projects" world)).
+Definition conversation_view namespace view world s :=
+ let scope:=task_view_scope view in
+ Scene.scope scope(Input.scope_triggers scope)
+  (conversation_scene namespace(task_view_task view)world s).
+Definition project_actions id (s:ApplicationState.state) :=
+ [button("project/"++show_natural id++"/new")"New task"(invoke(Input.BeginProjectTask id))false;
+  button("project/"++show_natural id++"/more")"More"(invoke(Input.OpenObjectActions(ProjectActions id)("project/"++show_natural id++"/more")))false].
+Definition project_scene id world s :=
+ let key:="project-page/"++show_natural id in
+ match find_project id world with
+ |None=>group key[heading(key++"/missing")"This project no longer exists"]
+ |Some project=>let workspace:=value_or JNull(field "workspace" project)in
+  let guidance:=value_or JNull(field "guidance" project)in
+  group key([heading(key++"/name")(text "name" project);group(key++"/actions")(project_actions id s);
+   heading(key++"/workspace")"Default workspace";
+   text_node(key++"/primary")("Primary directory: "++text "primary_root" workspace);
+   node Scene.ListView_role(key++"/directories")[("label",JsonProperty(JString "Workspace directories"))]
+    (map(fun directory=>text_node(key++"/directory/"++value_or ""(as_string directory))(value_or ""(as_string directory)))(items "roots" workspace));
+   heading(key++"/guidance-heading")"Project guidance";
+   text_node(key++"/guidance")(match guidance with JNull=>"No project guidance"|_=>text "instructions" guidance end);
+   heading(key++"/tasks-heading")"Tasks"]++
+   map(task_button_at key(location(navigation_state s)))(Navigation.tasks_in_project id world))
+ end.
+Definition projects_scene world s :=
+ group "projects"(heading "projects/title" "项目"::editor_button "projects/new" "New project"(Project None)::
+  map(fun project=>match natural_field "project_id" project with
+   |None=>group "invalid-project"[]
+   |Some id=>group("projects/"++show_natural id)
+     (button("project/"++show_natural id++"/open")(text "name" project)(navigation_action(ProjectHome id))false::project_actions id s)
+   end)(items "projects" world)).
 Definition card_action op card now:=command_action op[("card_id",value_or JNull(field "card_id" card));("revision",value_or JNull(field "revision" card));("observed_at",JString(show_natural now))].
 Definition board_cards board :=
   let cards:=items "cards" board in
   let ordered:=fold_right(fun id rest=>match natural id with Some id=>
     match find(fun card=>match natural_field "id" card with Some actual=>N.eqb id actual|None=>false end)cards with Some card=>card::rest|None=>rest end|None=>rest end)[](items "order" board)in
   List.app ordered(filter(fun card=>negb(existsb(fun other=>equal(value_or JNull(field "id" card))(value_or JNull(field "id" other)))ordered))cards).
-Definition card_scene now board world card s:=let key:="card/"++value_or ""(number_field "card_id" card)in
+Definition card_scene now board world card s:=let key:="card-summary/"++value_or ""(number_field "card_id" card)in
   let caps:=value_or JNull(field "capabilities" card)in
   let disabled capability:=negb(connected(service_state s))||negb(flag capability caps)in
   node Scene.Section_role key[("attrs",JsonProperty(JObject[
@@ -431,12 +517,8 @@ Definition card_scene now board world card s:=let key:="card/"++value_or ""(numb
     ("data-card-before",JString(value_or ""(number_field "card_id" card)))]))]
    ([heading(key++"/title")(text "title" card);text_node(key++"/description")(text "description" card);
     text_node(key++"/status")(text "status" card++" · "++text "priority" card);
-    (match natural_field "card_id" card with Some id=>editor_button(key++"/edit")("打开 "++text "title" card)(Card(Some id))|None=>group(key++"/unavailable")[]end);
-    button(key++"/run")"Run"(card_action "run_card" card now)(disabled "run");
-    button(key++"/archive")"Archive or restore"(card_action(if flag "archived" card then "restore_card"else "archive_card")card now)(disabled(if flag "archived" card then "restore"else "archive"));
-    button(key++"/pin")"Pin or unpin"(command_action "pin_card"[("card_id",value_or JNull(field "card_id" card));("revision",value_or JNull(field "revision" card));("observed_at",JString(show_natural now));("pinned",JBool(negb(flag "pinned" card)))])(disabled "metadata");
-    button(key++"/delete")"Delete"(card_action "delete_card" card now)(disabled "delete");
-    button(key++"/regenerate")"Regenerate title"(command_action "regenerate_card_title"[("card_id",value_or JNull(field "card_id" card));("revision",value_or JNull(field "revision" card));("observed_at",JString(show_natural now));("draft_profile",JString(text "draft_profile" board))])(disabled "edit");
+    (match natural_field "card_id" card with Some id=>button(key++"/open")("打开 "++text "title" card)(invoke(Input.OpenInformation "card_details"(JObject[("card_id",number id)])(key++"/open")))false|None=>group(key++"/unavailable")[]end);
+    (match natural_field "card_id" card with Some id=>button(key++"/more")"More"(invoke(Input.OpenObjectActions(CardActions id)(key++"/more")))false|None=>group(key++"/no-actions")[]end);
     node Scene.Select_role(key++"/move")[("disabled",JsonProperty(JBool(disabled "drag")));("label",JsonProperty(JString "Move to status"));("value",JsonProperty(JString(text "status" card)));("options",JsonProperty(JArray BoardFilter.stage_choices));("action",InputProperty(invoke(Input.CardField(value_or (0%N)(natural_field "card_id" card))(value_or (0%N)(natural_field "revision" card))now "status" "")))][]]++
     (match natural_field "task_id" card with None=>[]|Some task=>[button(key++"/task")"Open linked task"(navigation_action(Conversation task))false]end)++
     [node Scene.Select_role(key++"/before")[("disabled",JsonProperty(JBool(disabled "drag")));("label",JsonProperty(JString "Move before card"));("value",JsonProperty(JString ""));
@@ -462,23 +544,54 @@ Definition board_scene now world s:=let board:=value_or JNull(field "board" worl
  board_filter_choices BoardFilter.Creator [option_node(JString "self")"Self"]s;
  board_filter_choices BoardFilter.Project(map(fun p=>option_node(JString(value_or ""(number_field "id" p)))(text "name" p))(items "projects" world))s;
  board_filter_choices BoardFilter.Label(map(fun label=>option_node(JString label)label)(fold_right(fun card labels=>fold_right(fun value rest=>match as_string value with Some value=>if existsb(String.eqb value)rest then rest else value::rest|None=>rest end)labels(items "labels" card))[]cards))s;
- button "board/automatic"(if flag "automatic" board then "Pause automatic scheduling"else "Enable automatic scheduling")(command_action "board_settings"[("automatic",JBool(negb(flag "automatic" board)));("draft_profile",JString(text "draft_profile" board))])(negb(connected(service_state s)));
- node Scene.Select_role "board/draft-profile"[("label",JsonProperty(JString "Draft profile"));("value",JsonProperty(JString(text "draft_profile" board)));("options",JsonProperty(JArray(profile_choices world)));("action",InputProperty(invoke(Input.BoardProfile "")))][];
+ button "board/settings" "Board settings"(invoke(Input.OpenInformation "board_settings" JNull "board/settings"))false;
+ button "board/archived" "Archived cards"(invoke(Input.OpenInformation "archived_cards" JNull "board/archived"))false;
  node Scene.ListView_role "board/cards"[](map(fun choice=>let stage:=text "value" choice in
    node Scene.Section_role("board/lane/"++stage)[("attrs",JsonProperty(JObject[("data-drop-status",JString stage)]))]
     (heading("board/lane/"++stage++"/title")(text "label" choice)::
      map(fun card=>card_scene now board world card s)(filter(fun card=>String.eqb(text "status" card)stage)(BoardFilter.apply_in_world selection now cards world))))BoardFilter.stage_choices);
- node Scene.Section_role "board/archive"[("label",JsonProperty(JString "Archived cards"))](map(fun card=>card_scene now board world card s)(filter(flag "archived")cards))]).
+ group "board/footer"[]]).
+Definition agent_scene (world:json)(s:ApplicationState.state) agent id :=
+ let key:="agent-summary/"++show_natural id in
+ group key([heading(key++"/name")(text "name" agent)]++
+  map(fun '(name,caption)=>text_node(key++"/"++name)(caption++": "++text name agent))
+    [("profile","Model");("reasoning","Reasoning");("instructions","Instructions")]++
+  [text_node(key++"/concurrency")("Concurrency: "++value_or ""(number_field "concurrency" agent));
+   editor_button(key++"/edit")"Edit"(Agent(Some id));
+   button(key++"/more")"More"(invoke(Input.OpenObjectActions(AgentActions id)(key++"/more")))false]++
+  match natural_field "active" agent with None=>[]|Some active=>[text_node(key++"/active")("Working: "++show_natural active)]end).
 Definition agents_scene world s:=let board:=value_or JNull(field "board" world)in
  group "agents"[heading "agents/title" "智能体";editor_button "agents/new" "New agent"(Agent None);
- node Scene.ListView_role "agents/list"[](map(fun agent=>match natural_field "agent_id" agent with None=>group "invalid-agent"[]|Some id=>group("agent/"++show_natural id)
- [heading("agent/"++show_natural id++"/name")(text "name" agent);editor_button("agent/"++show_natural id++"/edit")"Edit"(Agent(Some id));
- button("agent/"++show_natural id++"/delete")"Delete"(command_action "delete_board_agent"[("agent_id",number id);("revision",value_or JNull(field "revision" agent))])(negb(connected(service_state s)))]end)(items "agents" board))].
-Definition graphs_scene world s:=group "graphs"[heading "graphs/title" "Task graphs";editor_button "graphs/new" "New task graph"(TaskGraph None(active_work(navigation_state s)));
- node Scene.ListView_role "graphs/list"[](map(fun graph=>match natural_field "graph_id" graph with None=>group "invalid-graph"[]|Some id=>group("graph/"++show_natural id)
- [heading("graph/"++show_natural id++"/name")(text "name" graph);editor_button("graph/"++show_natural id++"/edit")"Edit"(TaskGraph(Some id)(active_work(navigation_state s)));
- button("graph/"++show_natural id++"/delete")"Delete"(command_action "delete_task_graph"[("graph_id",number id)])(negb(connected(service_state s)))]end)(filter(fun graph=>match active_work(navigation_state s)with
- |None=>true|Some work=>same_scope(Some work)(natural_field "work_id" graph)end)(items "graphs" world)))].
+ node Scene.ListView_role "agents/list"[](flat_map(fun agent=>match natural_field "agent_id" agent with None=>[]|Some id=>[agent_scene world s agent id]end)(items "agents" board))].
+Definition graph_endpoint graph key :=match find(fun node=>String.eqb key(text "key" node))(items "nodes" graph)with
+ |None=>key|Some node=>key++" · Task #"++value_or ""(number_field "task_id" node)end.
+Definition graph_scene world s graph id :=
+ let key:="graph/"++show_natural id in
+ group key([heading(key++"/name")(text "name" graph);
+   editor_button(key++"/edit")"Edit"(TaskGraph(Some id)(active_work(navigation_state s)));
+   button(key++"/delete")"Delete"(match decode_command command_specs(JObject[("op",JString "delete_task_graph");("graph_id",number id)])with Some command=>invoke(Input.Confirmation command(key++"/delete"))|None=>UiAction None end)(negb(connected(service_state s)));
+   heading(key++"/nodes/title")"Tasks"]++
+   map(fun node=>let nodekey:=key++"/node/"++text "key" node in
+    match natural_field "task_id" node with None=>text_node nodekey(text "key" node)|Some task=>
+     button nodekey(graph_endpoint graph(text "key" node))(navigation_action(Conversation task))
+      (match find_task task world with None=>true|Some _=>false end)end)(items "nodes" graph)++
+   [heading(key++"/rules/title")"Output rules"]++
+   map(fun rule=>let rulekey:=key++"/rule/"++text "key" rule in
+    group rulekey(heading(rulekey++"/name")(text "key" rule)::
+     map(fun '(index,action)=>text_node(rulekey++"/action/"++show_natural(N.of_nat index))
+      (graph_endpoint graph(text "source" rule)++" → "++graph_endpoint graph(text "target" action)++": "++
+       TextJson.render_json(value_or JNull(field "message" action))))
+      (combine(seq 0(List.length(items "actions" rule)))(items "actions" rule))))(items "rules" graph)++
+   [heading(key++"/receipts/title")"Last delivery results"]++
+   map(fun '(index,receipt)=>text_node(key++"/receipt/"++show_natural(N.of_nat index))
+     ("Task #"++value_or ""(number_field "source" receipt)++" → Task #"++value_or ""(number_field "target" receipt)++
+       " ("++text "rule" receipt++"): "++TextJson.render_json(value_or JNull(field "reply" receipt))))
+    (combine(seq 0(List.length(items "receipts" graph)))(items "receipts" graph))).
+Definition graphs_scene world s:=group "graphs"[heading "graphs/title" "Task graphs";
+ editor_button "graphs/new" "New task graph"(TaskGraph None(active_work(navigation_state s)));
+ node Scene.ListView_role "graphs/list"[](flat_map(fun graph=>match natural_field "graph_id" graph with None=>[]|Some id=>[graph_scene world s graph id]end)
+  (filter(fun graph=>match active_work(navigation_state s)with
+   |None=>true|Some work=>same_scope(Some work)(natural_field "work_id" graph)end)(items "graphs" world)))].
 Definition search_hit_scene hit:=
  let task:=value_or JNull(field "task" hit)in
  let id:=value_or JNull(field "id" task)in
@@ -522,31 +635,87 @@ Definition settings_scene s:=if settings_open(service_state s)then
  [heading "settings/title" "Settings";node Scene.Select_role "settings/appearance"[("specification",FieldProperty(Schema.Field "appearance"(KEnum "system"["light";"dark"])));("label",JsonProperty(JString "Appearance"));("value",JsonProperty(JString(appearance_name(theme(service_state s)))));("options",JsonProperty(JArray(map(fun v=>option_node(JString v)v)["system";"light";"dark"])));("action",InputProperty(invoke(Input.ServiceInput(ChooseAppearance SystemAppearance))))][];
  editor_button "settings/title-prompts" "标题生成" TitlePrompts;speech_scene s;
  button "settings/connect" "Connect"(invoke(Input.ServiceInput Connect))(connected(service_state s));button "settings/close" "Close settings"(invoke(Input.ServiceInput CloseSettings))false]]else[].
-Definition property_source_scene subject world s :=
- match bind(field "editor" subject)decode_editor with None=>text_node "property-source/unavailable" "来源所属的编辑器已不可用。"
- |Some e=>let task:=match e with Message task=>find_task task world|_=>None end in
-  let d:=value_or(new_draft e)(find_draft e s)in
-  let settings:=match task with Some task=>value_or JNull(field "settings" task)|None=>Forms.settings d end in
-  let project:=natural_field "project_id" settings in
-  let project_name:=match project with None=>"默认设置"|Some id=>match find_project id world with Some p=>text "name" p|None=>"已不可用的项目"end end in
-  let workspace:=value_or JNull(workspace_for e world s)in
-  let snapshots:=match task with Some task=>items "context" task|None=>[]end in
-  group "property-source" ([heading "property-source/title" "设置与上下文来源";
-    text_node "property-source/project"("项目："++project_name);
-    text_node "property-source/primary"("主目录："++value_or ""(string_field "primary_root" workspace))]++
-    map(fun root=>text_node("property-source/root/"++value_or ""(as_string root))(value_or ""(as_string root)))(items "roots" workspace)++
-    match snapshots with []=>[text_node "property-source/context" "此编辑器尚无已记录的上下文来源。"]
-    |_=>map(fun '(index,snapshot)=>context_source_scene index snapshot)(combine(map N.of_nat(seq 0(List.length snapshots)))snapshots)end)end.
-Definition configuration_scene subject world s :=
- match bind(field "editor" subject)decode_editor with None=>text_node "configuration/unavailable" "任务配置已不可用。"
- |Some e=>match find_draft e s with None=>text_node "configuration/unavailable" "任务配置已不可用。"
- |Some d=>group "execution-configuration" ([heading "configuration/title" "模型与权限"]++
-   map(field_scene d world s)(filter(fun f=>field_applies d world s(field_name(specification f)))execution_fields)++feedback_scene d++
-   [button "configuration/apply" "应用"(invoke(Input.ApplyConfiguration e))(negb(connected(service_state s))||configuration_pending e s)])end end.
-Definition panel_scene world s p:=match p with
-|EditorPanel e _=>node Scene.Dialog_role("panel/"++editor_key e)[("label",JsonProperty(JString "Edit"));("dismiss_action",InputProperty(invoke(Input.ClosePanel)))][form_scene e world s;button("panel/"++editor_key e++"/close")"Close"(invoke(Input.ClosePanel))false]
-|InformationPanel kind subject _=>node Scene.Dialog_role("panel/"++kind)[("label",JsonProperty(JString(if String.eqb kind "execution_configuration"then "模型与权限"else if String.eqb kind "property_source"then "设置与上下文来源"else if String.eqb kind "task_details"then "Task details"else kind)));("dismiss_action",InputProperty(invoke(Input.ClosePanel)))][(if String.eqb kind "execution_configuration"then configuration_scene subject world s else if String.eqb kind "property_source"then property_source_scene subject world s else if String.eqb kind "task_details"then task_details_scene subject world s else text_node("panel/"++kind++"/text")(text "description" subject));button("panel/"++kind++"/close")"Close"(invoke(Input.ClosePanel))false]
-|ApplicationState.Confirmation _ caption _ _=>node Scene.Dialog_role "confirmation"[("label",JsonProperty(JString caption));("dismiss_action",InputProperty(invoke(Input.ClosePanel)))][heading "confirmation/title" caption;button "confirmation/confirm" "Confirm"(invoke(Input.Confirm))(negb(connected(service_state s)));button "confirmation/cancel" "Cancel"(invoke(Input.ClosePanel))false]end.
+Definition object_action_scene (now:N) subject world s item :=
+ let key:=menu_key subject++"/"++ObjectActions.item_key item in
+ let occurrence:=generation(navigation_state s)in
+ let availability:=ObjectActions.item_availability subject occurrence world s item in
+ group(key++"/row")
+  ([button key(ObjectActions.item_label item)(invoke(Input.MenuAction subject(ObjectActions.item_key item)occurrence))
+    (match availability with ObjectActions.Available=>false|_=>true end)]++
+   match availability with ObjectActions.Available=>[]|ObjectActions.Awaiting=>[text_node(key++"/availability")"Checking availability…"]
+   |ObjectActions.Unavailable reason=>[text_node(key++"/availability")reason]
+   |ObjectActions.AssessmentFailed reason=>[text_node(key++"/availability")reason;
+     button(key++"/retry")"Retry availability check"(invoke(Input.RetryMenuAssessment subject(ObjectActions.item_key item)occurrence))false]end).
+Definition object_actions_scene now subject trigger world s :=
+ node Scene.Dialog_role(menu_key subject)
+  [("label",JsonProperty(JString "Actions"));("layout",JsonProperty(JString "anchored-menu"));("attrs",JsonProperty(JObject[("tabindex",JString "-1");("data-anchor",JString trigger)]));("dismiss_action",InputProperty(invoke Input.ClosePanel))]
+  (map(object_action_scene now subject world s)(ObjectActions.items_for now subject world(generation(navigation_state s))trigger)++
+   [button(menu_key subject++"/close")"Close"(invoke Input.ClosePanel)false]).
+Definition observed_card_fields card world s :=
+ match initialize(Card(Some card))world with None=>[]|Some d=>
+  match Activities.build_activity Activities.EditObject d world(service_state s)false with None=>[]|Some activity=>
+   map(ActivityPresentation.readonly_observation("card-observation/"++show_natural card))(Activities.activity_information activity)
+  end end.
+Definition card_details_scene card world s :=
+ let key:="card-details/"++show_natural card in
+ match find_world "cards" "card_id" card(value_or JNull(field "board" world))with
+ |None=>text_node(key++"/missing")"The card no longer exists"
+ |Some value=>group key
+  ([heading(key++"/title")(text "title" value);text_node(key++"/identifier")(text "identifier" value)]++
+   observed_card_fields card world s++
+   [text_node(key++"/enrichment")("Title generation: "++text "status"(value_or JNull(field "enrichment" value))++" "++text "reason"(value_or JNull(field "enrichment" value)));
+    text_node(key++"/start-error")("Start error: "++text "start_error" value);
+    editor_button(key++"/edit")"Edit card"(Card(Some card));
+    button(key++"/more")"More"(invoke(Input.OpenObjectActions(CardActions card)(key++"/more")))false]++
+   flat_map(fun file=>match decode_attachment file with None=>[]|Some attachment=>
+    [button(key++"/attachment/"++asset_id attachment)(asset_name attachment)
+      (invoke(Input.ServiceInput(OpenPreview attachment(key++"/attachment/"++asset_id attachment))))false]end)(items "attachments" value)++
+   match natural_field "task_id" value with None=>[]|Some task=>
+    [button(key++"/task")"Open linked task"(navigation_action(Conversation task))false]end)
+ end.
+Definition board_settings_scene world s :=
+ let board:=value_or JNull(field "board" world)in
+ group "board-settings"
+  [button "board-settings/automatic"(if flag "automatic" board then "Pause automatic scheduling"else "Enable automatic scheduling")
+    (command_action "board_settings"[("automatic",JBool(negb(flag "automatic" board)));("draft_profile",JString(text "draft_profile" board))])(negb(connected(service_state s)));
+   node Scene.Select_role "board-settings/draft-profile"[("label",JsonProperty(JString "Draft profile"));("value",JsonProperty(JString(text "draft_profile" board)));
+    ("options",JsonProperty(JArray(profile_choices world)));("action",InputProperty(invoke(Input.BoardProfile ""))) ][]].
+Definition information_scene now kind subject world s :=
+ if String.eqb kind "card_details"then match natural_field "card_id" subject with
+  Some card=>card_details_scene card world s|None=>text_node "card-details/missing" "The card no longer exists"end
+ else if String.eqb kind "board_settings"then board_settings_scene world s
+ else if String.eqb kind "archived_cards"then
+  let board:=value_or JNull(field "board" world)in
+  group "archived-cards"(map(fun card=>card_scene now board world card s)(filter(flag "archived")(board_cards board)))
+ else text_node "information/description"(text "description" subject).
+Definition panel_scene now world s p:=match p with
+|ActivityPanel e request view occurrence trigger=>ActivityPresentation.render_activity field_scene form_scene e request view occurrence trigger world s
+|ObjectActionsPanel subject trigger=>object_actions_scene now subject trigger world s
+|NavigationPanel GlobalMenu _=>global_navigation_dialog world s
+|NavigationPanel WorkOverview _=>work_overview world s
+|NavigationPanel TasksDrawer _=>group "task-navigation-presence"[]
+|InformationPanel kind subject trigger=>
+ let key:=information_panel_key kind subject in
+ if String.eqb kind "task_details"then
+  node Scene.Aside_role key[("label",JsonProperty(JString "Task details"));("attrs",JsonProperty(JObject[("tabindex",JString "-1")]));("layout",JsonProperty(JString "supporting-panel"));("dismiss_action",InputProperty(invoke Input.ClosePanel))]
+   [node Scene.Header_role(key++"/header")[("layout",JsonProperty(JString "supporting-header"))]
+     [heading(key++"/title")"Task details";icon_button(key++"/close")"Close" "close-cross"(invoke(Input.OpenInformation kind subject trigger))false];
+    Scene.scope key(Input.scope_triggers key)(task_details_scene subject world s)]
+ else node Scene.Dialog_role key[("label",JsonProperty(JString kind));("dismiss_action",InputProperty(invoke Input.ClosePanel))]
+   [Scene.scope key(Input.scope_triggers key)(information_scene now kind subject world s);button(key++"/close")"Close"(invoke Input.ClosePanel)false]
+|ApplicationState.Confirmation command caption _ _ feedback=>
+ let availability:=ObjectActions.confirmation_availability world s command caption in
+ let available:=match availability with ObjectActions.Available=>true|_=>false end in
+ node Scene.Dialog_role "confirmation"[("label",JsonProperty(JString caption));("dismiss_action",InputProperty(invoke(Input.ClosePanel)))]
+ ([heading "confirmation/title" caption]++
+ (match feedback with None=>[]|Some reason=>[node Scene.Text_role "confirmation/feedback"[("value",JsonProperty(JString reason));("attrs",JsonProperty(JObject[("role",JString "alert")]))][]]end)++
+ (match availability with ObjectActions.Available=>[]|ObjectActions.Awaiting=>[text_node "confirmation/availability" "Checking action availability"]
+  |ObjectActions.Unavailable reason=>[text_node "confirmation/availability" reason]
+  |ObjectActions.AssessmentFailed reason=>[text_node "confirmation/availability" reason]++
+    match ObjectActions.confirmation_for command with None=>[]|Some(_,_,subject)=>
+    [button "confirmation/retry" "Retry"(invoke(Input.RetryMenuAssessment subject "delete"(generation(navigation_state s))))false]end end)++
+ [button "confirmation/confirm" "Confirm"(invoke(Input.Confirm))(confirmation_pending s||negb available);
+  button "confirmation/cancel" "Cancel"(invoke(Input.ClosePanel))false])end.
 Definition preview_scene s:=match preview(service_state s)with
 |Dormant=>[]|Loading _ request=>[node Scene.Dialog_role "file-preview"[("label",JsonProperty(JString(asset_name(preview_file request))));("dismiss_action",InputProperty(invoke(Input.ServiceInput ClosePreview)))][text_node "file-preview/loading" "Loading…"]]
 |Resource.Failed _ request error=>[node Scene.Dialog_role "file-preview"[("label",JsonProperty(JString(asset_name(preview_file request))));("dismiss_action",InputProperty(invoke(Input.ServiceInput ClosePreview)))][text_node "file-preview/error" error;button "file-preview/close" "Close"(invoke(Input.ServiceInput ClosePreview))false]]
@@ -578,11 +747,13 @@ Definition storage_notice s := match storage_problem(service_state s)with
      button "local-storage-notice/dismiss" "知道了"(invoke(Input.ServiceInput DismissStorageProblem))false]]end.
 Definition observe namespace now world s :=
   let main:=match location(navigation_state s)with
-  |Start=>group "start"[heading "start/title"(optional_label(active_work(navigation_state s)));form_scene(NewTask(active_work(navigation_state s)))world s]
-  |Conversation task=>conversation_scene namespace task world s|Projects|ProjectHome _=>projects_scene world s
+  |Start=>group "start"[heading "start/title"(Navigation.work_label(active_work(navigation_state s))world);form_scene(NewTask(active_work(navigation_state s)))world s]
+  |Conversation task=>conversation_view namespace(PrimaryTask task)world s|Projects=>projects_scene world s|ProjectHome id=>project_scene id world s
   |Board=>board_scene now world s|Agents=>agents_scene world s|Graphs=>graphs_scene world s
   |HistorySearch=>search_scene s world|SharedUI work task=>shared_ui_scene work task world s end in
   node Scene.Group_role "application"[("layout",JsonProperty(JString "workspace"));("appearance",JsonProperty(JString(appearance_name(theme(service_state s)))));("attrs",JsonProperty(JObject[("class",JString "application")]))]
   ([navigation_scene world s;node Scene.Main_role "main"[("attrs",JsonProperty(JObject[("tabindex",JString "-1")]))](storage_notice s++[main])]++
-   match side_task(navigation_state s)with None=>[]|Some task=>[node Scene.Aside_role "side-conversation"[("label",JsonProperty(JString "Side conversation"));("dismiss_action",InputProperty(invoke(Input.CloseSide)))][heading "side-conversation/title"("Side conversation · task #"++show_natural task);button "side-conversation/close" "关闭"(invoke(Input.CloseSide))false;conversation_scene namespace task world s]]end++
-   map(panel_scene world s)(rev(layers(navigation_state s)))++settings_scene s++preview_scene s++directory_scene s).
+   match side_task(navigation_state s)with None=>[]|Some task=>[node Scene.Aside_role "side-conversation"[("label",JsonProperty(JString "Side conversation"));("dismiss_action",InputProperty(invoke(Input.CloseSide)))][node Scene.Header_role "side-conversation/header"[("layout",JsonProperty(JString "supporting-header"))]
+    [heading "side-conversation/title"("Side conversation · task #"++show_natural task);icon_button "side-conversation/close" "关闭" "close-cross"(invoke Input.CloseSide)false];
+   conversation_view namespace(SideTask task)world s]]end++
+   settings_scene s++flat_map(fun panel=>match panel with NavigationPanel TasksDrawer _=>[]|_=>[panel_scene now world s panel]end)(rev(layers(navigation_state s)))++preview_scene s++directory_scene s).
