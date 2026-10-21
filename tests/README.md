@@ -15,3 +15,9 @@ Run `bun run build` before `bun run test`. Browser acceptance uses a real
 Chromium instance through Playwright and the application's HTTP entry. A passed
 Rocq proof or successful module build does not report a physical scenario as
 having passed; run the corresponding public entry before recording that result.
+
+`mcp-schema-contract.test.mjs` distinguishes the two external tool contracts:
+an official MCP SDK stdio server accepts signed decimals and nested JSON Schema
+through real task execution, and rejects invalid arguments itself. An extension
+offering that same schema must still fail initialization because its documented
+schema language is smaller. This local fixture requires no model account.

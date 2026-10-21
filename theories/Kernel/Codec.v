@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Import Json Schema JsonSchema Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
 Import ListNotations.
@@ -172,14 +172,23 @@ Definition tool_json (value : tool) := JObject [
  ("name", JString (tool_name value)); ("description", JString (tool_description value));
  ("parameters", tool_schema value); ("source", tool_metadata value)].
 Definition parse_tool (value : json) : option tool :=
- match string_field "name" value, string_field "description" value, field "schema" value with
- | Some name, Some description, Some schema =>
-   if nonempty name then Some (Tool name description schema
-     (match field "plugin" value with
-      | Some (JObject plugin) => JObject [("plugin", PluginProtocol.reference_json (JObject plugin)); ("name", value_or_null "remote" value)]
-      | _ => JObject [("server", value_or_null "server" value); ("name", value_or_null "remote" value)]
-      end)) else None
- | _,_,_ => None end.
+ match string_field "name" value, string_field "description" value,
+       field "schema" value, string_field "remote" value with
+ | Some name, Some description, Some schema, Some remote =>
+   if nonempty name then
+     match field "plugin" value with
+     | Some (JObject plugin) => if JsonSchema.definition schema then
+       Some (Tool name description schema
+         (ExtensionSource (PluginProtocol.reference_json (JObject plugin)) remote)) else None
+     | None | Some JNull =>
+       (* MCP requires an object schema; validating its full dialect belongs to
+          the server. In particular, number/$ref/anyOf are not extension rules. *)
+       match string_field "server" value, schema with
+       | Some server, JObject _ => Some (Tool name description schema (McpSource server remote))
+       | _,_ => None end
+     | _ => None end
+   else None
+ | _,_,_,_ => None end.
 Fixpoint traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
  match values with [] => Some [] | value :: rest =>
  match f value, traverse f rest with Some value, Some rest => Some (value :: rest) | _,_ => None end end.

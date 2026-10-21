@@ -51,7 +51,7 @@ Definition parse_environment (source : json) : option environment :=
      if Schema.unique_names (map profile_key profiles) && Schema.unique_names (map tool_name catalog) &&
        forallb valid_plugin plugins && Nat.leb (List.length plugins) 16 &&
        Schema.unique_names (map (fun plugin => text_default "name" (value_or_null "reference" plugin) "") plugins) &&
-       forallb (fun source => valid_route plugins source && JsonSchema.definition (value_or_null "schema" source)) (array_default "tools" source) &&
+        forallb (valid_route plugins) (array_default "tools" source) &&
        ((0 <? max_fork) && (max_fork <=? 4294967295) && (0 <? max_descendants) && (max_descendants <=? 4294967295))%N &&
        valid_guidance (value_or_null "project" source) && valid_instructions (value_or_null "instructions" source) then
      Some (Environment profiles catalog max_fork max_descendants (value_or_null "project" source) plugins
@@ -63,5 +63,5 @@ Definition parse_environment (source : json) : option environment :=
 Definition configure (source : json) (value : world) :=
  match parse_environment source with
  | Some environment => accept (JObject [("configured",JBool true)]) (with_environment environment value) []
- | None => reject "invalid_input" "Malformed environment: profiles and tool routes must be unique, schemas supported, plugins valid, and limits positive" value
+  | None => reject "invalid_input" "Malformed environment: profiles and tool routes must be unique, tool contracts valid, plugins valid, and limits positive" value
  end.

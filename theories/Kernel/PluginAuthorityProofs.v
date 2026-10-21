@@ -4,6 +4,42 @@ From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuratio
 Import ListNotations.
 Open Scope string_scope.
 
+(* MCP's advertised schema is opaque to the extension interpreter. The server
+   is responsible for validating its own dialect before executing the request. *)
+Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote id fields,
+ Callbacks.model_call_arguments_valid
+   (Tool name description schema (McpSource server remote))
+   (Call id name (JObject fields)) = true.
+Proof. reflexivity. Qed.
+
+Theorem extension_arguments_use_the_declared_fragment : forall name description schema reference remote id arguments,
+ Callbacks.model_call_arguments_valid
+   (Tool name description schema (ExtensionSource reference remote))
+   (Call id name arguments) = JsonSchema.valid schema arguments.
+Proof. reflexivity. Qed.
+
+(* The normal admission premises do not assume an emitted effect. This positive
+   obligation rules out an implementation that accepts MCP calls but drops them. *)
+Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote invocation remaining task value,
+ let advertised := Tool name description schema (McpSource server remote) in
+ Capabilities.available (environment_tools (world_environment value)) advertised = true ->
+ (exists fields, call_arguments invocation = JObject fields) ->
+ NativeTools.command id invocation = None ->
+ String.eqb (call_name invocation) "discover_tools" = false ->
+ String.eqb (call_name invocation) "bash" = false ->
+ N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
+ decision_effects (Scheduler.execute_checked_call execute id advertised invocation remaining task value) =
+ [ExecuteTool id (world_next_ticket value) (world_next_ticket value) advertised invocation
+   (task_current_settings task) DefaultAccess].
+Proof.
+ intros execute id name description schema server remote invocation remaining task value advertised
+   Available [fields Arguments] NoNative NoDiscover NoBash Room.
+ unfold Scheduler.execute_checked_call. rewrite Available.
+ unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
+ rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
+ unfold Scheduler.start_external. rewrite Room, NoBash. reflexivity.
+Qed.
+
 Lemma same_reference_preserves_identity : forall left right,
  PluginProtocol.same_reference left right = true ->
  value_or_null "name" left = value_or_null "name" right /\

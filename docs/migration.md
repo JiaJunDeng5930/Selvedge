@@ -6,7 +6,7 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-2`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-3`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 
@@ -16,8 +16,14 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
   tasks can inherit a cloud environment without a fork lineage. Execution uses
   that identity rather than choosing a cloud resource from a matching path.
 - The current journal rejects earlier Rocq journal formats. Journal rows replay
-  inputs and compare decisions; the backend and resource-binding fields change
-  those decisions, so an older journal cannot preserve the new replay contract.
+  inputs and compare decisions. Backend and resource bindings, and the corrected
+  MCP argument admission, change those decisions; earlier formats cannot preserve
+  the current replay contract.
+- MCP tools retain their server's JSON Schema, including numeric, nested and
+  referenced schemas. The extension descriptor's deliberately restricted schema
+  language no longer constrains MCP configuration or calls. MCP arguments must
+  be objects; the server owns full schema validation. Native and extension tools
+  retain their respective local admission rules. See [ADR 0060](adr/0060-preserve-tool-protocol-contracts.md).
 
 - Raw HTTP command admission and provider function arguments use the extracted
   domain parser and reject duplicate object members. Stdio JSON-RPC retains its

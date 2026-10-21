@@ -11,9 +11,11 @@ Definition matching_activity (ticket : N) (phase : activity) := match phase with
  | ObservingContext expected | AskingModel expected _ _ | EvaluatingReasoning expected _
  | CheckingHook expected _ _ _ _ => N.eqb ticket expected | _ => false end.
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
- match string_field "kind" (tool_metadata tool) with
- | Some "native" => NativeTools.arguments_valid invocation
- | _ => JsonSchema.valid (tool_schema tool) (call_arguments invocation) end.
+  match tool_origin tool with
+  | NativeSource _ => NativeTools.arguments_valid invocation
+  | ExtensionSource _ _ => JsonSchema.valid (tool_schema tool) (call_arguments invocation)
+  | McpSource _ _ => match call_arguments invocation with JObject _ => true | _ => false end
+  end.
 Definition call_known (id : string) (history : list message) :=
  existsb (fun message => match message with FunctionCall invocation => String.eqb id (call_id invocation) | _ => false end) history.
 Fixpoint permitted_items (items : list model_item) (allowed : list string) (task : task)

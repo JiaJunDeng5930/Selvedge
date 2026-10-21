@@ -48,7 +48,7 @@ Definition binding_entry (binding : command_binding) : list tool :=
  | None => []
  | Some specification => [Tool (binding_tool binding) (binding_description binding)
     (schema_json (binding_schema binding specification))
-    (JObject [("kind", JString "native"); ("program", JObject [("kind", JString "Command"); ("command", JString (binding_command binding))])])]
+     (NativeSource (JObject [("kind", JString "Command"); ("command", JString (binding_command binding))]))]
  end.
 Definition primitive_kind (value : native_tool) := match value with
  | Bash => "Process" | ReadProcess => "ProcessRead" | WriteProcess => "ProcessWrite" | ReadImage => "ReadImage" end.
@@ -60,12 +60,12 @@ Definition primitive_entry (value : native_tool) :=
   | WriteProcess => "Write to this task's running Bash operation."
   | ReadImage => "Read a sandboxed immutable image asset as visual model input." end)
   (ToolArguments.json_schema value)
-  (JObject [("kind", JString "native"); ("program", JObject [("kind", JString (primitive_kind value))])]).
+   (NativeSource (JObject [("kind", JString (primitive_kind value))])).
 Definition discover_schema := [Field "query" (KOptional KText); Field "names" (KOptional (KArray KText));
  Field "offset" (KOptional KNatural); Field "limit" (KOptional KNatural)].
 Definition discover_entry := Tool "discover_tools"
  "Find external MCP and plugin tools by keywords, or load exact names to obtain their complete parameter definitions."
- (schema_json discover_schema) (JObject [("kind", JString "native"); ("program", JObject [("kind", JString "Discover")])]).
+  (schema_json discover_schema) (NativeSource (JObject [("kind", JString "Discover")])).
 Definition catalog := discover_entry ::
  map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map binding_entry bindings.
 Definition find_binding (name : string) := find (fun binding => String.eqb name (binding_tool binding)) bindings.

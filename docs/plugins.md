@@ -81,6 +81,15 @@ silently ignored. Definition checking and value checking each have a 256-step
 bound. MCP retains its own server-side schema contract; no claim is made that
 this extension fragment implements arbitrary JSON Schema.
 
+MCP `inputSchema` is retained as an object and passed unchanged to model tool
+discovery. Its dialect and keywords (including `number`, `$ref` and `anyOf`) do
+not pass through the extension interpreter. Model calls and hook rewrites must
+still supply an argument object; the MCP server validates that object against
+its advertised schema before execution, as required by the
+[MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+The kernel's local argument check therefore establishes the call envelope, not
+arbitrary MCP-schema satisfaction or the correctness of the external server.
+
 To execute an approved extension tool, the host sends `callTool` with its local
 `name`, final `arguments` and a `context` containing `task_id`, `operation_id` and
 `call_id`. The result must be exactly a JSON object containing `value` and Boolean

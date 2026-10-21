@@ -37,12 +37,24 @@ Record task_settings := Settings {
   settings_worktree : bool;
   settings_resource : option N
 }.
+(* The source owns the argument contract: native commands use their declaration,
+   extensions use our decidable schema fragment, and MCP delegates the complete
+   advertised JSON Schema to its server. Wire metadata is only a projection. *)
+Inductive tool_source :=
+| NativeSource (program : json)
+| ExtensionSource (reference : json) (remote : string)
+| McpSource (server remote : string).
 Record tool := Tool {
   tool_name : string;
   tool_description : string;
   tool_schema : json;
-  tool_metadata : json
+  tool_origin : tool_source
 }.
+Definition tool_metadata (value : tool) := match tool_origin value with
+| NativeSource program => JObject [("kind",JString "native");("program",program)]
+| ExtensionSource reference remote => JObject [("plugin",reference);("name",JString remote)]
+| McpSource server remote => JObject [("server",JString server);("name",JString remote)]
+end.
 Record environment := Environment {
   environment_profiles : list profile;
   environment_tools : list tool;
