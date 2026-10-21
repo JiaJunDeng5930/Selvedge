@@ -8,6 +8,7 @@ Inductive purpose :=
 | MessageSubmission | NamedAction | CreateItem | EditItem | ProjectTaskCreation
 | WorkCreation
 | OpenCardDetails (card : N)
+| ProjectDisclosure (project : N)
 | NavigateTo (symbol : string)
 | MoreActions (expanded : bool)
 | OpenPanel (symbol : string) (menu expanded : bool)

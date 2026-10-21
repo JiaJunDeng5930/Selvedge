@@ -52,6 +52,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
 |Input.ClosePanel|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded expanded=>P.ToggleNavigation expanded
+|Input.ToggleProjectGroup project=>P.ProjectDisclosure project
 |Input.FollowLatest _=>P.Latest|Input.ResetTitlePrompts=>P.ResetDefaults
 |Input.RemoveAttachment _ _|Input.ActivityWorkspaceChange _ (Input.RemoveDirectory _)=>P.RemoveValue
 |Input.RetryWorkspace _ _|Input.RetryMenuAssessment _ _ _=>P.RetryTransfer
