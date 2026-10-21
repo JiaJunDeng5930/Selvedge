@@ -223,6 +223,17 @@ Definition cloud_options_allowed (id : N) (settings : option json) (value : worl
   Json.equal (value_or_null "project_id" settings) JNull end.
 Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision :=
  match command with
+ | Selvedge.Generated.Commands.Cmd_return_side_conversation p=>
+   match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.return_side_conversation_task_id p) value with
+   | Some side=>match task_side_parent side with
+     | Some parent=>
+       (* DEFENSE: A side can be opened while its parent's workspace is creating;
+          a later setup failure must not consume that side's return cursor. *)
+       if execution_allowed parent value then None else
+       Some (Selvedge.Kernel.State.reject "worktree_creation_failed"
+         "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace." value)
+     | None=>None end
+   | None=>None end
  | Selvedge.Generated.Commands.Cmd_fork p=>
    if cloud_options_allowed (Selvedge.Generated.Commands.fork_task_id p) (Selvedge.Generated.Commands.fork_settings p) value then
      if execution_allowed (Selvedge.Generated.Commands.fork_task_id p) value then None

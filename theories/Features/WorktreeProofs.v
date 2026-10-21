@@ -1,5 +1,6 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
@@ -18,6 +19,32 @@ Proof. reflexivity. Qed.
 Theorem phase_transition_preserves_backend : forall phase tree,
  F.worktree_backend (F.with_worktree_phase phase tree) = F.worktree_backend tree.
 Proof. reflexivity. Qed.
+
+(** A valid successful setup does install a ready resource, rather than merely
+    avoiding an invalid transition. The callback's physical observations remain
+    assumptions; the checked conclusion concerns their admitted domain update. *)
+Theorem successful_creation_installs_ready_resource : forall tree value task root space guidance message,
+ find_task (F.worktree_task tree) value = Some task ->
+ Worktree.created_valid root space guidance task = true ->
+ Worktree.archived task = false ->
+ let result := Worktree.created tree true (Some root) (Some space) guidance message value in
+ decision_reply result = success (JObject [("accepted"%string, JBool true)]) /\
+ exists ready,
+   Worktree.lookup (F.worktree_task tree) (decision_world result) = Some ready /\
+   F.worktree_phase ready = F.TreeReady root (Worktree.primary space) /\
+   F.worktree_backend ready = F.worktree_backend tree.
+Proof.
+ intros tree value task root space guidance message found valid live.
+ unfold Worktree.created. rewrite found. cbn. rewrite valid, live. cbn.
+ split; [reflexivity|].
+ exists (F.with_worktree_phase (F.TreeReady root (Worktree.primary space)) tree).
+ split.
+ - unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
+     Selvedge.Features.State.with_worktrees.
+   cbv [set F.with_worktree_phase]. cbn.
+   rewrite N.eqb_refl. reflexivity.
+ - split; reflexivity.
+Qed.
 (** Result validation rolls back the complete decision when a workspace is held. *)
 Theorem unavailable_result_has_no_effects : forall before result,
  Worktree.guard_result before result <> result ->
