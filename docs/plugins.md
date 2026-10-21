@@ -75,8 +75,9 @@ Extension schemas use the native decidable fragment: closed objects with explici
 `properties` and optional `required`; arrays with `items`; strings, Booleans,
 nulls and natural-number integers up to `2^32 - 1` with optional minimum/maximum.
 `title` and `description` are metadata. Objects may omit `additionalProperties`
-or set it to `false`; both are closed. Keywords such as `$ref`, `anyOf`, `enum`,
-open properties, negative integers and unrestricted numbers are rejected, not
+or set it to `false`; both are closed. Finite string `enum` values and bounded
+`anyOf` alternatives are supported. Keywords such as `$ref`, open properties,
+negative integers and unrestricted numbers are rejected, not
 silently ignored. Definition checking and value checking each have a 256-step
 bound. MCP retains its own server-side schema contract; no claim is made that
 this extension fragment implements arbitrary JSON Schema.
@@ -99,20 +100,25 @@ outcome may already have happened.
 
 ## One before-tool protocol
 
-Before source classification or argument validation, the kernel commits a tool authorization check
-effect and a task-local pending ticket. The host sends `beforeTool` with:
+A model call must first satisfy its frozen tool argument contract before it can
+enter task history or request authorization. The kernel then commits a tool
+authorization check effect and a task-local pending ticket. The host sends
+`beforeTool` with:
 
 ```json
 {
   "task_id": 0,
   "ticket": 7,
   "plugin": {"name": "audit", "revision": "example-1"},
-  "tool": {"name": "bash", "description": "...", "schema": {}, "source": "harness"},
+  "tool": {"name": "bash", "description": "...", "parameters": {},
+    "source": {"kind": "native", "program": {"kind": "Process"}}},
   "call": {"id": "call-1", "name": "bash", "arguments": {"command": "printf hello"}}
 }
 ```
 
-The `tool` above abbreviates a real complete tool definition. Allowed results are
+A model reply containing an invalid call is rejected before that call becomes a
+tool invocation. The `tool` above abbreviates the real complete definition; its
+`parameters` contains the advertised schema. Allowed results are
 exactly `{"decision":"allow"}`, `{"decision":"rewrite","arguments":{...}}`, or
 `{"decision":"deny","reason":"..."}`. A rewrite replaces the entire argument
 object. The host can report exceptions, malformed replies, unavailable revisions

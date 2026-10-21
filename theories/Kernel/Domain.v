@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json Arguments.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes.
 Import ListNotations.
@@ -41,19 +41,22 @@ Record task_settings := Settings {
    extensions use our decidable schema fragment, and MCP delegates the complete
    advertised JSON Schema to its server. Wire metadata is only a projection. *)
 Inductive tool_source :=
-| NativeSource (program : json)
-| ExtensionSource (reference : json) (remote : string)
-| McpSource (server remote : string).
+| NativeToolSource (parameters : list argument_spec) (program : json)
+| ExtensionToolSource (parameters reference : json) (remote : string)
+| McpToolSource (parameters : json) (server remote : string).
 Record tool := Tool {
   tool_name : string;
   tool_description : string;
-  tool_schema : json;
   tool_origin : tool_source
 }.
+Definition tool_schema (value : tool) := match tool_origin value with
+| NativeToolSource parameters _ => Arguments.json_schema parameters
+| ExtensionToolSource parameters _ _ | McpToolSource parameters _ _ => parameters
+end.
 Definition tool_metadata (value : tool) := match tool_origin value with
-| NativeSource program => JObject [("kind",JString "native");("program",program)]
-| ExtensionSource reference remote => JObject [("plugin",reference);("name",JString remote)]
-| McpSource server remote => JObject [("server",JString server);("name",JString remote)]
+| NativeToolSource _ program => JObject [("kind",JString "native");("program",program)]
+| ExtensionToolSource _ reference remote => JObject [("plugin",reference);("name",JString remote)]
+| McpToolSource _ server remote => JObject [("server",JString server);("name",JString remote)]
 end.
 Record environment := Environment {
   environment_profiles : list profile;

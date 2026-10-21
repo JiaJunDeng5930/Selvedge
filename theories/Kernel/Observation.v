@@ -37,11 +37,12 @@ Definition status_label (value : task) := match task_lifecycle value with
  | Frozen _ _ => "Paused" | Stopped _ _ => "Stopped" | Archived => "Archived" end.
 Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject [
  ("id", number id); ("parent", optional_number (hd_error (task_lineage value)));
+ ("side_parent", optional_number (task_side_parent value));
  ("profile", JString (profile_key (task_current_profile value)));
  ("provider", JString (profile_provider (task_current_profile value)));
  ("model", JString (profile_model (task_current_profile value)));
  ("reasoning", JString (profile_reasoning (task_current_profile value)));
- ("status", JString (task_status value)); ("controls", JArray (controls (task_lifecycle value)));
+ ("status", JString (task_status value)); ("status_label", JString (status_label value)); ("controls", JArray (controls (task_lifecycle value)));
  ("phase", JString (activity_name (task_activity value)));
  ("cursor", number (N.of_nat (List.length (task_history value))));
  ("queued", number (N.of_nat (List.length (task_queued value))));

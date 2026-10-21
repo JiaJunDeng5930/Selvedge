@@ -19,12 +19,12 @@ export function mediaType(bytes) {
   return 'application/octet-stream';
 }
 
-async function vault(home) {
+async function vault(home, { create }) {
   const canonicalHome = await realpath(home);
   const directory = path.join(canonicalHome, 'board-attachments');
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  if (create) await mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await lstat(directory);
-  // DEFENSE: Replacing the attachment vault with a link must not redirect writes outside the service home.
+  // DEFENSE: Replacing the attachment vault with a link must not redirect attachment reads or writes outside the service home.
   if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
     throw new Error('The attachment vault must be a real directory inside the service home');
   }
@@ -46,7 +46,7 @@ async function regularFile(file, maximum) {
 
 export async function readBoardAttachment(home, id) {
   boundary('effect.attachment_id', { id });
-  const root = await vault(home);
+  const root = await vault(home, { create: false });
   const directory = path.join(root, id);
   const stat = await lstat(directory);
   // DEFENSE: A replaced attachment directory must not redirect reads outside its content-addressed vault.
@@ -72,7 +72,7 @@ export async function saveBoardAttachment(home, name, stream) {
   }
   const data = Buffer.concat(chunks, size);
   const id = hash(data);
-  const root = await vault(home);
+  const root = await vault(home, { create: true });
   const target = path.join(root, id);
   const pending = path.join(root, `.upload-${randomBytes(16).toString('hex')}`);
   await mkdir(pending, { mode: 0o700 });

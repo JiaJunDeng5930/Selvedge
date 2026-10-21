@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson.
-From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments.
+From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema.
+From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Features Require Import TaskGraphDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -15,26 +16,30 @@ Record command_binding := CommandBinding {
  binding_description : string
 }.
 Definition bindings := [
- CommandBinding "create_task" "create" None "Create an independent task with the caller's execution limits.";
- CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit.";
- CommandBinding "search_history" "search_history" None "Search committed user and assistant conversation text.";
+  CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
+  CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
+  CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Results include a zero-based message_index; use read_task with after=message_index to read the original message.";
  CommandBinding "read_task" "read" None "Read a bounded page of a task's original history.";
  CommandBinding "read_current_task" "read" (Some "task_id") "Read this task's identity, lifecycle and Work ownership.";
- CommandBinding "send_message_to_task" "send" None "Commit or queue a message to another task.";
+  CommandBinding "send_message_to_task" "send" None "Commit a user message to another task, or queue it while that task is busy or frozen.";
  CommandBinding "archive_task" "archive" None "Permanently archive a task and cancel its work.";
- CommandBinding "cancel_operation" "cancel_operation" (Some "task_id") "Cancel one live operation without cancelling unrelated work.";
- CommandBinding "create_task_graph" "create_task_graph" None "Create a task graph from declared output handlers.";
- CommandBinding "update_task_graph" "update_task_graph" None "Replace a graph's future output handlers atomically.";
- CommandBinding "delete_task_graph" "delete_task_graph" None "Remove a graph without archiving its tasks.";
- CommandBinding "list_task_graphs" "list_task_graphs" None "List installed task graphs.";
- CommandBinding "read_task_graph" "read_task_graph" None "Read a graph and its delivery receipts.";
- CommandBinding "create_work" "create_work" None "Create a continuing undertaking.";
- CommandBinding "rename_work" "rename_work" None "Rename a Work.";
- CommandBinding "create_work_task" "create_work_task" None "Create a task owned by a Work.";
- CommandBinding "list_works" "list_works" None "List Works.";
- CommandBinding "read_work" "read_work" None "Read a Work and its tasks and graphs.";
- CommandBinding "read_work_ui" "read_work_ui" None "Read the calling task's persistent shared Work UI source.";
- CommandBinding "apply_work_ui_patch" "apply_work_ui_patch" None "Apply an exact-context revision-bound patch to this Work's shared UI."
+  CommandBinding "cancel_operation" "cancel_operation" (Some "task_id") "Cancel one live operation without cancelling the task or unrelated work. Use its operation_id from a running status or read_task. Cancellation cannot undo effects already performed.";
+ CommandBinding "create_task_graph" "create_task_graph" None "Create Tasks and install their output handlers atomically before scheduling them. Optional work_id scopes the graph: existing Tasks must already belong to that Work and new Tasks join it.";
+ CommandBinding "update_task_graph" "update_task_graph" None "Replace a graph declaration atomically; retained Task references keep their existing settings and history.";
+ CommandBinding "delete_task_graph" "delete_task_graph" None "Remove a graph and its future output handlers without archiving its Tasks.";
+ CommandBinding "list_task_graphs" "list_task_graphs" None "Observe installed Task graphs, resolved Task references and latest delivery receipts.";
+ CommandBinding "read_task_graph" "read_task_graph" None "Observe one installed Task graph, its rules and latest delivery receipts.";
+ CommandBinding "create_work" "create_work" None "Create a Work independent of Projects; an omitted name becomes Work #id.";
+ CommandBinding "rename_work" "rename_work" None "Rename a Work while preserving its Tasks and Task graphs.";
+ CommandBinding "create_work_task" "create_work_task" None "Create a root Task and record its immutable Work ownership atomically; optionally create a managed worktree.";
+ CommandBinding "list_works" "list_works" None "Observe Works with their derived Task IDs and associated Task graph IDs.";
+ CommandBinding "read_work" "read_work" None "Observe one Work with its derived Task IDs and associated Task graph IDs.";
+ CommandBinding "read_work_ui" "read_work_ui" None "Read the persistent shared UI source and revision of this calling Task's Work. The source uses the same selvedge-ui DSL as conversation interfaces, without a Markdown fence. No Work or Task identifier is accepted.";
+ CommandBinding "apply_work_ui_patch" "apply_work_ui_patch" None "Edit this Task's Work UI atomically using the revision from read_work_ui. Patch exactly one virtual file work-ui.dsl using *** Begin Patch, *** Add File: work-ui.dsl (for empty source), *** Update File: work-ui.dsl with @@ and exact context/-/+ lines, or *** Delete File: work-ui.dsl (clear), then *** End Patch. Example initial patch:
+*** Begin Patch
+*** Add File: work-ui.dsl
++<ui id=""work""><metric id=""progress"" label=""Progress"" value={0} /></ui>
+*** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch."
 ].
 Definition binding_schema (binding : command_binding) (specification : command_spec) :=
  match binding_caller_field binding with
@@ -43,31 +48,75 @@ Definition binding_schema (binding : command_binding) (specification : command_s
    map (fun field => if String.eqb name (field_name field) then Field name (KOptional KNatural) else field) (command_fields specification)
    else filter (fun field => negb (String.eqb name (field_name field))) (command_fields specification)
  end.
-Definition binding_entry (binding : command_binding) : list tool :=
+(* Model-created tasks can select bounded settings, but guidance is a host
+   observation and cannot be supplied as model authority. Field names and value
+   kinds come from the same declarations used by the command decoder. *)
+Definition natural_bounds (argument : argument_spec) :=
+ match argument_type_of argument with
+ | Scalar KNatural => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
+ | _ => argument end.
+Definition settings_arguments := map (fun field =>
+ let argument := natural_bounds (Arguments.omittable_nonnull (Arguments.from_field field)) in
+ if String.eqb (field_name field) "workspace" then
+   Arguments.with_structure (SchemaJson.omittable_fields Workspace.workspace_schema) argument else
+ if String.eqb (field_name field) "sandbox" then
+   Arguments.with_structure (Arguments.schema_fields Codec.sandbox_patch_arguments) argument else
+ if String.eqb (field_name field) "approval" then
+   Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
+ (filter (fun field => negb (String.eqb (field_name field) "guidance")) Codec.task_settings_schema).
+Definition settings_schema := Arguments.schema_fields settings_arguments.
+Definition model_field (binding : command_binding) (field : field_spec) :=
+ let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
+ if (String.eqb (binding_command binding) "create" || String.eqb (binding_command binding) "send") &&
+    String.eqb (field_name field) "message" then Arguments.with_scalar KText true argument else
+ if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "messages"
+ then Arguments.with_scalar (KArray KText) false argument else argument.
+Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
+ Arguments.refine_fields
+ (ContentDeclarations.native_argument_fields (binding_command binding) ++
+  TaskGraphDeclarations.native_argument_fields (JObject settings_schema) (binding_command binding))
+ (map (fun field => let argument := model_field binding field in
+   if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "child_count"
+   then Arguments.with_bounds (1,max_fork) argument else
+   if String.eqb (field_name field) "limit" && String.eqb (binding_command binding) "read"
+   then Arguments.with_bounds (1,Pagination.history_limit) argument else
+   if String.eqb (field_name field) "limit" && String.eqb (binding_command binding) "search_history"
+   then Arguments.with_bounds (1,Pagination.search_limit) argument else
+   if String.eqb (field_name field) "settings" then Arguments.with_structure settings_schema argument else
+   natural_bounds argument)
+   (filter (fun field => negb ((String.eqb (binding_command binding) "create" ||
+     String.eqb (binding_command binding) "send") && String.eqb (field_name field) "images"))
+     (binding_schema binding specification))).
+Definition binding_entry (max_fork : N) (binding : command_binding) : list tool :=
  match find (fun command => String.eqb (binding_command binding) (command_name command)) Selvedge.Kernel.Commands.command_specs with
  | None => []
- | Some specification => [Tool (binding_tool binding) (binding_description binding)
-    (schema_json (binding_schema binding specification))
-     (NativeSource (JObject [("kind", JString "Command"); ("command", JString (binding_command binding))]))]
+  | Some specification => [Tool (binding_tool binding) (binding_description binding)
+     (NativeToolSource (binding_arguments max_fork binding specification)
+       (JObject [("kind", JString "Command"); ("command", JString (binding_command binding))]))]
  end.
 Definition primitive_kind (value : native_tool) := match value with
  | Bash => "Process" | ReadProcess => "ProcessRead" | WriteProcess => "ProcessWrite" | ReadImage => "ReadImage" end.
 Definition primitive_entry (value : native_tool) :=
  Tool (ToolArguments.tool_name value)
   (match value with
-  | Bash => "Run Bash in this task's sandbox. Completion is asynchronous; do not poll automatically."
-  | ReadProcess => "Read incremental output from this task's Bash operation on demand."
-  | WriteProcess => "Write to this task's running Bash operation."
-  | ReadImage => "Read a sandboxed immutable image asset as visual model input." end)
-  (ToolArguments.json_schema value)
-   (NativeSource (JObject [("kind", JString (primitive_kind value))])).
+   | Bash => "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. Running or awaiting_approval is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification before executing it. Failure may leave partial effects; there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied."
+   | ReadProcess => "Read available incremental output from this task's Bash operation while running or after completion. Use next_cursor from the previous read. Output is bounded and explicitly marks discarded content. Call on demand; do not poll automatically."
+   | WriteProcess => "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable."
+   | ReadImage => (String.append "Read a local PNG, JPEG, GIF or WebP image in this task's sandbox and return visual content to the model. Relative paths use the task workspace. Images are snapshotted before use; maximum bytes: " (String.append (Numbers.show_natural Images.image_byte_limit) ". detail defaults to auto.")) end)
+   (NativeToolSource (ToolArguments.argument_specs value)
+     (JObject [("kind", JString (primitive_kind value))])).
 Definition discover_schema := [Field "query" (KOptional KText); Field "names" (KOptional (KArray KText));
  Field "offset" (KOptional KNatural); Field "limit" (KOptional KNatural)].
+Definition discover_arguments := map (fun field =>
+ let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
+ if String.eqb (field_name field) "limit" then Arguments.with_bounds (1,20) argument else
+ if String.eqb (field_name field) "offset" then Arguments.with_bounds (0,JsonSchema.maximum_natural) argument else argument)
+ discover_schema.
 Definition discover_entry := Tool "discover_tools"
- "Find external MCP and plugin tools by keywords, or load exact names to obtain their complete parameter definitions."
-  (schema_json discover_schema) (NativeSource (JObject [("kind", JString "Discover")])).
-Definition catalog := discover_entry ::
- map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map binding_entry bindings.
+  "Find external MCP and plugin tools by keywords, or load complete definitions with exact names. External function declarations are a lightweight directory, not parameter definitions. Discover an unfamiliar external tool before calling it and copy its parameters from the result. names bypasses query, offset and limit; unknown names are returned in missing. Without query or names, returns a bounded directory page; use offset for later pages. Definitions remain ordinary tool results, so rediscover after compaction if needed."
+  (NativeToolSource discover_arguments (JObject [("kind", JString "Discover")])).
+Definition catalog (max_fork : N) := discover_entry ::
+  map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map (binding_entry max_fork) bindings.
 Definition find_binding (name : string) := find (fun binding => String.eqb name (binding_tool binding)) bindings.
 Definition command (caller : N) (invocation : call) : option Selvedge.Generated.Commands.command :=
  match find_binding (call_name invocation), call_arguments invocation with
@@ -81,19 +130,17 @@ Definition command (caller : N) (invocation : call) : option Selvedge.Generated.
    Selvedge.Generated.Commands.decode (JObject (("op", JString (binding_command binding)) :: fields))
  | _,_ => None end.
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].
-Definition arguments_valid (invocation : call) :=
- match primitive (call_name invocation) with
- | Some primitive => ToolArguments.valid_arguments primitive (call_arguments invocation)
- | None => match find_binding (call_name invocation) with
-   | Some binding => match find (fun command => String.eqb (binding_command binding) (command_name command)) Selvedge.Kernel.Commands.command_specs with
-     | Some specification => match Schema.decode (binding_schema binding specification) (call_arguments invocation) with Some _ => true | None => false end
-     | None => false end
-   | None => match Schema.decode discover_schema (call_arguments invocation) with
-     | Some values => String.eqb (call_name invocation) "discover_tools" &&
-       (match head (tail (tail (tail values))) with None => true | Some limit => ((1 <=? limit) && (limit <=? 20))%N end) &&
-       (match head (tail (tail values)) with None => true | Some offset => (offset <=? 4294967295)%N end)
-     | None => false end
+Definition arguments_valid (definition : tool) (invocation : call) :=
+ match tool_origin definition with
+ | NativeToolSource parameters _ => Arguments.valid parameters (call_arguments invocation) &&
+   match primitive (call_name invocation) with
+   | Some primitive => ToolArguments.tool_constraints primitive (call_arguments invocation)
+   | None => match find_binding (call_name invocation) with
+     | Some _ => true
+     | None => String.eqb (call_name invocation) "discover_tools"
+     end
    end
+ | _ => false
  end.
 
 Definition deferred_parameters := JObject [("type",JString "object");("properties",JObject []);("additionalProperties",JBool true)].

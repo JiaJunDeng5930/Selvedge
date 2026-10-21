@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import Numbers Domain Codec Commands Context State Observation NativeTools Limits Search.
+From Selvedge.Kernel Require Import Numbers Domain Codec Commands Context State Observation NativeTools Limits Search Pagination.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
@@ -10,7 +10,7 @@ Definition read_task (id after limit : N) (value : world) :=
  | None => State.failure "task_not_found" "The target task does not exist"
  | Some task =>
    let length := N.of_nat (List.length (task_history task)) in
-   if N.leb 1 limit && N.leb limit 100 && N.leb after length then
+   if N.leb 1 limit && N.leb limit Pagination.history_limit && N.leb after length then
    State.success (JObject [("task", task_summary id task (world_features value));
     ("after", number after); ("cursor", number length); ("has_more", JBool (N.ltb (after+limit)%N length));
     ("messages", JArray (map (message_json id) (firstn (N.to_nat limit) (skipn (N.to_nat after) (task_history task)))))])
@@ -41,7 +41,7 @@ Definition answer (command : Selvedge.Generated.Commands.command) (value : world
  match command with
  | Selvedge.Generated.Commands.Cmd_describe _ => Some (State.success describe)
  | Selvedge.Generated.Commands.Cmd_list _ => Some (list_tasks value)
- | Selvedge.Generated.Commands.Cmd_read request => Some (read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (default_n (Selvedge.Generated.Commands.read_limit request) 100) value)
+ | Selvedge.Generated.Commands.Cmd_read request => Some (read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (default_n (Selvedge.Generated.Commands.read_limit request) Pagination.history_limit) value)
  | Selvedge.Generated.Commands.Cmd_search_history request => Some (Search.search (Selvedge.Generated.Commands.search_history_query request) (Selvedge.Generated.Commands.search_history_project_id request) (Selvedge.Generated.Commands.search_history_work_id request)
    (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (default_n (Selvedge.Generated.Commands.search_history_limit request) Search.default_limit) value)
  | Selvedge.Generated.Commands.Cmd_list_projects _ => Some (State.success (JObject [("projects",JArray (projects_json value))]))

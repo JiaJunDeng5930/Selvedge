@@ -12,9 +12,9 @@ Definition matching_activity (ticket : N) (phase : activity) := match phase with
  | CheckingHook expected _ _ _ _ => N.eqb ticket expected | _ => false end.
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   match tool_origin tool with
-  | NativeSource _ => NativeTools.arguments_valid invocation
-  | ExtensionSource _ _ => JsonSchema.valid (tool_schema tool) (call_arguments invocation)
-  | McpSource _ _ => match call_arguments invocation with JObject _ => true | _ => false end
+  | NativeToolSource _ _ => NativeTools.arguments_valid tool invocation
+  | ExtensionToolSource parameters _ _ => JsonSchema.valid parameters (call_arguments invocation)
+  | McpToolSource _ _ _ => match call_arguments invocation with JObject _ => true | _ => false end
   end.
 Definition call_known (id : string) (history : list message) :=
  existsb (fun message => match message with FunctionCall invocation => String.eqb id (call_id invocation) | _ => false end) history.

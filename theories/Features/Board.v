@@ -71,7 +71,7 @@ Definition visible_cards (value:world) := fold_right (fun id rest=>match lookup 
 Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
  | Selvedge.Generated.Commands.Cmd_list_cards _=>Some (Selvedge.Kernel.State.success (JObject [("cards",JArray (visible_cards value));("automatic",JBool (Selvedge.Features.Domain.board_automatic (registry value)));("draft_profile",JString (Selvedge.Features.Domain.board_draft_profile (registry value)))]))
  | Selvedge.Generated.Commands.Cmd_read_card p=>Some (match lookup (Selvedge.Generated.Commands.read_card_card_id p) value with Some card=>Selvedge.Kernel.State.success (card_json (Selvedge.Generated.Commands.read_card_card_id p) card value) | None=>Selvedge.Kernel.State.failure "card_not_found" "The board card does not exist" end)
- | Selvedge.Generated.Commands.Cmd_list_board_agents _=>Some (Selvedge.Kernel.State.success (JObject [("agents",JArray (Observation.agents_json (registry value)))])) | _=>None end.
+ | Selvedge.Generated.Commands.Cmd_list_board_agents _=>Some (Selvedge.Kernel.State.success (JObject [("agents",JArray (Observation.agents_json_in_world value))])) | _=>None end.
 Definition with_card (id revision:N) (value:world) (run:Selvedge.Features.Domain.card->decision) := match lookup id value with
  | None=>Selvedge.Kernel.State.reject "card_not_found" "The board card does not exist" value
  | Some card=>if N.eqb revision (Selvedge.Features.Domain.card_revision card) then run card else Selvedge.Kernel.State.reject "card_conflict" "The card changed in another view or during execution. Refresh its current values before applying this edit." value end.

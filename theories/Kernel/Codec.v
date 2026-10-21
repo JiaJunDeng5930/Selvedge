@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema JsonSchema Utf8.
+From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
 Import ListNotations.
@@ -30,9 +30,10 @@ Fixpoint strings (values : list json) : option (list string) :=
 Definition workspace_json (value : workspace) := JObject [
  ("roots", JArray (map JString (workspace_roots value)));
  ("primary_root", optional_string (workspace_primary value))].
-Definition sandbox_json (value : sandbox) := JObject [
+Definition sandbox_fields (value : sandbox) := [
  ("mode", JString (match sandbox_access value with ReadOnly => "read-only" | WorkspaceWrite => "workspace-write" end));
  ("network_access", JBool (sandbox_network value))].
+Definition sandbox_json value := JObject (sandbox_fields value).
 Definition approval_json (value : approval_policy) :=
  match value with
  | FullAccess => JObject [("mode", JString "full-access")]
@@ -59,14 +60,27 @@ Definition parse_workspace (value : json) : option workspace :=
    end else None
  | None => None end
  | None => None end end.
+Definition sandbox_schema := [Field "mode" (KEnum "read-only" ["workspace-write"]); Field "network_access" KBool].
+Definition approval_schema := [Field "mode" (KEnum "full-access" ["ask-for-approval";"approval-for-me"]);
+ Field "reviewer_profile" (KOptional KText)].
 Definition parse_sandbox (value : json) : option sandbox :=
- match Schema.decode [Field "mode" KText; Field "network_access" KBool] value with None => None | Some _ =>
+ match Schema.decode sandbox_schema value with None => None | Some _ =>
  match string_field "mode" value, bool_field "network_access" value with
  | Some "read-only", Some network => Some (Sandbox ReadOnly network)
  | Some "workspace-write", Some network => Some (Sandbox WorkspaceWrite network)
  | _, _ => None end end.
+(* Creation settings are a partial override. The concrete sandbox DTO remains
+   complete; omitting a patch field inherits its committed fallback value. *)
+Definition sandbox_patch_arguments := map
+ (fun field => Arguments.omittable (Arguments.from_field field)) sandbox_schema.
+Definition parse_sandbox_patch (fallback : sandbox) (value : json) : option sandbox :=
+ if Arguments.valid sandbox_patch_arguments value then match value with
+ | JObject updates => parse_sandbox (JObject
+   (fold_left (fun fields entry => Json.set_field (fst entry) (snd entry) fields)
+      updates (sandbox_fields fallback)))
+ | _ => None end else None.
 Definition parse_approval (model : profile) (catalog : list profile) (value : json) : option approval_policy :=
- match Schema.decode [Field "mode" KText; Field "reviewer_profile" (KOptional KText)] value with None => None | Some _ =>
+ match Schema.decode approval_schema value with None => None | Some _ =>
  match string_field "mode" value with
  | Some "full-access" => Some FullAccess
  | Some "ask-for-approval" => Some AskForApproval
@@ -103,7 +117,7 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
  | JObject fields =>
    if valid_guidance (value_or_null "guidance" value) then
    match select_optional parse_workspace "workspace" value (settings_workspace fallback),
-         select_optional parse_sandbox "sandbox" value (settings_sandbox fallback),
+         select_optional (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" value (settings_sandbox fallback),
          select_optional (parse_approval model catalog) "approval" value (settings_approval fallback) with
    | Some workspace, Some sandbox, Some approval =>
      let project := match field "project_id" value with
@@ -178,13 +192,13 @@ Definition parse_tool (value : json) : option tool :=
    if nonempty name then
      match field "plugin" value with
      | Some (JObject plugin) => if JsonSchema.definition schema then
-       Some (Tool name description schema
-         (ExtensionSource (PluginProtocol.reference_json (JObject plugin)) remote)) else None
+       Some (Tool name description
+         (ExtensionToolSource schema (PluginProtocol.reference_json (JObject plugin)) remote)) else None
      | None | Some JNull =>
        (* MCP requires an object schema; validating its full dialect belongs to
           the server. In particular, number/$ref/anyOf are not extension rules. *)
        match string_field "server" value, schema with
-       | Some server, JObject _ => Some (Tool name description schema (McpSource server remote))
+       | Some server, JObject _ => Some (Tool name description (McpToolSource schema server remote))
        | _,_ => None end
      | _ => None end
    else None

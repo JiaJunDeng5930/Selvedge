@@ -70,7 +70,7 @@ Definition start_external (id : N) (tool : tool) (invocation : call) (remaining 
   [ExecuteTool id ticket ticket tool invocation settings DefaultAccess]
  else call_failure id invocation "The task's live operation limit has been reached" remaining task value.
 Definition external_tool (tool : tool) :=
- match tool_origin tool with NativeSource _ => false | ExtensionSource _ _ | McpSource _ _ => true end.
+ match tool_origin tool with NativeToolSource _ _ => false | ExtensionToolSource _ _ _ | McpToolSource _ _ _ => true end.
 Fixpoint keyword_parts (text : string) (current : string) (terms : list string) :=
  match text with EmptyString => rev (current :: terms)
  | String character rest => if Ascii.eqb character " "%char then keyword_parts rest "" (current :: terms)

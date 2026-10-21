@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks CommandExecution.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Domain State Observation Work Worktree.
+From Selvedge.Features Require Import Domain State Observation Work Worktree TaskGraphDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -11,29 +11,49 @@ Definition lookup (id:N) (value:world) := match registry_at id (registry value) 
 Definition store (id:N) (graph:Selvedge.Features.Domain.task_graph) (value:world) :=
  Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_graphs (if N.eqb id (N.of_nat (List.length (registry value))) then registry value++[Some graph] else replace id (Some graph) (registry value)) (world_features value)) value.
 Definition resolve (key:string) (nodes:list Selvedge.Features.Domain.resolved_node) := option_map Selvedge.Features.Domain.node_task (find (fun node=>String.eqb key (Selvedge.Features.Domain.node_key node)) nodes).
-Definition maximum_message_depth : nat := 8.
-Definition maximum_message_nodes : nat := 64.
-Definition maximum_rule_actions : nat := 8.
+Definition maximum_message_depth := TaskGraphDeclarations.maximum_message_depth.
+Definition maximum_message_nodes := TaskGraphDeclarations.maximum_message_nodes.
+Definition maximum_rule_actions := TaskGraphDeclarations.maximum_rule_actions.
 Fixpoint parse_message (depth:nat) (source:json) :option Selvedge.Features.Domain.graph_message := match depth with O=>None | S rest=>
- match string_field "kind" source with
- | Some "output"=>if Worktree.shape [Field "kind" KText] source then Some Selvedge.Features.Domain.GraphOutput else None
- | Some "literal"=>if Worktree.shape [Field "kind" KText;Field "value" KText] source then option_map Selvedge.Features.Domain.GraphLiteral (string_field "value" source) else None
- | Some "concat"=>if Worktree.shape [Field "kind" KText;Field "parts" (KArray KJson)] source then
- match array_field "parts" source with Some parts=>if Nat.leb (List.length parts) maximum_message_nodes then option_map Selvedge.Features.Domain.GraphConcat (traverse (parse_message rest) parts) else None | None=>None end else None
- | _=>None end end.
+ match Schema.decode TaskGraphDeclarations.output_fields source with Some _=>Some Selvedge.Features.Domain.GraphOutput | None=>
+ match Schema.decode TaskGraphDeclarations.literal_fields source with Some values=>Some (Selvedge.Features.Domain.GraphLiteral (Schema.head (Schema.tail values))) | None=>
+ match Schema.decode TaskGraphDeclarations.concat_fields source with Some values=>
+ let parts:=Schema.head (Schema.tail values) in
+ if Nat.leb (List.length parts) maximum_message_nodes then
+ option_map Selvedge.Features.Domain.GraphConcat (traverse (parse_message rest) parts) else None
+ | None=>None end end end end.
 Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := match message with
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition parse_action (source:json) :option Selvedge.Features.Domain.graph_action :=
- if Worktree.shape [Field "target" KText;Field "message" KJson] source then match string_field "target" source,field "message" source with
- | Some target,Some input=>match parse_message maximum_message_depth input with Some message=>if Nat.leb (message_size message) maximum_message_nodes then Some (Selvedge.Features.Domain.GraphAction target message) else None | None=>None end | _,_=>None end else None.
+ match Schema.decode TaskGraphDeclarations.action_fields source with
+ | Some values=>match parse_message maximum_message_depth (Schema.head (Schema.tail values)) with
+ | Some message=>if Nat.leb (message_size message) maximum_message_nodes then
+   Some (Selvedge.Features.Domain.GraphAction (Schema.head values) message) else None
+ | None=>None end | None=>None end.
 Definition parse_rule (source:json) :option Selvedge.Features.Domain.graph_rule :=
- if Worktree.shape [Field "key" KText;Field "source" KText;Field "actions" (KArray KJson)] source then
- match string_field "key" source,string_field "source" source,array_field "actions" source with
- | Some key,Some source,Some actions=>if Nat.leb (List.length actions) maximum_rule_actions then option_map (Selvedge.Features.Domain.GraphRule key source) (traverse parse_action actions) else None | _,_,_=>None end else None.
-Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node := match natural_field "task_id" source with
- | Some id=>if Worktree.shape [Field "key" KText;Field "task_id" KNatural] source then option_map (fun key=>Selvedge.Features.Domain.ExistingNode key id) (string_field "key" source) else None
- | None=>if Worktree.shape [Field "key" KText;Field "profile" (KOptional KText);Field "reasoning" (KOptional KText);Field "message" (KOptional KText);Field "settings" (KOptional KJson)] source then
- match string_field "key" source with Some key=>Some (Selvedge.Features.Domain.SpawnNode key (text_default "profile" source "") (text_default "reasoning" source "default") [TextPart (text_default "message" source "")] (match field "settings" source with Some settings=>settings | None=>JObject [] end)) | None=>None end else None end.
+ match Schema.decode TaskGraphDeclarations.rule_fields source with
+ | Some values=>let actions:=Schema.head (Schema.tail (Schema.tail values)) in
+ if Nat.leb (List.length actions) maximum_rule_actions then
+ option_map (Selvedge.Features.Domain.GraphRule (Schema.head values) (Schema.head (Schema.tail values)))
+   (traverse parse_action actions) else None
+ | None=>None end.
+Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node :=
+ match Schema.decode TaskGraphDeclarations.existing_node_fields source with
+ | Some values=>Some (Selvedge.Features.Domain.ExistingNode (Schema.head values) (Schema.head (Schema.tail values)))
+ | None=>match Schema.decode TaskGraphDeclarations.spawn_node_fields source with
+ | Some values=>let profile:=Schema.head (Schema.tail values) in
+ let reasoning:=Schema.head (Schema.tail (Schema.tail values)) in
+ let message:=Schema.head (Schema.tail (Schema.tail (Schema.tail values))) in
+ (* A supplied JSON null must still reach ordinary Task settings admission;
+    only an omitted settings field supplies the empty settings object. *)
+ let settings:=match field (Schema.field_name TaskGraphDeclarations.node_settings_field) source with
+   Some value=>value|None=>JObject [] end in
+ Some (Selvedge.Features.Domain.SpawnNode (Schema.head values)
+   (match profile with Some value=>value|None=>"" end)
+   (match reasoning with Some value=>value|None=>"default" end)
+   [TextPart (match message with Some value=>value|None=>"" end)]
+   settings)
+ | None=>None end end.
 Definition node_key (node:Selvedge.Features.Domain.graph_node) := match node with Selvedge.Features.Domain.ExistingNode key _|Selvedge.Features.Domain.SpawnNode key _ _ _ _=>key end.
 Definition unique (keys:list string) := forallb nonempty keys && Schema.unique_names keys.
 Fixpoint message_depth (depth:nat) (message:Selvedge.Features.Domain.graph_message) :bool :=

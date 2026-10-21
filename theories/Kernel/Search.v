@@ -1,10 +1,10 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Observation State.
+From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Observation State Pagination.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition default_limit : N := 20.
+Definition default_limit : N := Pagination.search_default.
 Definition lower_ascii (c : ascii) := let n := nat_of_ascii c in
  if (Nat.leb 65 n && Nat.leb n 90) then ascii_of_nat (n+32) else c.
 (* Reconstruct once after folding, so long admitted transcripts do not require
@@ -69,7 +69,7 @@ Definition search (query : string) (project work : option N) (after limit : N) (
  if negb work_exists then State.failure "work_not_found" "The Work does not exist" else
  let query := trim query in
  match Utf8.scalar_count query with
- | Some length => if Nat.leb 1 length && Nat.leb length 240 && (N.leb 1 limit && N.leb limit 50) then
+ | Some length => if Nat.leb 1 length && Nat.leb length 240 && (N.leb 1 limit && N.leb limit Pagination.search_limit) then
    let hits := concat (rev (indexed (fun id task => task_hits query project work id task value) 0 (world_tasks value))) in
    let remaining := if N.leb after (N.of_nat (List.length hits)) then skipn (N.to_nat after) hits else [] in
    let more := N.ltb limit (N.of_nat (List.length remaining)) in

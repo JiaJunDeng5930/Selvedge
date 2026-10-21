@@ -47,7 +47,7 @@ Definition parse_environment (source : json) : option environment :=
  | Some profiles, Some tools, Some plugins, Some max_fork, Some max_descendants =>
    match traverse parse_profile profiles, traverse parse_tool tools with
    | Some profiles, Some tools =>
-     let catalog := (NativeTools.catalog ++ tools)%list in
+      let catalog := (NativeTools.catalog max_fork ++ tools)%list in
      if Schema.unique_names (map profile_key profiles) && Schema.unique_names (map tool_name catalog) &&
        forallb valid_plugin plugins && Nat.leb (List.length plugins) 16 &&
        Schema.unique_names (map (fun plugin => text_default "name" (value_or_null "reference" plugin) "") plugins) &&

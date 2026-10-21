@@ -1,6 +1,6 @@
 From Stdlib Require Import String List NArith Bool.
-From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Scheduler JsonProofs.
+From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Scheduler.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -8,20 +8,20 @@ Open Scope string_scope.
    is responsible for validating its own dialect before executing the request. *)
 Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote id fields,
  Callbacks.model_call_arguments_valid
-   (Tool name description schema (McpSource server remote))
+   (Tool name description (McpToolSource schema server remote))
    (Call id name (JObject fields)) = true.
 Proof. reflexivity. Qed.
 
 Theorem extension_arguments_use_the_declared_fragment : forall name description schema reference remote id arguments,
  Callbacks.model_call_arguments_valid
-   (Tool name description schema (ExtensionSource reference remote))
+   (Tool name description (ExtensionToolSource schema reference remote))
    (Call id name arguments) = JsonSchema.valid schema arguments.
 Proof. reflexivity. Qed.
 
 (* The normal admission premises do not assume an emitted effect. This positive
    obligation rules out an implementation that accepts MCP calls but drops them. *)
 Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote invocation remaining task value,
- let advertised := Tool name description schema (McpSource server remote) in
+ let advertised := Tool name description (McpToolSource schema server remote) in
  Capabilities.available (environment_tools (world_environment value)) advertised = true ->
  (exists fields, call_arguments invocation = JObject fields) ->
  NativeTools.command id invocation = None ->
@@ -46,7 +46,7 @@ Lemma same_reference_preserves_identity : forall left right,
  value_or_null "revision" left = value_or_null "revision" right.
 Proof.
  intros left right Same; unfold PluginProtocol.same_reference in Same.
- apply json_comparison_is_exact in Same.
+ apply equal_reflects_equality in Same.
  split; [apply (f_equal (value_or_null "name")) in Same | apply (f_equal (value_or_null "revision")) in Same];
  cbn [PluginProtocol.reference_json PluginProtocol.reference_schema Schema.declared_names Schema.field_name value_or_null field lookup] in Same;
  exact Same.

@@ -111,9 +111,9 @@ Qed.
 
 (** These certificates concern the catalog consumed by the actual native
     dispatcher: no declaration disappears and no tool name shadows another. *)
-Theorem production_native_names_are_unique :
- NoDup (map Selvedge.Kernel.Domain.tool_name Selvedge.Kernel.NativeTools.catalog).
-Proof. vm_compute. repeat (apply NoDup_cons; [simpl; intuition discriminate|]); apply NoDup_nil. Qed.
+Theorem production_native_names_are_unique : forall maximum,
+ NoDup (map Selvedge.Kernel.Domain.tool_name (Selvedge.Kernel.NativeTools.catalog maximum)).
+Proof. intros maximum; vm_compute. repeat (apply NoDup_cons; [simpl; intuition discriminate|]); apply NoDup_nil. Qed.
 Theorem production_native_bindings_are_registered : forall binding,
  In binding Selvedge.Kernel.NativeTools.bindings ->
  exists specification, In specification Selvedge.Kernel.Commands.command_specs /\

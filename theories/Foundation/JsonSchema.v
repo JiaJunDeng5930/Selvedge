@@ -10,9 +10,10 @@ Definition object_keys (source : json) (names : list string) :=
  match source with
  | JObject fields => unique_names (map fst fields) && forallb (fun field => member (fst field) names) fields
  | _ => false end.
+Definition maximum_natural : N := 4294967295.
 Definition natural (value : json) := match value with
  | JNumber source => match Numbers.parse_natural source with
-   | Some value => if N.leb value 4294967295 then Some value else None
+   | Some value => if N.leb value maximum_natural then Some value else None
    | None => None end
  | _ => None end.
 Definition optional_text (value : option json) := match value with
@@ -23,7 +24,7 @@ Definition bound_or (value : option json) (fallback : N) :=
  match value with Some value => match natural value with Some value => value | None => fallback end | None => fallback end.
 Definition bound_matches (schema : json) (value : N) :=
  N.leb (bound_or (field "minimum" schema) 0) value &&
- N.leb value (bound_or (field "maximum" schema) 4294967295).
+ N.leb value (bound_or (field "maximum" schema) maximum_natural).
 Fixpoint strings (values : list json) : option (list string) :=
  match values with [] => Some [] | JString text :: rest => option_map (cons text) (strings rest) | _ => None end.
 Definition enum_definition (source : option json) :=
@@ -71,7 +72,7 @@ Fixpoint definition_fuel (fuel : nat) (schema : json) : bool :=
      | Some "string" => object_keys schema ["type"; "description"; "title"; "enum"] && enum_definition (field "enum" schema)
      | Some "integer" => object_keys schema ["type"; "description"; "title"; "minimum"; "maximum"] &&
        optional_bound (field "minimum" schema) && optional_bound (field "maximum" schema) &&
-       N.leb (bound_or (field "minimum" schema) 0) (bound_or (field "maximum" schema) 4294967295)
+       N.leb (bound_or (field "minimum" schema) 0) (bound_or (field "maximum" schema) maximum_natural)
      | Some "boolean" | Some "null" => object_keys schema ["type"; "description"; "title"]
      | _ => false end
    end

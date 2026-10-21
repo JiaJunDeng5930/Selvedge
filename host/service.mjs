@@ -551,7 +551,19 @@ export class Service extends EventEmitter {
     // DEFENSE: An HTTP assessment can already be in flight when the service closes or loses its worker.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    return this.journal.assess(candidate);
+    const result = this.#catalogTail.then(async () => {
+      // DEFENSE: Catalog work queued before assessment can fail, or shutdown can finish while it waits.
+      if (this.#failure) throw this.#failure;
+      if (this.#closing) throw new Error('Service is stopping');
+      const command = await this.#observeCommandInput(candidate.command);
+      // DEFENSE: Shutdown or a fatal operation can occur during the same filesystem preparation used by submission.
+      if (this.#failure) throw this.#failure;
+      if (this.#closing) throw new Error('Service is stopping');
+      return this.journal.assess({ ...candidate, command });
+    });
+    // DEFENSE: A refused filesystem observation reports its own error without blocking later catalog work.
+    this.#catalogTail = result.catch(() => {});
+    return result;
   }
 
   async command(command) {
@@ -559,7 +571,6 @@ export class Service extends EventEmitter {
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    command = await observeMessageImages(command, this.home);
     if (hasRootTaskCreation(command)) {
       // Keep each root's observed defaults adjacent to its command even when
       // catalog refreshes and other root births arrive concurrently.
@@ -669,7 +680,7 @@ export class Service extends EventEmitter {
       const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
-      const observed = await this.#observeCommandWorkspace(command);
+      const observed = await this.#observeCommandInput(command);
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }
@@ -680,12 +691,19 @@ export class Service extends EventEmitter {
     } catch (cause) { throw new CommandNotSubmitted(cause); }
   }
 
+  async #observeCommandInput(command) {
+    try {
+      const imagesObserved = await observeMessageImages(command, this.home);
+      const boardObserved = await observeBoardCommand(imagesObserved, this.home);
+      return hasRootTaskCreation(boardObserved)
+        ? await this.#observeCommandWorkspace(boardObserved)
+        : await observeWorkspaceCommand(boardObserved, this.limits);
+    // DEFENSE: Client-supplied paths or image references can fail their trusted host observation before domain submission.
+    } catch (cause) { throw new CommandNotSubmitted(cause); }
+  }
+
   async #submitCommand(command) {
-    const boardObserved = await observeBoardCommand(command, this.home);
-    let observed;
-    try { observed = await observeWorkspaceCommand(boardObserved, this.limits); }
-    // DEFENSE: Workspace paths supplied in a public command can be inaccessible or invalid before the native command is submitted.
-    catch (cause) { throw new CommandNotSubmitted(cause); }
+    const observed = await this.#observeCommandInput(command);
     // DEFENSE: Shutdown or a fatal operation can occur while command filesystem observations are awaited.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
