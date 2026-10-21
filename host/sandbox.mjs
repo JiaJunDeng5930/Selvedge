@@ -89,9 +89,9 @@ async function runtimeReads(platform) {
  * to unrestricted execution. Policy selection/approval is not implemented here.
  */
 export async function prepareSandbox(plan, { platform = process.platform, architecture = process.arch,
-  readOnlyPaths = [], managedWorktreeRoot, mode = 'pipe', signal } = {}) {
+  readOnlyPaths = [], managedWorktreeRoot, signal, processMode = 'pipe' } = {}) {
   signal?.throwIfAborted();
-  const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, mode };
+  const options = { platform, architecture, readOnlyPaths, managedWorktreeRoot, processMode };
   boundary('effect.sandbox_admit', { plan, options });
   const workspace = await canonicalWorkspace(plan.workspace);
   const source = { plan, options, workspace, root_observations: workspaceObservations(plan.workspace, workspace) };

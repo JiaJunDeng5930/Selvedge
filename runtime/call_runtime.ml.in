@@ -1,0 +1,16 @@
+open Js_of_ocaml
+module Model = @MODEL@
+module Json = Json_io.Make(Model)
+
+let call operation source =
+  Js.string (Json.stringify (Model.@ENTRY@ (Js.to_string operation) (Json.parse (Js.to_string source))))
+
+let call_structured operation source number_text =
+  let value = Json.of_js_exn source ~number_text:(fun value ->
+    Js.Unsafe.fun_call number_text [| value |]) in
+  Js.string (Json.stringify (Model.@ENTRY@ (Js.to_string operation) value))
+
+let () = Js.Unsafe.set Js.Unsafe.global "@GLOBAL@" (Js.Unsafe.obj [|
+  "call", Js.Unsafe.inject (Js.wrap_callback call);
+  "callStructured", Js.Unsafe.inject (Js.wrap_callback call_structured)
+|])

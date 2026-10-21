@@ -3,6 +3,7 @@ import { open, realpath } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
+import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 
 const contextDefinitions = boundary('config.context_definitions', {});
@@ -101,12 +102,12 @@ export function workspaceCommandPlan(command) {
   return boundary('effect.workspace_command', { command });
 }
 
-export async function observeWorkspaceCommand(command, limits, { projectWorkspace, workspaceEnvironment } = {}) {
-  command = structuredClone(command);
+export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
+  command = cloneJson(command);
   const plan = workspaceCommandPlan(command);
   const observations = await Promise.all(plan.selections.map(selection =>
     observeWorkspaceSettings(selection.value, limits,
-      selection.resolve_project ? projectWorkspace : undefined, workspaceEnvironment)));
+      selection.resolve_project ? projectWorkspace : undefined)));
   return boundary('effect.workspace_command_observed', { command, observations });
 }
 
@@ -114,7 +115,7 @@ export function hasRootTaskCreation(command) {
   return workspaceCommandPlan(command).root_task;
 }
 
-async function observeWorkspaceSettings(selected, limits, projectWorkspace, workspaceEnvironment) {
+async function observeWorkspaceSettings(selected, limits, projectWorkspace) {
   const plan = boundary('effect.workspace_settings', { value: selected, resolve_project: Boolean(projectWorkspace) });
   if (plan.project_id !== null) {
     const workspace = await projectWorkspace(plan.project_id);
@@ -122,18 +123,11 @@ async function observeWorkspaceSettings(selected, limits, projectWorkspace, work
     if (workspace === undefined) return {};
     selected = { ...selected, workspace };
   } else if (!plan.observe_workspace) return {};
-  const environment = await workspaceEnvironment?.(selected.workspace);
-  try {
-    const canonical = await canonicalWorkspace(selected.workspace, { filesystem: environment?.filesystem });
-    // DEFENSE: A selected cloud root can contain '..' or a symlink resolving into another environment's directory.
-    if (environment && canonical.roots.some(root => root !== environment.root && !root.startsWith(environment.root + '/'))) {
-      throw new TypeError('A cloud workspace must stay within its task repository');
-    }
-    const observed = { workspace: { roots: canonical.roots } };
-    if (canonical.primary_root !== null) {
-      observed.workspace.primary_root = canonical.primary_root;
-      observed.guidance = await snapshotProject(canonical.primary_root, limits, { filesystem: environment?.filesystem });
-    }
-    return observed;
-  } finally { await environment?.filesystem.close(); }
+  const canonical = await canonicalWorkspace(selected.workspace);
+  const observed = { workspace: { roots: canonical.roots } };
+  if (canonical.primary_root !== null) {
+    observed.workspace.primary_root = canonical.primary_root;
+    observed.guidance = await snapshotProject(canonical.primary_root, limits);
+  }
+  return observed;
 }

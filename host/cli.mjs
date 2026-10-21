@@ -44,7 +44,8 @@ export function commandArguments(spec, args) {
     const property = spec.schema.properties[name];
     // DEFENSE: Users can supply unknown/repeated options or attempt to override the selected command name.
     if (!property || name === 'op' || Object.hasOwn(result, name)) throw new Error(`Unknown or duplicate argument: ${args[i]}`);
-    result[name] = property.type === 'string' ? args[i + 1] : parseJson(args[i + 1]);
+    const text = property.type === 'string' || property.anyOf?.some(branch => branch.type === 'string');
+    result[name] = text ? args[i + 1] : parseJson(args[i + 1]);
   }
   return result;
 }

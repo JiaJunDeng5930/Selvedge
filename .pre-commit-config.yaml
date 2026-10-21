@@ -1,22 +1,15 @@
 repos:
   - repo: local
     hooks:
-      - id: bend-check
-        name: Bend proofs and host syntax
-        entry: bun scripts/check.mjs
+      - id: rocq-check
+        name: Rocq proofs, extraction and host syntax
+        entry: bun run check
         language: system
         pass_filenames: false
         always_run: true
         stages: [pre-commit, manual]
-      - id: agents-md-project-index
-        name: AGENTS.md project index
-        entry: bun scripts/agents-index.mjs check
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit, manual]
-      - id: bend-test
-        name: Generated Bend execution and host integration
+      - id: runtime-test
+        name: Extracted runtime end-to-end behavior
         entry: bun run test
         language: system
         pass_filenames: false

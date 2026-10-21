@@ -1,5 +1,0 @@
-# Release hashes published by https://bend-lang.com/install.sh for Bend 2.0.34.
-a60c820c0ced758d8ace839507ff6c508a204ce4ef0f45e1089ed7bc73e8c267  bend-2.0.34-darwin-arm64.tar.gz
-066d4a07a1871a2946be8f42f926582bfda5f13ff728c234ffe79635bd240650  bend-2.0.34-darwin-x64.tar.gz
-416a17d282a9fd05ab9637a238b51d5ca508114d9773c37d1c11cad595440ed1  bend-2.0.34-linux-arm64.tar.gz
-78106a97af242429dcc057258eb8d10f69cddebcd5e263022185a52d003e09bf  bend-2.0.34-linux-x64.tar.gz

@@ -4,13 +4,14 @@ import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { tencentCvmBackend } from './tencent-cvm.mjs';
+import { boundary } from './public/model-boundary.mjs';
 
 const executeFile = promisify(execFile);
 export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 
 export function cloudEnvironmentBackend(cloud) {
-  if (cloud?.backend !== 'tencent_cvm' || !cloud.tencent_cvm) throw new Error('Cloud workspace backend is not configured');
-  const settings = structuredClone(cloud.tencent_cvm);
+  const admitted = boundary('effect.cloud_backend', { cloud });
+  const settings = structuredClone(admitted.tencent_cvm);
   return { ...tencentCvmBackend(settings), settings };
 }
 

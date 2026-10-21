@@ -1,13 +1,14 @@
-/target
-.DS_Store
-.mantic/
 .workpad/
 .build/
 node_modules/
+*.vo
+*.vos
+*.vok
+*.glob
+.*.aux
+.lia.cache
+.nia.cache
 __pycache__/
-
-# Browser ESM libraries and their compiler/source fingerprint manifests.
-/host/public/generated/
-
-# Standalone plugin native adapter library and fingerprint manifest.
-/plugins/selvedge-chatgpt/generated/
+_build/
+host/public/generated/
+plugins/selvedge-chatgpt/generated/

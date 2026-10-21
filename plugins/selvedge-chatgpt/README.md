@@ -7,7 +7,11 @@ or receive the service's admin token.
 
 ## Configure a connection
 
-Use Node.js 26 or later. Run `npm ci` and `npm run build` in the Selvedge repository.
+Use Node.js 26 or later, Bun, and the Rocq toolchain described in the repository README.
+In the Selvedge source checkout, run `bun install --frozen-lockfile`, `bun run build`,
+and `bun run --cwd plugins/selvedge-chatgpt build:model`. The last command packages
+the extracted Host model used by the MCP server; installed packages include these
+assets and do not require Rocq.
 Start Selvedge, create the projects to share through its UI or `create_project`,
 and obtain their IDs with `list_projects`. Run `node host/cli.mjs describe` for
 the current command fields.
@@ -19,7 +23,7 @@ export SELVEDGE_PLUGIN_TOKEN="$(node -e "process.stdout.write(require('node:cryp
 ```
 
 Add this field to the current Selvedge `config.json`, preserving other settings.
-Its default location is `~/.selvedge-bend/config.json`; `--home` and `--config`
+Its default location is `~/.selvedge/config.json`; `--home` and `--config`
 select other locations. Replace project ID `0` with the actual projects to share.
 Use distinct credentials for different connection IDs.
 

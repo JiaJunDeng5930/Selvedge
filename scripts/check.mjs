@@ -1,47 +1,20 @@
-import { spawnSync } from 'node:child_process';
-import { readFile, readdir } from 'node:fs/promises';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { verifyNativeEntry } from './verify-proof.mjs';
-import { build } from './build.mjs';
+import { build, root, run } from './build.mjs';
+import { auditAssumptions } from './assumptions.mjs';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
-const syntax = new Bun.Transpiler({ loader: 'js' });
-
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, BEND_NO_TELEMETRY: '1' } });
-  // DEFENSE: A checker executable can fail to start because it is missing or the OS refuses the process.
-  if (result.error) throw result.error;
-  // DEFENSE: A checker can fail or terminate by signal, whose null status must still fail this command.
-  if (result.status !== 0) process.exit(result.status ?? 1);
+async function sources(directory) {
+  return (await Promise.all((await readdir(path.join(root, directory), { withFileTypes: true })).map(entry => {
+    const filename = `${directory}/${entry.name}`;
+    if (['node_modules', 'generated', 'vendor'].includes(entry.name)) return [];
+    return entry.isDirectory() ? sources(filename) : filename.endsWith('.mjs') ? [filename] : [];
+  }))).flat();
 }
-
-async function checkDirectory(directory) {
-  for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
-    if (entry.name === 'node_modules') continue;
-    const filename = path.join(directory, entry.name);
-    if (entry.isDirectory()) await checkDirectory(filename);
-    else if (entry.name.endsWith('.mjs')) {
-      const source = await readFile(path.join(root, filename), 'utf8');
-      try {
-        syntax.transformSync(source);
-      } catch (error) {
-        // DEFENSE: An edited JavaScript file can fail parsing; identify its path while preserving the parser diagnostic.
-        throw new Error(`JavaScript syntax check failed: ${filename}`, { cause: error });
-      }
-    }
-  }
-}
-
-export async function check() {
-  for (const directory of ['host', 'scripts', 'tests-bend', 'examples', 'plugins', 'remote', 'relay']) await checkDirectory(directory);
-  run(process.execPath, ['scripts/check-web-vendor.mjs']);
-  run(process.execPath, ['scripts/theory-index.mjs', 'check']);
-  // Build checks the complete generated UI proof entry before linking both production libraries.
-  await build();
-  console.log(await verifyNativeEntry({ cwd: root }));
-  for (const filename of ['bootstrap.sh', 'setup-worktree.sh', 'install-bend.sh']) run('bash', ['-n', `scripts/${filename}`]);
-  console.log('Host syntax, Bend proof obligations, and production JavaScript libraries check.');
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await check();
+await build({ check: true });
+await auditAssumptions();
+const scripts = (await Promise.all(['host', 'scripts', 'remote', 'relay', 'plugins', 'tests'].map(sources))).flat();
+let cursor = 0;
+await Promise.all(Array.from({ length: 4 }, async () => {
+  while (cursor < scripts.length) await run('node', ['--check', scripts[cursor++]]);
+}));
+console.log(`JavaScript: ${scripts.length} syntax checks`);

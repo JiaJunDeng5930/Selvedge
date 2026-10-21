@@ -49,15 +49,12 @@ async function readCache(profile, home, account, now) {
   try {
     // DEFENSE: A cache file can be externally replaced with oversized data; do not load it before native size admission.
     if (!boundary('account.cache_size', { profile, home, account, now, filename, size: (await stat(filename)).size })) return undefined;
-    contents = await readFile(filename, 'utf8');
+    contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(filename));
   } catch (error) {
     // DEFENSE: A missing cache causes discovery; other filesystem failures become a native cache-read error.
     return boundary('account.cache_error', { profile, home, account, now, filename, code: error.code }) ?? undefined;
   }
-  let cache;
-  // DEFENSE: The disposable cache can contain malformed JSON after an external edit; discard it rather than admitting model data.
-  try { cache = JSON.parse(contents); }
-  catch { return undefined; }
+  const cache = boundary('account.cache_decode', { text: contents });
   const fetched = dateObservation(cache?.fetched_at);
   return boundary('account.cache', { value: cache, profile, home, account, now,
     elapsed: numberObservation(now - Date.parse(fetched?.iso)),

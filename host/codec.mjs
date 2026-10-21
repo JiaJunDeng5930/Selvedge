@@ -1,4 +1,4 @@
-import { JsonNumber, emitJsonTokens } from './public/json-tokens.mjs';
+import { JsonNumber, parseJson, stringifyJson } from './public/json-tokens.mjs';
 
 export { JsonNumber, parseJson, stringifyJson } from './public/json-tokens.mjs';
 
@@ -9,20 +9,13 @@ export function integer(value, name = 'integer') {
   return number;
 }
 
-export function encodeFrame(value, maximum = Infinity) {
-  const chunks = [];
-  let size = 0;
-  function token(text) {
-    const bytes = Buffer.from(text, 'utf8');
-    size += 4 + bytes.length;
-    // DEFENSE: Public commands and external tool results can exceed the admitted frame budget or the 32-bit wire length.
-    if (size > maximum || size > 0xffffffff) throw new RangeError('Input exceeds the kernel frame limit');
-    const length = Buffer.allocUnsafe(4);
-    length.writeUInt32BE(bytes.length);
-    chunks.push(length, bytes);
-  }
-  emitJsonTokens(value, token);
-  const header = Buffer.allocUnsafe(4);
-  header.writeUInt32BE(size);
-  return Buffer.concat([header, ...chunks], size + 4);
+/** Exact JSON text is the complete extracted-program input boundary. */
+export function encodeInput(value, maximum = Infinity) {
+  const text = stringifyJson(value);
+  // DEFENSE: Public commands and external tool results can exceed the admitted UTF-8 input budget.
+  if (Buffer.byteLength(text, 'utf8') > maximum) throw new RangeError('Input exceeds the kernel frame limit');
+  return text;
 }
+
+/** Copy a JSON command while preserving exact numeric lexemes. */
+export const cloneJson = value => value === undefined ? undefined : parseJson(stringifyJson(value));

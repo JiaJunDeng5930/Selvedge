@@ -2,7 +2,7 @@ import { StdioRpc } from './stdio-rpc.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { storeImageContent } from './files.mjs';
 
-/** MCP vocabulary over the shared transport; task policy remains in Bend. */
+/** MCP vocabulary over the shared transport; task policy remains in the extracted semantics. */
 export class Mcp extends StdioRpc {
   constructor(name, config, limits, { home } = {}) {
     super(name, config, limits, { label: 'MCP', timeoutMs: limits.mcp_timeout_ms,

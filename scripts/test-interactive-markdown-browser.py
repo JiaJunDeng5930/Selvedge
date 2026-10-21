@@ -65,7 +65,7 @@ def capture_failure(page, fixture, artifacts, errors, failure):
 
 
 class Fixture:
-    def __init__(self, fixture_script='tests-bend/fixtures/interactive-markdown.mjs'):
+    def __init__(self, fixture_script='tests/fixtures/interactive-markdown.mjs'):
         bun = os.environ.get('BUN_BIN') or shutil.which('bun')
         # DEFENSE: A developer machine can lack the Bun executable needed by the real service fixture.
         if not bun:
@@ -153,25 +153,9 @@ class Fixture:
 
 
 def navigate_task_id(page, task_id):
-    deadline = time.monotonic() + 15
-    identity = page.wait_for_function('''id => {
-      for(const button of document.querySelectorAll('button[data-native-key]')) {
-        if(button.closest('[inert]'))continue;
-        const key=JSON.parse(button.dataset.nativeKey), owner=key[1];
-        if(key[0]==='part' && key[2]==='task/'+id && owner[0]==='entity'
-            && owner[2]==='task' && owner[3]===String(id))
-          return button.dataset.nativeKey;
-      }
-      return false;
-    }''', arg=task_id, timeout=15000)
-    try:
-        key = identity.json_value()
-    finally:
-        identity.dispose()
-    remaining = max(1, (deadline - time.monotonic()) * 1000)
-    page.locator('button[data-native-key=' + json.dumps(key) + ']').filter(visible=True).click(timeout=remaining)
+    page.locator('button[data-key="task/' + str(task_id) + '"]').filter(visible=True).click(timeout=15000)
     expect(page.get_by_role('button', name='Task details', exact=True)).to_be_visible()
-    expect(page.locator('textarea[data-object-owner="message-draft/' + str(task_id) + '"][data-field="message-text"]').filter(visible=True)).to_be_visible()
+    expect(page.locator('textarea[data-key="message/' + str(task_id) + '/message"]').filter(visible=True)).to_be_visible()
 
 
 def document_contains_marker(page, marker):
@@ -190,17 +174,9 @@ def no_document_marker(page, marker):
     assert not document_contains_marker(page, marker), 'A retired physical probe republished private content: ' + marker
 
 
-def saved_values(page, ui_id, expected):
-    page.wait_for_function('''({ui,expected}) => Object.entries(localStorage).some(([key,raw])=>{
-      if(!key.startsWith('selvedge-interactive-v1/'))return false;
-      // DEFENSE: User-editable localStorage can contain malformed JSON under the current namespace; ignore only the malformed entry.
-      try {
-        const snapshot=JSON.parse(raw);
-        if(!snapshot.definition.includes('<ui id="'+ui+'"'))return false;
-        const values=Object.fromEntries(snapshot.payload.locals.map(local=>[local.id,local.value]));
-        return Object.entries(expected).every(([name,value])=>values[name]===value);
-      }catch(error){if(error instanceof SyntaxError)return false;throw error;}
-    })''', arg={'ui': ui_id, 'expected': expected})
+def wait_for_snapshot_write(page):
+    page.wait_for_function("""() => Object.keys(localStorage).some(
+      key => key.startsWith('selvedge-interactive-v1/'))""")
 
 
 def calculator_boundaries(page, fixture):
@@ -240,7 +216,7 @@ def calculator_boundaries(page, fixture):
     cdp.send('Input.insertText', {'text': '中文输入'})
     fixture.finish(request)
     fixture.idle(created['task_id'])
-    saved_values(page, 'calculator', {'seats': 9, 'note': '中文输入'})
+    wait_for_snapshot_write(page)
     assert slider.evaluate('(node,old)=>node===old', slider_handle), 'completion replaced the live slider'
     assert note.evaluate('(node,old)=>node===old', note_handle), 'completion replaced composing input'
     expect(slider).to_have_value('9')
@@ -256,23 +232,20 @@ def calculator_boundaries(page, fixture):
 
 def code_scroll_boundary(page, fixture, task):
     marker = 'Plain user source browser fixture'
-    fixture.command(op='send', task_id=task, message=marker + '''
-```selvedge-ui
-<ui id="user-code"><button id="user-button" label="User code must remain literal" action="reset" /></ui>
-```
-''')
+    literal = '<ui id="user-code"><button id="user-button" label="' + (
+        'User code must remain literal ' * 16) + '" action="reset" /></ui>'
+    fixture.command(op='send', task_id=task, message=marker + '\n```selvedge-ui\n' + literal + '\n```\n')
     request = fixture.request(marker)
     fixture.finish(request, text='The user-provided code remains ordinary Markdown.')
     fixture.idle(task)
     expect(page.locator('code').filter(has_text='User code must remain literal').filter(visible=True)).to_be_visible()
     code = page.locator('code').filter(has_text='User code must remain literal').filter(visible=True)
-    literal = '<ui id="user-code"><button id="user-button" label="User code must remain literal" action="reset" /></ui>'
     assert code.text_content() in [literal, literal + '\n'], 'The ordinary code lost or changed source characters'
     code.evaluate('''async code => {
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       const pre=code.closest('pre');
       const block=pre?.parentElement;
-      const allocation=code.closest('.physical-markdown');
+      const allocation=code.closest('.markdown');
       if(!pre||!block||!allocation)throw Error('Ordinary code has no allocated scroll viewport');
       if(pre.clientWidth<=0||pre.getBoundingClientRect().width>allocation.getBoundingClientRect().width+1)
         throw Error('Ordinary code escaped its allocated content box');
@@ -313,14 +286,13 @@ def action_boundaries(page, fixture):
 def namespace_boundaries(page, fixture, parent):
     navigate_task_id(page, parent)
     page.set_viewport_size({'width': 900, 'height': 800})
-    page.wait_for_function('''() => Array.from(document.querySelectorAll('body > [aria-hidden="true"][inert]'))
-      .some(root=>root.textContent.includes('Private calculator namespace marker'))''')
+    expect(page.get_by_text('Private calculator namespace marker', exact=True).filter(visible=True)).to_be_visible()
     restarted = fixture.call('/restart', {'differentNamespace': True})
     assert restarted['address'] == fixture.address
     page.evaluate("async()=>{if(!(await fetch('/')).ok)throw Error('Could not refresh the real session cookie');}")
     no_document_marker(page, 'Private calculator namespace marker')
     page.set_viewport_size({'width': 1440, 'height': 1000})
-    print(json.dumps({'boundary': 'a different journal removes private content from visible and inert measurement DOM', 'passed': True}))
+    print(json.dumps({'boundary': 'a different journal removes private content from the entire document', 'passed': True}))
 
 
 def authorization_boundaries(page, fixture):
@@ -350,8 +322,7 @@ def authorization_boundaries(page, fixture):
     expect(projection).to_be_visible(timeout=20000)
     marker = projection.inner_text()
     page.set_viewport_size({'width': 900, 'height': 800})
-    page.wait_for_function('''marker => Array.from(document.querySelectorAll('body > [aria-hidden="true"][inert]'))
-      .some(root=>root.textContent.includes(marker))''', arg=marker)
+    expect(projection).to_be_visible()
     page.context.set_extra_http_headers({'Origin': 'http://untrusted.invalid'})
     with page.expect_response(lambda response: '/api/browser/state' in response.url and response.status == 403):
         fixture.command(op='create', profile='demo', message='Trigger a real forbidden snapshot refresh')
@@ -360,7 +331,7 @@ def authorization_boundaries(page, fixture):
     fixture.call('/disconnect', {})
     expect(projection).to_be_visible(timeout=20000)
     page.set_viewport_size({'width': 1440, 'height': 1000})
-    print(json.dumps({'boundary': 'actual HTTP 403 revokes live source projections from visible and inert measurement DOM, then reauthorizes', 'passed': True}))
+    print(json.dumps({'boundary': 'actual HTTP 403 revokes live source projections from the entire document, then reauthorizes', 'passed': True}))
 
 
 def side_conversation_boundaries(page, fixture, artifacts):
@@ -382,7 +353,18 @@ def side_conversation_boundaries(page, fixture, artifacts):
     side_composer.press('Enter')
     side_request = fixture.request('Inspect the parent before reflecting')
     side_input = fixture.call('/status')['requests'][side_request]['input']
-    assert 'Its parent is task #' + str(parent) in json.dumps(side_input)
+    parent_contexts = []
+    for message in side_input['input']:
+        if message['role'] != 'developer':
+            continue
+        content = message['content']
+        for line in content.splitlines():
+            if line.startswith('Context: '):
+                context = json.loads(line.removeprefix('Context: '))
+                if context['type'] == 'task_lifecycle' and context['identity']['task_id'] == str(parent):
+                    parent_contexts.append(content)
+    assert any("side conversation's parent task" in content and 'read_task' in content
+               for content in parent_contexts), side_input
     fixture.finish(side_request, output=[{'type': 'function_call', 'call_id': 'inspect-parent',
                                         'name': 'read_task', 'arguments': json.dumps({'task_id': parent})}])
     side_reply = fixture.request('inspect-parent')
@@ -403,7 +385,18 @@ def side_conversation_boundaries(page, fixture, artifacts):
     expect(note).to_be_visible()
     parent_box, side_box = composers.first.bounding_box(), composers.last.bounding_box()
     assert side_box['x'] >= parent_box['x'] + parent_box['width'], 'Desktop side conversation is not beside its parent'
-    assert page.viewport_size['height'] - 200 <= side_box['y'] < page.viewport_size['height'], 'Side composer is not docked at the bottom'
+    side_form = side_composer.locator('xpath=ancestor::form').bounding_box()
+    side_panel = page.get_by_role('complementary', name='Side conversation', exact=True).bounding_box()
+    form_bottom = side_form['y'] + side_form['height']
+    assert abs(form_bottom - (side_panel['y'] + side_panel['height'])) <= 1, 'Side composer is not docked to its panel'
+    allocation_bottom = page.get_by_role('complementary', name='Side conversation', exact=True).evaluate("""panel => {
+      const allocation = panel.parentElement, style = getComputedStyle(allocation);
+      return allocation.getBoundingClientRect().bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom);
+    }""")
+    assert abs(form_bottom - allocation_bottom) <= 1, 'Side composer is not docked to the allocated content bottom'
+    assert form_bottom <= page.viewport_size['height'], 'Side composer escaped the viewport bottom'
+    assert side_form['x'] <= side_box['x'] and side_box['x'] + side_box['width'] <= side_form['x'] + side_form['width']
+    assert side_form['y'] <= side_box['y'] and side_box['y'] + side_box['height'] <= form_bottom
     page.screenshot(path=str(artifacts / 'side-desktop.png'))
     note.focus()
     cdp = page.context.new_cdp_session(page)

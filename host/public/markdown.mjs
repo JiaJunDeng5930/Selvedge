@@ -106,7 +106,7 @@ export function safeHref(value) {
     observation = { parsed: true, href: url.href, scheme: url.protocol,
       username: url.username, password: url.password, hash: url.hash };
   } catch (error) {
-    // DEFENSE: Markdown links may be relative, fragments or malformed URLs; Bend admits only its allowed navigation forms.
+    // DEFENSE: Markdown links may be relative, fragments or malformed URLs; the extracted model admits only its allowed navigation forms.
     if (!(error instanceof TypeError)) throw error;
   }
   return boundary('browser.link', { raw: value, observation });

@@ -1,0 +1,68 @@
+From Stdlib Require Import String List Bool NArith PeanoNat.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs.
+From Selvedge.Kernel Require Import Domain Numbers Codec ContextSelection.
+Import ListNotations.
+Open Scope string_scope.
+Open Scope N_scope.
+
+Theorem adoption_keeps_the_original_history : forall snapshot candidate current,
+ exists suffix, adopt snapshot candidate current = (current ++ suffix)%list.
+Proof.
+ intros. unfold adopt. destruct (history_extends snapshot current).
+ - eexists. reflexivity.
+ - exists []. now rewrite app_nil_r.
+Qed.
+
+Theorem selected_replacement_keeps_the_exact_suffix : forall snapshot suffix candidate scope,
+ latest (snapshot ++ suffix) scope 0 Original = Replacement (N.of_nat (List.length snapshot)) candidate ->
+ target_messages (snapshot ++ suffix) scope =
+ (fixed snapshot ++ dialogue (artifact_items candidate) ++ scoped_messages suffix scope)%list.
+Proof.
+ intros snapshot suffix candidate scope selected.
+ unfold target_messages. rewrite selected. unfold assemble. rewrite Nat2N.id.
+ rewrite firstn_app, firstn_all, skipn_app, skipn_all, Nat.sub_diag. cbn.
+ now rewrite app_nil_r.
+Qed.
+
+Theorem portable_replacement_keeps_the_exact_suffix : forall snapshot suffix candidate,
+ latest (snapshot ++ suffix) "" 0 Original = Replacement (N.of_nat (List.length snapshot)) candidate ->
+ portable_messages (snapshot ++ suffix) =
+ (fixed snapshot ++ dialogue (artifact_items candidate) ++ retained_messages suffix)%list.
+Proof.
+ intros snapshot suffix candidate selected.
+ unfold portable_messages. rewrite selected, Nat2N.id.
+ rewrite firstn_app, firstn_all, skipn_app, skipn_all, Nat.sub_diag. cbn.
+ now rewrite app_nil_r.
+Qed.
+Theorem a_current_snapshot_can_be_adopted : forall history candidate,
+ adopt history candidate history = (history ++ [record (N.of_nat (List.length history)) candidate])%list.
+Proof.
+ intros. unfold adopt, history_extends, history_json. cbn beta zeta.
+ rewrite length_map, Nat.leb_refl.
+ rewrite firstn_all2; [rewrite equivalent_is_reflexive; reflexivity|].
+ rewrite length_map. apply Nat.le_refl.
+Qed.
+Theorem another_scope_cannot_select_native_context : forall boundary position head tail first rest usage scope previous,
+ String.eqb (String head tail) scope = false ->
+ select_event position scope (Codec.message_json 0 (record boundary (NativeArtifact head tail first rest usage))) previous = previous.
+Proof.
+ intros boundary position head tail first rest usage scope previous different.
+ change ((match natural (number boundary) with
+ | Some source => if (source <=? position) && String.eqb (String head tail) scope then
+     Replacement source (NativeArtifact head tail first rest usage) else previous
+ | None => previous end) = previous).
+ rewrite different. destruct (natural (number boundary)); cbn; [now rewrite andb_false_r|reflexivity].
+Qed.
+Theorem selected_summary_keeps_fixed_inputs_and_discards_replaced_dialogue : forall parts summary scope,
+ let original := JObject [("role", JString "user"); ("content", JArray parts)] in
+ let summary_item := PortableMessage PortableUser summary in
+ target_messages [original; Codec.message_json 0 (record 1 (PortableArtifact summary_item [] JNull))] scope =
+ (fixed [original] ++ [portable_message_json summary_item])%list.
+Proof.
+ intros. unfold target_messages, latest, select_event, record, artifact_json, decode_artifact,
+   artifact_format, artifact_scope, artifact_items, artifact_usage, portable_message_json,
+   decode_portable_message, decode_portable_messages, consumes, assemble,
+   portable_speaker, portable_text.
+ cbn [Pos.to_nat]. unfold scoped_messages, scoped_message. cbn [Pos.to_nat].
+ now repeat rewrite app_nil_r.
+Qed.

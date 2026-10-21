@@ -1,120 +1,63 @@
 import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const plugin = fileURLToPath(new URL('../', import.meta.url));
 const checkout = path.resolve(plugin, '../..');
-const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const assets = ['model.mjs', 'model.mjs.json', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
+const hash = value => createHash('sha256').update(value).digest('hex');
+const assets = ['host-model.mjs', 'host-runtime.js', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
 export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
 
-/** Compilation runs in the source checkout; installed runtime consumes only shipped assets. */
+/** Runtime packages contain the actual extracted definitions and no compiler dependency. */
 export async function buildModel() {
-  const compiler = path.join(checkout, 'scripts/compile-javascript.mjs');
+  const compiler = path.join(checkout, 'scripts/build.mjs');
   try { await access(compiler); }
-  // DEFENSE: An installed deployment package has no compiler checkout; compilation is available only from the source repository.
+  // DEFENSE: Installed packages omit the Rocq source checkout and cannot compile it.
   catch (error) {
     if (error.code === 'ENOENT') throw new Error('Build the Selvedge plugin model in its source checkout before packaging');
     throw error;
   }
-  const { compileJavaScript } = await import(pathToFileURL(compiler).href);
-  const output = path.join(plugin, 'generated/model.mjs');
-  const compiled = await compileJavaScript({ entry: path.join(plugin, 'MODEL.bend'),
-    exports: { run: 'run' }, output, sourceRoot: checkout });
-  const tokenSource = path.join(checkout, 'host/public/json-tokens.mjs');
-  const boundarySource = path.join(checkout, 'host/public/model-boundary.mjs');
-  const credentialsSource = path.join(checkout, 'host/opaque-credentials.mjs');
-  const [tokens, facade, credentials] = await Promise.all([
-    readFile(tokenSource), readFile(boundarySource, 'utf8'), readFile(credentialsSource),
-  ]);
-  await mkdir(path.dirname(output), { recursive: true });
-  await writeFile(path.join(plugin, 'generated/json-tokens.mjs'), tokens);
-  await writeFile(path.join(plugin, 'generated/opaque-credentials.mjs'), credentials);
-  // Only the generated library import changes; token conversion and outer-envelope
-  // handling use exactly the shared source implementation.
-  const boundary = facade.replace("'./generated/host-model.mjs'", "'./model.mjs'");
-  await writeFile(path.join(plugin, 'generated/model-boundary.mjs'), boundary);
-  const packagedAssets = Object.fromEntries(await Promise.all(assets.map(async name =>
-    [name, hash(await readFile(path.join(plugin, 'generated', name)))])));
-  await writeFile(path.join(plugin, 'generated/sources.json'), JSON.stringify({
-    assets: packagedAssets,
-    modelFingerprint: compiled.fingerprint,
-    jsonTokens: { source: 'host/public/json-tokens.mjs', sha256: hash(tokens) },
-    opaqueCredentials: { source: 'host/opaque-credentials.mjs', sha256: hash(credentials) },
-    boundary: { source: 'host/public/model-boundary.mjs', sha256: hash(facade), packagedSha256: hash(boundary) },
-  }, null, 2) + '\n');
+  const { build } = await import(pathToFileURL(compiler).href);
+  await build({ selected: ['host'] });
+  const generated = path.join(plugin, 'generated');
+  await mkdir(generated, { recursive: true });
+  const sources = {
+    'host-model.mjs': '.build/host-model.mjs',
+    'host-runtime.js': '.build/host-runtime.js',
+    'json-tokens.mjs': 'host/public/json-tokens.mjs',
+    'model-boundary.mjs': 'host/public/model-boundary.mjs',
+    'opaque-credentials.mjs': 'host/opaque-credentials.mjs',
+  };
+  const provenance = {};
+  for (const [name, source] of Object.entries(sources)) {
+    const original = await readFile(path.join(checkout, source));
+    const packaged = name === 'model-boundary.mjs'
+      ? Buffer.from(original.toString().replace("'./generated/host-model.mjs'", "'./host-model.mjs'")) : original;
+    await writeFile(path.join(generated, name), packaged);
+    provenance[name] = { source, sourceSha256: hash(original), sha256: hash(packaged) };
+  }
+  await writeFile(path.join(generated, 'sources.json'), `${JSON.stringify({ format: 'selvedge-rocq-plugin-1', assets: provenance }, null, 2)}\n`);
+  return requirePackagedModel();
 }
 
 export async function requirePackagedModel() {
   const generated = path.join(plugin, 'generated');
-  let provenance;
-  let model;
+  let manifest;
   try {
-    provenance = JSON.parse(await readFile(path.join(generated, 'sources.json'), 'utf8'));
+    manifest = JSON.parse(await readFile(path.join(generated, 'sources.json'), 'utf8'));
+    if (manifest.format !== 'selvedge-rocq-plugin-1') throw new Error('Unknown extracted model manifest format');
     for (const name of assets) {
-      // DEFENSE: Packaged assets can be missing, stale, or modified after generation; admit only the bytes recorded in the shipped manifest.
-      if (hash(await readFile(path.join(generated, name))) !== provenance.assets?.[name]) {
+      // DEFENSE: Partial or modified package copies must fail before loading executable assets.
+      if (hash(await readFile(path.join(generated, name))) !== manifest.assets?.[name]?.sha256) {
         throw new Error(`Packaged plugin asset does not match its manifest: ${name}`);
       }
     }
-    model = JSON.parse(await readFile(path.join(generated, 'model.mjs.json'), 'utf8'));
-    // DEFENSE: The output manifest and asset manifest may come from different builds after an interrupted copy.
-    if (model.fingerprint !== provenance.modelFingerprint || model.outputSha256 !== provenance.assets['model.mjs']) {
-      throw new Error('Packaged plugin model identity does not match its asset manifest');
-    }
-  // DEFENSE: Missing/corrupt generated files prevent loading the plugin; identify the build step without attempting runtime compilation.
+  // DEFENSE: Deployment can omit generated assets; fail with the required source-build command.
   } catch (error) {
     throw new Error(`Invalid packaged plugin model; run npm run build:model in the source checkout before packaging: ${error.message}`);
   }
-
-  // An installed package has no source checkout. A checkout must also establish
-  // that its shipped bytes still correspond to the current compiler and sources.
-  try { await access(path.join(plugin, 'MODEL.bend')); }
-  // DEFENSE: Deployment packages intentionally omit MODEL.bend; only a missing entry skips source-checkout verification.
-  catch (error) { if (error.code === 'ENOENT') return; throw error; }
-  const compiler = path.join(checkout, 'scripts/compile-javascript.mjs');
-  let currentCompiler;
-  if (process.versions.bun) {
-    const { javascriptCompilerIdentity } = await import(pathToFileURL(compiler).href);
-    currentCompiler = await javascriptCompilerIdentity();
-  } else {
-    // Checkout verification needs the build toolchain; installed packages above
-    // validate only their shipped assets and never invoke a compiler preparer.
-    const code = `const { javascriptCompilerIdentity } = await import(${JSON.stringify(pathToFileURL(compiler).href)}); console.log(JSON.stringify(await javascriptCompilerIdentity()));`;
-    const result = spawnSync('bun', ['--eval', code], {
-      cwd: checkout, encoding: 'utf8', maxBuffer: Infinity,
-      env: { ...process.env, NODE_OPTIONS: '' },
-    });
-    // DEFENSE: The external Bun compiler-identity process can fail to spawn or fail its toolchain preparation.
-    if (result.error || result.status !== 0 || result.stderr.trim()) {
-      throw new Error(`Cannot verify the checkout compiler identity: ${result.error?.message ?? result.stderr.trim()}`);
-    }
-    currentCompiler = JSON.parse(result.stdout);
-  }
-  // DEFENSE: A source checkout can retain generated artifacts from another toolchain, source root, or export set.
-  if (JSON.stringify(model.compiler) !== JSON.stringify(currentCompiler)
-      || model.sourceRoot !== checkout || model.exports?.run !== 'run' || Object.keys(model.exports).length !== 1
-      || !Array.isArray(model.sources) || model.sources.length === 0) {
-    throw new Error('Packaged plugin compiler identity is stale; run npm run build:model before packaging');
-  }
-  for (const source of model.sources) {
-    // DEFENSE: Editing any imported source invalidates previously shipped plugin code in this checkout.
-    if (hash(await readFile(path.resolve(checkout, source.path))) !== source.sha256) {
-      throw new Error(`Packaged plugin model source is stale: ${source.path}`);
-    }
-  }
-  const fingerprint = hash(JSON.stringify({ entry: path.relative(checkout, path.join(plugin, 'MODEL.bend')),
-    sourceRoot: checkout, exports: model.exports, compiler: model.compiler, sources: model.sources }));
-  // DEFENSE: A modified build manifest must not claim a fingerprint inconsistent with its actual inputs.
-  if (fingerprint !== model.fingerprint) throw new Error('Packaged plugin model fingerprint does not match its inputs');
-  for (const shared of [provenance.jsonTokens, provenance.boundary, provenance.opaqueCredentials]) {
-    // DEFENSE: Shared host boundary or credential code may have changed since the plugin assets were packaged.
-    if (hash(await readFile(path.join(checkout, shared.source))) !== shared.sha256) {
-      throw new Error(`Packaged plugin shared source is stale: ${shared.source}`);
-    }
-  }
+  return manifest;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await buildModel();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await buildModel();

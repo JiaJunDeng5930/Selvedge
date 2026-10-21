@@ -28,7 +28,7 @@ export async function runTestProcess(label, command, { cwd, active = new Set(), 
   const started = performance.now();
   let proc;
   try {
-    proc = Bun.spawn(command, { cwd, env: { ...process.env, BEND_NO_TELEMETRY: '1', ...env }, stdout: 'pipe', stderr: 'pipe', detached: true });
+    proc = Bun.spawn(command, { cwd, env: { ...process.env, ...env }, stdout: 'pipe', stderr: 'pipe', detached: true });
     active.add(proc);
     // Drain both pipes immediately; descendants can keep them open after the parent exits.
     const stdout = collectTestOutput(proc.stdout, process.stdout);

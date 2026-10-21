@@ -1,16 +1,9 @@
 import { boundary } from './public/model-boundary.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
-// Numeric observations preserve fractional values and non-finite conversion
-// results as text; Bend selects the applicable branch and the final delay.
+// Transport supplies the raw header and current time; the extracted semantics computes delays.
 function retryObservation(policy, attempt, response, error, errorPresent, signal) {
   const header = response?.headers.get('retry-after') ?? null;
-  const number = Number(header);
-  const numericMilliseconds = number * 1000;
-  const date = Date.parse(header);
-  const now = Date.now();
-  const elapsed = date - now;
-  const base = policy.delays_ms[attempt];
   return {
     limits: policy, policy, attempt,
     response_present: response !== undefined,
@@ -21,15 +14,7 @@ function retryObservation(policy, attempt, response, error, errorPresent, signal
     isTypeError: error instanceof TypeError,
     aborted: signal.aborted,
     abort_reason: { name: signal.reason?.name, message: signal.reason?.message },
-    now,
-    arithmetic: {
-      number: String(number), numeric_ms: String(numericMilliseconds),
-      date: String(date), date_minus_now: String(elapsed), base: String(base),
-      numeric_minus_budget: String(numericMilliseconds - policy.max_retry_after_ms),
-      date_minus_budget: String(elapsed - policy.max_retry_after_ms),
-      numeric_minus_base: String(numericMilliseconds - base),
-      date_minus_base: String(elapsed - base),
-    },
+    now: Date.now(),
   };
 }
 

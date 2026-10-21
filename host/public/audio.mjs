@@ -1,4 +1,5 @@
-// Physical audio resources are keyed by the Bend operation ticket. No task or
+import { stringifyJson } from './json-tokens.mjs';
+// Physical audio resources are keyed by the extracted operation ticket. No task or
 // draft policy, account credentials, or final-history writes live in this adapter.
 export class AudioRuntime {
   constructor({ emit, request, createTask, field, browserId, limits, loginTarget,
@@ -90,8 +91,8 @@ export class AudioRuntime {
       const field = this.field(effect.owner);
       // DEFENSE: Navigation can remove the originating composer before the recording effect begins.
       if (!field) throw new Error('The recording editor is no longer open');
-      const start = BigInt(Array.from(field.value.slice(0, field.selectionStart ?? field.value.length)).length);
-      const end = BigInt(Array.from(field.value.slice(0, field.selectionEnd ?? field.value.length)).length);
+      const start = BigInt(new TextEncoder().encode(field.value.slice(0, field.selectionStart ?? field.value.length)).length);
+      const end = BigInt(new TextEncoder().encode(field.value.slice(0, field.selectionEnd ?? field.value.length)).length);
       entry.stream = await this.microphone();
       if (!this.current(entry)) { this.stopTracks(entry); return; }
       entry.recorder = new this.MediaRecorder(entry.stream);
@@ -136,7 +137,7 @@ export class AudioRuntime {
       this.resources.delete(entry.ticket);
       this.observe('Transcribed', { ticket: entry.ticket, text: body.text });
     } catch (error) {
-      // DEFENSE: Uploads can be rejected, lose the network connection, or be cancelled by a later Bend decision.
+      // DEFENSE: Uploads can be rejected, lose the network connection, or be cancelled by a later model decision.
       if (error.name !== 'AbortError') this.fail(entry, error);
     }
   }
@@ -196,7 +197,7 @@ export class AudioRuntime {
       if (!this.current(entry)) return;
       const body = await this.request(this.url('/api/audio/sessions'), { method: 'POST',
         headers: { 'content-type': 'application/json' }, signal: entry.controller.signal,
-        body: JSON.stringify({ connection: effect.connection, task_id: Number(effect.task),
+        body: stringifyJson({ connection: effect.connection, task_id: effect.task,
           browser_id: this.browserId, sdp: entry.peer.localDescription.sdp }),
       });
       entry.session = body.id;

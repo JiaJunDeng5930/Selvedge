@@ -3,9 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, open, lstat } from 'node:fs/promises';
 import { existsSync, lstatSync } from 'node:fs';
 import path from 'node:path';
-import { boundary, observeJson } from './public/model-boundary.mjs';
+import { boundary } from './public/model-boundary.mjs';
 
-const format = 'selvedge-chatgpt-web-1';
+function closeDatabase(db) {
+  try {
+    // DEFENSE: Metadata or receipt rejection can leave BEGIN IMMEDIATE active; Bun can defer close while statements remain reachable.
+    if (db.isTransaction) db.exec('ROLLBACK');
+  } finally { db.close(); }
+}
 
 export function retainedRequest(record) {
   const value = boundary('web.retained', { record });
@@ -14,10 +19,6 @@ export function retainedRequest(record) {
   error.requestKey = value.request_key;
   error.responseId = value.response_id;
   return error;
-}
-
-function storedJson(text) {
-  return text === null || text === undefined ? null : boundary('web.decode', { observation: observeJson(text), text });
 }
 
 // This database records external request receipts, not task lifecycle. A native
@@ -36,12 +37,12 @@ export class WebRequestStore {
       const rows = db.prepare('SELECT * FROM metadata').all();
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(`task:${taskId}`);
       const writes = boundary('web.reset_session', { rows, records, task_id: taskId,
-        created: false, new_identity: randomUUID(), format });
+        created: false, new_identity: randomUUID() });
       for (const write of writes) {
         db.prepare('UPDATE requests SET retired=? WHERE request_key=?').run(write.updates.retired, write.request_key);
       }
       db.exec('COMMIT');
-    } finally { db.close(); }
+    } finally { closeDatabase(db); }
   }
 
   static retireExisting(home, owner, ticket) {
@@ -55,7 +56,7 @@ export class WebRequestStore {
     try {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = db.prepare('SELECT * FROM metadata').all();
-      const source = { rows, created: false, new_identity: randomUUID(), format };
+      const source = { rows, created: false, new_identity: randomUUID() };
       boundary('web.store_metadata', source);
       const records = db.prepare('SELECT * FROM requests WHERE owner=?').all(owner);
       const selected = boundary('web.retire_existing', { ...source, records, owner, ticket });
@@ -65,7 +66,7 @@ export class WebRequestStore {
       const record = selected[0]?.record;
       db.exec('COMMIT');
       return record;
-    } finally { db.close(); }
+    } finally { closeDatabase(db); }
   }
 
   static async open(home, { create = true } = {}) {
@@ -93,7 +94,7 @@ export class WebRequestStore {
     try {
       db.exec('PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; BEGIN IMMEDIATE');
       const rows = created ? [] : db.prepare('SELECT * FROM metadata').all();
-      const metadata = boundary('web.store_metadata', { rows, created, new_identity: randomUUID(), format });
+      const metadata = boundary('web.store_metadata', { rows, created, new_identity: randomUUID() });
       if (created) {
         db.exec(`CREATE TABLE metadata (format TEXT NOT NULL, identity TEXT NOT NULL);
           CREATE TABLE requests (
@@ -104,12 +105,12 @@ export class WebRequestStore {
             retired INTEGER NOT NULL DEFAULT 0);
           CREATE INDEX requests_owner ON requests(owner, ordinal);`);
       }
-      if (metadata.create) db.prepare('INSERT INTO metadata VALUES (?, ?)').run(format, metadata.identity);
+      if (metadata.create) db.prepare('INSERT INTO metadata VALUES (?, ?)').run(metadata.format, metadata.identity);
       db.exec('COMMIT');
       db.exec('PRAGMA journal_mode=WAL');
       return new WebRequestStore(db, metadata.identity);
     // DEFENSE: Schema/metadata admission or transaction failure during open must release the SQLite handle before propagating.
-    } catch (error) { db.close(); throw error; }
+    } catch (error) { closeDatabase(db); throw error; }
   }
 
   constructor(db, identity) { this.db = db; this.identity = identity; }
@@ -125,8 +126,7 @@ export class WebRequestStore {
     try {
       const record = this.db.prepare('SELECT * FROM requests WHERE invocation=?').get(request.invocation);
       const decision = boundary('web.store_prepare', { request, record: record ?? null,
-        previous: this.latest(request.owner) ?? null, new_key: randomUUID(),
-        body_observation: storedJson(record?.body) });
+        previous: this.latest(request.owner) ?? null, new_key: randomUUID() });
       // DEFENSE: A prepared invocation with unresolved remote work must retain its original key instead of creating another request.
       if (decision.action === 'retained') throw retainedRequest(decision.record);
       if (decision.action === 'reuse') {
@@ -153,8 +153,7 @@ export class WebRequestStore {
 
   finish(record, response) {
     const current = this.find(record.request_key);
-    const decision = boundary('web.store_finish', { record, current, response,
-      response_observation: storedJson(current.response) });
+    const decision = boundary('web.store_finish', { record, current, response });
     const write = decision.updates;
     this.db.prepare('UPDATE requests SET response_id=?, response=?, rejected=? WHERE request_key=?')
       .run(write.response_id, write.response, write.rejected, record.request_key);

@@ -110,7 +110,7 @@ export function validateConfig(value) {
 }
 
 export function homeDirectory(home) {
-  return path.resolve(home ?? process.env.SELVEDGE_HOME ?? path.join(homedir(), '.selvedge-bend'));
+  return path.resolve(home ?? process.env.SELVEDGE_HOME ?? path.join(homedir(), '.selvedge'));
 }
 
 export async function loadConfig({ home, filename } = {}) {

@@ -1,4 +1,4 @@
-/** Lossless JSON at the shared value boundary. Numeric lexemes survive the Bend round trip. */
+/** Lossless JSON at the shared value boundary. Numeric lexemes survive the extraction boundary. */
 export class JsonNumber {
   constructor(source) {
     this.source = source;
@@ -17,50 +17,6 @@ export function parseJson(text) {
   });
 }
 
-/** Observe raw JSON tokens before object decoding can collapse duplicate keys. */
-export function observeJson(text) {
-  try {
-    JSON.parse(text);
-    const tokens = [];
-    const number = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
-    let index = 0;
-    while (index < text.length) {
-      const character = text[index];
-      if (' \t\r\n:,'.includes(character)) {
-        index++;
-      } else if ('[]{}'.includes(character)) {
-        tokens.push(character);
-        index++;
-      } else if (character === '"') {
-        const start = index++;
-        while (text[index] !== '"') {
-          index += text[index] === '\\' ? 2 : 1;
-        }
-        tokens.push(`s${JSON.parse(text.slice(start, ++index))}`);
-      } else if (character === 't') {
-        tokens.push('t');
-        index += 4;
-      } else if (character === 'f') {
-        tokens.push('f');
-        index += 5;
-      } else if (character === 'n') {
-        tokens.push('z');
-        index += 4;
-      } else {
-        number.lastIndex = index;
-        const match = number.exec(text);
-        tokens.push(`n${match[0]}`);
-        index = number.lastIndex;
-      }
-    }
-    return { text, tokens };
-  } catch (error) {
-    // DEFENSE: HTTP, RPC and persisted JSON text can be syntactically invalid; report that parse failure to Bend.
-    if (!(error instanceof SyntaxError)) throw error;
-    return { text, error: error.message, error_name: error.name };
-  }
-}
-
 export function stringifyJson(value) {
   return JSON.stringify(value, (_key, item) => {
     if (typeof item === 'bigint') return JSON.rawJSON(item.toString());
@@ -70,48 +26,3 @@ export function stringifyJson(value) {
   });
 }
 
-/** Emit the tagged value tokens consumed by Bend JSON. */
-export function emitJsonTokens(value, emit) {
-  function token(text) {
-    // DEFENSE: External JSON strings may contain lone UTF-16 surrogates, which the Bend scalar-string ABI cannot encode.
-    if (!text.isWellFormed()) throw new TypeError('JSON strings must contain Unicode scalar values');
-    emit(text);
-  }
-  function visit(item, depth) {
-    // DEFENSE: External JSON containers beyond the token decoder's 256-container limit must be rejected before recursive encoding.
-    if (depth > 256) throw new RangeError('JSON nesting exceeds 256 containers');
-    if (item === null) return token('z');
-    if (item instanceof JsonNumber) return token(`n${item.source}`);
-    if (typeof item === 'bigint') return token(`n${item}`);
-    if (typeof item === 'string') return token(`s${item}`);
-    if (typeof item === 'boolean') return token(item ? 't' : 'f');
-    if (typeof item === 'number') {
-      // DEFENSE: Non-finite native numbers have no JSON number token and must not enter the shared ABI.
-      if (!Number.isFinite(item)) throw new TypeError('Non-finite JSON number');
-      return token(`n${Object.is(item, -0) ? '-0' : item}`);
-    }
-    if (Array.isArray(item)) {
-      token('[');
-      for (const element of item) visit(element, depth + 1);
-      return token(']');
-    }
-    // DEFENSE: Host boundary inputs can contain native objects/functions; only JSON objects have a token representation.
-    if (typeof item !== 'object' || ![Object.prototype, null].includes(Object.getPrototypeOf(item))) {
-      throw new TypeError('Expected a JSON value');
-    }
-    token('{');
-    for (const [key, element] of Object.entries(item)) {
-      if (element === undefined) continue;
-      token(`s${key}`);
-      visit(element, depth + 1);
-    }
-    token('}');
-  }
-  visit(value, 0);
-}
-
-export function tokenizeJsonValue(input) {
-  const tokens = [];
-  emitJsonTokens(input, token => tokens.push(token));
-  return tokens;
-}

@@ -1,5 +1,5 @@
 import { stringifyJson } from './codec.mjs';
-import { boundary, observeJson } from './public/model-boundary.mjs';
+import { boundary } from './public/model-boundary.mjs';
 
 export async function readText(body, maximum) {
   // DEFENSE: HTTP HEAD/204 responses expose no body; their text observation is empty.
@@ -23,16 +23,15 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
     redirect: 'error',
   });
   const text = await readText(response.body, maximum);
-  const observation = observeJson(text);
   const source = { response: { status: response.status, ok: response.ok, status_text: response.statusText,
     url: response.url, type: response.type, redirected: response.redirected,
-    headers: [...response.headers] }, text, observation };
+    headers: [...response.headers] }, text };
   let decoded;
   try { decoded = boundary('web.http_json', source); }
   catch (error) {
     // DEFENSE: A successful HTTP response containing malformed JSON is a protocol failure; retain its parser diagnostic as the cause.
     if (error.code === 'http_json_parse') {
-      throw new Error(error.message, { cause: new SyntaxError(observation.error) });
+      throw new Error(error.message, { cause: new SyntaxError('Invalid JSON response') });
     }
     throw error;
   }

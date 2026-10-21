@@ -60,12 +60,10 @@ function validateCredential(value, audio = false) {
 
 async function readRecord(filename, optional = false) {
   let contents;
-  try { contents = await readFile(filename, 'utf8'); }
+  try { contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(filename)); }
   // DEFENSE: First login has no host/registration record; only ENOENT for an optional record means absence.
   catch (error) { if (boundary('account.record_read_failure', { filename, optional, code: error.code })) return null; throw error; }
-  // DEFENSE: Malformed token-bearing JSON can expose credentials in parser diagnostics; return the native sanitized failure.
-  try { return JSON.parse(contents); }
-  catch { return boundary('account.record_parse_failure', { filename, optional }); }
+  return boundary('account.record_decode', { text: contents, filename, optional });
 }
 
 function registration(value, issuer) {

@@ -44,7 +44,7 @@ catalog advertises `gpt-6-astra`, discovery also materializes
 underlying model. Its only selectable reasoning setting is `auto`; the ordinary
 Astra profile remains available independently.
 
-The preset is ordinary profile data produced by `accountAutoPreset`, using the
+The preset is ordinary profile data using the
 account's advertised effort levels, its default baseline, evaluator name `jev`,
 and `configuration_update` transport. It does not configure or authenticate Jev.
 A manually configured profile under that auto key overrides the preset. Like
@@ -94,9 +94,6 @@ same-provider retries stop visibly without substituting a provider, model or
 guessed effort. Tool execution is not repeated when an evaluator request fails.
 Restart reconstructs the committed native state.
 
-`../harness/reasoning/MODEL.bend` is the policy entry. `../harness/reasoning/SPEC.bend` specifies
-generation authorization and settlement independently of the production
-implementation. `ReasoningBoundary` binds routing, tickets, revisions, lease
-ownership, prefix updates and public projection to checked evidence in
-`../harness/reasoning/PROOF.bend`. HTTP, tokenization, SQLite, browser rendering and
-the quality of Jev's decisions remain external boundaries tested separately.
+The [kernel definitions](../theories/Kernel/) own reasoning policy and completion
+admission. HTTP, tokenization, SQLite, browser rendering and the quality of the
+evaluator’s decisions remain external observations.

@@ -5,6 +5,7 @@ import { constants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { boundary } from './public/model-boundary.mjs';
+import { readControlRecord } from './control-records.mjs';
 import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from './cloud-environments.mjs';
 
@@ -23,14 +24,14 @@ async function git(primary, arguments_, { signal } = {}) {
 export async function observeCloudRepository(primary, { signal } = {}) {
   try {
     const repository = await realpath(await git(primary, ['rev-parse', '--show-toplevel'], { signal }));
-    const names = (await git(repository, ['remote'], { signal })).split('\n').filter(Boolean);
-    names.sort((a, b) => a === 'origin' ? -1 : b === 'origin' ? 1 : a.localeCompare(b));
+    const observedNames = (await git(repository, ['remote'], { signal })).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const names = boundary('effect.cloud_remote_names', { names: observedNames });
     for (const name of names) {
       const remote = await git(repository, ['remote', 'get-url', name], { signal });
-      const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(remote);
-      if (!match) continue;
+      const url = boundary('effect.cloud_repository', { remote });
+      if (url === null) continue;
       const commit = await git(repository, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal });
-      return { url: `https://github.com/${match[1]}/${match[2]}.git`, commit, repository,
+      return { url, commit, repository,
         relative_primary: path.relative(repository, await realpath(primary)) };
     }
     return null;
@@ -47,9 +48,6 @@ function tokenFor(namespace, taskId) {
 }
 
 async function locations({ home, namespace }, taskId) {
-  if (!/^[0-9a-f]{32}$/.test(namespace) || !Number.isSafeInteger(taskId) || taskId < 0) {
-    throw new Error('Cloud workspace requires a journal namespace and task identity');
-  }
   const canonicalHome = await realpath(home);
   const storage = path.join(canonicalHome, 'cloud-workspaces', namespace);
   for (const directory of [path.dirname(storage), storage]) {
@@ -74,19 +72,9 @@ async function saveReceipt(filename, receipt) {
 }
 
 async function readReceipt(files, entry) {
-  const file = await open(files.receipt, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
-  let receipt;
-  try {
-    const facts = await file.stat();
-    // DEFENSE: Externally replaced receipt paths can be special files or exceed the bounded control record.
-    if (!facts.isFile() || facts.size > 1024 * 1024) throw new Error('Invalid cloud workspace receipt');
-    receipt = JSON.parse(await file.readFile('utf8'));
-  } finally { await file.close(); }
-  if (receipt.format !== receiptFormat || receipt.namespace !== files.namespace || receipt.task_id !== entry.task_id ||
-      receipt.source_root !== entry.source_root || receipt.root !== files.root || receipt.token !== files.token ||
-      receipt.backend !== entry.backend) {
-    throw new Error('Cloud workspace receipt does not match its task');
-  }
+  const receipt = await readControlRecord(files.receipt, { maximumBytes: 1024 * 1024, label: 'cloud workspace receipt' });
+  boundary('effect.cloud_receipt', { value: receipt, bound_root: entry.root ?? null, expected: { format: receiptFormat, namespace: files.namespace,
+    task_id: entry.task_id, source_root: entry.source_root, root: files.root, token: files.token, backend: entry.backend } });
   return receipt;
 }
 
@@ -146,14 +134,7 @@ async function failCloudCreation(effect, error, { files, receipt, allocationAtte
 }
 
 function cloudWorkspace(effect, source, root) {
-  const roots = effect.workspace.roots.map(directory => {
-    const relative = path.relative(source.repository, directory);
-    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      throw new Error('Cloud workspace roots must belong to the project GitHub repository');
-    }
-    return path.posix.join(root, ...relative.split(path.sep));
-  });
-  return { roots, primary_root: path.posix.join(root, ...source.relative_primary.split(path.sep)) };
+  return boundary('effect.cloud_workspace', { workspace: effect.workspace, repository: source.repository, root });
 }
 
 function initializationScript(source, root) {
@@ -235,7 +216,6 @@ export async function archiveTaskWorkspace(effect, options = {}) {
   try {
     files = await locations(options, effect.task_id);
     const receipt = await readReceipt(files, effect);
-    if (effect.root !== receipt.root) throw new Error('Cloud workspace recycle root does not match its task');
     const recordingErrors = await destroyReceipt(receipt, files);
     if (recordingErrors.length) throw new Error(`Cloud environment was destroyed; ${recordingErrors.join('; ')}`);
     return completion(effect, { ok: true, root: effect.root });

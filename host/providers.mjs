@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseJson, stringifyJson } from './codec.mjs';
 import { events, readText } from './network.mjs';
 import { authorize } from './chatgpt-account.mjs';
-import { boundary, observeJson } from './public/model-boundary.mjs';
+import { boundary } from './public/model-boundary.mjs';
 import { requestHeaders } from './model-request.mjs';
 import { imageDataURL } from './files.mjs';
 import { requestChatGPTWeb, cancelChatGPTWeb } from './chatgpt-web.mjs';
@@ -11,6 +11,12 @@ import { requestChatGPTWeb, cancelChatGPTWeb } from './chatgpt-web.mjs';
 // stops retained remote work where the provider has an explicit stop endpoint.
 export function cancelModelTask(task, config, home, limits) {
   return cancelChatGPTWeb(task, config, home, limits);
+}
+
+function parseErrorBody(text) {
+  try { return parseJson(text); }
+  // DEFENSE: Upstream HTTP errors can contain HTML or an empty body rather than a structured provider code.
+  catch (error) { if (error instanceof SyntaxError) return null; throw error; }
 }
 
 export class ContextLimitError extends Error {
@@ -29,17 +35,7 @@ export class ContextScopeChangedError extends Error {
 }
 
 export function providerOutput(output, profile = {}, output_indices = []) {
-  const arguments_observations = [];
-  // Parsing supplies raw structural observations; admission belongs to Bend.
-  // DEFENSE: A provider can return a non-array output or a malformed function call; observe arguments only where a string is actually present.
-  if (Array.isArray(output)) {
-    output.forEach((item, index) => {
-      if (typeof item?.arguments === 'string') {
-        arguments_observations.push({ index, observation: observeJson(item.arguments) });
-      }
-    });
-  }
-  return boundary('backend.output', { output, profile, output_indices, arguments_observations });
+  return boundary('backend.output', { output, profile, output_indices });
 }
 
 export function responseBody(effect, profile = { provider: effect.model.provider }) {
@@ -91,15 +87,19 @@ export async function prepareModelRequest(request, home, limits) {
 
 function guardProviderRequest(prepared, limits) {
   // DEFENSE: User history and external tool output can make the encoded provider request exceed the configured HTTP byte budget.
-  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: prepared.request });
+  boundary('backend.request_size', { bytes: prepared.bytes, limits, request: { input: prepared.request.input } });
 }
 
 // Resolve the complete consumer before selecting opaque input. API-key identity
 // stays within the target digest, so rotating one credential reference also
-// invalidates its old receipts without sending credential bytes into Bend.
-export async function providerSession(effect, config, home, { signal } = {}) {
+// invalidates its old receipts without sending credential bytes into the domain state.
+export async function providerSession(effect, config, home, options = {}) {
   const configured = config.profiles[effect.model.profile];
   const backend = boundary('backend.support', { effect, profile: configured });
+  return createProviderSession(effect, configured, backend, home, options);
+}
+
+async function createProviderSession(effect, configured, backend, home, { signal } = {}) {
   const lifetime = signal ? AbortSignal.any([signal, AbortSignal.timeout(configured.timeout_ms)]) : AbortSignal.timeout(configured.timeout_ms);
   let authorization;
   let credential = null;
@@ -143,9 +143,7 @@ export async function requestProviderJSON(session, suffix, prepared, limits, { o
     response = await send();
   }
   const text = await readText(response.body, limits.frame_bytes);
-  let value;
-  // DEFENSE: Failed HTTP responses can contain HTML or no body; only valid JSON contributes a provider error code.
-  if (response.ok || !observeJson(text).error) value = parseJson(text);
+  const value = response.ok ? parseJson(text) : parseErrorBody(text);
   // DEFENSE: Non-success compaction HTTP responses must not be returned as successful JSON results.
   if (boundary('backend.compaction_headers', observation(true)) === 'read_error') {
     const failure = boundary('backend.http_failure', { status: response.status,
@@ -160,6 +158,11 @@ export async function requestProviderJSON(session, suffix, prepared, limits, { o
   return value;
 }
 
+export function observeCompactionScope(effect, scope) {
+  const { kind, context_selected, context_scope } = effect;
+  return boundary('backend.compaction_scope_changed', { effect: { kind, context_selected, context_scope }, scope });
+}
+
 export async function requestModel(effect, config, home, limits, { signal, onDelta = () => {}, onSnapshot = () => {}, onRetry = () => {}, onObservation = () => {} } = {}) {
   signal?.throwIfAborted();
   const configured = config.profiles[effect.model.profile];
@@ -168,9 +171,9 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
     return requestChatGPTWeb(effect, configured, home, limits, { signal, onSnapshot, onRetry });
   }
   if (support.transport === 'echo') return boundary('backend.echo', { history: effect.history });
-  const session = await providerSession(effect, config, home, { signal });
+  const session = await createProviderSession(effect, configured, support, home, { signal });
   const { profile, scope } = session;
-  const consumer = boundary('backend.compaction_scope_changed', { effect, scope });
+  const consumer = observeCompactionScope(effect, scope);
   // DEFENSE: Credentials can rotate after context selection; old opaque context must not be dispatched to the new consumer.
   if (consumer.scope_changed) throw new ContextScopeChangedError(scope);
   const prepared = await prepareModelRequest(responseBody(effect, profile), home, limits);
@@ -206,7 +209,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
   if (admission.action === 'read_error') {
     const errorBody = await readText(response.body, limits.frame_bytes);
     // DEFENSE: Proxies can return HTML/empty HTTP error bodies; absent JSON must not invent a context-limit recovery code.
-    const upstream = observeJson(errorBody).error ? null : parseJson(errorBody);
+    const upstream = parseErrorBody(errorBody);
     admission = boundary('backend.http_failure', {
       status: response.status, code: upstream?.error?.code, output_started: false,
     });
@@ -222,7 +225,7 @@ export async function requestProviderSSE(session, effect, prepared, limits,
   for await (const data of events(response.body, limits.frame_bytes)) {
     if (data === '[DONE]') break;
     const event = parseJson(data);
-    const step = boundary('backend.stream_step', { kind: backend.stream_kind, effect, event, state });
+    const step = boundary('backend.stream_step', { kind: backend.stream_kind, effect: { kind: effect.kind }, event, state });
     state = step.state;
     switch (step.action) {
       case 'delta': onDelta(step.text, step.index); break;
