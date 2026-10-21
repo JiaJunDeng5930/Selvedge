@@ -125,14 +125,13 @@ Definition board_page snapshot s parent :=
         (group_title key(BoardDomain.stage_label stage)::
          declared key Roles.Button(secondary "card/new" "新建任务"(Input.NewCard stage(part key "card/new")))::
          map(card_node snapshot s parent key)(BoardFilter.display_cards entries)))BoardDomain.stages end)].
-Definition agent_node snapshot parent value :=match natural_field "agent_id" value with
+Definition agent_node parent value :=match natural_field "agent_id" value with
 |None=>read_only parent "unavailable" "Agent" "Agent observation unavailable"
 |Some id=>let key:=part parent("agent/"++show_natural id)in
  region parent("agent/"++show_natural id)(text "name" value)Roles.Card
   [group_title key(text "name" value);read_only key "instructions" "Instructions"(text "instructions" value);
-   read_only key "model" "Model"(match ModelSelection.observed_profile snapshot(text "profile" value)with
-    |Some profile=>String.append(Selvedge.Interaction.Experience.Observation.profile_label profile)(String.append " · "(text "reasoning" value))
-    |None=>"Model unavailable"end);
+   read_only key "model" "Model"(text "profile" value);
+   read_only key "reasoning" "Reasoning"(text "reasoning" value);
    read_only key "concurrency" "Concurrency"(match natural_field "concurrency" value with Some count=>show_natural count|None=>"Unavailable"end);
    read_only key "active" "Active tasks"(match natural_field "active" value with Some count=>show_natural count|None=>"Unavailable"end);
    declared key Roles.Button(secondary "edit" "Edit agent"(Input.OpenEditor(Agent(Some id))(part key "edit")));more key(AgentActions id)]end.
@@ -141,7 +140,7 @@ Definition agents_page snapshot (s:State.state) parent :=
   page_region parent Composition.CollectionActions Composition.HeadingPosition
    [declared parent Roles.PrimaryButton(primary "agent/new" "New agent"(Input.OpenEditor(Agent None)(part parent "agent/new")))];
   page_region parent Composition.AgentEntries Composition.BodyPosition
-   (match board_agents snapshot with Some entries=>map(agent_node snapshot parent)entries
+   (match board_agents snapshot with Some entries=>map(agent_node parent)entries
     |None=>[read_only parent "unavailable" "Agents" "Agent observations unavailable"]end)].
 Definition graph_endpoint graph name:=
  match find(fun entry=>String.eqb name(text "key" entry))(Selvedge.Interaction.Codec.items "nodes" graph)with
