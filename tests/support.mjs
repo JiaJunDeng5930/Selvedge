@@ -11,8 +11,8 @@ export async function home(t) {
   return realpath(directory);
 }
 
-export async function taskIdle(service, taskId = 0) {
-  const deadline = Date.now() + 5000;
+export async function taskIdle(service, taskId = 0, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
   let page;
   do {
     const result = await service.command({ op: 'read', task_id: taskId });
