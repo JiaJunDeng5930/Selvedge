@@ -73,3 +73,14 @@ pre, code { font-family: var(--rich-code-font); }
 }
 [data-interactive-stale] { visibility: hidden; }
 [data-sources-fresh="false"] [data-interactive-stale] { visibility: visible; }
+
+/* Gallina selects a declared supporting form from actual native measurements. */
+[data-supporting-form="compact"] [data-support-secondary] { display: none; }
+
+/* Sidebar attention changes exposure while retaining the original slot width. */
+@media (hover: hover) {
+  [data-navigation-owner] > [data-navigation-slot="auxiliary"] { visibility: hidden; }
+  [data-navigation-owner][data-navigation-active="true"] > [data-navigation-slot="auxiliary"],
+  [data-navigation-owner]:hover > [data-navigation-slot="auxiliary"],
+  [data-navigation-owner]:focus-within > [data-navigation-slot="auxiliary"] { visibility: visible; }
+}

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
-From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose SemanticAppearance InteractiveAppearance Observation.
+From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose ControlContent SemanticAppearance InteractiveAppearance Observation.
 From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication Graphics Audit Identity.
 From Selvedge.Interaction Require Appearance.
 From Selvedge.Interaction.Submission Require Fields Parameters.
@@ -252,8 +252,11 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  let children:=map (compile_node describe env generation current_area
  (match meaning with S.ActivityGroup _ _ _ _=>true|_=>activity end)
  (source_context source meaning) (match meaning with S.PageContext current=>current|_=>view end) (component_context component meaning)) (S.node_children value) in
+ let children:=match ControlContent.container_content describe glyph env key label role meaning (S.node_children value) children with Some content=>content|None=>children end in
+ let supporting:=match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end in
  let attrs:=common key (S.semantic_key value) label role ++
- (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true")]|_=>[] end) in
+ (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true")]|_=>[] end) ++
+ (if supporting then ControlContent.support_row_attributes key else []) in
  let styles:=NativeAppearance.role_properties env role ++
  (match meaning with S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
  |Model.AnchoredMenu=>[("position","fixed");("inset","auto");("top","anchor(bottom)");("left","anchor(left)");("margin","0") ]
@@ -268,18 +271,30 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |Roles.GlobalNavigationEntry _ compact=>[("display","flex");("flex-direction",if compact then "row" else "column");("align-items","center");("justify-content","center");("inline-size","100%")]
  |Roles.GlobalNavigation compact=>[("inline-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)(if compact then 48 else 84)));("flex","none")]|Roles.Navigation=>[("inline-size",Typography.px(Layout.navigation_width(Layout.parameters env)));("flex","none")]|Roles.Main=>[("flex","1");("min-inline-size","0")]|_=>[] end) ++
  (match meaning with S.SummaryList=>[("list-style","none");("padding","0");("margin","0")]|S.InteractiveNode c=>InteractiveAppearance.component_properties env c
- |S.InteractivePlacement p=>InteractiveAppearance.placement_properties env p|_=>[] end) in
+ |S.InteractivePlacement p=>InteractiveAppearance.placement_properties env p|_=>[] end) ++
+ ControlContent.node_properties env role meaning ++
+ (if supporting then ControlContent.support_row_properties else []) in
  let element tag extra events metadata content:=DOM.Element key tag (attrs++extra) styles events metadata content in
  let button (submit:bool) action extra:=
  let purpose:=describe(Model.control_input action)in
  DOM.Element key "button" (attrs++[("type",if submit then "submit" else "button")] ++control_attributes action++purpose_attributes purpose++extra)
- (styles++control_styles purpose role++match source,purpose with S.CardContent _,C.OpenCardDetails _=>
+ (styles++control_styles purpose role++
+ (match source with S.TaskRow _ _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size","0");("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,purpose with S.CardContent _,C.OpenCardDetails _=>
  [("background","transparent");("border","0");("padding","0");("text-align","left");("font-weight","600");("white-space","normal")]|_,_=>[]end)
  [event key generation "click" "activate" Gesture.Press] empty
- (match source,purpose with S.CardContent face,C.OpenCardDetails card=>
+ (match ControlContent.face_content env key glyph meaning (S.node_children value) with Some content=>content|None=>
+ match source,purpose with S.CardContent face,C.OpenCardDetails card=>
  if N.eqb card(Model.card_identity face)then[DOM.Text(Model.card_title face)]
  else face_children purpose current_area role(Model.control_label action)children
- |_,_=>face_children purpose current_area role(Model.control_label action)children end)in
+ |S.TaskRow _ status caption working _,C.NavigateTo icon=>
+ [DOM.Element(key++"/identity-slot")%string "span" [("data-navigation-slot","identity")]
+ [("display","flex");("align-items","center");("justify-content","center");("inline-size",Typography.px(Nat.max(ControlContent.navigation_rail env)(ControlContent.navigation_target env)));("block-size",Typography.px(ControlContent.navigation_target env));("flex","none")] [] empty(glyph icon);
+ DOM.Element(key++"/title-slot")%string "span" [("data-navigation-slot","title")]
+ [("flex","1 1 0%");("min-inline-size","0");("overflow","hidden");("text-overflow","ellipsis");("white-space","nowrap");("text-align","start")] [] empty
+ (match children with []=>[DOM.Text(Model.control_label action)]|_=>children end);
+ DOM.Element(key++"/status-slot")%string "span"[("data-navigation-slot","status");("role","img");("aria-label",caption);("title",caption)]
+ [("display","flex");("align-items","center");("justify-content","center");("inline-size","16px");("block-size","16px");("flex","none")][]empty(glyph(task_status_symbol status working))]
+ |_,_=>face_children purpose current_area role(Model.control_label action)children end end)in
  match meaning with
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
@@ -427,13 +442,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  let paired:=combine(S.node_children value)children in
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
  element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected)] [] empty
- (DOM.Element(key++"/row")%string "div" []
- (NativeAppearance.style_properties env(NativeAppearance.navigation_style selected 6 0)++
- [("display","flex");("flex-direction","row");("align-items","center");("min-inline-size","0")]) [] empty
- (map snd(filter(fun pair=>negb(nested pair))paired)++
- [DOM.Element(key++"/status")%string "span"[("role","img");("aria-label",caption);("title",caption)]
- [("inline-size","16px");("block-size","16px");("flex","none")][]empty(glyph(task_status_symbol status working))])::
- map snd(filter nested paired))
+ (map snd(filter(fun pair=>negb(nested pair))paired)++map snd(filter nested paired))
  |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
  |S.TaskChildren task=>element "div"[("role","group");("data-task-parent",text_number task)][]empty children

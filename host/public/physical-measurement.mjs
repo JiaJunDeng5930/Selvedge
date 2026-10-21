@@ -44,15 +44,32 @@ export function createPhysicalMeasurer({ surface, onChange }) {
       const rowStyle = getComputedStyle(row);
       const available = row.clientWidth - Number.parseFloat(rowStyle.paddingLeft) - Number.parseFloat(rowStyle.paddingRight);
       const children = [...row.children];
-      let minimum = Number.parseFloat(rowStyle.columnGap) * Math.max(0, children.length - 1);
-      for (const child of children) {
-        const original = child.style.cssText;
+      const gap = Number.parseFloat(rowStyle.columnGap) * Math.max(0, children.length - 1);
+      const preferred = size => {
+        let width = gap;
+        for (const child of children) {
+          const original = child.style.cssText;
+          try {
+            Object.assign(child.style, { flex: 'none', inlineSize: size, maxInlineSize: 'none' });
+            width += child.getBoundingClientRect().width;
+          } finally { child.style.cssText = original; }
+        }
+        return Math.ceil(width);
+      };
+      const observation = { key: row.dataset.nativeResponsiveRow,
+        available: Math.max(0, Math.floor(available)), minimum: preferred('min-content') };
+      if (row.hasAttribute('data-native-supporting-row')) {
+        const original = row.getAttribute('data-supporting-form');
+        // Observe both declared forms on the actual controls, preserving the
+        // constrained slot width and restoring the published representation.
         try {
-          Object.assign(child.style, { flex: 'none', inlineSize: 'min-content', maxInlineSize: 'none' });
-          minimum += child.getBoundingClientRect().width;
-        } finally { child.style.cssText = original; }
+          row.setAttribute('data-supporting-form', 'full');
+          observation.full_preferred = preferred('max-content');
+          row.setAttribute('data-supporting-form', 'compact');
+          observation.compact_preferred = preferred('max-content');
+        } finally { row.setAttribute('data-supporting-form', original); }
       }
-      return { key: row.dataset.nativeResponsiveRow, available: Math.max(0, Math.floor(available)), minimum: Math.ceil(minimum) };
+      return observation;
     });
   }
   async function measure(specifications) {
