@@ -29,6 +29,17 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (calle
      Selvedge.Features.Runtime.guard_result value result
    end
  end.
+(* Assess against the worker's authoritative immutable world. The hypothetical
+   decision is discarded: no world, scheduler work or IO effect is committed. *)
+Definition assess (source : json) (value : world) : json :=
+ let candidate := match Selvedge.Generated.Commands.decode (value_or_null "command" source) with
+ | Some command => decision_reply (execute_domain command None value)
+ | None => State.failure "invalid_input" "Malformed input for the declared protocol"
+ end in
+ let admitted := bool_default "ok" candidate false in
+ JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
+   ("sequence",number (world_sequence value));("admitted",JBool admitted);
+   ("refusal",if admitted then JNull else value_or_null "error" candidate)].
 Definition execute_command (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) :=
  let result := execute_domain command caller value in
  if command_schedules command result then Selvedge.Features.Runtime.after_transition value result else result.

@@ -3,6 +3,8 @@ From Selvedge.Foundation Require Import Schema Utf8 Numbers.
 From Selvedge.Kernel Require Import Domain.
 Import ListNotations.
 Open Scope string_scope.
+Definition valid_project_name (name : string) :=
+ Utf8.nonblank name && Nat.leb (String.length name) 256.
 Fixpoint contains (needle text : string) :=
  if String.prefix needle text then true else match text with EmptyString => false | String _ rest => contains needle rest end.
 Definition valid_path (path : string) :=

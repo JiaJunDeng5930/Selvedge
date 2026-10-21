@@ -11,8 +11,11 @@ let packet source world =
     "envelope", Js.Unsafe.inject (Js.string (Json.stringify envelope))
   |]
 let observe world = Js.string (Json.stringify (Model.selvedge_kernel_world_json world))
+let assess source world =
+  Js.string (Json.stringify (Model.selvedge_kernel_assess (Json.parse (Js.to_string source)) world))
 let () = Js.Unsafe.set Js.Unsafe.global "__selvedgeKernel" (Js.Unsafe.obj [|
   "initial", Js.Unsafe.inject (Js.wrap_callback initial);
   "packet", Js.Unsafe.inject (Js.wrap_callback packet);
-  "observe", Js.Unsafe.inject (Js.wrap_callback observe)
+  "observe", Js.Unsafe.inject (Js.wrap_callback observe);
+  "assess", Js.Unsafe.inject (Js.wrap_callback assess)
 |])

@@ -5,8 +5,12 @@ const model = await import(pathToFileURL(workerData.module).href);
 let world = model.initial();
 let projectedWorld;
 let projection;
-parentPort.on('message', ({ text: input, snapshot }) => {
+parentPort.on('message', ({ text: input, snapshot, operation }) => {
   try {
+    if (operation === 'assess') {
+      parentPort.postMessage({ text: model.assess(input, world) });
+      return;
+    }
     const output = model.packet(input, world);
     world = output.world;
     const text = output.envelope;

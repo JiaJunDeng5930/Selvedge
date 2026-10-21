@@ -65,7 +65,11 @@ export class Kernel {
     return this.#request(input, false);
   }
 
-  #request(input, snapshot) {
+  assess(candidate) {
+    return this.#request(candidate, false, 'assess');
+  }
+
+  #request(input, snapshot, operation = 'packet') {
     const text = encodeInput(input, this.maximum);
     const result = this.#tail.then(() => {
       // DEFENSE: A queued request can reach its turn after an earlier transition failed or shutdown started.
@@ -75,7 +79,7 @@ export class Kernel {
         // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
         this.#pending = { resolve, reject, timer };
-        this.#worker.postMessage({ text, snapshot });
+        this.#worker.postMessage({ text, snapshot, operation });
       });
     });
     // DEFENSE: The request's returned promise reports its failure; the queue must still admit close and reject later callers explicitly.

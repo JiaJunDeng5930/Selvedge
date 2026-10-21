@@ -1,7 +1,7 @@
 From Selvedge.Features Require Import WorkspaceBinding.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -277,7 +277,8 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
  | None => reject "task_not_found" "The parent task does not exist" value
  | Some task =>
    if (quiescent task || (invoked && match task_lifecycle task with Running (PendingCalls _) [] | Running (ReadyForHooks _ _ _) [] => true | _ => false end)) && negb (String.eqb (task_status task) "archived") &&
-    ((0 <? count) && (count <=? contract_max_fork (task_contract task)))%N &&
+    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) &&
+    TaskConstraints.fork_messages_valid count (List.length messages) &&
     ancestors_fit (id :: task_lineage task) count value then
     match resolve_settings (task_current_profile task) settings (task_current_settings task) value with
     | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
@@ -298,7 +299,7 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
           else task) 0 (world_tasks children)) children) in
       accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children []
     end
-   else reject "fork_unavailable" "Forking requires a quiescent task and available descendant capacity" value
+   else reject "fork_unavailable" "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value
  end.
 Definition fork := fork_with_caller false.
 Definition open_side (id : N) (contents : content) (value : world) :=

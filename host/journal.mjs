@@ -107,6 +107,22 @@ export class Journal extends EventEmitter {
     this.kernel?.abort(error);
   }
 
+  assess(candidate) {
+    // DEFENSE: An assessment may be queued just before the journal closes.
+    if (this.#closing) return Promise.reject(new Error('Journal is closed'));
+    const result = this.#tail.then(async () => {
+      // DEFENSE: A failed prior commit leaves no authoritative world for a read-only assessment.
+      if (this.#failure) throw this.#failure;
+      const request = this.kernel.assess(candidate);
+      try { return (await request).value; }
+      // DEFENSE: A worker failure during assessment retires that world, so later journal commands must also fail.
+      catch (error) { this.#poison(error); throw error; }
+    });
+    // DEFENSE: The returned promise reports the failure; close must still wait for this queued assessment.
+    this.#tail = result.catch(() => {});
+    return result;
+  }
+
   execute(input) {
     // DEFENSE: Requests already in flight at shutdown can still reach the journal.
     if (this.#closing) return Promise.reject(new Error('Journal is closed'));

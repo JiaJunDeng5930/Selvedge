@@ -546,6 +546,14 @@ export class Service extends EventEmitter {
     if (!boundary('http.public_command', { command }).allowed) throw new CommandNotSubmitted(new TypeError('Speech observations require a live upstream session'));
   }
 
+  assess(candidate) {
+    this.#publicCommand(candidate.command);
+    // DEFENSE: An HTTP assessment can already be in flight when the service closes or loses its worker.
+    if (this.#failure) return Promise.reject(this.#failure);
+    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    return this.journal.assess(candidate);
+  }
+
   async command(command) {
     this.#publicCommand(command);
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.

@@ -286,6 +286,7 @@ export async function startServer(options) {
         case 'browser_command':
         case 'browser_observation':
         case 'command':
+        case 'assess':
         case 'connection_command': {
           if (!bodyObserved) {
             const maximum = ['account_refresh', 'audio_login'].includes(plan.action) ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
@@ -339,6 +340,10 @@ export async function startServer(options) {
               // Public commands are resolved by the service's native command boundary.
               const result = await service.command(body);
               json(response, boundary('http.reply_status', { reply: result.reply }), { sequence: result.sequence, ...result.reply });
+              return;
+            }
+            case 'assess': {
+              json(response, 200, await service.assess(body));
               return;
             }
             case 'connection_command': {

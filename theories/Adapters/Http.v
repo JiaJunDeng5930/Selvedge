@@ -13,6 +13,7 @@ Definition routes := [
   Route "POST" "/api/browser/command" "browser_command" true;
   Route "POST" "/api/browser/observation" "browser_observation" true;
   Route "POST" "/api/commands" "command" true;
+  Route "POST" "/api/assess" "assess" true;
   Route "GET" "/api/browser/state" "browser_state" false;
   Route "GET" "/api/describe" "describe" false;
   Route "GET" "/api/events" "events" false;
@@ -141,6 +142,9 @@ Definition body_shape (target : string) (body : json) :=
   else if String.eqb target "remote_revoke" then exact_fields ["controller_id"] body && nonempty_text (get body "controller_id")
   else if starts target "remote_" || String.eqb target "account_refresh" then exact_fields [] body
   else if String.eqb target "browser_command" then exact_fields ["command"] body
+  else if String.eqb target "assess" then exact_fields ["command";"editor";"revision";"sequence"] body &&
+    is_object (get body "command") &&
+    (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
   else if String.eqb target "audio_login" then exact_fields ["browser_id"] body && nonempty_text (get body "browser_id")
   else if String.eqb target "audio_create" then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
     forallb (fun key => nonempty_text (get body key)) ["connection";"sdp";"browser_id"]

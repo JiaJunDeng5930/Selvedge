@@ -20,6 +20,16 @@ JavaScript runtime object layouts. Pure adapter decisions are called through
 `public/model-boundary.mjs` and come from the same extracted definitions as
 their Rocq proofs.
 
+`POST /api/assess` accepts `command`, opaque `editor`, `revision` and the observed
+`sequence`. It returns the editor/revision, the worker's actual sequence,
+`admitted` and an optional `refusal` with `code`/`message`. The worker evaluates
+the same pure command interpreter used by submission against its current world,
+then discards the hypothetical decision. Assessment is serialized after pending
+journal work; it does not append a journal row, replace the world or dispatch
+effects. Clients discard responses for an older draft or world observation and
+still submit through the ordinary command boundary. Filesystem preparation and
+external execution are not predicted by this read-only operation.
+
 The remaining modules observe and change the filesystem, processes, network,
 credentials, model connections, audio devices and managed worktrees. Those
 observations, SQLite durability, worker delivery, remote servers and the OS are
