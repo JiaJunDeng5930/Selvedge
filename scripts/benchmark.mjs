@@ -76,7 +76,7 @@ for (const filename of await paths('theories')) if (/\.(vo|vos|vok|glob)$|\/\..*
 for (const filename of ['.build/build-state.json','.build/extracted','.lia.cache','.nia.cache']) await rm(path.join(root,filename),{recursive:true,force:true});
 const results = [await measured('clean'), await measured('unchanged')];
 const requested = process.argv.slice(2);
-const changes = requested.length ? requested : ['theories/Browser/Native.v','theories/Kernel/Commands.v','theories/Foundation/Schema.v','theories/Browser/NativeProof.v'];
+const changes = requested.length ? requested : ['theories/Browser/Layout.v','theories/Kernel/Commands.v','theories/Foundation/Schema.v','theories/Browser/LayoutProof.v'];
 for (const [index,filename] of changes.entries()) {
   const original = await readFile(path.join(root,filename));
   try {

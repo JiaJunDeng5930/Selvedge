@@ -13,9 +13,11 @@ Definition output_mode_for (task : task) :=
  then InteractiveOutput else PlainOutput.
 Definition call_result (invocation : call) (result : json) (error : bool) (remaining : list call) (task : task) :=
  with_activity (PendingCalls remaining) (append_history [FunctionOutput (call_id invocation) result error] task).
-Definition call_failure (id : N) (invocation : call) (reason : string) (remaining : list call) (task : task) (value : world) :=
+Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (task : task) (value : world) :=
  acknowledged (put_task id (with_activity (PendingCalls remaining)
-  (append_history [FunctionOutput (call_id invocation) (State.failure "tool_rejected" reason) true] task)) value).
+  (append_history [FunctionOutput (call_id invocation) (State.failure code reason) true] task)) value).
+Definition call_failure (id : N) (invocation : call) (reason : string) (remaining : list call) (task : task) (value : world) :=
+ call_error id invocation "tool_rejected" reason remaining task value.
 Definition operation_notice (value : operation) := JObject [
  ("status",JString (match operation_stage value with AwaitingApproval _ _ => "awaiting_approval"
   | Granted _ => "approved_waiting_to_run" | _ => "running" end));

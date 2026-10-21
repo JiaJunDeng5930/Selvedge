@@ -21,7 +21,8 @@ Definition hook_completed (id ticket : N) (outcome : hook_outcome) (value : worl
          else call_failure id invocation "A plugin rewrite does not satisfy the frozen tool schema" remaining task value
        | None => call_failure id invocation "The tool is unavailable in the frozen task contract" remaining task value
        end
-     | HookDeny reason | HookFailure reason => call_failure id invocation reason remaining task value
+     | HookDeny reason => call_error id invocation "hook_denied" reason remaining task value
+     | HookFailure reason => call_error id invocation "hook_failed" reason remaining task value
      end
      else ignored value
    | _ => ignored value
@@ -36,9 +37,11 @@ Definition after_completed (id operation ticket : N) (outcome : after_outcome) (
      | AwaitingAfterHook expected plugin pending result error =>
        if N.eqb expected ticket then
        let task := append_history [AfterReceipt id (operation_id operation) plugin (after_json outcome)] task in
+       let failed := fun code reason => acknowledged
+         (put_task id (settle_operation operation (State.failure code reason) true task) value) in
        match outcome with
-       | DenyResult reason | AfterFailure reason => acknowledged
-         (put_task id (settle_operation operation (State.failure "after_hook_denied" reason) true task) value)
+       | DenyResult reason => failed "after_hook_denied" reason
+       | AfterFailure reason => failed "after_hook_failed" reason
        | KeepResult | RewriteResult _ =>
          let result := match outcome with RewriteResult value => value | _ => result end in
          match pending with

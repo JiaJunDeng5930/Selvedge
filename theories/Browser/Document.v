@@ -1,586 +1,545 @@
 From Stdlib Require Import String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
-From Selvedge.Browser Require Import Native Appearance.
-From Selvedge.Interaction Require Export Scene.
-From Selvedge.Interaction Require Import Graphics.
+From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose SemanticAppearance InteractiveAppearance Observation.
+From Selvedge.Interaction Require Import CodeSource CodeBlock DocumentPublication Graphics Audit Identity.
+From Selvedge.Interaction Require Appearance.
+From Selvedge.Interaction.Submission Require Fields Parameters.
+From Selvedge.Features Require BoardFilter.
+From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation Local.
+From Selvedge.Interaction.Presentation Require Roles Information Composition Gesture Model Surface.
+Module NativeAppearance := Selvedge.Browser.Appearance.
 Import ListNotations.
 Open Scope string_scope.
-
-Definition tag (value : kind) (multiline : bool) : string :=
-  match value with
-  | Group => "div" | Header => "header" | Heading => "h2" | Navigation => "nav" | Main => "main"
-  | Aside => "aside" | Section => "section" | Dialog => "dialog" | ListView => "ul"
-  | Item => "li" | Button => "button" | Field => if multiline then "textarea" else "input"
-  | Select => "select" | OptionView => "option" | Checkbox => "input" | Form => "form"
-  | Link => "a" | Image => "img" | Progress => "progress" | Table => "table"
-  | Row => "tr" | Cell => "td" | Code => "code" | Icon => "span"
-  | Text => "span" | Markdown => "div" | Portal => "div" | Graphic => "svg"
-  end.
-
-Definition optional_text (name : string) (value : json) : string :=
-  match string_field name value with Some text => text | None => "" end.
-Definition optional_bool (name : string) (value : json) : bool :=
-  match bool_field name value with Some flag => flag | None => false end.
-Definition optional_json (name : string) (value : json) : json :=
-  match field name value with Some item => item | None => JNull end.
-
-Definition value_text (source : json) : string :=
-  match field "value" source with
-  | Some (JString text) => text | Some JNull | None => ""
-  | Some value => render_json value end.
-Definition checked_value (source : json) : bool :=
-  match bool_field "checked" source with
-  | Some value => value | None => optional_bool "value" source end.
-Definition option_scene (key : string) (source : json) :=
-  (optional_text "label" source, value_text source).
-
-Inductive scene : Type :=
-| Scene (role : kind) (key label value : string) (disabled checked multiline : bool)
-    (action attributes : json) (source : json) (children : list scene)
-| GraphicScene (key label : string) (plot : Graphics.plot json).
-
-(** Fuel is the input's structural size, rather than a product-visible depth limit. *)
-Fixpoint json_size (value : json) : nat :=
-  S (match value with
-  | JArray xs => (fix sizes (rest : list json) :=
-      match rest with [] => O | x :: tail => json_size x + sizes tail end) xs
-  | JObject fields => (fix sizes (rest : list (string * json)) :=
-      match rest with [] => O | (_, x) :: tail => json_size x + sizes tail end) fields
-  | _ => O
-  end).
-
-Fixpoint decode_scene_at (fuel : nat) (value : json) : option scene :=
-  match fuel with
-  | O => None
-  | S remaining =>
-    match string_field "kind" value with
-    | None => None
-    | Some name =>
-      match decode_kind name with
-      | None => None
-      | Some Graphic => match field "plot" value with
-          | Some plot => option_map (GraphicScene (optional_text "key" value) (optional_text "label" value)) (Graphics.decode plot)
-          | None => None end
-      | Some role =>
-        let children := match array_field "children" value with Some xs => xs | None => [] end in
-        let fix decode_children (xs : list json) : option (list scene) :=
-          match xs with
-          | [] => Some []
-          | x :: tail => match decode_scene_at remaining x, decode_children tail with
-            | Some child, Some rest => Some (child :: rest) | _, _ => None end
-          end in
-        match decode_children children with
-        | None => None
-        | Some content =>
-            let options := match role, array_field "options" value with
-              | Select, Some options => map (fun option =>
-                  Scene OptionView (optional_text "key" value ++ "/option/" ++ value_text option)
-                    (optional_text "label" option) (value_text option) false false false
-                    JNull JNull option []) options
-              | _, _ => [] end in
-            Some (Scene role (optional_text "key" value)
-            (optional_text "label" value) (value_text value)
-            (optional_bool "disabled" value) (checked_value value)
-            (optional_bool "multiline" value) (optional_json "action" value)
-            (optional_json "attrs" value) value (content ++ options))
-        end
-      end
-    end
-  end.
-Definition decode_scene (value : json) := decode_scene_at (json_size value) value.
-
-Inductive event_kind := Activate | Edit | Toggle | ChooseFiles | Submit | Dismiss.
-Definition event_name (event : event_kind) :=
-  match event with Activate => "activate" | Edit => "edit" | Toggle => "toggle"
-  | ChooseFiles => "files" | Submit => "submit" | Dismiss => "dismiss" end.
-Record event_binding := EventBinding { event : event_kind; action : json }.
-Definition bindings (role : kind) (enabled : bool) (action : json) : list event_binding :=
-  if enabled then
-    match action with
-    | JNull => []
-    | _ => match role with
-      | Button | Link => [EventBinding Activate action]
-      | Field => [EventBinding Edit action]
-      | Select => [EventBinding Edit action]
-      | Checkbox => [EventBinding Toggle action]
-      | Form => [EventBinding Submit action]
-      | _ => []
-      end
-    end
-  else [].
-
-Record property := Property { property_name : string; property_value : string }.
-Inductive node :=
-| Element (key tag : string) (attributes styles : list property)
-    (events : list event_binding) (children : list node) (metadata : json)
-| TextNode (text : string)
-| MarkdownNode (key text : string) (complete : bool) (source owner metadata : json)
-| PortalNode (key target : string) (children : list node).
-
-Definition tone_color (value : Graphics.tone) :=
-  match value with
-  | Graphics.Neutral => "currentColor" | Graphics.Accent => "var(--blue-500,#0169cc)"
-  | Graphics.Success => "var(--green-500,#23814d)" | Graphics.Warning => "var(--orange-500,#ad5b00)"
-  | Graphics.Danger => "var(--red-500,#c13046)" | Graphics.Muted => "var(--text-tertiary,GrayText)" end.
-Definition coordinate_property name value := Property name (show_integer value).
-Definition extent_property name value := Property name (show_natural value).
-Definition graphic_primitive (key : string) (index : nat) (value : Graphics.primitive json) : node :=
-  let identity := key ++ "/shape/" ++ show_nat index in
-  let element tag properties styles events content metadata := Element identity tag
-    (Property "data-key" identity :: properties) styles events content metadata in
-  match value with
-  | Graphics.Line x y u v tone => element "line"
-      [coordinate_property "x1" x; coordinate_property "y1" y; coordinate_property "x2" u; coordinate_property "y2" v;
-       Property "stroke" (tone_color tone); Property "stroke-width" "2"] [] [] [] JNull
-  | Graphics.Rectangle x y width height tone => element "rect"
-      [coordinate_property "x" x; coordinate_property "y" y; extent_property "width" width; extent_property "height" height;
-       Property "fill" (tone_color tone)] [] [] [] JNull
-  | Graphics.Circle x y radius tone => element "circle"
-      [coordinate_property "cx" x; coordinate_property "cy" y; extent_property "r" radius; Property "fill" (tone_color tone)] [] [] [] JNull
-  | Graphics.Label x y text tone => element "text"
-      [coordinate_property "x" x; coordinate_property "y" y; Property "fill" (tone_color tone)]
-      [Property "font" "inherit"] [] [TextNode text] JNull
-  | Graphics.Hitbox target x y width height label action =>
-      Element target "rect"
-        [Property "data-key" target; coordinate_property "x" x; coordinate_property "y" y;
-         extent_property "width" width; extent_property "height" height;
-         Property "fill" "transparent"; Property "role" "button"; Property "tabindex" "0"; Property "aria-label" label]
-        [Property "cursor" "pointer"] [EventBinding Activate action] []
-        (JObject [("meta", JObject [("key_actions", JObject [("Enter", action); (" ", action)])])])
-  end.
-Definition render_graphic (key label : string) (value : Graphics.plot json) : node :=
-  Element key "svg" [Property "data-key" key; Property "role" "img"; Property "aria-label" label;
-      Property "viewBox" ("0 0 " ++ show_natural (Npos (Graphics.width value)) ++ " " ++ show_natural (Npos (Graphics.height value)))]
-    [Property "inline-size" "100%"; Property "block-size" "var(--graphic-block-size,auto)"; Property "max-block-size" "var(--graphic-max-block-size,36rem)"] []
-    (map (fun indexed => graphic_primitive key (fst indexed) (snd indexed))
-      (combine (seq O (List.length (Graphics.primitives value))) (Graphics.primitives value))) JNull.
-
-Definition allowed_attributes : list string :=
-  ["id"; "class"; "title"; "role"; "name"; "type"; "placeholder";
-     "draggable"; "data-card-id"; "data-card-revision"; "data-card-observed-at"; "data-drop-status"; "data-card-before"; "data-field"; "data-object-owner";
-     "min"; "max"; "step"; "rows"; "cols"; "accept"; "multiple"; "required";
-     "target"; "rel"; "alt"; "width"; "height"; "tabindex";
-     "aria-label"; "aria-hidden"; "aria-labelledby"; "aria-describedby"; "aria-autocomplete"; "aria-activedescendant"; "aria-expanded";
-     "aria-controls"; "aria-selected"; "aria-pressed"; "aria-haspopup"; "aria-live"; "aria-current"; "aria-modal";
-     "data-owner"; "data-retain-focus"; "data-subject"; "data-action"; "data-code"; "data-logical-key"; "data-view"; "data-focus-alias"; "data-anchor"; "data-anchor-focus"; "data-layout"; "data-expanded"; "data-drawer-open"; "data-selected"; "data-reveal-on-layout"; "data-reading-root"; "data-reading-anchor"; "data-motion-paused"; "data-interactive-motion"; "data-interactive-motion-glyph"; "data-interactive-transition"; "data-interactive-stale"; "data-sources-fresh"].
-Definition allowed_attribute (name : string) : bool :=
-  existsb (String.eqb name) allowed_attributes.
-Definition decode_properties (source : json) : list property :=
-  match source with
-  | JObject fields => flat_map (fun field =>
-      let '(name, value) := field in
-      if allowed_attribute name then
-        match value with
-        | JString text => [Property name text]
-        | JNumber text => [Property name text]
-        | JBool flag => [Property name (if flag then "true" else "false")]
-        | _ => [] end
-      else []) fields
-  | _ => []
-  end.
-Definition admitted_link (url : string) : bool :=
-  starts_with "https://" url || starts_with "http://" url ||
-  starts_with "mailto:" url || starts_with "#" url ||
-  (starts_with "/" url && negb (starts_with "//" url)).
-Definition observation_properties (system_dark : bool) (source : json) : list property :=
-  match string_field "layout" source with
-  | Some layout => [Property "data-layout" layout] | None => [] end ++
-  match string_field "value_kind" source with
-  | Some kind => [Property "data-value-kind" kind] | None => [] end ++
-  match string_field "appearance" source with
-  | Some "dark" => [Property "data-theme" "dark"]
-  | Some "light" => [Property "data-theme" "light"]
-  | Some "system" => [Property "data-theme" (if system_dark then "dark" else "light")]
-  | _ => [] end.
-Definition resource_properties (role : kind) (source : json) : list property :=
-  let url := optional_text "url" source in
-  match role with
-  | Link => if admitted_link url then
-      [Property "href" url; Property "rel" "noopener noreferrer"] else []
-  | Image => if starts_with "/api/board/attachments/" url then
-      [Property "src" url; Property "alt" (optional_text "label" source)] else []
-  | _ => []
-  end.
-(** CSS uses the user's root font scale, with the original nominal size as a floor.
-    Native font shaping and intrinsic measurement remain browser responsibilities. *)
-Definition scaled_pixels (nominal : N) : string :=
-  "max(" ++ show_natural nominal ++ "px,calc(" ++ show_natural nominal ++ "rem / 16))".
-Definition text_style (prefix : string) (dimensions : N * N) (weight : N) (family : string) :=
-  let '(size,leading) := dimensions in
-  [Property (prefix ++ "-size") (scaled_pixels size);
-   Property (prefix ++ "-line") (scaled_pixels leading);
-   Property (prefix ++ "-weight") (show_natural weight);
-   Property (prefix ++ "-font") family].
-Definition interface_font := "var(--font-sans,system-ui)".
-Definition code_font := "var(--font-mono,monospace)".
-Definition title_dimensions := (20%N,28%N).
-Definition body_dimensions := (13%N,20%N).
-Definition typography_styles :=
-  flat_map (fun '(prefix,dimensions,weight,family) => text_style prefix dimensions weight family)
-    [("--rich-title",title_dimensions,600%N,interface_font);
-     ("--rich-section",(14%N,20%N),500%N,interface_font);
-     ("--rich-body",body_dimensions,400%N,interface_font);
-     ("--rich-support",(12%N,18%N),500%N,interface_font);
-     ("--rich-code",body_dimensions,400%N,code_font);
-     ("--rich-body-strong",body_dimensions,600%N,interface_font)].
-Definition focus_width := 2%N.
-Definition focus_inset := 2%N.
-Definition application_styles : list property := typography_styles ++
-  [Property "font-family" interface_font; Property "font-size" "var(--rich-body-size)";
-   Property "line-height" "var(--rich-body-line)";
-   Property "color" "var(--app-color-text-foreground)";
-   Property "background" "var(--app-color-background-surface)";
-   Property "--native-focus-ring" "var(--app-color-border-focus)";
-   Property "--native-focus-width" (show_natural focus_width ++ "px");
-   Property "--native-focus-offset" ("-" ++ show_natural (focus_width + focus_inset) ++ "px");
-   Property "--native-disabled-opacity" "40%";
-   Property "--native-writing-lines" (show_nat Appearance.initial_writing_lines);
-   Property "--native-clearance" (scaled_pixels (N.of_nat Appearance.clearance_pixels));
-   Property "--native-icon-size" (scaled_pixels (N.of_nat Appearance.icon_pixels))].
-
-Definition render_symbol (key : string) (value : Appearance.symbol) : node :=
-  Element (key ++ "/icon") "svg"
-    [Property "viewBox" "0 0 20 20"; Property "aria-hidden" "true";
-     Property "focusable" "false"; Property "data-icon" (Appearance.symbol_name value)]
-    [Property "inline-size" "var(--native-icon-size)"; Property "block-size" "var(--native-icon-size)";
-     Property "flex-shrink" "0"; Property "pointer-events" "none"] []
-    [Element (key ++ "/icon/path") "path"
-      ([Property "d" (Appearance.symbol_path value)] ++
-       match Appearance.symbol_paint value with
-       | Appearance.Filled => [Property "fill" "currentColor"]
-       | Appearance.Outline => [Property "fill" "none"; Property "stroke" "currentColor";
-           Property "stroke-width" "1.4"; Property "stroke-linecap" "round"; Property "stroke-linejoin" "round"] end)
-      [] [] [] JNull] JNull.
-Definition caption_nodes (key label : string) (source : json) : list node :=
-  let caption := Element (key ++ "/caption") "span" [Property "class" "control-caption"] [] [] [TextNode label] JNull in
-  match Appearance.find_symbol (optional_text "icon" source) with
-  | None => [caption]
-  | Some symbol => [render_symbol key symbol; caption]
-  end.
-(* Artwork expansion is irrelevant to renderer termination and event proofs.
-   Extraction still executes this checked definition and its symbol declaration. *)
-Opaque caption_nodes.
-Definition reading_styles (attributes : json) : list property :=
-  if existsb (fun p => String.eqb (property_name p) "data-reading-root" &&
-                       String.eqb (property_value p) "true") (decode_properties attributes) then
-    [Property "flex" "1"; Property "min-block-size" "8lh"; Property "overflow" "auto"]
-  else [].
-Definition navigation_columns : nat := 15.
-Definition navigation_rail_columns : nat := 4.
-Definition main_columns : nat := 20.
-Definition workspace_padding : nat := 1.
-Definition workspace_gap : nat := 1.
-Definition rem_length (units : nat) := show_natural (N.of_nat units) ++ "rem".
-Definition observed_number_style (source : json) (field_name css_name unit : string) : list property :=
-  match number_field field_name source with
-  | Some value => [Property css_name (value ++ unit)] | None => [] end.
-Definition component_styles (source : json) : list property :=
-  (match string_field "gap" source with
-   | Some "none" => [Property "gap" "0"]
-   | Some "sm" => [Property "gap" (scaled_pixels 6)]
-   | Some "md" => [Property "gap" (scaled_pixels 12)]
-   | Some "lg" => [Property "gap" (scaled_pixels 18)] | _ => [] end) ++
-  match optional_text "tone" source with
-  | "accent" => [Property "color" "var(--color-token-text-link-foreground)"]
-  | "success" => [Property "color" "var(--interactive-tone-success)"]
-  | "warning" => [Property "color" "var(--color-token-editor-warning-foreground)"]
-  | "danger" => [Property "color" "var(--interactive-tone-danger)"]
-  | "muted" => [Property "color" "var(--color-token-text-secondary)"] | _ => [] end.
-Definition layout_styles (mode : presentation) (source : json) : list property :=
-  match optional_text "layout" source with
-  | "workspace" => [Property "display" "grid"; Property "grid-template-rows" "auto minmax(0,1fr)";
-      Property "padding" "0"; Property "gap" "0"; Property "block-size" "100dvh";
-      Property "overflow" "hidden"] ++ application_styles
-  | "workspace-navigation" => [Property "display" "contents"]
-  | "supporting-header" => [Property "flex-direction" "row"; Property "align-items" "center";
-      Property "gap" "var(--native-clearance)"; Property "flex-shrink" "0";
-      Property "position" "sticky"; Property "top" "0"; Property "z-index" "2";
-      Property "background" "var(--app-color-background-surface)"]
-  | "navigation-header" => [Property "flex-direction" "row"; Property "align-items" "center";
-      Property "padding" "0.5rem"; Property "gap" "0.5rem"; Property "min-inline-size" "0"]
-  | "global-navigation" => [Property "padding" "0.5rem"; Property "min-block-size" "0"; Property "overflow" "auto"]
-  | "task-navigation" => [Property "gap" "0"; Property "min-block-size" "0"; Property "overflow" "auto"; Property "padding" "0.75rem"]
-  | "responsive-alternative" => [Property "flex" "1"; Property "min-inline-size" "0"]
-  | "simultaneous-only" => [Property "flex-direction" "row"; Property "overflow" "auto"; Property "align-items" "center"]
-  | "sequential-only" => [Property "flex-direction" "row"]
-  | "task-branch" => [Property "gap" "0"]
-  | "project-task-group" => [Property "gap" "0"; Property "margin-block-start" "1rem"]
-  | "project-tasks" => [Property "gap" "0"; Property "padding-inline-start" "var(--native-clearance)"]
-  | "task-row" | "project-row" => [Property "flex-direction" "row"; Property "align-items" "center";
-      Property "gap" "0"; Property "border-radius" "6px";
-      Property "--native-button-border" "0"; Property "--native-button-padding" "4px";
-      Property "--native-button-background" "transparent"]
-  | "chart-viewport" => [Property "overflow" "auto"; Property "display" "block";
-      Property "block-size" "240px"]
-  | "graph-viewport" => [Property "overflow" "auto"; Property "min-block-size" "12rem";
-      Property "block-size" "420px"; Property "display" "block"]
-  | "graph-canvas" => [Property "position" "relative"; Property "display" "block";
-      Property "--graphic-block-size" "100%"; Property "--graphic-max-block-size" "none"] ++
-      observed_number_style source "width" "inline-size" "px" ++
-      observed_number_style source "height" "block-size" "px"
-  | "graph-edges" => [Property "position" "absolute"; Property "inset" "0";
-      Property "inline-size" "100%"; Property "block-size" "100%"; Property "display" "block"]
-  | "graph-node" => [Property "position" "absolute"; Property "z-index" "1"; Property "overflow" "auto"] ++
-      observed_number_style source "x" "left" "px" ++ observed_number_style source "y" "top" "px" ++
-      observed_number_style source "width" "inline-size" "px" ++ observed_number_style source "height" "block-size" "px"
-  | "skill-option" => [Property "flex-direction" "column"; Property "align-items" "stretch";
-      Property "gap" "2px"; Property "padding" "8px 12px"; Property "border-radius" "6px"]
-  | "anchored-listbox" => [Property "position" "fixed"; Property "inset" "auto";
-      Property "position-area" "top span-right"; Property "position-try-fallbacks" "flip-block,flip-inline,flip-block flip-inline";
-      Property "margin" "0 0 6px 0"; Property "padding" "4px"; Property "list-style" "none";
-      Property "inline-size" "anchor-size(width,min(32rem,calc(100dvw - 32px)))";
-      Property "max-inline-size" "calc(100dvw - 24px)"; Property "max-block-size" "min(18rem,45dvh)";
-      Property "overflow" "auto"; Property "z-index" "1000";
-      Property "background" "var(--app-color-background-surface)";
-      Property "border" "1px solid var(--app-color-border-heavy)"; Property "border-radius" "10px";
-      Property "box-shadow" "0 6px 24px #0002"; Property "--native-button-border" "0";
-      Property "--native-button-background" "transparent"]
-  | "anchored-menu" => [Property "position" "fixed"; Property "inset" "auto";
-      Property "margin" "0"; Property "position-area" "bottom span-right";
-      Property "position-try-fallbacks" "flip-block,flip-inline,flip-block flip-inline";
-      Property "inline-size" "max-content"; Property "max-inline-size" "min(24rem,calc(100dvw - 2 * var(--native-clearance)))";
-      Property "max-block-size" "calc(100dvh - 2 * var(--native-clearance))";
-      Property "padding" "var(--native-clearance)"]
-  | "motion-wrapper" => [Property "flex-direction" "row"; Property "flex-wrap" "nowrap";
-      Property "align-items" "center"; Property "gap" (scaled_pixels 6)]
-  | "row" => [Property "flex-direction" "row"; Property "flex-wrap" "wrap"]
-  | "column" => [Property "flex-direction" "column"]
-  | "fill" => [Property "flex" "1"; Property "min-block-size" "0"]
-  | "grid" => [Property "display" "grid"; Property "grid-template-columns" (match number_field "columns" source with
-        | Some count => "repeat(" ++ count ++ ",minmax(0,1fr))"
-        | None => "repeat(auto-fit,minmax(min(18rem,100%),1fr))" end)]
-  | _ => []
-  end.
-Definition role_properties (role : kind) (key label value : string)
-    (disabled checked : bool) : list property :=
-  [Property "id" key; Property "data-key" key; Property "data-kind" (kind_name role)] ++
-  (if String.eqb label "" then [] else [Property "aria-label" label]) ++
-  (match role with
-   | Field | Select | OptionView => [Property "value" value]
-   | Button => [Property "type" "button"]
-   | Checkbox => [Property "type" "checkbox"; Property "checked" (if checked then "true" else "false")]
-   | Dialog => [Property "open" "true"]
-   | Main => [Property "tabindex" "-1"] | _ => [] end) ++
-  (if disabled then [Property "disabled" "true"] else []).
-Definition base_styles (role : kind) : list property :=
-  match role with
-  | Group | Header | Navigation | Main | Aside | Section | Dialog | Form =>
-      [Property "display" "flex"; Property "flex-direction" "column";
-       Property "min-inline-size" "0"; Property "gap" "0.75rem"]
-  | Button => [Property "font" "inherit"; Property "padding" "var(--native-button-padding,4px 8px)";
-      Property "min-inline-size" (scaled_pixels (N.of_nat Appearance.motor_target_pixels));
-      Property "min-block-size" (scaled_pixels (N.of_nat Appearance.motor_target_pixels));
-      Property "display" "inline-flex"; Property "align-items" "center"; Property "gap" "0.5rem";
-      Property "--native-rest-background" "var(--native-button-background,var(--app-color-background-button-tertiary))";
-      Property "--native-rest-color" "var(--app-color-text-foreground)";
-      Property "--native-hover-background" "var(--app-color-background-button-tertiary-hover)";
-      Property "--native-pressed-background" "var(--app-color-background-button-tertiary-active)";
-      Property "border" "var(--native-button-border,1px solid var(--app-color-border-heavy))"; Property "border-radius" "8px";
-      Property "text-align" "start"]
-  | Field | Select => [Property "font" "inherit"; Property "min-inline-size" "0";
-      Property "padding" "6px 8px"; Property "min-block-size" (scaled_pixels (N.of_nat Appearance.motor_target_pixels));
-      Property "background" "var(--app-color-background-surface)";
-      Property "color" "var(--app-color-text-foreground)"; Property "border" "1px solid var(--app-color-border-heavy)";
-      Property "border-radius" "8px"]
-  | Heading => text_style "--heading" title_dimensions 500 interface_font ++
-      [Property "margin" "0"; Property "font-size" "var(--heading-size)"; Property "line-height" "var(--heading-line)";
-       Property "font-weight" "var(--heading-weight)"]
-  | Image => [Property "max-inline-size" "100%"; Property "block-size" "auto"]
-  | _ => []
-  end.
-
-Definition render_control (mode : presentation) (system_dark : bool) (role : kind)
-    (key label value : string) (disabled checked multiline : bool)
-    (action attributes source : json) (rendered : list node) : node :=
-  let control := Element key (tag role multiline)
-        (role_properties role key label value disabled checked ++
-         (if String.eqb (optional_text "icon" source) "" then [] else [Property "title" label]) ++
-         (match role with Field => if multiline then
-           [Property "rows" (show_nat Appearance.initial_writing_lines)] else [] | _ => [] end) ++
-         observation_properties system_dark source ++ resource_properties role source ++ decode_properties attributes)
-        (base_styles role ++ layout_styles mode source ++ component_styles source ++ reading_styles attributes)
-        (if disabled then [] else
-          match string_field "type" attributes with
-          | Some "file" => [EventBinding ChooseFiles action]
-          | _ => bindings role true action ++
-            match field "file_action" source with
-            | Some file_action => [EventBinding ChooseFiles file_action] | None => [] end ++
-            match role, mode, field "dismiss_action" source with
-            | Dialog, _, Some dismiss_action | Aside, Sequential, Some dismiss_action => [EventBinding Dismiss dismiss_action] | _, _, _ => [] end
-          end)
-        (match role with
-         | Text | Code => [TextNode value]
-         | Icon => match Appearance.find_symbol (optional_text "icon" source) with
-             | Some symbol => [render_symbol key symbol]
-             | None => [TextNode label] end
-         | _ => (if String.eqb label "" then [] else
-           match role with
-           | Button | Link => caption_nodes key label source
-           | Header | Heading | OptionView | Icon => [TextNode label]
-           | _ => [] end) ++ rendered
-         end) source in
-      match role with
-      | Field | Select | Checkbox =>
-          Element (key ++ "/field") "div" [Property "data-field" key]
-            [Property "display" "flex"; Property "flex-direction" "column"; Property "gap" "0.25rem"; Property "min-inline-size" "0"] []
-            ([Element (key ++ "/label") "label" [Property "for" key] [] [] [TextNode label] JNull;
-              match control with Element key tag attrs styles events children metadata =>
-                Element key tag (Property "id" key :: attrs) styles events
-                  (match role with Select => children | _ => [] end) metadata
-              | other => other end] ++
-             (match role with Select => [] | _ => rendered end) ++
-             (if String.eqb (optional_text "help" source) "" then [] else
-               [Element (key ++ "/help") "small" [] [] [] [TextNode (optional_text "help" source)] JNull])) source
-      | Main => match control with
-          Element key tag attrs styles events children metadata =>
-            Element key tag attrs (styles ++ [Property "flex" "1"; Property "min-block-size" "0"; Property "overflow" "auto";
-              Property "min-inline-size" (match mode with Simultaneous => rem_length main_columns | Sequential => "0" end)]) events children metadata
-          | other => other end
-      | Aside => match control with
-          | Element key tag attrs styles events children metadata =>
-            let styles:=List.app styles [Property "min-block-size" "0"; Property "overflow" "auto"] in
-            match mode with
-            | Simultaneous => Element key tag attrs
-                (styles ++ [Property "min-inline-size" (rem_length main_columns)]) events children metadata
-            | Sequential => Element key "dialog" (Property "open" "true" :: attrs)
-                (styles ++ [Property "position" "fixed"; Property "inset" (rem_length workspace_padding);
-                 Property "inline-size" "auto"; Property "block-size" "auto"; Property "margin" "0";
-                 Property "max-inline-size" "none"; Property "max-block-size" "none";
-                 Property "box-sizing" "border-box"; Property "padding" (rem_length workspace_padding)]) events children metadata
-            end
-          | other => other end
-      | _ => control end.
-
-Definition render_scene_contents (mode : presentation) (system_dark : bool) (value : scene)
-    (rendered : list node) : node :=
-  match value with
-  | GraphicScene key label plot => render_graphic key label plot
-  | Scene role key label value disabled checked multiline action attributes source _ =>
-    match role with
-    | Markdown => MarkdownNode key value (optional_bool "complete" source)
-        (optional_json "source" source) (optional_json "owner" source) source
-    | Portal => PortalNode key (optional_text "target" source) rendered
-    | _ => render_control mode system_dark role key label value disabled checked multiline
-        action attributes source rendered
-    end
-  end.
-
-Fixpoint render_scene (mode : presentation) (system_dark : bool) (value : scene) : node :=
-  match value with
-  | GraphicScene key label plot => render_graphic key label plot
-  | Scene _ _ _ _ _ _ _ _ _ _ children =>
-      render_scene_contents mode system_dark value (map (render_scene mode system_dark) children)
-  end.
-
-Definition node_metadata (value : node) : json :=
-  match value with Element _ _ _ _ _ _ metadata | MarkdownNode _ _ _ _ _ metadata => metadata | _ => JNull end.
-Definition node_layout (value : node) := optional_text "layout" (node_metadata value).
-Definition node_children (value : node) :=
-  match value with Element _ _ _ _ _ children _ | PortalNode _ _ children => children | _ => [] end.
-Definition visible_in (mode : presentation) (value : node) : bool :=
-  match node_layout value, mode with
-  | "simultaneous-only", Sequential | "sequential-only", Simultaneous => false
-  | _, _ => true end.
-Definition tree_expanded (value : node) : bool :=
-  String.eqb (optional_text "data-expanded" (optional_json "attrs" (node_metadata value))) "true".
-Definition tree_drawer_open (value : node) : bool :=
-  String.eqb (optional_text "data-drawer-open" (optional_json "attrs" (node_metadata value))) "true".
-Definition task_navigation_scope (key : string) (header tree : node) : node :=
-  let scope := key ++ "/scope" in
-  Element scope "dialog"
-    [Property "id" scope; Property "data-key" scope; Property "data-kind" "dialog";
-     Property "data-layout" "task-navigation-scope"; Property "open" "true";
-     Property "aria-label" (optional_text "label" (node_metadata tree))]
-    [Property "display" "grid"; Property "grid-template-rows" "auto minmax(0,1fr)";
-     Property "position" "fixed"; Property "inset" "0"; Property "inline-size" "100%";
-     Property "block-size" "100dvh"; Property "max-inline-size" "none"; Property "max-block-size" "none";
-     Property "margin" "0"; Property "padding" "0"; Property "border" "0"; Property "overflow" "hidden"]
-    (match field "dismiss_action" (node_metadata tree) with
-     | Some action => [EventBinding Dismiss action] | None => [] end)
-    [header; tree] (JObject [("layout", JString "task-navigation-scope")]).
-Definition navigation_content mode key rail header tree : list node :=
-  match mode with
-  | Simultaneous => [rail; header] ++ if tree_expanded tree || tree_drawer_open tree then [tree] else []
-  | Sequential => if tree_drawer_open tree then [task_navigation_scope key header tree] else [header]
-  end.
-Definition rendered_support (value : node) : bool :=
-  match value with Element _ "aside" _ _ _ _ _ => true | _ => false end.
-Definition visible_task_tree (value : node) : bool :=
-  String.eqb (node_layout value) "workspace-navigation" &&
-    existsb (fun child => String.eqb (node_layout child) "task-navigation") (node_children value).
-Definition workspace_columns mode children : string :=
-  match mode with
-  | Sequential => "minmax(0,1fr)"
-  | Simultaneous => rem_length navigation_rail_columns ++ " " ++
-      (if existsb visible_task_tree children then rem_length navigation_columns ++ " " else "") ++
-      "minmax(0,1fr)" ++
-      String.concat "" (repeat (" minmax(" ++ rem_length main_columns ++ ",1fr)")
-        (List.length (filter rendered_support children)))
-  end.
-
-(* Physical projection changes placement, never the semantic identity of retained controls.
-   In a compact task drawer the original header belongs to the drawer's focus scope. *)
-Fixpoint project_navigation (mode : presentation) (value : node) {struct value} : node :=
-  match value with
-  | Element key tag attrs styles events children metadata =>
-    let projected := filter (visible_in mode) (map (project_navigation mode) children) in
-    let arranged := match optional_text "layout" metadata, projected with
-      | "workspace-navigation", [rail; header; tree] => navigation_content mode key rail header tree
-      | _, _ => projected end in
-    let workspace := String.eqb (optional_text "layout" metadata) "workspace" in
-    Element key tag
-      (attrs ++ if workspace then
-        [Property "data-presentation" (match mode with Simultaneous => "simultaneous" | Sequential => "sequential" end)] else [])
-      (styles ++ if workspace then
-        [Property "grid-template-columns" (workspace_columns mode arranged);
-         Property "--navigation-rail-width" (rem_length navigation_rail_columns);
-         Property "--task-navigation-width" (rem_length navigation_columns)] else [])
-      events arranged metadata
-  | PortalNode key target children => PortalNode key target
-      (filter (visible_in mode) (map (project_navigation mode) children))
-  | other => other
-  end.
-
-Definition property_json (value : property) := JObject
-  [("name", JString (property_name value)); ("value", JString (property_value value))].
-Definition event_json (value : event_binding) := JObject
-  [("kind", JString (event_name (event value))); ("action", action value)].
-Fixpoint node_json (value : node) : json :=
-  match value with
-  | TextNode text => JObject [("kind", JString "text"); ("value", JString text)]
-  | MarkdownNode key text complete source owner metadata => JObject
-      [("kind", JString "markdown"); ("key", JString key); ("value", JString text);
-       ("complete", JBool complete); ("source", source); ("owner", owner); ("metadata", metadata)]
-  | PortalNode key target children => JObject
-      [("kind", JString "portal"); ("key", JString key); ("target", JString target);
-       ("children", JArray (map node_json children))]
-  | Element key tag attributes styles events children metadata => JObject
-      [("kind", JString "element"); ("key", JString key); ("tag", JString tag);
-       ("attributes", JArray (map property_json attributes));
-       ("styles", JArray (map property_json styles));
-       ("events", JArray (map event_json events)); ("children", JArray (map node_json children)); ("metadata", metadata)]
-  end.
-Definition workspace_allocation (font_pixels : nat) :=
-  Allocation (navigation_columns * font_pixels) (main_columns * font_pixels) (navigation_rail_columns * font_pixels)
-    ((2 * workspace_padding + workspace_gap) * font_pixels).
-Fixpoint supporting_count (value:scene) : nat :=
- match value with
- | GraphicScene _ _ _ => O
- | Scene role _ _ _ _ _ _ _ _ _ children =>
-   (match role with Aside => 1 | _ => O end) +
-     fold_right Nat.add O (map supporting_count children)
+Open Scope list_scope.
+Module S := Surface.
+Module IP := Selvedge.Interaction.Interactive.Presentation.
+Module UX := Selvedge.Interaction.Experience.Model.
+Definition text_number n := show_natural n.
+Definition flag (value:bool) := if value then "true" else "false".
+Definition empty := JObject [].
+Definition event key generation name kind gesture :=
+ DOM.Binding name kind (DOM.ElementTarget key (Gesture.gesture_name gesture) generation).
+Definition disabled (flag:bool) := if flag then [] else [("disabled","disabled")].
+Definition control_attributes {A} (action:Model.control A) :=
+ [("aria-label",Model.control_label action)] ++ disabled (Model.available (Model.control_availability action)).
+Definition control_children {A} (action:Model.control A) (children:list DOM.node) :=
+ match children with []=>[DOM.Text (Model.control_label action)]|_=>children end.
+Definition common key semantic label role := [("id",key);("data-logical-key",semantic);("data-semantic-key",semantic);
+ ("data-surface-role",Roles.role_name role)] ++
+ (match role with Roles.Main|Roles.Heading|Roles.Dialog|Roles.Menu=>[("tabindex","-1")]|_=>[]end) ++
+ (if String.eqb label "" then [] else [("aria-label",label)]).
+Definition role_tag role := match role with
+ | Roles.GlobalNavigation _ | Roles.Navigation => "nav"
+ | Roles.CompactHeader | Roles.NavigationHeader => "header"
+ | Roles.Main => "main" | Roles.Heading => "h2"
+ | Roles.Section | Roles.Activity | Roles.Approval => "section"
+ | Roles.Dialog => "dialog" | _ => "div" end.
+Definition text_tag role := match role with
+ | Information.IntroductionTitle => "h1" | Information.SurfaceTitle=>"h2"
+ | Information.GroupTitle=>"h3" | Information.Status=>"output" | _=>"span" end.
+Definition native_string value := match value with
+ | JString value=>value | JNull=>"" | value=>render_json value end.
+Definition native_checked value := match value with JBool value=>value|_=>false end.
+Definition selection_json (value:option(N*N*bool)) := match value with
+ | None=>JNull | Some (start,stop,backward)=>JObject [("start",JNumber (text_number start));
+ ("end",JNumber (text_number stop));("direction",JString (if backward then "backward" else "forward"))] end.
+Definition choices selected values := map (fun value => DOM.Element
+ ("option/" ++ Fields.choice_value_of value)%string "option"
+ ([("value",Fields.choice_value_of value)] ++
+ if String.eqb selected (Fields.choice_value_of value) then [("selected","selected")] else [])
+ [] [] empty [DOM.Text (Fields.choice_label value)]) values.
+Definition descriptions {A}(children:list(S.node A)) := String.concat " "
+ (map S.node_key (filter(fun child=>match S.node_meaning child with
+ |S.InformationText Information.FieldValue|S.InformationText Information.Description=>true|_=>false end)children)).
+Definition editor {A} env key label generation field (value:Model.edit_control A) attributes styles :=
+ let native:=Parameters.native_value field (Model.editing_observation value) in
+ let text:=match Model.editing_buffer value with Some raw=>raw|None=>native_string native end in
+ let enabled:=Model.available (Model.editing_availability value) in
+ let events:=match Model.editing_input value with None=>[]|Some _=>
+ [event key generation "input" "value" Gesture.Change] end in
+ let metadata:=JObject [("field_session",JObject [("owner",JString key);("source",JString text)]);
+ ("selection",selection_json (Model.editing_selection value))] in
+ let attrs:=attributes ++ [("aria-label",label)] ++ disabled enabled in
+ if ControlPurpose.toggle_widget field(Model.editing_observation value) then
+ let checked:=Parameters.native_checked field(Model.editing_observation value)in
+ DOM.Element key "input"
+ (attrs ++ [("type","checkbox")] ++
+ match checked with Some true=>[("checked","checked")]|Some false=>[]
+ (* DEFENSE: an unavailable context has no observed boolean. The native
+    checkbox must not present it as an editable false value. *)
+ |None=>[("disabled","disabled");("indeterminate","true")]end)
+ styles (match Model.editing_input value with None=>[]|Some _=>[event key generation "change" "checked" Gesture.Change] end) metadata []
+ else match Model.editing_entry value with
+ | Fields.Choice=>DOM.Element key "select" (attrs ++ [("value",text)]) styles
+ (match Model.editing_input value with None=>[]|Some _=>[event key generation "change" "value" Gesture.Change] end)
+ metadata (choices text (Model.editing_choices value))
+ | Fields.Multiline | Fields.StructuredText=>DOM.Element key "textarea"
+ (attrs ++ [("value",text);("data-field-entry","multiline")])
+ (styles ++ [("field-sizing","content")] ++
+ (match field with Fields.MessageText=>[("min-block-size",Typography.px (Nat.max (Layout.input_minimum_height(Layout.parameters env))
+   (Layout.input_line_height (Layout.parameters env) * Layout.writing_lines)))]|_=>[]end) ++
+ [("max-block-size",Typography.px (Layout.input_line_height (Layout.parameters env) *
+   (Layout.input_maximum_height (Layout.parameters env) / Layout.input_line_height (Layout.parameters env))))]) events metadata []
+ | Fields.PositiveInteger=>DOM.Element key "input"
+ (attrs ++ [("type","number");("min","1");("step","1");("value",text)]) styles events metadata []
+ | Fields.DisplayOnly=>DOM.Element key "span" attrs styles [] empty [DOM.Text text]
+ | Fields.SingleLine=>DOM.Element key "input" (attrs ++ [("type","text");("value",text)]) styles events metadata []
+ | Fields.MultipleChoices=>DOM.Element key "select" (attrs++[("multiple","multiple")]) styles
+ (match Model.editing_input value with None=>[]|Some _=>[event key generation "change" "values" Gesture.Change]end) metadata
+ (map(fun choice=>let choice_value:=Fields.choice_value_of choice in
+ DOM.Element (String.append key(String.append "/" choice_value)) "option"
+ ([("value",choice_value)]++match native with JArray values=>if existsb(fun value=>match value with JString text=>String.eqb choice_value text|_=>false end)values then[("selected","selected")]else[]|_=>[]end)
+ [] [] empty [DOM.Text(Fields.choice_label choice)])(Model.editing_choices value))
+ | Fields.DirectoryCollection|Fields.FileCollection=>DOM.Element key "div" attrs styles [] empty []
  end.
-Definition scene_allocation font_pixels scene :=
- let requirements:=workspace_allocation font_pixels in
- Allocation (navigation_minimum requirements) (content_minimum requirements)
-   (rail_width requirements + supporting_count scene * (main_columns + workspace_gap) * font_pixels)
-   (gap_width requirements).
-Definition document (viewport font_pixels : nat) (system_dark : bool) (source : json) : json :=
-  match decode_scene source with
-  | Some scene =>
-      let navigation_mode := allocate viewport (workspace_allocation font_pixels) in
-      let supporting_mode := allocate viewport (scene_allocation font_pixels scene) in
-      success (JObject [("title", JString "Selvedge");
-        ("root", node_json (project_navigation navigation_mode (render_scene supporting_mode system_dark scene)))])
-  | None => failure "TypeError" "Browser scene has an invalid kind or children"
-  end.
+Definition interactive_editor {A} env key label generation (component:option IP.component)
+ (value:IP.editor A) attrs styles :=
+ let properties:=Some(IP.component_properties(IP.editing_component value)) in
+ let component_tag:=Vocabulary.component_tag(Expand.description(IP.component_properties(IP.editing_component value))) in
+ let text:=match IP.editing_raw value with Some raw=>raw|None=>native_string (IP.editing_value value) end in
+ let enabled:=IP.editing_enabled value in
+ let attrs:=attrs ++ [("aria-label",label)] ++ disabled enabled ++
+ (match IP.editing_validation value with Some _=>[("aria-invalid","true");("aria-describedby",String.append key "/validation")]|None=>[] end) in
+ let events name kind:=match IP.editing_receive value with None=>[]|Some _=>[event key generation name kind Gesture.Change] end in
+ let schema:=Local.shape_json(IP.editing_shape value) in
+ let constraints:=fold_right (fun name rest=>match field name schema with
+ |Some JNull|None=>rest|Some value=>(name,native_string value)::rest end) [] ["min";"max";"step"] in
+ let metadata:=JObject [("field_session",JObject [("owner",JString key);("source",JString text)])] in
+ if String.eqb component_tag "checkbox" then DOM.Element key "input"
+ (attrs ++ [("type","checkbox")] ++ if native_checked (IP.editing_value value) then [("checked","checked")] else []) styles (events "change" "checked") metadata []
+ else if String.eqb component_tag "select" then
+ let options:=match array_field "options" schema with Some values=>values|None=>[] end in
+ DOM.Element key "select" (attrs ++ [("value",text)]) styles (events "change" "value") metadata
+ (map (fun option=>let label:=match string_field "label" option with Some s=>s|None=>native_string option end in
+ let option_value:=match field "value" option with Some v=>native_string v|None=>native_string option end in
+ DOM.Element (key++"/"++option_value)%string "option" [("value",option_value)] [] [] empty [DOM.Text label]) options)
+ else if String.eqb component_tag "textarea" then DOM.Element key "textarea"
+ (attrs ++ [("value",text);("data-field-entry","multiline")])
+ (styles++[("block-size",Typography.px (16+6*Layout.input_line_height(Layout.parameters env)));
+ ("min-block-size",Typography.px (16+6*Layout.input_line_height(Layout.parameters env)));
+ ("max-block-size",Typography.px (16+6*Layout.input_line_height(Layout.parameters env)))]) (events "input" "value") metadata []
+ else DOM.Element key "input" (attrs ++ [("type",if String.eqb component_tag "slider" then "range" else "text");("value",text)] ++
+ (if String.eqb component_tag "number-input" then ("inputmode","decimal")::map(fun property=>(String.append "data-number-" (fst property),snd property))constraints else constraints))
+ styles (events "input" "value") metadata [].
+Definition label_field env activity key label (beside:bool) (field:DOM.node) :=
+ DOM.Element (String.append key "/field-wrapper") (if beside then "label"else"div") []
+ (Layout.member_properties env activity false ++[("display","flex");
+ ("flex-direction",if beside then "row"else"column")]) [] empty
+ [DOM.Element (String.append key "/field-label") "span" []
+ (NativeAppearance.information_properties env activity Information.FieldLabel) [] empty [DOM.Text label];field].
+Definition graphic_tone color := ("var(--color-token-" ++ match color with
+ |Graphics.Neutral=>"text-primary"|Graphics.Accent=>"icon-accent"|Graphics.Success=>"text-success"
+ |Graphics.Warning=>"text-warning"|Graphics.Danger=>"text-danger"|Graphics.Muted=>"text-secondary" end ++ ")")%string.
+Definition graphic_primitive {A} generation (value:Graphics.primitive A) :=
+ let element key tag attrs events children:=DOM.Element key tag attrs [] events empty children in
+ let position x y:=[("x",show_integer x);("y",show_integer y)] in
+ match value with
+ |Graphics.Line x y u v color=>element "" "line" [("x1",show_integer x);("y1",show_integer y);("x2",show_integer u);("y2",show_integer v);("stroke",graphic_tone color)] [] []
+ |Graphics.CubicCurve x y c1x c1y c2x c2y u v arrow color=>element "" "path"
+ [("d",Graphics.curve_path x y c1x c1y c2x c2y u v arrow);("fill","none");("stroke",graphic_tone color);("stroke-width","1.5")] [] []
+ |Graphics.StrokePath data color=>element "" "path" [("d",data);("fill","none");("stroke",graphic_tone color);("stroke-width","2")] [] []
+ |Graphics.FilledPath data color=>element "" "path" [("d",data);("fill",graphic_tone color)] [] []
+ |Graphics.Rectangle x y w h color=>element "" "rect" (position x y ++ [("width",text_number w);("height",text_number h);("fill",graphic_tone color)]) [] []
+ |Graphics.Circle x y radius color=>element "" "circle" [("cx",show_integer x);("cy",show_integer y);("r",text_number radius);("fill",graphic_tone color)] [] []
+ |Graphics.Label x y text color=>element "" "text" (position x y ++ [("fill",graphic_tone color)]) [] [DOM.Text text]
+ |Graphics.Hitbox key x y w h label _=>element key "rect" (position x y ++ [("width",text_number w);("height",text_number h);("fill","transparent");("tabindex","0");("role","button");("aria-label",label)]) [event key generation "click" "activate" Gesture.Press;event key generation "keydown" "press_key" Gesture.Press] []
+ end.
+Definition layer_metadata {A} key (behavior:Model.layer_behavior A) :=
+ JObject [("layer",JObject [("modal",JBool (Model.modal_layer behavior));
+ ("identity",JString key);("occurrence",JNumber (text_number(Model.layer_occurrence behavior)));
+ ("initial",JString (Model.layer_initial_attention behavior));
+ ("return",JString (Model.layer_return_attention behavior));
+ ("fallback",JString (Model.layer_fallback_attention behavior));
+ ("outside",JBool (Model.layer_outside behavior));("escape",JBool (Model.layer_escape behavior))])].
+Definition artwork name := match NativeAppearance.find_symbol name with None=>[]|Some symbol=>
+ [DOM.Element "" "svg" [("viewBox","0 0 20 20");("width","16");("height","16");("aria-hidden","true")]
+ [("flex","none")] [] empty [DOM.Element "" "path"
+ ([("d",NativeAppearance.symbol_path symbol);("stroke-linecap","round");("stroke-linejoin","round")] ++
+ match NativeAppearance.symbol_paint symbol with NativeAppearance.Filled=>[("fill","currentColor")]
+ |NativeAppearance.Outline=>[("fill","none");("stroke","currentColor");("stroke-width","1.5")]end) [] [] empty []]] end.
+Definition glyph name := if String.eqb name "spinner" then
+ [DOM.Element "" "span" [("data-interactive-motion-glyph","");("aria-hidden","true")]
+ [("inline-size","16px");("block-size","16px");("flex","none")] [] empty (artwork name)] else artwork name.
+Module C := ControlPurpose.
+Inductive area := PageArea|ComposerArea|ToolbarArea|DialogArea|MenuArea|NavigationArea
+ |TouchNavigationArea|BoardLaneArea|CardArea|CollectionArea|CodeArea.
+Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning with
+ |S.BoardLane _ _=>BoardLaneArea|S.WorkspaceCollection _ _=>CollectionArea|S.CodeFacts _=>CodeArea
+ |_=>match role with Roles.Composer=>ComposerArea|Roles.Toolbar=>ToolbarArea
+ |Roles.Dialog|Roles.DialogActions=>DialogArea|Roles.Menu=>MenuArea
+ |Roles.GlobalNavigation _|Roles.Navigation=>NavigationArea
+ |Roles.CompactHeader|Roles.CompactNavigationMenu|Roles.CompactNavigationEntry _=>TouchNavigationArea
+ |Roles.Card=>CardArea|_=>inherited end end.
+Definition purpose_icon purpose := match purpose with
+ |C.MessageSubmission=>Some "arrow-up"|C.CreateItem|C.ProjectTaskCreation=>Some "plus"
+ |C.WorkCreation=>Some "plus"|C.EditItem=>Some "pencil"|C.NavigateTo icon|C.OpenPanel icon _ _=>Some icon
+ |C.MoreActions _=>Some "more-dots"|C.WorkspacePicker _=>Some "folder"
+ |C.Dismiss|C.AbortOperation=>Some "close-cross"
+ |C.StopExecution|C.InterruptExecution=>Some "stop-square"|C.PauseExecution=>Some "pause-bars"
+ |C.ResumeExecution=>Some "play-triangle"|C.ApprovalDecision true=>Some "check"
+ |C.ApprovalDecision false=>Some "close-cross"|C.DeleteItem|C.RemoveValue=>Some "trash"
+ |C.ArchiveItem true=>Some "archive-box"|C.ArchiveItem false=>Some "restore"
+ |C.PinItem _=>Some "pin"|C.Regenerate|C.RetryTransfer=>Some "refresh"
+ |C.CopyCode state=>Some(match state with CodeBlock.Idle=>"copy-sheets"|CodeBlock.Pending _=>"spinner"
+ |CodeBlock.Feedback _ true=>"check"|CodeBlock.Feedback _ false=>"warning"end)
+ |C.WrapCode _=>Some "wrap-lines"|C.Latest=>Some "arrow-down"
+ |C.ToggleNavigation expanded=>Some(if expanded then "sidebar-close" else "sidebar")
+ |C.ResetDefaults=>Some "undo"|C.PreviewFile=>Some "preview"|C.DownloadFile=>Some "download"
+ |C.Connect true=>Some "spinner"|_=>None end.
+Definition icon_only purpose area := match purpose,area with
+ |C.WorkCreation,ToolbarArea|C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
+ |C.ProjectTaskCreation,NavigationArea|C.CreateItem,BoardLaneArea
+ |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.OpenPanel "filter-funnel" _ _,_
+ |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
+ |C.RemoveValue,CollectionArea|C.StopExecution,ToolbarArea|C.PauseExecution,ToolbarArea
+ |C.ResumeExecution,ToolbarArea|C.InterruptExecution,ToolbarArea=>true|_,_=>false end.
+Definition purpose_attributes purpose := match purpose with
+ |C.MoreActions expanded|C.OpenPanel _ _ expanded|C.ChooseValue expanded
+ |C.WorkspacePicker expanded|C.ShowActivity expanded|C.ToggleNavigation expanded=>[("aria-expanded",flag expanded)]
+ |C.Connect true|C.CopyCode(CodeBlock.Pending _)=>[("data-interactive-motion","spin")]
+ |C.SelectedOption checked=>[("aria-checked",flag checked)]
+ |C.PinItem pinned|C.AutomaticScheduling pinned|C.WrapCode pinned=>[("aria-pressed",flag pinned)]
+ |_=>[]end.
+Definition control_styles purpose role := match purpose,role with
+ |C.OpenPanel icon _ _,Roles.GlobalNavigationEntry _ _=>
+ if String.eqb icon "settings" then [("margin-block-start","auto")]else[]
+ |_,_=>[]end.
+Definition face_children purpose area role label children :=
+ let text:=match children with []=>[DOM.Text label]|_=>children end in
+ let icon:=match purpose_icon purpose with Some name=>glyph name|None=>[]end in
+ match role with
+ |Roles.WorkTab _=>text
+ |Roles.WorkOverviewButton count=>artwork "columns"++[DOM.Text(text_number count)]
+ |Roles.CompactWorkScope title count=>text++[DOM.Text(text_number count)]
+ |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++text
+ |Roles.CompactNavigationEntry _=>icon++text
+ |_=>match purpose with
+ |C.ChooseValue _|C.WorkspacePicker _=>icon++text++artwork "chevron-down"
+ |C.ShowActivity expanded=>text++artwork(if expanded then "chevron-down"else "chevron-right")
+ |C.SelectedOption checked=>text++if checked then artwork "check"else[]
+ |C.NavigateTo _=>icon++match role with Roles.GlobalNavigationEntry _ true=>[]|_=>text end
+ |_=>if icon_only purpose area then icon else icon++text end end.
+Fixpoint commit_key {A} (value:S.node A) : option string :=
+ match S.node_meaning value with S.ActionCommit _ _ _=>Some (S.node_key value)
+ | _=>(fix search (nodes:list(S.node A)):=match nodes with []=>None|head::tail=>
+ match commit_key head with Some key=>Some key|None=>search tail end end) (S.node_children value) end.
+Definition component_context {A} (current:option IP.component) (meaning:S.meaning A) :=
+ match meaning with S.InteractiveNode value=>Some value|_=>current end.
+Definition source_context {A} (current:S.meaning A) (meaning:S.meaning A) :=
+ match meaning with S.Region|S.InformationText _=>current|_=>meaning end.
+Definition available_placements {A} (values:list(S.placement A)) :=
+ filter(fun value=>Model.available(Model.control_availability(S.placement_control value)))values.
+Definition card_movement {A} (values:list(S.node A)) :=
+ fold_right(fun value rest=>match S.node_meaning value with
+ |S.MovableCard _ placements=>Some(S.node_key value,available_placements placements)|_=>rest end)None values.
+Definition card_drag {A} generation (movement:option(string*list(S.placement A))) :=
+ JObject[("placements",JArray(match movement with None=>[]|Some(key,placements)=>
+ map(fun destination=>JObject[("target",JString(S.placement_target destination));
+ ("action",DOM.input_json(DOM.ElementTarget key(Gesture.gesture_name Gesture.Place)generation))])placements end))].
+Definition card_part {A} (describe:A->C.purpose) (more:bool) (values:list(S.node A*DOM.node)) :=
+ fold_right(fun pair rest=>let '(original,native):=pair in
+ match S.node_meaning original with S.MovableCard _ _=>rest|meaning=>
+ let selected:=match meaning with S.Activate control=>match describe(Model.control_input control)with C.MoreActions _=>true|_=>false end|_=>false end in
+ if Bool.eqb selected more then native::rest else rest end)[]values.
+Definition task_status_symbol status (working:bool) :=
+ if String.eqb status "active"then if working then "play-triangle"else"idle-circle"
+ else if String.eqb status "frozen"then"pause-bars"
+ else if String.eqb status "stopped"then"stop-square"else"archive-box".
+Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : DOM.node :=
+ let key:=S.node_key value in let label:=S.node_label value in
+ let meaning:=S.node_meaning value in let role:=S.node_role value in
+ let current_area:=area_for inherited_area role meaning in
+ let children:=map (compile_node describe env generation current_area
+ (match meaning with S.ActivityGroup _ _ _ _=>true|_=>activity end)
+ (source_context source meaning) (match meaning with S.PageContext current=>current|_=>view end) (component_context component meaning)) (S.node_children value) in
+ let attrs:=common key (S.semantic_key value) label role ++
+ (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true")]|_=>[] end) in
+ let styles:=NativeAppearance.role_properties env role ++
+ (match meaning with S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
+ |Model.AnchoredMenu=>[("position","fixed");("inset","auto");("top","anchor(bottom)");("left","anchor(left)");("margin","0") ]
+ |Model.TrailingDetails=>if Model.layer_beside behavior then [("inline-size",Typography.px(Layout.details_width(Layout.parameters env)));("flex","none")] else []
+ |Model.ModalDialog=>[]end|_=>[]end) ++ SemanticAppearance.meaning_properties env activity meaning ++ SemanticAppearance.source_properties env source meaning ++
+ (match role with
+ |Roles.WorkTabs=>[("display","flex");("flex-direction","row");("align-items","center");("min-block-size",Typography.px(Layout.toolbar_height(Layout.parameters env)));("flex","none");("overflow","hidden")]
+ |Roles.WorkTabGroup=>[("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("overflow-x","auto")]
+ |Roles.WorkTab selected=>[("flex","1 0 auto");("min-inline-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)96));("block-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)40));
+ ("border-block-end",if selected then "2px solid currentColor" else "1px solid transparent")]
+ |Roles.CompactWorkScope _ _=>[("flex","1");("min-inline-size","0");("justify-content","space-between")]
+ |Roles.GlobalNavigationEntry _ compact=>[("display","flex");("flex-direction",if compact then "row" else "column");("align-items","center");("justify-content","center");("inline-size","100%")]
+ |Roles.GlobalNavigation compact=>[("inline-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)(if compact then 48 else 84)));("flex","none")]|Roles.Navigation=>[("inline-size",Typography.px(Layout.navigation_width(Layout.parameters env)));("flex","none")]|Roles.Main=>[("flex","1");("min-inline-size","0")]|_=>[] end) ++
+ (match meaning with S.SummaryList=>[("list-style","none");("padding","0");("margin","0")]|S.InteractiveNode c=>InteractiveAppearance.component_properties env c
+ |S.InteractivePlacement p=>InteractiveAppearance.placement_properties env p|_=>[] end) in
+ let element tag extra events metadata content:=DOM.Element key tag (attrs++extra) styles events metadata content in
+ let button (submit:bool) action extra:=
+ let purpose:=describe(Model.control_input action)in
+ DOM.Element key "button" (attrs++[("type",if submit then "submit" else "button")] ++control_attributes action++purpose_attributes purpose++extra)
+ (styles++control_styles purpose role++match source,purpose with S.CardContent _,C.OpenCardDetails _=>
+ [("background","transparent");("border","0");("padding","0");("text-align","left");("font-weight","600");("white-space","normal")]|_,_=>[]end)
+ [event key generation "click" "activate" Gesture.Press] empty
+ (match source,purpose with S.CardContent face,C.OpenCardDetails card=>
+ if N.eqb card(Model.card_identity face)then[DOM.Text(Model.card_title face)]
+ else face_children purpose current_area role(Model.control_label action)children
+ |_,_=>face_children purpose current_area role(Model.control_label action)children end)in
+ match meaning with
+ |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
+   match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
+ |S.ReadOnly text|S.Fact text=>element "span" [] [] empty [DOM.Text text]
+ |S.ActionFeedback _ _ message=>element "p" [("role","status")] [] empty [DOM.Text message]
+ |S.DirectoryBrowserLocation path=>element "p" [] [] empty [DOM.Text path]
+ |S.PublishedText document=>element "div" [] [] empty
+ (DOM.Markdown (String.append key "/markdown") (DocumentPublication.published_text document)
+ (match DocumentPublication.published_ending document with
+ Selvedge.Interaction.Interactive.Types.Open=>false|_=>true end)
+ (match DocumentPublication.encode_document document with JObject fields=>JObject(("view",Observation.encode_view view)::fields)|metadata=>metadata end)::children)
+ |S.RichText provenance text=>element "div" [] [] empty
+ (DOM.Markdown (String.append key "/markdown") text
+ (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
+ (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children)
+ |S.EmbeddedMarkdown text=>DOM.Markdown key text true empty
+ |S.CodeFacts facts=>
+ let who:=CodeBlock.presented_identity facts in
+ let target part:=Observation.physical_target view (DocumentPublication.target_key who part) in
+ element "div" [("data-code-owner",CodeSource.key who)] []
+ (JObject[("code",JObject[("identity",CodeSource.encode_identity who);("view",Observation.encode_view view);("text",JString(CodeBlock.presented_literal facts))])])
+ [DOM.Element (target DocumentPublication.Frame) "div" [("data-code-frame","true")] [] [] empty
+ [DOM.Element (target DocumentPublication.Toolbar) "div" [] [] [] empty [];
+ DOM.Element (target DocumentPublication.Source) "pre" [] [] [] empty
+ [DOM.Element (target DocumentPublication.Body) "code" [] [] [] empty [DOM.Text(CodeBlock.presented_literal facts)]]]]
+ |S.InteractiveRegion policy=>DOM.Mount (Observation.physical_target view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Preview)) children
+ |S.Activate action=>button false action []
+ |S.SettingEntry _ _ action|S.SupportingControl _ _ _ action=>button false action
+ (let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
+ |S.ActionCommit _ _ action=>button true action []
+ |S.WorkChoice _ selected action=>button false action [("aria-pressed",flag selected)]
+ |S.Choice kind selected description action=>button false action
+ [("role",match kind with S.SingleChoice=>"radio"|S.MultipleChoice=>"checkbox" end);("aria-checked",flag selected)]
+ |S.PanelToggle expanded action=>button false action [("aria-expanded",flag expanded)]
+ |S.Edit owner subject value=>
+ let native:=match editor env key label generation (UX.subject_declaration subject) value attrs styles with
+ |DOM.Element key tag attrs styles events (JObject fields) content=>DOM.Element key tag attrs styles events
+ (JObject(("key_input",JBool(match Model.editing_key_input value with Some _=>true|None=>false end))::("editor",Identity.encode_editor owner)::("selection_enabled",JBool(match Model.editing_selection_input value with Some _=>true|None=>false end))::fields)) content|native=>native end in
+ match UX.subject_declaration subject,Model.editing_entry value with
+ |Fields.MessageText,Fields.Multiline=>native
+ |_,_=>label_field env activity key label
+ (ControlPurpose.toggle_widget(UX.subject_declaration subject)(Model.editing_observation value)) native end
+ |S.InteractiveEdit _ _ value=>DOM.Element (String.append key "/enclosure") "div" []
+ [("display","flex");("flex-direction","column");("gap","6px")] [] empty
+ (label_field env activity key label (match IP.editing_shape value with Local.Boolean=>true|_=>false end)
+ (interactive_editor env key label generation component value attrs styles) ::
+ match IP.editing_validation value with None=>[]|Some message=>
+ [DOM.Element (String.append key "/validation") "output" [("id",String.append key "/validation");("role","status")]
+ [("color",NativeAppearance.token "--interactive-tone-danger")] [] empty [DOM.Text message]]end)
+ |S.HistorySearchQuery query _=>element "input" [("type","search");("value",query)] [event key generation "input" "value" Gesture.Change] empty []
+ |S.HistorySearchScope project selected values _=>element "select" [("value",match selected with None=>""|Some n=>text_number n end)]
+ [event key generation "change" "value" Gesture.Change] empty (choices (match selected with None=>""|Some n=>text_number n end) values)
+ |S.BoardSearch selection _=>element "input" [("type","search");("value",BoardFilter.filter_query selection)] [event key generation "input" "value" Gesture.Search] empty []
+ |S.SearchChoices query _=>element "input" [("type","search");("value",query)] [event key generation "input" "value" Gesture.Search] empty []
+ |S.ReceiveFile _ enabled _=>element "input" ([("type","file");("multiple","multiple")]++disabled enabled)
+ [event key generation "change" "files" Gesture.Attach] empty []
+ |S.EnterDirectory _ text _ confirm=>element "input" [("type","text");("value",text)]
+ ([event key generation "input" "value" Gesture.Directory] ++match confirm with Some _=>[event key generation "keydown" "confirm" Gesture.ConfirmDirectory]|None=>[] end) empty []
+ |S.BoardProfile automatic selected values enabled _=>element "select"
+ ([("value",selected);("data-automatic",flag automatic)]++disabled enabled)
+ [event key generation "change" "value" Gesture.SelectBoardProfile] empty (choices selected values)
+ |S.ActionUnit _ _=>element "form" [("novalidate","novalidate")]
+ (match commit_key value with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
+ |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>
+ element (if Model.modal_layer behavior then "dialog" else "aside")
+ ([("role",if Model.modal_layer behavior then "dialog" else "complementary");("aria-modal",flag (Model.modal_layer behavior))] ++
+ match Model.layer_presentation behavior with Model.AnchoredMenu=>[("data-anchor",Model.layer_anchor behavior)]|_=>[]end)
+ [event key generation "cancel" "dismiss" Gesture.Dismiss] (layer_metadata key behavior) children
+ |S.Graphic plot=>DOM.Element key "svg" (attrs++[("viewBox",("0 0 "++text_number (Npos (Graphics.width plot))++" "++text_number (Npos (Graphics.height plot)))%string);("role","img");
+ ("width",text_number(Npos(Graphics.width plot)));("height",text_number(Npos(Graphics.height plot)))])
+ (styles++[("max-inline-size","none");("flex","none")]) [] empty (map (graphic_primitive generation) (Graphics.primitives plot))
+ |S.Image src alternative=>element "img" [("src",src);("alt",alternative)] [] empty []
+ |S.Table caption headings rows=>element "table" [] [] empty
+ ([DOM.Element (key++"/caption")%string "caption" [] [] [] empty [DOM.Text caption];
+ DOM.Element (key++"/head")%string "thead" [] [] [] empty [DOM.Element "" "tr" [] [] [] empty
+ (map(fun text=>DOM.Element "" "th" [("scope","col")] [] [] empty [DOM.Text text])headings)];
+ DOM.Element (key++"/body")%string "tbody" [] [] [] empty
+ (map(fun row=>DOM.Element "" "tr" [] [] [] empty (map(fun text=>DOM.Element "" "td" [] [] [] empty [DOM.Text text])row))rows)])
+ |S.InteractivePlacement placement=>element "div" [] [] empty children
+ |S.ReadingTimeline task_view reader_generation=>element "section"
+ [("data-reading-root","true");("data-task-id",text_number(Identity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
+ |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
+ |S.PageRegion region position=>element (role_tag role) [("data-page-region",Composition.region_name region)] [] empty children
+ |S.MovableCard face destinations=>
+ let offered:=available_placements destinations in
+ DOM.Element key "select" (attrs++[("value","")]++disabled(match offered with []=>false|_=>true end))
+ (styles++NativeAppearance.role_properties env Roles.Field)
+ [event key generation "change" "value" Gesture.Place] empty
+ (DOM.Element "" "option" [("value","");("selected","selected")] [] [] empty [DOM.Text "Move to…"]::
+ map(fun destination=>DOM.Element "" "option" [("value",S.placement_target destination)] [] [] empty
+ [DOM.Text(Model.control_label(S.placement_control destination))])offered)
+ |S.InteractiveNode c=>
+ let properties:=IP.component_properties c in
+ let motion:=Expand.property_text "motion" properties in
+ let common:=[("data-interactive-component",Vocabulary.component_tag(Expand.description properties));
+ ("data-interactive-key",key);("data-interactive-transition",Expand.property_text "transition" properties)] in
+ let native:=element (role_tag role)
+ (common ++ if String.eqb(Vocabulary.component_tag(Expand.description properties))"row-layout"
+ then [("data-native-responsive-row",key)] else []) [] empty children in
+ if String.eqb motion "spin" then
+ DOM.Element (String.append key "/motion") "div" [("data-interactive-motion",motion)]
+ [("display","flex");("flex-direction","row");("gap","6px");("align-items","center");("min-inline-size","0")]
+ [] empty (glyph "spinner"++[native])
+ else match native with DOM.Element key tag attrs styles events metadata children=>
+ DOM.Element key tag (("data-interactive-motion",motion)::attrs) styles events metadata children|other=>other end
+ |S.InteractiveTable table=>element "table" [] [] empty
+ [DOM.Element (key++"/caption")%string "caption" [] [] [] empty [DOM.Text(IP.table_caption table)];
+ DOM.Element (key++"/head")%string "thead" [] [] [] empty [DOM.Element "" "tr" [] [] [] empty
+ (map(fun column=>let identity:=IP.column_key key column in DOM.Element identity "th"
+ [("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)] [] [] empty
+ (match IP.column_sort column with None=>[DOM.Text(IP.column_heading column)]|Some _=>
+ [DOM.Element (identity++"/control")%string "button" ([("type","button")]++disabled(IP.column_enabled column))
+ (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty [DOM.Text(IP.column_heading column)]]end)) (IP.table_columns table))];
+ DOM.Element (key++"/body")%string "tbody" [] [] [] empty (map(fun row=>DOM.Element "" "tr" [] [] [] empty
+ (map(fun text=>DOM.Element "" "td" [] [] [] empty [DOM.Text text])row))(IP.table_rows table))]
+ |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
+ (children ++ if expanded then map(fun face=>DOM.Element
+ (String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face)))) "section" [] [] [] empty
+ [DOM.Element "" "h4" [] [] [] empty [DOM.Text(Audit.face_title face)];
+ DOM.Markdown "" (Audit.detail(Audit.face_source face)) true empty])audit else [])
+ |S.SummaryList=>element "ul" [("role","list")]
+ [] empty (map(fun child=>DOM.Element "" "li" [] [] [] empty [child])children)
+ |S.SkillSuggestions field active=>DOM.Element key "div"
+ (attrs++[("role","listbox");("data-anchor",field)])
+ (styles++[("position","fixed");("position-try-fallbacks","flip-block");
+ ("left","anchor(left, 16px)");("bottom","anchor(top, 96px)");("margin-bottom","6px");
+ ("inline-size","anchor-size(width, min(32rem, calc(100vw - 32px)))");
+ ("max-inline-size","calc(100vw - 24px)");("max-block-size","min(18rem, 45vh)");
+ ("overflow-y","auto");("padding","4px");("z-index","1000");
+ ("border","1px solid var(--color-token-border-light)");("border-radius","10px");
+ ("background","var(--color-token-main-surface-primary)");("color","var(--color-token-text-primary)");
+ ("box-shadow","0 6px 24px #0002")]) [] empty children
+ |S.SkillSuggestion selected action=>DOM.Element key "button"
+ (attrs++[("type","button");("role","option");("tabindex","-1");
+ ("aria-selected",flag selected);("data-retain-focus","true");("data-reveal-on-layout",flag selected)]++control_attributes action)
+ (styles++[("display","flex");("flex-direction","column");("gap","2px");("inline-size","100%");
+ ("padding","8px 12px");("text-align","left");("border","0");("border-radius","6px");
+ ("background",if selected then "var(--color-token-main-surface-tertiary)"else"transparent");("cursor","pointer")])
+ [event key generation "click" "activate" Gesture.Press] empty children
+ |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");("aria-label",UX.decision_question decision)] [] empty children
+ |S.ChoiceGroup=>element "section" [("role","radiogroup")] [] empty children
+ |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>Identity.task_view_scope v|None=>"" end)] [] empty children
+ |S.ProjectGroup project selected expanded=>element (role_tag role) [("data-project-id",text_number project);("data-expanded",flag expanded)] [] empty children
+ |S.TaskRow task status caption working selected=>
+ let paired:=combine(S.node_children value)children in
+ let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
+ element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected)] [] empty
+ (DOM.Element(key++"/row")%string "div" []
+ (NativeAppearance.style_properties env(NativeAppearance.navigation_style selected 6 0)++
+ [("display","flex");("flex-direction","row");("align-items","center");("min-inline-size","0")]) [] empty
+ (map snd(filter(fun pair=>negb(nested pair))paired)++
+ [DOM.Element(key++"/status")%string "span"[("role","img");("aria-label",caption);("title",caption)]
+ [("inline-size","16px");("block-size","16px");("flex","none")][]empty(glyph(task_status_symbol status working))])::
+ map snd(filter nested paired))
+ |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
+ |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
+ |S.TaskChildren task=>element "div"[("role","group");("data-task-parent",text_number task)][]empty children
+ |S.BoardGroup _|S.ActivityRow _|S.WorkspaceCollection _ _|S.WorkspaceMember _ _ _
+ |S.ActionExplanation _ _|S.ObjectGroup _|S.Region|S.ProjectChooser _|S.DirectoryRow _ _
+ |S.ContextSummary _=>element (role_tag role) [] [] empty children
+ |S.CardContent face=>
+ let movement:=card_movement(S.node_children value)in
+ let movable:=match movement with Some(_, _::_)=>true|_=>false end in
+ let text part value:=DOM.Element (key++"/"++part)%string "span" []
+ (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text value]in
+ let optional part value:=if String.eqb value ""then[]else[text part value]in
+ let row part (responsive:bool) content:=DOM.Element(key++"/"++part)%string "div"
+ (if responsive then[("data-native-responsive-row",(key++"/"++part)%string)]else[])
+ (Layout.row_properties(if responsive then Layout.Vertical else Layout.Horizontal)++[("gap",Typography.px(Typography.scaled(Layout.root_font_size_milli env)12));("min-inline-size","0")]) [] empty content in
+ let paired:=combine(S.node_children value)children in
+ let opened:=card_part describe false paired in
+ let movement_nodes:=map snd(filter(fun pair=>match S.node_meaning(fst pair)with S.MovableCard _ _=>true|_=>false end)paired)in
+ DOM.Element key "article" (attrs++[("data-card-id",text_number(Model.card_identity face));("data-card-title",Model.card_title face);
+ ("draggable",flag movable);("data-drop-target",key)]) styles [] (card_drag generation movement)
+ (glyph "grip"++[row "metadata" true
+ ([text "reference"(Model.card_reference face);text "priority"(Selvedge.Features.Domain.priority_label(Model.card_priority face))]++
+ (if Model.card_pinned face then[text "pinned" "置顶"]else[])++optional "status"(Model.card_status face));
+ row "actions" false [DOM.Element(key++"/open-group")%string "div" [][("flex","1");("min-inline-size","0")][]empty
+ (match opened with []=>[DOM.Text(Model.card_title face)]|_=>opened end);
+ row "more-group" false(card_part describe true paired)]]++optional "description"(Model.card_description face)++
+ [row "context" true(optional "project"(Model.card_project face)++map(fun label=>DOM.Element "" "span" [] (NativeAppearance.information_properties env false Information.Description) [] empty [DOM.Text label])(Model.card_labels face));
+ DOM.Element(key++"/movement-group")%string "div" [][("display","flex");("flex-direction","column")][]empty movement_nodes;
+ DOM.Element(key++"/footer")%string "footer"[("data-card-footer","")]
+ (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
+ (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face))])
+ end.
+Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
+ let current_view:=match S.node_meaning value with S.PageContext current=>current|_=>view end in
+ let children:=flat_map (target_updates current_view) (S.node_children value) in
+ match S.node_meaning value with
+ |S.SkillSuggestions field active=>DOM.UpdateTarget field
+ [("role","combobox");("aria-autocomplete","list");("aria-expanded","true");
+ ("aria-controls",S.node_key value);("aria-activedescendant",match active with Some key=>key|None=>""end)] []::children
+ |S.InteractiveRegion policy=>
+ DOM.UpdateTarget (Observation.physical_target current_view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Source))
+ [] (DocumentPublication.source_properties policy)::
+ DOM.UpdateTarget (Observation.physical_target current_view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Frame))
+ (if DocumentPublication.preview_active policy then [("data-interactive-active","true")] else [])
+ (DocumentPublication.frame_properties policy)::children
+ |_=>children end.
+Definition surface_scopes {A}(values:list(S.node A)) : list Focus.scope :=
+ flat_map(fun node=>match S.node_meaning node with
+ |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>
+ if Model.modal_layer behavior then [Focus.Temporary (S.node_key node)
+ (Model.layer_initial_attention behavior) (Model.layer_return_attention behavior)
+ (Model.layer_fallback_attention behavior) (Some(Model.layer_occurrence behavior))]else[]
+ |_=>[]end)values.
+Definition is_global {A}(value:S.node A) := match S.node_role value with Roles.GlobalNavigation _=>true|_=>false end.
+Definition is_navigation {A}(value:S.node A) := match S.node_role value with Roles.Navigation=>true|_=>false end.
+Definition is_header {A}(value:S.node A) := match S.node_role value with Roles.WorkTabs|Roles.CompactHeader=>true|_=>false end.
+Definition beside_layer {A}(value:S.node A) := match S.node_meaning value with
+ |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>negb(Model.modal_layer behavior)|_=>false end.
+Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface A) : json :=
+ let all:=S.base surface ++ S.overlays surface in
+ let compile:=compile_node describe env generation PageArea false S.Region None None in
+ let base:=S.base surface in
+ let global:=filter is_global base in let headers:=filter is_header base in
+ let navigation:=filter is_navigation base in
+ let main:=filter(fun value=>negb(is_global value || is_header value || is_navigation value))base in
+ let beside:=filter beside_layer (S.overlays surface) in
+ let layers:=filter(fun value=>negb(beside_layer value))(S.overlays surface) in
+ let p:=Layout.parameters env in
+ let dark:=match S.surface_appearance surface with
+ |Selvedge.Interaction.Appearance.SystemAppearance=>Layout.system_dark env
+ |Selvedge.Interaction.Appearance.LightAppearance=>false
+ |Selvedge.Interaction.Appearance.DarkAppearance=>true end in
+ let theme:=if dark then "dark" else "light" in
+ DOM.encode (DOM.Document
+ (DOM.Element "selvedge" "div" [("data-selvedge-root","true")]
+ (NativeAppearance.root_properties env ++ [("display","flex");("flex-direction","row");("block-size","100%");("min-block-size","0")]) [] empty
+ (map compile global ++
+ [DOM.Element (S.workspace_key surface) "div" [("data-measure-region","workspace")]
+ [("display","flex");("flex-direction","column");("flex","1");("min-inline-size","0");("min-block-size","0")] [] empty
+ (map compile headers ++ [DOM.Element "workspace-body" "div" []
+ [("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("min-block-size","0")] [] empty
+ (map compile navigation ++ [DOM.Element "main-layout" "div" [("data-measure-region","main")]
+ [("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("min-block-size","0")]
+ [] empty (map compile main ++ map compile beside)])]);
+ DOM.Element (String.append(S.workspace_key surface)"/overlays") "div" [("data-layer-stack","true")]
+ [] [] empty (map compile layers)]))
+ "Selvedge" generation false
+ (DOM.UpdateTarget "@document/root" [("data-theme",theme)] [("color-scheme",theme)]::flat_map (target_updates None) all) (surface_scopes(S.modal_nodes surface))).
+Definition bootstrap env generation := DOM.encode (DOM.Document
+ (DOM.Element "selvedge-measurement" "div" []
+ (NativeAppearance.root_properties env) [] empty
+ [DOM.Element "@browser/utility" "section"[("role","status");("aria-label","Preparing interface…")]
+ [] [] empty [DOM.Text "Preparing interface…"];
+ DOM.Element "workspace-probe" "div" [("data-measure-region","workspace");("inert","");("aria-hidden","true")]
+ [("inline-size","100%");("display","flex") ] [] empty
+ [DOM.Element "main-probe" "main" [("data-measure-region","main")]
+ [("flex","1");("min-inline-size","0")] [] empty []]])
+ "Selvedge" generation true [] []).
+Definition recovery root generation reason := DOM.encode(DOM.Document
+ (DOM.Element "@browser/utility" "section"[("role","status");("aria-label",reason);("title",reason)]
+ (Typography.properties root Typography.Body Typography.Regular++
+ [("display","flex");("flex-direction","column");("gap","12px");("padding","16px");
+ ("color","var(--color-token-text-primary)");("background","var(--color-token-bg-primary)")]) [] empty
+ [DOM.Element "@browser/utility/message" "p"[][][]empty[DOM.Text reason];
+ DOM.Element "@browser/utility/retry" "button"
+ [("type","button");("aria-label",("Retry rendering: "++reason)%string);("title",("Retry rendering: "++reason)%string)]
+ [("min-inline-size","32px");("min-block-size","32px");("align-self","flex-start")]
+ [DOM.Binding "click" "retry_render" DOM.RetryRendering] empty(glyph "refresh")])
+ "Selvedge" generation true [] []).

@@ -1,6 +1,9 @@
-From Stdlib Require Import String List Bool.
+From Stdlib Require Import String List Bool Arith.
+From Selvedge.Browser Require Import Typography Layout.
+From Selvedge.Interaction.Presentation Require Import Roles Information.
 Import ListNotations.
 Open Scope string_scope.
+Open Scope list_scope.
 
 Inductive paint := Outline | Filled.
 Record symbol := Symbol { symbol_name : string; symbol_path : string; symbol_paint : paint }.
@@ -74,7 +77,211 @@ Definition symbols : list symbol := [
 
 Definition find_symbol name := find (fun value => String.eqb name (symbol_name value)) symbols.
 
-Definition motor_target_pixels := 32%nat.
-Definition initial_writing_lines := 2%nat.
-Definition clearance_pixels := 12%nat.
-Definition icon_pixels := 16%nat.
+Inductive flow := BlockFlow | ColumnFlow | RowFlow | SplitRowFlow.
+Inductive alignment := Leading | Centered | Trailing | Stretch.
+Inductive overflow := ContentFlow | ScrollFlow | CodeOverflow | SingleLineOverflow.
+Inductive surface_paint :=
+| CanvasPaint | NavigationPaint | ContentPaint | FloatingPaint | InsetPaint
+| FieldPaint | EmbeddedPaint | QuietActionPaint | PrimaryActionPaint
+| DestructiveActionPaint | ChoicePaint (selected : bool).
+Inductive phase := Rest | Hovered | Pressed.
+
+Definition token name := String.append "var(" (String.append name ")").
+Definition primary_text := token "--color-token-text-primary".
+Definition secondary_text := token "--color-token-text-secondary".
+Definition selected_wash percent :=
+  String.append "color-mix(in srgb, " (String.append primary_text
+    (String.append " " (String.append percent "%, transparent)"))).
+Definition foreground value :=
+  match value with
+  | PrimaryActionPaint => token "--color-text-primary-solid"
+  | DestructiveActionPaint => token "--color-text-danger-ghost"
+  | _ => primary_text
+  end.
+Definition background value state :=
+  match value with
+  | CanvasPaint => token "--app-color-background-surface"
+  | NavigationPaint => token "--color-token-side-bar-background"
+  | ContentPaint | FieldPaint => token "--color-token-main-surface-primary"
+  | FloatingPaint => token "--color-token-dropdown-background"
+  | InsetPaint => token "--color-surface-secondary"
+  | EmbeddedPaint => "transparent"
+  | QuietActionPaint => token (match state with
+      | Rest => "--app-color-background-button-tertiary"
+      | Hovered => "--app-color-background-button-tertiary-hover"
+      | Pressed => "--app-color-background-button-tertiary-active" end)
+  | PrimaryActionPaint => token (match state with
+      | Rest => "--color-background-primary-solid"
+      | Hovered => "--color-background-primary-solid-hover"
+      | Pressed => "--color-background-primary-solid-active" end)
+  | DestructiveActionPaint => match state with
+      | Rest => "transparent"
+      | Hovered => token "--color-background-danger-ghost-hover"
+      | Pressed => token "--color-background-danger-ghost-active" end
+  | ChoicePaint selected => match state with
+      | Pressed => token "--app-color-background-button-tertiary-active"
+      | Rest => if selected then selected_wash "5" else "transparent"
+      | Hovered => if selected then selected_wash "10" else token "--color-token-list-hover-background"
+      end
+  end.
+
+Record chrome := Chrome {
+  chrome_paint : surface_paint; chrome_border : string;
+  chrome_border_width : nat; chrome_radius : nat; chrome_shadow : bool
+}.
+Record frame := Frame { padding_inline : nat; padding_block : nat; frame_gap : nat }.
+Record style := Style {
+  style_chrome : chrome; style_alignment : alignment; style_flow : flow;
+  style_overflow : overflow; style_frame : frame;
+  style_minimum_height : nat; style_maximum_percent : nat;
+  style_interactive : bool; style_activity_text : bool
+}.
+Definition chrome_for paint border width radius shadow := Chrome paint border width radius shadow.
+Definition clear_chrome := chrome_for EmbeddedPaint "transparent" 0 0 false.
+Definition fields paint border width radius shadow align organization spilling inline block gap minimum maximum interactive activity :=
+  Style (chrome_for paint border width radius shadow) align organization spilling
+    (Frame inline block gap) minimum maximum interactive activity.
+Definition base_style := fields EmbeddedPaint "transparent" 0 0 false Stretch BlockFlow ContentFlow 0 0 0 0 100 false false.
+Definition button_style paint := fields paint "transparent" 0 8 false Stretch RowFlow ContentFlow 8 4 4 32 100 true false.
+Definition navigation_style selected gap radius := fields (ChoicePaint selected) "transparent" 0 radius false
+  Stretch RowFlow ContentFlow 8 4 gap 32 100 true true.
+Definition role_style (role : Roles.role) :=
+  match role with
+  | Roles.GlobalNavigation _ => fields NavigationPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 4 8 4 0 100 false false
+  | Roles.GlobalNavigationEntry selected _ => navigation_style selected 4 6
+  | Roles.CompactHeader => fields CanvasPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 0 40 100 false false
+  | Roles.CompactWorkScope _ _ | Roles.WorkOverviewButton _ => button_style QuietActionPaint
+  | Roles.CompactNavigationEntry selected => navigation_style selected 6 5
+  | Roles.WorkTabs => fields NavigationPaint "transparent" 0 0 false Stretch BlockFlow ContentFlow 8 0 0 0 100 false false
+  | Roles.WorkTab selected => fields (ChoicePaint selected) "transparent" 0 8 false Leading BlockFlow SingleLineOverflow 12 8 0 40 100 true false
+  | Roles.Navigation => fields NavigationPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 8 8 4 0 100 false false
+  | Roles.NavigationEntry selected => navigation_style selected 6 5
+  | Roles.NavigationHeader => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 4 8 36 100 false false
+  | Roles.Main => fields CanvasPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 0 0 0 0 100 false false
+  | Roles.Heading => fields EmbeddedPaint "transparent" 0 0 false Stretch SplitRowFlow ContentFlow 0 0 8 46 100 false false
+  | Roles.Timeline => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 16 0 100 false false
+  | Roles.Activity => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 4 0 100 false true
+  | Roles.UserMessage => fields InsetPaint "transparent" 0 16 false Trailing BlockFlow ContentFlow 12 8 0 0 70 false false
+  | Roles.AssistantMessage => fields EmbeddedPaint "transparent" 0 0 false Leading BlockFlow ContentFlow 0 0 0 0 100 false false
+  | Roles.Composer => fields ContentPaint (token "--color-token-border-default") 1 16 true Stretch ColumnFlow ContentFlow 12 0 4 0 100 false false
+  | Roles.ComposerActions => fields EmbeddedPaint "transparent" 0 0 false Stretch SplitRowFlow ContentFlow 0 0 4 32 100 false false
+  | Roles.DialogActions => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 8 0 100 false false
+  | Roles.Approval => fields ContentPaint (token "--color-token-editor-warning-foreground") 1 12 false Stretch ColumnFlow ContentFlow 12 12 8 0 100 false false
+  | Roles.Toolbar => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 4 32 100 false false
+  | Roles.CodeBlock => fields InsetPaint (token "--color-token-border-default") 1 8 false Stretch ColumnFlow CodeOverflow 12 12 4 0 100 false false
+  | Roles.ApprovalQueue => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 0 0 8 0 100 false false
+  | Roles.Section => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ContentFlow 0 0 12 0 100 false false
+  | Roles.Dialog => fields ContentPaint (token "--color-token-border-default") 1 16 true Stretch ColumnFlow ContentFlow 0 0 0 0 100 false false
+  | Roles.Menu => fields FloatingPaint (token "--color-token-border-default") 1 12 true Stretch ColumnFlow ScrollFlow 8 8 4 0 100 false false
+  | Roles.Details => fields ContentPaint (token "--color-token-border-default") 1 0 false Stretch ColumnFlow ScrollFlow 16 16 12 0 100 false false
+  | Roles.Card => fields ContentPaint (token "--color-token-border-default") 1 9 true Stretch ColumnFlow ContentFlow 12 12 8 0 100 false false
+  | Roles.PrimaryButton => button_style PrimaryActionPaint
+  | Roles.DestructiveButton => button_style DestructiveActionPaint
+  | Roles.SelectedButton => button_style (ChoicePaint true)
+  | Roles.Button => button_style QuietActionPaint
+  | Roles.Field => fields FieldPaint (token "--color-token-input-border") 1 8 false Stretch BlockFlow ContentFlow 8 6 0 32 100 true false
+  | Roles.CompactNavigationMenu | Roles.WorkTabGroup | Roles.WorkChoiceRow
+  | Roles.NavigationCollection | Roles.NavigationSection | Roles.Content | Roles.Alert => base_style
+  end.
+
+Definition flow_properties value : list (string * string) :=
+  match value with
+  | BlockFlow => [("display","block")]
+  | ColumnFlow => [("display","flex"); ("flex-direction","column")]
+  | RowFlow => [("display","flex"); ("flex-direction","row"); ("align-items","center")]
+  | SplitRowFlow => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("justify-content","space-between")]
+  end.
+Definition alignment_properties value : list (string * string) :=
+  match value with
+  | Leading => [("align-self","flex-start")]
+  | Centered => [("align-self","center"); ("text-align","center")]
+  | Trailing => [("align-self","flex-end")]
+  | Stretch => [("align-self","stretch")]
+  end.
+Definition overflow_properties value : list (string * string) :=
+  match value with
+  | ContentFlow => []
+  | ScrollFlow => [("overflow-y","auto"); ("min-block-size","0")]
+  | CodeOverflow => [("overflow-x","auto")]
+  | SingleLineOverflow => [("overflow","hidden"); ("text-overflow","ellipsis"); ("white-space","nowrap")]
+  end.
+Definition style_properties env value : list (string * string) :=
+  let root := Layout.root_font_size_milli env in
+  let scale := Typography.scaled root in
+  let chrome := style_chrome value in
+  let paint := chrome_paint chrome in
+  let frame := style_frame value in
+  flow_properties (style_flow value) ++ alignment_properties (style_alignment value) ++
+  overflow_properties (style_overflow value) ++
+  [("min-inline-size","0"); ("box-sizing","border-box");
+   ("color",if style_interactive value then "var(--control-current-color, var(--control-rest-color))" else foreground paint);
+   ("background",if style_interactive value then "var(--control-current-background, var(--control-rest-background))" else background paint Rest);
+   ("border-color",chrome_border chrome); ("border-style","solid");
+   ("border-width",Typography.px (chrome_border_width chrome));
+   ("border-radius",Typography.px (scale (chrome_radius chrome)));
+   ("padding-inline",Typography.px (scale (padding_inline frame)));
+   ("padding-block",Typography.px (scale (padding_block frame)));
+   ("gap",Typography.px (scale (frame_gap frame)));
+   ("max-inline-size",String.append (Numbers.show_nat (style_maximum_percent value)) "%")] ++
+  (if Nat.eqb (style_minimum_height value) 0 then [] else
+    [("min-block-size",Typography.px (Nat.max (style_minimum_height value) (scale (style_minimum_height value))))]) ++
+  (if chrome_shadow chrome then [("box-shadow","var(--shadow-sm)")] else []) ++
+  (if style_interactive value then
+    [("--control-rest-color",foreground paint); ("--control-rest-background",background paint Rest);
+     ("--control-hover-color",foreground paint); ("--control-hover-background",background paint Hovered);
+     ("--control-pressed-color",foreground paint); ("--control-pressed-background",background paint Pressed);
+     ("--control-disabled-opacity","0.4"); ("--control-focus-ring",token "--color-token-focus-border");
+     ("--control-focus-width","2px"); ("--control-focus-offset","-4px");
+     ("font-weight","500"); ("cursor","pointer")]
+   else []) ++
+  (if style_activity_text value then Typography.properties root Typography.ActivityPrimary Typography.Regular else []).
+
+Definition role_typography env role : list (string * string) :=
+  let root := Layout.root_font_size_milli env in
+  let set := Typography.properties root in
+  match role with
+  | Roles.GlobalNavigation _ | Roles.GlobalNavigationEntry _ _ => set Typography.ActivitySupport Typography.Regular
+  | Roles.CompactHeader | Roles.CompactWorkScope _ _ | Roles.CompactNavigationMenu
+  | Roles.CompactNavigationEntry _ | Roles.Navigation | Roles.NavigationEntry _
+  | Roles.WorkTabGroup | Roles.WorkTabs => set Typography.ActivityPrimary Typography.Regular
+  | Roles.WorkOverviewButton _ | Roles.WorkTab _ => set Typography.ActivityPrimary Typography.Medium
+  | Roles.NavigationHeader => set Typography.Body Typography.Medium
+  | Roles.WorkChoiceRow | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
+  | Roles.Field | Roles.Dialog | Roles.Menu | Roles.Details | Roles.Toolbar
+  | Roles.DialogActions | Roles.ComposerActions => set Typography.Body Typography.Regular
+  | Roles.Activity => set Typography.Support Typography.Regular
+  | Roles.CodeBlock => set Typography.CodeBody Typography.Regular
+  | Roles.Button | Roles.PrimaryButton | Roles.DestructiveButton | Roles.SelectedButton => set Typography.Body Typography.Medium
+  | Roles.Alert => set Typography.Body Typography.Regular
+  | _ => [] end.
+Definition role_properties env role := style_properties env (role_style role) ++ role_typography env role ++
+  match role with
+  | Roles.Activity => [("color",secondary_text)]
+  | Roles.Alert => [("color",token "--color-text-danger"); ("overflow-wrap","anywhere")]
+  | Roles.Toolbar => [("justify-content","flex-start"); ("gap",Typography.px (Layout.clearance env))]
+  | Roles.ComposerActions => [("gap",Typography.px (Layout.clearance env))]
+  | _ => [] end.
+
+Definition information_properties env activity role :=
+  Typography.properties (Layout.root_font_size_milli env)
+    (Typography.information_tier activity role) (Typography.information_emphasis role) ++
+  [("color",match role with
+    | Information.NavigationCaption | Information.Description | Information.Status => secondary_text
+    | _ => primary_text end); ("min-inline-size","0")].
+
+Definition root_properties env : list (string * string) :=
+  let root := Layout.root_font_size_milli env in
+  Typography.properties root Typography.Body Typography.Regular ++
+  [("color",primary_text); ("background",background CanvasPaint Rest);
+   ("--layout-clearance",Typography.px (Layout.clearance env));
+   ("--native-focus-ring",token "--color-token-focus-border");
+   ("--native-focus-width","2px"); ("--native-focus-offset","-4px");
+   ("--rich-body-font",Typography.font_family Typography.Body);
+   ("--rich-code-font",Typography.font_family Typography.CodeBody)] ++
+  flat_map (fun '(name, tier, strength) =>
+    [(String.append "--rich-" (String.append name "-size"),Typography.px (Typography.size root tier));
+     (String.append "--rich-" (String.append name "-line"),Typography.px (Typography.line_height root tier));
+     (String.append "--rich-" (String.append name "-weight"),Numbers.show_nat (Typography.weight strength))])
+    [("title",Typography.Title,Typography.Medium); ("section",Typography.Section,Typography.Strong);
+     ("body",Typography.Body,Typography.Regular); ("body-strong",Typography.Body,Typography.Strong);
+     ("support",Typography.Support,Typography.Regular); ("code",Typography.CodeBody,Typography.Regular)].

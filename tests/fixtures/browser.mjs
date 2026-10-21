@@ -45,6 +45,6 @@ export async function browserFixture(t, { images = false } = {}) {
     return reply.result;
   }
   await page.goto(fixture.running.url);
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true }).waitFor();
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
   return { ...fixture, page, browser, command, profile: images ? fixture.profile : 'interactive' };
 }

@@ -18,7 +18,7 @@ async function submitTask(page) {
 }
 
 async function projectTask(page, name) {
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true })
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name, exact: true }).click();
   await page.getByRole('main').getByRole('list', { name: 'Workspace directories', exact: true }).waitFor();
@@ -34,7 +34,7 @@ test('Project task creation preserves restored inheritance and explicitly empty 
   await writeFile(path.join(root, 'AGENTS.md'), 'Use the Project acceptance instructions.');
   const { project_id } = await command({ op: 'create_project', name: 'Acceptance Project',
     workspace: { roots: [root], primary_root: root } });
-  await page.getByRole('navigation', { name: 'Main navigation', exact: true })
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Acceptance Project', exact: true }).click();
   await page.getByRole('main').getByRole('list', { name: 'Workspace directories', exact: true }).waitFor();
@@ -51,7 +51,7 @@ test('Project task creation preserves restored inheritance and explicitly empty 
   await workspace.getByRole('button', { name: 'Remove', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
-  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Use inherited Project workspace');
+  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Use inherited Project workspace');
   const inherited = await submitTask(page);
   const inheritedTask = (await command({ op: 'read', task_id: inherited })).task;
   assert.equal(inheritedTask.settings.project_id, project_id);
@@ -64,7 +64,7 @@ test('Project task creation preserves restored inheritance and explicitly empty 
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
-  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Use explicitly no workspace roots');
+  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Use explicitly no workspace roots');
   const empty = await submitTask(page);
   const emptyTask = (await command({ op: 'read', task_id: empty })).task;
   assert.equal(emptyTask.settings.project_id, project_id);
@@ -102,7 +102,7 @@ test('ordered image content and the active composer survive responsive navigatio
   assert.deepEqual(order, ['Before image marker', 'image', 'Between images marker', 'image', 'After images marker'],
     'Images remain at their original content positions, including repeated references to the same asset');
 
-  const message = page.getByRole('combobox', { name: 'Message', exact: true });
+  const message = page.getByRole('textbox', { name: 'Message', exact: true });
   await message.fill('Keep this unsent draft while narrowing.');
   await message.focus();
   await page.setViewportSize({ width: 450, height: 900 });

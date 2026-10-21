@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile, readdir, stat, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, stat, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -231,21 +231,31 @@ export async function build(options = {}) {
         return;
       }
       const directory = `.build/extracted/${name}`;
+      await rm(path.join(root, directory), { recursive: true, force: true });
       await mkdir(path.join(root, directory), { recursive: true });
       const aliases = target.entry.map(entry => `Definition selvedge_${name}_${entry} := Selvedge.${target.module}.${entry}.`).join('\n');
       const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
-      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nExtraction "${directory}/${target.model}.ml" ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
+      // Separate extraction preserves module aliases used by typed domain surfaces.
+      // Each target owns its OCaml units; ocamldep supplies their compilation order.
+      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
       const extractionFile = `.build/Extract${target.model}.v`;
       await writeChanged(extractionFile, extraction);
       await run('rocq', ['c', ...flags, extractionFile]);
+      await writeChanged(`${directory}/${target.model}.ml`, `include Json\ninclude Extract${target.model}\n`);
+      const extracted = (await readdir(path.join(root, directory)))
+        .filter(filename => filename.endsWith('.ml')).map(filename => `${directory}/${filename}`);
+      const ordered = (await run('ocamlfind', ['ocamldep', '-package', 'zarith,js_of_ocaml', '-I', directory, '-sort', ...extracted])).trim().split(/\s+/);
       await writeChanged(`${directory}/json_io.ml`, await readFile(path.join(root, 'runtime/json_io.ml'), 'utf8'));
       await writeChanged(`${directory}/entry.ml`, runtime);
       const ocaml = ['ocamlc', '-package', 'zarith,js_of_ocaml', '-I', directory];
-      await run('ocamlfind', [...ocaml, '-c', `${directory}/${target.model}.mli`]);
-      await run('ocamlfind', [...ocaml, '-c', `${directory}/${target.model}.ml`]);
+      for (const source of ordered) {
+        const signature = source.replace(/\.ml$/, '.mli');
+        if (await exists(signature)) await run('ocamlfind', [...ocaml, '-c', signature]);
+        await run('ocamlfind', [...ocaml, '-c', source]);
+      }
       await run('ocamlfind', [...ocaml, '-c', `${directory}/json_io.ml`]);
       await run('ocamlfind', [...ocaml, '-c', `${directory}/entry.ml`]);
-      await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, `${directory}/${target.model}.cmo`, `${directory}/json_io.cmo`, `${directory}/entry.cmo`]);
+      await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, ...ordered.map(source => source.replace(/\.ml$/, '.cmo')), `${directory}/json_io.cmo`, `${directory}/entry.cmo`]);
       await run('js_of_ocaml', ['--target-env', 'browser', '-o', `.build/${name}-runtime.js`, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
       const exports = name === 'kernel'
         ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'

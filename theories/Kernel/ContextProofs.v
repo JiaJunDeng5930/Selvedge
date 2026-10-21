@@ -2,8 +2,42 @@ From Selvedge.Features Require Import WorkspaceBinding.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs.
-From Selvedge.Kernel Require Import ContextTypes Context Domain ContextUpdates Tasks.
+From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain ContextUpdates Tasks.
 Import ListNotations.
+
+Theorem constructed_snapshots_obey_the_declared_source : forall definition identity revision fields snapshot,
+ ContextUpdates.construct_snapshot definition identity revision fields = Some snapshot ->
+ snapshot_key snapshot = ContextKey definition identity /\ snapshot_revision snapshot = revision /\
+ snapshot_fields snapshot = fields /\ ContextUpdates.valid_identity definition identity = true /\
+ ContextUpdates.valid_value (ContextKey definition identity) fields = true /\ nonempty revision = true.
+Proof.
+ intros definition identity revision fields snapshot Constructed.
+ unfold ContextUpdates.construct_snapshot in Constructed.
+ destruct (nonempty revision && ContextUpdates.valid_identity definition identity &&
+  ContextUpdates.valid_value (ContextKey definition identity) fields) eqn:Admitted; try discriminate.
+ inversion Constructed; subst snapshot.
+ apply andb_true_iff in Admitted as [Identity Value].
+ apply andb_true_iff in Identity as [Revision Identity].
+ repeat split; assumption || reflexivity.
+Qed.
+
+Lemma replacing_text_preserves_field_names : forall fields name text,
+ map fst (ContextUpdates.replace_text name text fields) = map fst fields.
+Proof.
+ induction fields as [|[key previous] rest IH]; intros name text; [reflexivity|].
+ cbn [ContextUpdates.replace_text List.map]. destruct (String.eqb name key); cbn;
+ [reflexivity|rewrite IH; reflexivity].
+Qed.
+
+Theorem accepted_field_edits_preserve_the_complete_field_schema : forall patches fields updated,
+ ContextUpdates.apply_fields patches fields = Some updated -> map fst updated = map fst fields.
+Proof.
+ induction patches as [|patch rest IH]; intros fields updated Applied; cbn in Applied.
+ - inversion Applied; reflexivity.
+ - destruct (ContextUpdates.find_text (patch_field patch) fields); try discriminate.
+   destruct (ContextUpdates.apply_text s (patch_edits patch)); try discriminate.
+   specialize (IH _ _ Applied). rewrite IH. apply replacing_text_preserves_field_names.
+Qed.
 
 Lemma context_fields_encoding_is_injective : forall left right,
  fields_json left = fields_json right -> left = right.
@@ -43,6 +77,35 @@ Qed.
 Theorem failed_context_observation_retains_the_last_admitted_binding : forall key reason bindings,
  ContextUpdates.observation_changes (ObservationFailure key reason) bindings = Some [].
 Proof. reflexivity. Qed.
+
+Theorem a_stale_returned_amendment_preserves_the_current_binding : forall key base revision patches bindings current,
+ ContextUpdates.find_snapshot key bindings = Some current -> snapshot_revision current <> base ->
+ ContextUpdates.apply_change (Amend key base revision patches) bindings = bindings.
+Proof.
+ intros key base revision patches bindings current Found Stale.
+ cbn [ContextUpdates.apply_change]; rewrite Found.
+ apply String.eqb_neq in Stale; rewrite Stale; reflexivity.
+Qed.
+
+Theorem a_stale_returned_removal_preserves_the_current_binding : forall key base bindings current,
+ ContextUpdates.find_snapshot key bindings = Some current -> snapshot_revision current <> base ->
+ ContextUpdates.apply_change (Remove key base) bindings = bindings.
+Proof.
+ intros key base bindings current Found Stale.
+ cbn [ContextUpdates.apply_change]; rewrite Found.
+ apply String.eqb_neq in Stale; rewrite Stale; reflexivity.
+Qed.
+
+Theorem an_accepted_patch_updates_its_captured_binding : forall bindings key base revision before after patches,
+ ContextUpdates.find_snapshot key bindings = Some (Snapshot key base before) ->
+ ContextUpdates.apply_fields patches before = Some after ->
+ ContextUpdates.apply_change (Amend key base revision patches) bindings =
+ ContextUpdates.remove_snapshot key bindings ++ [Snapshot key revision after].
+Proof.
+ intros bindings key base revision before after patches Found Applied.
+ cbn [ContextUpdates.apply_change]; rewrite Found; cbn.
+ rewrite String.eqb_refl, Applied; reflexivity.
+Qed.
 Theorem unchanged_context_fields_do_not_append_a_revision_only_change : forall current patch previous bindings,
  ContextUpdates.find_snapshot (snapshot_key current) bindings = Some previous ->
  snapshot_fields current = snapshot_fields previous ->

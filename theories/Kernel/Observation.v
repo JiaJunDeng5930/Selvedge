@@ -32,10 +32,26 @@ Definition awaiting_human (value : task) := existsb (fun operation =>
 Definition status_label (value : task) := match task_lifecycle value with
  | Running _ _ => if task_busy value then "Working" else "Ready"
  | Frozen _ _ => "Paused" | Stopped _ _ => "Stopped" | Archived => "Archived" end.
+(** UI observations include the frozen context consumed by the experience layer;
+    the model-tool settings codec remains the narrower protocol it already owns. *)
+Definition experience_approval_json (value : approval_policy) :=
+  match value with
+  | ReviewWith reviewer => match approval_json value with
+    | JObject fields => JObject (fields ++ [("reviewer", profile_json reviewer)])
+    | value => value end
+  | _ => approval_json value end.
+Definition experience_settings_json (value : task_settings) :=
+  match settings_json value with
+  | JObject fields => JObject (set_field "approval" (experience_approval_json (settings_approval value))
+      fields ++ [("guidance", settings_guidance value);
+      ("create_worktree", JBool (settings_worktree value))])
+  | value => value
+  end.
 Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Domain.state) := JObject [
  ("id", number id); ("parent", optional_number (hd_error (task_lineage value)));
  ("side_parent", optional_number (task_side_parent value));
  ("profile", JString (profile_key (task_current_profile value)));
+ ("execution_profile", profile_json (task_current_profile value));
  ("provider", JString (profile_provider (task_current_profile value)));
  ("model", JString (profile_model (task_current_profile value)));
  ("reasoning", JString (profile_reasoning (task_current_profile value)));
@@ -45,7 +61,7 @@ Definition task_summary (id : N) (value : task) (features : Selvedge.Features.Do
  ("queued", number (N.of_nat (List.length (task_queued value))));
  ("operations", JArray (map (operation_summary (task_current_settings value)) (task_operations value)));
  ("plugins", JArray (contract_plugins (task_contract value)));
- ("settings", settings_json (task_current_settings value));
+ ("settings", experience_settings_json (task_current_settings value));
  ("max_fork", number (contract_max_fork (task_contract value)));
  ("max_descendants", number (contract_max_descendants (task_contract value)));
  ("work_id", optional_number (task_owner id value features));
@@ -96,7 +112,7 @@ Definition world_json (value : world) :=
  ("sequence", number (world_sequence value));
  ("compaction",Selvedge.Features.CompactionCodec.state_json (Selvedge.Features.Domain.feature_compaction features));
  ("title_settings", Selvedge.Features.Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings features));
- ("defaults", JObject [("settings",settings_json (Tasks.creation_defaults (world_environment value)))]);
+ ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
  ("tasks", JArray (indexed (fun id task => task_snapshot id task features) 0 (world_tasks value)));
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));

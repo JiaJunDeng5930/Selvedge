@@ -312,16 +312,16 @@ export class Markdown {
           const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
           const ui = document.createElement('div'); ui.className = 'interactive-markdown-target';
           const pre = document.createElement('pre'); node = document.createElement('code');
-          const identity = ordinal++;
-          const key = options.codeKey?.(identity);
-          if (key) {
-            options.target?.(`${key}/toolbar`, toolbar);
-            options.target?.(`${key}/code`, node);
-            options.target?.(`${key}/source`, pre);
-            options.target?.(`${key}/ui`, ui);
-            options.target?.(`${key}/frame`, block);
+          const codeOrdinal = ordinal++;
+          const identity = options.codeIdentity?.(codeOrdinal);
+          const targets = identity && options.codeTargets?.(identity);
+          if (targets) {
+            for (const [name, target] of [['toolbar', toolbar], ['body', node],
+              ['source', pre], ['preview', ui], ['frame', block]]) {
+              options.target?.(targets[name], target);
+            }
           }
-          codeSources.set(node, { ordinal: identity, text: null });
+          codeSources.set(node, { ordinal: codeOrdinal, text: null });
           pre.append(node); block.append(toolbar, pre, ui); parent.append(block);
         } else {
           node = document.createElement(tags.get(type));
@@ -354,6 +354,13 @@ export class Markdown {
           if (href) { node.setAttribute('href', href); node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
         } else if (attr === smd.LANG) {
           node.dataset.language = value.split(/\s/)[0].slice(0, 40);
+          const entry = stack.at(-1);
+          if (!entry.language) {
+            entry.language = document.createElement('span');
+            entry.language.className = 'code-language';
+            node.closest('.code-block').prepend(entry.language);
+          }
+          entry.language.textContent = node.dataset.language;
         } else if (attr === smd.CHECKED) node.checked = true;
         // DEFENSE: Markdown list starts are arbitrary source text; only bounded decimal indices may become native start attributes.
         else if (attr === smd.START && /^\d{1,9}$/.test(value)) node.setAttribute('start', value);

@@ -1,11 +1,13 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Interaction Require Import Codec Identity.
 Import ListNotations.
 Open Scope string_scope.
 
-Inductive action_owner := DraftOwner (owner:editor) | MenuOwner (subject:menu_subject)(action_key:string).
+Inductive action_owner := DraftOwner (owner:editor) | MenuOwner (subject:menu_subject)(action_key:string)
+| CandidateOwner (owner:editor)(field value:string)
+| DirectOwner (command:string).
 Definition menu_subject_eq_dec : forall a b:menu_subject,{a=b}+{a<>b}.
 Proof. decide equality;apply N.eq_dec. Defined.
 Definition action_owner_eq_dec : forall a b:action_owner,{a=b}+{a<>b}.
@@ -13,10 +15,14 @@ Proof. decide equality;auto using editor_eq_dec,menu_subject_eq_dec,string_dec. 
 Definition same_owner a b := if action_owner_eq_dec a b then true else false.
 Definition encode_owner value := match value with
 |DraftOwner e=>JObject[("kind",JString "draft");("editor",encode_editor e)]
-|MenuOwner subject key=>JObject[("kind",JString "menu");("subject",encode_menu_subject subject);("action",JString key)]end.
+|MenuOwner subject key=>JObject[("kind",JString "menu");("subject",encode_menu_subject subject);("action",JString key)]
+|DirectOwner command=>JObject[("kind",JString "direct");("command",JString command)]
+|CandidateOwner e field value=>JObject[("kind",JString "candidate");("editor",encode_editor e);("field",JString field);("value",JString value)]end.
 Definition decode_owner source := match string_field "kind" source with
 |Some "draft"=>e<-bind(field "editor" source)decode_editor;;Some(DraftOwner e)
 |Some "menu"=>subject<-bind(field "subject" source)decode_menu_subject;;key<-string_field "action" source;;Some(MenuOwner subject key)
+|Some "direct"=>option_map DirectOwner(string_field "command" source)
+|Some "candidate"=>e<-bind(field "editor" source)decode_editor;;name<-string_field "field" source;;value<-string_field "value" source;;Some(CandidateOwner e name value)
 |_=>None end.
 
 Record request := Request {
@@ -68,9 +74,10 @@ Definition current_owned owner revision sequence observation :=
   N.eqb revision (observed_revision observation) &&
   N.eqb sequence (observed_sequence observation).
 Definition current e := current_owned(DraftOwner e).
-Definition same_command (left right:command_value command_specs) := Json.equal
-  (JObject(remove_field "observed_at"(object_fields(encode_command left))))
-  (JObject(remove_field "observed_at"(object_fields(encode_command right)))).
+Definition semantic_command (command:command_value command_specs):=
+ JObject(remove_field "observed_at"(object_fields(encode_command command))).
+Definition command_identity(command:command_value command_specs):=TextJson.render_json(semantic_command command).
+Definition same_command (left right:command_value command_specs) := Json.equal(semantic_command left)(semantic_command right).
 Definition matches owner revision sequence command request :=
   same_owner owner(request_owner request) && N.eqb revision(request_revision request) &&
   N.eqb sequence(request_sequence request) && same_command command(request_command request).

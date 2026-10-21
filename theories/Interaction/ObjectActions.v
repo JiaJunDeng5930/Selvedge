@@ -1,136 +1,156 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Import Commands.
-From Selvedge.Features Require BoardFilter.
-From Selvedge.Interaction Require Import Codec Identity Resource Services ApplicationState.
+From Selvedge.Generated Require Commands.
+From Selvedge.Features Require Domain.
+From Selvedge.Interaction Require Import Codec Identity Resource Services DocumentState.
 From Selvedge.Interaction Require CommandAssessment.
+From Selvedge.Interaction.Session Require State.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Module G := Selvedge.Generated.Commands.
 
-Inductive menu_operation := NativeCommand(command:public_command)(purpose:pending_purpose)
- | MenuDestination(destination:route) | MenuEditor(owner:editor).
-Record menu_item := MenuItem { item_key:string; item_label:string; item_operation:menu_operation }.
-Definition native_item key caption purpose op fields :=
- option_map(fun command=>MenuItem key caption(NativeCommand command purpose))
-  (decode_command command_specs(JObject(("op",JString op)::fields))).
-Definition local_item key caption input := MenuItem key caption(input).
-Definition confirmation_for(command:public_command):option(string*route*menu_subject):=
- let value:=encode_command command in
- match string_field "op" value with
- |Some "delete_project"=>id<-natural_field "project_id" value;;Some("Delete project",Projects,ProjectActions id)
- |Some "delete_task_graph"=>id<-natural_field "graph_id" value;;Some("Delete task graph",Graphs,GraphActions id)
- |Some "delete_card"=>id<-natural_field "card_id" value;;Some("Delete card",Board,CardActions id)
- |_=>None end.
-Definition confirmation_item command caption :=MenuItem "delete" caption(NativeCommand command DirectSubmission).
-Definition subject_value world subject :=match subject with
-  |TaskActions task=>find_task task world
-  |ProjectActions project=>find_project project world
-  |CardActions card=>find_world "cards" "card_id" card(value_or JNull(field "board" world))
-  |AgentActions agent=>find_world "agents" "agent_id" agent(value_or JNull(field "board" world))
-  |GraphActions graph=>find_world "graphs" "graph_id" graph world end.
-Definition subject_live world subject :=match subject_value world subject with Some _=>true|None=>false end.
-Definition panel_live world panel :=match panel with
-  |ObjectActionsPanel subject _=>subject_live world subject
-  |ApplicationState.Confirmation command _ _ _ _=>match confirmation_for command with
-    |Some(_,_,subject)=>subject_live world subject|None=>true end
-  |_=>true end.
-Definition panel_retained world pending panel :=match panel with
-  |ApplicationState.Confirmation _ _ _ _ _=>pending||panel_live world panel
-  |_=>panel_live world panel end.
-Definition menu_owner_live world panel :=match panel with
-  |ObjectActionsPanel subject _=>subject_live world subject|_=>true end.
-Definition task_items task generation trigger :=
- flat_map(fun '(key,caption)=>match native_item key caption DirectSubmission key[("task_id",number task)]with
-   None=>[]|Some item=>[item]end)
-  [("interrupt","Interrupt");("freeze","Freeze");("unfreeze","Resume");("stop","Stop");("archive","Archive")]++
- (match native_item "side" "Side conversation"(SideCreation task generation trigger) "open_side_conversation"
-   [("task_id",number task);("message",Forms.content ""[])]with
-   None=>[]|Some item=>[item]end)++
- [local_item "fork" "Fork"(MenuEditor(Fork task));
-  local_item "compact" "Compact"(MenuEditor(Compact task))].
-Definition project_items project :=
- [local_item "details" "Project details"(MenuDestination(ProjectHome project));
-  local_item "edit" "Edit project"(MenuEditor(Project(Some project)))]++
- match native_item "delete" "Delete project" DirectSubmission "delete_project"[("project_id",number project)]with
-  None=>[]|Some item=>[item]end.
-Definition card_items now board world card :=
- let identity:=[("card_id",value_or JNull(field "card_id" card));("revision",value_or JNull(field "revision" card));("observed_at",JString(show_natural now))]in
- let command key caption op extra:=match native_item key caption DirectSubmission op(identity++extra)with None=>[]|Some item=>[item]end in
- command "run" "Run" "run_card"[]++
- command "archive" "Archive or restore"(if flag "archived" card then "restore_card"else "archive_card")[]++
- command "pin" "Pin or unpin" "pin_card"[("pinned",JBool(negb(flag "pinned" card)))]++
- command "delete" "Delete" "delete_card"[]++
- command "regenerate" "Regenerate title" "regenerate_card_title"[("draft_profile",JString(text "draft_profile" board))]++
- flat_map(fun stage=>command(String.append "move/" stage)(String.append "Move to " stage)"move_card"[("status",JString stage);("before_card",JString "")])
-  (map (text "value") BoardFilter.stage_choices)++
- flat_map(fun other=>match natural_field "card_id" other,natural_field "card_id" card with
- |Some target,Some own=>if negb(flag "archived" other)&&negb(N.eqb target own)then
-  command(String.append "before/"(show_natural target))(String.append "Move before "(text "title" other))"move_card"
-   [("status",JString(text "status" other));("before_card",JString(show_natural target))]else[]|_,_=>[]end)(items "cards" board)++
- flat_map(fun task=>match natural_field "id" task with None=>[]|Some id=>
-  command(String.append "link/"(show_natural id))(String.append "Link "(text "title" task))"link_card"[("task_id",number id)]end)(items "tasks" world).
-Definition agent_items agent value :=
- [local_item "edit" "Edit"(MenuEditor(Agent(Some agent)))]++
- match native_item "delete" "Delete" DirectSubmission "delete_board_agent"
-  [("agent_id",number agent);("revision",value_or JNull(field "revision" value))]with None=>[]|Some item=>[item]end.
-Definition items_for now subject world generation trigger :=
- let board:=value_or JNull(field "board" world)in
-  match subject_value world subject with None=>[]|Some value=>match subject with
-  |TaskActions task=>task_items task generation trigger
-  |ProjectActions project=>project_items project
-  |CardActions _=>card_items now board world value
-  |AgentActions agent=>agent_items agent value
-  |GraphActions _=>[]end end.
-Definition assessment_items now world s :=match layers(navigation_state s)with
- |ObjectActionsPanel subject trigger::_=>Some(subject,items_for now subject world(generation(navigation_state s))trigger)
- |ApplicationState.Confirmation command caption _ _ _::_=>
-   match confirmation_for command with Some(_,_,subject)=>Some(subject,[confirmation_item command caption])|None=>None end
- |_=>None end.
-Definition lookup_assessment now subject key occurrence world s :=
- if N.eqb occurrence(generation(navigation_state s))then
-  match assessment_items now world s with Some(current,items)=>
-   if CommandAssessment.menu_subject_eq_dec subject current then find(fun item=>String.eqb key(item_key item))items else None
-  |None=>None end else None.
-Definition active_menu subject occurrence s :=
- N.eqb occurrence(generation(navigation_state s))&&match layers(navigation_state s)with
- |ObjectActionsPanel current _::_=>if CommandAssessment.menu_subject_eq_dec subject current then true else false|_=>false end.
-Definition menu_trigger s :=match layers(navigation_state s)with panel::_=>panel_trigger panel|_=>"main"end.
-Definition lookup now subject key occurrence world s :=
- if active_menu subject occurrence s then find(fun item=>String.eqb key(item_key item))(items_for now subject world occurrence(menu_trigger s))else None.
-Definition item_owner subject item := CommandAssessment.MenuOwner subject(item_key item).
-Definition assessment_for subject item s := find(Services.owned_assessment(item_owner subject item))(Services.command_assessments(service_state s)).
-Inductive availability := Available | Awaiting | Unavailable(reason:string) | AssessmentFailed(reason:string).
-Definition item_availability subject occurrence world s item :=
- match item_operation item with MenuDestination _|MenuEditor _=>Available|NativeCommand command _=>
- if negb(Services.connected(service_state s))then Unavailable "Connect to continue"else
- match natural_field "sequence" world,assessment_for subject item s with
+Inductive operation := NativeCommand(command:State.public_command)
+| Destination(target:route) | Editor(owner:editor) | SideConversation(task:N).
+Inductive status := Available | Awaiting | Unavailable(reason:string) | AssessmentFailed(reason:string).
+Record action := Action {
+ action_key:string; action_label:string; action_operation:operation;
+ action_confirmation:option(string*route); action_status:status
+}.
+Definition command value := match action_operation value with
+|NativeCommand command=>Some command
+|SideConversation task=>decode_command command_specs(G.encode(G.Cmd_open_side_conversation(G.Build_open_side_conversation task None None)))
+|_=>None end.
+Definition local key label operation := Action key label operation None Available.
+Definition native key label confirmation generated :=
+ option_map(fun command=>Action key label(NativeCommand command)confirmation Awaiting)
+  (decode_command command_specs(G.encode generated)).
+Definition singleton {A} (value:option A) := match value with Some value=>[value]|None=>[]end.
+Definition subject_value snapshot subject :=match subject with
+|TaskActions id=>DocumentState.find_task id snapshot
+|ProjectActions id=>DocumentState.find_world "projects" "project_id" id snapshot
+|GraphActions id=>DocumentState.find_world "graphs" "graph_id" id snapshot
+|CardActions id=>board<-field "board" snapshot;;DocumentState.find_world "cards" "card_id" id board
+|AgentActions id=>board<-field "board" snapshot;;DocumentState.find_world "agents" "agent_id" id board end.
+Definition task_actions id :=
+ flat_map(fun '(key,label,command)=>singleton(native key label None command))[
+  ("interrupt","Interrupt",G.Cmd_interrupt(G.Build_interrupt id));
+  ("freeze","Freeze",G.Cmd_freeze(G.Build_freeze id));
+  ("unfreeze","Resume",G.Cmd_unfreeze(G.Build_unfreeze id));
+  ("stop","Stop",G.Cmd_stop(G.Build_stop id));
+  ("archive","Archive",G.Cmd_archive(G.Build_archive id))] ++
+ [local "side" "Side conversation"(SideConversation id);
+  local "fork" "Fork"(Editor(Fork id));local "compact" "Compact"(Editor(Compact id))].
+Definition card_actions snapshot clock id value :=
+ match natural_field "revision" value,clock with
+ |Some revision,Some now=>
+  let observed:=Some(show_natural now)in
+  let generated:=
+   [("run","Run",G.Cmd_run_card(G.Build_run_card id revision observed),None);
+    ("archive",(if flag "archived" value then "Restore"else"Archive"),
+      (if flag "archived" value then G.Cmd_restore_card(G.Build_restore_card id revision observed)
+       else G.Cmd_archive_card(G.Build_archive_card id revision observed)),None);
+    ("pin",(if flag "pinned" value then "Unpin"else"Pin"),
+      G.Cmd_pin_card(G.Build_pin_card id revision observed(Some(negb(flag "pinned" value)))),None);
+    ("delete","Delete",G.Cmd_delete_card(G.Build_delete_card id revision observed),Some("Delete card",Board));
+    ("regenerate","Regenerate title",G.Cmd_regenerate_card_title(G.Build_regenerate_card_title id revision observed
+       (bind(field "board" snapshot)(string_field "draft_profile"))),None)]in
+  flat_map(fun '(key,label,command,confirmation)=>singleton(native key label confirmation command))generated ++
+  flat_map(fun stage=>singleton(native("move/"++stage)("Move to "++stage)None
+   (G.Cmd_move_card(G.Build_move_card id revision observed(Some stage)(Some "")))))
+   (map Selvedge.Features.Domain.stage_name Selvedge.Features.Domain.stages) ++
+  flat_map(fun target=>match natural_field "card_id" target with
+   |Some target_id=>if negb(flag "archived" target)&&negb(N.eqb id target_id)then
+     singleton(native("before/"++show_natural target_id)("Move before "++text "title" target)None
+       (G.Cmd_move_card(G.Build_move_card id revision observed(Some(text "status" target))(Some(show_natural target_id)))))
+    else[]|None=>[]end)(match field "board" snapshot with Some board=>items "cards" board|None=>[]end) ++
+  flat_map(fun task=>match natural_field "id" task with
+   |Some task_id=>singleton(native("link/"++show_natural task_id)("Link "++text "title" task)None
+      (G.Cmd_link_card(G.Build_link_card id revision observed(Some task_id))))
+   |None=>[]end)(Codec.items "tasks" snapshot)
+ |_,_=>[]end.
+Definition declarations snapshot clock subject :=match subject_value snapshot subject with
+|None=>[]
+|Some value=>match subject with
+ |TaskActions id=>task_actions id
+ |ProjectActions id=>[local "details" "Project details"(Destination(ProjectHome id));
+    local "edit" "Edit project"(Editor(Project(Some id)))] ++
+    singleton(native "delete" "Delete project"(Some("Delete project",Projects))(G.Cmd_delete_project(G.Build_delete_project id)))
+ |CardActions id=>local "edit" "Edit card"(Editor(Card(Some id)))::card_actions snapshot clock id value
+ |AgentActions id=>[local "edit" "Edit agent"(Editor(Agent(Some id)))] ++
+    match natural_field "revision" value with Some revision=>singleton(native "delete" "Delete agent"None
+     (G.Cmd_delete_board_agent(G.Build_delete_board_agent id revision)))|None=>[]end
+ |GraphActions id=>[local "edit" "Edit task graph"(Editor(TaskGraph(Some id)None))] ++
+    singleton(native "delete" "Delete task graph"(Some("Delete task graph",Graphs))(G.Cmd_delete_task_graph(G.Build_delete_task_graph id)))
+ end end.
+Definition occurrence s := match State.layers(State.navigation_state s)with
+|layer::_=>State.layer_occurrence layer|[]=>State.generation(State.navigation_state s)end.
+Definition assessment_revision s := State.generation(State.navigation_state s).
+Definition action_owner subject value := CommandAssessment.MenuOwner subject(action_key value).
+Definition assessment_for subject value s := find(Services.owned_assessment(action_owner subject value))
+ (Services.command_assessments(State.service_state s)).
+Definition availability snapshot s subject value :=match command value with
+|None=>Available
+|Some command=>if negb(Services.connected(State.service_state s))then Unavailable "Connect to continue"else
+ match natural_field "sequence" snapshot,assessment_for subject value s with
  |Some sequence,Some(Loaded _ request observation)=>
-  if CommandAssessment.matches(item_owner subject item)occurrence sequence command request&&
-    CommandAssessment.current_owned(item_owner subject item)occurrence sequence observation
-  then match CommandAssessment.observed_admission observation with CommandAssessment.Admitted=>Available
-    |CommandAssessment.Refused _ reason=>Unavailable reason end else Awaiting
+   if CommandAssessment.matches(action_owner subject value)(assessment_revision s)sequence command request &&
+      CommandAssessment.current_owned(action_owner subject value)(assessment_revision s)sequence observation
+   then match CommandAssessment.observed_admission observation with
+    |CommandAssessment.Admitted=>Available|CommandAssessment.Refused _ reason=>Unavailable reason end
+   else Awaiting
  |Some sequence,Some(Failed _ request reason)=>
-  if CommandAssessment.matches(item_owner subject item)occurrence sequence command request
+   if CommandAssessment.matches(action_owner subject value)(assessment_revision s)sequence command request
    then AssessmentFailed reason else Awaiting
  |_,_=>Awaiting end end.
-Definition confirmation_availability world s command caption :=match confirmation_for command with
- |Some(_,_,subject)=>item_availability subject(generation(navigation_state s))world s(confirmation_item command caption)
- |None=>Unavailable "This command has no confirmation activity"end.
-Definition refresh_menu_assessments now world s : Services.service_result :=
- let current:=assessment_items now world s in
- let retained:=filter(fun resource=>match resource_request resource with None=>false|Some request=>
-  match CommandAssessment.request_owner request with CommandAssessment.DraftOwner _=>true
-  |CommandAssessment.MenuOwner subject _=>match current with None=>false|Some(own,_)=>
-   if CommandAssessment.menu_subject_eq_dec subject own then
-    N.eqb(CommandAssessment.request_revision request)(generation(navigation_state s))else false end end end)
-   (Services.command_assessments(service_state s))in
- let clean:=Services.with_command_assessments retained(service_state s)in
- match current,natural_field "sequence" world with
- |Some(subject,items),Some sequence=>if Services.connected clean then
-  fold_left(fun result item=>match item_operation item with MenuDestination _|MenuEditor _=>result|NativeCommand command _=>
-   let next:=Services.ensure_assessment(item_owner subject item)(generation(navigation_state s))sequence command(Services.service_state result)in
-   Services.ServiceResult(Services.service_state next)(Services.service_effects result++Services.service_effects next)None end)
-    items(Services.keep clean)
-  else Services.keep clean
- |_,_=>Services.keep clean end.
+Definition observe snapshot s subject value :=Action(action_key value)(action_label value)(action_operation value)
+ (action_confirmation value)(availability snapshot s subject value).
+Definition items snapshot s subject :=map(observe snapshot s subject)(declarations snapshot(State.now s)subject).
+Definition resolve snapshot s subject key :=find(fun value=>String.eqb key(action_key value))(items snapshot s subject).
+
+Definition return_action snapshot state task :=
+ value<-DocumentState.find_task task snapshot;;parent<-natural_field "side_parent" value;;
+ action<-native "return" ("追加回 task #"++show_natural parent) None
+  (G.Cmd_return_side_conversation(G.Build_return_side_conversation task));;
+ Some(observe snapshot state(TaskActions task)action).
+Definition approval_action snapshot state task operation (allow:bool) :=
+ let decision : denote(KEnum "allow" ["deny"]) := if allow then exist _ "allow"(or_introl eq_refl)
+  else exist _ "deny"(or_intror(or_introl eq_refl))in
+ action<-native ((if allow then"approve/"else"deny/")++show_natural operation)
+  (if allow then"Approve once"else"Deny")None
+  (G.Cmd_review_approval(G.Build_review_approval task operation decision None));;
+ Some(observe snapshot state(TaskActions task)action).
+Definition approval_actions snapshot state task :=match DocumentState.find_task task snapshot with
+|None=>[]|Some value=>flat_map(fun operation=>match natural_field "operation_id" operation with
+ |Some id=>if flag "awaitingHuman" operation then
+   singleton(approval_action snapshot state task id true)++singleton(approval_action snapshot state task id false)
+  else[]|None=>[]end)(Codec.items "operations" value)end.
+Definition cancellation_actions snapshot state task :=match DocumentState.find_task task snapshot with
+|None=>[]|Some value=>flat_map(fun operation=>match natural_field "operation_id" operation with
+ |Some id=>match native("cancel/"++show_natural id)"Cancel operation"None
+    (G.Cmd_cancel_operation(G.Build_cancel_operation task id))with
+   |Some action=>[observe snapshot state(TaskActions task)action]|None=>[]end
+ |None=>[]end)(Codec.items "operations" value)end.
+Definition worktree_retry_action snapshot state task :=
+ value<-DocumentState.find_world "worktrees" "task_id" task snapshot;;
+ if String.eqb(text "status" value)"archive_failed"then
+ action<-native "worktree/retry-archive" "Retry archive" None
+  (G.Cmd_retry_worktree_archive(G.Build_retry_worktree_archive task));;
+ Some(observe snapshot state(TaskActions task)action)else None.
+Definition reading_actions snapshot state task :=
+ approval_actions snapshot state task++cancellation_actions snapshot state task++singleton(return_action snapshot state task)++singleton(worktree_retry_action snapshot state task).
+Definition subject_entries snapshot :=
+ flat_map(fun '(collection,field_name,construct)=>
+  fold_right(fun item rest=>match natural_field field_name item with Some id=>construct id::rest|None=>rest end)[]
+   (Codec.items collection snapshot))[("tasks","id",TaskActions);("projects","project_id",ProjectActions);("graphs","graph_id",GraphActions)]++
+ match field "board" snapshot with
+ |None=>[]|Some board=>flat_map(fun '(collection,field_name,construct)=>
+  fold_right(fun item rest=>match natural_field field_name item with Some id=>construct id::rest|None=>rest end)[]
+   (Codec.items collection board))[("cards","card_id",CardActions);("agents","agent_id",AgentActions)]end.
+Definition descriptors snapshot state subject :=items snapshot state subject++
+ match subject with TaskActions task=>reading_actions snapshot state task|_=>[]end.
+Definition descriptor_for_command snapshot state (accepted:State.public_command) :=
+ find(fun entry=>match command(snd entry)with
+  |Some candidate=>Json.equal(encode_command candidate)(encode_command accepted)|None=>false end)
+  (flat_map(fun subject=>map(fun action=>(subject,action))(descriptors snapshot state subject))(subject_entries snapshot)).

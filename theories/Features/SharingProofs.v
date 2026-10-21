@@ -82,6 +82,39 @@ Theorem recovery_never_replays_running_job : forall connection project request a
  F.JobInterrupted "Service restarted; execution may have happened and will not be replayed".
 Proof. reflexivity. Qed.
 
+Lemma removed_job_is_absent : forall id jobs,
+ find (fun item : N * F.connection_job => N.eqb id (fst item))
+   (filter (fun item => negb (N.eqb id (fst item))) jobs) = None.
+Proof.
+ intros id jobs. induction jobs as [|[key job] rest IH]; [reflexivity|].
+ cbn. destruct (N.eqb id key) eqn:same; [exact IH|].
+ cbn. rewrite same. exact IH.
+Qed.
+
+(** Forgetting ends retention without returning the identifier to the supply. *)
+Theorem public_forget_removes_settled_receipt : forall connection project id value job granted caller,
+ Chatgpt.ids_valid [connection;project;id] = true ->
+ Chatgpt.authority connection project (Chatgpt.registry value) = Some granted ->
+ Chatgpt.find_job id (Chatgpt.registry value) = Some job ->
+ Chatgpt.owned connection project job = true ->
+ Chatgpt.pending job = false ->
+ exists decision,
+ Chatgpt.command (G.Cmd_chatgpt_forget (G.Build_chatgpt_forget connection project id)) caller value = Some decision /\
+ Chatgpt.find_job id (Chatgpt.registry (decision_world decision)) = None /\
+ F.sharing_next (Chatgpt.registry (decision_world decision)) = F.sharing_next (Chatgpt.registry value) /\
+ decision_effects decision = [].
+Proof.
+ intros connection project id value job granted caller ids authority found owner settled.
+ change (Chatgpt.command (G.Cmd_chatgpt_forget (G.Build_chatgpt_forget connection project id)) caller value)
+   with (Some (Chatgpt.edit true connection project id value)).
+ unfold Chatgpt.edit. rewrite ids,authority,found,owner,settled. cbn.
+ eexists. split; [reflexivity|].
+ cbn beta iota zeta delta [decision_world decision_effects accept].
+ rewrite sharing_registry_store. destruct (Chatgpt.registry value) as [grants jobs next].
+ cbn. unfold Chatgpt.find_job. cbn. rewrite removed_job_is_absent.
+ repeat split; reflexivity.
+Qed.
+
 (** Repeating an accepted cancellation cannot request a second physical stop. *)
 Theorem repeated_cancellation_is_idempotent : forall connection project id value,
  let first:=Chatgpt.edit false connection project id value in

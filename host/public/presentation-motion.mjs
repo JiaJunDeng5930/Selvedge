@@ -22,7 +22,7 @@ export class PresentationMotion {
       const disabled = this.reduced.matches || document.visibilityState !== 'visible'
         || this.visible.get(node) === false
         || Boolean(node.closest('[hidden],[aria-hidden="true"],[inert]')) || Boolean(modal && !modal.contains(node));
-      node.dataset.nativeMotionPaused = String(disabled);
+      node.dataset.motionPaused = String(disabled);
     }
     this.nodes = current;
   }

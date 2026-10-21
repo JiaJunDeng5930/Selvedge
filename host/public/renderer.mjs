@@ -2,7 +2,7 @@ import { Markdown } from './markdown.mjs';
 import { MarkdownFenceObserver } from './markdown-fences.mjs';
 import { stringifyJson } from './json-tokens.mjs';
 
-const booleanProperties = new Set(['disabled', 'checked', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus', 'open']);
+const booleanProperties = new Set(['disabled', 'checked', 'indeterminate', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus', 'open']);
 const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 'text', 'g']);
 const svgNamespace = 'http://www.w3.org/2000/svg';
 
@@ -36,12 +36,21 @@ export class Renderer {
     this.targets = new Map();
     this.composing = new WeakSet();
     this.modal = null;
+    this.focusScope = [];
     this.disposed = false;
     this.anchorFocus = () => queueMicrotask(() => this.refreshAnchors());
     if (!isolated) {
       root.addEventListener('focusin', this.anchorFocus);
       root.addEventListener('focusout', this.anchorFocus);
     }
+  }
+  refreshNativeTargets() {
+    if (this.targetRefresh || this.disposed) return;
+    this.targetRefresh = true;
+    queueMicrotask(() => {
+      this.targetRefresh = false;
+      if (!this.disposed && this.document) this.render(this.document, this.generation);
+    });
   }
   target(key) {
     return key === '@document/root' ? this.root.ownerDocument.documentElement
@@ -51,7 +60,7 @@ export class Renderer {
     const scope = modal && this.modalRecord()?.node || this.root;
     const preferredView = this.root.ownerDocument.activeElement?.closest('[data-view]')?.dataset.view ?? '';
     const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(node =>
-      !node.closest('[inert],[hidden]') && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
+      !node.closest('[inert],[hidden]') && !node.disabled && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
     if (scope.dataset?.key) nodes.unshift(scope);
     const resolved = this.callbacks.resolveTarget({ target: key, view: preferredView, ...(fallback === undefined ? {} : { fallback }),
       candidates: nodes.map(node => ({ key: node.dataset.key,
@@ -65,7 +74,7 @@ export class Renderer {
   refreshAnchors() {
     for (const anchor of this.root.querySelectorAll('[data-native-anchor-owner]')) anchor.removeAttribute('data-native-anchor-owner');
     for (const positioned of this.root.querySelectorAll('[data-anchor]')) {
-      const anchor = this.target(positioned.dataset.anchor);
+      const anchor = this.resolveTarget(positioned.dataset.anchor, { modal: false });
       // DEFENSE: resizing can remove a trigger's responsive branch while its activity remains open.
       if (!anchor?.isConnected) {
         positioned.style.removeProperty('position-anchor');
@@ -83,9 +92,7 @@ export class Renderer {
   }
   fieldSession(record, event, value) {
     if (!this.callbacks.fieldSession || !record.attributes.has('value') || !('value' in record.node)) return { deliver: true };
-    const identity = stringifyJson({ key: record.key, kind: record.metadata.kind,
-      schema: record.metadata.schema, value_kind: record.metadata.value_kind,
-      action: record.metadata.action, injection: record.metadata.injection, options: record.metadata.options });
+    const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
     let decision;
     if (!record.fieldSession) decision = this.callbacks.fieldSession({ identity, value: record.attributes.get('value') });
     else decision = this.callbacks.fieldSession({ state: record.fieldSession, event, ...(value === undefined ? {} : { value }) });
@@ -121,9 +128,7 @@ export class Renderer {
     for (const [name, value] of nextStyles) if (record.styles.get(name) !== value) node.style.setProperty(name, value);
     record.attributes = next;
     if (next.has('value') && 'value' in node && !this.isolated && this.callbacks.fieldSession) {
-      const identity = stringifyJson({ key: record.key, kind: record.metadata.kind,
-        schema: record.metadata.schema, value_kind: record.metadata.value_kind,
-        action: record.metadata.action, injection: record.metadata.injection, options: record.metadata.options });
+      const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
       if (record.fieldSession) this.fieldSession(record, 'rebind', identity);
       this.fieldSession(record, 'synchronize', next.get('value'));
     }
@@ -131,28 +136,32 @@ export class Renderer {
   }
   listeners(record) {
     const { node } = record;
-    const dispatch = (kind, event) => {
-      for (const binding of record.events.filter(binding => binding.kind === kind)) {
+    const dispatch = (name, event) => {
+      for (const binding of record.events.filter(binding => binding.event === name))
         this.callbacks.event?.(binding, event, record.key, node, record.generation);
-      }
     };
-    node.addEventListener('click', event => dispatch('activate', event));
+    node.addEventListener('click', event => dispatch('click', event));
     node.addEventListener('input', event => {
-      if (node.tagName === 'SELECT' || !this.fieldSession(record, 'input_observed').deliver) return;
-      if (node.type === 'checkbox') dispatch('toggle', event);
-      else dispatch('edit', event);
+      if (!this.fieldSession(record, 'input_observed').deliver) return;
+      dispatch('input', event);
     });
     node.addEventListener('change', event => {
-      if (!this.fieldSession(record, 'input_observed').deliver) return;
-      if (node.tagName === 'SELECT') dispatch('edit', event);
-      if (node.type === 'file') dispatch('files', event);
+      if (this.fieldSession(record, 'input_observed').deliver) dispatch('change', event);
     });
     node.addEventListener('submit', event => { event.preventDefault(); dispatch('submit', event); });
-    node.addEventListener('cancel', event => { event.preventDefault(); dispatch('dismiss', event); });
+    node.addEventListener('cancel', event => { event.preventDefault(); dispatch('cancel', event); });
     node.addEventListener('compositionstart', () => { this.composing.add(node); this.fieldSession(record, 'composition_started'); });
-    node.addEventListener('compositionend', event => { this.composing.delete(node); if (this.fieldSession(record, 'composition_ended').deliver) dispatch('edit', event); });
+    node.addEventListener('compositionend', event => {
+      this.composing.delete(node);
+      if (this.fieldSession(record, 'composition_ended').deliver) dispatch('input', event);
+    });
     node.addEventListener('keydown', event => {
       if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') this.fieldSession(record, 'input_started');
+      if (!event.isComposing && event.keyCode !== 229) {
+        if (event.key === 'Enter') dispatch('keydown', event);
+        else if (event.key === ' ') for (const binding of record.events.filter(binding => binding.kind === 'press_key'))
+          this.callbacks.event?.(binding, event, record.key, node, record.generation);
+      }
       this.callbacks.key?.(event, record.key, node, record);
     });
     node.addEventListener('pointerdown', event => {
@@ -165,28 +174,23 @@ export class Renderer {
     node.addEventListener('wheel', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('touchmove', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('scroll', event => this.callbacks.reading?.('anchor', event, record.key, node), { passive: true });
-    const transferredFiles = event => {
-      const transfer = event.clipboardData ?? event.dataTransfer;
-      return transfer && Array.from(transfer.files ?? []);
-    };
-    node.addEventListener('paste', event => {
-      const files = transferredFiles(event);
-      if (files?.length && record.events.some(binding => binding.kind === 'files')) {
-        event.preventDefault(); dispatch('files', event);
+    const transferredFiles = event => Array.from((event.clipboardData ?? event.dataTransfer)?.files ?? []);
+    for (const type of ['paste', 'drop']) node.addEventListener(type, event => {
+      if (transferredFiles(event).length && record.events.some(binding => binding.kind === 'files')) {
+        event.preventDefault();
+        for (const binding of record.events.filter(binding => binding.kind === 'files'))
+          this.callbacks.event?.(binding, event, record.key, node, record.generation);
       }
     });
     node.addEventListener('dragover', event => {
       if (record.events.some(binding => binding.kind === 'files')) event.preventDefault();
     });
-    node.addEventListener('drop', event => {
-      if (transferredFiles(event)?.length && record.events.some(binding => binding.kind === 'files')) {
-        event.preventDefault(); dispatch('files', event);
-      }
-    });
   }
   render(document, generation = 0) {
     const active = this.root.ownerDocument.activeElement;
     this.document = document;
+    const previousScope = this.focusScope;
+    this.focusScope = document.focus_scope;
     this.generation = generation;
     this.targets.clear();
     const used = new Set();
@@ -210,17 +214,26 @@ export class Renderer {
         if (!this.isolated) this.listeners(record);
       }
       record.generation = generation;
-      record.metadata = value.metadata;
+      record.metadata = value.metadata ?? {};
       this.targets.set(key, record.node);
       if (value.kind === 'markdown') {
         record.node.className = 'markdown';
-        record.metadata = value.metadata;
+        record.metadata = value.metadata ?? {};
         if (!record.markdown || !value.value.startsWith(record.text)) {
           record.markdown?.dispose(); record.markdownTargets.clear(); record.node.replaceChildren();
-          record.markdown = new Markdown(record.node, { onChange: () => this.callbacks.layout?.(),
-            codeKey: ordinal => this.callbacks.codeKey?.(key, ordinal),
-            codeSource: (ordinal, text) => this.callbacks.codeSource?.(key, ordinal, text),
-            target: (target, node) => { record.markdownTargets.set(target, node); this.targets.set(target, node); } });
+          const current = () => this.records.get(key) === record;
+          record.markdown = new Markdown(record.node, { onChange: () => { if (current()) this.callbacks.layout?.(); },
+            ...(record.metadata.source === undefined ? {} : {
+              codeIdentity: ordinal => this.callbacks.codeIdentity?.(record.metadata.source, ordinal),
+              codeTargets: identity => this.callbacks.codeTargets?.(identity, record.metadata.view ?? null),
+              codeSource: (ordinal, text) => { if (current()) this.callbacks.codeSource?.(record.metadata.source, ordinal, text, record.metadata.view ?? null); },
+            }),
+            target: (target, node) => {
+              // DEFENSE: parser work may complete after its document's namespace was retired.
+              if (!current()) return;
+              record.markdownTargets.set(target, node); this.targets.set(target, node);
+              this.refreshNativeTargets();
+            } });
           record.text = '';
         }
         record.markdown.append(value.value.slice(record.text.length));
@@ -228,13 +241,14 @@ export class Renderer {
         for (const [target, node] of record.markdownTargets) this.targets.set(target, node);
         if (value.complete) record.markdown.finish();
         if (value.metadata.origin && value.metadata.epoch !== undefined && value.metadata.revision !== undefined) {
-          record.fences ??= new MarkdownFenceObserver({ onFence: observed =>
-            this.callbacks.fence?.(record.metadata, observed) });
+          record.fences ??= new MarkdownFenceObserver({ onFence: observed => {
+            if (this.records.get(key) === record) this.callbacks.fence?.(record.metadata, observed);
+          } });
           record.fences.sync({ text: value.value, epoch: stringifyJson(value.metadata.epoch),
             revision: value.metadata.revision, ending: value.metadata.ending ?? (value.complete ? 'complete' : 'open') });
         }
       } else {
-        record.events = value.events.map(binding => ({ ...binding, injection: value.metadata.injection }));
+        record.events = value.events;
         this.properties(record, value.attributes, value.styles);
         const children = value.children.map((child, index) => create(child, `${key}/${index}`)).filter(Boolean);
         // Retained native editors keep their selection and composition session.
@@ -255,7 +269,7 @@ export class Renderer {
     }
     if (!this.isolated) {
       // DOM order is the declared layer order; retained-record insertion order can differ after resizing.
-      const dialogs = Array.from(this.root.querySelectorAll('dialog[open]'));
+      const dialogs = Array.from(this.root.querySelectorAll('dialog[aria-modal="true"]'));
       this.refreshAnchors();
       const top = dialogs.at(-1) ?? null;
       if (this.modal !== top && this.modal?.isConnected && this.modal.matches(':modal')) {
@@ -274,11 +288,40 @@ export class Renderer {
         active.focus({ preventScroll: true });
       }
     }
-    this.root.ownerDocument.title = document.title;
+    const updatedTargets = new Set();
+    for (const update of document.target_updates) {
+      const target = this.target(update.target);
+      if (!target) continue;
+      updatedTargets.add(target);
+      const retained = this.targetProperties ??= new WeakMap();
+      const previous = retained.get(target) ?? { attributes: [], styles: [] };
+      for (const name of previous.attributes) if (!update.attributes.some(value => value.name === name)) target.removeAttribute(name);
+      for (const name of previous.styles) if (!update.styles.some(value => value.name === name)) target.style.removeProperty(name);
+      for (const { name, value } of update.attributes) target.setAttribute(name, value);
+      for (const { name, value } of update.styles) target.style.setProperty(name, value);
+      retained.set(target, { attributes: update.attributes.map(value => value.name), styles: update.styles.map(value => value.name) });
+    }
+    for (const target of this.updatedTargets ?? []) if (!updatedTargets.has(target)) {
+      const previous = this.targetProperties.get(target);
+      for (const name of previous.attributes) target.removeAttribute(name);
+      for (const name of previous.styles) target.style.removeProperty(name);
+      this.targetProperties.delete(target);
+    }
+    this.updatedTargets = updatedTargets;
+    for (const record of this.records.values()) if (record.metadata.code)
+      this.callbacks.codePublication?.(record.metadata.code);
+    if (!this.isolated) {
+      const eligible = active?.isConnected && !active.closest('[inert],[hidden]') && !active.disabled
+        && (!this.modal || this.modal.contains(active));
+      const focus = this.callbacks.focusPlan?.({ previous: previousScope, current: this.focusScope, eligible });
+      if (focus) this.resolveTarget(focus.target, { fallback: focus.fallback })?.focus({ preventScroll: true });
+    }
+    if (document.title) this.root.ownerDocument.title = document.title;
   }
   restoreField(key, value) {
-    const record = this.records.get(key);
-    // DEFENSE: The owning scene may have removed a field before its rejection reaches the native publication.
+    const target = this.resolveTarget(key, { modal: false });
+    const record = target && this.records.get(target.dataset.key);
+    // DEFENSE: The owning surface may have removed a field before its rejection reaches the native publication.
     if (!record) return;
     this.fieldSession(record, 'reject', value);
   }
@@ -290,11 +333,15 @@ export class Renderer {
     const results = await Promise.all(Array.from(this.records.values()).flatMap(record => [record.markdown?.whenCaughtUp() ?? true, record.fences?.whenCaughtUp() ?? true]));
     return !this.disposed && results.every(Boolean);
   }
+  reset() {
+    for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
+    reconcile(this.root, []); this.records.clear(); this.targets.clear(); this.modal = null;
+    this.document = null; this.focusScope = []; this.updatedTargets = new Set(); this.targetProperties = new WeakMap();
+  }
   dispose() {
     this.root.removeEventListener('focusin', this.anchorFocus);
     this.root.removeEventListener('focusout', this.anchorFocus);
     this.disposed = true;
-    for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
-    reconcile(this.root, []); this.records.clear(); this.targets.clear(); this.modal = null;
+    this.reset();
   }
 }

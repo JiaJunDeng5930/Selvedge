@@ -1,17 +1,28 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
 
+Inductive key:=Place(path:string)|Entity(owner:key)(kind identity:string)|Part(owner:key)(name:string).
+Definition key_eq_dec :forall left right:key,{left=right}+{left<>right}.
+Proof. decide equality;apply string_dec. Defined.
+Definition same_key left right:=if key_eq_dec left right then true else false.
+Fixpoint key_json value:=match value with
+|Place path=>JArray[JString "place";JString path]
+|Entity owner kind identity=>JArray[JString "entity";key_json owner;JString kind;JString identity]
+|Part owner name=>JArray[JString "part";key_json owner;JString name]end.
+Definition encode_key value:=TextJson.render_json(key_json value).
+Definition key_part(parent name:string):=encode_key(Part(Place parent)name).
+
 Inductive editor :=
-| NewTask (work : option N) | Message (task : N) | Execution (task : N) | Project (id : option N)
+| NewTask (work : option N) | Message (task : N) | Project (id : option N)
 | Card (id : option N) | Agent (id : option N) | Fork (task : N)
 | Compact (task : N) | TaskGraph (id work : option N)
 | WorkName (work : N) | TitlePrompts.
 
 Definition editor_task (e:editor) : option N := match e with
- |Message task|Execution task|Fork task|Compact task=>Some task|_=>None end.
+ |Message task|Fork task|Compact task=>Some task|_=>None end.
 Definition task_observation_fields e fields := match editor_task e with
  |Some task=>("task_id",JNumber(show_natural task))::fields|None=>fields end.
 
@@ -21,7 +32,6 @@ Definition encode_editor (e : editor) : json :=
   let record kind id work := JObject [("kind",JString kind);("id",optional_id id);("work",optional_id work)] in
   match e with
   | NewTask w => record "new_task" None w | Message t => record "message" (Some t) None
-  | Execution t => record "execution" (Some t) None
   | Project i => record "project" i None | Card i => record "card" i None
   | Agent i => record "agent" i None | Fork t => record "fork" (Some t) None
   | Compact t => record "compact" (Some t) None | TaskGraph i w => record "graph" i w
@@ -34,7 +44,6 @@ Definition decode_editor (j : json) : option editor :=
   match string_field "kind" j, id_field "id" j, id_field "work" j with
   | Some "new_task", Some None, Some w => Some (NewTask w)
   | Some "message", Some (Some t), Some None => Some (Message t)
-  | Some "execution", Some (Some t), Some None => Some (Execution t)
   | Some "project", Some i, Some None => Some (Project i)
   | Some "card", Some i, Some None => Some (Card i)
   | Some "agent", Some i, Some None => Some (Agent i)
@@ -52,7 +61,6 @@ Definition id_text id := match id with None => "new" | Some n => show_natural n 
 Definition editor_key (e : editor) : string :=
   match e with
   | NewTask w => "new-task/" ++ id_text w | Message t => "message/" ++ show_natural t
-  | Execution t => "execution/" ++ show_natural t
   | Project i => "project/" ++ id_text i | Card i => "card/" ++ id_text i
   | Agent i => "agent/" ++ id_text i | Fork t => "fork/" ++ show_natural t
   | Compact t => "compact/" ++ show_natural t
@@ -64,7 +72,7 @@ Definition task_view_task view := match view with PrimaryTask task|SideTask task
 Definition task_view_scope view := match view with
  |PrimaryTask task=>"main-task/"++show_natural task|SideTask task=>"side-task/"++show_natural task end.
 
-Definition task_view_key view logical := String.append(task_view_scope view)(String.append "/" logical).
+Definition task_view_key view logical := key_part(task_view_scope view)logical.
 
 Inductive menu_subject := TaskActions(task:N)|ProjectActions(project:N)|CardActions(card:N)|AgentActions(agent:N)|GraphActions(graph:N).
 Definition menu_identity subject := match subject with
@@ -108,3 +116,7 @@ Definition fence_key(document_key:string)(ordinal:N):string :=
 Definition fence_target(document_key:string)(ordinal:N):string :=
   fence_key document_key ordinal++"/ui".
 Definition work_ui_target(work:N):string := "work/"++show_natural work++"/shared-ui".
+
+Definition work_key (work:option N):string := "work/" ++ match work with None=>"all"|Some id=>show_natural id end.
+
+Definition message_key(view:task_view):string:=key_part(task_view_key view(editor_key(Message(task_view_task view))))"message".

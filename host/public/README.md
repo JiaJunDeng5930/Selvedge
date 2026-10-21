@@ -2,7 +2,7 @@
 
 `app.mjs` observes HTTP, SSE, DOM, storage and media resources. It sends domain JSON
 to the extracted interaction program, interprets the returned effects, and asks
-the extracted browser program to render its typed scene. Product commands,
+the interaction entry point to compile its typed product surface. Product commands,
 field schemas, layout choices, publication admission, composition state, reading
 intent and code-block behavior are Gallina definitions.
 
@@ -13,8 +13,9 @@ UTF-8 text; no compiler-private object layout is shared with JavaScript.
 
 `renderer.mjs` interprets a closed vocabulary of elements, text, Markdown and
 portals. It retains keyed native elements, delegates input decisions to the
-extracted field-session state machine, and applies the scene's declared input
-injection slot. SVG primitives and coordinates are constructed by Gallina;
+extracted field-session state machine, and sends only the current element key,
+gesture, value and publication generation. The interaction program resolves that
+element against its current surface. SVG primitives and coordinates are constructed by Gallina;
 JavaScript only creates their fixed SVG elements. Native dialog modal behavior,
 focus, selection, pointer hit tests and physical measurements remain browser
 observations and effects.
@@ -35,7 +36,7 @@ acceptance test.
 The renderer maintains physical DOM identities independently of logical document
 and editor ownership. Logical focus and reading requests are resolved by the
 extracted browser rules against observed native targets. Responsive navigation
-uses one real header; native dialog order follows the declared scene order.
+uses one real header; native dialog order follows the declared layer order.
 Anchored dialogs use their captured trigger and CSS anchor positioning. Native
 modal inertness also governs layout reveal and animation, without introducing a
 second application navigation or viewport state.

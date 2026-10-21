@@ -39,27 +39,37 @@ Fixpoint newer_context (messages : list message) : list (message * string) * str
  | message :: rest => let '(annotated,newer) := newer_context rest in
    ((message,newer) :: annotated,match readable message with Some (_,text) => take_text 180 text | None => newer end)
  end.
-Definition history_hits (query : string) (id : N) (task : task) (features : Features.Domain.state) :=
- let '(annotations,_) := newer_context (task_history task) in
- let '(_,_,hits) := fold_left (fun state annotation =>
+Definition scan_message (query : string) (summary : json)
+ (state : N * string * list json) (annotation : message * string) :=
    let '(index,before,hits) := state in let '(message,after) := annotation in
    match readable message with
    | None => (N.succ index,before,hits)
    | Some (role,text) =>
      (N.succ index,take_text 180 text,
       if contains (lower query) (lower text) then
-      JObject [("task",task_summary id task features);("message_index",number index);
+      JObject [("task",summary);("message_index",number index);
        ("role",JString role);("snippet",JString (snippet query text));
        ("before",JString before);("after",JString after)] :: hits else hits)
-   end) annotations (0%N,"",[]) in hits.
+   end.
+Definition history_hits (query : string) (id : N) (task : task) (features : Features.Domain.state) :=
+ let '(annotations,_) := newer_context (task_history task) in
+ let '(_,_,hits) := fold_left (scan_message query (task_summary id task features)) annotations (0%N,"",[]) in hits.
+Definition selected (project work : option N) (id : N) (task : task) (value : world) :=
+ (match project with None => true | Some id => match settings_project (task_current_settings task) with Some actual => N.eqb actual id | None => false end end) &&
+ (match work with None => true | Some owner => match task_owner id task (world_features value) with Some actual => N.eqb actual owner | None => false end end).
 Definition task_hits (query : string) (project work : option N) (id : N) (task : task) (value : world) :=
- if (match project with None => true | Some id => match settings_project (task_current_settings task) with Some actual => N.eqb actual id | None => false end end) &&
-    (match work with None => true | Some owner => match task_owner id task (world_features value) with Some actual => N.eqb actual owner | None => false end end)
+ if selected project work id task value
  then history_hits query id task (world_features value) else [].
 Fixpoint drop_space (chunks : list (N * string)) :=
  match chunks with [] => [] | (scalar,_) :: rest => if Utf8.whitespace scalar then drop_space rest else chunks end.
 Definition trim (text : string) := match Utf8.chunks text with
  | None => text | Some chunks => Utf8.render_chunks (rev (drop_space (rev (drop_space chunks)))) end.
+Definition page_remaining (remaining : list json) (after limit : N) :=
+ let more := N.ltb limit (N.of_nat (List.length remaining)) in
+ State.success (JObject [("hits", JArray (firstn (N.to_nat limit) remaining)); ("after", number after);
+  ("has_more", JBool more); ("next_after", if more then number (after+limit)%N else JNull)]).
+Definition page (hits : list json) (after limit : N) :=
+ page_remaining (if N.leb after (N.of_nat (List.length hits)) then skipn (N.to_nat after) hits else []) after limit.
 Definition search (query : string) (project work : option N) (after limit : N) (value : world) :=
  let project_exists := match project with None => true | Some id =>
    match registry_at id (world_projects value) with Some entry => negb (project_deleted entry) | None => false end end in
@@ -71,9 +81,6 @@ Definition search (query : string) (project work : option N) (after limit : N) (
  match Utf8.scalar_count query with
  | Some length => if Nat.leb 1 length && Nat.leb length 240 && (N.leb 1 limit && N.leb limit Pagination.search_limit) then
    let hits := concat (rev (indexed (fun id task => task_hits query project work id task value) 0 (world_tasks value))) in
-   let remaining := if N.leb after (N.of_nat (List.length hits)) then skipn (N.to_nat after) hits else [] in
-   let more := N.ltb limit (N.of_nat (List.length remaining)) in
-   State.success (JObject [("hits", JArray (firstn (N.to_nat limit) remaining)); ("after", number after);
-    ("has_more", JBool more); ("next_after", if more then number (after+limit)%N else JNull)])
+   page hits after limit
    else State.failure "invalid_search" "Search requires a query of 1..240 characters and a page size of 1..50"
  | None => State.failure "invalid_search" "Search query must contain valid Unicode" end.

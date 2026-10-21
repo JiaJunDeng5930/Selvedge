@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers TextJson.
-From Selvedge.Interaction Require Export Attachments.
-From Selvedge.Interaction Require Import Codec Identity Resource Forms ModelSelection.
+From Selvedge.Interaction Require Export Attachments Appearance.
+From Selvedge.Interaction Require Import Codec Identity Resource ModelSelection.
+From Selvedge.Interaction.Session Require Draft DraftCodec.
 From Selvedge.Interaction Require CommandAssessment.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
@@ -16,12 +17,20 @@ Definition decode_preview j := f <- bind(field "file" j) decode_attachment ;; t 
 Record directory_request := DirectoryRequest { directory_editor:editor; directory_path:string; directory_trigger:string }.
 Definition encode_directory d := JObject[("editor",encode_editor(directory_editor d));("path",JString(directory_path d));("trigger",JString(directory_trigger d))].
 Definition decode_directory j := e <- bind(field "editor" j) decode_editor ;; p <- string_field "path" j ;; t <- string_field "trigger" j ;; Some(DirectoryRequest e p t).
-Inductive appearance := SystemAppearance | LightAppearance | DarkAppearance.
-Definition appearance_name a := match a with SystemAppearance => "system" | LightAppearance => "light" | DarkAppearance => "dark" end.
-Definition decode_appearance s := match s with "system"=>Some SystemAppearance|"light"=>Some LightAppearance|"dark"=>Some DarkAppearance|_=>None end.
-Record preparation := Preparation { preparation_ticket:N; preparation_draft:Forms.draft; preparation_generation:N; preparation_trigger:string }.
-Definition encode_preparation p := JObject[("ticket",number(preparation_ticket p));("draft",Forms.encode_draft(preparation_draft p));("generation",number(preparation_generation p));("trigger",JString(preparation_trigger p))].
-Definition decode_preparation j := t<-natural_field "ticket" j;;d<-bind(field "draft" j)Forms.decode_draft;;g<-natural_field "generation" j;;trigger<-string_field "trigger" j;;Some(Preparation t d g trigger).
+Inductive preparation_intent := PreviewContext | CommitPrepared.
+Record preparation := Preparation { preparation_draft:Draft.draft; preparation_generation:N;
+ preparation_trigger:string; preparation_intent_of:preparation_intent }.
+Record directory_observation := DirectoryObservation {
+ observed_workspace:Selvedge.Kernel.Domain.workspace; observed_guidance:json }.
+Definition encode_preparation p := JObject[("draft",DraftCodec.encode_draft(preparation_draft p));
+ ("generation",number(preparation_generation p));("trigger",JString(preparation_trigger p));
+ ("commit",JBool(match preparation_intent_of p with CommitPrepared=>true|_=>false end))].
+Definition decode_preparation j := d<-bind(field "draft" j)DraftCodec.decode_draft;;
+ g<-natural_field "generation" j;;trigger<-string_field "trigger" j;;commit<-bool_field "commit" j;;
+ Some(Preparation d g trigger(if commit then CommitPrepared else PreviewContext)).
+Definition encode_directory_observation value:=JObject[("workspace",Selvedge.Kernel.Codec.workspace_json(observed_workspace value));("guidance",observed_guidance value)].
+Definition decode_directory_observation value:=workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;guidance<-field "guidance" value;;
+ if Selvedge.Kernel.Codec.valid_guidance guidance && Selvedge.Kernel.Codec.guidance_member workspace guidance then Some(DirectoryObservation workspace guidance)else None.
 Definition encode_git_request (r:editor*string) := JObject[("editor",encode_editor(fst r));("primary",JString(snd r))].
 Definition decode_git_request j := e<-bind(field "editor" j)decode_editor;;p<-string_field "primary" j;;Some(e,p).
 Record services := Services {
@@ -29,7 +38,7 @@ Record services := Services {
   uploads:list(resource upload_request attachment); preview:resource preview_request string;
   directory:resource directory_request json; directory_location:string;
   model_preference:option (string * string); storage_problem:option string;
-  preparations:list preparation; workspace_git:resource (editor*string) bool;
+  preparations:list(resource preparation directory_observation); workspace_git:resource (editor*string) bool;
   command_assessments:list(resource CommandAssessment.request CommandAssessment.observation) }.
 Definition initial := Services Dormant None SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [].
 Definition connected s := match connection s with Loaded _ _ _ => true | _ => false end.
@@ -54,14 +63,22 @@ Definition owned_assessment owner (r:resource CommandAssessment.request CommandA
 Definition assessment_owned e := owned_assessment(CommandAssessment.DraftOwner e).
 Definition forget_owned_assessment owner s := with_command_assessments
   (filter(fun r=>negb(owned_assessment owner r))(command_assessments s))s.
-Definition forget_assessment e := forget_owned_assessment(CommandAssessment.DraftOwner e).
-Definition preparing e s := existsb(fun p=>same_editor e(Forms.owner(preparation_draft p)))(preparations s).
-Definition forget_preparation ticket s := with_preparations(filter(fun p=>negb(N.eqb ticket(preparation_ticket p)))(preparations s))s.
+Definition assessment_editor_owned e (resource:resource CommandAssessment.request CommandAssessment.observation):=match resource_request resource with
+|Some request=>match CommandAssessment.request_owner request with
+ |CommandAssessment.DraftOwner owner|CommandAssessment.CandidateOwner owner _ _=>same_editor e owner
+ |_=>false end|None=>false end.
+Definition forget_assessment e s:=with_command_assessments(filter(fun resource=>negb(assessment_editor_owned e resource))(command_assessments s))s.
+Definition preparation_owned e (resource:resource preparation directory_observation) :=match resource_request resource with
+|Some request=>same_editor e(Draft.owner(preparation_draft request))|None=>false end.
+Definition preparing e s := existsb(fun resource=>preparation_owned e resource &&
+ match resource with Loading _ _=>true|_=>false end)(preparations s).
+Definition forget_preparation ticket s := with_preparations(filter(fun resource=>
+ match resource_ticket resource with Some actual=>negb(N.eqb ticket actual)|None=>true end)(preparations s))s.
 Definition cancel_editor e s :=
-  let s:=forget_assessment e s in
-  let s:=with_preparations(filter(fun p=>negb(same_editor e(Forms.owner(preparation_draft p))))(preparations s))s in
-  match directory s with Loading _ request|Loaded _ request _|Failed _ request _=>
-    if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end.
+ let s:=forget_assessment e s in
+ let s:=with_preparations(filter(fun resource=>negb(preparation_owned e resource))(preparations s))s in
+ match directory s with Loading _ request|Loaded _ request _|Failed _ request _=>
+   if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end.
 Definition upload_owner (r:resource upload_request attachment) := match r with Dormant=>None|Loading _ a|Loaded _ a _|Failed _ a _=>Some(upload_editor a) end.
 Definition blocks e s := existsb(fun r=>match upload_owner r with Some owner=>same_editor e owner|None=>false end)(uploads s).
 Definition ticket_matches {A B} (t:N) (r:resource A B) := match resource_ticket r with Some u=>N.eqb t u|None=>false end.
@@ -188,14 +205,14 @@ Definition service_step input s :=
   end.
 Definition encode_unit (_:unit):json:=JNull.
 Definition decode_unit(j:json):option unit:=match j with JNull=>Some tt|_=>None end.
-Definition encode_services s := JObject[("connection",encode_resource encode_unit encode_unit(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map encode_preparation(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end)].
+Definition encode_services s := JObject[("connection",encode_resource encode_unit encode_unit(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end)].
 Definition decode_services j :=
   c<-bind(field "connection" j)(decode_resource decode_unit decode_unit);;o<-bind(field "settings_return" j)(fun value=>match value with JNull=>Some None|JString trigger=>Some(Some trigger)|_=>None end);;
   a<-bind(string_field "appearance" j)decode_appearance;;n<-natural_field "next" j;;
   u<-list_field(decode_resource decode_upload decode_attachment)"uploads" j;;
   p<-bind(field "preview" j)(decode_resource decode_preview as_string);;
   d<-bind(field "directory" j)(decode_resource decode_directory (fun j=>Some j));;
-  l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field decode_preparation "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;Some(Services c o a n u p d l pref problem ps git assessments).
+  l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field(decode_resource decode_preparation decode_directory_observation) "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;Some(Services c o a n u p d l pref problem ps git assessments).
 Definition encode_effect e :=
   let effect kind fields:=JObject(("type",JString kind)::fields)in
   match e with

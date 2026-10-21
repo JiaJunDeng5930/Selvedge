@@ -5,6 +5,17 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
+Theorem an_unresolved_captured_call_cannot_be_compacted : forall captured whole invocation,
+ In (FunctionCall invocation) captured -> has_output whole (call_id invocation) = false ->
+ settled_calls captured whole = false.
+Proof.
+ intros captured whole invocation Present Missing.
+ unfold settled_calls.
+ destruct (forallb _ captured) eqn:Settled; [|reflexivity].
+ apply forallb_forall with (x := FunctionCall invocation) in Settled; [|exact Present].
+ cbn in Settled; rewrite Missing in Settled; discriminate.
+Qed.
+
 Theorem adoption_keeps_the_original_history : forall snapshot candidate current,
  exists suffix, adopt snapshot candidate current = (current ++ suffix)%list.
 Proof.
@@ -78,4 +89,30 @@ Proof.
    portable_speaker, portable_text.
  cbn [Pos.to_nat]. unfold scoped_messages, scoped_message. cbn [Pos.to_nat].
  now repeat rewrite app_nil_r.
+Qed.
+
+Theorem selecting_a_summary_preserves_each_original_image : forall parts image summary scope,
+ In image parts -> string_field "type" image = Some "image" ->
+ exists images,
+ In image images /\
+ In (JObject [("role",JString "user");("content",JArray images)])
+  (target_messages
+   [JObject [("role",JString "user");("content",JArray parts)];
+    Codec.message_json 0 (record 1 (PortableArtifact (PortableMessage PortableUser summary) [] JNull))] scope).
+Proof.
+ intros parts image summary scope Present IsImage.
+ assert (Kept : In image (image_parts (JArray parts))).
+ { unfold image_parts; apply filter_In; split; [exact Present|].
+   unfold text_default; rewrite IsImage; apply String.eqb_refl. }
+ destruct (image_parts (JArray parts)) as [|first rest] eqn:Images; [contradiction|].
+ exists (first :: rest); split; [exact Kept|].
+ rewrite selected_summary_keeps_fixed_inputs_and_discards_replaced_dialogue.
+ apply in_or_app; left; unfold fixed; apply in_flat_map.
+ exists (JObject [("role",JString "user");("content",JArray parts)]).
+ split; [left; reflexivity|].
+ change (In (JObject [("role",JString "user");("content",JArray (first :: rest))])
+  (match image_parts (JArray parts) with
+   | [] => []
+   | images => [JObject [("role",JString "user");("content",JArray images)]] end)).
+ rewrite Images; left; reflexivity.
 Qed.

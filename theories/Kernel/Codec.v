@@ -135,10 +135,20 @@ Definition profile_json (value : profile) := profile_metadata value.
 Definition reviewer_json (value : reviewer) := match value with
  | HumanReviewer => JObject [("kind",JString "human")]
  | ModelReviewer profile => JObject [("kind",JString "model");("profile",profile_json profile)] end.
+Definition reasoning_policy_json (value : reasoning_policy) := match value with
+ | FixedReasoning => JNull
+ | AdaptivePolicy policy => JObject [
+   ("evaluator", JString (reasoning_evaluator policy));
+   ("efforts", JArray (map JString (reasoning_efforts policy)));
+   ("baseline", JString (reasoning_baseline policy));
+   ("transport", JString (match reasoning_transport_mode policy with
+     | RequestEffort => "request_effort" | ConfigurationUpdates => "configuration_update" end));
+   ("max_lease", number (reasoning_max_lease policy))]
+ end.
 Definition model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString (profile_reasoning value));
- ("adaptive_reasoning", value_or_null "adaptive_reasoning" (profile_metadata value))].
+ ("adaptive_reasoning", reasoning_policy_json (profile_policy value))].
 Definition with_reasoning (effort : string) (value : profile) :=
  Profile (profile_key value) (profile_provider value) (profile_model value) effort
   (profile_reasoning_options value) (profile_policy value) (profile_metadata value).

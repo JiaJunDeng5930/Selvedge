@@ -1,12 +1,20 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Kernel Require Import Images.
+From Selvedge.Features Require Domain Observation.
 From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
 
-Record attachment := Attachment { asset_id:string; asset_name:string; asset_mime:string; asset_path:string; asset_bytes:N }.
-Definition encode_attachment a := JObject [("id",JString(asset_id a));("name",JString(asset_name a));("mime",JString(asset_mime a));("path",JString(asset_path a));("bytes",JString(show_natural(asset_bytes a)))].
+(** Uploaded and stored assets share the board/domain attachment identity. *)
+Definition attachment := Selvedge.Features.Domain.attachment.
+Definition Attachment := Selvedge.Features.Domain.Attachment.
+Definition asset_id := Selvedge.Features.Domain.attachment_id.
+Definition asset_name := Selvedge.Features.Domain.attachment_name.
+Definition asset_mime := Selvedge.Features.Domain.attachment_mime.
+Definition asset_path := Selvedge.Features.Domain.attachment_path.
+Definition asset_bytes := Selvedge.Features.Domain.attachment_bytes.
+Definition encode_attachment := Selvedge.Features.Observation.attachment_json.
 Definition decode_attachment j :=
   id <- string_field "id" j ;; name <- string_field "name" j ;; mime <- string_field "mime" j ;;
   path <- string_field "path" j ;;

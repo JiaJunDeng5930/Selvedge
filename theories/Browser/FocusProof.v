@@ -1,0 +1,34 @@
+From Stdlib Require Import Bool String List NArith.
+Import ListNotations.
+From Selvedge.Browser Require Import Focus.
+
+Theorem retained_document_keeps_focus : forall eligible,
+  transition Document Document eligible = false.
+Proof. reflexivity. Qed.
+Theorem invalid_retained_activity_requests_focus : forall identity initial restore fallback occurrence previous,
+  transition previous (Temporary identity initial restore fallback occurrence) false = true.
+Proof. intros; unfold transition; simpl; apply orb_true_r. Qed.
+Theorem same_activity_occurrence_keeps_eligible_focus : forall identity initial restore fallback occurrence,
+  transition (Temporary identity initial restore fallback occurrence)
+    (Temporary identity initial restore fallback occurrence) true = false.
+Proof.
+  intros; unfold transition, changed, invalid_retained, same_occurrence; simpl.
+  rewrite String.eqb_refl; destruct occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
+Qed.
+
+(** Popping a child activity returns to its invoking control in the still-open
+    owner; it must not restart that owner's initial focus policy. *)
+Theorem closing_child_restores_owner : forall parent child
+ parent_initial parent_restore parent_fallback parent_occurrence
+ child_initial child_restore child_fallback child_occurrence eligible,
+ String.eqb child parent = false ->
+ request
+  [Temporary parent parent_initial parent_restore parent_fallback parent_occurrence;
+   Temporary child child_initial child_restore child_fallback child_occurrence]
+  [Temporary parent parent_initial parent_restore parent_fallback parent_occurrence]
+  eligible = Some(child_restore,child_fallback).
+Proof.
+ intros. unfold request,top,transition,changed,invalid_retained,same_scope.
+ simpl. rewrite H,String.eqb_refl. simpl.
+ destruct parent_occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
+Qed.

@@ -12,6 +12,7 @@ import { safeHref } from './markdown.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
 
 const surface = document.getElementById('surface');
+const announcements = document.getElementById('announcements');
 const files = new Map();
 const transfers = new Map();
 const assessments = new Map();
@@ -27,7 +28,10 @@ const reveal = createLayoutRevealer(surface);
 const motion = new PresentationMotion(surface);
 let state = interaction('initial');
 let world = null;
-let publication = { semantic: 0, document: 0, published: 0, namespace: '', sequence: 0 };
+let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0 };
+let environment = null;
+let measuring = null;
+let measureAgain = false;
 let connection = null;
 let disposed = false;
 let sourceFresh = false;
@@ -72,97 +76,128 @@ function publicationEvent(event, values = {}) {
   return browser('publication', { ...publication, event, ...values });
 }
 function admitted(generation) {
-  return publicationEvent('admit', { generation });
+  return publicationEvent('admit', { receipt_generation: generation });
 }
 function snapshot(body, expected = publication.namespace, authenticating = false) {
   if (!browser('snapshot', { ...publication, expected_namespace: expected, incoming_namespace: body.namespace,
     incoming_sequence: body.sequence, authenticating })) return;
+  if (body.namespace !== publication.namespace) retireDocumentViews();
   world = body.program;
   publication = { ...publication, namespace: body.namespace, sequence: body.sequence };
   sourceFresh = true;
   dispatch({ type: 'snapshot', world });
 }
+function retireDocumentViews() {
+  for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
+  codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
+  for (const controller of assessments.values()) controller.abort();
+  assessments.clear();
+  for (const resource of resources) URL.revokeObjectURL(resource);
+  resources.clear();
+}
 function fatal(error) {
-  const message = document.createElement('p');
-  message.setAttribute('role', 'alert');
-  message.textContent = error.message;
-  surface.replaceChildren(message);
+  renderer.render(browser('recovery', { root_font_size_milli: physical.viewport().root_font_size_milli,
+    generation: publication.generation, reason: error.message }), publication.generation);
 }
 function dispatch(input) {
   if (disposed) return;
-  const decision = interaction('step', { state, input, world, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
+  if (input.type !== 'clock_observed') {
+    const clock = interaction('step', { state, input: { type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) },
+      world, environment, generation: publication.generation, namespace: publication.namespace });
+    state = clock.state;
+    for (const effect of clock.effects) execute(effect).catch(fatal);
+  }
+  const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
   state = decision.state;
+  announcements.textContent = decision.error ?? '';
   publication = publicationEvent('advance');
   render();
   for (const effect of decision.effects) execute(effect).catch(fatal);
-  return decision.reply;
+  return decision.handled;
 }
 function render() {
-  const scene = interaction('observe', { state, world, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
-  const document = browser('render', { scene, viewport: physical.viewport().width,
-    font_pixels: Math.ceil(parseFloat(getComputedStyle(globalThis.document.documentElement).fontSize)),
-    system_dark: matchMedia('(prefers-color-scheme: dark)').matches });
-  renderer.render(document, publication.semantic);
-  publication = publicationEvent('document', { generation: publication.semantic });
-  const generation = publication.semantic;
-  renderer.whenCaughtUp().then(caughtUp => {
-    if (!caughtUp || disposed) return;
-    const lagged = !publicationEvent('ready');
-    publication = publicationEvent('publish', { generation });
-    if (lagged && publicationEvent('ready')) render();
-  }).catch(fatal);
-  reveal();
-  motion.refresh();
-  layoutReading();
+  if (!environment || disposed) return;
+  const plan = interaction('observe', { state, world, environment, generation: publication.generation,
+    namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
+  renderer.render(plan, publication.generation);
+  physical.refresh();
+  if (!plan.measurement_pending) {
+    publication = publicationEvent('document', { receipt_generation: publication.generation });
+    const generation = publication.generation;
+    renderer.whenCaughtUp().then(caughtUp => {
+      if (!caughtUp || disposed) return;
+      const lagged = !publicationEvent('ready');
+      publication = publicationEvent('publish', { receipt_generation: generation });
+      if (lagged && publicationEvent('ready')) render();
+    }).catch(fatal);
+  }
+  reveal(); motion.refresh(); layoutReading();
+  refreshPhysical().catch(fatal);
+}
+async function refreshPhysical() {
+  if (measuring) { measureAgain = true; return measuring; }
+  measuring = (async () => {
+    do {
+      measureAgain = false;
+      const specs = browser('font_specs', { root_font_size_milli: physical.viewport().root_font_size_milli });
+      const observedGeneration = stringifyJson(publication.generation);
+      const observations = await physical.measure(specs);
+      if (observedGeneration !== stringifyJson(publication.generation)) { measureAgain = true; continue; }
+      const next = browser('environment', { observations,
+        system_dark: matchMedia('(prefers-color-scheme: dark)').matches,
+        reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches });
+      const changed = stringifyJson(next) !== stringifyJson(environment);
+      environment = next;
+      for (const update of browser('responsive_rows', { rows: observations.responsive_rows })) {
+        renderer.target(update.key)?.style.setProperty('flex-direction', update.direction);
+      }
+      if (changed) dispatch({ type: 'environment_observed' });
+    } while (measureAgain && !disposed);
+  })();
+  try { await measuring; } finally { measuring = null; }
 }
 function observedSelection(node, composing = false) {
   const encode = value => new TextEncoder().encode(value).length;
   return { start: encode(node.value.slice(0, node.selectionStart ?? node.value.length)),
     end: encode(node.value.slice(0, node.selectionEnd ?? node.value.length)), composing };
 }
-function editedAction(action, injection, value, raw = undefined, selection = undefined) {
-  if (injection === 'input.value') return { ...action, input: { ...action.input, value } };
-  if (injection === 'value') return { ...action, value,
-    ...(raw === undefined ? {} : { raw }), ...(selection === undefined ? {} : { selection }) };
-  throw new TypeError('Native field has no declared value injection');
-}
 function registerFiles(action, selected) {
   for (const file of selected) {
-    const handle = crypto.randomUUID();
-    files.set(handle, file);
-    dispatch({ ...action, file: { handle, name: file.name, mime: file.type, bytes: file.size } });
+    const handle = crypto.randomUUID(); files.set(handle, file);
+    dispatch({ ...action, value: { handle, name: file.name, mime: file.type, bytes: file.size } });
   }
 }
 const renderer = new Renderer(surface, {
   resolveTarget(source) { return browser('resolve_target', source); },
   fieldSession(source) { return browser('field_session', source); },
+  focusPlan(source) { return browser('focus_plan', source); },
   event(binding, event, key, node, generation) {
-    if (!admitted(generation)) return;
-    if (binding.kind === 'activate' || binding.kind === 'dismiss') { event.preventDefault(); sendAction(binding.action); }
-    else if (binding.kind === 'submit') sendAction(binding.action);
-    else if (binding.kind === 'edit') {
-      let value = node.value;
-      if (node.dataset.valueKind === 'json') {
-        try { value = parseJson(node.value); }
-        catch (error) {
-          // DEFENSE: A user can pause while entering an incomplete JSON field; retain its raw invalid buffer.
-          if (!(error instanceof SyntaxError)) throw error;
-        }
-      }
-      dispatch(editedAction(binding.action, binding.injection, value, node.value, observedSelection(node, event.isComposing)));
+    if (binding.kind === 'retry_render') {
+      event.preventDefault(); refreshPhysical().then(render).catch(fatal); return;
     }
-    else if (binding.kind === 'toggle') dispatch(editedAction(binding.action, binding.injection, node.checked));
-    else if (binding.kind === 'files') registerFiles(binding.action,
+    if (!admitted(generation)) return;
+    if (binding.kind === 'files') registerFiles(binding.action,
       Array.from(event.clipboardData?.files ?? event.dataTransfer?.files ?? node.files ?? []));
+    else if (binding.kind === 'value') dispatch({ ...binding.action, value: node.value,
+      raw: node.value, selection: observedSelection(node, event.isComposing) });
+    else if (binding.kind === 'values') dispatch({ ...binding.action, value: Array.from(node.selectedOptions, option => option.value) });
+    else if (binding.kind === 'checked') dispatch({ ...binding.action, value: node.checked });
+    else {
+      event.preventDefault();
+      dispatch(binding.kind === 'dismiss' ? { ...binding.action, value: 'escape' } : binding.action);
+    }
   },
   key(event, key, node, record) {
     // DEFENSE: A handled keydown still bubbles through ancestor renderer records.
     if (event.defaultPrevented) return;
     if (!admitted(record.generation)) return;
-    const bindings = record.metadata.meta?.key_actions;
-    if (bindings) {
-      const action = browser('key_action', { ...keyObservation(event), bindings });
-      if (action !== null) { event.preventDefault(); sendAction(action); return; }
+    if (record.metadata.key_input && !event.isComposing && event.keyCode !== 229
+        && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      const input = { op: 'element', key, gesture: 'key', generation: record.generation, value: { key: event.key } };
+      if (interaction('accepts_element', { state, input, world, environment, generation: publication.generation,
+          namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)) })) {
+        event.preventDefault(); dispatch(input); return;
+      }
     }
     const form = node.form;
     if (form && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT')) {
@@ -180,9 +215,9 @@ const renderer = new Renderer(surface, {
       if (next !== null) { event.preventDefault(); targets[Number(next)].focus(); }
     }
     if (node.dataset.readingRoot === 'true' && event.target.closest('[data-reading-root="true"]') === node) {
-      const state = readings.get(key) ?? { intent: 'follow', anchor: null };
-      readings.set(key, browser('reading', { state, event: 'key', keyboard: event.key,
-        editable: event.target.matches('input,textarea,select') }).state);
+      const state = readingState(key, node);
+      acceptReading(key, node, browser('reading', { state, event: 'key', keyboard: event.key,
+        editable: event.target.matches('input,textarea,select') }));
     }
   },
   reading(type, event, key, node) {
@@ -196,9 +231,9 @@ const renderer = new Renderer(surface, {
       const inRightGutter = event.clientX >= right && rect.right - right > Number.parseFloat(style.borderRightWidth);
       if (!inLeftGutter && !inRightGutter) return;
     }
-    const state = readings.get(key) ?? { intent: 'follow', anchor: null };
+    const state = readingState(key, node);
     if (type === 'scroll' || type === 'pointer') {
-      readings.set(key, browser('reading', { state, event: 'scroll' }).state);
+      acceptReading(key, node, browser('reading', { state, event: 'scroll' }));
     } else if (state.intent === 'history') {
       observeReadingAnchor(key, node, state);
     }
@@ -208,17 +243,12 @@ const renderer = new Renderer(surface, {
       layoutFrame = null; reveal(); layoutReading();
     });
   },
-  codeSource(key, ordinal, text) {
-    const identity = browser('code_key', { key, ordinal });
-    let entry = codeBlocks.get(identity);
-    if (!entry) {
-      const decision = browser('code_initial', { key: identity, text });
-      entry = { key: identity, state: decision.state, renderer: null };
-      codeBlocks.set(identity, entry);
-      renderCode(entry, decision);
-    } else codeStep(entry, { type: 'source', value: text });
+  codeSource(source, ordinal, text, view) {
+    publishCode(browser('code_identity', { source, ordinal }), view, text);
   },
-  codeKey(key, ordinal) { return browser('code_key', { key, ordinal }); },
+  codePublication({ identity, view, text }) { publishCode(identity, view, text); },
+  codeIdentity(source, ordinal) { return browser('code_identity', { source, ordinal }); },
+  codeTargets(identity, view) { return browser('code_targets', { identity, view }); },
   fence(metadata, observed) {
     dispatch({ type: 'code_observed', origin: metadata.origin, document_key: metadata.document_key,
       epoch: metadata.epoch, revision: observed.inputRevision, ordinal: observed.ordinal,
@@ -228,43 +258,67 @@ const renderer = new Renderer(surface, {
   },
 });
 
-const physical = createPhysicalMeasurer({ surface, onChange: render });
+const physical = createPhysicalMeasurer({ surface, onChange: () => refreshPhysical().catch(fatal) });
 
-function sendAction(action) {
-  if (action.type === 'code') {
-    const entry = codeBlocks.get(action.key);
-    if (entry) codeStep(entry, action.input);
-  } else dispatch(action);
+function publishCode(identity, view, text) {
+  const key = browser('code_key', { identity });
+  let entry = codeBlocks.get(key);
+  if (!entry) {
+    const decision = browser('code_initial', { identity, view, text, environment });
+    entry = { key, identity, state: decision.state, views: new Map() };
+    codeBlocks.set(key, entry);
+  }
+  entry.views.set(stringifyJson(view), entry.views.get(stringifyJson(view)) ?? { view, renderer: null });
+  codeStep(entry, { type: 'source', text });
 }
 function renderCode(entry, decision) {
   entry.state = decision.state;
-  const target = renderer.target(`${entry.key}/toolbar`);
-  if (target) {
-    if (!entry.renderer || entry.renderer.root !== target) {
-      entry.renderer?.dispose();
-      entry.renderer = new Renderer(target, { event(binding, event) { event.preventDefault(); sendAction(binding.action); } });
+  for (const physical of entry.views.values()) {
+    const plan = browser('code_present', { state: entry.state, view: physical.view, environment });
+    const target = renderer.target(plan.targets.toolbar);
+    if (target) {
+      if (!physical.renderer || physical.renderer.root !== target) {
+        physical.renderer?.dispose();
+        physical.renderer = new Renderer(target, { event(binding, event) {
+          event.preventDefault(); codeStep(entry, binding.action.input);
+        } });
+      }
+      physical.renderer.render(plan.document);
     }
-    entry.renderer.render(browser('render', { scene: decision.scene, viewport: Math.floor(surface.clientWidth),
-      font_pixels: Math.ceil(parseFloat(getComputedStyle(globalThis.document.documentElement).fontSize)), system_dark: false }));
+    const code = renderer.target(plan.targets.body);
+    if (code) for (const { name, value } of plan.body_styles) code.style.setProperty(name, value);
   }
-  const code = renderer.target(`${entry.key}/code`);
-  if (code) for (const { name, value } of decision.code_styles) code.style.setProperty(name, value);
   for (const effect of decision.effects) {
-    if (effect.type === 'clipboard') {
-      navigator.clipboard.writeText(effect.text).then(
-        () => { if (codeBlocks.get(entry.key) === entry) codeStep(entry, { type: 'copied', ticket: effect.ticket, success: true }); },
-        () => { if (codeBlocks.get(entry.key) === entry) codeStep(entry, { type: 'copied', ticket: effect.ticket, success: false }); });
-    } else if (effect.type === 'expiry') {
+    if (effect.type === 'clipboard') navigator.clipboard.writeText(effect.text).then(
+      () => { if (codeBlocks.get(entry.key) === entry) codeStep(entry, { type: 'copied', ticket: effect.ticket, ok: true }); },
+      () => { if (codeBlocks.get(entry.key) === entry) codeStep(entry, { type: 'copied', ticket: effect.ticket, ok: false }); });
+    else if (effect.type === 'expiry') {
       const timer = setTimeout(() => {
         timers.delete(timer);
         if (codeBlocks.get(entry.key) === entry) codeStep(entry, { type: 'expire', ticket: effect.ticket });
-      }, Number(effect.milliseconds));
-      timers.add(timer);
+      }, Number(effect.delay_ms)); timers.add(timer);
     }
   }
 }
-function codeStep(entry, input) { renderCode(entry, browser('code_step', { state: entry.state, input })); }
+function codeStep(entry, input) {
+  // DEFENSE: a queued native event or clipboard completion can outlive its namespace's code view.
+  if (codeBlocks.get(entry.key) !== entry) return;
+  renderCode(entry, browser('code_step', { state: entry.state, input, environment, view: entry.views.values().next().value.view }));
+}
 
+function readingState(key, node) {
+  const bound = browser('reading_bind', { generation: new JsonNumber(node.dataset.readerGeneration),
+    state: readings.get(key) ?? null });
+  readings.set(key, bound);
+  return bound;
+}
+function acceptReading(key, node, decision) {
+  const previous = readings.get(key)?.intent ?? 'follow';
+  readings.set(key, decision.state);
+  if (previous !== decision.state.intent && node.dataset.readerGeneration !== undefined)
+    dispatch({ type: 'read_timeline', task: new JsonNumber(node.dataset.taskId),
+      generation: new JsonNumber(node.dataset.readerGeneration), intent: decision.state.intent });
+}
 function observeReadingAnchor(key, node, state) {
   const viewport = node.getBoundingClientRect();
   const anchor = Array.from(node.querySelectorAll('[data-reading-anchor]')).find(target => target.getBoundingClientRect().bottom >= viewport.top);
@@ -272,11 +326,16 @@ function observeReadingAnchor(key, node, state) {
     key: anchor.dataset.key, offset: String(anchor.getBoundingClientRect().top - viewport.top) } }).state);
 }
 function readingStep(key, node, event) {
-  const state = readings.get(key) ?? { intent: 'follow', anchor: null };
-  const decision = browser('reading', { state, event });
-  readings.set(key, decision.state);
+  const state = readingState(key, node);
+  const dock = node.closest('[data-view]')?.querySelector('[data-composer-dock]');
+  const decision = browser('reading', { state, event,
+    dock_height: String(dock?.getBoundingClientRect().height ?? 0),
+    viewport_height: String(node.clientHeight), reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches });
+  acceptReading(key, node, decision);
   for (const effect of decision.effects) {
-    if (effect.type === 'align_latest') node.scrollTop = node.scrollHeight;
+    if (effect.type === 'align_latest') node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
+    else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
+    else if (effect.type === 'cancel_anchor') readings.set(key, { ...decision.state, anchor: null });
     else if (effect.type === 'preserve_anchor') {
       const target = renderer.target(effect.anchor.key);
       if (target) node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - Number(effect.anchor.offset);
@@ -293,12 +352,13 @@ function dismiss(event) {
   if (event.defaultPrevented) return;
   const modal = renderer.modalRecord();
   const dismissal = modal?.events.find(binding => binding.kind === 'dismiss');
+  const behavior = modal?.metadata.layer;
   if (!dismissal || !admitted(modal.generation)) return;
-  if (event.type === 'keydown' && event.key === 'Escape' || event.type === 'pointerdown' && (!modal.node.contains(event.target) || event.target === modal.node && (() => {
+  if (event.type === 'keydown' && event.key === 'Escape' && behavior.escape || event.type === 'pointerdown' && behavior.outside && (!modal.node.contains(event.target) || event.target === modal.node && (() => {
     const box = modal.node.getBoundingClientRect();
     return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
   })())) {
-    event.preventDefault(); dispatch(dismissal.action);
+    event.preventDefault(); dispatch({ ...dismissal.action, value: event.type === 'keydown' ? 'escape' : 'outside' });
   }
 }
 document.addEventListener('keydown', dismiss);
@@ -323,8 +383,7 @@ const audio = new AudioRuntime({
     return reply.task_id;
   },
   field(editor) {
-    return Array.from(renderer.records.values()).find(record => record.events.some(binding =>
-      binding.action.editor && ticketKey(binding.action.editor) === ticketKey(editor)))?.node;
+    return Array.from(renderer.records.values()).find(record => record.metadata.editor && ticketKey(record.metadata.editor) === ticketKey(editor))?.node;
   },
   browserId: crypto.randomUUID(), limits: boundary('audio.contract', {}),
   loginTarget(url) {
@@ -341,13 +400,18 @@ async function authenticate(effect) {
   connection = controller;
   let ready = false;
   try {
-    await observeConnection({
+    // A journal namespace change ends the old subscription; the authenticated
+    // connection observes a fresh snapshot and binds the new namespace.
+    while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
       request: (url, signal) => request(url, { signal }),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
-      snapshot: body => snapshot(body, publication.namespace, !ready),
-      ready() { ready = true; dispatch({ type: 'authenticated', ticket: effect.ticket, ok: true, value: null }); },
+      snapshot: body => snapshot(body, publication.namespace, true),
+      ready() {
+        if (ready) return;
+        ready = true; dispatch({ type: 'authenticated', ticket: effect.ticket, ok: true, value: null });
+      },
       notice(value) { dispatch({ type: 'stream', value }); return true; },
       current: () => !disposed && connection === controller && !controller.signal.aborted,
       namespace: () => publication.namespace,
@@ -366,62 +430,62 @@ async function authenticate(effect) {
       : { type: 'authenticated', ticket: effect.ticket, ok: false, error: error.message });
   }
 }
-// Native drag events only observe the source and destination declared by Gallina.
-// Capability admission, revision checks and command construction remain in CardPlaced.
+// The semantic surface declares every admissible destination; native drag only
+// supplies the observed target to that element's Place gesture.
 let draggedCard = null;
 surface.addEventListener('dragstart', event => {
   const node = event.target.closest?.('[data-card-id][draggable="true"]');
-  if (!node || !surface.contains(node)) return;
-  const record = renderer.records.get(`card/${node.dataset.cardId}`);
-  if (record?.node !== node || !admitted(record.generation)) return;
-  draggedCard = { card_id: new JsonNumber(node.dataset.cardId),
-    revision: new JsonNumber(node.dataset.cardRevision),
-    observed_at: new JsonNumber(node.dataset.cardObservedAt), generation: record.generation };
+  const record = node && renderer.records.get(node.dataset.key);
+  if (!record || !admitted(record.generation)) return;
+  draggedCard = record;
   event.dataTransfer.setData('application/x-selvedge-card', node.dataset.cardId);
   event.dataTransfer.effectAllowed = 'move';
 });
 surface.addEventListener('dragover', event => {
-  if (!draggedCard || !admitted(draggedCard.generation)) return;
-  const target = event.target.closest?.('[data-drop-status]');
-  if (target && surface.contains(target)) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }
+  const target = event.target.closest?.('[data-drop-target]');
+  if (draggedCard && target && draggedCard.metadata.placements.some(value => value.target === target.dataset.dropTarget)) event.preventDefault();
 });
 surface.addEventListener('drop', event => {
-  const source = draggedCard;
-  draggedCard = null;
-  if (!source || !admitted(source.generation)) return;
-  const target = event.target.closest?.('[data-drop-status]');
-  if (!target || !surface.contains(target)) return;
-  event.preventDefault();
-  const { generation, ...captured } = source;
-  dispatch({ type: 'card_placed', ...captured, status: target.dataset.dropStatus,
-    before_card: target.dataset.cardBefore ? new JsonNumber(target.dataset.cardBefore) : null });
+  const source = draggedCard; draggedCard = null;
+  const target = event.target.closest?.('[data-drop-target]');
+  if (!source || !target || !admitted(source.generation)) return;
+  const placement = source.metadata.placements.find(value => value.target === target.dataset.dropTarget);
+  if (placement) { event.preventDefault(); dispatch({ ...placement.action, value: placement.target }); }
 });
 surface.addEventListener('dragend', () => { draggedCard = null; });
 
 async function settled(type, ticket, work) {
-  try { dispatch({ type, ticket, ok: true, value: await work() }); }
+  const namespace = publication.namespace;
+  try {
+    const value = await work();
+    if (publication.namespace === namespace) dispatch({ type, ticket, ok: true, value });
+  }
   catch (error) {
     // DEFENSE: Network and browser resource operations fail through their matching completion ticket.
-    dispatch({ type, ticket, ok: false, error: error.message });
+    if (publication.namespace === namespace) dispatch({ type, ticket, ok: false, error: error.message });
   }
 }
 async function assessCommand(effect) {
+  const namespace = publication.namespace;
   const key = ticketKey(effect.request.editor);
   assessments.get(key)?.abort();
   const controller = new AbortController();
   assessments.set(key, controller);
   try {
     const value = await post('/api/assess', effect.request, controller.signal);
-    dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: true, value });
+    if (publication.namespace === namespace) dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: true, value });
   } catch (error) {
     // DEFENSE: A newer draft assessment or page teardown cancels this superseded request.
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted || publication.namespace !== namespace) return;
     dispatch({ type: 'command_assessed', ticket: effect.ticket, ok: false, error: error.message });
   } finally {
     if (assessments.get(key) === controller) assessments.delete(key);
   }
 }
 async function execute(effect) {
+  const namespace = publication.namespace;
+  const current = () => publication.namespace === namespace;
+  const emit = input => { if (current()) dispatch(input); };
   switch (effect.type) {
     case 'authenticate': return authenticate(effect);
     case 'schedule_reconnect': {
@@ -433,12 +497,12 @@ async function execute(effect) {
     case 'save_appearance':
       try { localStorage.setItem('selvedge-appearance', effect.value); }
       // DEFENSE: Browser privacy settings or storage quotas can reject a local preference write.
-      catch (error) { dispatch({ type: 'storage_problem', message: `无法保存外观设置：${error.message}` }); }
+      catch (error) { emit({ type: 'storage_problem', message: `无法保存外观设置：${error.message}` }); }
       return;
     case 'persist_model_preference':
       try { localStorage.setItem('selvedge-model-preference', stringifyJson({ profile: effect.profile, reasoning: effect.reasoning })); }
       // DEFENSE: A rejected preference write must not undo the already accepted model choice.
-      catch (error) { dispatch({ type: 'storage_problem', message: `无法保存模型偏好：${error.message}` }); }
+      catch (error) { emit({ type: 'storage_problem', message: `无法保存模型偏好：${error.message}` }); }
       return;
     case 'upload': {
       const controller = new AbortController(); transfers.set(ticketKey(effect.ticket), controller);
@@ -454,11 +518,11 @@ async function execute(effect) {
     case 'skill_catalog': {
       try {
         const body = await post('/api/browser/observation', taskObservation(effect, { kind: 'skill-catalog', workspace: effect.workspace }));
-        if (body.ok) dispatch({ type: 'skill_catalog', editor: effect.editor, ticket: effect.ticket, skills: body.skills });
-        else dispatch({ type: 'skill_catalog_failed', editor: effect.editor, ticket: effect.ticket, error: body.error });
+        if (body.ok) emit({ type: 'skill_catalog', editor: effect.editor, ticket: effect.ticket, skills: body.skills });
+        else emit({ type: 'skill_catalog_failed', editor: effect.editor, ticket: effect.ticket, error: body.error });
       } catch (error) {
         // DEFENSE: A workspace catalog observation may fail or change after its requested editor is closed.
-        dispatch({ type: 'skill_catalog_failed', editor: effect.editor, ticket: effect.ticket, error: error.message });
+        emit({ type: 'skill_catalog_failed', editor: effect.editor, ticket: effect.ticket, error: error.message });
       }
       return;
     }
@@ -480,7 +544,9 @@ async function execute(effect) {
     case 'preview': return settled('previewed', effect.ticket, async () => {
       const response = await fetch(`/api/board/attachments/${encodeURIComponent(effect.file.id)}`, { credentials: 'same-origin' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const url = URL.createObjectURL(await response.blob()); resources.add(url); return url;
+      const url = URL.createObjectURL(await response.blob());
+      if (current()) resources.add(url); else URL.revokeObjectURL(url);
+      return url;
     });
     case 'release_preview': URL.revokeObjectURL(effect.url); resources.delete(effect.url); return;
     case 'download': {
@@ -491,7 +557,7 @@ async function execute(effect) {
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 0); return;
     }
     case 'focus': {
-      const generation = publication.semantic;
+      const generation = publication.generation;
       const target = () => renderer.resolveTarget(effect.key, { fallback: effect.fallback });
       if (!target()) await renderer.whenCaughtUp();
       if (admitted(generation)) target()?.focus({ preventScroll: true });
@@ -507,7 +573,7 @@ async function execute(effect) {
       if (target) {
         const root = target.closest('[data-reading-root="true"]');
         if (root) {
-          const state = readings.get(root.dataset.key) ?? { intent: 'follow', anchor: null };
+          const state = readingState(root.dataset.key, root);
           readings.set(root.dataset.key, browser('reading', { state, event: 'locate', index: effect.message_index }).state);
         }
         target.scrollIntoView({ block: 'start', behavior: 'instant' });
@@ -527,7 +593,7 @@ async function execute(effect) {
     case 'voice_output_mute': return audio.execute('SetOutputMute', { ...effect, ticket: integral(effect.ticket) });
     case 'interactive_parse': {
       const timer = setTimeout(() => { timers.delete(timer);
-        dispatch({ type: 'interactive', input: { type: 'continue', owner: effect.owner } });
+        emit({ type: 'interactive', input: { type: 'continue', owner: effect.owner } });
       }, 0); timers.add(timer); return;
     }
     case 'interactive_load': {
@@ -535,15 +601,15 @@ async function execute(effect) {
       try { saved = storage.load(effect.storage_key); }
       catch (error) {
         // DEFENSE: Browser storage can be unavailable; preserve the entry and report the failed observation.
-        dispatch({ type: 'interactive', input: { type: 'storage', owner: effect.owner,
+        emit({ type: 'interactive', input: { type: 'storage', owner: effect.owner,
           revision: effect.revision, ok: false, message: error.message } }); return;
       }
-      dispatch({ type: 'interactive', input: { type: 'restore', owner: effect.owner,
+      emit({ type: 'interactive', input: { type: 'restore', owner: effect.owner,
         definition: effect.definition, revision: effect.revision,
         present: saved.present, payload: saved.value, settled: true } }); return;
     }
     case 'interactive_save': storage.save(effect.storage_key, effect.payload, (ok, message) =>
-      dispatch({ type: 'interactive', input: { type: 'storage', owner: effect.owner, revision: effect.revision, ok, message } })); return;
+      emit({ type: 'interactive', input: { type: 'storage', owner: effect.owner, revision: effect.revision, ok, message } })); return;
     case 'interactive_remove': storage.remove(effect.storage_key); return;
     case 'interactive_clipboard': {
       let ok = true, message = '';
@@ -552,13 +618,13 @@ async function execute(effect) {
         // DEFENSE: Clipboard permission and browser activation requirements can reject a declared copy effect.
         ok = false; message = error.message;
       }
-      dispatch({ type: 'interactive', input: { type: 'feedback', owner: effect.owner,
+      emit({ type: 'interactive', input: { type: 'feedback', owner: effect.owner,
         path: effect.path, ticket: effect.ticket, ok, message } }); return;
     }
     case 'interactive_open_url': {
       const url = safeHref(effect.url);
       if (url !== null) window.open(url, '_blank', 'noopener,noreferrer');
-      dispatch({ type: 'interactive', input: { type: 'feedback', owner: effect.owner,
+      emit({ type: 'interactive', input: { type: 'feedback', owner: effect.owner,
         path: effect.path, ticket: effect.ticket, ok: url !== null, message: url === null ? 'Navigation URL is not allowed' : '' } }); return;
     }
     case 'restore_field_buffer': renderer.restoreField(effect.key, effect.value); return;
@@ -571,28 +637,28 @@ function selectionChanged() {
   const node = document.activeElement;
   if (!node || typeof node.selectionStart !== 'number') return;
   const record = Array.from(renderer.records.values()).find(record => record.node === node);
-  const binding = record?.events.find(binding => binding.kind === 'edit' && binding.action.editor);
-  if (!binding) return;
+  const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
+  if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
   const selection = observedSelection(node, renderer.composing.has(node));
   const observed = stringifyJson(selection);
   if (selections.get(node) === observed) return;
   selections.set(node, observed);
-  dispatch({ type: 'skill_selection', editor: binding.action.editor, selection });
+  dispatch({ ...binding.action, gesture: 'selection', value: selection });
 }
 document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
   disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
   for (const timer of timers) clearTimeout(timer);
-  for (const entry of codeBlocks.values()) entry.renderer?.dispose();
+  for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
   for (const controller of assessments.values()) controller.abort();
   for (const resource of resources) URL.revokeObjectURL(resource);
   if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
 }, { once: true });
 window.addEventListener('focus', () => audio.focus());
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
-render();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => refreshPhysical().catch(fatal));
+await refreshPhysical();
 try {
   const restoredAppearance = localStorage.getItem('selvedge-appearance');
   if (restoredAppearance !== null) dispatch({ type: 'appearance_restored', value: restoredAppearance });

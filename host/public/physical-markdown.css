@@ -20,3 +20,5 @@
 .physical-markdown .markdown :where(th, td) { padding: 0; border: 0; }
 .physical-markdown .markdown img { max-width: 100%; height: auto; }
 .physical-markdown .markdown :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, .code-block, .table-scroll, hr, figure, details) + :is(p, h1, h2, h3, h4, h5, h6, blockquote, ul, ol, .code-block, .table-scroll, hr, figure, details) { margin-block-start: var(--physical-block-gap); }
+
+.physical-markdown .markdown .code-block[data-interactive-active="true"] > .code-language { display: none; }

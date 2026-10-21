@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
 From Selvedge.Kernel Require Import Conversation.
 From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
@@ -38,3 +38,60 @@ Proof.
  - now rewrite <-IH,Tail.
  - destruct g;simpl in *;now rewrite <-IH,Tail.
 Qed.
+
+Open Scope string_scope.
+
+(** Audit faces retain the admitted event. Approval records include the reviewer
+    frozen when the decision ran, rather than a later profile lookup. *)
+Inductive kind := ToolInvocation | ToolResult | Reasoning | ContextChange
+ | PermissionDecision | Diagnostic | TaskRelation.
+Definition kind_of message := match text "role" message with
+ |"function_call"=>ToolInvocation
+ |"function_output"|"operation_result"|"tool_receipt"|"after_record"=>ToolResult
+ |"reasoning_record"=>Reasoning|"approval_record"|"hook_record"=>PermissionDecision
+ |"error"=>Diagnostic|"fork_result"=>TaskRelation|_=>ContextChange end.
+Definition call_name message := text "name" (value_or JNull (field "content" message)).
+Definition title message := match text "role" message with
+ |"function_call"=>call_name message|"function_output"=>"Tool output"
+ |"operation_result"=>text "tool" message
+ |"tool_receipt"=>text "name" (value_or JNull (field "call" message))
+ |"error"=>match field "content" message with Some (JString value)=>value|_=>"Error" end
+ |"reasoning_record"=>"Reasoning: "++text "effort" (value_or JNull (field "content" message))
+ |"hook_record"=>"Tool permission check"
+ |"approval_record"=>"Approval: "++text "decision" (value_or JNull (field "content" message))
+ |"after_record"=>"Tool result processing"|"fork_result"=>"Task fork"
+ |"context_replacement"=>"Context compacted"|"model_context"=>"Model activity"
+ |"task_context"=>if String.eqb (text "type" message) "reasoning_configuration"
+    then "Reasoning changed to "++text "effort" message else "Conversation event"
+ |_=>"Conversation event" end.
+Record face := Face { face_occurrence:N; face_kind:kind; face_title:string; face_source:json }.
+Definition faces values := map (fun entry=>Face (N.of_nat (fst entry)) (kind_of (snd entry))
+ (title (snd entry)) (snd entry)) values.
+Definition result_detail message := (if flag "is_error" message then "Error" else "Result")++"
+"++
+ render_json (value_or JNull (field "content" message)).
+Definition detail message := match text "role" message with
+ |"function_call"=>call_name message++"
+"++
+   render_json (value_or JNull (field "arguments" (value_or JNull (field "content" message))))
+ |"function_output"=>result_detail message
+ |"operation_result"=>text "tool" message++"
+"++result_detail message
+ |"tool_receipt"=>text "name" (value_or JNull (field "call" message))++"
+"++result_detail message
+ |"approval_record"=>render_json message
+ |"hook_record"|"after_record"|"model_context"=>render_json (value_or JNull (field "content" message))
+ |"error"=>match field "content" message with Some (JString value)=>value|_=>title message end
+ |"context_replacement"=>"Context compacted; original conversation retained."
+ |_=>title message end.
+Definition summary values :=
+ match latest_failure values with
+ |Some occurrence=>match find (fun entry=>Nat.eqb occurrence (fst entry)) values with
+   |Some entry=>"Failure: "++title (snd entry)++" · "++Numbers.show_nat (List.length values)++" events"
+   |None=>"Activity" end
+ |None=>match rev values with
+   |[]=>"Activity"|entry::_=>title (snd entry)++" · "++Numbers.show_nat (operation_count values)++" operations" end
+ end.
+Definition disclosed (group:N) (values:list(N*N*bool)) (attention:N) :=
+ match find (fun entry=>let '(id,_,_):=entry in N.eqb group id) values with
+ |Some (_,_,expanded)=>expanded|None=>negb (N.eqb attention 0) end.

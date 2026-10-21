@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json Utf8 Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
+From Selvedge.Features Require Import BoardParameters.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -15,23 +16,7 @@ Definition put (id:N) (card:Selvedge.Features.Domain.card) (value:world) := let 
  (if existsb (N.eqb id) (Selvedge.Features.Domain.board_order b) then Selvedge.Features.Domain.board_order b else Selvedge.Features.Domain.board_order b++[id]) (Selvedge.Features.Domain.board_agents b) (Selvedge.Features.Domain.board_agent_order b) (Selvedge.Features.Domain.board_automatic b) (Selvedge.Features.Domain.board_draft_profile b)) value.
 Definition result (id:N) (card:Selvedge.Features.Domain.card) := JObject [("card_id",number id);("revision",number (Selvedge.Features.Domain.card_revision card))].
 Definition save (id:N) (card:Selvedge.Features.Domain.card) (value:world) := Selvedge.Kernel.State.accept (result id card) (put id card value) [].
-Definition limited (text:string) (maximum:N) := Utf8.well_formed text && Utf8.no_nul text && N.leb (N.of_nat (String.length text)) maximum.
-Definition text_id (text:string) := match natural (JNumber text) with Some id=>if String.eqb text (Selvedge.Features.Domain.decimal_text id) then Some id else None | None=>None end.
 Definition clock (text:option string) :option N := match text with None=>Some 0 | Some text=>match text_id text with Some now=>if N.leb now 4294967295 then Some now else None | None=>None end end.
-Definition stage (name:string) := find (fun stage=>String.eqb name (Selvedge.Features.Domain.stage_name stage)) Selvedge.Features.Domain.stages.
-Definition priority (name:string) := find (fun priority=>String.eqb name (Selvedge.Features.Domain.priority_name priority)) Selvedge.Features.Domain.priorities.
-Definition owner (name:string) :option Selvedge.Features.Domain.owner :=
- if String.eqb name "none" then Some Selvedge.Features.Domain.Unassigned else if String.eqb name "self" then Some Selvedge.Features.Domain.Self else
- if String.prefix "profile/" name then let key:=String.substring 8 (String.length name) name in
- if nonempty key && limited name 1024 then Some (Selvedge.Features.Domain.ProfileOwner key) else None
- else if String.prefix "agent/" name then option_map Selvedge.Features.Domain.AgentOwner (text_id (String.substring 6 (String.length name) name)) else None.
-Definition optional_project (text:string) :option (option N) := if String.eqb text "" then Some None else option_map (@Some N) (text_id text).
-Definition attachment (source:json) :option Selvedge.Features.Domain.attachment :=
- match Schema.decode [Field "id" KText;Field "name" KText;Field "mime" KText;Field "path" KText;Field "bytes" KText] source,
- string_field "id" source,string_field "name" source,string_field "mime" source,string_field "path" source,string_field "bytes" source with
- | Some _,Some id,Some name,Some mime,Some path,Some bytes=>match text_id bytes with
- | Some count=>if Nat.eqb (String.length id) 64 && nonempty name && limited name 256 && limited mime 128 && String.prefix "/" path && limited path 4096 && N.leb count 10485760 then Some (Selvedge.Features.Domain.Attachment id name mime path count) else None
- | None=>None end | _,_,_,_,_,_=>None end.
 Record patch := Patch { patch_title:option string;patch_description:option string;patch_stage:option string;patch_priority:option string;
  patch_owner:option string;patch_project:option string;patch_labels:option (list string);patch_attachments:option (list json) }.
 Definition retained {A:Type} (input:option A) (old:A) := match input with Some value=>value | None=>old end.

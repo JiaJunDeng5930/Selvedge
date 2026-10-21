@@ -192,7 +192,12 @@ Definition completion (source:json) (value:world) :option (bool*bool*decision) :
  let space:=match field "workspace" source with Some source=>parse_workspace source | None=>None end in
  let guidance:=value_or_null "guidance" source in
  let valid:=if ok then shape [Field "kind" KText;Field "task_id" KNatural;Field "ok" KBool;Field "root" KText;Field "workspace" KJson;Field "guidance" KJson] source &&
- match root,space with Some root,Some _=>Workspace.valid_path root && Codec.valid_guidance guidance | _,_=>false end
+ match root,space with Some root,Some observed=>
+   Workspace.valid_path root && Codec.valid_guidance guidance && Codec.guidance_member observed guidance &&
+   match field "workspace" source with
+   | Some workspace=>match string_field "primary_root" workspace with Some _=>true | None=>false end
+   | None=>false end
+ | _,_=>false end
  else shape [Field "kind" KText;Field "task_id" KNatural;Field "ok" KBool;Field "root" (KOptional KText);Field "message" KText] source &&
  match root with Some root=>Workspace.valid_path root | None=>true end in
  if negb valid then None else Some (true,true,match lookup id value with

@@ -1,0 +1,229 @@
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
+From Selvedge.Kernel Require Domain.
+From Selvedge.Features Require BoardFilter.
+From Selvedge.Interaction Require Import Codec Identity Input.
+From Selvedge.Interaction Require Services.
+From Selvedge.Interaction.Experience Require Model Activity Observation.
+From Selvedge.Interaction.Session Require State.
+From Selvedge.Interaction.Submission Require Parameters.
+From Selvedge.Interaction.Presentation Require Import Surface Model Construction Composer Editors Projection.
+From Selvedge.Interaction.Presentation Require Roles Information.
+Import ListNotations.
+Open Scope string_scope.
+Module UX := Selvedge.Interaction.Experience.Model.
+Module Act := Selvedge.Interaction.Experience.Activity.
+Definition candidate_node {e} (pending:bool) occurrence parent (decision:UX.decision e)
+ (alternative:UX.alternative e(UX.decision_subject decision)) :=
+ let label:=UX.alternative_label alternative in
+ let key:=part parent("candidate/"++TextJson.render_json(Schema.encode_value(UX.subject_kind(UX.decision_subject decision))(UX.alternative_value alternative)))in
+ let action:=Control label label Secondary
+  (Input.ActivityAssignment occurrence e(Act.Assignment(UX.decision_subject decision)(UX.alternative_value alternative)))
+  (if pending then Unavailable "This action is pending"else domain_availability(UX.alternative_availability alternative))in
+ Node(part key "row")"choice-row" ""Roles.Section(ActivityRow ChoiceRow)
+ [Node key "alternative"label Roles.Button
+  (Choice SingleChoice(UX.alternative_selected alternative)(UX.alternative_explanation alternative)action)
+  (information key "label" Information.OptionLabel label::
+   information key "description" Information.Description(UX.alternative_explanation alternative)::
+   map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
+    (UX.readable_text(UX.summary_observation consequence)))(UX.alternative_consequences alternative))].
+Definition decision_node {e} pending occurrence parent query (decision:UX.decision e) :=
+ let identity:=part parent(UX.subject_name(UX.decision_subject decision))in
+ Node identity "decision"(UX.decision_question decision)Roles.Section(DecisionGroup e decision)
+ (Node(part identity "heading-row")"object-heading" ""Roles.Section(ActivityRow ObjectHeading)
+   [group_title identity(UX.decision_question decision)]::map(candidate_node pending occurrence identity decision)
+   (filter(fun alternative=>UX.alternative_selected alternative||
+    BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
+     (BoardFilter.lower_text(UX.alternative_label alternative++" "++TextJson.render_json
+       (Schema.encode_value(UX.subject_kind(UX.decision_subject decision))(UX.alternative_value alternative)))))
+    (UX.decision_alternatives decision))).
+Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
+ let workspace:=UX.collection_workspace members in
+ let roots:=Domain.workspace_roots workspace in
+ let editable:=Parameters.editable e Fields.WorkspaceDirectories in
+ let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
+ |Some layer=>value_or ""(State.layer_parameter_buffer layer)|None=>""end in
+ Node parent "workspace-collection" "Working directories"Roles.Section(WorkspaceCollection e members)
+ (map(fun path=>let key:=part parent path in
+  Node key "workspace-member"path Roles.Section(WorkspaceMember e members path)
+   (read_only key "path" "Directory"path::
+    information key "primary-state" Information.Status(if match Domain.workspace_primary workspace with Some primary=>String.eqb path primary|None=>false end then "Primary directory"else"")::
+    if editable then
+     [declared key Roles.Button(secondary "primary" "Use as primary"(Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)));
+      declared key Roles.Button(secondary "remove" "Remove directory"(Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))]else[]))roots ++
+  if editable then
+   [Node(part parent "directory")"directory" "Add directory"Roles.Field
+    (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
+      (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[];
+    region parent "directory-entry-actions" ""Roles.Toolbar
+     [declared parent Roles.Button(Control "add" "Add directory"Secondary
+       (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
+       (if String.eqb buffer ""then Unavailable "Enter a directory"else Available));
+      declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""));
+      declared parent Roles.Button(secondary "browse" "Browse…"
+       (Input.ServiceInput(Services.OpenDirectory e buffer(part parent "browse"))))]] ++
+   if Parameters.inheritable e && negb(UX.collection_inherited members)then
+    [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
+  else[])%list.
+Definition field_specification snapshot s {e} occurrence parent(subject:UX.subject e) :=
+ let original:=Parameters.native_value(UX.subject_declaration subject)(Observation.observe_subject snapshot s subject)in
+ let buffer:=match find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s))with
+ |Some layer=>value_or(value_or ""(as_string original))(State.layer_parameter_buffer layer)
+ |None=>value_or ""(as_string original)end in
+ let key:=part parent("specification/"++UX.subject_name subject)in
+ let entry:=Observation.entry snapshot s subject in
+ let field:=Node(part key "parameter")"parameter"(Parameters.label(UX.subject_declaration subject))Roles.Field
+  (Edit e subject(EditControl entry(Observation.observe_subject snapshot s subject)(Some buffer)
+   (Observation.choices snapshot s subject)None Available
+   (match entry with Fields.DisplayOnly=>None|_=>Some(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))end)None None))[]in
+ field::match entry with
+ |Fields.DisplayOnly=>[]
+ |_=>match Observation.alternative_from_choice snapshot s subject(Fields.ChoiceValue buffer "Apply")with
+  |None=>[read_only key "invalid" "" "This value does not satisfy the parameter contract"]
+  |Some candidate=>[declared key Roles.Button(Control "apply" "Apply"Secondary
+    (Input.ActivityAssignment occurrence e(Act.Assignment subject(UX.alternative_value candidate)))
+    (domain_availability(UX.alternative_availability candidate)))]end end.
+Definition information_value {e}(value:UX.information e):string:=match value with
+|UX.PresentInformation first _=>UX.readable_text(UX.summary_observation first)
+|UX.OptionalAbsence=>"Not set"
+|UX.NotApplicable reason|UX.RequiredAbsence reason|UX.InvalidInformation reason|UX.UnavailableInformation reason=>reason end.
+Definition dependency_summary snapshot s {e} occurrence parent(subject:UX.subject e) :=
+ let name:=UX.subject_name subject in
+ let key:=part parent("decision/"++name)in
+ let value:=information_value(Observation.information_of snapshot subject(Observation.observe_subject snapshot s subject))in
+ Node key "dependency" ""Roles.Section(ActivityRow DependencyRow)
+ [Node(part key "entry")"entry"(Parameters.label(UX.subject_declaration subject))Roles.Button
+   (Activate(secondary "entry"(Parameters.label(UX.subject_declaration subject))
+    (Input.ActivityFocus occurrence e(Some subject))))
+   [information key "label" Information.FieldLabel(Parameters.label(UX.subject_declaration subject));
+    information key "value" Information.FieldValue value]].
+Definition required_expression {e} parent(expression:Observation.subject_expression e):list(node Input.input):=
+ match Observation.expression_kind_of expression with
+ |Observation.SelectedSubject _|Observation.OwnedParameter _|Observation.PermissionConsequence _=>[]
+ |_=>let subject:=Observation.expression_subject expression in
+  let key:=part parent("fact/"++UX.subject_name subject)in
+  [Node key "required-information" ""Roles.Section(ActivityRow SupportingRow)
+    [read_only key "observation"(Parameters.label(UX.subject_declaration subject))
+      (information_value(Observation.expression_information expression))]]end.
+Fixpoint relation_nodes {e} snapshot s occurrence parent query request
+ (activity:Act.activity e)(view:Act.view e)(relation:Act.relation e):list(node Input.input):=
+ let children:=match relation with Act.RootDecision _ children=>
+  flat_map(relation_nodes snapshot s occurrence parent query request activity view)children|_=>[]end in
+ match Observation.relation_exposure activity view relation,relation with
+ |Observation.CandidateChoices,Act.RootDecision root _=>decision_node(UX.action_pending(Observation.action_unit_for s e))occurrence parent query root::children
+ |Observation.CandidateChoices,Act.DependentDecision _ _ child=>[decision_node(UX.action_pending(Observation.action_unit_for s e))occurrence parent "" child]
+ |Observation.DependencySummary,Act.RootDecision root _=>dependency_summary snapshot s occurrence parent(UX.decision_subject root)::children
+ |Observation.DependencySummary,Act.DependentDecision _ _ child=>[dependency_summary snapshot s occurrence parent(UX.decision_subject child)]
+ |Observation.DependencySummary,Act.FieldSpecification _ subject _=>
+   [match Observation.entry snapshot s subject with
+    |Fields.DisplayOnly=>read_only parent("fact/"++UX.subject_name subject)(Parameters.label(UX.subject_declaration subject))
+      (information_value(Observation.information_of snapshot subject(Observation.observe_subject snapshot s subject)))
+    |_=>dependency_summary snapshot s occurrence parent subject end]
+ |Observation.ParameterControl,Act.FieldSpecification _ subject _=>
+   [Node(part parent("inspection/"++UX.subject_name subject))"field-specification" ""Roles.Section(ActivityRow InspectionRow)
+    (field_specification snapshot s occurrence parent subject)]
+ |Observation.RequiredExpression,Act.RequiredValue property=>
+   let key:=part parent("required/"++UX.subject_name(UX.property_subject property))in
+   [Node key "required-value" ""Roles.Section(ActivityRow ObjectHeading)
+    (flat_map(required_expression key)(Observation.information_expressions snapshot s activity view property))]
+ |Observation.RequestedInformation,Act.SupportingValue property=>
+   let key:=part parent("supporting/"++UX.subject_name(UX.property_subject property))in
+   match view with
+   |Act.InspectionView None=>[Node key "supporting-value" ""Roles.Section(ActivityRow SupportingRow)
+     [read_only key "scope" "Scope"(editor_key e);
+      declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]]
+   |Act.CompoundView=>[Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)(Composer.property_information key property)]
+   |_=>[]end
+ |Observation.CompoundContent,Act.CollectionMembers members=>[workspace_nodes s occurrence(part parent "workspace")members]
+ |Observation.CompoundContent,Act.AssessedAction action outcome=>
+   let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
+   [Node(part parent "commit")"commit" "Actions"Roles.Section(ActionUnit e action)
+     [Editors.assessment_nodes parent assessment;
+      Node(part parent "submit")"submit"(Editors.submit_label e)Roles.PrimaryButton
+       (ActionCommit e assessment(Control "submit"(Editors.submit_label e)Primary(Input.Submit e(part parent "submit"))
+        (Editors.unit_availability action assessment)))[];
+      declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]]
+ |_,_=>children end.
+Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=
+ match activity with
+ |Act.EditingActivity _ _ _=>
+  fold_right(fun '(name,fields) rest=>
+   let fields:=filter(fun field=>match field with Fields.WorkspaceDirectories|Fields.WorkspacePrimary=>false|_=>true end)fields in
+   match fields with []=>rest|_=>region parent name name Roles.Section
+    (group_title(part parent name)name::Editors.field_nodes snapshot s e parent fields)::rest end)[]
+   (Editors.editor_sections e)
+ |_=>[]end.
+Definition current_layer s occurrence:=find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s)).
+Definition inspection_label kind:=match kind with
+|UX.ModelProperty=>"Model settings…"|UX.PermissionsProperty=>"Custom permissions…"|_=>"Configuration source…"end.
+Definition view_title {e}(activity:Act.activity e)(view:Act.view e):string:=match view with
+|Act.DependentView subject|Act.InspectionView(Some subject)=>Parameters.label(UX.subject_declaration subject)
+|Act.InspectionView None=>match UX.property_kind_of(Act.activity_property activity)with UX.ModelProperty=>"Model settings"|UX.PermissionsProperty=>"Permissions"|_=>UX.property_label(Act.activity_property activity)end
+|_=>match activity with Act.EditingActivity _ _ _=>Editors.editor_title e|_=>UX.property_label(Act.activity_property activity)end end.
+Definition workspace_menu snapshot s e occurrence parent behavior:=
+ Node parent "workspace-settings" "Workspace"Roles.Menu(LayerRegion behavior)
+  (title parent "Workspace"::
+   (match Observation.observe_collection snapshot s e with
+    |Some members=>[workspace_nodes s occurrence(part parent "workspace")members]
+    |None=>[read_only parent "unavailable" "Workspace" "The working directory observation is unavailable"]end)++
+   [declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)])%list.
+Definition workspace_request request:=match request with
+|Act.WorkspaceActivity|Act.PropertyActivity UX.WorkspaceProperty=>true|_=>false end.
+Definition project_choice snapshot s {e} occurrence parent(subject:UX.subject e)id label description:=
+ let encoded:=match id with None=>""|Some id=>show_natural id end in
+ let key:=part parent(String.append "project/"(match id with None=>"none"|Some id=>show_natural id end))in
+ match Observation.alternative_from_choice snapshot s subject(Fields.ChoiceValue encoded label)with
+ |None=>read_only key "unavailable"label "Project selection is unavailable"
+ |Some alternative=>Node key "project-choice"label Roles.Button
+  (Choice SingleChoice(UX.alternative_selected alternative)description
+    (Control "select"label Secondary(Input.ActivityAssignment occurrence e(Act.Assignment subject(UX.alternative_value alternative)))
+      (domain_availability(UX.alternative_availability alternative))))
+  [information key "label" Information.OptionLabel label;information key "description" Information.Description description]end.
+Definition project_menu snapshot s e occurrence parent behavior:=
+ let query:=match current_layer s occurrence with Some layer=>State.layer_query layer|None=>""end in
+ let content:=match Observation.observe_property snapshot s e UX.ProjectProperty with
+ |None=>[read_only parent "unavailable" "Project" "Project selection is unavailable"]
+ |Some property=>let subject:=UX.property_subject property in
+  Node(part parent "search")"search" "Search projects"Roles.Field
+   (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]::
+  project_choice snapshot s occurrence parent subject None "No project" "Use environment defaults"::
+  match Projection.projects snapshot with
+  |None=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]
+  |Some projects=>map(fun project=>project_choice snapshot s occurrence parent subject(Some(Projection.project_id project))
+    (Projection.project_name project)(value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project))))
+   (filter(fun project=>BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
+    (BoardFilter.lower_text(String.concat " "[Projection.project_name project;
+     String.concat " "(Domain.workspace_roots(Projection.project_workspace project));
+     value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project))])))projects)end end in
+ Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
+  (title parent "Choose project"::content).
+Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
+Definition activity_view snapshot s e request occurrence source_expanded parent behavior :=
+ if workspace_request request && match e with Identity.Project _=>false|_=>true end
+ then workspace_menu snapshot s e occurrence parent behavior else
+ if project_request request && match e with Identity.Project _=>false|_=>true end
+ then project_menu snapshot s e occurrence parent behavior else
+ match Observation.observe_activity snapshot s e request with
+ |None=>Node parent "activity-unavailable" "Settings unavailable"Roles.Dialog(LayerRegion behavior)
+   [read_only parent "unavailable" "Settings unavailable" "The original settings observation is unavailable"]
+ |Some activity=>
+  let layer:=current_layer s occurrence in
+  let view:=Observation.view_for activity(match layer with Some layer=>Observation.layer_focus layer|None=>None end)source_expanded in
+  let query:=match layer with Some layer=>State.layer_query layer|None=>""end in
+  let caption:=view_title activity view in
+  let completion:=Observation.completion_for activity view in
+  Node parent "activity"caption Roles.Dialog(ActivityGroup e activity view behavior)
+   ((match completion with
+    |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
+      [Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
+       [declared parent Roles.Button(secondary "back" "Back"(Input.ActivityComplete occurrence));title parent caption]]
+    |_=>[title parent caption]end)++
+    (if Observation.search_required activity view then
+     [Node(part parent "search")"search" "Search models"Roles.Field
+      (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++
+    activity_fields snapshot s occurrence parent activity++
+    flat_map(relation_nodes snapshot s occurrence parent query request activity view)(Act.activity_relations activity)++
+    (match view with Act.PrincipalView=>
+      [Node(part parent "inspection")"inspection" ""Roles.Section(ActivityRow InspectionRow)
+       [declared parent Roles.Button(secondary "source"(inspection_label(UX.property_kind_of(Act.activity_property activity)))
+         (Input.TogglePropertySource e occurrence))]]|_=>[]end))%list end.

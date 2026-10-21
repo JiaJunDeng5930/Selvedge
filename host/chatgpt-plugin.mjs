@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { boundary } from './public/model-boundary.mjs';
 import { interpretCredential } from './opaque-credentials.mjs';
 
-/** Transport configuration only. Project membership and operation policy live in theories/Features/ChatGPT.v. */
+/** Transport configuration only. Project membership and operation policy live in theories/Features/Chatgpt.v. */
 export function connectionConfig(value = { connections: {} }) {
   return boundary('plugin.connection_config', value);
 }

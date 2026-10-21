@@ -5,6 +5,87 @@ From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
+(** The registry is replaced through the operation used by setup, archive and
+    callback admission. A write cannot retain another entry for that owner or
+    change an unrelated resource. *)
+Theorem stored_resource_is_the_lookup : forall tree value,
+ Worktree.lookup (F.worktree_task tree) (Worktree.store tree value) = Some tree.
+Proof.
+ intros; unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
+   Selvedge.Features.State.with_worktrees; cbv [set]; cbn.
+ rewrite N.eqb_refl; reflexivity.
+Qed.
+Theorem stored_resource_removes_previous_entries : forall tree value previous,
+ In previous (tl (F.feature_worktrees (world_features (Worktree.store tree value)))) ->
+ F.worktree_task previous <> F.worktree_task tree.
+Proof.
+ intros tree value previous member.
+ unfold Worktree.store, Selvedge.Kernel.State.with_features,
+   Selvedge.Features.State.with_worktrees in member; cbv [set] in member; cbn in member.
+ apply filter_In in member as [_ different].
+ apply Bool.negb_true_iff in different; apply N.eqb_neq in different; congruence.
+Qed.
+Lemma find_other_resource_after_filter : forall entries id owner,
+ id <> owner ->
+ find (fun tree => N.eqb id (F.worktree_task tree))
+   (filter (fun tree => negb (N.eqb owner (F.worktree_task tree))) entries) =
+ find (fun tree => N.eqb id (F.worktree_task tree)) entries.
+Proof.
+ induction entries as [|tree rest IH]; intros id owner different; [reflexivity|].
+ cbn. destruct (N.eqb owner (F.worktree_task tree)) eqn:owned; cbn.
+ - apply N.eqb_eq in owned.
+   assert (N.eqb id (F.worktree_task tree) = false) as other.
+   { apply N.eqb_neq; congruence. }
+   rewrite other; apply IH; exact different.
+ - destruct (N.eqb id (F.worktree_task tree)); [reflexivity|apply IH; exact different].
+Qed.
+Theorem store_preserves_other_resource_lookups : forall tree value id,
+ id <> F.worktree_task tree ->
+ Worktree.lookup id (Worktree.store tree value) = Worktree.lookup id value.
+Proof.
+ intros tree value id different.
+ unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
+   Selvedge.Features.State.with_worktrees; cbv [set]; cbn.
+ assert (N.eqb id (F.worktree_task tree) = false) as other by (apply N.eqb_neq; exact different).
+ rewrite other; apply find_other_resource_after_filter; exact different.
+Qed.
+(** Restoring just the registry restores the entire world, including all other
+    feature components and the kernel. This subsumes the old per-field frames. *)
+Theorem store_changes_only_worktree_registry : forall tree value,
+ Selvedge.Kernel.State.with_features
+   (Selvedge.Features.State.with_worktrees (F.feature_worktrees (world_features value))
+      (world_features (Worktree.store tree value))) (Worktree.store tree value) = value.
+Proof.
+ intros tree [sequence tasks ticket environment projects features].
+ destruct features; reflexivity.
+Qed.
+(** A host success must name its primary directory and carry guidance from that
+    directory. Malformed observations never turn a pending setup into failure. *)
+Theorem created_completion_requires_explicit_primary : forall source value id observed,
+ string_field "kind" source = Some "worktree_created" ->
+ natural_field "task_id" source = Some id -> bool_field "ok" source = Some true ->
+ field "workspace" source = Some observed -> string_field "primary_root" observed = None ->
+ Worktree.completion source value = None.
+Proof.
+ intros source value id observed kind identity succeeded workspace missing.
+ unfold Worktree.completion; rewrite kind, identity, succeeded; cbn zeta.
+ rewrite workspace, missing.
+ destruct (string_field "root" source), (parse_workspace observed); cbn;
+   repeat rewrite Bool.andb_false_r; reflexivity.
+Qed.
+Theorem created_completion_rejects_other_directory_guidance : forall source value id observed space,
+ string_field "kind" source = Some "worktree_created" ->
+ natural_field "task_id" source = Some id -> bool_field "ok" source = Some true ->
+ field "workspace" source = Some observed -> parse_workspace observed = Some space ->
+ Codec.guidance_member space (value_or_null "guidance" source) = false ->
+ Worktree.completion source value = None.
+Proof.
+ intros source value id observed space kind identity succeeded workspace parsed mismatch.
+ unfold Worktree.completion; rewrite kind, identity, succeeded; cbn zeta.
+ rewrite workspace, parsed.
+ destruct (string_field "root" source); cbn; [rewrite mismatch|];
+   repeat rewrite Bool.andb_false_r; reflexivity.
+Qed.
 (** Resource phases carry their roots, so a ready tree cannot have no root. *)
 Theorem ready_tree_has_root : forall tree,
  F.worktree_state tree = F.Ready -> exists root, F.worktree_root tree = Some root.
