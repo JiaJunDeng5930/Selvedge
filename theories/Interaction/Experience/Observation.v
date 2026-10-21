@@ -213,6 +213,13 @@ Definition project_precondition snapshot state (draft:Draft.draft):option(option
 Definition requirement_obstruction e(field:option Fields.field)(code reason:string):obstruction e:=
  Obstruction(match field with Some field=>match Model.admit_subject e(Parameters.name field)with
    Some subject=>RepairField subject|None=>RepairEditor end|None=>RepairEditor end)code reason.
+Definition preparation_admission snapshot state e draft command:availability:=
+ match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
+ |Unavailable reason=>Unavailable reason
+ |Available=>match Session.Observation.worktree_preference snapshot state draft with
+  |Some update=>admission snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
+    (State.generation(State.navigation_state state))update
+  |None=>Available end end.
 Definition observe_assessment snapshot state e:assessment e:=
  let draft:=State.current_draft state e in
  let obstruction (reason:string):assessment_result e:=PreparationBlocked(Obstruction RepairEditor "NotAdmitted" reason)[]in
@@ -220,16 +227,17 @@ Definition observe_assessment snapshot state e:assessment e:=
  (match project_precondition snapshot state draft with
  |Some(field,code,reason)=>PreparationBlocked(requirement_obstruction e field code reason)[]
  |None=>if State.pending_editor e state then obstruction "Wait for the current submission to finish."else if Services.blocks e(State.service_state state)then obstruction "Finish or cancel the attachment transfer before submitting."
+ else if negb(Session.Observation.worktree_submission_allowed snapshot state draft)then obstruction "Wait for Git verification of the primary workspace before creating a worktree."
  else match Draft.contents draft,State.now state with
  |Draft.CardBody _ _ _ _ _ _,None=>obstruction "The current time has not yet been observed."
  |_,_=>match Draft.explicit_workspace draft with
  |Some workspace=>match Session.Observation.directory_evidence state draft with
    |Some(Loaded _ request observation)=>match Command.observed_command(State.now state)draft(Services.observed_workspace observation,Services.observed_guidance observation)with
-     |Some command=>match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
+     |Some command=>match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
      |None=>obstruction "The draft does not yet form a command."end
    |Some(Failed _ _ reason)=>obstruction reason|_=>DirectoryObservationRequired workspace end
  |None=>match Command.command(State.now state)draft with
-   |Some command=>match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
+   |Some command=>match preparation_admission snapshot state e draft command with Available=>PreparationReady|Unavailable reason=>obstruction reason end
    |None=>obstruction "The draft does not yet form a command."end end end end).
 Definition information_summaries {e}(value:information e):list(summary_value e):=
  match value with PresentInformation first None=>[first]|PresentInformation first(Some second)=>[first;second]|_=>[]end.
@@ -249,19 +257,13 @@ Definition assignment_shape_available snapshot state {e}(assignment:assignment e
    |_=>true end end.
 Definition workspace_choice_available snapshot state (draft:Draft.draft) incoming:availability:=
  if Json.equal incoming(JString(WorkspaceBackend.name WorkspaceBackend.Local))then
- match Session.Observation.draft_preview snapshot draft with
- |Context.ProspectiveContext _ _ workspace _ _ _=>
-   let workspace:=match workspace with Context.InheritedWorkspace value|Context.EnteredWorkspace value=>value end in
-   match Selvedge.Kernel.Domain.workspace_primary workspace with
-   |None=>Unavailable "Choose a primary working directory before creating a local worktree."
-   |Some primary=>match Services.workspace_git(State.service_state state)with
-     |Loaded _ (owner,path) repository=>if same_editor owner(Draft.owner draft)&&String.eqb path primary
-       then if repository then Available else Unavailable "The primary working directory is not a Git repository."
-       else Unavailable "Checking the primary working directory for Git."
-     |Failed _ (owner,path) reason=>if same_editor owner(Draft.owner draft)&&String.eqb path primary
-       then Unavailable reason else Unavailable "Checking the primary working directory for Git."
-     |_=>Unavailable "Checking the primary working directory for Git."end end
- |Context.ContextUnavailable reason=>Unavailable reason end
+ match bind(Session.Observation.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary with
+ |None=>Unavailable "Choose a primary working directory before creating a local worktree."
+ |Some _=>match Session.Observation.worktree_observation snapshot state draft with
+   |Some(Loaded _ _ true)=>Available
+   |Some(Loaded _ _ false)=>Unavailable "The primary working directory is not a Git repository."
+   |Some(Failed _ _ reason)=>Unavailable reason
+   |_=>Unavailable "Checking the primary working directory for Git."end end
  else Available.
 Definition assignment_available snapshot state {e}(assignment:assignment e):availability:=
  let subject:=assignment_subject assignment in

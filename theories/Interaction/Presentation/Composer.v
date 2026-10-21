@@ -26,6 +26,12 @@ Definition supporting_control {A e} parent (support:Experience.support e)
  Node identity(control_identity action)(Experience.property_label property)Roles.Button
   (SupportingControl e support property action)(property_information identity property).
 
+Definition action_feedback {A e} parent (unit:Experience.action_unit e)
+    (feedback:option string):list(node A):=match feedback with
+|Some message=>[Node(part parent "feedback")"submission-feedback" "Submission failed" Roles.Alert
+  (ActionFeedback e(Experience.action_identity_of unit)message)[]]
+|None=>[]end.
+
 (** The supporting tools and canonical commit remain distinct children.  The
     owner index ties the field, action and assessment to the same editor. *)
 Definition composer {A e} parent (unit : Experience.action_unit e)
@@ -38,7 +44,4 @@ Definition composer {A e} parent (unit : Experience.action_unit e)
         [Node (part parent "tools") "composer/tools" "Supporting controls" Roles.Toolbar Region tools;
          Node (part parent "submit") "composer/submit" (control_label submit) Roles.PrimaryButton
            (ActionCommit e assessment submit) []]] ++
-     match feedback with
-     | Some message => [Node (part parent "feedback") "composer/feedback" message Roles.Alert
-         (ActionFeedback e (Experience.action_identity_of unit) message) []]
-     | None => [] end)%list.
+     action_feedback parent unit feedback)%list.

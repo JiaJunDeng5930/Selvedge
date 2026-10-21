@@ -82,6 +82,7 @@ Definition command_owner snapshot state command:=match ObjectActions.descriptor_
 Definition command_availability snapshot state command:EM.availability:=
  EO.admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
 Definition issue_draft snapshot draft trigger state:=
+ if negb(SO.worktree_submission_allowed snapshot state draft)then fail state "Wait for Git verification of the primary workspace before creating a worktree."else
  match EO.project_precondition snapshot state draft with
  |Some(_,_,reason)=>fail state reason
  |None=>let owner:=Draft.owner draft in
@@ -90,7 +91,12 @@ Definition issue_draft snapshot draft trigger state:=
  match current_command state draft with
  |None=>fail state "The draft is waiting for a valid command and workspace observation."
  |Some command=>if canonical_ready snapshot state(CommandAssessment.DraftOwner owner)(Draft.revision draft)command
-  then issue command(SS.DraftSubmission draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
+  then match SO.worktree_preference snapshot state draft with
+  |None=>issue command(SS.DraftSubmission draft(SS.generation(SS.navigation_state state))(SS.next_layer state)trigger)state
+  |Some update=>if canonical_ready snapshot state(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
+      (SS.generation(SS.navigation_state state))update
+    then issue update(SS.ProjectPreference draft command(SS.generation(SS.navigation_state state))trigger)state
+    else fail state "The project worktree preference has not been admitted against the current state."end
   else fail state "This action has not been admitted against the current state."end end.
 Definition submit snapshot owner trigger state:=
  let state:=ensure_draft snapshot owner state in
@@ -124,12 +130,8 @@ Definition attached snapshot owner file state:=let state:=ensure_draft snapshot 
  let draft:=SS.current_draft state owner in
  if existsb(fun current=>String.eqb(asset_id current)(asset_id file))(attachment_list draft)then state else
  match with_attachments(attachment_list draft++[file])draft with Some draft=>SS.save_draft draft state|None=>state end.
-Definition workspace_for snapshot draft:=match Draft.explicit_workspace draft with
-|Some workspace=>Some workspace|None=>match SO.draft_context draft with
- |Some configuration=>option_map Selvedge.Kernel.Domain.settings_workspace(SO.origin_settings(Context.context_origin configuration)snapshot)
- |None=>match Draft.owner draft with Identity.Message task=>option_map Selvedge.Kernel.Domain.settings_workspace(SO.task_settings task snapshot)|_=>None end end end.
 Definition skill_request_current snapshot state owner request:=
- same_editor owner(SS.skill_editor request)&&match workspace_for snapshot(SS.current_draft state owner)with
+ same_editor owner(SS.skill_editor request)&&match SO.workspace_for snapshot(SS.current_draft state owner)with
  |Some workspace=>Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json(SS.skill_workspace request))|None=>false end.
 Definition skill_resource snapshot state owner:=find(fun resource=>match resource_request resource with
 |Some request=>skill_request_current snapshot state owner request|None=>false end)(SS.skill_catalogs(SS.authoring_state state)).
@@ -139,12 +141,12 @@ Definition skill_view snapshot state owner:=
  let resource:=skill_resource snapshot state owner in
  SkillView(mention_for owner state)(match resource with Some(Resource.Loaded _ _ values)=>values|_=>[]end)
  (match resource with Some(Resource.Loading _ _)=>true|_=>false end)
- (match resource with Some(Resource.Failed _ _ reason)=>Some reason|_=>match workspace_for snapshot(SS.current_draft state owner)with Some _=>None|None=>Some "The selected workspace is not available."end end)
+ (match resource with Some(Resource.Failed _ _ reason)=>Some reason|_=>match SO.workspace_for snapshot(SS.current_draft state owner)with Some _=>None|None=>Some "The selected workspace is not available."end end)
  (match resource with None|Some Resource.Dormant=>true|_=>false end).
 Definition load_skills snapshot owner (explicit:bool) state:=
  let state:=ensure_draft snapshot owner state in
  let draft:=SS.current_draft state owner in
- match draft_text draft,workspace_for snapshot draft with
+ match draft_text draft,SO.workspace_for snapshot draft with
  |Some text,Some workspace=>
  let state:=if explicit then match mention_for owner state with
   |SkillMention.Suggesting _ _=>state
@@ -227,12 +229,12 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
  else let reason:=completion_error outcome in
  let state:=if current then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)reason)captured)state else state in
  fail state reason.
-Definition complete snapshot purpose outcome state:=match purpose with
+Definition complete snapshot executed purpose outcome state:=match purpose with
 |SS.DraftSubmission captured navigation layer trigger=>Some(complete_draft snapshot captured navigation layer trigger outcome state)
 |SS.LiveConfiguration captured occurrence remember=>
  let remembered:=if completion_success outcome&&remember then match Draft.owner captured with
   |Identity.Message task=>match SO.task_profile task snapshot,DocumentState.find_task task snapshot with
-   |Some profile,Some observed=>match string_field "reasoning" observed with
+   |Some profile,Some observed=>match (match string_field "reasoning"(Schema.encode_command executed)with Some requested=>Some requested|None=>string_field "reasoning" observed end)with
     |Some reasoning=>let key:=Selvedge.Kernel.Domain.profile_key profile in
       changed(SS.with_services(Services.with_model_preference(Some(key,reasoning))(SS.service_state state))state)
        [emit "persist_model_preference"[("profile",JString key);("reasoning",JString reasoning)]]
@@ -251,7 +253,11 @@ Definition complete snapshot purpose outcome state:=match purpose with
     fail(SS.with_navigation(set SS.layers(fun layers=>match layers with []=>[]|_::rest=>top::rest end)navigation)state)(completion_error outcome)
    else keep state|[]=>keep state end end))
 |SS.DirectSubmission=>Some(if completion_success outcome then keep state else fail state(completion_error outcome))
-|SS.ProjectPreference captured command generation trigger=>Some(if completion_success outcome then issue command(SS.DraftSubmission captured generation(SS.next_layer state)trigger)state else fail state(completion_error outcome))
+|SS.ProjectPreference captured command generation trigger=>Some(if completion_success outcome then
+ if SO.worktree_submission_allowed snapshot state captured then
+ issue command(SS.DraftSubmission captured generation(SS.next_layer state)trigger)state
+ else fail state "Wait for Git verification of the primary workspace before creating a worktree."
+ else fail state(completion_error outcome))
 |_=>None end.
 Definition apply_field snapshot (owner:editor) (assignment:Activity.assignment owner) state:=
  if SS.pending_editor owner state then fail state "Wait for the current configuration change to finish."else
@@ -276,7 +282,7 @@ Definition apply_field snapshot (owner:editor) (assignment:Activity.assignment o
   |Identity.NewTask _,Fields.ModelProfile,Draft.NewTaskBody _ profile reasoning _ _ _
   |Identity.NewTask _,Fields.ReasoningEffort,Draft.NewTaskBody _ profile reasoning _ _ _=>
     let state:=SS.with_services(Services.with_model_preference(Some(profile,reasoning))(SS.service_state state))state in
-    let state:=SS.with_authoring(set SS.draft_model_manual(fun _=>true)(SS.authoring_state state))state in
+    let state:=match owner with Identity.NewTask None=>SS.with_authoring(set SS.draft_model_manual(fun _=>true)(SS.authoring_state state))state|_=>state end in
     changed state[emit "persist_model_preference"[("profile",JString profile);("reasoning",JString reasoning)]]
   |_,_,_=>keep state end end end.
 Definition activity_owner occurrence state:=match SS.layers(SS.navigation_state state)with
@@ -313,7 +319,7 @@ Definition change_workspace snapshot owner change state:=
   |Some configuration=>let configuration:=Values.with_context_workspace None configuration in
     keep(SS.save_draft(Draft.with_body(Values.with_configuration configuration(Draft.contents draft))draft)state)
   |None=>fail state "The committed workspace cannot be inherited again."end
- |change=>match workspace_for snapshot draft with
+ |change=>match SO.workspace_for snapshot draft with
   |None=>fail state "The working directories have not been observed."
   |Some workspace=>let roots:=Selvedge.Kernel.Domain.workspace_roots workspace in
    let incoming:=match change with
@@ -459,7 +465,7 @@ Definition resolve_creation_model snapshot state:=
 Definition ensure_workspace_git snapshot state:=
  let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
  let services:=SS.service_state state in
- let selected:=bind(workspace_for snapshot(SS.current_draft state owner))Selvedge.Kernel.Domain.workspace_primary in
+ let selected:=bind(SO.workspace_for snapshot(SS.current_draft state owner))Selvedge.Kernel.Domain.workspace_primary in
  match selected with
  |None=>keep(SS.with_services(Services.with_workspace_git Resource.Dormant services)state)
  |Some path=>let current:=Services.workspace_git services in
@@ -497,7 +503,11 @@ Definition refresh_input snapshot input state:=match input with
 |Input.BeginVoiceNew owner=>let draft:=SS.current_draft state owner in
  match current_voice_command state draft with Some command=>ensure_request snapshot(voice_owner command)(Draft.revision draft)command state|None=>keep state end
 |Input.Submit owner _=>let draft:=SS.current_draft state owner in
- match current_command state draft with Some command=>ensure_request snapshot(CommandAssessment.DraftOwner owner)(Draft.revision draft)command state|None=>keep state end
+ let checked:=match current_command state draft with Some command=>ensure_request snapshot(CommandAssessment.DraftOwner owner)(Draft.revision draft)command state|None=>keep state end in
+ match SO.worktree_preference snapshot state draft with
+ |Some update=>append checked(ensure_request snapshot(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))
+   (SS.generation(SS.navigation_state state))update(result_state checked))
+ |None=>checked end
 |Input.ActivityAssignment _ owner assignment|Input.ApplyAssignment owner assignment=>
  let current:=SS.current_draft state owner in
  if Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment))then

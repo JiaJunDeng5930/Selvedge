@@ -64,6 +64,10 @@ Definition board_cards snapshot := bind(board snapshot)(array_field "cards").
 Definition board_agents snapshot := bind(board snapshot)(array_field "agents").
 Definition card id snapshot := value<-board snapshot;;DocumentState.find_world "cards" "id" id value.
 Definition graphs snapshot := Selvedge.Interaction.Codec.items "graphs" snapshot.
+Definition scoped_graphs selected snapshot :=match selected with
+|None=>graphs snapshot
+|Some work=>filter(fun value=>match id_field "work_id" value with
+ |Some(Some owner)=>N.eqb work owner|_=>false end)(graphs snapshot)end.
 
 Definition ordered_cards snapshot :=
  value<-board snapshot;;cards<-array_field "cards" value;;order<-list_field natural "order" value;;

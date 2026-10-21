@@ -76,7 +76,7 @@ Definition complete namespace snapshot lagged ticket outcome state:=
     (IT.Feedback owner path transaction(Authoring.completion_success outcome)(if Authoring.completion_success outcome then "Sent"else Authoring.completion_error outcome))state
   |purpose=>match Navigation.complete snapshot purpose outcome state with
    |Some decision=>Authoring.adopt_navigation snapshot decision
-   |None=>match Authoring.complete snapshot purpose outcome state with Some result=>result|None=>Authoring.keep state end end end end.
+   |None=>match Authoring.complete snapshot(SS.accepted_command pending)purpose outcome state with Some result=>result|None=>Authoring.keep state end end end end.
 Definition menu_action snapshot subject key occurrence state:=
  match SS.layers(SS.navigation_state state)with
  |layer::_=>if N.eqb occurrence(SS.layer_occurrence layer)then
@@ -107,18 +107,21 @@ Definition board_step snapshot input state:option Authoring.result:=match input 
   |EM.Available=>Authoring.issue command SS.DirectSubmission state
   |EM.Unavailable reason=>Authoring.fail state reason end end)
 |_=>None end.
-Definition begin_project snapshot project state:=
- match DocumentState.find_world "projects" "id" project snapshot with
- |None=>Authoring.fail state "The project is no longer available."
- |Some _=>let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
-  let state:=Authoring.ensure_draft snapshot owner state in
-  let draft:=SS.current_draft state owner in
-  match SO.draft_context draft with
-  |None=>Authoring.fail state "The task draft is not available."
-  |Some configuration=>match Values.update_body snapshot(Draft.contents draft)Fields.ContextOrigin(number project)with
-    |None=>Authoring.fail state "The project context is not available."
-    |Some body=>let state:=SS.save_draft(Draft.with_body body draft)state in
-      Authoring.adopt_navigation snapshot(Navigation.visit snapshot Identity.Start state)end end end.
+Definition begin_task snapshot project state:=
+ let available:=match project with None=>true|Some project=>match DocumentState.find_world "projects" "id" project snapshot with Some _=>true|None=>false end end in
+ if available then
+ let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
+ let state:=Authoring.ensure_draft snapshot owner state in
+ let draft:=SS.current_draft state owner in
+ let origin:=match project with None=>JNull|Some project=>number project end in
+ match Values.update_body snapshot(Draft.contents draft)Fields.ContextOrigin origin with
+ |None=>Authoring.fail state "The task context is not available."
+ |Some body=>let state:=SS.save_draft(Draft.with_body body draft)state in
+  let decision:=Navigation.visit snapshot Identity.Start state in
+  let target:=Identity.key_part(Identity.editor_key owner)"message"in
+  Authoring.adopt_navigation snapshot
+   (set Navigation.result_effects(map(fun effect=>match effect with Navigation.Attend _=>Navigation.Attend target|effect=>effect))decision)
+ end else Authoring.fail state "The project is no longer available.".
 Definition begin_new_voice snapshot owner state:=
  let state:=Authoring.ensure_draft snapshot owner state in
  let draft:=SS.current_draft state owner in
@@ -146,7 +149,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
    (Draft.with_body(Draft.CardBody None 0(Selvedge.Features.Domain.CardDraft "" "" stage Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])assist profile keep)draft)state
  |_=>state end in
  Authoring.adopt_navigation snapshot(Navigation.edit_object snapshot owner trigger state)
-|Input.BeginProjectTask project=>begin_project snapshot project state
+|Input.BeginTask project=>begin_task snapshot project state
 |Input.BeginVoiceNew owner=>begin_new_voice snapshot owner state
 |Input.SpeechInput(Speech.TaskCreated ticket task)=>voice_created snapshot ticket task state
 |Input.RepairSubject owner revision field trigger=>if N.eqb revision(Draft.revision(SS.current_draft state owner))then

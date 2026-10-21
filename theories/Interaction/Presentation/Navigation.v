@@ -59,8 +59,8 @@ Definition project_entry snapshot s current parent tasks (project:project) :=
  Node key "project-group"(project_name project)Roles.Section(ProjectGroup id selected expanded)
   (region key "actions" "" Roles.Section
     [declared key Roles.Button(secondary "toggle"(if expanded then "Collapse project" else "Expand project")(Input.ToggleProjectGroup id));
-     declared key(Roles.NavigationEntry selected)(secondary "open"(project_name project)(Input.Navigate(ProjectHome id)));
-     declared key Roles.Button(secondary "create" "New task"(Input.BeginProjectTask id));
+     declared key(Roles.NavigationEntry selected)(secondary "open"(project_name project)(Input.BeginTask(Some id)));
+     declared key Roles.Button(secondary "create" "New task"(Input.BeginTask(Some id)));
      declared key Roles.Button(secondary "more" "Project actions"(Input.OpenObjectActions(ProjectActions id)(part key "more")))] ::
    if expanded then map(task_entry_tree current key)(forest(project_tasks(Some id)tasks)) else []).
 Definition task_navigation snapshot s (expanded:bool) :=
@@ -92,7 +92,7 @@ Definition task_navigation snapshot s (expanded:bool) :=
     [region "/navigation" "contents" "" Roles.NavigationCollection
       (region "/navigation" "task-creation" "" Roles.NavigationSection
         [declared "/navigation"(Roles.NavigationEntry(match current with Start=>true|_=>false end))
-          (secondary "new-task" "新建对话"(Input.Navigate Start))]::content)]
+          (secondary "new-task" "新建对话"(Input.BeginTask None))]::content)]
     else [])).
 Definition work_summary snapshot selected :=
  match tasks snapshot with

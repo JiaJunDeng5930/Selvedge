@@ -11,7 +11,7 @@ Inductive workspace_change := AddDirectory (path:string) | RemoveDirectory (path
 | ChoosePrimaryDirectory (path:string) | InheritWorkspace.
 Inductive input :=
 | ResetTitlePrompts
-| ToggleProjectGroup(project:N) | BeginProjectTask(project:N)
+| ToggleProjectGroup(project:N) | BeginTask(project:option N)
 | BeginVoiceNew(origin:editor) | SelectSharedTask(work:N)(task:option N)
 | OpenNavigation(kind:navigation_panel)(trigger:string)
 | OpenObjectActions(subject:menu_subject)(trigger:string)

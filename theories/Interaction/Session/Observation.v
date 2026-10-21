@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend.
+From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Commands.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction.Submission Require Fields.
 From Selvedge.Interaction Require Import Codec Identity Context DocumentState ModelSelection Resource Services.
@@ -152,3 +152,30 @@ Definition observe_field_in_state snapshot state draft field:=
  match observe_field snapshot draft field with
  |Fields.ContextValue preview reviewers=>Fields.ContextValue(observe_preview state draft preview)reviewers
  |value=>value end.
+
+Definition workspace_for snapshot draft:=match Draft.explicit_workspace draft with
+|Some workspace=>Some workspace|None=>match draft_context draft with
+ |Some configuration=>option_map Selvedge.Kernel.Domain.settings_workspace(origin_settings(Context.context_origin configuration)snapshot)
+ |None=>match Draft.owner draft with Identity.Message task=>option_map Selvedge.Kernel.Domain.settings_workspace(task_settings task snapshot)|_=>None end end end.
+Definition worktree_observation snapshot state (draft:Draft.draft):option(resource(editor*string)bool):=
+ let observation:=Services.workspace_git(State.service_state state)in
+ match bind(workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary,resource_request observation with
+ |Some primary,Some(owner,path)=>if same_editor owner(Draft.owner draft)&&String.eqb path primary
+   then Some observation else None
+ |_,_=>None end.
+Definition worktree_available snapshot state draft:=match worktree_observation snapshot state draft with
+ |Some(Loaded _ _ true)=>true|_=>false end.
+Definition worktree_submission_allowed snapshot state draft:=match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ _ (Draft.ManagedWorkspace WorkspaceBackend.Local) _=>worktree_available snapshot state draft
+ |_=>true end.
+Definition worktree_preference snapshot state (draft:Draft.draft):option(Schema.command_value Selvedge.Kernel.Commands.command_specs):=
+ if worktree_available snapshot state draft then match Draft.contents draft with
+ |Draft.NewTaskBody _ _ _ configuration mode _=>match mode with
+  |Draft.ManagedWorkspace WorkspaceBackend.TencentCvm=>None
+  |_=>match Context.context_origin configuration with
+   |Context.ProjectDefaults id=>project<-project_by_id id snapshot;;previous<-bool_field "create_worktree" project;;
+    let enabled:=match mode with Draft.ManagedWorkspace WorkspaceBackend.Local=>true|_=>false end in
+    if Bool.eqb previous enabled then None else Schema.decode_command Selvedge.Kernel.Commands.command_specs
+     (JObject[("op",JString "update_project");("project_id",number id);("create_worktree",JBool enabled)])
+   |_=>None end end
+ |_=>None end else None.

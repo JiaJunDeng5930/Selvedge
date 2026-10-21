@@ -26,7 +26,7 @@ Definition project_page snapshot s parent project :=
  let id:=project_id project in
  [page_region parent Composition.ProjectTitle Composition.HeadingPosition [title parent(project_name project)];
   page_region parent Composition.ProjectActions Composition.HeadingPosition
-   [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginProjectTask id));
+   [declared parent Roles.Button(secondary "new-task" "New task"(Input.BeginTask(Some id)));
     declared parent Roles.Button(secondary "edit" "Edit project"(Input.OpenEditor(Identity.Project(Some id))(part parent "edit")));more parent(ProjectActions id)];
   page_region parent Composition.DefaultWorkspace Composition.BodyPosition
    [read_only parent "workspace-roots" "Default workspace"(String.concat "
@@ -181,4 +181,4 @@ Definition graphs_page snapshot s parent :=
  [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"];
   page_region parent Composition.CollectionActions Composition.HeadingPosition
    [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(TaskGraph None(State.active_work(State.navigation_state s)))(part parent "graph/new")))];
-  page_region parent Composition.TaskGraphEntries Composition.BodyPosition(map(graph_node snapshot s parent)(graphs snapshot))].
+  page_region parent Composition.TaskGraphEntries Composition.BodyPosition(map(graph_node snapshot s parent)(scoped_graphs(State.active_work(State.navigation_state s))snapshot))].

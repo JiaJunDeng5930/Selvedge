@@ -163,12 +163,21 @@ Definition editor_sections e :=match e with
 Definition section_nodes snapshot s e parent :=map(fun '(name,fields)=>
  region parent name name Roles.Section
   (group_title(part parent name)name::field_nodes snapshot s e parent fields))(editor_sections e).
+Definition title_prompt_controls e parent pending:list(node Input.input):=match e with
+|TitlePrompts=>
+ [read_only parent "title-prompts/help" "说明"
+   "Task 用于看板任务，Agent 用于执行会话，分别生成标题。修改只影响后续生成；标题最多 36 个字符。";
+  declared parent Roles.Button(Control "title-prompts/reset" "恢复 Codex 默认提示词" Secondary Input.ResetTitlePrompts
+   (if pending then Unavailable "The current action is pending"else Available))]
+|_=>[]end.
 Definition editor_view snapshot s e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
-  (section_nodes snapshot s e parent++
-   [assessment_nodes parent assessment;
-    region parent "actions" "Actions" Roles.DialogActions
+  (title_prompt_controls e parent(UX.action_pending unit)++
+   section_nodes snapshot s e parent++
+   [assessment_nodes parent assessment]++
+   Composer.action_feedback parent unit(draft_feedback(Session.current_draft s e))++
+   [region parent "actions" "Actions" Roles.DialogActions
      [Node(part parent "submit")"submit"(control_label submit)Roles.PrimaryButton(ActionCommit e assessment submit)[]]])%list.

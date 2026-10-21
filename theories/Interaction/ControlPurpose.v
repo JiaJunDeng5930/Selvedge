@@ -33,7 +33,7 @@ Definition activity_expanded owner request state:=match State.layers(State.navig
 Definition describe snapshot state input:P.purpose:=match input with
 |Input.Submit owner _=>editor_purpose owner
 |Input.NewCard _ _=>P.CreateItem
-|Input.CreateWork=>P.WorkCreation|Input.BeginProjectTask _=>P.ProjectTaskCreation
+|Input.CreateWork=>P.WorkCreation|Input.BeginTask _=>P.ProjectTaskCreation
 |Input.OpenEditor owner _=>editor_purpose owner
 |Input.Navigate route=>P.NavigateTo(route_symbol route)
 |Input.OpenObjectActions subject _=>P.MoreActions(match State.layers(State.navigation_state state)with
