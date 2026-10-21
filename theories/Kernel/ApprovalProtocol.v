@@ -1,6 +1,30 @@
-From Stdlib Require Import String Bool NArith.
-From Selvedge.Foundation Require Import Numbers Utf8.
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json Numbers Utf8.
+From Selvedge.Kernel Require Import Domain.
+Import ListNotations.
 Open Scope string_scope.
+Definition request_limit : nat := 4%nat.
+Definition request_scalars : nat := 4096%nat.
+
+(* Task text has already passed UTF-8 admission. Continuation bytes belong to
+   the preceding scalar, including when its leading byte exhausts the budget. *)
+Fixpoint request_excerpt_end (count : nat) (text : string) (offset : nat) {struct text} : nat :=
+  match text with
+  | EmptyString => offset
+  | String head rest =>
+      let continuation := N.leb 128 (Utf8.byte head) && N.ltb (Utf8.byte head) 192 in
+      if continuation then request_excerpt_end count rest (S offset)
+      else match count with
+      | O => offset
+      | S count => request_excerpt_end count rest (S offset)
+      end
+  end.
+Definition request_excerpt (text : string) : string :=
+  String.substring O (request_excerpt_end request_scalars text O) text.
+Definition user_requests (history : list message) : list json :=
+  map (fun parts => JString (request_excerpt (content_text parts)))
+    (firstn request_limit (rev (fold_right (fun message rest =>
+      match message with UserMessage parts => parts :: rest | _ => rest end) [] history))).
 Definition reason_bytes : N := 2048%N.
 Definition valid_reason (text : string) :=
   Utf8.well_formed text && Utf8.no_nul text &&

@@ -161,7 +161,7 @@ Definition effect_json (state : world) (value : effect) : json :=
    ("model", model_json profile); ("call", call_json call);
    ("settings", settings_json (task_current_settings task));
    ("instructions", JString ApprovalProtocol.instructions);
-   ("user_requests", JArray (fold_right (fun message rest => match message with UserMessage parts => content_json parts :: rest | _ => rest end) [] (task_history task)))]
+   ("user_requests", JArray (ApprovalProtocol.user_requests (task_history task)))]
  | CheckTool id ticket plugin tool call => JObject [
    ("kind", JString "hook"); ("task_id", number id); ("ticket", number ticket);
    ("plugin", plugin); ("tool", tool_json tool); ("call", call_json call)]
