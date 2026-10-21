@@ -20,15 +20,19 @@ Fixpoint trim_left (predicate : N -> bool) (values : list (N * string)) :=
  match values with [] => [] | (code,_) :: rest =>
  if predicate code then trim_left predicate rest else values end.
 Definition trim_both (predicate : N -> bool) (values : list (N * string)) :=
- rev (trim_left predicate (rev (trim_left predicate values))).
-Fixpoint collapse_spaces (values : list (N * string)) (pending : bool) : list (N * string) :=
- match values with
- | [] => []
- | (code,bytes) :: rest =>
-   if title_whitespace code then collapse_spaces rest true
-   else (if pending then [(32%N," ")] else []) ++
-      (code,bytes) :: collapse_spaces rest false
- end.
+ List.rev_append (trim_left predicate (List.rev_append (trim_left predicate values) [])) [].
+Definition collapse_spaces (values : list (N * string)) (pending : bool) : list (N * string) :=
+ (* Reverse accumulation preserves pending whitespace without one extracted
+    stack frame per scalar in an admitted message or model title reply. *)
+ let fix collect (remaining : list (N * string)) (space : bool) (reversed : list (N * string)) :=
+   match remaining with
+   | [] => List.rev_append reversed []
+   | (code,bytes) :: rest =>
+     if title_whitespace code then collect rest true reversed
+     else collect rest false
+       ((code,bytes) :: (if space then (32%N," ") :: reversed else reversed))
+   end in
+ collect values pending [].
 Definition normalize (text : string) : string :=
  (* DEFENSE: External model title replies may contain malformed UTF-8; they
     cannot become a title or be truncated inside an encoded scalar. *)
@@ -37,8 +41,8 @@ Definition normalize (text : string) : string :=
  | Some source =>
    let unquoted := trim_both (fun code => title_whitespace code || quote code) source in
    let collapsed := collapse_spaces unquoted false in
-   let clean := rev (trim_left (fun code => title_whitespace code ||
-     existsb (N.eqb code) [46%N; 63%N; 33%N]) (rev collapsed)) in
+   let clean := List.rev_append (trim_left (fun code => title_whitespace code ||
+     existsb (N.eqb code) [46%N; 63%N; 33%N]) (List.rev_append collapsed [])) [] in
    Utf8.render_chunks (firstn maximum_characters clean)
  end.
 Definition valid_instructions (text : string) :=

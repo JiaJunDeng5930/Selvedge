@@ -1,8 +1,8 @@
 From Selvedge.Features Require Import WorkspaceBinding.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import ContextTypes Context Domain ContextUpdates JsonProofs Tasks.
+From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Kernel Require Import ContextTypes Context Domain ContextUpdates Tasks.
 Import ListNotations.
 
 Lemma context_fields_encoding_is_injective : forall left right,
@@ -29,7 +29,7 @@ Proof.
  destruct (negb (String.eqb (snapshot_revision current) (snapshot_revision previous)) && ContextUpdates.valid_patch (snapshot_key current) patches); try discriminate.
  destruct (ContextUpdates.apply_fields patches (snapshot_fields previous)) as [fields|] eqn:Applied; try discriminate.
  destruct (Json.equal (fields_json fields) (fields_json (snapshot_fields current))) eqn:Equal; try discriminate.
- inversion H; subst. apply json_comparison_is_exact in Equal.
+ inversion H; subst. apply equal_reflects_equality in Equal.
  apply context_fields_encoding_is_injective in Equal; subst fields.
  exists previous; repeat split; assumption || reflexivity.
 Qed.
@@ -49,7 +49,7 @@ Theorem unchanged_context_fields_do_not_append_a_revision_only_change : forall c
  ContextUpdates.observation_changes (Present current patch) bindings = Some [].
 Proof.
  intros current patch previous bindings Found Same.
- unfold ContextUpdates.observation_changes; rewrite Found, Same, json_comparison_reflexive; reflexivity.
+ unfold ContextUpdates.observation_changes; rewrite Found, Same, equal_is_reflexive; reflexivity.
 Qed.
 Theorem actual_context_amendments_obey_the_shared_patch_contract : forall current patch bindings key base revision changes,
  ContextUpdates.observation_changes (Present current patch) bindings = Some [Amend key base revision changes] ->
@@ -80,7 +80,7 @@ Proof.
  repeat rewrite andb_true_iff in Checked.
  destruct Checked as [[[Declaration Identity] Revision] Fields].
  apply String.eqb_eq in Revision.
- apply json_comparison_is_exact in Fields.
+ apply equal_reflects_equality in Fields.
  apply context_fields_encoding_is_injective in Fields.
  exists value; repeat split; assumption.
 Qed.
