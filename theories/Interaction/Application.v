@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Interaction Require Import Codec Identity Input InputCodecs ControlPurpose.
 From Selvedge.Interaction.Session Require State Codec Runtime Authoring.
 From Selvedge.Interaction.Presentation Require Gesture Surface Model View.
+From Selvedge.Interaction.Interactive Require Language.
 From Selvedge.Browser Require Layout Observation Document.
 Import ListNotations.
 Open Scope string_scope.
@@ -38,6 +39,8 @@ Definition refresh request snapshot decision:=match environment request with
 Definition initialized := SC.encode_state Session.initial.
 Definition call operation request:json:=
  if String.eqb operation "initial"then Json.success initialized else
+ if String.eqb operation "interactive_storage_policy"then
+  Selvedge.Interaction.Interactive.Language.call "storage_policy" request else
  match state request,field "world" request with
  |Some current,Some snapshot=>
  if String.eqb operation "observe"then
