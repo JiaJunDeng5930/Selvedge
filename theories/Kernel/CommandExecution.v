@@ -163,10 +163,8 @@ Definition execute (command : Selvedge.Generated.Commands.command) (caller : opt
  | Selvedge.Generated.Commands.Cmd_delete_project request => Some (delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value)
  | Selvedge.Generated.Commands.Cmd_review_approval request => Some (
    let reason := match Selvedge.Generated.Commands.review_approval_reason request with Some reason => reason | None => "" end in
-   if ApprovalProtocol.valid_reason reason then
    review_approval (Selvedge.Generated.Commands.review_approval_task_id request) (Selvedge.Generated.Commands.review_approval_operation_id request)
-    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value
-   else reject "invalid_arguments" ("Approval reasons require valid Unicode without NUL and at most " ++ show_natural ApprovalProtocol.reason_bytes ++ " UTF-8 bytes") value)
+    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value)
  | Selvedge.Generated.Commands.Cmd_record_speech_transcript request => Some (speech_transcript (Selvedge.Generated.Commands.record_speech_transcript_task_id request) (Selvedge.Generated.Commands.record_speech_transcript_session_id request) (Selvedge.Generated.Commands.record_speech_transcript_item_id request)
    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_speaker request)) "user" then UserSpeaker else AssistantSpeaker)
    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_completion request)) "completed" then SpeechCompleted else SpeechInterrupted) (Selvedge.Generated.Commands.record_speech_transcript_text request) value)

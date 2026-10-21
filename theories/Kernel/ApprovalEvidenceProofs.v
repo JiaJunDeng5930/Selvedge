@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks.
+From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -52,10 +52,11 @@ Qed.
 Local Lemma a_decision_keeps_its_reviewer_record : forall owner pending actor outcome task,
  exists suffix,
  task_history (Callbacks.approval_decision owner pending actor outcome task) = task_history task ++
- ApprovalReceipt owner (operation_id pending) (operation_call pending) actor (Inputs.approval_json outcome) :: suffix.
+ ApprovalReceipt owner (operation_id pending) (operation_call pending) actor
+   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
 Proof.
  intros owner pending actor outcome task; unfold Callbacks.approval_decision.
- destruct outcome as [reason|reason|reason].
+ destruct (ApprovalProtocol.normalize_outcome outcome) as [reason|reason|reason].
  - exists []; rewrite changing_operations_keeps_history; reflexivity.
  - unfold Callbacks.settle_operation.
    destruct (waking_after_a_result_keeps_history
@@ -91,7 +92,7 @@ Theorem model_approval_completion_records_its_captured_reviewer :
  decision_world (Callbacks.approval_completed owner ticket outcome value) = put_task owner updated value /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) (ModelReviewer profile)
-   (Inputs.approval_json outcome) :: suffix.
+   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
 Proof.
  intros owner ticket pending profile outcome task value Found Selected.
  unfold Callbacks.approval_completed; rewrite Found, Selected.
@@ -108,7 +109,7 @@ Theorem human_approval_command_records_its_actual_reviewer :
  decision_world (Callbacks.review_approval owner operation outcome value) = put_task owner updated value /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) HumanReviewer
-   (Inputs.approval_json outcome) :: suffix.
+   (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
 Proof.
  intros owner operation pending outcome task value Found Selected.
  unfold Callbacks.review_approval; rewrite Found, Selected.

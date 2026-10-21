@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonSchema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks History Conversation NativeTools Reasoning Inputs Capabilities.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State Tasks History Conversation NativeTools Reasoning Inputs Capabilities ApprovalProtocol.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -140,6 +140,7 @@ Definition find_pending_approval (selected : N -> N -> reviewer -> bool) (operat
  | _ => rest end) None operations.
 Definition approval_decision (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
+ let outcome := ApprovalProtocol.normalize_outcome outcome in
  let task := append_history [ApprovalReceipt owner (operation_id operation) (operation_call operation)
    reviewed_by (Inputs.approval_json outcome)] task in
  match outcome with
@@ -158,11 +159,13 @@ Definition approval_completed (id ticket : N) (outcome : approval_outcome) (valu
    | Some (operation,actor) => acknowledged (put_task id (approval_decision id operation actor outcome task) value)
    end end.
 Definition review_approval (id operation : N) (outcome : approval_outcome) (value : world) :=
+ let stale := reject "approval_not_pending"
+   "This task has no pending human approval with that operation identity" value in
  match find_task id value with
- | None => reject "task_not_found" "The target task does not exist" value
+ | None => stale
  | Some task => match find_pending_approval (fun candidate _ actor => N.eqb operation candidate &&
    match actor with HumanReviewer => true | ModelReviewer _ => false end) (task_operations task) with
-   | None => reject "approval_not_pending" "This exact operation has no pending human review" value
+   | None => stale
    | Some (operation,actor) => acknowledged (put_task id (approval_decision id operation actor outcome task) value)
    end end.
 Definition reasoning_completed (id ticket : N) (outcome : Reasoning.outcome) (value : world) :=

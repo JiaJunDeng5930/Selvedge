@@ -203,7 +203,7 @@ test('Web board drafting and model approval use independent text roots', async t
   const page = await taskIdle(service, task.reply.result.task_id);
   assert.equal(reviews.length, 1);
   assert.equal(reviews[0].command.arguments.command, 'pwd');
-  assert.deepEqual(reviews[0].recent_user_requests_newest_first[0], [{ type: 'text', text: 'Inspection only 😀.' }]);
+  assert.equal(reviews[0].recent_user_requests_newest_first[0], 'Inspection only 😀.');
   assert.ok(JSON.stringify(page.messages).includes('Inspection only 😀.'));
   assert.deepEqual(web.failures, []);
   assert.deepEqual(worker.failures, []);

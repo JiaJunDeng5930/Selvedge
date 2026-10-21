@@ -38,10 +38,9 @@ Definition parse_approval_outcome (source : json) : option approval_outcome :=
  | None => None
  | Some fields =>
    let reason := match head (tail fields) with Some reason => reason | None => "" end in
-   if ApprovalProtocol.valid_reason reason then
-   Some (match head fields with "allow" => Approved reason | "deny" => Denied reason
-    | _ => ApprovalFailed "The review did not return a valid decision" end)
-   else Some (ApprovalFailed "The review returned an invalid or oversized reason")
+   Some (ApprovalProtocol.normalize_outcome
+    (match head fields with "allow" => Approved reason | "deny" => Denied reason
+    | _ => ApprovalFailed "The review did not return a valid decision" end))
  end.
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
