@@ -71,34 +71,68 @@ Definition task_navigation snapshot s (expanded:bool) :=
    let scoped:=work_tasks(State.active_work navigation)all in
    let visible:=match State.active_work navigation with
     |None=>groups|Some _=>filter(fun p=>negb(Nat.eqb(List.length(project_tasks(Some(project_id p))scoped))0))groups end in
-   List.app(map(project_entry snapshot s current "/navigation" scoped)visible)
-    (map(task_entry_tree current "/navigation")(forest(project_tasks None scoped)))
+   let independent:=match forest(project_tasks None scoped)with
+    |[]=>[]
+    |trees=>[region "/navigation" "independent-tasks" "" Roles.NavigationSection
+       (information(part "/navigation" "independent-tasks")"title" Information.NavigationCaption "Tasks without a project"::
+        map(task_entry_tree current "/navigation")trees)]end in
+   List.app(map(project_entry snapshot s current "/navigation" scoped)visible)independent
  |_,_=>[read_only "/navigation" "unavailable" "Tasks" "Task navigation observations unavailable"]end in
+ let shared:=match State.active_work navigation with None=>[]|Some work=>
+   [declared "/navigation"(Roles.NavigationEntry(match current with SharedUI selected _=>N.eqb selected work|_=>false end))
+    (secondary "work/shared-ui" "共享 UI"(Input.Navigate(SharedUI work
+      (match current with SharedUI _ task=>task|_=>None end))))]end in
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   (region "/navigation" "header" "Task tree" Roles.NavigationHeader
-   (information(part "/navigation" "header") "caption" Information.NavigationCaption "Tasks"::
-    declared(part "/navigation" "header") Roles.Button(secondary "toggle"(if expanded then "Collapse Task sidebar"else"Expand Task sidebar")(Input.NavigationExpanded(negb expanded)))::
+   (declared(part "/navigation" "header") Roles.Button
+      (secondary "toggle"(if expanded then "Collapse Task sidebar"else"Expand Task sidebar")(Input.NavigationExpanded(negb expanded)))::
     match State.active_work navigation with None=>[]|Some work=>
      [declared "/navigation" Roles.Button(secondary "rename-work" "Rename Work"(Input.OpenEditor(WorkName work)(part "/navigation" "rename-work")))]end)::
-   (if expanded then
-    declared "/navigation" Roles.Button(secondary "new-task" "新建对话"(Input.Navigate Start))::
-    (match State.active_work navigation with None=>[]|Some work=>
-      [declared "/navigation" Roles.Button(secondary "work/shared-ui" "共享 UI"(Input.Navigate(SharedUI work
-       (match current with SharedUI _ task=>task|_=>None end))))]end)++content else [])%list).
+   List.app shared(if expanded then
+    [region "/navigation" "contents" "" Roles.NavigationCollection
+      (region "/navigation" "task-creation" "" Roles.NavigationSection
+        [declared "/navigation"(Roles.NavigationEntry(match current with Start=>true|_=>false end))
+          (secondary "new-task" "新建对话"(Input.Navigate Start))]::content)]
+    else [])).
+Definition work_summary snapshot selected :=
+ match tasks snapshot with
+ |None=>"Task observations unavailable"
+ |Some all=>match work_tasks selected all with
+  |[]=>"No tasks yet"
+  |first::rest=>
+    let count:=S(List.length rest)in
+    (if Nat.eqb count 1 then "1 task"else show_natural(N.of_nat count)++" tasks")++
+     " · "++task_title first++" · "++task_caption first
+  end end.
+Fixpoint work_choice_rows(parent:string)(index:N)(choices:list(node Input.input))
+ {struct choices}:list(node Input.input):=match choices with
+|[]=>[]
+|first::rest=>
+ let key:=part parent("work-row/"++show_natural index)in
+ match rest with
+ |[]=>[region parent("work-row/"++show_natural index)"" Roles.WorkChoiceRow
+    [first;region key "gap" "" Roles.Section []]]
+ |second::remaining=>
+   region parent("work-row/"++show_natural index)"" Roles.WorkChoiceRow[first;second]::
+   work_choice_rows parent(N.succ index)remaining
+ end end.
 Definition work_overview snapshot s parent :=
  let active:=State.active_work(State.navigation_state s)in
- let choice work name description :=
+ let choice work name :=
    let key:=part parent(Identity.work_key work)in
-   Node key "work-choice" name Roles.WorkChoiceRow
+   Node key "work-choice" name Roles.Button
     (WorkChoice work(same_id active work)(secondary(Identity.work_key work)name(Input.SelectWork work)))
     [information key "name" Information.OptionLabel name;
-     information key "description" Information.Description description]in
- List.app (choice None "All Tasks" "Tasks across all Works" ::
- match works snapshot with
- |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
- |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work)"Tasks and shared UI in this Work")entries end)
- [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork));
-  declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)].
+     information key "description" Information.Description(work_summary snapshot work)]in
+ let entries:=choice None "All Tasks"::
+   match works snapshot with
+   |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
+   |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
+ [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup(work_choice_rows parent 0 entries);
+  region parent "actions" "Actions" Roles.DialogActions
+   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork));
+    region parent "action-space" "" Roles.Section [];
+    declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)]].
 Definition global_menu s parent :=
  let current:=State.location(State.navigation_state s)in
  region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu
