@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
@@ -8,11 +8,13 @@ Inductive key:=Place(path:string)|Entity(owner:key)(kind identity:string)|Part(o
 Definition key_eq_dec :forall left right:key,{left=right}+{left<>right}.
 Proof. decide equality;apply string_dec. Defined.
 Definition same_key left right:=if key_eq_dec left right then true else false.
-Fixpoint key_json value:=match value with
-|Place path=>JArray[JString "place";JString path]
-|Entity owner kind identity=>JArray[JString "entity";key_json owner;JString kind;JString identity]
-|Part owner name=>JArray[JString "part";key_json owner;JString name]end.
-Definition encode_key value:=TextJson.render_json(key_json value).
+Definition key_payload(value:string):=show_natural(N.of_nat(String.length value))++":"++value.
+(* An opaque parent is already encoded. Framing its bytes avoids repeatedly
+   escaping the whole ancestor chain when nested surfaces allocate parts. *)
+Fixpoint encode_key value:=match value with
+|Place path=>"p"++key_payload path
+|Entity owner kind identity=>"e"++encode_key owner++key_payload kind++key_payload identity
+|Part owner name=>"r"++encode_key owner++key_payload name end.
 Definition key_part(parent name:string):=encode_key(Part(Place parent)name).
 
 Inductive editor :=
