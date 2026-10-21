@@ -15,6 +15,17 @@ Proof.
  intros. unfold receive,receive_source. cbn. rewrite H. destruct remaining; [contradiction|].
  unfold chunk. rewrite take_equals_firstn. reflexivity.
 Qed.
+
+Theorem a_finished_summary_publishes_its_returned_continuation :
+ forall unread cursor carry width window reserve head tail usage,
+ skipn (N.to_nat width) unread = [] ->
+ receive (CompactionState (PortableSource unread) cursor carry width window reserve)
+  (JObject [("summary_text",JString (String head tail));("usage",usage)]) =
+ Compacted (PortableArtifact (PortableMessage PortableAssistant (String head tail)) [] usage).
+Proof.
+ intros unread cursor carry width window reserve head tail usage Finished.
+ unfold receive, receive_source. cbn. now rewrite Finished.
+Qed.
 Theorem an_opaque_reply_cannot_finish_portable_work : forall unread cursor carry width window reserve scope items,
  receive (CompactionState (PortableSource unread) cursor carry width window reserve)
   (JObject [("format",JString "native");("scope",JString scope);("items",JArray items)]) =

@@ -42,6 +42,19 @@ Proof.
  rewrite firstn_all2; [rewrite equivalent_is_reflexive; reflexivity|].
  rewrite length_map. apply Nat.le_refl.
 Qed.
+
+Theorem an_extended_snapshot_can_be_adopted : forall snapshot suffix candidate,
+ adopt snapshot candidate (snapshot ++ suffix) =
+ (snapshot ++ suffix ++ [record (N.of_nat (List.length snapshot)) candidate])%list.
+Proof.
+ intros snapshot suffix candidate. unfold adopt, history_extends, history_json.
+ rewrite map_app, length_map, length_app.
+ assert (Fits : Nat.leb (List.length snapshot) (List.length snapshot + List.length suffix) = true).
+ { apply Nat.leb_le. apply Nat.le_add_r. }
+ rewrite Fits, firstn_app, <- (length_map (Codec.message_json 0) snapshot) at 1.
+ rewrite firstn_all, length_map, Nat.sub_diag, firstn_O, app_nil_r,
+  equivalent_is_reflexive. cbn. symmetry. apply app_assoc.
+Qed.
 Theorem another_scope_cannot_select_native_context : forall boundary position head tail first rest usage scope previous,
  String.eqb (String head tail) scope = false ->
  select_event position scope (Codec.message_json 0 (record boundary (NativeArtifact head tail first rest usage))) previous = previous.

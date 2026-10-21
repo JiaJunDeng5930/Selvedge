@@ -13,6 +13,25 @@ Proof.
  unfold Reasoning.failed_result. rewrite Exit, Failed. reflexivity.
 Qed.
 
+Theorem a_supported_evaluator_choice_continues_the_running_task :
+ forall owner effort generations task policy phase operations,
+ profile_policy (task_current_profile task) = AdaptivePolicy policy ->
+ task_lifecycle task = Running phase operations ->
+ Reasoning.allowed policy effort = true ->
+ ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations = true ->
+ let completed := Reasoning.complete owner (Reasoning.Chosen effort generations) task in
+ task_activity completed = ReadyForModel /\
+ task_history completed = task_history task ++ [ReasoningRecord owner effort generations false].
+Proof.
+ intros owner effort generations
+  [contract profile settings lifecycle history queued lineage parent cursor consumed]
+  policy phase operations Policy RunningTask Effort Duration.
+ cbn in Policy, RunningTask. subst lifecycle.
+ unfold Reasoning.complete. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
+ unfold Tasks.promote, with_activity, append_history, with_history, task_activity.
+ split; reflexivity.
+Qed.
+
 Theorem failed_reasoning_with_no_queued_input_is_idle : forall owner reason task policy,
  profile_policy (task_current_profile task) = AdaptivePolicy policy ->
  task_queued task = [] ->
