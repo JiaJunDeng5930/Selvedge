@@ -120,7 +120,7 @@ Definition begin_task snapshot project state:=
   let decision:=Navigation.visit snapshot Identity.Start state in
   let target:=Identity.key_part(Identity.editor_key owner)"message"in
   Authoring.adopt_navigation snapshot
-   (set Navigation.result_effects(map(fun effect=>match effect with Navigation.Attend _=>Navigation.Attend target|effect=>effect))decision)
+   (set Navigation.result_effects(map(fun effect=>match effect with Navigation.Attend _=>Navigation.Attend target|effect=>effect end))decision)
  end else Authoring.fail state "The project is no longer available.".
 Definition begin_new_voice snapshot owner state:=
  let state:=Authoring.ensure_draft snapshot owner state in

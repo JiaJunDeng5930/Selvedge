@@ -163,7 +163,7 @@ Definition editor_sections e :=match e with
 Definition section_nodes snapshot s e parent :=map(fun '(name,fields)=>
  region parent name name Roles.Section
   (group_title(part parent name)name::field_nodes snapshot s e parent fields))(editor_sections e).
-Definition title_prompt_controls e parent pending:list(node Input.input):=match e with
+Definition title_prompt_controls e parent (pending:bool):list(node Input.input):=match e with
 |TitlePrompts=>
  [read_only parent "title-prompts/help" "说明"
    "Task 用于看板任务，Agent 用于执行会话，分别生成标题。修改只影响后续生成；标题最多 36 个字符。";
