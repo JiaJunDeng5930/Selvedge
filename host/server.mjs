@@ -40,6 +40,7 @@ export async function startServer(options) {
   const token = randomBytes(32).toString('hex');
   const clients = new Set();
   const audioClients = new Set();
+  const sockets = new Set();
   const filename = path.join(options.home, 'server.json');
   let closing;
   let address;
@@ -52,6 +53,10 @@ export async function startServer(options) {
       else json(response, error instanceof RangeError || error instanceof SyntaxError || error instanceof TypeError ? 400 : 503,
         { ok: false, error: { code: 'request_failed', message: error.message } });
     });
+  });
+  server.on('connection', socket => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
   });
   server.requestTimeout = service.limits.request_timeout_ms;
   server.headersTimeout = service.limits.request_timeout_ms;
@@ -410,7 +415,10 @@ export async function startServer(options) {
       for (const client of [...clients, ...audioClients]) client.end();
       // DEFENSE: Startup can fail before listen succeeds; ERR_SERVER_NOT_RUNNING then means there is no listener to close.
       const stopped = new Promise((resolve, reject) => server.close(error => error && error.code !== 'ERR_SERVER_NOT_RUNNING' ? reject(error) : resolve()));
-      server.closeAllConnections();
+      // DEFENSE: Bun's close() detaches its native server before closeAllConnections
+      // can reach active keep-alive sockets, which could still target this stopping
+      // service after a listener restarts on the same port.
+      for (const socket of sockets) socket.destroy();
       await Promise.all([stopped, service.close()]);
       try {
         const saved = JSON.parse(await readFile(filename, 'utf8'));
