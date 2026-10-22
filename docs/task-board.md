@@ -39,6 +39,21 @@ schema and normalization. Linked conversations generate their own names;
 renaming a card preserves its conversation's title. An idle linked card can
 regenerate its board title without changing its linked conversation.
 
+Each title instruction accepts up to 4096 UTF-8 bytes of nonempty text.
+Restore defaults changes the editor's draft; Save commits both fields together
+at their observed revision. A revision conflict leaves both saved fields
+unchanged. Dismissing the editor leaves saved instructions unchanged. Saved
+instructions survive service restart and affect future generations; existing
+names and already-dispatched prompt snapshots are preserved.
+
+Model Tasks generate conversation titles without separate setup. ChatGPT
+account Tasks prefer a configured `gpt-5.6-luna` profile from the same account;
+other Tasks use their own model connection. Title requests use the provider's
+default reasoning independently of the Task's effort and adaptive evaluator.
+Offline demo profiles retain request-derived names. The shared prompt and
+Unicode normalization are adapted from the Apache-2.0
+[Codex implementation](https://github.com/openai/codex/blob/ce0323f2f2d3b25e82806cd555237da3db4e1897/codex-rs/tui/src/app/thread_title.rs).
+
 Use the paperclip, paste files into the editor, or drop files onto the form.
 Uploads use authenticated storage. Cards support at most four attachments, with
 a 10 MiB per-file limit. Supported passive images can be previewed; other files
