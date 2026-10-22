@@ -62,7 +62,7 @@ Definition plan (command : json) : workspace_plan :=
   (* DEFENSE: Commands are observed before native admission; unknown operations must not trigger filesystem reads. *)
   if negb (known_command op) then WorkspacePlan false false []
   else if existsb (String.eqb op) ["create";"create_idle";"fork";"create_work_task";"create_worktree_task";"create_workspace_task";"save_board_agent"] then
-    WorkspacePlan (existsb (String.eqb op) ["create";"create_idle";"create_work_task";"create_worktree_task";"create_workspace_task"])
+    WorkspacePlan (Commands.root_task_creation command)
       (String.eqb op "create_worktree_task" || String.eqb op "create_workspace_task" ||
         (existsb (String.eqb op) ["create_idle";"create_work_task"] && boolean_field command "create_worktree"))
       (select_settings TaskWorkspace true (get command "settings"))
@@ -70,7 +70,7 @@ Definition plan (command : json) : workspace_plan :=
     WorkspacePlan false false (select_settings CommandWorkspace false command)
   else if existsb (String.eqb op) ["create_task_graph";"update_task_graph"] then
     let selected := graph_selections 0%nat (items (get command "nodes")) in
-    WorkspacePlan (existsb (fun node => is_object node && negb (has node "task_id")) (items (get command "nodes"))) false selected
+    WorkspacePlan (Commands.root_task_creation command) false selected
   else WorkspacePlan false false [].
 Definition plan_json (plan : workspace_plan) := JObject [("root_task",JBool plan.(root_task));("worktree",JBool plan.(worktree));
   ("selections",JArray (map (fun selection => JObject [("value",selection.(selected_value));

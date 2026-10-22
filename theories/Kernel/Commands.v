@@ -99,6 +99,19 @@ Definition command_specs : list command_spec := [
   Command "retry_worktree_archive" task_identity
 ].
 
+(* Host workspace observation and native remote admission share this schema-level judgment. *)
+Definition graph_node_creates_root_task (node : json) :=
+ match node with
+ | JObject fields => match lookup "task_id" fields with None => true | Some _ => false end
+ | _ => false end.
+Definition root_task_creation (command : json) := match field "op" command with
+ | Some (JString operation) =>
+   existsb (fun spec => String.eqb operation (command_name spec)) command_specs &&
+   (existsb (String.eqb operation) ["create";"create_idle";"create_work_task";"create_worktree_task";"create_workspace_task"] ||
+    ((String.eqb operation "create_task_graph" || String.eqb operation "update_task_graph") &&
+     match field "nodes" command with Some (JArray nodes) => existsb graph_node_creates_root_task nodes | _ => false end))
+ | _ => false end.
+
 (** Descriptions accompany the shared command declarations without repeating
     their argument schemas. *)
 Definition command_descriptions : list (string * string) := [

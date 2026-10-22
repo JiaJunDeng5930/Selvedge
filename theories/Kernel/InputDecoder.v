@@ -58,10 +58,12 @@ Definition context_decoder := Decoder "context_observed"
  (fun values =>
   let id := head values in let values := tail values in let ticket := head values in let values := tail values in
   let ok := head values in let values := tail values in let observations := head values in let diagnostic := head (tail values) in
-  if ok then match observations with
-  | Some observations => option_map (fun observations => ContextCompleted id ticket (Some observations) "") (Codec.traverse parse_observation observations)
-  | None => None end
-  else match diagnostic with Some text => if Nat.leb (String.length text) 4096 then Some (ContextCompleted id ticket None text) else None | None => None end).
+  if ok then match observations,diagnostic with
+  | Some observations,None => option_map (fun observations => ContextCompleted id ticket (Some observations) "") (Codec.traverse parse_observation observations)
+  | _,_ => None end
+  else match observations,diagnostic with
+  | None,Some text => if Nat.leb (Utf8.byte_length text) 4096 then Some (ContextCompleted id ticket None text) else None
+  | _,_ => None end).
 Definition model_decoder := Decoder "model"
  (coordinates ++ [Field "ok" KBool;Field "items" (KOptional (KArray KJson));Field "message" (KOptional KText);Field "failure_kind" (KOptional (KEnum "context_limit" []))])
  (fun values =>
@@ -80,8 +82,14 @@ Definition reasoning_decoder := Decoder "reasoning"
   let id := head values in let values := tail values in let ticket := head values in let values := tail values in
   let ok := head values in let values := tail values in let effort := head values in let values := tail values in
   let generations := head values in let diagnostic := head (tail values) in
-  if ok then match effort,generations with Some effort,Some generations => Some (ReasoningCompleted id ticket (Reasoning.Chosen effort generations)) | _,_ => None end
-  else match diagnostic with Some reason => Some (ReasoningCompleted id ticket (EvaluationFailed reason)) | None => None end).
+  if ok then match effort,generations,diagnostic with
+  | Some effort,Some generations,None =>
+      if Nat.leb (Utf8.byte_length effort) 64 then Some (ReasoningCompleted id ticket (Reasoning.Chosen effort generations)) else None
+  | _,_,_ => None end
+  else match effort,generations,diagnostic with
+  | None,None,Some reason =>
+      if Nat.leb (Utf8.byte_length reason) 4096 then Some (ReasoningCompleted id ticket (EvaluationFailed reason)) else None
+  | _,_,_ => None end).
 Definition tool_decoder := Decoder "tool"
  (coordinates ++ [Field "value" (KOptional KJson);Field "error" KBool])
  (fun values =>
@@ -101,14 +109,28 @@ Definition approval_decoder := Decoder "approval" (coordinates ++ [Field "outcom
 Definition decoders := [command_decoder;configure_decoder;context_decoder;model_decoder;reasoning_decoder;
  tool_decoder;hook_decoder;after_decoder;approval_decoder;
  Decoder "recover" [] (fun _ => Some Recover);Decoder "continue" [] (fun _ => Some Continue)].
+(* DEFENSE: Native callbacks can supply the other variant's fields as explicit
+   nulls; optional decoding alone would conflate those keys with absence. *)
+Definition variant_fields_valid (kind : string) (source : json) :=
+ match kind with
+ | "context_observed" => match bool_field "ok" source with
+   | Some true => negb (has_field "message" source)
+   | Some false => negb (has_field "observations" source)
+   | None => true end
+ | "reasoning" => match bool_field "ok" source with
+   | Some true => negb (has_field "message" source)
+   | Some false => negb (has_field "effort" source || has_field "generations" source)
+   | None => true end
+ | _ => true end.
 Definition decode (source : json) : option input :=
  match source with
  | JObject fields => if Schema.unique_names (map fst fields) then
    match lookup "kind" fields with
    | Some (JString kind) => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
      | None => None
-     | Some decoder => match Schema.decode (decoder_fields decoder) (JObject (remove_field "kind" fields)) with
-       | Some values => decoder_construct decoder values | None => None end
+     | Some decoder => if variant_fields_valid kind (JObject fields) then
+       match Schema.decode (decoder_fields decoder) (JObject (remove_field "kind" fields)) with
+       | Some values => decoder_construct decoder values | None => None end else None
      end
    | _ => None end
    else None
