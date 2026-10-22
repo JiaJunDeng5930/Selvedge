@@ -65,3 +65,19 @@ Definition declared_handoff (source graph : N) (nodes : list F.resolved_node)
     TaskGraph.delivery_graph item = graph /\
     TaskGraph.delivery_rule item = F.rule_key rule /\
     message_meaning output (F.action_message action) (TaskGraph.delivery_text item).
+
+(** Registry order determines dispatch order; empty slots left by deletion
+    contribute no delivery and do not reorder the remaining graphs. *)
+Inductive registry_meaning (source : N) (output : string) :
+    list (N * option F.task_graph) -> list TaskGraph.delivery -> Prop :=
+| no_registered_graphs : registry_meaning source output [] []
+| absent_registered_graph : forall graph entries deliveries,
+    registry_meaning source output entries deliveries ->
+    registry_meaning source output ((graph,None)::entries) deliveries
+| present_registered_graph : forall graph value entries fragments deliveries,
+    Forall2 (fun rule parts =>
+      rule_meaning source graph (F.graph_nodes value) rule output parts)
+      (F.graph_rules value) fragments ->
+    registry_meaning source output entries deliveries ->
+    registry_meaning source output ((graph,Some value)::entries)
+      (List.concat fragments ++ deliveries).
