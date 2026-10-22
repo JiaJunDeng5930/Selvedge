@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
-From Selvedge.Kernel Require Import Commands Streams.
+From Selvedge.Kernel Require Import Commands Streams Images.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities.
 From Selvedge.Features Require Domain BoardFilter Titles.
 From Selvedge.Interaction Require Import Codec Identity Input Resource Services Speech SkillMention CommandAssessment DocumentState ObjectActions AuditReading.
@@ -147,6 +147,21 @@ Definition attached snapshot owner file state:=let state:=ensure_draft snapshot 
  let draft:=SS.current_draft state owner in
  if existsb(fun current=>String.eqb(asset_id current)(asset_id file))(attachment_list draft)then state else
  match with_attachments(attachment_list draft++[file])draft with Some draft=>SS.save_draft draft state|None=>state end.
+Definition valid_image_attachment file:=Images.valid_image_asset
+ (Images.image_json(Selvedge.Kernel.Domain.ImageAsset
+  (Selvedge.Features.Domain.attachment_id file)
+  (Selvedge.Features.Domain.attachment_mime file)
+  (Selvedge.Features.Domain.attachment_bytes file)
+  Selvedge.Kernel.Domain.ImageAuto)).
+Definition admitted_upload input state:=match input with
+|Services.Uploaded ticket(inr file)=>
+ match find(Services.ticket_matches ticket)(Services.uploads(SS.service_state state))with
+ |Some(Resource.Loading _ request)=>match Services.upload_editor request with
+  |Identity.NewTask _|Identity.Message _=>if valid_image_attachment file then input else
+    Services.Uploaded ticket(inl "Select a PNG, JPEG, GIF or WebP image up to 10 MiB")
+  |_=>input end
+ |_=>input end
+|_=>input end.
 Definition skill_request_current snapshot state owner request:=
  same_editor owner(SS.skill_editor request)&&match SO.workspace_for snapshot(SS.current_draft state owner)with
  |Some workspace=>Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json(SS.skill_workspace request))|None=>false end.
@@ -363,7 +378,7 @@ Definition service_step snapshot input state:=
    SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
  |Services.CloseSettings=>SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
  |_=>state end in
- let decision:=Services.service_step input(SS.service_state state)in
+ let decision:=Services.service_step(admitted_upload input state)(SS.service_state state)in
  let state:=SS.with_services(Services.service_state decision)state in
  let state:=match Services.attached decision with Some(owner,file)=>attached snapshot owner file state|None=>state end in
  fold_left(fun result effect=>match effect with
