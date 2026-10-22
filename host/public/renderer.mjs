@@ -123,16 +123,19 @@ export class Renderer {
         if (enabled) node.setAttribute(name, ''); else node.removeAttribute(name);
       } else if (node.getAttribute(name) !== value) node.setAttribute(name, value);
     }
-    const nextStyles = new Map(styles.map(({ name, value }) => [name, value]));
-    for (const name of record.styles.keys()) if (!nextStyles.has(name)) node.style.removeProperty(name);
-    for (const [name, value] of nextStyles) if (record.styles.get(name) !== value) node.style.setProperty(name, value);
+    const styleSource = stringifyJson(styles);
+    // Rebuild from an empty declaration list so CSS shorthand and logical properties keep source order.
+    if (record.styleSource !== styleSource) {
+      node.style.cssText = '';
+      for (const { name, value } of styles) node.style.setProperty(name, value);
+      record.styleSource = styleSource;
+    }
     record.attributes = next;
     if (next.has('value') && 'value' in node && !this.isolated && this.callbacks.fieldSession) {
       const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
       if (record.fieldSession) this.fieldSession(record, 'rebind', identity);
       this.fieldSession(record, 'synchronize', next.get('value'));
     }
-    record.styles = nextStyles;
   }
   listeners(record) {
     const { node } = record;
@@ -209,7 +212,7 @@ export class Renderer {
         const node = svgTags.has(tag)
           ? this.root.ownerDocument.createElementNS(svgNamespace, tag)
           : this.root.ownerDocument.createElement(tag);
-        record = { key, tag, node, attributes: new Map(), styles: new Map(), events: [], markdownTargets: new Map() };
+        record = { key, tag, node, attributes: new Map(), styleSource: '', events: [], markdownTargets: new Map() };
         this.records.set(key, record);
         if (!this.isolated) this.listeners(record);
       }
