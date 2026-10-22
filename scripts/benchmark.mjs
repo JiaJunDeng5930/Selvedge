@@ -1,7 +1,10 @@
-import { readdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { readdir, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { root } from './build.mjs';
+import { fileURLToPath } from 'node:url';
+import { collectBenchmarkProvenance, runRuntimeBenchmark } from './runtime-benchmark.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function paths(directory) {
   return (await Promise.all((await readdir(path.join(root, directory), { withFileTypes: true })).map(entry => {
@@ -9,6 +12,7 @@ async function paths(directory) {
     return entry.isDirectory() ? paths(filename) : [filename];
   }))).flat();
 }
+
 async function residentTree(pid) {
   const pids = (await readdir('/proc')).filter(name => /^\d+$/.test(name));
   const entries = await Promise.all(pids.map(async name => {
@@ -43,11 +47,12 @@ async function residentTree(pid) {
       throw error;
     }
   }));
-  return samples.reduce((sum,value) => sum + value, 0);
+  return samples.reduce((sum, value) => sum + value, 0);
 }
+
 async function measured(label) {
   const started = performance.now();
-  const child = spawn(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: ['ignore','pipe','pipe'] });
+  const child = spawn(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '', peakPssKiB = 0, active = true;
   child.stdout.on('data', chunk => output += chunk);
   child.stderr.on('data', chunk => output += chunk);
@@ -57,37 +62,120 @@ async function measured(label) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   })();
-  const { code, finished } = await new Promise((resolve,reject) => {
-    child.once('error',reject);
-    child.once('close',code => resolve({code,finished:performance.now()}));
+  const { code, finished } = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', code => resolve({ code, finished: performance.now() }));
   });
   active = false;
   await sampler;
   await writeFile(path.join(root, `.workpad/benchmark-${label}.log`), output);
   if (code !== 0) throw new Error(`Benchmark ${label} failed; inspect .workpad/benchmark-${label}.log`);
-  const result = { scenario: label, seconds: (finished-started)/1000, peakSummedPssKiB: peakPssKiB,
+  const result = {
+    scenario: label,
+    seconds: (finished - started) / 1000,
+    peakSummedPssKiB: peakPssKiB,
     checkedModules: Number(/Rocq: (\d+) checked/.exec(output)?.[1]),
-    extractedTargets: [...output.matchAll(/^extracted (\w+)$/gm)].map(match => match[1]) };
+    extractedTargets: [...output.matchAll(/^extracted (\w+)$/gm)].map(match => match[1]),
+  };
   console.log(JSON.stringify(result));
   return result;
 }
-await import('node:fs/promises').then(({mkdir}) => mkdir(path.join(root,'.workpad'),{recursive:true}));
-for (const filename of await paths('theories')) if (/\.(vo|vos|vok|glob)$|\/\..*\.aux$/.test(filename)) await rm(path.join(root,filename));
-for (const filename of ['.build/build-state.json','.build/extracted','.lia.cache','.nia.cache']) await rm(path.join(root,filename),{recursive:true,force:true});
-const results = [await measured('clean'), await measured('unchanged')];
-const requested = process.argv.slice(2);
-const changes = requested.length ? requested : ['theories/Browser/Layout.v','theories/Kernel/Commands.v','theories/Foundation/Schema.v','theories/Browser/LayoutProof.v'];
-for (const [index,filename] of changes.entries()) {
-  const original = await readFile(path.join(root,filename));
-  try {
-    await writeFile(path.join(root,filename),Buffer.concat([original,Buffer.from('\n(* Temporary build-dependency benchmark mutation. *)\n')]));
-    results.push(await measured(`change-${index+1}`));
-    results.at(-1).source = filename;
-  } finally {
-    await writeFile(path.join(root,filename),original);
-    await measured(`restore-${index+1}`);
+
+async function runBuildBenchmark({ provenance, requestedFiles }) {
+  await mkdir(path.join(root, '.workpad'), { recursive: true });
+  for (const filename of await paths('theories')) {
+    if (/\.(vo|vos|vok|glob)$|\/\..*\.aux$/.test(filename)) await rm(path.join(root, filename));
+  }
+  for (const filename of ['.build/build-state.json', '.build/extracted', '.lia.cache', '.nia.cache']) {
+    await rm(path.join(root, filename), { recursive: true, force: true });
+  }
+  const results = [await measured('clean'), await measured('unchanged')];
+  const changes = requestedFiles.length ? requestedFiles : [
+    'theories/Browser/Layout.v',
+    'theories/Kernel/Commands.v',
+    'theories/Foundation/Schema.v',
+    'theories/Browser/LayoutProof.v',
+  ];
+  for (const [index, filename] of changes.entries()) {
+    const original = await readFile(path.join(root, filename));
+    try {
+      await writeFile(path.join(root, filename), Buffer.concat([original, Buffer.from('\n(* Temporary build-dependency benchmark mutation. *)\n')]));
+      results.push(await measured(`change-${index + 1}`));
+      results.at(-1).source = filename;
+    } finally {
+      await writeFile(path.join(root, filename), original);
+      await measured(`restore-${index + 1}`);
+    }
+  }
+  results.push(await measured('restored'));
+  const report = {
+    provenance,
+    sampling: 'sum of process-tree PSS, sampled every 50 ms; Linux',
+    measurements: results,
+  };
+  await writeFile(path.join(root, '.workpad/build-benchmark.json'), `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+function integerArgument(value, name) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function parseArguments(args) {
+  const parsed = { scenario: null, quick: false, tasks: undefined, historyTurns: undefined, messageBytes: undefined, requestedFiles: [], help: false };
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index];
+    const value = name => {
+      if (index + 1 >= args.length) throw new Error(`${name} requires a value`);
+      return args[++index];
+    };
+    if (argument === '--help' || argument === '-h') parsed.help = true;
+    else if (argument === '--scenario') {
+      parsed.scenario = value(argument);
+      if (!['all', 'build', 'runtime'].includes(parsed.scenario)) throw new Error('--scenario must be all, build, or runtime');
+    } else if (argument === '--quick') parsed.quick = true;
+    else if (argument === '--tasks') {
+      parsed.tasks = value(argument).split(',').map(item => integerArgument(item, '--tasks'));
+    } else if (argument === '--history-turns') parsed.historyTurns = integerArgument(value(argument), argument);
+    else if (argument === '--message-bytes') parsed.messageBytes = integerArgument(value(argument), argument);
+    else if (argument.startsWith('-')) throw new Error(`Unknown benchmark option: ${argument}`);
+    else parsed.requestedFiles.push(argument);
+  }
+  parsed.scenario ??= parsed.quick ? 'runtime' : 'all';
+  if (parsed.scenario === 'runtime' && parsed.requestedFiles.length > 0) {
+    throw new Error('Positional source files apply only to the build scenario');
+  }
+  if (parsed.scenario === 'build' && (parsed.tasks || parsed.historyTurns || parsed.messageBytes)) {
+    throw new Error('Runtime workload options require --scenario runtime or --scenario all');
+  }
+  return parsed;
+}
+
+const help = `Usage: bun scripts/benchmark.mjs [options] [source-files...]\n\n` +
+  `Options:\n` +
+  `  --scenario all|build|runtime  Select measurements (default: all)\n` +
+  `  --quick                      Run a small runtime-only workload by default\n` +
+  `  --tasks 17,65                Runtime task counts (1 plus a multiple of four)\n` +
+  `  --history-turns 32           User messages per root task\n` +
+  `  --message-bytes 1024         Bytes in each user message\n` +
+  `  -h, --help                   Show this help\n`;
+
+async function main() {
+  const options = parseArguments(process.argv.slice(2));
+  if (options.help) { console.log(help); return; }
+  const provenance = await collectBenchmarkProvenance();
+  if (options.scenario === 'runtime' || options.scenario === 'all') {
+    const report = await runRuntimeBenchmark({ ...options, provenance });
+    console.log(JSON.stringify({ scenario: 'runtime', measurements: report.measurements }));
+  }
+  if (options.scenario === 'build' || options.scenario === 'all') {
+    const report = await runBuildBenchmark({ provenance, requestedFiles: options.requestedFiles });
+    console.log(JSON.stringify({ scenario: 'build', measurements: report.measurements.length }));
   }
 }
-// Restore checked artifacts to the unchanged source before handing the workspace back.
-results.push(await measured('restored'));
-await writeFile(path.join(root,'.workpad/build-benchmark.json'),JSON.stringify({sampling:'sum of process-tree PSS, sampled every 50 ms; Linux',results},null,2)+'\n');
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
+}
