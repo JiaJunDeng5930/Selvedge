@@ -38,7 +38,10 @@ Definition parent_context (change : context_change) :=
  let key := match change with Introduce value => snapshot_key value | Amend key _ _ _ | Remove key _ => key end in
  String.eqb (definition_kind (key_definition key)) "task_lifecycle".
 Definition returned_content (value : message) :=
- match value with ContextObservation change => negb (parent_context change) | _ => true end.
+ match value with
+ | ContextObservation change => negb (parent_context change)
+ | SideConversationBirth _ _ _ => false
+ | _ => true end.
 Definition without_inherited_result (identity : string) (value : message) :=
  match value with
  | FunctionOutput actual _ _ => negb (String.eqb identity actual)

@@ -114,6 +114,7 @@ Inductive message :=
 | ModelContext (origin : output_origin) (value : json)
 | ContextReplacement (value : json)
 | ContextObservation (change : context_change)
+| SideConversationBirth (owner parent start : N)
 | SpeechTranscript (owner : N) (session item : string) (who : speaker) (completion : speech_completion) (text : string)
 | SpeechDelegation (owner : N) (session delegation mode text : string)
 | HookReceipt (owner : N) (invocation : call) (plugin outcome : json)

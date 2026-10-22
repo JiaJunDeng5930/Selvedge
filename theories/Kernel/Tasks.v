@@ -252,7 +252,12 @@ Definition selected_context_history (settings : task_settings) (parent : task) (
    if same then history else (history ++ [ContextObservation (Introduce snapshot)])%list end in
  (history ++ [SettingsMessage settings (profile_key (task_current_profile parent))
    (profile_reasoning (task_current_profile parent))])%list.
-Definition fork_child (id : N) (parent : task) (contents : content) (settings : task_settings)
+Definition fork_child_history (owner parent_id : N) (parent : task) (settings : task_settings) (side : bool) :=
+ let inherited := selected_context_history settings parent (History.snapshot_history parent_id parent) in
+ (* Keep birth guidance in provider history, outside the side return cursor. *)
+ if side then inherited ++ [SideConversationBirth owner parent_id
+   (N.succ (N.of_nat (List.length inherited)))] else inherited.
+Definition fork_child (owner parent_id : N) (parent : task) (contents : content) (settings : task_settings)
  (side : bool) :=
  let chosen := task_current_profile parent in
  let contract := Contract chosen (contract_tools (task_contract parent)) settings
@@ -260,18 +265,20 @@ Definition fork_child (id : N) (parent : task) (contents : content) (settings : 
   (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) in
  Task contract chosen settings
  (Running (if content_nonempty contents then WantsModel else Idle) [])
- (selected_context_history settings parent (History.snapshot_history id parent) ++
+ (fork_child_history owner parent_id parent settings side ++
   if content_nonempty contents then [UserMessage contents] else []) []
- (id :: task_lineage parent)
- (if side then Some id else None) (N.of_nat (List.length (History.snapshot_history id parent))) 0.
+ (parent_id :: task_lineage parent)
+ (if side then Some parent_id else None)
+ (if side then N.of_nat (List.length (fork_child_history owner parent_id parent settings side)) else 0) 0.
 Fixpoint fork_children (count : nat) (id : N) (parent : task) (messages : list content)
  (settings : task_settings) (value : world) : world :=
  match count with
  | O => value
  | S count =>
    let message := match messages with [] => [] | first :: _ => first end in
+   let owner := next_task value in
    fork_children count id parent (tl messages) settings
-      (append_task (fork_child id parent message settings false) value)
+      (append_task (fork_child owner id parent message settings false) value)
  end.
 Definition fork_with_caller (invoked : bool) (id count : N) (messages : list content) (settings : option json) (value : world) :=
  match find_task id value with
@@ -311,7 +318,7 @@ Definition open_side (id : N) (contents : content) (value : world) :=
    reject "task_archived" "Archived tasks cannot create a side conversation" value
    else if ancestors_fit (id :: task_lineage task) 1 value then
    accept (JObject [("task_id", number (next_task value)); ("parent_task_id", number id)])
-    (append_task (fork_child id task contents (task_current_settings task) true) value) []
+    (append_task (fork_child (next_task value) id task contents (task_current_settings task) true) value) []
    else reject "descendant_limit" "The parent task has no remaining descendant capacity" value
  end.
 (* The wire approval DTO names its reviewer. An explicit selection can replace

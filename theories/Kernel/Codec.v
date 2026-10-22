@@ -265,6 +265,8 @@ Definition message_json (owner : N) (value : message) :=
  | ModelContext origin value => JObject [("role", JString "model_context"); ("origin", origin_json origin); ("content", value)]
  | ContextReplacement value => JObject [("role", JString "context_replacement"); ("content", value)]
  | ContextObservation change => JObject [("role", JString "task_context"); ("type", JString "context_change"); ("change", Context.change_json change)]
+ | SideConversationBirth side parent start => JObject [("role", JString "task_context"); ("type", JString "side_conversation");
+   ("owner_task", number side); ("parent_task", number parent); ("start", number start)]
  | SpeechTranscript owner session item speaker completion text => JObject [
    ("role", JString "speech_transcript"); ("task_id", number owner); ("session_id", JString session); ("item_id", JString item);
    ("speaker", JString (match speaker with UserSpeaker => "user" | AssistantSpeaker => "assistant" end));
