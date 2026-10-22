@@ -48,7 +48,7 @@ Definition side_task n:=fold_right(fun layer rest=>match layer_panel layer with
 Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_generation layer_generation : N) (trigger : string)
 | ConfirmationSubmission (navigation_generation occurrence : N)
 | LiveConfiguration (snapshot : draft) (view_occurrence : option N) (remember_model:bool)
-| ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation : N) (trigger : string)
+| ProjectPreference (snapshot : draft) (prepared : public_command) (navigation_generation layer_generation : N) (trigger : string)
 | DirectSubmission
 | WorkCreation (navigation_generation layer_generation:N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
@@ -90,7 +90,7 @@ Record state := State {
   next_layer : N
 }.
 Definition pending_editor owner state:=existsb(fun pending=>match purpose pending with
-|DraftSubmission value _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _=>same_editor owner(Draft.owner value)
+|DraftSubmission value _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
 Definition initial := State

@@ -128,9 +128,9 @@ Definition observe_field snapshot (value:Draft.draft) (field:Fields.field) : Fie
    |Fields.TaskTitlePrompt=>Fields.TextValue task|Fields.AgentTitlePrompt=>Fields.TextValue agent|_=>Fields.NotApplicable end
  end.
 
-(** Directory evidence belongs to the actual requested workspace and editor.  A
-    message edit does not change that request; submission still checks its own
-    captured draft revision before issuing a command. *)
+(** Directory evidence belongs to the requested workspace and editor. Message
+    edits may reuse that evidence; captured submissions have independent worker
+    admission and settle only their captured draft revision. *)
 Definition matching_directory (draft:Draft.draft)
     (resource:resource Services.preparation Services.directory_observation):bool:=
  match resource_request resource with

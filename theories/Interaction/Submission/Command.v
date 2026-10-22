@@ -56,13 +56,15 @@ Definition command now value :=source<-command_json now(Draft.contents value);;S
 Definition admit_directories source:=kind<-string_field "kind" source;;if String.eqb kind "directories"then
  workspace<-bind(field "workspace" source)Codec.parse_workspace;;guidance<-field "guidance" source;;
  if Codec.valid_guidance guidance && Codec.guidance_member workspace guidance then Some(workspace,guidance)else None else None.
-Definition prepare_command source (observation:Domain.workspace*json):option(command_value command_specs):=
- let workspace:=Codec.workspace_json(fst observation)in
+Definition prepare_command source (selected:Domain.workspace):option(command_value command_specs):=
+ (* Browser preparation canonicalizes selected paths. The service observes
+    authoritative guidance again during worker admission and execution. *)
+ let workspace:=Codec.workspace_json selected in
  let prepared:=match field "workspace" source,field "settings" source with
- |Some _,_=>replace "guidance"(snd observation)(replace "workspace" workspace source)
- |_,Some settings=>replace "settings"(replace "guidance"(snd observation)(replace "workspace" workspace settings))source
+ |Some _,_=>replace "workspace" workspace source
+ |_,Some settings=>replace "settings"(replace "workspace" workspace settings)source
  |_,_=>source end in Schema.decode_command command_specs prepared.
-Definition observed_command now draft observation:=source<-command_json now(Draft.contents draft);;prepare_command source observation.
+Definition observed_command now draft (observation:Domain.workspace*json):=source<-command_json now(Draft.contents draft);;prepare_command source(fst observation).
 Definition voice_json draft:=match Draft.contents draft with
 |Draft.NewTaskBody _ profile reasoning configuration (Draft.ManagedWorkspace WorkspaceBackend.TencentCvm) _=>None
 |Draft.NewTaskBody _ profile reasoning configuration mode work=>Some(JObject
@@ -71,4 +73,4 @@ Definition voice_json draft:=match Draft.contents draft with
   present "work_id"(optional_id work)[]))
 |_=>None end.
 Definition voice_command draft:=source<-voice_json draft;;Schema.decode_command command_specs source.
-Definition observed_voice_command draft observation:=source<-voice_json draft;;prepare_command source observation.
+Definition observed_voice_command draft (observation:Domain.workspace*json):=source<-voice_json draft;;prepare_command source(fst observation).

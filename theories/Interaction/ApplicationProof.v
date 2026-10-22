@@ -23,9 +23,7 @@ Theorem refused_submission_emits_no_command snapshot draft trigger state command
  Authoring.result_effects(Authoring.issue_draft snapshot draft trigger state)=nil.
 Proof.
  intros Command Refused. unfold Authoring.issue_draft.
- destruct(Selvedge.Interaction.Session.Observation.worktree_submission_allowed snapshot state draft);simpl;auto.
- destruct(EO.project_precondition snapshot state draft)as [[[field code] message]|];simpl;auto.
- destruct(SS.pending_editor(Draft.owner draft)state||Services.blocks(Draft.owner draft)(SS.service_state state));simpl;auto.
+ destruct(Authoring.submission_obstruction snapshot draft state)as [obstruction|];[reflexivity|].
  rewrite Command. unfold Authoring.canonical_ready. rewrite Refused. reflexivity.
 Qed.
 
