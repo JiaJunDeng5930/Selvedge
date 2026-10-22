@@ -10,7 +10,7 @@ const assets = ['host-model.mjs', 'host-runtime.js', 'json-tokens.mjs', 'model-b
 export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
 
 /** Runtime packages contain the actual extracted definitions and no compiler dependency. */
-export async function buildModel() {
+export async function buildModel({ buildResult } = {}) {
   const compiler = path.join(checkout, 'scripts/build.mjs');
   try { await access(compiler); }
   // DEFENSE: Installed packages omit the Rocq source checkout and cannot compile it.
@@ -18,8 +18,12 @@ export async function buildModel() {
     if (error.code === 'ENOENT') throw new Error('Build the Selvedge plugin model in its source checkout before packaging');
     throw error;
   }
-  const { build } = await import(pathToFileURL(compiler).href);
-  await build({ selected: ['host'] });
+  if (buildResult) {
+    if (!buildResult.targets?.includes('host')) throw new Error('Plugin model packaging requires the host build target');
+  } else {
+    const { build } = await import(pathToFileURL(compiler).href);
+    await build({ selected: ['host'] });
+  }
   const generated = path.join(plugin, 'generated');
   await mkdir(generated, { recursive: true });
   const sources = {

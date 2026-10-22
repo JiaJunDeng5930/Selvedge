@@ -9,7 +9,7 @@
     "check": "bun scripts/check.mjs",
     "test": "bun scripts/test.mjs",
     "bench": "bun scripts/benchmark.mjs",
-    "verify": "bun run check && bun run test"
+    "verify": "bun scripts/verify.mjs"
   },
   "dependencies": {
     "diff": "9.0.0",
