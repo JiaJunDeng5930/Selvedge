@@ -3,7 +3,7 @@ import { boundary } from './public/model-boundary.mjs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Service, CommandNotSubmitted } from './service.mjs';
+import { Service } from './service.mjs';
 import { stringifyJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
@@ -48,10 +48,10 @@ export async function startServer(options) {
     // DEFENSE: Requests can fail UTF-8/JSON admission, authentication or external filesystem/service work; return the declared HTTP failure before headers, otherwise close the partial response.
     route(request, response).catch(error => {
       if (response.headersSent) response.destroy();
-      else if (error instanceof CommandNotSubmitted) json(response, 400,
-        { ok: false, error: { code: 'command_not_submitted', message: error.message } });
-      else json(response, error instanceof RangeError || error instanceof SyntaxError || error instanceof TypeError ? 400 : 503,
-        { ok: false, error: { code: 'request_failed', message: error.message } });
+      else {
+        const failure = boundary('http.error', { name: error.name, message: error.message });
+        json(response, failure.status, failure.value);
+      }
     });
   });
   server.on('connection', socket => {

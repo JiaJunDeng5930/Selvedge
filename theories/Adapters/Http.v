@@ -186,6 +186,18 @@ Definition audio_admission (source : json) :=
   else if nonempty_text (get source "browser_id") && equal (get source "browser_id") (get source "owner") &&
     boolean_field source "exists" && bound (get source "elapsed_ms") 0 Audio.session_max_ms
   then audio_limits else audio_reject "Audio session is unavailable to this browser".
+Definition public_command_allowed (source : json) :=
+  negb (existsb (String.eqb (str (get source "command") "op"))
+    ["record_speech_transcript";"accept_speech_delegation"]).
+Definition public_command (source : json) :=
+  if public_command_allowed source then success JNull
+  else type_error "Speech observations require a live upstream session".
+Definition request_error_response (source : json) :=
+  let name := str source "name" in
+  let message := str source "message" in
+  if String.eqb name "CommandNotSubmitted" then rejection 400 "command_not_submitted" message
+  else rejection (if existsb (String.eqb name) ["RangeError";"SyntaxError";"TypeError"] then 400 else 503)
+    "request_failed" message.
 Definition call (operation : string) (source : json) :=
   if String.eqb operation "http.closing" then success
     (if boolean_field source "closing" then rejection 503 "stopping" "Server is stopping" else action "observe_host")
@@ -201,8 +213,8 @@ Definition call (operation : string) (source : json) :=
     then success (request_guard source local_route (fun source => content_target (body_target source)))
   else if String.eqb operation "http.content_type" || String.eqb operation "http.body"
     then success (request_guard source (body_stage (String.eqb operation "http.body")) (body_stage (String.eqb operation "http.body")))
+  else if String.eqb operation "http.error" then success (request_error_response source)
   else if String.eqb operation "http.reply_status" then success (number (if boolean_field (get source "reply") "ok" then 200 else 400))
   else if String.eqb operation "http.audio" then success (audio_admission source)
-  else if String.eqb operation "http.public_command" then success (JObject [("allowed",JBool
-    (negb (existsb (String.eqb (str (get source "command") "op")) ["record_speech_transcript";"accept_speech_delegation"])))])
+  else if String.eqb operation "http.public_command" then public_command source
   else err "Unknown HTTP operation".

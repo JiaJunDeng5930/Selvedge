@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import ChatgptProtocol.
-From Selvedge.Adapters Require Import Common Observation Api Http HttpProofs Audio AudioProofs BrowserAdapters BrowserAdaptersProofs
+From Selvedge.Adapters Require Import Common Observation Api Http HttpProofs Audio AudioProofs BrowserAdapters BrowserObservations BrowserAdaptersProofs
   PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
 Import ListNotations.
 Open Scope string_scope.
@@ -61,6 +61,41 @@ Theorem public_link_has_admitted_scheme : forall source target,
   Api.call "browser.link" source = success (JString target) ->
   starts target "#" || allowed_target target = true.
 Proof. intros;apply (returned_link_has_an_admitted_scheme source target);now inversion H. Qed.
+Theorem public_browser_git_observation_uses_cwd_default : forall cwd,
+  Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",cwd)]) =
+    success (JObject [("kind",JString "workspace-git");("primary",cwd)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_observation_marks_empty_path_default :
+  Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "browse-directories");("path",JString "")])]) =
+    success (JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",JNull)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_default_prefers_task_root : forall task_root project_root,
+  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+    ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",project_root)]);
+    ("task_environment_present",JBool true);("task_root",task_root)]) =
+    success (JObject [("path",task_root);("canonicalize",JBool false)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_default_canonicalizes_project_root : forall project_root,
+  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+    ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",project_root)]);
+    ("task_environment_present",JBool false)]) =
+    success (JObject [("path",project_root);("canonicalize",JBool true)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_failure_is_returned_as_observation : forall message,
+  Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]) =
+    success (JObject [("ok",JBool false);("error",JString message)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_skill_failure_is_returned_as_observation : forall message,
+  Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]) =
+    success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]).
+Proof. reflexivity. Qed.
 Theorem public_exec_injects_authenticated_connection : forall connection args,
   keys args (client_keys Execute) = true ->
   Api.call "plugin.command" (JObject [("connection",connection);("body",JObject [("tool",JString "exec");("arguments",args)])]) =

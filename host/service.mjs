@@ -542,8 +542,9 @@ export class Service extends EventEmitter {
   }
 
   #publicCommand(command) {
-    // DEFENSE: Browser, CLI and remote command clients can forge upstream transcript and delegation objects; only the live sideband callback has that authority.
-    if (!boundary('http.public_command', { command }).allowed) throw new CommandNotSubmitted(new TypeError('Speech observations require a live upstream session'));
+    // DEFENSE: Browser, CLI and remote clients can forge sideband-only commands; any public admission failure occurs before journal submission.
+    try { boundary('http.public_command', { command }); }
+    catch (cause) { throw new CommandNotSubmitted(cause); }
   }
 
   assess(candidate) {
@@ -923,58 +924,67 @@ export class Service extends EventEmitter {
     // DEFENSE: Browser requests already in flight can reach this method after the service stops.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    // DEFENSE: Authenticated HTTP clients can submit JSON null, arrays or scalars instead of an observation request.
-    if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
-    // DEFENSE: Browser observation requests are external JSON; each admitted variant requires its declared fields and types.
-    if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
+    const plan = boundary('browser.observation', {
+      phase: 'plan', observation, cwd: this.cwd, project_root: this.project.workspace
+    });
+    if (plan.kind === 'streams') {
       return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
     }
-    if (observation.kind === 'workspace-git' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id')) && typeof observation.primary === 'string') {
-      const primary = observation.primary === '' ? this.cwd : observation.primary;
-      const environment = await this.#observationEnvironment(observation);
-      try { return { kind: 'workspace-git', available: await observeWorkspaceGit(primary, { environment }) }; }
+    if (plan.kind === 'workspace-git') {
+      const environment = await this.#observationEnvironment(plan);
+      try {
+        const available = await observeWorkspaceGit(plan.primary, { environment });
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, available });
+      }
       finally { await environment?.filesystem.close(); }
     }
-    if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id'))) {
+    if (plan.kind === 'browse-directories') {
       let environment;
+      let outcome;
       try {
-        let location = observation.path;
-        environment = await this.#observationEnvironment(observation);
-        if (location === '') {
-          const workspace = environment ? { primary_root: environment.root }
-            : await canonicalWorkspace({ roots: [this.project.workspace] });
-          location = workspace.primary_root;
+        environment = await this.#observationEnvironment(plan);
+        let location = plan.path;
+        if (plan.default_path) {
+          const resolved = boundary('browser.observation', {
+            phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
+          });
+          location = resolved.path;
+          if (resolved.canonicalize) location = (await canonicalWorkspace({ roots: [location] })).primary_root;
         }
-        return await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
+        const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
+        outcome = result.ok ? { ok: true, value: result } : { ok: false, error: result.error };
       // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
       } catch (error) {
-        return { ok: false, error: error.message };
+        outcome = { ok: false, error: error.message };
       } finally { await environment?.filesystem.close(); }
+      return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
     }
-    if (observation.kind === 'directories' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id')) && observation.workspace) {
-      const environment = await this.#observationEnvironment(observation);
+    if (plan.kind === 'directories') {
+      const environment = await this.#observationEnvironment(plan);
       try {
-        const workspace = await canonicalWorkspace(observation.workspace, { filesystem: environment?.filesystem });
+        const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
         const primary = workspace.primary_root ?? workspace.roots[0];
         const guidance = primary ? await snapshotProject(primary, this.limits, { filesystem: environment?.filesystem }) : null;
-        return { kind: 'directories', workspace, guidance };
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, value: { workspace, guidance } });
       } finally { await environment?.filesystem.close(); }
     }
-    if (observation.kind === 'skill-catalog' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id')) && observation.workspace) {
+    if (plan.kind === 'skill-catalog') {
       let environment;
+      let outcome;
       try {
-        environment = await this.#observationEnvironment(observation);
-        const workspace = await canonicalWorkspace(observation.workspace, { filesystem: environment?.filesystem });
+        environment = await this.#observationEnvironment(plan);
+        const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
         const skills = await observeSkillCatalog(workspace,
           { home: this.home, config: this.declaredConfig, limits: this.limits, environment });
-        return { kind: 'skill-catalog', ok: true, skills };
+        outcome = { ok: true, value: skills };
       // DEFENSE: A selected workspace, configuration or discovered skill file
       // can disappear or deny access while the user is opening the skill menu.
       } catch (error) {
-        return { kind: 'skill-catalog', ok: false, error: error.message };
+        outcome = { ok: false, error: error.message };
       } finally { await environment?.filesystem.close(); }
+      return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
     }
-    // DEFENSE: A client can send an unknown observation kind or fields outside its declared request variant.
+    // DEFENSE: The extracted plan admits only the four host-executed observation variants and the streams query.
     throw new TypeError('Unknown browser observation');
   }
 
