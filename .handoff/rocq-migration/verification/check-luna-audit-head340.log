@@ -1,4 +1,0 @@
-$ bun scripts/check.mjs
-Rocq: 0 checked modules; 4 executable targets
-Assumptions: 1027 theorems and 11 production entries closed under the global context
-JavaScript: 119 syntax checks
