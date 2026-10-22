@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,7 +26,7 @@ function json(response, value, status = 200) {
 
 /** A real service whose only fake boundary is the explicitly controlled model HTTP peer. */
 export async function interactiveMarkdownFixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'selvedge-interactive-browser-'));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'selvedge-interactive-browser-')));
   const requests = [];
   const failures = [];
   const peers = new Set();

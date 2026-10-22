@@ -25,10 +25,10 @@ async function chromiumExecutable() {
 
 /** Only the loopback model is controlled; pages use the complete authenticated server. */
 export async function browserFixture(t, { images = false } = {}) {
-  const fixture = images ? await imagesFixture(t) : await interactiveMarkdownFixture();
-  if (!images) t.after(() => fixture.close());
   const browser = await chromium.launch({ executablePath: await chromiumExecutable(), headless: true });
   t.after(() => browser.close());
+  const fixture = images ? await imagesFixture(t) : await interactiveMarkdownFixture();
+  if (!images) t.after(() => fixture.close());
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.setDefaultTimeout(10000);
   const errors = [];
