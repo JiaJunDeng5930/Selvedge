@@ -212,7 +212,8 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
        | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => [CancelTicket id ticket]
        | Granted _ | AfterHooksReady _ _ _ => [] end)
    end end.
-Definition quiescent (task : task) := negb (task_busy task).
+Definition quiescent (task : task) :=
+ negb (task_busy task) && Nat.eqb (List.length (task_queued task)) 0.
 Definition descendant_count (ancestor : N) (tasks : list task) :=
  N.of_nat (List.length (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) tasks)).
 Definition ancestors_fit (parents : list N) (count : N) (value : world) :=
