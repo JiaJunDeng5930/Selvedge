@@ -103,9 +103,11 @@ Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
 |BoardFilter.Priority=>map(fun level=>(Selvedge.Features.Domain.priority_name level,Selvedge.Features.Domain.priority_label level))Selvedge.Features.Domain.priorities
 |BoardFilter.Date=>[("1","最近 24 小时");("7","最近 7 天");("30","最近 30 天")]
-|BoardFilter.Assignee=>("self","我")::("","未分配")::map(fun agent=>("agent/"++match natural_field "agent_id" agent with Some id=>show_natural id|None=>"unavailable"end,text "name" agent))(value_or[](Projection.board_agents snapshot))
+|BoardFilter.Assignee=>("self","我")::(Selvedge.Features.Domain.owner_name Selvedge.Features.Domain.Unassigned,"未分配")::(
+ map(fun agent=>("agent/"++match natural_field "agent_id" agent with Some id=>show_natural id|None=>"unavailable"end,text "name" agent))(value_or[](Projection.board_agents snapshot))++
+ map(fun profile=>(Selvedge.Features.Domain.owner_name(Selvedge.Features.Domain.ProfileOwner(Selvedge.Kernel.Domain.profile_key profile)),Observation.profile_label profile))(Observation.selectable_profiles(SessionObserve.catalog snapshot)))
 |BoardFilter.Creator=>[("self","我")]
-|BoardFilter.Project=>map(fun project=>(show_natural(project_id project),project_name project))(value_or[](Projection.projects snapshot))
+|BoardFilter.Project=>("","未分配项目")::map(fun project=>(show_natural(project_id project),project_name project))(value_or[](Projection.projects snapshot))
 |BoardFilter.Label=>map(fun value=>(value,value))(nodup string_dec(flat_map(fun card=>value_or[](bind(array_field "labels" card)Selvedge.Kernel.Codec.strings))(value_or[](Projection.board_cards snapshot))))end.
 Definition filter_title category :=match category with
 |BoardFilter.Status=>"状态"|BoardFilter.Priority=>"优先级"|BoardFilter.Date=>"更新时间"
