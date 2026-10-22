@@ -74,8 +74,8 @@ pre, code { font-family: var(--rich-code-font); }
 [data-interactive-stale] { visibility: hidden; }
 [data-sources-fresh="false"] [data-interactive-stale] { visibility: visible; }
 
-/* Gallina selects a declared supporting form from actual native measurements. */
-[data-supporting-form="compact"] [data-support-secondary] { display: none; }
+/* The measured supporting form overrides each summary member's inline display. */
+[data-supporting-form="compact"] [data-support-secondary] { display: none !important; }
 
 /* Sidebar attention changes exposure while retaining the original slot width. */
 @media (hover: hover) {

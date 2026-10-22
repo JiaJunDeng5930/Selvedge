@@ -255,6 +255,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  let children:=match ControlContent.container_content describe glyph env key label role meaning (S.node_children value) children with Some content=>content|None=>children end in
  let supporting:=match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end in
  let attrs:=common key (S.semantic_key value) label role ++
+ NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
  (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true")]|_=>[] end) ++
  (if supporting then ControlContent.support_row_attributes key else []) in
  let styles:=NativeAppearance.role_properties env role ++
@@ -289,7 +290,8 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |S.TaskRow _ status caption working _,C.NavigateTo icon=>
  [DOM.Element(key++"/identity-slot")%string "span" [("data-navigation-slot","identity")]
  [("display","flex");("align-items","center");("justify-content","center");("inline-size",Typography.px(Nat.max(ControlContent.navigation_rail env)(ControlContent.navigation_target env)));("block-size",Typography.px(ControlContent.navigation_target env));("flex","none")] [] empty(glyph icon);
- DOM.Element(key++"/title-slot")%string "span" [("data-navigation-slot","title")]
+ DOM.Element(key++"/title-slot")%string "span" ([("data-navigation-slot","title")] ++
+ NativeAppearance.overflow_attributes NativeAppearance.SingleLineOverflow (Model.control_label action))
  [("flex","1 1 0%");("min-inline-size","0");("overflow","hidden");("text-overflow","ellipsis");("white-space","nowrap");("text-align","start")] [] empty
  (match children with []=>[DOM.Text(Model.control_label action)]|_=>children end);
  DOM.Element(key++"/status-slot")%string "span"[("data-navigation-slot","status");("role","img");("aria-label",caption);("title",caption)]

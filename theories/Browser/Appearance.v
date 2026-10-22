@@ -205,6 +205,8 @@ Definition overflow_properties value : list (string * string) :=
   | CodeOverflow => [("overflow-x","auto")]
   | SingleLineOverflow => [("overflow","hidden"); ("text-overflow","ellipsis"); ("white-space","nowrap")]
   end.
+Definition overflow_attributes value text : list (string * string) :=
+  match value with SingleLineOverflow => [("title",text)] | _ => [] end.
 Definition style_properties env value : list (string * string) :=
   let root := Layout.root_font_size_milli env in
   let scale := Typography.scaled root in

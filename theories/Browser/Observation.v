@@ -1,9 +1,12 @@
-From Stdlib Require Import String List Bool Arith.
+From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Import Codec Identity.
 From Selvedge.Browser Require Import Layout.
 Import ListNotations.
 Open Scope string_scope.
+
+(* Font and region observations belong to the document generation measured. *)
+Definition current_measurement (measured current : N) := N.eqb measured current.
 
 Definition pixel_field name source := match number_field name source with
  |Some text=>parse_nat text|None=>None end.
@@ -11,6 +14,21 @@ Definition metric_observation source : option metric :=
   height <- pixel_field "height" source;;
   advance <- pixel_field "advance" source;;
   admit_metric height advance.
+Definition named_observation (key : string) (source : json) : bool :=
+  match string_field "key" source with
+  | Some observed => String.eqb key observed
+  | None => false
+  end.
+Definition valid_metric (source : json) : bool :=
+  match metric_observation source with Some _ => true | None => false end.
+Definition valid_region (source : json) : bool :=
+  match pixel_field "width" source, pixel_field "height" source with
+  | Some _, Some _ => true
+  | _, _ => false
+  end.
+Definition first_valid_observation (valid : json -> bool) (key : string)
+    (observations : list json) : option json :=
+  find (fun value => named_observation key value && valid value) observations.
 Definition font_observations source : option font_measurements :=
   body <- field "body" source;; primary <- field "primary" source;;
   support <- field "support" source;;

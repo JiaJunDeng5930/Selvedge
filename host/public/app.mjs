@@ -139,17 +139,22 @@ async function refreshPhysical() {
   measuring = (async () => {
     do {
       measureAgain = false;
-      const specs = browser('font_specs', { root_font_size_milli: physical.viewport().root_font_size_milli });
-      const observedGeneration = stringifyJson(publication.generation);
+      const requestedRootFontSize = physical.viewport().root_font_size_milli;
+      const specs = browser('font_specs', { root_font_size_milli: requestedRootFontSize });
+      const observedGeneration = publication.generation;
       const observations = await physical.measure(specs);
-      if (observedGeneration !== stringifyJson(publication.generation)) { measureAgain = true; continue; }
-      const next = browser('environment', { observations,
+      const receipt = browser('environment', { observations, requested_root_font_size_milli: requestedRootFontSize,
+        measured_generation: observedGeneration, current_generation: publication.generation,
         system_dark: matchMedia('(prefers-color-scheme: dark)').matches,
         reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches });
+      if (receipt.stale) { measureAgain = true; continue; }
+      const next = receipt.environment;
       const changed = stringifyJson(next) !== stringifyJson(environment);
       environment = next;
       for (const update of browser('responsive_rows', { rows: observations.responsive_rows })) {
-        renderer.target(update.key)?.style.setProperty('flex-direction', update.direction);
+        const row = renderer.target(update.key);
+        row.style.setProperty('flex-direction', update.direction);
+        if (update.supporting_form !== undefined) row.setAttribute('data-supporting-form', update.supporting_form);
       }
       if (changed) dispatch({ type: 'environment_observed' });
     } while (measureAgain && !disposed);

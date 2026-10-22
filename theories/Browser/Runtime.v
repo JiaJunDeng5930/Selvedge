@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Browser Require Import Document Keyboard Focus Reading Publication Observation Typography Layout FieldSession.
+From Selvedge.Browser Require Import Document Keyboard Focus Reading Publication Observation Typography Layout FieldSession ControlContent.
 From Selvedge.Interaction Require Import CodeBlock.
 Module NativeAppearance := Selvedge.Browser.Appearance.
 Import ListNotations.
@@ -147,23 +147,45 @@ Definition font_specs source := match natural_field "root_font_size_milli" sourc
  ("properties",DOM.properties_json(Typography.specification_properties root spec))])Typography.measurement_specs))
  |None=>invalid "Font measurements require actual root font size" end.
 Definition observed_metric key values :=
- match find(fun value=>match string_field "key" value with Some name=>String.eqb key name|None=>false end)values with
- |Some value=>Some value|None=>None end.
+ Observation.first_valid_observation Observation.valid_metric key values.
 Definition observed_region key values :=
- match observed_metric key values with Some value=>match field "width" value with Some width=>width|None=>JNull end|None=>JNull end.
+ match Observation.first_valid_observation Observation.valid_region key values with
+ |Some value=>field "width" value
+ (* DEFENSE: a matched native region without complete dimensions is a failed
+    observation, not an absent region that can remain pending. *)
+ |None=>if existsb(Observation.named_observation key)values then None else Some JNull end.
+(* DEFENSE: native font measurement may finish after a newer document is
+   published; the stale batch must not supply any font or region observation. *)
 Definition environment_call source :=
- match field "observations" source with None=>invalid "Environment requires native observations"|Some value=>
+ match binary_field "measured_generation" source,binary_field "current_generation" source with
+ |Some measured,Some current=>
+ if Observation.current_measurement measured current then
+ match natural_field "requested_root_font_size_milli" source,field "observations" source with
+ |Some requested,Some value=>
+ match natural_field "root_font_size_milli" value with
+ |Some observed=>
+ (* DEFENSE: the root font size can change while document.fonts.ready is pending,
+    leaving the requested probe styles inconsistent with the returned viewport. *)
+ if Nat.eqb requested observed then
  match field "width" value,field "height" value,field "root_font_size_milli" value,
  array_field "metrics" value,array_field "regions" value,bool_field "system_dark" source,bool_field "reduced_motion" source with
  |Some width,Some height,Some root,Some metrics,Some regions,Some dark,Some motion=>
- match observed_metric "@font/body" metrics,observed_metric "@font/activity-primary" metrics,observed_metric "@font/activity-support" metrics with
- |Some body,Some primary,Some support=>let encoded:=JObject[("viewport_width",width);("viewport_height",height);("root_font_size_milli",root);
+ match observed_metric "@font/body" metrics,observed_metric "@font/activity-primary" metrics,observed_metric "@font/activity-support" metrics,
+ observed_region "workspace" regions,observed_region "main" regions with
+ |Some body,Some primary,Some support,Some workspace,Some main=>let encoded:=JObject[("viewport_width",width);("viewport_height",height);("root_font_size_milli",root);
  ("font_metrics",JObject[("body",body);("primary",primary);("support",support)]);
- ("workspace_inner_width",observed_region "workspace" regions);("main_inner_width",observed_region "main" regions);
+ ("workspace_inner_width",workspace);("main_inner_width",main);
  ("system_dark",JBool dark);("reduced_motion",JBool motion)] in
- match Observation.decode_environment encoded with Some _=>success encoded|None=>invalid "Invalid native font or viewport observation" end
- |_,_,_=>invalid "All three measured font roles are required" end
- |_,_,_,_,_,_,_=>invalid "Incomplete physical observations" end end.
+ match Observation.decode_environment encoded with
+ |Some _=>success(JObject[("stale",JBool false);("environment",encoded)])
+ |None=>invalid "Invalid native font or viewport observation" end
+ |_,_,_,_,_=>invalid "Complete positive font metrics and allocated region dimensions are required" end
+ |_,_,_,_,_,_,_=>invalid "Incomplete physical observations" end
+ else success(JObject[("stale",JBool true)])
+ |None=>invalid "Environment requires the observed root font size" end
+ |_,_=>invalid "Environment requires the requested root font size and native observations" end
+ else success(JObject[("stale",JBool true)])
+ |_,_=>invalid "Environment requires the measured and current document generations" end.
 Definition decode_scope source := match string_field "type" source with
  |Some "document"=>Some Focus.Document
  |Some "temporary"=>match string_field "identity" source,string_field "initial" source,
@@ -179,12 +201,25 @@ Definition focus_plan source := match array_field "previous" source,array_field 
  |Some previous,Some current=>success(match Focus.request previous current eligible with
  Some(target,fallback)=>JObject[("target",JString target);("fallback",JString fallback)]|None=>JNull end)
  |_,_=>invalid "Invalid focus scopes" end|_,_,_=>invalid "Focus transition requires both scope stacks and observed eligibility" end.
+Definition row_direction_name direction := match direction with
+ |Layout.Horizontal=>"row"|Layout.Vertical=>"column" end.
+Definition responsive_row_layout available row : option (list (string * json)) :=
+ match field "full_preferred" row,field "compact_preferred" row with
+ |None,None=>match natural_field "minimum" row with
+   |Some minimum=>Some[("direction",JString(row_direction_name(Layout.row_flow available minimum)))]
+   |None=>None end
+ |Some _,Some _=>match natural_field "full_preferred" row,natural_field "compact_preferred" row with
+   |Some full,Some compact=>let choice:=ControlContent.choose_supporting available full compact in
+     Some[("direction",JString(row_direction_name(ControlContent.supporting_direction choice)));
+       ("supporting_form",JString(ControlContent.form_name(ControlContent.supporting_representation choice)))]
+   |_,_=>None end
+ |_,_=>None end.
 Definition responsive_rows source := match array_field "rows" source with None=>invalid "Responsive rows require native observations"|Some rows=>
  let fix decode rows:=match rows with []=>Some[]|row::rest=>
- match string_field "key" row,natural_field "available" row,natural_field "minimum" row,decode rest with
- |Some key,Some available,Some minimum,Some rest=>Some(JObject[("key",JString key);
- ("direction",JString(match Layout.row_flow available minimum with Layout.Horizontal=>"row"|Layout.Vertical=>"column" end))]::rest)
- |_,_,_,_=>None end end in match decode rows with Some rows=>success(JArray rows)|None=>invalid "Invalid responsive row observation" end end.
+ match string_field "key" row,natural_field "available" row,decode rest with
+ |Some key,Some available,Some rest=>match responsive_row_layout available row with
+   |Some layout=>Some(JObject(("key",JString key)::layout)::rest)|None=>None end
+ |_,_,_=>None end end in match decode rows with Some rows=>success(JArray rows)|None=>invalid "Invalid responsive row observation" end end.
 Definition code_targets who view := JObject(map(fun part=>(DocumentPublication.target_name part,
  JString(Observation.physical_target view(DocumentPublication.target_key who part))))
  [DocumentPublication.Toolbar;DocumentPublication.Body;DocumentPublication.Source;DocumentPublication.Frame;DocumentPublication.Preview]).

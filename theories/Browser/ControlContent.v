@@ -58,7 +58,7 @@ Definition property_icon {e} (property : UX.property e) :=
   | UX.ModelProperty => None
   | UX.DeliveryProperty => Some "arrow-up"
   end.
-Definition summary_subject {e} (property : UX.property e) secondary :=
+Definition summary_subject {e} (property : UX.property e) (secondary : bool) :=
   match UX.property_information property with
   | UX.PresentInformation principal supporting =>
       if secondary then match supporting with
