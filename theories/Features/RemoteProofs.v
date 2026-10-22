@@ -27,6 +27,121 @@ Proof.
  repeat split; apply boolean_permission; assumption.
 Qed.
 
+(* A retained receipt is considered only after the current local authority has
+   admitted the controller. Each constructor records one complete outcome. *)
+Inductive access_contract (required : F.rights) (controller : string) (epoch : N)
+ (state : F.remote) : Remote.authorization -> Prop :=
+| AccessDisabled : F.remote_enabled state = false ->
+ access_contract required controller epoch state
+   (Remote.Denied "remote_disabled" "Remote control is disabled on this host")
+| AccessInvalid : F.remote_enabled state = true ->
+ Remote.identifier_valid controller && (0 <? epoch) = false ->
+ access_contract required controller epoch state
+   (Remote.Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds")
+| AccessRevoked : F.remote_enabled state = true ->
+ Remote.identifier_valid controller && (0 <? epoch) = true ->
+ Remote.find_grant controller state = None ->
+ access_contract required controller epoch state
+   (Remote.Denied "remote_controller_revoked" "This controller has no active local grant")
+| AccessExpired : forall issued, F.remote_enabled state = true ->
+ Remote.identifier_valid controller && (0 <? epoch) = true ->
+ Remote.find_grant controller state = Some issued ->
+ N.eqb epoch (F.grant_epoch issued) = false ->
+ access_contract required controller epoch state
+   (Remote.Denied "remote_grant_expired" "This device grant generation is no longer current")
+| AccessForbidden : forall issued, F.remote_enabled state = true ->
+ Remote.identifier_valid controller && (0 <? epoch) = true ->
+ Remote.find_grant controller state = Some issued ->
+ N.eqb epoch (F.grant_epoch issued) = true ->
+ Remote.rights_allow required (F.grant_rights issued) = false ->
+ access_contract required controller epoch state
+   (Remote.Denied "remote_permission_denied" "This device grant does not permit this operation")
+| AccessAdmitted : forall issued, F.remote_enabled state = true ->
+ Remote.identifier_valid controller && (0 <? epoch) = true ->
+ Remote.find_grant controller state = Some issued ->
+ N.eqb epoch (F.grant_epoch issued) = true ->
+ Remote.rights_allow required (F.grant_rights issued) = true ->
+ access_contract required controller epoch state Remote.Admitted.
+
+Theorem check_satisfies_complete_access_contract : forall required controller epoch state,
+ access_contract required controller epoch state (Remote.check required controller epoch state).
+Proof.
+ intros required controller epoch state; unfold Remote.check.
+ destruct (F.remote_enabled state) eqn:Enabled; cbn [negb].
+ - destruct (Remote.identifier_valid controller && (0 <? epoch)) eqn:Identity; cbn [negb].
+   + destruct (Remote.find_grant controller state) as [issued|] eqn:Found.
+     * destruct (N.eqb epoch (F.grant_epoch issued)) eqn:Generation; cbn [negb].
+       -- destruct (Remote.rights_allow required (F.grant_rights issued)) eqn:Rights.
+          ++ eapply AccessAdmitted; eassumption.
+          ++ eapply AccessForbidden; eassumption.
+       -- eapply AccessExpired; eassumption.
+     * apply AccessRevoked; assumption.
+   + apply AccessInvalid; assumption.
+ - apply AccessDisabled; assumption.
+Qed.
+
+Inductive authorization_contract (required : F.rights) (request : Remote.request)
+ (state : F.remote) : Remote.authorization -> Prop :=
+| RequestDisabled : F.remote_enabled state = false ->
+ authorization_contract required request state
+   (Remote.Denied "remote_disabled" "Remote control is disabled on this host")
+| RequestInvalid : F.remote_enabled state = true -> Remote.request_valid request = false ->
+ authorization_contract required request state
+   (Remote.Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds")
+| RequestAccessDenied : forall code reason, F.remote_enabled state = true ->
+ Remote.request_valid request = true ->
+ access_contract required (Remote.controller request) (Remote.epoch request) state (Remote.Denied code reason) ->
+ authorization_contract required request state (Remote.Denied code reason)
+| RequestAdmitted : F.remote_enabled state = true -> Remote.request_valid request = true ->
+ access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
+ find (Remote.key_matches request) (F.remote_receipts state) = None ->
+ (N.of_nat (List.length (F.remote_receipts state)) <? 1024) = true ->
+ authorization_contract required request state Remote.Admitted
+| RequestFull : F.remote_enabled state = true -> Remote.request_valid request = true ->
+ access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
+ find (Remote.key_matches request) (F.remote_receipts state) = None ->
+ (N.of_nat (List.length (F.remote_receipts state)) <? 1024) = false ->
+ authorization_contract required request state
+   (Remote.Denied "remote_receipts_full" "Retained command receipts are full; revoke or replace this device grant before issuing a new request")
+| RequestReplay : forall receipt, F.remote_enabled state = true -> Remote.request_valid request = true ->
+ access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
+ find (Remote.key_matches request) (F.remote_receipts state) = Some receipt ->
+ JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt) = true ->
+ authorization_contract required request state (Remote.Replay (F.remote_reply receipt))
+| RequestConflict : forall receipt, F.remote_enabled state = true -> Remote.request_valid request = true ->
+ access_contract required (Remote.controller request) (Remote.epoch request) state Remote.Admitted ->
+ find (Remote.key_matches request) (F.remote_receipts state) = Some receipt ->
+ JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt) = false ->
+ authorization_contract required request state
+   (Remote.Denied "remote_request_conflict" "This request ID was already committed with different intent").
+
+Theorem authorize_satisfies_complete_request_contract : forall required request state,
+ authorization_contract required request state (Remote.authorize required request state).
+Proof.
+ intros required request state; unfold Remote.authorize.
+ destruct (F.remote_enabled state) eqn:Enabled; cbn [negb].
+ - destruct (Remote.request_valid request) eqn:Valid; cbn [negb].
+   + remember (Remote.check required (Remote.controller request) (Remote.epoch request) state)
+       as checked eqn:Checked.
+     assert (Access : access_contract required (Remote.controller request) (Remote.epoch request) state checked).
+     { subst checked; apply check_satisfies_complete_access_contract. }
+     destruct checked as [code reason| |reply].
+     * apply RequestAccessDenied; assumption.
+     * destruct (find (Remote.key_matches request) (F.remote_receipts state)) as [receipt|] eqn:Found.
+       -- destruct (JsonObjects.equivalent (Remote.intent request) (F.remote_intent receipt)) eqn:Intent.
+          ++ eapply RequestReplay; eassumption.
+          ++ eapply RequestConflict; eassumption.
+       -- destruct (N.of_nat (List.length (F.remote_receipts state)) <? 1024) eqn:Capacity.
+          ++ apply RequestAdmitted; assumption.
+          ++ apply RequestFull; assumption.
+     * inversion Access.
+   + apply RequestInvalid; assumption.
+ - apply RequestDisabled; assumption.
+Qed.
+
+Theorem initial_remote_is_valid : Remote.valid (F.feature_remote F.initial) = true.
+Proof. reflexivity. Qed.
+
 (** The premises describe a current grant and an unused receipt coordinate,
     rather than assuming that authorization already succeeded. *)
 Theorem current_grant_admits_fresh_remote_request : forall required request state issued,
@@ -250,4 +365,64 @@ Proof.
    apply removed_remote_controller_is_absent. }
  unfold Remote.authorize. rewrite StillEnabled, Valid. cbn.
  unfold Remote.check. rewrite StillEnabled, Identity. cbn. now rewrite Removed.
+Qed.
+
+Theorem local_grant_replaces_authority_and_clears_old_receipts :
+ forall controller permissions rights value,
+ Remote.identifier_valid controller = true -> Remote.parse_rights permissions = Some rights ->
+ (match Remote.find_grant controller (Remote.registry value) with
+ | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end) = true ->
+ let previous := Remote.registry value in
+ let issued := F.RemoteGrant controller (F.remote_next_epoch previous) rights in
+ Remote.grant controller permissions value =
+ accept (Remote.grant_json issued)
+   (Remote.store (F.Remote (F.remote_enabled previous)
+     (issued :: Remote.remove_grants controller (F.remote_grants previous))
+     (N.succ (F.remote_next_epoch previous))
+     (Remote.remove_receipts controller (F.remote_receipts previous))) value) [].
+Proof.
+ intros controller permissions rights value Identifier Permissions Capacity.
+ unfold Remote.grant; rewrite Identifier, Permissions; cbn [negb].
+ now rewrite Capacity.
+Qed.
+
+Theorem full_registry_rejects_a_new_controller : forall controller permissions rights value,
+ Remote.identifier_valid controller = true -> Remote.parse_rights permissions = Some rights ->
+ Remote.find_grant controller (Remote.registry value) = None ->
+ (N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64) = false ->
+ Remote.grant controller permissions value =
+ reject "remote_grants_full" "At most 64 controllers can be granted; revoke an existing controller first" value.
+Proof.
+ intros controller permissions rights value Identifier Permissions Absent Full.
+ unfold Remote.grant; rewrite Identifier, Permissions; cbn [negb].
+ now rewrite Absent, Full.
+Qed.
+
+Lemma granting_never_reuses_a_generation : forall controller permissions value,
+ F.remote_next_epoch (Remote.registry value) <=
+ F.remote_next_epoch (Remote.registry (decision_world (Remote.grant controller permissions value))).
+Proof.
+ intros controller permissions value; unfold Remote.grant.
+ destruct (Remote.identifier_valid controller); cbn [negb].
+ - destruct (Remote.parse_rights permissions) as [rights|].
+   + destruct (match Remote.find_grant controller (Remote.registry value) with
+       | Some _ => true | None => N.of_nat (List.length (F.remote_grants (Remote.registry value))) <? 64 end);
+       cbn [accept reject decision_world]; rewrite ?remote_registry_store; cbn;
+       apply N.le_refl || apply N.le_succ_diag_r.
+   + apply N.le_refl.
+ - apply N.le_refl.
+Qed.
+
+Theorem local_administration_never_reuses_a_generation : forall command caller value result,
+ Remote.command command caller value = Some result ->
+ F.remote_next_epoch (Remote.registry value) <=
+ F.remote_next_epoch (Remote.registry (decision_world result)).
+Proof.
+ intros command caller value result Handled.
+ unfold Remote.command in Handled; destruct command; cbn in Handled; try discriminate.
+ all: destruct caller; inversion Handled; subst result;
+   try (change (F.remote_next_epoch (Remote.registry value) <= F.remote_next_epoch (Remote.registry value));
+        apply N.le_refl).
+ - apply granting_never_reuses_a_generation.
+ - rewrite revocation_never_reuses_generation; apply N.le_refl.
 Qed.

@@ -6,6 +6,7 @@ From Selvedge.Features Require Import Domain State.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module F := Selvedge.Features.Domain.
 
 Definition registry value := Selvedge.Features.Domain.feature_remote (world_features value).
 Definition store replacement value := with_features (Selvedge.Features.State.with_remote replacement (world_features value)) value.
@@ -99,6 +100,19 @@ Definition request_valid request := identifier_valid (controller request) && (0 
  identifier_valid (request_id request) && payload_valid (intent request).
 Definition key_matches request receipt := String.eqb (controller request) (Selvedge.Features.Domain.remote_controller receipt) &&
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
+Definition valid (value : F.remote) :=
+ (0 <? F.remote_next_epoch value) && Nat.leb (List.length (F.remote_grants value)) 64 &&
+ Schema.unique_names (map F.grant_controller (F.remote_grants value)) &&
+ forallb (fun grant => identifier_valid (F.grant_controller grant) &&
+   ((0 <? F.grant_epoch grant) && (F.grant_epoch grant <? F.remote_next_epoch value))) (F.remote_grants value) &&
+ Nat.leb (List.length (F.remote_receipts value)) 1024 &&
+ Schema.unique_names (map (fun receipt => TextJson.render_json (JArray [
+   JString (F.remote_controller receipt); number (F.remote_epoch receipt); JString (F.remote_request receipt)]))
+   (F.remote_receipts value)) &&
+ forallb (fun receipt => identifier_valid (F.remote_controller receipt) && identifier_valid (F.remote_request receipt) &&
+   payload_valid (F.remote_intent receipt) && payload_valid (F.remote_reply receipt) &&
+   match find_grant (F.remote_controller receipt) value with
+   | Some grant => N.eqb (F.remote_epoch receipt) (F.grant_epoch grant) | None => false end) (F.remote_receipts value).
 Definition check required controller epoch state :=
  if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
  else if negb (identifier_valid controller && (0 <? epoch)) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
