@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import WorkspaceBackend.
+From Selvedge.Foundation Require Import Json Schema Arguments.
+From Selvedge.Kernel Require Import WorkspaceBackend Pagination.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -98,6 +98,40 @@ Definition command_specs : list command_spec := [
   Command "read_worktree" task_identity;
   Command "retry_worktree_archive" task_identity
 ].
+
+Definition command_field_description (command field : string) :=
+  if String.eqb field "profile" then "Key of a configured model profile." else
+  if String.eqb field "reasoning" then "Reasoning effort override; omitted uses the selected profile's default." else
+  if String.eqb field "task_id" && String.eqb command "cancel_operation" then
+    "Task identifier; omitted to target the calling task." else
+  if String.eqb field "task_id" then "Task identifier returned by a task command." else
+  if String.eqb field "child_count" then "Number of child tasks to create, bounded by the configured fork limit." else
+  if String.eqb command "search_history" && String.eqb field "query" then
+    "Literal keyword or phrase to search committed user and assistant messages." else
+  if String.eqb command "search_history" && String.eqb field "project_id" then
+    "Restrict results to this project." else
+  if String.eqb command "search_history" && String.eqb field "work_id" then
+    "Restrict results to this Work." else
+  if String.eqb command "read" && String.eqb field "after" then
+    "Zero-based offset into the task's retained message history." else
+  if String.eqb command "search_history" && String.eqb field "after" then
+    "Zero-based offset into matching search results." else
+  if String.eqb command "read" && String.eqb field "limit" then
+    "Maximum messages to return." else
+  if String.eqb command "search_history" && String.eqb field "limit" then
+    "Maximum results to return." else "".
+
+Definition command_argument (command : string) (field : field_spec) :=
+  let argument := Arguments.with_description
+    (command_field_description command (field_name field)) (Arguments.from_field field) in
+  if String.eqb command "read" && String.eqb (field_name field) "limit" then
+    Arguments.with_bounds (1%N, Pagination.history_limit) argument else
+  if String.eqb command "search_history" && String.eqb (field_name field) "limit" then
+    Arguments.with_bounds (1%N, Pagination.search_limit) argument else argument.
+
+Definition command_arguments (specification : command_spec) :=
+  map (command_argument (command_name specification))
+    (Field "op" KText :: command_fields specification).
 
 (* Host workspace observation and native remote admission share this schema-level judgment. *)
 Definition graph_node_creates_root_task (node : json) :=

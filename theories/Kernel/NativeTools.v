@@ -35,10 +35,10 @@ Definition command_field_refinements (name : string) :=
   if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else [].
 Definition command_schema (specification : command_spec) :=
   let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
-    (map Arguments.from_field (Field "op" KText :: command_fields specification)) in
+    (Commands.command_arguments specification) in
   JObject (SchemaJson.object_fields
     (map (fun argument => (Arguments.argument_name argument,
-      JObject (Arguments.type_schema (Arguments.argument_type_of argument)))) declaration)
+      Arguments.argument_json argument)) declaration)
     (map Arguments.argument_name (filter Arguments.argument_required declaration))).
 Record command_binding := CommandBinding {
  binding_tool : string;
@@ -82,9 +82,13 @@ Definition binding_schema (binding : command_binding) (specification : command_s
 (* Model-created tasks can select bounded settings, but guidance is a host
    observation and cannot be supplied as model authority. Field names and value
    kinds come from the same declarations used by the command decoder. *)
+(* A command's interval takes precedence over the generic natural bound. *)
 Definition natural_bounds (argument : argument_spec) :=
  match argument_type_of argument with
- | Scalar KNatural => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
+ | Scalar KNatural => match argument_bounds argument with
+   | Some _ => argument
+   | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
+   end
  | _ => argument end.
 Definition settings_arguments := map (fun field =>
  let argument := natural_bounds (Arguments.omittable_nonnull (Arguments.from_field field)) in
@@ -96,23 +100,20 @@ Definition settings_arguments := map (fun field =>
    Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
  (filter (fun field => negb (String.eqb (field_name field) "guidance")) Codec.task_settings_schema).
 Definition settings_schema := Arguments.schema_fields settings_arguments.
-Definition model_field (binding : command_binding) (field : field_spec) :=
- let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
+Definition model_field (binding : command_binding) (argument : argument_spec) :=
+ let argument := Arguments.omittable_nonnull argument in
  if (String.eqb (binding_command binding) "create" || String.eqb (binding_command binding) "send") &&
-    String.eqb (field_name field) "message" then Arguments.with_scalar KText true argument else
- if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "messages"
+    String.eqb (argument_name argument) "message" then Arguments.with_scalar KText true argument else
+ if String.eqb (binding_command binding) "fork" && String.eqb (argument_name argument) "messages"
  then Arguments.with_scalar (KArray KText) false argument else argument.
 Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
  Arguments.refine_fields
  (ContentDeclarations.native_argument_fields (binding_command binding) ++
   TaskGraphDeclarations.native_argument_fields (JObject settings_schema) (binding_command binding))
- (map (fun field => let argument := model_field binding field in
+ (map (fun field => let argument := model_field binding
+   (Commands.command_argument (binding_command binding) field) in
    if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "child_count"
    then Arguments.with_bounds (1,max_fork) argument else
-   if String.eqb (field_name field) "limit" && String.eqb (binding_command binding) "read"
-   then Arguments.with_bounds (1,Pagination.history_limit) argument else
-   if String.eqb (field_name field) "limit" && String.eqb (binding_command binding) "search_history"
-   then Arguments.with_bounds (1,Pagination.search_limit) argument else
    if String.eqb (field_name field) "settings" then Arguments.with_structure settings_schema argument else
    natural_bounds argument)
    (filter (fun field => negb ((String.eqb (binding_command binding) "create" ||

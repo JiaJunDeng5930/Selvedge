@@ -21,6 +21,9 @@ Definition from_field (field : field_spec) := Argument
   (field_name field) (Scalar (field_kind field)) (negb (SchemaJson.optional_kind (field_kind field))) "" None.
 Definition with_scalar (value : kind) (required : bool) (argument : argument_spec) := Argument
  (argument_name argument) (Scalar value) required (argument_description argument) (argument_bounds argument).
+Definition with_description (description : string) (argument : argument_spec) := Argument
+ (argument_name argument) (argument_type_of argument) (argument_required argument)
+ description (argument_bounds argument).
 Definition omittable (argument : argument_spec) := Argument
  (argument_name argument) (argument_type_of argument) false
  (argument_description argument) (argument_bounds argument).
