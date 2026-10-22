@@ -78,8 +78,9 @@ nulls and natural-number integers up to `2^32 - 1` with optional minimum/maximum
 or set it to `false`; both are closed. Finite string `enum` values and bounded
 `anyOf` alternatives are supported. Keywords such as `$ref`, open properties,
 negative integers and unrestricted numbers are rejected, not
-silently ignored. Definition checking and value checking each have a 256-step
-bound. MCP retains its own server-side schema contract; no claim is made that
+silently ignored. Definition checking and value checking each limit recursive
+nesting to 256 levels; this is not a limit on the total number of sibling fields.
+MCP retains its own server-side schema contract; no claim is made that
 this extension fragment implements arbitrary JSON Schema.
 
 MCP `inputSchema` is retained as an object and passed unchanged to model tool
@@ -178,8 +179,9 @@ The [kernel definitions](../theories/Kernel/) own result processing and completi
 
 Subscribe to native event kinds `task_created`, `task_changed`, `model_started`,
 `model_completed`, `tool_requested`, `tool_dispatched`, `tool_completed`,
-`hook_completed`, `recovered` and `configured`. These names derive from one native
-`EventKind` type and its checked wire round-trip. The host sends an `event` request:
+`hook_completed`, `recovered` and `configured`. Configuration admission checks
+subscriptions against the native `Limits.plugin_events` vocabulary. Notification
+producers use those event names as strings. The host sends an `event` request:
 
 ```json
 {
