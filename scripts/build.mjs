@@ -39,6 +39,13 @@ export async function run(command, args, options = {}) {
   }
   return output.text;
 }
+export async function compilerVersions() {
+  return Promise.all([
+    run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
+    run('opam', ['var', 'rocq-metarocq-template:version']),
+    run('ocamlfind', ['query', '-format', '%v', 'zarith']), run('bun', ['--version'])
+  ]);
+}
 const exists = filename => stat(path.join(root, filename)).then(() => true, error => {
   // DEFENSE: A missing build artifact requires compilation; other filesystem errors are real failures.
   if (error.code === 'ENOENT') return false;
@@ -123,11 +130,7 @@ export async function build(options = {}) {
       throw new Error(`Production entry ${filename} is missing; the full migration build is incomplete`);
     }
   }
-  const versions = await Promise.all([
-    run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
-    run('opam', ['var', 'rocq-metarocq-template:version']),
-    run('ocamlfind', ['query', '-format', '%v', 'zarith']), run('bun', ['--version'])
-  ]);
+  const versions = await compilerVersions();
   const inputFingerprints = new Map();
   let inputsStable = true;
   let buildSucceeded = false;
@@ -323,9 +326,29 @@ export async function build(options = {}) {
       console.log(`extracted ${name}`);
     })), 'Executable extraction failed');
     console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
+    const provenance = Object.fromEntries(selected.map(name => {
+      const target = targets[name];
+      const sources = new Set(['runtime/Extraction.v', 'theories/Foundation/TextJson.v',
+        `theories/${target.module.replaceAll('.', '/')}.v`]);
+      const pending = [...sources];
+      while (pending.length) {
+        for (const dependency of graph.get(pending.pop()) ?? []) {
+          if (!sources.has(dependency)) { sources.add(dependency); pending.push(dependency); }
+        }
+      }
+      if (sources.has('theories/Generated/Commands.v')) sources.add('theories/Derive/Commands.v');
+      for (const filename of inputFingerprints.keys()) {
+        if (!filename.endsWith('.v')) sources.add(filename);
+      }
+      return [name, Object.freeze({ sourceRoot: root, target: name, compiler: Object.freeze([...versions]),
+        sources: Object.freeze([...sources].sort().map(filename => Object.freeze({
+          path: filename, sha256: inputFingerprints.get(filename)
+        }))), artifacts: Object.freeze([...next[`target:${name}:artifacts`]]) })];
+    }));
     const result = Object.freeze({
       checked: check && allModules && productionTargets.every(name => selected.includes(name)),
       targets: Object.freeze([...selected]),
+      provenance: Object.freeze(provenance),
     });
     buildSucceeded = true;
     return result;

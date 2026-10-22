@@ -1,7 +1,7 @@
-From Stdlib Require Import String List NArith.
+From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend.
+From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
@@ -320,4 +320,60 @@ Proof.
  unfold Runtime.can_schedule_task,Worktree.execution_ready in admitted.
  rewrite bound in admitted. apply Bool.andb_true_iff in admitted as [ready _].
  destruct (F.worktree_phase tree);try discriminate; eauto.
+Qed.
+
+(** Starting an environment binds the owner before any physical preparation
+    completes. The real scheduler therefore cannot execute in the source
+    workspace while the managed resource is still being created. *)
+Theorem successful_initialization_binds_pending_owner : forall backend before result task,
+ bool_default "ok" (decision_reply result) false = true ->
+ find_task (next_task before) (decision_world result) = Some task ->
+ bool_default "ok" (decision_reply (Worktree.initialize_backend backend before result)) false = true ->
+ let initialized := Worktree.initialize_backend backend before result in
+ exists tree,
+   Worktree.lookup (next_task before) (decision_world initialized) = Some tree /\
+   WorkspaceBinding.for_task (next_task before) (decision_world initialized) = Some tree /\
+   F.worktree_backend tree = backend /\
+   F.worktree_phase tree = F.TreeCreating false /\
+   Runtime.can_schedule_task (next_task before) (decision_world initialized) = false.
+Proof.
+ intros backend before result task accepted found initialized.
+ unfold Worktree.initialize_backend in initialized |- *.
+ rewrite accepted, found in initialized |- *.
+ destruct (WorkspaceBackend.cloud backend &&
+   negb (Worktree.project_primary_matches (task_current_settings task) before));
+   [discriminate|].
+ destruct (negb (Workspace.valid_workspace
+   (settings_workspace (task_current_settings (Worktree.resource_task (next_task before) backend task))) &&
+   Workspace.valid_path (Worktree.primary
+     (settings_workspace (task_current_settings (Worktree.resource_task (next_task before) backend task)))) &&
+   Worktree.workspace_available
+     (settings_workspace (task_current_settings (Worktree.resource_task (next_task before) backend task))) before));
+   [discriminate|].
+ cbn zeta.
+ set (owner := next_task before).
+ set (prepared := Worktree.resource_task owner backend task).
+ set (tree := F.Worktree owner
+   (Worktree.primary (settings_workspace (task_current_settings prepared)))
+   (F.TreeCreating false) backend).
+ set (staged := Worktree.store tree (put_task owner prepared (decision_world result))).
+ assert (owned : Worktree.lookup owner staged = Some tree).
+ { unfold staged. change (Worktree.lookup (F.worktree_task tree)
+     (Worktree.store tree (put_task owner prepared (decision_world result))) = Some tree).
+   apply stored_resource_is_the_lookup. }
+ assert (selected : find_task owner staged = Some prepared).
+ { unfold staged, find_task. rewrite store_preserves_tasks.
+   eapply find_put_task. exact found. }
+ assert (bound : WorkspaceBinding.for_task owner staged = Some tree).
+ { unfold WorkspaceBinding.for_task. rewrite selected.
+   unfold WorkspaceBinding.resolve.
+   assert (reference : settings_resource (task_current_settings prepared) = Some owner).
+   { unfold prepared, Worktree.resource_task, Worktree.resource_settings.
+     destruct task; reflexivity. }
+   rewrite reference. exact owned. }
+ exists tree. split; [exact owned|]. split; [exact bound|].
+ split; [reflexivity|]. split; [reflexivity|].
+ change (Runtime.can_schedule_task owner staged = false).
+ unfold Runtime.can_schedule_task, Worktree.execution_ready.
+ rewrite bound. reflexivity.
 Qed.

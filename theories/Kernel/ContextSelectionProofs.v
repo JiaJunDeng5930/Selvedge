@@ -116,3 +116,66 @@ Proof.
    | images => [JObject [("role",JString "user");("content",JArray images)]] end)).
  rewrite Images; left; reflexivity.
 Qed.
+
+Theorem readable_history_preserves_concatenation : forall first second,
+ raw_messages (first ++ second) = (raw_messages first ++ raw_messages second)%list.
+Proof. intros; unfold raw_messages; apply flat_map_app. Qed.
+
+Theorem a_replacement_record_is_not_an_additional_context_source : forall replacement rest,
+ raw_messages
+  (JObject [("role",JString "context_replacement");("content",replacement)] :: rest) =
+ raw_messages rest.
+Proof. reflexivity. Qed.
+
+Theorem an_incompatible_replacement_preserves_the_selection : forall position scope entry previous,
+ compatible (value_or_null "content" entry) scope = false ->
+ select_event position scope entry previous = previous.
+Proof.
+ intros position scope entry previous Incompatible.
+ unfold compatible in Incompatible; unfold select_event.
+ destruct (String.eqb (text_default "role" entry "") "context_replacement"); [|reflexivity].
+ destruct (decode_artifact (value_or_null "content" entry)) as [candidate|] eqn:Candidate;
+ destruct (natural_field "source_length" (value_or_null "content" entry)); try reflexivity.
+ rewrite Incompatible, andb_false_r; reflexivity.
+Qed.
+
+Theorem the_history_scan_skips_an_incompatible_replacement : forall entry rest scope position previous,
+ compatible (value_or_null "content" entry) scope = false ->
+ latest (entry :: rest) scope position previous = latest rest scope (N.succ position) previous.
+Proof.
+ intros; cbn [latest]; rewrite an_incompatible_replacement_preserves_the_selection by assumption.
+ reflexivity.
+Qed.
+
+(* Tool results and announced-operation results retain the same original image
+   values as user input. Compaction cannot replace them with generated text. *)
+Theorem fixed_input_preserves_each_original_image : forall role content image,
+ In role ["user";"function_output";"operation_result"] ->
+ In image (image_parts content) ->
+ exists images, In image images /\
+ fixed_message (JObject [("role",JString role);("content",content)]) =
+ [JObject [("role",JString "user");("content",JArray images)]].
+Proof.
+ intros role content image Role Present.
+ destruct (image_parts content) as [|first rest] eqn:Images; [contradiction|].
+ exists (first :: rest); split; [exact Present|].
+ cbn in Role; destruct Role as [Role|[Role|[Role|Role]]]; try contradiction;
+ subst role;
+ change ((match image_parts content with
+   | [] => []
+   | images => [JObject [("role",JString "user");("content",JArray images)]] end) =
+  [JObject [("role",JString "user");("content",JArray (first :: rest))]]);
+ rewrite Images; reflexivity.
+Qed.
+
+Theorem portable_selection_keeps_suffix_receipts_verbatim : forall snapshot receipt rest candidate,
+ latest (snapshot ++ receipt :: rest) "" 0 Original =
+  Replacement (N.of_nat (List.length snapshot)) candidate ->
+ text_default "role" receipt "" = "model_context" ->
+ portable_messages (snapshot ++ receipt :: rest) =
+ (fixed snapshot ++ dialogue (artifact_items candidate) ++ receipt :: retained_messages rest)%list.
+Proof.
+ intros snapshot receipt rest candidate Selected Role.
+ rewrite (portable_replacement_keeps_the_exact_suffix snapshot (receipt :: rest) candidate Selected).
+ unfold retained_messages; cbn [filter]; rewrite Role; reflexivity.
+Qed.
