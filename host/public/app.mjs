@@ -34,6 +34,7 @@ let measuring = null;
 let measureAgain = false;
 let connection = null;
 let disposed = false;
+let clockRefresh = null;
 let sourceFresh = false;
 let layoutFrame = null;
 const ticketKey = value => stringifyJson(value);
@@ -109,11 +110,16 @@ function dispatch(input) {
   }
   const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
   state = decision.state;
-  announcements.textContent = decision.error ?? '';
+  if (input.type !== 'clock_observed') announcements.textContent = decision.error ?? '';
   publication = publicationEvent('advance');
   render();
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision.handled;
+}
+function refreshClock() {
+  // DEFENSE: Background tabs can still run throttled intervals, and their hidden UI should refresh when visible again.
+  if (document.visibilityState !== 'visible') return;
+  dispatch({ type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) });
 }
 function render() {
   if (!environment || disposed) return;
@@ -654,6 +660,7 @@ document.addEventListener('selectionchange', selectionChanged);
 
 window.addEventListener('pagehide', () => {
   disposed = true; document.removeEventListener('selectionchange', selectionChanged); document.removeEventListener('keydown', dismiss); document.removeEventListener('pointerdown', dismiss); connection?.abort(); audio.dispose(); motion.dispose(); physical.dispose(); renderer.dispose(); storage.flush();
+  clearInterval(clockRefresh); document.removeEventListener('visibilitychange', refreshClock);
   for (const timer of timers) clearTimeout(timer);
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   for (const controller of transfers.values()) controller.abort();
@@ -663,6 +670,8 @@ window.addEventListener('pagehide', () => {
 }, { once: true });
 window.addEventListener('focus', () => audio.focus());
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => refreshPhysical().catch(fatal));
+clockRefresh = setInterval(refreshClock, 60_000);
+document.addEventListener('visibilitychange', refreshClock);
 await refreshPhysical();
 try {
   const restoredAppearance = localStorage.getItem('selvedge-appearance');
