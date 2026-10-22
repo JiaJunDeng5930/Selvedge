@@ -194,6 +194,9 @@ Definition command (command:Selvedge.Generated.Commands.command) (caller:option 
  | Selvedge.Generated.Commands.Cmd_delete_board_agent p=>Some (delete_agent (Selvedge.Generated.Commands.delete_board_agent_agent_id p) (Selvedge.Generated.Commands.delete_board_agent_revision p) value)
  | _=>None end.
 Definition failure_text (source:string) := match Utf8.chunks source with Some chunks=>Utf8.render_chunks (firstn 1000 chunks) | None=>"Invalid UTF-8 drafting failure" end.
+Definition valid_completion_payload (source:json) (ok:bool) :=
+ if ok then Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "title" KText;Field "description" KText] source && limited (text_default "title" source "") Titles.response_title_bytes
+ else Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "message" KText] source && limited (text_default "message" source "") 4096.
 Definition suggestion (ok retitle:bool) (title description message:string) (card:Selvedge.Features.Domain.card) (value:world) :=
  let old:=Selvedge.Features.Domain.card_contents card in
  let draft:=Selvedge.Features.Domain.CardDraft (Titles.normalize title) (if retitle then Selvedge.Features.Domain.draft_description old else description) (Selvedge.Features.Domain.draft_stage old) (Selvedge.Features.Domain.draft_priority old) (Selvedge.Features.Domain.draft_owner old) (Selvedge.Features.Domain.draft_project old) (Selvedge.Features.Domain.draft_labels old) (Selvedge.Features.Domain.draft_attachments old) in
@@ -202,13 +205,13 @@ Definition suggestion (ok retitle:bool) (title description message:string) (card
  (if valid then Selvedge.Features.Domain.NoEnrichment else Selvedge.Features.Domain.EnrichmentFailed (failure_text (if ok then "The drafting endpoint returned an empty or oversized title/description. The original request is preserved." else message))) (Selvedge.Features.Domain.card_start_error card) (Selvedge.Features.Domain.card_pinned card).
 Definition completion (source:json) (value:world) :option (bool*bool*decision) := match string_field "kind" source with Some "board_text"=>
  match natural_field "card_id" source,natural_field "ticket" source,bool_field "ok" source with Some id,Some ticket,Some ok=>
- let valid:=if ok then Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "title" KText;Field "description" KText] source && limited (text_default "title" source "") Titles.response_title_bytes
- else Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "message" KText] source && limited (text_default "message" source "") 4096 in
- if negb valid then None else Some (true,true,match lookup id value with Some card=>match Selvedge.Features.Domain.card_enrichment card with
+ let valid:=valid_completion_payload source ok in
+ let ignored:=Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] in
+ if negb valid then None else Some (match lookup id value with Some card=>match Selvedge.Features.Domain.card_enrichment card with
  | Selvedge.Features.Domain.Enriching expected revision retitle=>if N.eqb ticket expected && N.eqb revision (Selvedge.Features.Domain.card_revision card) && negb (Selvedge.Features.Domain.card_archived card) then
- Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (put id (suggestion ok retitle (text_default "title" source "") (text_default "description" source "") (text_default "message" source "") card value) value) []
- else Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value []
- | _=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end | None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end)
+ (true,true,Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (put id (suggestion ok retitle (text_default "title" source "") (text_default "description" source "") (text_default "message" source "") card value) value) [])
+ else (false,false,ignored)
+ | _=>(false,false,ignored) end | None=>(false,false,ignored) end)
  | _,_,_=>None end | _=>None end.
 Definition synchronize_card (card:Selvedge.Features.Domain.card) (value:world) :=
  if Selvedge.Features.Domain.card_archived card || pending card then card else match linked_task card value with None=>card | Some task=>
