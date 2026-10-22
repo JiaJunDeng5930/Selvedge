@@ -34,8 +34,10 @@ Definition creation_page snapshot s parent :=
 Definition approval_availability value:=match ObjectActions.action_status value with
 |ObjectActions.Available=>Available|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
+Definition approval_argument_label name := match name with
+| "command" => "Command" | "justification" => "Reason" | other => other end.
 Definition approval_arguments {A} parent operation:list(node A):=match bind(field "call" operation)(field "arguments")with
-|Some(JObject arguments)=>map(fun '(name,value)=>read_only parent("argument/"++name)name
+|Some(JObject arguments)=>map(fun '(name,value)=>read_only parent("argument/"++name)(approval_argument_label name)
  (match value with JString value=>value|_=>TextJson.render_json value end))arguments
 |Some value=>[read_only parent "arguments" "Arguments"(TextJson.render_json value)]|None=>[]end.
 Definition approval_node snapshot s task parent operation :=
@@ -44,9 +46,9 @@ Definition approval_node snapshot s task parent operation :=
  |Some id=>let key:=part parent("approval/"++show_natural id)in
  let human:=flag "awaitingHuman" operation in
  Node key "approval"(if human then"Approval required"else"Automatic review")Roles.Approval Region
-  ([group_title key(text "tool" operation);
-    read_only key "directory" "Default working directory"
-      (value_or ""(bind(field "context" operation)(fun settings=>bind(field "workspace" settings)(string_field "primary_root"))))]++
+  ([group_title key(text "tool" operation)]++
+   (match bind(field "context" operation)(fun settings=>bind(field "workspace" settings)(string_field "primary_root"))with
+    |Some directory=>[read_only key "directory" "Default working directory" directory]|None=>[]end)++
    approval_arguments key operation++
    if human then flat_map(fun allow=>match ObjectActions.approval_action snapshot s task id allow with
     |Some action=>match ObjectActions.command action with
