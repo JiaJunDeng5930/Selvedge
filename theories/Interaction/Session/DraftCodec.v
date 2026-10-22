@@ -38,6 +38,18 @@ Definition decode_configuration value := source<-bind(field "origin" value)decod
  sandbox<-bind(field "sandbox" value)(parse_optional Codec.parse_sandbox);;
  approval<-bind(field "approval" value)(parse_optional decode_choice);;
  Some(Configuration source workspace sandbox approval).
+(** Origins in serialized drafts must agree with the editor that owns the context. *)
+Definition valid_origin_for_editor (e : Identity.editor) (source : Context.origin) : bool :=
+ match e with
+ |Identity.NewTask _|Identity.Agent _=>match source with
+   |Context.ParentTask _|Context.ProjectForParent _ _=>false|_=>true end
+ |Identity.Fork task=>match source with
+   |Context.ParentTask parent=>N.eqb task parent
+   |Context.ProjectForParent parent _=>N.eqb task parent
+   |_=>false end
+ |_=>true end.
+Definition decode_editor_configuration e value := configuration<-decode_configuration value;;
+ if valid_origin_for_editor e (Context.context_origin configuration) then Some configuration else None.
 Definition optional_setting {A}(decode:json->option A)(name:string)(value:json):option(option A):=
  match field name value with None|Some JNull=>Some None|Some raw=>option_map (@Some A)(decode raw)end.
 Definition configuration_of_settings value:=
@@ -83,12 +95,12 @@ Definition encode_body value := match value with
 |TitlePromptsBody revision task agent=>JObject[("revision",number revision);("task_prompt",JString task);("agent_prompt",JString agent)]end.
 Definition decode_body e value :option body :=match e with
 |Identity.WorkName work=>option_map(WorkNameBody work)(string_field "name" value)
-|Identity.NewTask work=>message<-bind(field "message" value)decode_text;;profile<-string_field "profile" value;;reasoning<-string_field "reasoning" value;;configuration<-bind(field "context" value)decode_configuration;;mode<-bind(field "task_environment" value)decode_workspace_mode;;Some(NewTaskBody message profile reasoning configuration mode work)
+|Identity.NewTask work=>message<-bind(field "message" value)decode_text;;profile<-string_field "profile" value;;reasoning<-string_field "reasoning" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;mode<-bind(field "task_environment" value)decode_workspace_mode;;Some(NewTaskBody message profile reasoning configuration mode work)
 |Identity.Message task=>message<-bind(field "message" value)decode_text;;delivery<-string_field "delivery" value;;match delivery with "send"=>Some(MessageBody task message Fields.Send)|"steer"=>Some(MessageBody task message Fields.Steer)|_=>None end
 |Identity.Project project=>name<-string_field "name" value;;workspace<-bind(field "workspace" value)Codec.parse_workspace;;worktree<-bool_field "create_worktree" value;;Some(ProjectBody project name workspace worktree)
 |Identity.Card card=>revision<-natural_field "revision" value;;contents<-bind(field "card" value)decode_card;;assist<-bool_field "assisted" value;;profile<-string_field "draft_profile" value;;keep<-bool_field "keep_open" value;;Some(CardBody card revision contents assist profile keep)
-|Identity.Agent agent=>revision<-natural_field "revision" value;;name<-string_field "name" value;;profile<-string_field "profile" value;;reasoning<-string_field "reasoning" value;;instructions<-string_field "instructions" value;;configuration<-bind(field "context" value)decode_configuration;;concurrency<-natural_field "concurrency" value;;Some(AgentBody agent revision name profile reasoning instructions configuration concurrency)
-|Identity.Fork task=>count<-natural_field "child_count" value;;messages<-list_field as_string "messages" value;;configuration<-bind(field "context" value)decode_configuration;;Some(ForkBody task count messages configuration)
+|Identity.Agent agent=>revision<-natural_field "revision" value;;name<-string_field "name" value;;profile<-string_field "profile" value;;reasoning<-string_field "reasoning" value;;instructions<-string_field "instructions" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;concurrency<-natural_field "concurrency" value;;Some(AgentBody agent revision name profile reasoning instructions configuration concurrency)
+|Identity.Fork task=>count<-natural_field "child_count" value;;messages<-list_field as_string "messages" value;;configuration<-bind(field "context" value)(decode_editor_configuration e);;Some(ForkBody task count messages configuration)
 |Identity.Compact task=>option_map(CompactBody task)(bind(field "summary" value)decode_option_text)
 |Identity.TaskGraph graph work=>declaration<-string_field "declaration" value;;parsed<-bind(field "parsed" value)(parse_optional(fun value=>Some value));;Some(TaskGraphBody graph declaration parsed work)
 |Identity.TitlePrompts=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;Some(TitlePromptsBody revision task agent)end.
