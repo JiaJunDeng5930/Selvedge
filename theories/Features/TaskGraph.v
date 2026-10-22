@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks CommandExecution.
+From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Tasks CommandExecution.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Work Worktree TaskGraphDeclarations.
 Import ListNotations.
@@ -133,14 +133,22 @@ Fixpoint expand (message:Selvedge.Features.Domain.graph_message) (output:string)
  | Selvedge.Features.Domain.GraphOutput=>output | Selvedge.Features.Domain.GraphLiteral text=>text | Selvedge.Features.Domain.GraphConcat parts=>fold_right (fun part rest=>String.append (expand part output) rest) "" parts end.
 Definition same_origin (a b:output_origin) := N.eqb (origin_producer a) (origin_producer b) && N.eqb (origin_operation a) (origin_operation b) && N.eqb (origin_part a) (origin_part b) &&
  match origin_mode a,origin_mode b with PlainOutput,PlainOutput|InteractiveOutput,InteractiveOutput=>true | _,_=>false end.
-Definition seen_origin (origin:output_origin) (task:task) := existsb (fun message=>match message with AssistantMessage existing _=>same_origin origin existing | _=>false end) (task_history task).
+Definition assistant_output (item:message) : option (output_origin * string) :=
+ match item with
+ | AssistantMessage origin text=>Some (origin,text)
+ | ModelContext origin content=>
+   if Conversation.provider_assistant_message content
+   then Some (origin,Conversation.provider_text content) else None
+ | _=>None end.
+Definition seen_origin (origin:output_origin) (task:task) := existsb (fun message=>match assistant_output message with Some (existing,_)=>same_origin origin existing | None=>false end) (task_history task).
 Definition new_outputs (before:world) (id:N) (task:task) :=
  let added:=skipn (match Selvedge.Kernel.State.find_task id before with Some previous=>List.length (task_history previous) | None=>0%nat end) (task_history task) in
  if existsb (fun message=>match message with FunctionCall _=>true | _=>false end) added then [] else
- fold_right (fun message rest=>match message with
- | AssistantMessage origin text=>if N.eqb id (origin_producer origin) && negb (String.eqb text "") &&
+ fold_right (fun message rest=>match assistant_output message with
+ | Some (origin,text)=>if N.eqb id (origin_producer origin) &&
  (match origin_mode origin with PlainOutput=>true | _=>false end) &&
- negb (match Selvedge.Kernel.State.find_task id before with Some previous=>seen_origin origin previous | None=>false end) then text::rest else rest | _=>rest end) [] added.
+ negb (match Selvedge.Kernel.State.find_task id before with Some previous=>seen_origin origin previous | None=>false end) then text::rest else rest
+ | None=>rest end) [] added.
 Record delivery := Delivery { delivery_graph:N;delivery_rule:string;delivery_target:N;delivery_text:string }.
 Definition pending_rule (source graph:N) (nodes:list Selvedge.Features.Domain.resolved_node) (rule:Selvedge.Features.Domain.graph_rule) (output:string) :=
  match resolve (Selvedge.Features.Domain.rule_source rule) nodes with Some expected=>if N.eqb source expected then fold_right
