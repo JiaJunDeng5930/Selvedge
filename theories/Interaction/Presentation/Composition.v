@@ -53,7 +53,7 @@ Definition recipe value :=
   end.
 
 Inductive region :=
-| SharedTitle | SharedContent | ConversationTitle | TaskActions
+| SharedTitle | SharedContent | ConversationHeader | ConversationTitle | TaskActions
 | TimelineContent | LatestAction | ApprovalDecisions
 | CreationIntroduction | ComposerInput
 | ProjectTitle | ProjectActions | DefaultWorkspace | ProjectGuidance | ProjectTasks
@@ -72,6 +72,7 @@ Record structure := Structure {
 Definition region_name value :=
   match value with
   | SharedTitle => "shared-ui-title" | SharedContent => "shared-ui-content"
+  | ConversationHeader => "conversation-header"
   | ConversationTitle => "conversation-title" | TaskActions => "task-actions"
   | TimelineContent => "timeline-content" | LatestAction => "latest-action"
   | ApprovalDecisions => "approval-decisions"
@@ -90,7 +91,7 @@ Definition structure_for plan :=
   | CenteredCreation => Structure []
       (CreationIntroduction ::
         match composer_kind plan with CenteredInput => [ComposerInput] | _ => [] end) []
-  | ChronologicalReading => Structure [ConversationTitle; TaskActions] [TimelineContent]
+  | ChronologicalReading => Structure [ConversationHeader] [TimelineContent]
       (List.app (match latest_kind plan with AboveComposer => [LatestAction] | _ => [] end)
        (List.app (match decisions_kind plan with BeforeComposer => [ApprovalDecisions] | _ => [] end)
        (match composer_kind plan with BottomInput => [ComposerInput] | _ => [] end)))

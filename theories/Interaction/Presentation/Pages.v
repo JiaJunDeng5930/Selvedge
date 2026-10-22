@@ -64,9 +64,24 @@ Definition approvals snapshot s task parent value :=
   [region parent "approval-queue" "Approvals"Roles.ApprovalQueue(map(approval_node snapshot s task parent)operations)]]end.
 Definition reader_disclosures task s :=State.disclosures(SessionNavigation.reader_for s task).
 Definition reading_actions := AuditReading.ReadingActions Input.SetDisclosure Input.Interactive Input.RetainedOutput.
-Definition operation_controls snapshot s task parent :=flat_map(fun action=>match ObjectActions.command action with
-|Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary
-  (Input.Command command)(approval_availability action))]|None=>[]end)(ObjectActions.cancellation_actions snapshot s task).
+Definition operation_cancel_control snapshot s task parent operation :=
+ match natural_field "operation_id" operation with
+ |None=>[]|Some id=>match ObjectActions.cancellation_action snapshot s task id with
+  |Some action=>match ObjectActions.command action with
+   |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary
+     (Input.Command command)(approval_availability action))]|None=>[]end
+  |None=>[]end end.
+Definition operation_node snapshot s task parent operation :=
+ match natural_field "operation_id" operation with
+ |None=>[]|Some id=>let key:=part parent("operation/"++show_natural id)in
+  [region key "operation"("Operation #"++show_natural id)Roles.Activity
+    ([read_only key "call" "Tool call"(text "tool" operation++" · "++text "call_id" operation);
+      read_only key "state" "State"(text "stage" operation);
+      read_only key "status" "Status"(text "status" operation)]++
+     approval_arguments key operation++operation_cancel_control snapshot s task key operation)]end.
+Definition operation_controls snapshot s task parent observation :=
+ match flat_map(operation_node snapshot s task parent)(Codec.items "operations" observation)with
+ |[]=>[]|operations=>[region parent "active-operations" "Active operations"Roles.Activity operations]end.
 Definition worktree_status name:=value_or ""
  (option_map snd(find(fun entry=>String.eqb name(fst entry))
  [("creating","Creating workspace…");("creating_archived","Creating workspace before archiving…");
@@ -106,11 +121,12 @@ Definition task_contents snapshot s view parent task :=
  let observation:=task_observation task in
  let timeline:=AuditReading.timeline reading_actions(document_context snapshot s)(State.document_retention s)
    (State.interactive_state s)view(reader_disclosures id s)in
- let timeline:=List.app timeline(operation_controls snapshot s id parent)in
- ([page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
+ let timeline:=List.app timeline(operation_controls snapshot s id parent observation)in
+ ([page_region parent Composition.ConversationHeader Composition.HeadingPosition
+   [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
   page_region parent Composition.TaskActions Composition.HeadingPosition
    (List.app [declared parent Roles.Button(secondary "details" "Task details"(Input.OpenInformation(State.TaskDetails id)(part parent "details")));
-    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent));
+    Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))];
   page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
     [Node(Identity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline

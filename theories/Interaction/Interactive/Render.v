@@ -99,11 +99,12 @@ Definition chart_summary event_id p :list scene :=
  (if Nat.ltb Bounds.chart_points count then
   [text (key+++"/@truncation") ("共 "+++show_nat count+++" 行，图中显示前 "+++show_nat Bounds.chart_points+++" 行。")] else [])++
  (if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else [])++
- [S.Node (key+++"/@data") "interactive-markdown/chart-data" "图表数据" R.Content S.SummaryList
-  (map (fun pair=>let '(index,row):=pair in
-    text (key+++"/@summary/"+++show_nat index)
-     (scalar_text (get_path (property_text "x" p) row)+++": "+++scalar_text (get_path (property_text "y" p) row)))
-   (combine (seq 0 (List.length rows)) rows))].
+ [S.Node (key+++"/@data") "interactive-markdown/chart-data" "图表数据" R.Content
+  (S.Table "图表数据"
+   [if String.eqb x_label "" then property_text "x" p else x_label;
+    if String.eqb y_label "" then property_text "y" p else y_label]
+   (map (fun row=>[scalar_text (get_path (property_text "x" p) row);
+                   scalar_text (get_path (property_text "y" p) row)]) rows)) []].
 Definition render_chart event_id p : list scene :=
  let key:=Types.event_key event_id in
  match Plot.chart p with

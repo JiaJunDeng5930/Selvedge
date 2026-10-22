@@ -348,3 +348,179 @@ Proof.
  { unfold BoardFacts.mutable. rewrite busy. repeat rewrite Bool.orb_true_r. reflexivity. }
  split; [exact locked|]. unfold BoardFacts.runnable. now rewrite locked.
 Qed.
+
+(** Each bounded batch is composed from the real one-attempt operation.  A
+    stalled batch remains stalled; splitting the budget cannot lose a launch. *)
+Lemma pump_stalled : forall fuel result,
+ Board.next (decision_world result)=None -> Board.pump fuel result=result.
+Proof. intros fuel result idle. destruct fuel; [reflexivity|]. cbn [Board.pump]. now rewrite idle. Qed.
+
+Lemma pump_missing_selection : forall fuel result id,
+ Board.next (decision_world result)=Some id ->
+ Board.lookup id (decision_world result)=None -> Board.pump fuel result=result.
+Proof.
+ intros fuel result id selected missing. destruct fuel; [reflexivity|].
+ cbn [Board.pump]. now rewrite selected,missing.
+Qed.
+
+Theorem pump_batches_compose : forall first remaining result,
+ Board.pump (first+remaining) result=Board.pump remaining (Board.pump first result).
+Proof.
+ induction first as [|first IH]; intros remaining result; [reflexivity|].
+ cbn [Nat.add Board.pump].
+ destruct (Board.next (decision_world result)) as [id|] eqn:selected.
+ - destruct (Board.lookup id (decision_world result)) as [card|] eqn:found.
+   + apply IH.
+   + symmetry. eapply pump_missing_selection; eauto.
+ - symmetry. now apply pump_stalled.
+Qed.
+
+(** An accepted launch appends its complete effect list in order.  A rejected
+    launch contributes no effects; its selected card is blocked instead. *)
+Theorem pump_one_success_effects : forall result id card,
+ Board.next (decision_world result)=Some id ->
+ Board.lookup id (decision_world result)=Some card ->
+ let advanced:=Board.run id (F.card_revision card)
+   (Some (F.decimal_text (F.card_updated card))) None (decision_world result) in
+ bool_default "ok" (decision_reply advanced) false=true ->
+ decision_effects (Board.pump 1 result)=decision_effects result++decision_effects advanced.
+Proof.
+ intros result id card selected found advanced accepted.
+ cbn [Board.pump]. rewrite selected,found. fold advanced. rewrite accepted. reflexivity.
+Qed.
+
+Theorem pump_retains_reply_and_effects : forall fuel result,
+ decision_reply (Board.pump fuel result)=decision_reply result /\
+ exists appended, decision_effects (Board.pump fuel result)=decision_effects result++appended.
+Proof.
+ induction fuel as [|fuel IH]; intros result.
+ - split; [reflexivity|]. exists []. now rewrite app_nil_r.
+ - cbn [Board.pump].
+   destruct (Board.next (decision_world result)) as [id|] eqn:selected;
+     [destruct (Board.lookup id (decision_world result)) as [card|] eqn:found|].
+   + destruct (bool_default "ok" (decision_reply
+       (Board.run id (F.card_revision card) (Some (F.decimal_text (F.card_updated card))) None (decision_world result))) false) eqn:accepted.
+     * match goal with
+       | |- decision_reply (Board.pump fuel ?current)=_ /\ _ =>
+           destruct (IH current) as [reply [appended effects]]
+       end. cbn in reply,effects.
+       split; [exact reply|]. eexists. rewrite effects,app_assoc. reflexivity.
+     * match goal with
+       | |- decision_reply (Board.pump fuel ?current)=_ /\ _ =>
+           destruct (IH current) as [reply [appended effects]]
+       end. cbn in reply,effects.
+       split; [exact reply|]. eauto.
+   + split; [reflexivity|]. exists []. now rewrite app_nil_r.
+   + split; [reflexivity|]. exists []. now rewrite app_nil_r.
+Qed.
+
+(** Finishing never drops an earlier effect.  A continuation is appended only
+    for runnable remaining work and only when none has already been emitted. *)
+Theorem finish_effects : forall result,
+ decision_reply (Board.finish result)=decision_reply result /\
+ (decision_effects (Board.finish result)=decision_effects result \/
+  decision_effects (Board.finish result)=decision_effects result++[ContinueScheduling]).
+Proof.
+ intros result. unfold Board.finish. split; [reflexivity|].
+ destruct (match Board.next (Board.synchronize (decision_world result)) with Some _=>true | None=>false end &&
+   negb (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end) (decision_effects result))) eqn:more;
+   [right|left]; reflexivity.
+Qed.
+
+Theorem finish_schedules_remaining_work : forall result id,
+ Board.next (Board.synchronize (decision_world result))=Some id ->
+ In ContinueScheduling (decision_effects (Board.finish result)).
+Proof.
+ intros result id remaining. unfold Board.finish. rewrite remaining. cbn.
+ destruct (existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
+   (decision_effects result)) eqn:continuing; cbn.
+ - apply existsb_exists in continuing. destruct continuing as [effect [present is_continue]].
+   destruct effect; cbn in is_continue; try discriminate. exact present.
+ - apply in_or_app. right. now left.
+Qed.
+
+Theorem finish_retains_existing_continuation : forall result,
+ In ContinueScheduling (decision_effects result) ->
+ decision_effects (Board.finish result)=decision_effects result.
+Proof.
+ intros result continuing. unfold Board.finish.
+ assert (present:existsb (fun effect=>match effect with ContinueScheduling=>true | _=>false end)
+   (decision_effects result)=true).
+ { apply existsb_exists. exists ContinueScheduling. now split. }
+ rewrite present. cbn. now rewrite Bool.andb_false_r.
+Qed.
+
+Theorem after_transition_retains_reply_and_effects : forall before result,
+ decision_reply (Board.after_transition before result)=decision_reply result /\
+ exists appended, decision_effects (Board.after_transition before result)=decision_effects result++appended.
+Proof.
+ intros before result. unfold Board.after_transition.
+ exact (pump_retains_reply_and_effects 8
+   (Decision (Board.synchronize (decision_world result)) (decision_reply result) (decision_effects result))).
+Qed.
+
+Lemma successful_run_links_selected_card : forall id revision observed caller value card,
+ Board.lookup id value=Some card ->
+ bool_default "ok" (decision_reply (Board.run id revision observed caller value)) false=true ->
+ exists updated,
+ Board.lookup id (decision_world (Board.run id revision observed caller value))=Some updated /\
+ F.card_task updated=Some (Selvedge.Kernel.State.next_task value).
+Proof.
+ intros id revision observed caller value card found accepted.
+ unfold Board.run,Board.at_clock in accepted |- *.
+ destruct (Board.clock observed) as [now|]; [|discriminate].
+ unfold Board.with_card in accepted |- *. rewrite found in accepted |- *.
+ destruct (N.eqb revision (F.card_revision card)); [|discriminate].
+ destruct (negb (Board.runnable card value)); [discriminate|].
+ destruct (Board.owner_agent (F.draft_owner (F.card_contents card)) value) as [agent|]; [|discriminate].
+ cbn zeta in accepted |- *.
+ lazymatch type of accepted with
+ | bool_default "ok" (decision_reply (if bool_default "ok" (decision_reply ?created) false then _ else _)) false=true =>
+   set (created_result:=created) in *
+ end.
+ destruct (bool_default "ok" (decision_reply created_result) false) eqn:create_ok.
+ - cbn [decision_world]. eexists. split.
+   + eapply BoardRelations.board_lookup_after_put_selected.
+     unfold created_result. rewrite BoardRelations.board_lookup_after_create_selected. exact found.
+   + reflexivity.
+ - rewrite create_ok in accepted. discriminate.
+Qed.
+
+(** A real one-attempt batch removes its selected card from the runnable\n    queue: success links it to its new Task, while failure blocks it. *)
+Theorem pump_one_resolves_selected_card : forall result id card,
+ Board.next (decision_world result)=Some id ->
+ Board.lookup id (decision_world result)=Some card ->
+ exists updated,
+ Board.lookup id (decision_world (Board.pump 1 result))=Some updated /\
+ Board.ready updated (decision_world (Board.pump 1 result))=false.
+Proof.
+ intros result id card selected found. cbn [Board.pump]. rewrite selected,found.
+ set (advanced:=Board.run id (F.card_revision card)
+   (Some (F.decimal_text (F.card_updated card))) None (decision_world result)).
+ destruct (bool_default "ok" (decision_reply advanced) false) eqn:accepted; cbn [decision_world].
+ - destruct (successful_run_links_selected_card id (F.card_revision card)
+     (Some (F.decimal_text (F.card_updated card))) None (decision_world result) card found accepted)
+     as [updated [linked task_id]].
+   exists updated. split; [exact linked|].
+   unfold Board.ready,Board.runnable,BoardFacts.runnable,BoardFacts.unlinked,Board.unlinked.
+   rewrite task_id. rewrite Bool.andb_false_r. reflexivity.
+ - eexists. split.
+   + eapply BoardRelations.board_lookup_after_put_selected. exact found.
+   + unfold Board.ready. cbn [F.card_contents F.draft_stage F.card_enrichment Board.with_stage].
+     now repeat rewrite Bool.andb_false_r.
+Qed.
+
+Theorem completed_board_batch_retains_reply_and_effects : forall before result,
+ let completed:=Board.finish (Board.after_transition before result) in
+ decision_reply completed=decision_reply result /\
+ exists appended, decision_effects completed=decision_effects result++appended.
+Proof.
+ intros before result completed.
+ destruct (after_transition_retains_reply_and_effects before result) as [reply [appended effects]].
+ destruct (finish_effects (Board.after_transition before result)) as [finished_reply finished_effects].
+ unfold completed. split.
+ - now rewrite finished_reply,reply.
+ - destruct finished_effects as [unchanged|continued].
+   + exists appended. now rewrite unchanged,effects.
+   + exists (appended++[ContinueScheduling]). rewrite continued,effects. symmetry. apply app_assoc.
+Qed.

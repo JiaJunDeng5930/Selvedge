@@ -165,7 +165,9 @@ Definition role_style (role : Roles.role) :=
   | Roles.AssistantMessage => fields EmbeddedPaint "transparent" 0 0 false Leading BlockFlow ContentFlow 0 0 0 0 100 false false
   | Roles.Composer => fields ContentPaint (token "--color-token-border-default") 1 16 true Stretch ColumnFlow ContentFlow 12 0 4 0 100 false false
   | Roles.ComposerActions => fields EmbeddedPaint "transparent" 0 0 false Stretch SplitRowFlow ContentFlow 0 0 4 32 100 false false
-  | Roles.DialogActions => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 8 0 100 false false
+  | Roles.DialogActions => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 16 12 8 0 100 false false
+  | Roles.DialogHeader => fields EmbeddedPaint "transparent" 0 0 false Stretch SplitRowFlow ContentFlow 16 12 8 0 100 false false
+  | Roles.DialogBody => fields EmbeddedPaint "transparent" 0 0 false Stretch ColumnFlow ScrollFlow 16 16 12 0 100 false false
   | Roles.Approval => fields ContentPaint (token "--color-token-editor-warning-foreground") 1 12 false Stretch ColumnFlow ContentFlow 12 12 8 0 100 false false
   | Roles.Toolbar => fields EmbeddedPaint "transparent" 0 0 false Stretch RowFlow ContentFlow 0 0 4 32 100 false false
   | Roles.CodeBlock => fields InsetPaint (token "--color-token-border-default") 1 8 false Stretch ColumnFlow CodeOverflow 12 12 4 0 100 false false
@@ -250,7 +252,7 @@ Definition role_typography env role : list (string * string) :=
   | Roles.NavigationHeader => set Typography.Body Typography.Medium
   | Roles.WorkChoiceRow | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
   | Roles.Field | Roles.Dialog | Roles.Menu | Roles.Details | Roles.Toolbar
-  | Roles.DialogActions | Roles.ComposerActions => set Typography.Body Typography.Regular
+  | Roles.DialogActions | Roles.DialogHeader | Roles.DialogBody | Roles.ComposerActions => set Typography.Body Typography.Regular
   | Roles.Activity => set Typography.Support Typography.Regular
   | Roles.CodeBlock => set Typography.CodeBody Typography.Regular
   | Roles.Button | Roles.PrimaryButton | Roles.DestructiveButton | Roles.SelectedButton => set Typography.Body Typography.Medium
@@ -262,6 +264,11 @@ Definition role_properties env role := style_properties env (role_style role) ++
   | Roles.Alert => [("color",token "--color-text-danger"); ("overflow-wrap","anywhere")]
   | Roles.Toolbar => [("justify-content","flex-start"); ("gap",Typography.px (Layout.clearance env))]
   | Roles.ComposerActions => [("gap",Typography.px (Layout.clearance env))]
+  | Roles.DialogHeader => [("flex","none"); ("min-inline-size","0")]
+  | Roles.DialogBody => [("flex","1 1 auto"); ("min-inline-size","0")]
+  | Roles.DialogActions => [("flex","none"); ("justify-content","flex-end")]
+  | Roles.Button | Roles.PrimaryButton | Roles.DestructiveButton | Roles.SelectedButton =>
+      [("justify-content","center")]
   | _ => [] end.
 
 Definition information_properties env activity role :=

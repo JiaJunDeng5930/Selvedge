@@ -46,24 +46,28 @@ Proof.
  split; repeat rewrite in_app_iff; cbn [List.In]; intuition (try reflexivity).
 Qed.
 
-Definition disabled_native_button (value : DOM.node) : Prop :=
+Definition unavailable_native_button (value : DOM.node) : Prop :=
  match value with
- | DOM.Element _ tag attributes _ _ _ _ => tag = "button" /\ In ("disabled", "disabled") attributes
+ | DOM.Element _ tag attributes _ _ _ _ => tag = "button" /\
+   (In ("disabled", "disabled") attributes \/ In ("aria-disabled", "true") attributes)
  | _ => False
  end.
 
-Theorem unavailable_action_renders_a_disabled_native_control {A} (describe : A -> ControlPurpose.purpose)
+Theorem unavailable_action_renders_an_unavailable_native_button {A} (describe : A -> ControlPurpose.purpose)
     env generation area activity source view component key semantic label
     (action : Model.control A) (children : list (Surface.node A)) :
  Model.available (Model.control_availability action) = false ->
- disabled_native_button
+ unavailable_native_button
    (Document.compile_node describe env generation area activity source view component
      (Surface.Node key semantic label Roles.Button (Surface.Activate action) children)).
 Proof.
  intro Unavailable.
- cbn [Document.compile_node disabled_native_button].
+ cbn [Document.compile_node Document.area_for unavailable_native_button].
  split; [reflexivity|].
- unfold Document.control_attributes; rewrite Unavailable.
- cbn [Document.disabled].
- repeat rewrite in_app_iff; cbn [List.In]; intuition (try reflexivity).
+ unfold Document.control_attributes; rewrite !Unavailable.
+ cbn [Document.disabled Surface.node_role Surface.node_meaning Document.area_for].
+ rewrite !Bool.orb_true_r.
+ cbn.
+ right.
+ repeat rewrite in_app_iff; cbn [List.In]; tauto.
 Qed.

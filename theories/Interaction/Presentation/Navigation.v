@@ -24,8 +24,12 @@ Definition global_navigation compact s :=
  let current:=State.location(State.navigation_state s) in
  region "/workspace" "global-navigation" "Global navigation" (Roles.GlobalNavigation compact)
   (List.app(map(destination_node compact current "/global-navigation")destinations)
-   [declared "/global-navigation" (Roles.GlobalNavigationEntry false compact)
-    (secondary "settings/open" "Settings" (Input.ServiceInput Services.OpenSettings))]).
+   (List.app
+    [declared "/global-navigation" (Roles.GlobalNavigationEntry false compact)
+     (secondary "settings/open" "Settings" (Input.ServiceInput Services.OpenSettings))]
+    (if compact || State.desktop_task_list_visible(State.navigation_state s) then [] else
+     [declared "/global-navigation" (Roles.GlobalNavigationEntry false compact)
+       (secondary "tasks/expand" "Expand Task sidebar" (Input.TaskListVisible true))]))).
 Definition work_tab active (work:option N) label :=
  declared "/work-tabs" (Roles.WorkTab(same_id active work))
   (secondary (Identity.work_key work) label(Input.SelectWork work)).
@@ -63,7 +67,7 @@ Definition project_entry snapshot s current parent tasks (project:project) :=
      declared key Roles.Button(secondary "create" "New task"(Input.BeginTask(Some id)));
      declared key Roles.Button(secondary "more" "Project actions"(Input.OpenObjectActions(ProjectActions id)(part key "more")))] ::
    if expanded then map(task_entry_tree current key)(forest(project_tasks(Some id)tasks)) else []).
-Definition task_navigation snapshot s (expanded:bool) :=
+Definition task_navigation_with toggle snapshot s (expanded:bool) :=
  let navigation:=State.navigation_state s in
  let current:=State.location navigation in
  let content:=match tasks snapshot,projects snapshot with
@@ -85,7 +89,7 @@ Definition task_navigation snapshot s (expanded:bool) :=
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   (region "/navigation" "header" "Task tree" Roles.NavigationHeader
    (declared(part "/navigation" "header") Roles.Button
-      (secondary "toggle"(if expanded then "Collapse Task sidebar"else"Expand Task sidebar")(Input.NavigationExpanded(negb expanded)))::
+      (secondary "toggle"(if expanded then "Collapse Task sidebar"else"Expand Task sidebar")(toggle(negb expanded)))::
     match State.active_work navigation with None=>[]|Some work=>
      [declared "/navigation" Roles.Button(secondary "rename-work" "Rename Work"(Input.OpenEditor(WorkName work)(part "/navigation" "rename-work")))]end)::
    List.app shared(if expanded then
@@ -94,6 +98,10 @@ Definition task_navigation snapshot s (expanded:bool) :=
         [declared "/navigation"(Roles.NavigationEntry(match current with Start=>true|_=>false end))
           (secondary "new-task" "新建对话"(Input.BeginTask None))]::content)]
     else [])).
+Definition task_navigation snapshot s expanded :=
+ task_navigation_with Input.NavigationExpanded snapshot s expanded.
+Definition desktop_task_navigation snapshot s expanded :=
+ task_navigation_with Input.TaskListVisible snapshot s expanded.
 Definition work_summary snapshot selected :=
  match tasks snapshot with
  |None=>"Task observations unavailable"
@@ -128,8 +136,9 @@ Definition work_overview snapshot s parent :=
    match works snapshot with
    |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
    |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
- [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup(work_choice_rows parent 0 entries);
-  region parent "actions" "Actions" Roles.DialogActions
+ [dialog_header parent [title parent "Works"];
+  dialog_body parent [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup(work_choice_rows parent 0 entries)];
+  dialog_actions parent
    [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork));
     region parent "action-space" "" Roles.Section [];
     declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)]].
@@ -152,11 +161,13 @@ Definition compact_header snapshot s :=
 Definition navigation_base snapshot s capacity :=
  let expanded:=SessionNavigation.expanded_for(navigation_beside_content capacity)s in
  if navigation_beside_content capacity then
-  [global_navigation false s;work_tabs snapshot s;task_navigation snapshot s expanded]
+  List.app [global_navigation false s;work_tabs snapshot s]
+    (if expanded then [desktop_task_navigation snapshot s true] else [])
  else if expanded then[]else[compact_header snapshot s].
 Definition navigation_layers snapshot s capacity :=
  if navigation_beside_content capacity || negb(SessionNavigation.expanded_for false s)then[]else
  [Node "/navigation/modal" "task-navigation" "Task tree" Roles.Dialog
   (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
     "/navigation"(part "/compact-header" "tasks")"/main"(part "/compact-header" "tasks") (Input.NavigationExpanded false) true true))
-  [compact_header snapshot s;task_navigation snapshot s true]].
+  [dialog_header "/navigation/modal" [compact_header snapshot s];
+   dialog_body "/navigation/modal" [task_navigation snapshot s true]]].

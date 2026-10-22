@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Browser Require Import Appearance Typography Layout ControlPurpose.
-From Selvedge.Interaction.Presentation Require Import Roles Information Composition Surface.
+From Selvedge.Interaction.Presentation Require Import Model Roles Information Composition Surface.
 From Selvedge.Interaction.Submission Require Fields.
 Import ListNotations.
 Open Scope string_scope.
@@ -9,7 +9,7 @@ Open Scope list_scope.
 Module UX := Selvedge.Interaction.Experience.Model.
 Definition scaled env := Typography.scaled (Layout.root_font_size_milli env).
 Definition pixels env value := Typography.px (scaled env value).
-Definition row env := [("display","flex"); ("flex-direction","row"); ("align-items","center");
+Definition row env := [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("justify-content","flex-start");
   ("padding-inline",pixels env 8); ("padding-block","0"); ("gap",pixels env 8);
   ("min-block-size",Typography.px (Layout.motor_minimum env))].
 Definition embedded (env : Layout.environment) : list (string * string) := [("background","transparent"); ("border-width","0");
@@ -66,7 +66,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
       | Information.Description => if activity then description_properties env else []
       | _ => [] end
   | Surface.PageRegion region position => Layout.region_properties env region position
-  | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap",pixels env 4)]
+  | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
   | Surface.TaskRow _ _ _ _ _ => Layout.member_properties env false false
   | Surface.TaskChildren _ => Layout.member_properties env false true
   | Surface.ProjectChooser _ => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("gap","0"); ("padding","0")]
@@ -78,11 +78,11 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.ChoiceGroup | Surface.DecisionGroup _ _ => [("display","flex"); ("flex-direction","column"); ("gap",pixels env 4)]
   | Surface.Choice _ selected description _ =>
       Appearance.style_properties env (Appearance.navigation_style selected 8 6) ++
-      [("align-items","flex-start"); ("white-space","normal"); ("padding-block",pixels env 8)]
+      [("align-items","flex-start"); ("justify-content","flex-start"); ("white-space","normal"); ("padding-block",pixels env 8)]
   | Surface.WorkChoice _ selected _ =>
       Appearance.style_properties env (Appearance.fields (Appearance.ChoicePaint selected)
         (Appearance.token (if selected then "--color-token-focus-border" else "--color-token-border-default"))
-        1 10 false Appearance.Leading Appearance.RowFlow Appearance.ContentFlow 12 12 8 120 100 true false)
+        1 10 false Appearance.Leading Appearance.RowFlow Appearance.ContentFlow 12 12 8 120 100 true false) ++ [("justify-content","flex-start")]
   | Surface.ActionUnit _ _ => action_properties env activity
   | Surface.ObjectGroup _ => Layout.group_properties env activity
   | Surface.ActivityRow Surface.ObjectHeading => Layout.heading_properties env activity
@@ -118,4 +118,9 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
       [("padding-inline","0"); ("padding-block",pixels env 4); ("gap",pixels env 4)]
   | Surface.ProjectGroup _ _ _, Surface.InformationText Information.GroupTitle =>
       Typography.properties (Layout.root_font_size_milli env) Typography.ActivityPrimary Typography.Strong
+  | Surface.LayerRegion behavior, Surface.ActionUnit _ _ =>
+      if Model.modal_layer behavior then
+        [("flex","1 1 auto"); ("min-inline-size","0"); ("min-block-size","0");
+         ("padding","0"); ("gap","0")]
+      else []
   | _,_ => [] end.

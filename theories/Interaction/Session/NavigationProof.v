@@ -13,6 +13,34 @@ Proof.
    apply N.eqb_eq in owned. symmetry. exact owned.
  - reflexivity.
 Qed.
+
+Lemma selection_intent_invalidates_prior_generation state :
+ N.eqb(State.generation(State.navigation_state state))
+  (State.generation(State.navigation_state(Navigation.selection_intent state)))=false.
+Proof.
+ unfold Navigation.selection_intent,State.with_navigation. cbn.
+ apply N.eqb_neq. apply N.neq_succ_diag_r.
+Qed.
+
+Theorem new_selection_intent_prevents_work_completion_selection snapshot state layer outcome :
+ Navigation.outcome_success outcome=true ->
+ Navigation.complete snapshot
+  (State.WorkCreation(State.generation(State.navigation_state state))layer)outcome
+  (Navigation.selection_intent state)=Some(Navigation.keep(Navigation.selection_intent state)).
+Proof.
+ intro Success. cbn[Navigation.complete]. rewrite Success. cbn.
+ rewrite selection_intent_invalidates_prior_generation. reflexivity.
+Qed.
+
+Theorem new_selection_intent_prevents_side_completion_selection snapshot state parent layer trigger outcome :
+ Navigation.outcome_success outcome=true ->
+ Navigation.complete snapshot
+  (State.SideCreation parent(State.generation(State.navigation_state state))layer trigger)outcome
+  (Navigation.selection_intent state)=Some(Navigation.keep(Navigation.selection_intent state)).
+Proof.
+ intro Success. cbn[Navigation.complete]. rewrite Success. cbn.
+ rewrite selection_intent_invalidates_prior_generation. reflexivity.
+Qed.
 Lemma reader_for_stored state reader :
  Navigation.reader_for(Navigation.store_reader reader state)(State.reading_task reader)=reader.
 Proof.

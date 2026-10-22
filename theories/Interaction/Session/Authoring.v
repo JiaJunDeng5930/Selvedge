@@ -17,12 +17,14 @@ Module SS := Selvedge.Interaction.Session.State.
 Module EO := Selvedge.Interaction.Experience.Observation.
 Module SO := Selvedge.Interaction.Session.Observation.
 Record result:=Result{result_state:SS.state;result_effects:list json;
- result_error:option string}.
-Definition keep state:=Result state [] None.
-Definition fail state reason:=Result state [] (Some reason).
+ result_error:option json;result_visible_error:bool}.
+Definition keep state:=Result state [] None false.
+Definition fail state reason:=Result state [] (Some(JString reason))false.
+Definition fail_diagnostic state diagnostic:=Result state [](Some diagnostic)false.
+Definition alert_diagnostic state diagnostic:=Result state [](Some diagnostic)true.
 Definition emit kind fields:=JObject(("type",JString kind)::fields).
 Definition focus key:=emit "focus"[("key",JString key)].
-Definition changed state effects:=Result state effects None.
+Definition changed state effects:=Result state effects None false.
 Definition ensure_draft snapshot owner state:=match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
 |Some _=>state|None=>match Initialize.materialize snapshot(SS.service_state state)owner with
  Some value=>SS.save_draft value state|None=>state end end.
@@ -33,7 +35,33 @@ Definition reopen_draft snapshot owner state:=
    |Some fresh=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))(Draft.contents fresh)Draft.Editing "")state
    |None=>state end
   |_=>state end
- |None=>ensure_draft snapshot owner state end.
+ |None=>match Initialize.materialize snapshot(SS.service_state state)owner with
+   |Some fresh=>let fresh:=match owner with
+     |Identity.Project _|Identity.TitlePrompts=>Draft.Draft(SS.next_layer state)(Draft.contents fresh)Draft.Editing ""
+     |_=>fresh end in SS.save_draft fresh state
+   |None=>state end end.
+Definition pending_for_editor owner pending:=match SS.purpose pending with
+|SS.DraftSubmission draft _ _ _|SS.LiveConfiguration draft _ _|SS.ProjectPreference draft _ _ _ _=>
+ same_editor owner(Draft.owner draft)
+|_=>false end.
+(** A cancelled settings editor invalidates captured session requests as well as
+    workspace observations. The monotone layer ticket reserves the next draft
+    revision, so a late reply cannot settle a reopened editor with the same owner. *)
+Definition discard_editor owner state:=
+ let authoring:=SS.authoring_state state in
+ let previous:=Draft.find_draft owner(SS.drafts authoring)in
+ let next_layer:=match previous with
+  |Some draft=>N.max(N.succ(Draft.revision draft))(N.succ(SS.next_layer state))
+  |None=>N.succ(SS.next_layer state)end in
+ let authoring:=set SS.awaiting
+  (fun _=>filter(fun pending=>negb(pending_for_editor owner pending))(SS.awaiting authoring))
+  (set SS.drafts(fun drafts=>filter(fun draft=>negb(same_editor owner(Draft.owner draft)))drafts)authoring)in
+ let services:=SS.service_state state in
+ let services:=fold_left(fun services resource=>match resource_ticket resource with
+  |Some ticket=>Services.forget_preparation ticket services|None=>services end)
+  (filter(Services.preparation_owned owner)(Services.preparations services))services in
+ let services:=Services.cancel_editor owner services in
+ SS.with_next_layer next_layer(SS.with_services services(SS.with_authoring authoring state)).
 Definition issue command purpose state:=
  (* DEFENSE: Two visible controls or interactive owners can submit the same
     command before its first IO receipt; only the first owns execution. *)
@@ -43,6 +71,12 @@ Definition issue command purpose state:=
  (set SS.awaiting(fun pending=>SS.Pending ticket command purpose::pending)authoring)in
  changed(SS.with_authoring authoring state)
  [emit "command"[("ticket",number ticket);("command",Schema.encode_command command)]].
+Definition reserve command purpose state:=
+ if SS.pending_command command state then fail state "This command is already pending."else
+ let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
+ let authoring:=set SS.next(fun _=>N.succ ticket)
+  (set SS.awaiting(fun pending=>SS.Pending ticket command purpose::pending)authoring)in
+ keep(SS.with_authoring authoring state).
 Definition adopt_service decision state:=
  changed(SS.with_services(Services.service_state decision)state)
  (map Services.encode_effect(Services.service_effects decision)).
@@ -85,6 +119,7 @@ Definition command_owner snapshot state command:=match ObjectActions.descriptor_
 Definition command_availability snapshot state command:EM.availability:=
  EO.admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
 Definition submission_obstruction snapshot draft state:option string:=
+ if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
  if negb(SO.worktree_submission_allowed snapshot state draft)then Some "Wait for Git verification of the primary workspace before creating a worktree."else
  match EO.project_precondition snapshot state draft with
  |Some(_,_,reason)=>Some reason
@@ -210,12 +245,14 @@ Definition choose_skill snapshot owner path state:=
   |None=>fail state "This object does not contain a message."end
  |_,_,_=>fail state "The skill suggestion is no longer current."end.
 Definition append first second:=Result(result_state second)(result_effects first++result_effects second)
- (match result_error second with Some error=>Some error|None=>result_error first end).
+ (match result_error second with Some error=>Some error|None=>result_error first end)
+ (result_visible_error first||result_visible_error second).
 Definition adopt_navigation snapshot decision:=
  fold_left(fun result effect=>let state:=result_state result in
  append result(match effect with
  |Navigation.Attend target=>changed state[focus target]
  |Navigation.EnsureDraft owner=>keep(reopen_draft snapshot owner state)
+ |Navigation.CancelEditor owner=>keep(discard_editor owner state)
  |Navigation.Issue command purpose=>issue command purpose state
  |Navigation.FollowTaskLatest task=>match find(fun view=>N.eqb task(Identity.task_view_task view))(Navigation.visible_task_views state)with
    |Some view=>changed state[emit "follow_latest"[("key",JString(Identity.task_view_key view "timeline"))]]|None=>keep state end
@@ -224,7 +261,7 @@ Definition adopt_navigation snapshot decision:=
    |Some value=>match nth_error(Selvedge.Interaction.Codec.items "history" value)(N.to_nat index)with
     |None=>fail state "The history message is no longer available."
     |Some message=>changed state[emit "scroll_to_message"[("key",JString(AuditReading.history_target(DocumentState.retention_namespace(SS.document_retention state))task index message));("message_index",number index)]]end end end))
- (Navigation.result_effects decision)(Result(Navigation.result_state decision)[](Navigation.result_error decision)).
+ (Navigation.result_effects decision)(Result(Navigation.result_state decision)[](Navigation.result_error decision)false).
 Definition draft_current snapshot state:=match Draft.find_draft(Draft.owner snapshot)(SS.drafts(SS.authoring_state state))with
 |Some current=>N.eqb(Draft.revision current)(Draft.revision snapshot)|None=>false end.
 Definition clear_accepted reply draft:=
@@ -238,7 +275,8 @@ Definition clear_accepted reply draft:=
  Draft.Draft(N.succ(Draft.revision draft))body(Draft.Accepted(Draft.revision draft)reply)(Draft.directory_entry draft).
 Definition completion_success (outcome:sum string json):=match outcome with inr reply=>flag "ok" reply|_=>false end.
 Definition completion_value (outcome:sum string json):=match outcome with inr reply=>field "result" reply|_=>None end.
-Definition completion_error (outcome:sum string json):=match outcome with inl reason=>reason|inr reply=>Selvedge.Interaction.Codec.text "error" reply end.
+Definition completion_error (outcome:sum string json):=Selvedge.Interaction.Codec.command_failure outcome.
+Definition completion_message outcome:=Selvedge.Interaction.Codec.diagnostic_message(completion_error outcome).
 Definition complete_draft snapshot captured navigation layer trigger outcome state:=
  let current:=draft_current captured state in
  if completion_success outcome then
@@ -258,9 +296,9 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
  |_=>match SS.layers(SS.navigation_state state)with
    |top::_=>match SS.layer_panel top with SS.EditorPanel owner|SS.PropertyPanel owner _=>if same_editor owner(Draft.owner captured)then adopt_navigation snapshot(Navigation.close_panel state)else keep state|_=>keep state end
    |[]=>keep state end end else keep state
- else let reason:=completion_error outcome in
- let state:=if current then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)reason)captured)state else state in
- fail state reason.
+ else let diagnostic:=completion_error outcome in
+ let state:=if current then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)diagnostic)captured)state else state in
+ fail_diagnostic state diagnostic.
 Definition complete snapshot (executed:SS.public_command) purpose outcome state:=match purpose with
 |SS.DraftSubmission captured navigation layer trigger=>Some(complete_draft snapshot captured navigation layer trigger outcome state)
 |SS.LiveConfiguration captured occurrence remember=>
@@ -275,16 +313,17 @@ Definition complete snapshot (executed:SS.public_command) purpose outcome state:
  let state:=if completion_success outcome then state else
    if draft_current captured state then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)(completion_error outcome))captured)state else state in
  Some(append remembered(match occurrence with
- |None=>if completion_success outcome then keep state else fail state(completion_error outcome)
+ |None=>if completion_success outcome then keep state else fail_diagnostic state(completion_error outcome)
  |Some occurrence=>match SS.layers(SS.navigation_state state)with
  |top::_=>if N.eqb occurrence(SS.layer_occurrence top)then
    if completion_success outcome then adopt_navigation snapshot(match SS.layer_decision_field top with
     |Some _=>Navigation.leave_request occurrence(Draft.owner captured)state|None=>Navigation.close_panel state end)
    else let navigation:=SS.navigation_state state in
-    let top:=set SS.layer_pending(fun _=>false)(set SS.layer_feedback(fun _=>Some(completion_error outcome))top)in
-    fail(SS.with_navigation(set SS.layers(fun layers=>match layers with []=>[]|_::rest=>top::rest end)navigation)state)(completion_error outcome)
+    let diagnostic:=completion_error outcome in
+    let top:=set SS.layer_pending(fun _=>false)(set SS.layer_feedback(fun _=>Some diagnostic)top)in
+    fail_diagnostic(SS.with_navigation(set SS.layers(fun layers=>match layers with []=>[]|_::rest=>top::rest end)navigation)state)diagnostic
    else keep state|[]=>keep state end end))
-|SS.DirectSubmission=>Some(if completion_success outcome then keep state else fail state(completion_error outcome))
+|SS.DirectSubmission=>Some(if completion_success outcome then keep state else alert_diagnostic state(completion_error outcome))
 |SS.ProjectPreference captured command generation layer trigger=>Some(if completion_success outcome then
  issue command(SS.DraftSubmission captured generation layer trigger)state
  else complete_draft snapshot captured generation layer trigger outcome state)
@@ -368,6 +407,27 @@ Definition change_workspace snapshot owner change state:=
       |_=>updated end in keep updated
    |None=>fail state "The working directory change is not valid."end end end
  else fail state "A running task keeps its committed workspace.".
+(** Git observations describe an editor's current primary directory. A failed
+    observation can revoke its local-worktree choice, but cannot edit another
+    draft or a primary directory selected after the request. *)
+Definition unavailable_local_workspace snapshot owner path state:=
+ match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
+ |Some draft=>match bind(SO.workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary,
+   Draft.contents draft with
+  |Some current,Draft.NewTaskBody message profile reasoning configuration
+    (Draft.ManagedWorkspace Selvedge.Kernel.WorkspaceBackend.Local)work=>
+    if String.eqb current path then SS.save_draft
+     (Draft.with_body(Draft.NewTaskBody message profile reasoning configuration Draft.CurrentWorkspace work)draft)state
+    else state
+  |_,_=>state end
+ |None=>state end.
+Definition workspace_git_completed snapshot input previous state:=
+ match input,Services.workspace_git(SS.service_state previous)with
+ |Services.WorkspaceGitCompleted ticket outcome,Resource.Loading current(owner,path)=>
+   if N.eqb ticket current then match outcome with
+    |inr true=>state|_=>unavailable_local_workspace snapshot owner path state end
+   else state
+ |_,_=>state end.
 Definition service_step snapshot input state:=
  let state:=match input with
  |Services.OpenSettings=>let navigation:=SS.navigation_state state in
@@ -379,7 +439,8 @@ Definition service_step snapshot input state:=
  |Services.CloseSettings=>SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
  |_=>state end in
  let decision:=Services.service_step(admitted_upload input state)(SS.service_state state)in
- let state:=SS.with_services(Services.service_state decision)state in
+ let state:=workspace_git_completed snapshot input state
+   (SS.with_services(Services.service_state decision)state)in
  let state:=match Services.attached decision with Some(owner,file)=>attached snapshot owner file state|None=>state end in
  fold_left(fun result effect=>match effect with
  |Services.DirectoryChosen owner path=>append result(change_workspace snapshot owner(Input.AddDirectory path)(result_state result))
@@ -519,7 +580,7 @@ Definition preparation_finished ticket state:=SS.with_services(Services.forget_p
 Definition preparation_failed ticket request reason state:=
  let captured:=Services.preparation_draft request in
  let state:=preparation_finished ticket state in
- let state:=if draft_current captured state then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)reason)captured)state else state in
+ let state:=if draft_current captured state then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)(JString reason))captured)state else state in
  fail state reason.
 Definition issue_prepared ticket request command state:=
  let captured:=Services.preparation_draft request in
@@ -577,12 +638,24 @@ Definition input_command snapshot state input:option SS.public_command:=
  |None=>match Navigation.step snapshot input state with
   |Some decision=>fold_right(fun effect rest=>match effect with Navigation.Issue command _=>Some command|_=>rest end)None(Navigation.result_effects decision)
   |None=>None end end.
+Definition command_input_availability snapshot state command:EM.availability:=
+ if SS.pending_command command state then EM.Unavailable "This command is already pending."else
+ command_availability snapshot state command.
+Definition confirmation_availability snapshot state command:EM.availability:=
+ if SS.pending_command command state then EM.Unavailable "This command is already pending."else
+ if Services.connected(SS.service_state state)then command_availability snapshot state command
+ else EM.Unavailable "Connect to continue.".
 Definition input_availability snapshot state input:EM.availability:=
- match input_command snapshot state input with Some command=>if SS.pending_command command state then EM.Unavailable "This command is already pending."else command_availability snapshot state command|None=>EM.Available end.
+ match input_command snapshot state input with
+ |Some command=>match input with
+  |Input.Confirm=>confirmation_availability snapshot state command
+  |_=>command_input_availability snapshot state command end
+ |None=>EM.Available end.
 Definition refresh_input snapshot input state:=match input with
 |Input.BeginVoiceNew owner=>let draft:=SS.current_draft state owner in
  match current_voice_command state draft with Some command=>ensure_request snapshot(voice_owner command)(Draft.revision draft)command state|None=>keep state end
 |Input.Submit owner _=>let draft:=SS.current_draft state owner in
+ if SS.pending_editor owner state then keep state else
  let checked:=match current_command state draft with Some command=>ensure_request snapshot(CommandAssessment.DraftOwner owner)(Draft.revision draft)command state|None=>keep state end in
  match SO.worktree_preference snapshot state draft with
  |Some update=>append checked(ensure_request snapshot(CommandAssessment.DirectOwner(CommandAssessment.command_identity update))

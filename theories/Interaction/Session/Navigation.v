@@ -12,16 +12,17 @@ Open Scope list_scope.
 Open Scope string_scope.
 
 Inductive effect := Attend (target:string) | EnsureDraft (owner:editor)
+| CancelEditor (owner:editor)
 | Issue (command:State.public_command)(purpose:State.pending_purpose)
 | LocateHistoryMessage (task index:N) | FollowTaskLatest(task:N).
 Record result := Result {
  result_state:State.state;
  result_effects:list effect;
- result_error:option string
+ result_error:option json
 }.
 Definition keep state := Result state [] None.
 Definition changed state effects := Result state effects None.
-Definition refuse message state := Result state [] (Some message).
+Definition refuse message state := Result state [] (Some(JString message)).
 (** Reader generations count semantic visits, independently of DOM publication.
     A task without a prior visit has no retained choice to override following. *)
 Definition reader_for state task := match find(fun reader=>N.eqb task(State.reading_task reader))(State.readers state)with
@@ -40,8 +41,10 @@ Definition visible_task_views state :=
 Definition task_visible state task := existsb(fun view=>N.eqb task(task_view_task view))(visible_task_views state).
 Definition shared_occurrence state := match State.location(State.navigation_state state)with
  |SharedUI work task=>Some(DocumentState.SharedOccurrence work task)|_=>None end.
-Definition expanded_for beside state := match State.navigation_intent(State.navigation_state state)with
- |State.AutomaticNavigation=>beside|State.OpenNavigation=>true|State.ClosedNavigation=>false end.
+Definition expanded_for (beside:bool) (state:State.state) : bool :=
+ if beside then State.desktop_task_list_visible(State.navigation_state state)else
+ match State.navigation_intent(State.navigation_state state)with
+ |State.AutomaticNavigation=>false|State.OpenNavigation=>true|State.ClosedNavigation=>false end.
 Definition same_work lhs rhs := match lhs,rhs with
  |None,None=>true|Some lhs,Some rhs=>N.eqb lhs rhs|_,_=>false end.
 Definition visited work navigation := match find(fun visit=>same_work work(fst visit))(State.visits navigation)with
@@ -101,19 +104,33 @@ Definition initial_attention panel:=match panel with
  |State.EditorPanel owner=>Identity.key_part(panel_key panel)(match Parameters.fields owner with []=>"heading"|field::_=>Parameters.name field end)
  |State.PropertyPanel _ _=>Identity.key_part(panel_key panel)"heading"
  |_=>panel_key panel end.
+Definition panel_initial_attention panel state:=match panel with
+ |State.NavigationPanel WorkOverview=>
+   (* WorkChoice nodes use the panel key as their parent. *)
+   Identity.key_part(panel_key panel)(Identity.work_key(State.active_work(State.navigation_state state)))
+ |_=>initial_attention panel end.
 (** Closed layers never return their occurrence to the allocator: a delayed
     event from an earlier opening cannot acquire a later layer's ownership. *)
 Definition open_panel panel trigger state :=
  let navigation:=State.navigation_state state in
  let occurrence:=State.next_layer state in
+ let attention:=panel_initial_attention panel state in
  let decision:=match panel with State.PropertyPanel owner(Activity.SubjectActivity name)=>Parameters.find_subject_field owner name|_=>None end in
- let layer:=State.Layer panel trigger(initial_attention panel)""occurrence false decision None None false in
+ let layer:=State.Layer panel trigger attention "" occurrence false decision None None false in
  let layers:=layer::filter(fun current=>negb(String.eqb(panel_key panel)(panel_key(State.layer_panel current))))(State.layers navigation)in
  changed(State.with_next_layer(N.succ occurrence)(State.with_navigation(set State.layers(fun _=>layers)navigation)state))
- [Attend(initial_attention panel)].
+ [Attend attention].
 Definition close_panel state := match State.layers(State.navigation_state state)with
  |[]=>keep state
  |layer::rest=>changed(State.with_navigation(set State.layers(fun _=>rest)(State.navigation_state state))state)[Attend(State.layer_trigger layer)]end.
+Definition dismiss_panel state := match State.layers(State.navigation_state state)with
+ |layer::_=>match State.layer_panel layer with
+  |State.EditorPanel owner=>match owner with
+    |Identity.Project _|Identity.TitlePrompts=>let closed:=close_panel state in
+      changed(result_state closed)(CancelEditor owner::result_effects closed)
+    |_=>close_panel state end
+  |_=>close_panel state end
+ |[]=>keep state end.
 Definition modify_top occurrence modify state :=match State.layers(State.navigation_state state)with
  |[]=>keep state
  |current::rest=>if N.eqb occurrence(State.layer_occurrence current)then
@@ -184,11 +201,15 @@ Definition generated command purpose state:=
  match Schema.decode_command command_specs(Commands.encode command)with
  |Some command=>changed state[Issue command purpose]
  |None=>refuse "The operation does not match the public command protocol."state end.
-Definition create_work state:=generated(Commands.Cmd_create_work(Commands.Build_create_work(Some "")))
+Definition selection_intent state:=State.with_navigation
+ (set State.generation N.succ(State.navigation_state state))state.
+Definition create_work state:=let state:=selection_intent state in
+ generated(Commands.Cmd_create_work(Commands.Build_create_work(Some "")))
  (State.WorkCreation(State.generation(State.navigation_state state))(State.next_layer state))state.
 Definition begin_side snapshot task trigger state:=
  match DocumentState.find_task task snapshot with None=>refuse "The task is no longer available."state
- |Some _=>generated(Commands.Cmd_open_side_conversation(Commands.Build_open_side_conversation task
+ |Some _=>let state:=selection_intent state in
+ generated(Commands.Cmd_open_side_conversation(Commands.Build_open_side_conversation task
  (Some(JArray[JObject[("type",JString "text");("text",JString "")]]))None))
  (State.SideCreation task(State.generation(State.navigation_state state))(State.next_layer state)trigger)state end.
 Definition side_message_target task:=Identity.message_key(SideTask task).
@@ -258,7 +279,7 @@ Definition step snapshot input state:option result:=match input with
  |Input.InspectSource owner request trigger=>Some(open_panel(State.InformationPanel(State.PropertySource owner request))trigger state)
  |Input.TogglePropertySource owner occurrence=>Some(match State.layers(State.navigation_state state)with
  |layer::_=>request_view occurrence owner(negb(State.layer_source_expanded layer))None None state|[]=>keep state end)
- |Input.ClosePanel=>Some(close_panel state)
+ |Input.ClosePanel=>Some(dismiss_panel state)
  |Input.Confirmation command caption destination trigger=>Some(open_panel(State.Confirmation command caption destination)trigger state)
  |Input.Confirm=>Some(confirm state)
  |Input.ActivityFocus occurrence owner focus=>Some(match State.layers(State.navigation_state state)with
@@ -268,7 +289,12 @@ Definition step snapshot input state:option result:=match input with
  |Input.BeginSide task trigger=>Some(begin_side snapshot task trigger state)
  |Input.ShowSide task trigger=>Some(show_side snapshot task trigger state)
  |Input.CloseSide=>Some(close_side state)
- |Input.NavigationExpanded expanded=>Some(keep(State.with_navigation(set State.navigation_intent(fun _=>if expanded then State.OpenNavigation else State.ClosedNavigation)(State.navigation_state state))state))
+ |Input.NavigationExpanded expanded=>let state:=selection_intent state in
+   Some(keep(State.with_navigation(set State.navigation_intent(fun _=>if expanded then State.OpenNavigation else State.ClosedNavigation)(State.navigation_state state))state))
+ |Input.TaskListVisible visible=>let state:=selection_intent state in
+   Some(changed(State.with_navigation(set State.desktop_task_list_visible(fun _=>visible)(State.navigation_state state))state)
+    [Attend(if visible then Identity.key_part(Identity.key_part "/navigation" "header")"toggle"
+      else Identity.key_part "/global-navigation" "tasks/expand")])
  |Input.ToggleProjectGroup project=>Some(keep(State.with_collapsed
    (if existsb(N.eqb project)(State.collapsed_projects state)then filter(fun current=>negb(N.eqb project current))(State.collapsed_projects state)else project::State.collapsed_projects state)state))
  |Input.WriteHistoryQuery query=>let old:=State.history_search(State.authoring_state state)in Some(edit_search query(State.project_filter old)(State.work_filter old)state)
@@ -287,11 +313,15 @@ Definition outcome_result(outcome:sum string json):=match outcome with inl _=>No
 (** Work/side IO must not reclaim selection after navigation or a different
     foreground layer has been opened, even when the page route did not change. *)
 Definition complete snapshot purpose outcome state:option result:=match purpose with
- |State.WorkCreation generation layer_generation=>Some(if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)&&outcome_success outcome then
+ |State.WorkCreation generation layer_generation=>Some(if negb(outcome_success outcome)then
+   Result state [](Some(Codec.command_failure outcome))else
+   if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)then
    match bind(outcome_result outcome)(natural_field "work_id")with Some work=>let selected:=select_work snapshot(Some work)state in
      match result_error selected with Some _=>selected|None=>set result_effects(fun effects=>List.app effects(work_focus(Some work)(result_state selected)))selected end
    |None=>refuse "The Work creation result has no Work identity."state end else keep state)
- |State.SideCreation parent generation layer_generation trigger=>Some(if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)&&task_visible state parent&&outcome_success outcome then
+ |State.SideCreation parent generation layer_generation trigger=>Some(if negb(outcome_success outcome)then
+   Result state [](Some(Codec.command_failure outcome))else
+   if N.eqb generation(State.generation(State.navigation_state state))&&N.eqb layer_generation(State.next_layer state)&&task_visible state parent then
    match bind(outcome_result outcome)(natural_field "task_id")with
    |Some task=>open_side_window task trigger state
    |None=>refuse "The side conversation result has no task identity."state end else keep state)
@@ -299,9 +329,9 @@ Definition complete snapshot purpose outcome state:option result:=match purpose 
    match State.layers(State.navigation_state state)with
    |layer::_=>if N.eqb occurrence(State.layer_occurrence layer)then match State.layer_panel layer with
      |State.Confirmation _ _ destination=>if outcome_success outcome then visit snapshot destination state else
-       let reason:=match outcome with inl reason=>reason|inr value=>text "error" value end in
-       let updated:=modify_top occurrence(fun layer=>Some(set State.layer_feedback(fun _=>Some reason)(set State.layer_pending(fun _=>false)layer)))state in
-       set result_error(fun _=>Some reason)updated
+       let diagnostic:=Codec.command_failure outcome in
+       let updated:=modify_top occurrence(fun layer=>Some(set State.layer_feedback(fun _=>Some diagnostic)(set State.layer_pending(fun _=>false)layer)))state in
+       set result_error(fun _=>Some diagnostic)updated
      |_=>keep state end else keep state
    |[]=>keep state end else keep state)
  |State.SearchSubmission query project work ticket=>let current:=State.history_search(State.authoring_state state)in

@@ -5,7 +5,7 @@ Import ListNotations.
 Theorem conversation_keeps_chronological_reading composer approvals latest :
   body_regions (page_structure (Conversation composer approvals latest)) = [TimelineContent] /\
   heading_regions (page_structure (Conversation composer approvals latest)) =
-    [ConversationTitle; TaskActions].
+    [ConversationHeader].
 Proof. split; reflexivity. Qed.
 
 Theorem conversation_places_decisions_before_bottom_input :

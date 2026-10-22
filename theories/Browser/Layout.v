@@ -114,6 +114,11 @@ Definition region_properties env (region : Composition.region) (position : Compo
    | Composition.DockPosition => [("flex","none"); ("position","relative")]
    end) ++
   match region with
+  | Composition.ConversationHeader => [("display","flex"); ("flex-direction","row");
+      ("flex-wrap","nowrap"); ("align-items","center"); ("gap",Typography.px (clearance env))]
+  | Composition.ConversationTitle => [("flex","1 1 auto"); ("overflow","hidden"); ("white-space","nowrap")]
+  | Composition.TaskActions => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
+      ("align-items","center"); ("gap",Typography.px (Typography.scaled (root_font_size_milli env) 8)); ("flex","none")]
   | Composition.TimelineContent => [("flex","1 1 auto"); ("min-block-size","0"); ("overflow-y","auto")]
   | Composition.ComposerInput => [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
