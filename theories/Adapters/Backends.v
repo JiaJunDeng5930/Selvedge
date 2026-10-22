@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
-From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory BackendResponses BackendRequests BackendRetry ProviderCompaction.
+From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory BackendResponses BackendRequests BackendRetry ProviderCompaction OutputObservations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -115,6 +115,7 @@ Definition call (select_history : list json -> string -> list json) operation so
   else if String.eqb operation "backend.prepare" then BackendRequests.prepare source
   else if String.eqb operation "backend.input" then BackendRequests.input select_history source
   else if String.eqb operation "backend.output" then BackendResponses.output source
+  else if String.eqb operation "backend.observe_text_output" then OutputObservations.observe_text_output source
   else if String.eqb operation "backend.request" then BackendRequests.request select_history source
   else if String.eqb operation "backend.authorization" then authorization source
   else if String.eqb operation "backend.credentials" then credentials source

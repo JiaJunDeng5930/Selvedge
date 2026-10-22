@@ -93,7 +93,8 @@ Definition scope (source : json) := success (JString (TextJson.render_json (JArr
 Definition bind_item (scope item : json) :=
   if String.eqb (str item "type") "context" then
     JObject [("type",JString "context"); ("part",get item "part"); ("value",JObject [
-      ("type",JString "provider_receipt"); ("scope",scope); ("item",get item "value")])]
+      ("type",JString "provider_receipt"); ("scope",scope); ("item",get item "value");
+      ("markdown_fences",get item "markdown_fences")])]
   else item.
 Definition bind_output (source : json) := success (JArray
   (map (bind_item (get source "scope")) (items (get source "items")))).

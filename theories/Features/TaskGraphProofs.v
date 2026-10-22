@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Conversation Tasks LifecycleProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Conversation Callbacks Tasks LifecycleProofs.
 From Selvedge.Features Require Import Domain State TaskGraph TaskGraphSemantics.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
@@ -287,10 +287,15 @@ Proof.
  rewrite producer,plain,unseen,N.eqb_refl. reflexivity.
 Qed.
 
-Definition provider_reply_with_empty_output_text : json := JObject [
+Definition observed_provider_reply (text : string) : json := JObject [
  ("type",JString "provider_receipt");
  ("item",JObject [("type",JString "message");("role",JString "assistant");
-   ("content",JArray [JObject [("type",JString "output_text");("text",JString "")]])])].
+   ("content",JArray [JObject [("type",JString "output_text");("text",JString text)]])]);
+ ("markdown_fences",JArray [])].
+Definition provider_reply_with_empty_output_text : json := observed_provider_reply "".
+
+Local Lemma string_append_empty : forall text, String.append text ""=text.
+Proof. intro text; induction text as [|character rest IH]; simpl; [reflexivity|now rewrite IH]. Qed.
 
 Theorem provider_empty_output_text_is_still_an_assistant_reply :
  Conversation.provider_assistant_message provider_reply_with_empty_output_text = true /\
@@ -302,22 +307,55 @@ Theorem nonassistant_provider_context_is_not_a_graph_output : forall origin cont
  TaskGraph.assistant_output (ModelContext origin content)=None.
 Proof. intros; cbn [TaskGraph.assistant_output]; now rewrite H. Qed.
 
+Theorem fresh_plain_provider_reply_is_observed : forall before source task origin text,
+ K.find_task source before=Some task ->
+ origin_producer origin=source -> origin_mode origin=PlainOutput ->
+ TaskGraph.seen_origin origin task=false ->
+ TaskGraph.new_outputs before source
+   (append_history [ModelContext origin (observed_provider_reply text)] task)=[text].
+Proof.
+ intros before source task origin text found producer plain unseen.
+ unfold TaskGraph.new_outputs. rewrite found.
+ assert (history : task_history (append_history [ModelContext origin (observed_provider_reply text)] task)=
+   task_history task++[ModelContext origin (observed_provider_reply text)]) by (destruct task; reflexivity).
+ rewrite history.
+ rewrite skipn_app,skipn_all,Nat.sub_diag. cbn.
+ unfold TaskGraph.assistant_output.
+ cbn [Conversation.provider_assistant_message Conversation.provider_text].
+ rewrite producer,plain,unseen,N.eqb_refl,string_append_empty. reflexivity.
+Qed.
+
 Theorem fresh_plain_empty_provider_reply_is_observed : forall before source task origin,
  K.find_task source before=Some task ->
  origin_producer origin=source -> origin_mode origin=PlainOutput ->
  TaskGraph.seen_origin origin task=false ->
  TaskGraph.new_outputs before source
    (append_history [ModelContext origin provider_reply_with_empty_output_text] task)=[""].
+Proof. intros; exact (fresh_plain_provider_reply_is_observed before source task origin "" H H0 H1 H2). Qed.
+
+Theorem observed_provider_text_is_routed_through_the_plain_output_path :
+ forall before source task ticket part text,
+ K.find_task source before=Some task ->
+ TaskGraph.seen_origin (OutputOrigin source ticket part PlainOutput) task=false ->
+ TaskGraph.new_outputs before source
+   (append_history
+     (Callbacks.item_messages source ticket InteractiveOutput
+       [ContextItem part (observed_provider_reply text)]) task)=[text].
 Proof.
- intros before source task origin found producer plain unseen.
- unfold TaskGraph.new_outputs. rewrite found.
- assert (history : task_history (append_history [ModelContext origin provider_reply_with_empty_output_text] task)=
-   task_history task++[ModelContext origin provider_reply_with_empty_output_text]) by (destruct task; reflexivity).
- rewrite history.
- rewrite skipn_app,skipn_all,Nat.sub_diag. cbn.
- unfold TaskGraph.assistant_output.
- cbn [Conversation.provider_assistant_message Conversation.provider_text].
- rewrite producer,plain,unseen,N.eqb_refl. reflexivity.
+ intros before source task ticket part text Found Fresh.
+ assert (Message : Callbacks.item_messages source ticket InteractiveOutput
+   [ContextItem part (observed_provider_reply text)] =
+   [ModelContext (OutputOrigin source ticket part PlainOutput) (observed_provider_reply text)]).
+ { unfold Callbacks.item_messages; cbn [List.map].
+   unfold Conversation.context_output_mode.
+   assert (Assistant : Conversation.provider_assistant_message (observed_provider_reply text)=true)
+     by (cbn [Conversation.provider_assistant_message Conversation.provider_value Conversation.provider_assistant]; reflexivity).
+   assert (Observations : Conversation.provider_markdown_fences (observed_provider_reply text)=Some [])
+     by reflexivity.
+   rewrite Assistant, Observations. reflexivity.
+ }
+ rewrite Message.
+ eapply fresh_plain_provider_reply_is_observed; try assumption; reflexivity.
 Qed.
 
 Lemma recording_receipt_preserves_tasks : forall graph receipt value,

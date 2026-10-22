@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Utf8.
-From Selvedge.Kernel Require Import Conversation Streams.
+From Selvedge.Kernel Require Import Conversation Streams OutputClassification.
 From Selvedge.Interaction Require Import Codec Identity Origin CodeSource DocumentState DocumentPublication.
 From Selvedge.Interaction.Interactive Require Import Types.
 From Selvedge.Interaction.Interactive Require Bounds.
@@ -255,7 +255,7 @@ Definition decode_observation observation:option fence_observation:=
  info_complete<-bool_field "info_complete" observation;;
  ordinal<-natural_field "ordinal" observation;;epoch<-natural_field "epoch" observation;;
  revision<-natural_field "revision" observation;;closed<-bool_field "closed" observation;;
- if String.eqb info "selvedge-ui"&&String.eqb kind "fenced"&&info_complete then
+ if OutputClassification.interactive_markdown_fence_observation observation then
   Some(FenceObservation document_key origin viewing namespace prefix source ordinal epoch revision closed)
  else None.
 

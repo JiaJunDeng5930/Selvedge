@@ -106,6 +106,7 @@ Proof. intros source delay error response status available header budget;change 
  unfold retry,chosen_delay;now rewrite error,response,status,available,header,budget. Qed.
 Definition account_function_output arguments namespace := JObject [
   ("profile",JObject [("provider",JString "chatgpt")]);
+  ("markdown_observations",JArray [JArray []]);
   ("output",JArray [JObject [("type",JString "function_call");("namespace",JString namespace);
     ("call_id",JString "call-1");("name",JString "read_work");("arguments",JString arguments)]])].
 Theorem public_local_function_call_decodes_raw_arguments : forall arguments fields,
