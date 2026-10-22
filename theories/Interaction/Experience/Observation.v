@@ -103,13 +103,24 @@ Definition workspace_information {e}(subject:Model.subject e) workspace inherite
  |None,_=>RequiredAbsence "Choose a primary working directory."
  |Some _,_=>PresentInformation(SummaryValue subject(Model.WorkspaceValue
     (Selvedge.Kernel.Domain.workspace_roots workspace)(Selvedge.Kernel.Domain.workspace_primary workspace)inherited))None end.
-Definition context_information snapshot {e}(subject:Model.subject e) project workspace inherited sandbox approval:information e:=
+Definition project_revision snapshot id:=
+ project<-Session.Observation.project_by_id id snapshot;;
+ guidance<-field "guidance" project;;
+ string_field "revision" guidance.
+Definition unavailable_reviewer_key snapshot value:=match value with
+|Context.ChosenApproval(Context.AutomaticReview key)=>
+ match resolve_approval snapshot value with None=>Some key|Some _=>None end
+|_=>None end.
+Definition context_information snapshot {e}(subject:Model.subject e) project workspace inherited sandbox approval (unavailable_reviewer:option string):information e:=
  let present value:=PresentInformation(SummaryValue subject value)None in
  match subject_declaration subject with
  |Fields.ContextOrigin=>match project with
   |None=>OptionalAbsence
   |Some id=>match Session.Observation.project_name id snapshot with
-   |Some name=>present(NamedReference id name)
+   |Some name=>PresentInformation(SummaryValue subject(NamedReference id name))
+     (match project_revision snapshot id with
+      |Some revision=>Some(SummaryValue subject(Model.TextValue("Revision: "++revision)))
+      |None=>None end)
    |None=>UnavailableInformation "The selected project is no longer available."end end
  |Fields.WorkspaceDirectories|Fields.WorkspacePrimary=>workspace_information subject workspace inherited
  |Fields.SandboxMode=>present(NamedChoice(sandbox_label sandbox)(network_label sandbox))
@@ -117,9 +128,13 @@ Definition context_information snapshot {e}(subject:Model.subject e) project wor
  |Fields.ApprovalReviewer=>match approval with
   |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>present(NamedChoice(profile_label reviewer)"Reviewing model")
   |Some _=>NotApplicable "A reviewing model is used only for automatic review."
-  |None=>RequiredAbsence "Select an available reviewing model."end
+  |None=>RequiredAbsence(match unavailable_reviewer with
+    |Some key=>"Automatic review unavailable: "++key
+    |None=>"Select an available reviewing model."end)end
  |Fields.ApprovalPolicy=>match approval with
-  |None=>InvalidInformation "The selected reviewing model is not available for automatic review."
+  |None=>InvalidInformation(match unavailable_reviewer with
+    |Some key=>"Automatic review unavailable: "++key
+    |None=>"The selected reviewing model is not available for automatic review."end)
   |Some policy=>PresentInformation(SummaryValue subject(Model.TextValue(approval_caption policy)))
    (match policy with
    |Selvedge.Kernel.Domain.FullAccess=>None
@@ -146,10 +161,11 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.ContextValue(Context.ProspectiveContext _ project workspace sandbox approval _)_=>
    let '(workspace,inherited):=match workspace with Context.InheritedWorkspace value=>(value,true)|Context.EnteredWorkspace value=>(value,false)end in
    let sandbox:=match sandbox with Context.InheritedSandbox value|Context.ChosenSandbox value=>value end in
-   context_information snapshot subject project workspace inherited sandbox(resolve_approval snapshot approval)
+   context_information snapshot subject project workspace inherited sandbox
+    (resolve_approval snapshot approval)(unavailable_reviewer_key snapshot approval)
  |Fields.CommittedContextValue _ settings _=>context_information snapshot subject
    (Selvedge.Kernel.Domain.settings_project settings)(Selvedge.Kernel.Domain.settings_workspace settings)false
-   (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))
+   (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))None
  |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send"|Fields.Steer=>"Steer"end)"")
  |Fields.ProjectValue None=>OptionalAbsence
  |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>UnavailableInformation "The selected project is no longer available."end
@@ -227,7 +243,8 @@ Definition observe_assessment snapshot state e:assessment e:=
  let draft:=State.current_draft state e in
  let obstruction (reason:string):assessment_result e:=PreparationBlocked(Obstruction RepairEditor "NotAdmitted" reason)[]in
  Assessment(ActionIdentity(Draft.revision draft))
- (match project_precondition snapshot state draft with
+ (if negb(Services.connected(State.service_state state))then obstruction "Connect to continue."else
+ match project_precondition snapshot state draft with
  |Some(field,code,reason)=>PreparationBlocked(requirement_obstruction e field code reason)[]
  |None=>if State.pending_editor e state then obstruction "Wait for the current submission to finish."else if Services.blocks e(State.service_state state)then obstruction "Finish or cancel the attachment transfer before submitting."
  else if negb(Session.Observation.worktree_submission_allowed snapshot state draft)then obstruction "Wait for Git verification of the primary workspace before creating a worktree."

@@ -29,14 +29,19 @@ Definition refresh (visible:owner->bool) b environment :=
 Definition mark_edit b := State.with_restoration RestorationSettled (State.changed true b).
 Definition seal b :=
  let syntax:=b.(syntax) in
- let syntax:=match b.(block_ending) with Complete=>if b.(fence_closed)then Syntax.finish syntax else syntax|_=>syntax end in
+ let syntax:=match b.(block_ending) with
+ |Complete=>if b.(fence_closed)then Syntax.finish syntax else syntax
+ |Interrupted=>Syntax.finish syntax
+ |Open=>syntax end in
  State.with_syntax syntax b.
 Definition parse_turn b :=seal(State.with_syntax(Syntax.turn Bounds.parser_turn b.(syntax))b).
 Definition finish (visible:owner->bool) b environment (persist:bool) output :=
  let '(b,p,nodes):=refresh visible b environment in
  let '(b,load):=if visible b.(block_owner)then Snapshot.request b p else(b,[]) in
  let '(b,save):=if persist then Snapshot.save b p nodes else(b,[]) in
- let parse:=if visible b.(block_owner)&&Syntax.pending b.(syntax)then[ParseMore b.(block_owner)]else[]in
+ let parse:=if Syntax.pending b.(syntax)&&
+   (visible b.(block_owner)||match b.(block_ending)with Interrupted=>true|_=>false end)
+   then[ParseMore b.(block_owner)]else[]in
  (b,output++parse++load++save).
 Definition event_node b environment event_id :=
  let p:=prepared b environment in
@@ -45,6 +50,11 @@ Definition event_node b environment event_id :=
 Definition replace_action path occurrence action b :=
  let '(ticket,b):=State.take_ticket b in
  (ticket,State.set_feedback path (Waiting ticket occurrence action) b).
+Definition duplicate_feedback path b :=
+ match State.feedback_at path b with
+ |Some(FeedbackEntry _ (Waiting _ _ _))|Some(FeedbackEntry _ (CopyingDefinition _))=>b
+ |_=>let '(ticket,b):=State.take_ticket b in
+   State.set_feedback path(Answered ticket false "This command is already pending.")b end.
 Definition action_effect who path ticket action := match action with
  | Draft text=>[FillDraft who path text]
  | Submit text=>[SendMessage who path ticket text]
@@ -59,7 +69,7 @@ Definition perform_action event_id action b :=
      | None=>(b,[],false)end|None=>(b,[],false)end
  | ResetAll=>(mark_edit(State.with_views [] (State.with_locals(map Local.reset b.(locals))b)),[],true)
  | Draft text=>(b,[FillDraft b.(block_owner) event_id.(path) text],false)
- | _=>if State.duplicate_pending action b then(b,[],false)else
+ | _=>if State.duplicate_pending action b then(duplicate_feedback event_id.(path)b,[],false)else
    let '(ticket,b):=replace_action event_id.(path) event_id.(occurrence) action b in
    (b,action_effect b.(block_owner) event_id.(path) ticket action,false)
  end.
@@ -99,7 +109,7 @@ Definition view_update command props previous : option view_state :=
    | SortColumn id=>if property_bool false "sortable" props then
      Some(TableView(Some id)(match column with Some active=>if String.eqb active id then negb descending else false|None=>false end)0)else None
    | Page next=>let count:=List.length(property_array "rows"props)in
-     Some(TableView column descending (Nat.min next ((count-1)/Bounds.table_page)))
+     Some(TableView column descending (Nat.min next (Bounds.last_table_page_index count)))
    | _=>None end
  | _,_=>None end.
 Definition view_changed event_id command b environment : block*list effect*bool :=
@@ -142,11 +152,17 @@ Definition source_update who source closed ending external current :=
  | None=>Some(seal(State.set_source source (Syntax.append source Syntax.empty) ending closed external
      (State.initial_block who "" Open false false)))
  | Some b=>if same_owner who b.(block_owner)then
-     if String.eqb b.(State.source)source && Bool.eqb b.(fence_closed)closed &&
-        String.eqb(Types.ending_name b.(block_ending))(Types.ending_name ending)then Some(State.with_external external b)else
-     if String.prefix b.(State.source) source then
-       let tail:=String.substring(String.length b.(State.source))(String.length source)source in
-       Some(seal(State.set_source source (Syntax.append tail b.(syntax)) ending closed external b))
+     if String.eqb b.(State.source)source then
+       if Bool.eqb b.(fence_closed)closed &&
+         String.eqb(Types.ending_name b.(block_ending))(Types.ending_name ending)
+       then Some(State.with_external external b)
+       else Some(seal(State.set_source source b.(syntax) ending closed external b))
+     else if String.prefix b.(State.source) source then
+       let parsed:=match b.(block_ending)with
+         |Open=>let tail:=String.substring(String.length b.(State.source))(String.length source)source in
+           Syntax.append tail b.(syntax)
+         |Complete|Interrupted=>Syntax.append source Syntax.empty end in
+       Some(seal(State.set_source source parsed ending closed external b))
      else None
    else if N.ltb b.(block_owner).(epoch) who.(epoch)then
      Some(seal(State.set_source source (Syntax.append source Syntax.empty) ending closed external
@@ -179,7 +195,7 @@ Definition reduce (visible:owner->bool) input b environment :=
    | SourceDisclosure _=>let open:=match State.view_at "@source"false b with SourceView value=>negb value|_=>true end in
      (State.set_view "@source"(SourceView open)b,[],false)
    | CopyDefinition _=>let action:=Copy b.(State.source)in
-     if State.duplicate_pending action b then(b,[],false)else
+     if State.duplicate_pending action b then(duplicate_feedback "@source-copy" b,[],false)else
      let '(ticket,b):=State.take_ticket b in
      let b:=State.set_feedback "@source-copy"(CopyingDefinition ticket)b in
      (b,[WriteClipboard b.(block_owner)"@source-copy"ticket b.(State.source)],false)

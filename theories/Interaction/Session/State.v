@@ -31,7 +31,7 @@ Record layer := Layer {
   layer_source_expanded : bool;
   layer_decision_field : option Fields.field;
   layer_parameter_buffer : option string;
-  layer_feedback : option string;
+  layer_feedback : option json;
   layer_pending : bool
 }.
 Inductive navigation_visibility := AutomaticNavigation | OpenNavigation | ClosedNavigation.
@@ -40,6 +40,7 @@ Record navigation := Navigation {
   active_work : option N;
   visits : list (option N * route);
   navigation_intent : navigation_visibility;
+  desktop_task_list_visible : bool;
   generation : N;
   layers : list layer
 }.
@@ -53,7 +54,8 @@ Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_gene
 | WorkCreation (navigation_generation layer_generation:N)
 | SideCreation (parent navigation_generation layer_generation:N)(trigger:string)
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
-| LanguageSubmission (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N).
+| LanguageAdmission (task revision : N) (text : string) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N)
+| LanguageSubmission (editor : Identity.editor) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N).
 Record pending := Pending { ticket : N; accepted_command : public_command; purpose : pending_purpose }.
 Record search := Search {
   keyword : string;
@@ -91,10 +93,12 @@ Record state := State {
 }.
 Definition pending_editor owner state:=existsb(fun pending=>match purpose pending with
 |DraftSubmission value _ _ _|LiveConfiguration value _ _|ProjectPreference value _ _ _ _=>same_editor owner(Draft.owner value)
+|LanguageAdmission task _ _ _ _ _=>same_editor owner(Identity.Message task)
+|LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
 Definition initial := State
-  (Navigation Start None [] AutomaticNavigation 0 [])
+  (Navigation Start None [] AutomaticNavigation true 0 [])
   (Authoring [] 0 [] (Search "" None None None None) [] [] false)
   Services.initial Speech.initial [] [] Selvedge.Interaction.Interactive.State.initial
   BoardFilter.empty DocumentState.initial_retention [] None 0.

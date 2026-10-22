@@ -29,7 +29,7 @@ Definition decode_view value:=kind <- string_field "kind"value;;match kind with
       Z.leb(-2000*Decimal.scale)(Decimal.units y)&&Z.leb(Decimal.units y)(2000*Decimal.scale)
    then Some(GraphView zoom x y fit selected)else None
  |"table"=>column <- field "column"value;;column <- decode_optional_text column;;descending <- bool_field "descending"value;;page <- number_field "page"value;;page <- parse_nat page;;
-   if Nat.leb page Bounds.collection_items then Some(TableView column descending page)else None|_=>None end.
+   if Nat.leb page Bounds.table_max_page_index then Some(TableView column descending page)else None|_=>None end.
 Definition encode_views views:=JArray(map(fun kv=>JObject[("path",JString(fst kv));("value",encode_view(snd kv))])views).
 Definition decode_views value:=items <- as_array value;;pairs <- Codec.traverse(fun item=>path <- string_field "path"item;;value <- field "value"item;;value <- decode_view value;;Some(path,value))items;;
  if Schema.unique_names(map fst pairs)then Some pairs else None.

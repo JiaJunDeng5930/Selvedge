@@ -110,7 +110,18 @@ function dispatch(input) {
   }
   const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
   state = decision.state;
-  if (input.type !== 'clock_observed') announcements.textContent = decision.error ?? '';
+  if (decision.feedback_update !== 'keep') {
+    const error = decision.error;
+    const message = typeof error === 'string' ? error : error && typeof error === 'object'
+      ? (typeof error.code === 'string' && typeof error.message === 'string' ? `${error.code}: ${error.message}`
+        : typeof error.message === 'string' ? error.message : JSON.stringify(error))
+      : '';
+    announcements.textContent = message;
+    const visible = decision.visible_error === true && message !== '';
+    announcements.classList.toggle('visually-hidden', !visible);
+    announcements.setAttribute('role', visible ? 'alert' : 'status');
+    announcements.setAttribute('aria-live', visible ? 'assertive' : 'polite');
+  }
   publication = publicationEvent('advance');
   render();
   for (const effect of decision.effects) execute(effect).catch(fatal);

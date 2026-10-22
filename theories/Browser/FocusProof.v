@@ -16,6 +16,19 @@ Proof.
   rewrite String.eqb_refl; destruct occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
 Qed.
 
+Theorem retained_ineligible_activity_focuses_its_container : forall identity initial restore_target fallback_target occurrence,
+ request [Temporary identity initial restore_target fallback_target occurrence]
+   [Temporary identity initial restore_target fallback_target occurrence] false = Some(identity,fallback_target).
+Proof.
+ intros. unfold request,top,transition,invalid_retained,changed,same_scope,
+   same_occurrence,retained_scope_target,fallback.
+ simpl. rewrite String.eqb_refl. destruct occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
+Qed.
+
+Theorem opening_activity_keeps_its_initial_focus : forall identity initial restore fallback occurrence,
+ request [Document] [Temporary identity initial restore fallback occurrence] false = Some(initial,fallback).
+Proof. reflexivity. Qed.
+
 (** Popping a child activity returns to its invoking control in the still-open
     owner; it must not restart that owner's initial focus policy. *)
 Theorem closing_child_restores_owner : forall parent child

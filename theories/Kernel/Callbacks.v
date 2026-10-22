@@ -110,12 +110,8 @@ Definition operation_executing (ticket : N) (value : operation) := match operati
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
 Definition replace_operation (replacement : operation) (values : list operation) :=
  map (fun operation => if N.eqb (operation_id replacement) (operation_id operation) then replacement else operation) values.
-Definition wake_after_result (task : task) :=
- match task_lifecycle task with
- | Running Idle operations => with_lifecycle (Running WantsModel operations) task
- | _ => promote task end.
 Definition settle_operation (operation : operation) (result : json) (error : bool) (task : task) :=
- wake_after_result (with_operations (remove_operation (operation_id operation) (task_operations task))
+ Tasks.wake_after_result (with_operations (remove_operation (operation_id operation) (task_operations task))
  (append_history [History.operation_result operation result error] task)).
 Definition after_plugins (task : task) :=
  Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).

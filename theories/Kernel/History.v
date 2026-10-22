@@ -9,6 +9,15 @@ Definition operation_result (operation : operation) (result : json) (error : boo
  if operation_announced operation
  then OperationResult (operation_id operation) (operation_call operation) result error
  else FunctionOutput (call_id (operation_call operation)) result error.
+Definition cancelled_operation (operation : operation) : message :=
+ let outcome := match operation_stage operation with
+ | AwaitingApproval _ _ | Granted _ => failure "cancelled"
+   "Cancellation requested before execution. The operation did not start and made no external changes."
+ | Executing _ | Elevated _ _ => failure "cancelled"
+   "Cancellation requested. The operation may already have made changes; those changes are not undone."
+ | AfterHooksReady _ _ _ | AwaitingAfterHook _ _ _ _ _ => failure "cancelled"
+   "Cancellation requested after execution. The execution receipt remains in history; result processing stopped and neither the tool nor its callback will be repeated."
+ end in operation_result operation outcome true.
 Definition interrupted_result (code reason : string) (operation : operation) : message :=
  let outcome := match operation_stage operation with
  | AwaitingApproval _ _ => failure "approval_interrupted"

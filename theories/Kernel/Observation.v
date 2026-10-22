@@ -16,20 +16,27 @@ Definition task_text_model_json (value : profile) := JObject [
 Definition task_owner (id : N) (value : task) (features : Selvedge.Features.Domain.state) := Selvedge.Features.Domain.owner_id id (task_lineage value) features.
 Definition operation_status (value : operation) := match operation_stage value with
  | Executing _ | Elevated _ _ => "running"
- | AwaitingApproval _ _ | Granted _ => "awaiting_approval"
+ | AwaitingApproval _ _ => "awaiting_approval"
+ | Granted _ => "approved_waiting_to_run"
  | AfterHooksReady _ _ _ | AwaitingAfterHook _ _ _ _ _ => "result_pending" end.
 Definition operation_stage_name (value : operation) := match operation_stage value with
  | Executing _ => "executing" | Elevated _ _ => "elevated_executing"
  | AwaitingApproval _ _ => "approval_pending" | Granted _ => "approval_granted"
  | AfterHooksReady _ _ _ | AwaitingAfterHook _ _ _ _ _ => "result_pending" end.
-Definition operation_summary (settings : task_settings) (value : operation) := JObject [
+Definition operation_summary (settings : task_settings) (value : operation) := JObject ([
  ("call",call_json (operation_call value));("context",settings_json settings);
  ("reviewer",match operation_stage value with
  | AwaitingApproval _ reviewer | Granted reviewer | Elevated _ reviewer => Codec.reviewer_json reviewer | _ => JNull end);
  ("operation_id", number (operation_id value)); ("call_id", JString (call_id (operation_call value)));
  ("tool", JString (call_name (operation_call value))); ("status", JString (operation_status value));
+ ("announced", JBool (operation_announced value));
  ("stage",JString (operation_stage_name value));
- ("awaitingHuman", JBool (match operation_stage value with AwaitingApproval _ HumanReviewer => true | _ => false end))].
+ ("awaitingHuman", JBool (match operation_stage value with AwaitingApproval _ HumanReviewer => true | _ => false end))] ++
+ (match operation_stage value with
+  | AwaitingApproval _ _ | Granted _ =>
+    [("arguments", call_arguments (operation_call value))]
+  | Elevated ticket _ => [("execution_ticket", number ticket)]
+  | _ => [] end)).
 Definition activity_name := Domain.activity_name.
 Definition controls := Tasks.available_controls.
 Definition awaiting_human (value : task) := existsb (fun operation =>

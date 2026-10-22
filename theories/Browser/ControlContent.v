@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Interaction Require Identity.
+From Selvedge.Features Require Domain BoardFilter.
 From Selvedge.Interaction.Experience Require Model.
 From Selvedge.Interaction.Presentation Require Surface Roles Information.
 From Selvedge.Browser Require Import DOM Layout Typography Appearance ControlPurpose.
@@ -57,6 +58,36 @@ Definition property_icon {e} (property : UX.property e) :=
   | UX.PermissionsProperty => Some "shield"
   | UX.ModelProperty => None
   | UX.DeliveryProperty => Some "arrow-up"
+  end.
+Definition stage_filter_glyph (stage : Domain.board_stage) :=
+  match stage with
+  | Domain.Backlog => "status-backlog"
+  | Domain.Todo => "status-todo"
+  | Domain.InProgress => "status-in-progress"
+  | Domain.InReview => "status-in-review"
+  | Domain.Completed => "status-completed"
+  | Domain.Blocked => "status-blocked"
+  end.
+Definition priority_filter_glyph (priority : Domain.priority) :=
+  match priority with
+  | Domain.NoPriority => "priority-no-priority"
+  | Domain.Low => "priority-low"
+  | Domain.Medium => "priority-medium"
+  | Domain.High => "priority-high"
+  | Domain.Urgent => "priority-urgent"
+  end.
+Definition board_filter_glyph (category : BoardFilter.category) (value : string)
+    : option string :=
+  match category with
+  | BoardFilter.Status => option_map stage_filter_glyph
+      (find (fun stage => String.eqb value (Domain.stage_name stage)) Domain.stages)
+  | BoardFilter.Priority => option_map priority_filter_glyph
+      (find (fun priority => String.eqb value (Domain.priority_name priority)) Domain.priorities)
+  | BoardFilter.Date => Some "clock"
+  | BoardFilter.Assignee => Some (if String.prefix "agent/" value then "bot" else "user")
+  | BoardFilter.Creator => Some "user"
+  | BoardFilter.Project => Some "folder"
+  | BoardFilter.Label => Some "tag"
   end.
 Definition summary_subject {e} (property : UX.property e) (secondary : bool) :=
   match UX.property_information property with
@@ -260,6 +291,20 @@ Definition collection_children env key (children : list DOM.node) :=
       [("display","flex");("flex-direction","column");("min-inline-size","0");
        ("gap",Typography.px (Layout.member_gap (Layout.hierarchy_for env true)))] members]
   end.
+Definition role_content env key (role : Roles.role) (native : list DOM.node)
+    : option (list DOM.node) :=
+  match role with
+  | Roles.NavigationSection => Some (collection_children env key native)
+  | Roles.WorkChoiceRow => Some (map (add_properties
+      [("flex","1 1 0%");("min-inline-size","0")]) native)
+  | _ => None
+  end.
+Definition board_filter_choice_content artwork label category value native :=
+  match board_filter_glyph category value with
+  | Some symbol => Some (artwork symbol ++
+      match native with [] => [DOM.Text label] | _ => native end)
+  | None => None
+  end.
 Definition node_properties {A} env (role : Roles.role) (meaning : S.meaning A)
     : list (string * string) :=
   (match role with
@@ -292,12 +337,17 @@ Definition container_content {A} (describe : A -> C.purpose)
       Some ([project_header describe env key project selected expanded artwork children native] ++
         match members with
         | [] => []
-        | _ => [box (private_key key "project-members") "div"
+        | _ => [add_properties [("gap","0")] (box (private_key key "project-members") "div"
           [("data-navigation-members",key)]
-          (Layout.member_properties env true true) members] end)
-  | _ => match role with
-    | Roles.NavigationSection => Some (collection_children env key native)
-    | Roles.WorkChoiceRow => Some (map (add_properties
-        [("flex","1 1 0%");("min-inline-size","0")]) native)
-    | _ => None end
+          (Layout.member_properties env true true) members)] end)
+  | S.Choice _ _ _ action =>
+      match describe (PM.control_input action) with
+      | C.BoardFilterChoice category value =>
+          match board_filter_choice_content artwork label category value native with
+          | Some content => Some content
+          | None => role_content env key role native
+          end
+      | _ => role_content env key role native
+      end
+  | _ => role_content env key role native
   end.

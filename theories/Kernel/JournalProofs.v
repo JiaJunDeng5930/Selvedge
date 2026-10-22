@@ -1,7 +1,51 @@
-From Stdlib Require Import List Relations Relation_Operators PeanoNat.
+From Stdlib Require Import List Relations Relation_Operators PeanoNat NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import State Inputs InputDecoder Packet PacketProofs Journal WorldInvariant WorldInvariantProofs.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
+From Selvedge.Kernel Require Import State Inputs InputDecoder Packet PacketProofs Journal
+ WorldInvariant WorldInvariantProofs CommitAdmission.
+From Selvedge.Kernel Require Scheduler.
+From Selvedge.Features Require Import Runtime.
 Import ListNotations.
+
+Lemma domain_relation_ignores_journal_sequence : forall source raw_source before after sequence,
+ CommitAdmission.world_evolution source raw_source before (with_sequence sequence after) =
+ CommitAdmission.world_evolution source raw_source before after.
+Proof.
+ intros source raw_source before after sequence; destruct after.
+ cbn [with_sequence set CommitAdmission.world_evolution CommitAdmission.retained_tasks
+   CommitAdmission.retained_tasks_from]; reflexivity.
+Qed.
+
+Lemma domain_projection_erases_journal_sequence : forall state sequence,
+ WorldInvariant.world_structure (with_sequence sequence state) = WorldInvariant.world_structure state.
+Proof.
+ intros state sequence; destruct state.
+ cbn [WorldInvariant.world_structure with_sequence set]; reflexivity.
+Qed.
+
+Theorem every_actual_packet_preserves_global_state_relation_or_rolls_back : forall source before,
+ let '(after, receipt) := Packet.packet source before in
+ WorldInvariant.world_structure after = WorldInvariant.world_structure before \/
+ exists input, CommitAdmission.world_evolution input source before after = true.
+Proof.
+ intros source before; unfold Packet.packet.
+ destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
+ - destruct (Packet.transition source before) as [[[durable schedules] input] candidate] eqn:Transition.
+   set (prepared := if schedules then Runtime.finish
+     (Scheduler.run Packet.execute_command Runtime.can_schedule_task candidate) else candidate).
+   set (admitted := Packet.admit durable input source before prepared).
+   pose proof (PacketProofs.actual_commit_admission_satisfies_global_transition_or_rollback
+     durable input source before prepared) as Admission.
+   destruct Admission as [[RolledBack _] | [Evolution _]].
+   + left; fold admitted in RolledBack; destruct durable.
+     * rewrite RolledBack; reflexivity.
+     * rewrite RolledBack; exact (domain_projection_erases_journal_sequence before
+         (N.succ (world_sequence before))).
+   + right; fold admitted in Evolution; destruct durable.
+     * exists input; exact Evolution.
+     * exists input; exact Evolution.
+ - left; reflexivity.
+Qed.
 
 Theorem batches_preserve_input_and_receipt_order : forall first second state,
  run (first ++ second) state = run second (run first state).
@@ -27,11 +71,11 @@ Qed.
 
 Theorem every_input_retains_one_complete_receipt : forall events state,
  List.length (trace_receipts (run events state)) =
- List.length events + List.length (trace_receipts state).
+ (List.length events + List.length (trace_receipts state))%nat.
 Proof.
  induction events as [|source rest IH]; intros state; [reflexivity|].
  change (List.length (trace_receipts (run rest (advance source state))) =
-  S (List.length rest + List.length (trace_receipts state))).
+  S (List.length rest + List.length (trace_receipts state))%nat).
  rewrite IH. unfold advance.
  destruct (Packet.packet source (trace_world state)); cbn; apply Nat.add_succ_r.
 Qed.

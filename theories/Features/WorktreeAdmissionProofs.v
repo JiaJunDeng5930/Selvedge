@@ -35,7 +35,7 @@ Proof.
    [|reflexivity].
  unfold Packet.transition. rewrite decoded.
  destruct (Packet.query command None value) as [reply|] eqn:queried.
- - cbn. rewrite (actual_commit_admission_keeps_an_unchanged_world false _ value (Decision value reply []) eq_refl).
+ - cbn. rewrite (actual_commit_admission_keeps_an_unchanged_world false _ source value (Decision value reply []) eq_refl).
    reflexivity.
  - unfold Packet.execute_command. rewrite refused.
    assert (does_not_schedule : Packet.command_schedules command (reject code reason value) = false)
@@ -46,7 +46,7 @@ Proof.
    cbn beta iota zeta.
    (* Project state first; reducing the unused observation here is expensive. *)
    cbn [fst].
-   rewrite (actual_commit_admission_keeps_an_unchanged_world true _ value (reject code reason value) eq_refl).
+   rewrite (actual_commit_admission_keeps_an_unchanged_world true _ source value (reject code reason value) eq_refl).
    reflexivity.
 Qed.
 

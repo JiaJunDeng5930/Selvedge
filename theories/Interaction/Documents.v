@@ -299,7 +299,7 @@ Definition environment_with_revocation observation lagged revoked := JObject [
  ("connected",JBool (context_connected observation));("display_lagged",JBool lagged);
  ("revoked",JBool (revoked || negb (valid_namespace (context_namespace observation))));
  ("viewing_tasks",JArray (map number (visible_tasks observation)));("work",optional_id (context_work observation))].
-Definition environment observation lagged := environment_with_revocation observation lagged false.
+Definition environment observation lagged := environment_with_revocation observation lagged (context_revoked observation).
 Definition edit_retained observation identity (toggle:bool) r :=
  match find (fun stamp=>String.eqb identity (document_identity stamp)) (retained_stamps observation r) with
  |None=>r

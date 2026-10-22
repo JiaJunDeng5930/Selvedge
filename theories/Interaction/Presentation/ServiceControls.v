@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Kernel Require Import Images.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction Require Import Codec Identity Appearance Input Resource Services Speech Attachments.
 From Selvedge.Interaction.Session Require Draft State Authoring.
@@ -50,11 +51,17 @@ Definition speech_controls snapshot s e revision parent (speech:Speech.speech) :
 Definition attachment_node e parent (file:Domain.attachment) :=
  let id:=Domain.attachment_id file in
  let key:=part parent("attachment/"++id)in
+ let image:=Selvedge.Kernel.Domain.ImageAsset id(Domain.attachment_mime file)(Domain.attachment_bytes file)
+  Selvedge.Kernel.Domain.ImageAuto in
  region parent("attachment/"++id)(Domain.attachment_name file)Roles.Card
- [read_only key "name" "File"(Domain.attachment_name file);
+ ((if Images.valid_image_asset(Images.image_json image)then
+    [Node(part key "image")"image-preview"(Domain.attachment_name file)Roles.Content
+      (Image("/api/board/attachments/"++id)(Domain.attachment_name file))[]]
+   else [])++
+  [read_only key "name" "File"(Domain.attachment_name file);
   declared key Roles.Button(secondary "preview" "Preview"(Input.ServiceInput(Services.OpenPreview file(part key "preview"))));
   declared key Roles.Button(secondary "download" "Download"(Input.ServiceInput(Services.Download file)));
-  declared key Roles.Button(secondary "remove" "Remove"(Input.RemoveAttachment e id))].
+  declared key Roles.Button(secondary "remove" "Remove"(Input.RemoveAttachment e id))]).
 Definition draft_files d :=match Draft.contents d with
 |Draft.NewTaskBody message _ _ _ _ _|Draft.MessageBody _ message _=>Draft.text_images message
 |Draft.CardBody _ _ card _ _ _=>Domain.draft_attachments card|_=>[]end.
@@ -82,15 +89,17 @@ Definition settings s :=
   [Node parent "settings" "Settings"Roles.Dialog
    (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
      (part parent(String.append "appearance/"(Appearance.appearance_name(Services.theme(State.service_state s)))))trigger "/main"trigger(Input.ServiceInput Services.CloseSettings) true true))
-   [title parent "Settings";
-    region parent "appearance" "Appearance"Roles.Section
-     (map(fun theme=>let label:=match theme with Appearance.SystemAppearance=>"System"|Appearance.LightAppearance=>"Light"|Appearance.DarkAppearance=>"Dark"end in
-       Node(part parent("appearance/"++Appearance.appearance_name theme))"appearance"label Roles.Button
-        (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme(State.service_state s))))""
-         (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
-       [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
-    declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")));
-    declared parent Roles.Button(secondary "close" "Close settings"(Input.ServiceInput Services.CloseSettings))]]end.
+   [dialog_header parent [title parent "Settings";
+     declared parent Roles.Button(secondary "close" "Close settings"(Input.ServiceInput Services.CloseSettings))];
+    dialog_body parent
+     [region parent "appearance" "Appearance"Roles.Section
+       (map(fun theme=>let label:=match theme with Appearance.SystemAppearance=>"System"|Appearance.LightAppearance=>"Light"|Appearance.DarkAppearance=>"Dark"end in
+         Node(part parent("appearance/"++Appearance.appearance_name theme))"appearance"label Roles.Button
+          (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme(State.service_state s))))""
+           (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
+         [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
+      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")))]]]
+  end.
 
 Definition directory_view s :=
  let services:=State.service_state s in
@@ -110,28 +119,30 @@ Definition directory_view s :=
    [Node parent "directory-browser" "Choose directory"Roles.Dialog
     (LayerRegion(LayerBehavior ModalDialog false ticket(part parent "location")(Services.directory_trigger request)"/main"(Services.directory_trigger request)
      (Input.ServiceInput Services.CloseDirectory)true true))
-    (title parent "Choose directory"::
-     Node(part parent "location")"directory-location" "Directory"Roles.Field
-      (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
-       (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
-       (Some(Input.ServiceInput Services.GoDirectory)))[]::
-     (content++[region parent "actions" "Actions"Roles.DialogActions
+    [dialog_header parent [title parent "Choose directory"];
+     dialog_body parent
+      (Node(part parent "location")"directory-location" "Directory"Roles.Field
+        (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
+         (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
+         (Some(Input.ServiceInput Services.GoDirectory)))[]::content);
+     dialog_actions parent
       [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory));
-       declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))]]))]
+       declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))]]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
 |Resource.Dormant=>[]
 |resource=>match resource_ticket resource,resource_request resource with
  |Some ticket,Some request=>let parent:="/file-preview"in
-  [Node parent "file-preview"(asset_name(Services.preview_file request))Roles.Dialog
-   (LayerRegion(LayerBehavior ModalDialog false ticket(part parent "close")(Services.preview_trigger request)"/main"(Services.preview_trigger request)
-    (Input.ServiceInput Services.ClosePreview)true true))
-   ([title parent(asset_name(Services.preview_file request));
-     declared parent Roles.Button(secondary "close" "Close preview"(Input.ServiceInput Services.ClosePreview))]++
-    match resource with
+  let body:=match resource with
     |Resource.Loading _ _=>[read_only parent "loading" "Preview" "Loading preview…"]
     |Resource.Failed _ _ reason=>[read_only parent "failure" "Preview failed"reason]
     |Resource.Loaded _ _ url=>[Node(part parent "image")"preview-image" ""Roles.Content(Image url(asset_name(Services.preview_file request)))[]]
-    |_=>[]end)%list]
+    |_=>[]end in
+  [Node parent "file-preview"(asset_name(Services.preview_file request))Roles.Dialog
+   (LayerRegion(LayerBehavior ModalDialog false ticket(part parent "close")(Services.preview_trigger request)"/main"(Services.preview_trigger request)
+    (Input.ServiceInput Services.ClosePreview)true true))
+   [dialog_header parent [title parent(asset_name(Services.preview_file request));
+     declared parent Roles.Button(secondary "close" "Close preview"(Input.ServiceInput Services.ClosePreview))];
+    dialog_body parent body]]
  |_,_=>[]end end.
 Definition dialogs s :=(settings s++directory_view s++preview_view s)%list.

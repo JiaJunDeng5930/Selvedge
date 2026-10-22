@@ -9,6 +9,12 @@ Definition information {A} parent name role label : node A :=
   Node (part parent name) name label Roles.Content (InformationText role) [].
 Definition region {A} parent name label role (content : list (node A)) :=
   Node (part parent name) name label role Region content.
+Definition dialog_header {A} parent (content : list (node A)) :=
+  region parent "header" "" Roles.DialogHeader content.
+Definition dialog_body {A} parent (content : list (node A)) :=
+  region parent "body" "" Roles.DialogBody content.
+Definition dialog_actions {A} parent (content : list (node A)) :=
+  region parent "actions" "Actions" Roles.DialogActions content.
 Definition page_region {A} parent region position (children : list (node A)) :=
   let name:=Composition.region_name region in
   Node (part parent (part "region" name)) name "" Roles.Section (PageRegion region position) children.

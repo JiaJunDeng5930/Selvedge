@@ -47,15 +47,29 @@ Definition context_facts {A} snapshot task parent:list(node A) :=match SessionOb
 |Some settings=>
  let workspace:=Domain.settings_workspace settings in
  let sandbox:=Domain.settings_sandbox settings in
- [read_only parent "workspace" "Working directories"(String.concat "
-"(Domain.workspace_roots workspace));
-  read_only parent "primary" "Primary directory"(value_or ""(Domain.workspace_primary workspace));
+ let project_facts:=match Domain.settings_project settings with
+ |None=>[read_only parent "project" "Project" "Projectless task"]
+ |Some id=>
+   List.app [read_only parent "project" "Project"
+     (value_or ("Project unavailable (ID "++show_natural id++")")(SessionObserve.project_name id snapshot))]
+    (match Observation.project_revision snapshot id with
+     |Some revision=>[read_only parent "guidance-revision" "Guidance revision" revision]
+     |None=>[]end) end in
+ let roots:=Domain.workspace_roots workspace in
+ let directory_facts:=List.app [read_only parent "workspace" "Working directories"
+   (match roots with []=>"No working directory"|_=>String.concat "
+" roots end)]
+   (match Domain.workspace_primary workspace with
+    |Some primary=>[read_only parent "primary" "Primary directory" primary]
+    |None=>[]end) in
+ List.app project_facts (List.app directory_facts
+ [
   read_only parent "filesystem" "Filesystem access"(match Domain.sandbox_access sandbox with Domain.ReadOnly=>"Read only"|Domain.WorkspaceWrite=>"Workspace write"end);
   read_only parent "network" "Network access"(if Domain.sandbox_network sandbox then "Network enabled"else"Network disabled");
   read_only parent "approval" "Approval policy"(match Domain.settings_approval settings with
    |Domain.FullAccess=>"Unrestricted"|Domain.AskForApproval=>"Ask"
    |Domain.ReviewWith reviewer=>"Automatic review: "++Observation.profile_label reviewer end);
-  read_only parent "guidance" "Project guidance"(match Domain.settings_guidance settings with JNull=>"No project guidance"|guidance=>text "instructions" guidance end)]end.
+   read_only parent "guidance" "Project guidance"(match Domain.settings_guidance settings with JNull=>"No project guidance"|guidance=>text "instructions" guidance end)])end.
 Definition task_details snapshot s task parent :=match find_task task snapshot with
 |None=>[read_only parent "missing" "Task unavailable" "The task no longer exists"]
 |Some task=>
@@ -97,7 +111,7 @@ Definition board_settings snapshot s parent :=match Projection.board snapshot wi
   (G.encode(G.Cmd_board_settings(G.Build_board_settings(negb automatic)profile))))in
  ((match toggle with None=>[]|Some input=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input))]end)++
  [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
-  (BoardProfile automatic profile(map(fun value=>Fields.ChoiceValue(Domain.profile_key value)(Observation.profile_label value))(SessionObserve.catalog snapshot))
+  (BoardProfile automatic profile(map(fun value=>Fields.ChoiceValue(Domain.profile_key value)(Observation.profile_label value))(Observation.selectable_profiles(SessionObserve.catalog snapshot)))
     (Services.connected(State.service_state s))(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
 Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
@@ -163,10 +177,12 @@ Definition side_content snapshot s task parent :=
  |Some task=>match natural_field "side_parent" task with
   |Some parent=>"源自 task #"++show_natural parent++" · 独立运行。关闭不回传；仅手动追加已保存的新内容。生成中的回复可稍后追加。"
   |None=>"Side conversation"end|None=>"Side conversation unavailable"end in
- region parent "side/actions" "Side conversation actions"Roles.Toolbar
-  (return_control++[declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)])::
- information parent "side/parent" Information.Description description::
- Pages.conversation_page snapshot s(SideTask task)parent.
+ [dialog_header parent
+   [region parent "side/actions" "Side conversation actions"Roles.Toolbar
+    (return_control++[declared parent Roles.Button(secondary "close" "关闭" Input.ClosePanel)])];
+  dialog_body parent
+   (information parent "side/parent" Information.Description description::
+    Pages.conversation_page snapshot s(SideTask task)parent)].
 Definition layer_view snapshot s capacity layer :=
  let parent:=SessionNavigation.panel_key(State.layer_panel layer)in
  let behavior:=behavior s capacity layer in
@@ -175,22 +191,28 @@ Definition layer_view snapshot s capacity layer :=
    (Activity.PropertyActivity UX.ProjectProperty)(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior
  |State.PropertyPanel e request=>Activities.activity_view snapshot s e request(State.layer_occurrence layer)(State.layer_source_expanded layer)parent behavior
  |panel=>let content:=match panel with
-  |State.EditorPanel e=>[Editors.editor_view snapshot s e parent]
+  |State.EditorPanel e=>Editors.editor_view snapshot s e parent
   |State.SideConversationPanel task=>side_content snapshot s task parent
   |State.NavigationPanel GlobalMenu=>[Navigation.global_menu s parent]
   |State.NavigationPanel WorkOverview=>Navigation.work_overview snapshot s parent
-  |State.NavigationPanel TasksDrawer=>[Navigation.task_navigation snapshot s true]
+  |State.NavigationPanel TasksDrawer=>
+    [dialog_header parent [title parent "Tasks"];
+     dialog_body parent [Navigation.task_navigation snapshot s true]]
   |State.ObjectActionsPanel subject=>menu_nodes snapshot s subject(State.layer_occurrence layer)parent
   |State.InformationPanel kind=>information_panel snapshot s kind parent
   |State.BoardSettingsPanel=>board_settings snapshot s parent
   |State.BoardFiltersPanel=>board_filters snapshot s parent
   |State.ArchivedCardsPanel=>map(Collections.card_node snapshot s parent parent)(value_or[](Projection.archived_cards snapshot))
   |State.Confirmation command caption destination=>
-   [title parent caption;region parent "actions" "Actions"Roles.DialogActions
+   [dialog_header parent [title parent caption];dialog_actions parent
     [declared parent Roles.DestructiveButton(Control "confirm" "Confirm"Destructive Input.Confirm
       (if State.layer_pending layer then Unavailable "This action is pending"else
-       domain_availability(Selvedge.Interaction.Session.Authoring.command_availability snapshot s command)));
+       domain_availability(Selvedge.Interaction.Session.Authoring.confirmation_availability snapshot s command)));
      declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)]]
   |_=>[]end in
+  let content:=match State.layer_panel layer with
+  |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel WorkOverview|State.NavigationPanel TasksDrawer
+  |State.Confirmation _ _ _=>content
+  |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   Node(part parent "layer") "layer" ""(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (LayerRegion behavior)content end.

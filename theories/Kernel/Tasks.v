@@ -198,6 +198,10 @@ Definition promote (task : task) :=
    with_lifecycle (Stopped Idle operations)
     (with_queued [] (append_history (map UserMessage (first :: rest)) task))
  | _,_ => task end.
+Definition wake_after_result (task : task) :=
+ match task_lifecycle task with
+ | Running Idle operations => with_lifecycle (Running WantsModel operations) task
+ | _ => promote task end.
 Definition cancel_operation (id operation_id : N) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
@@ -207,7 +211,8 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
    | Some operation =>
      let remaining := filter (fun operation => negb (N.eqb operation_id (Domain.operation_id operation))) (task_operations task) in
      accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
-      (put_task id (with_operations remaining (append_history (unknown_operations [operation]) task)) value)
+      (put_task id (wake_after_result (with_operations remaining
+       (append_history [History.cancelled_operation operation] task))) value)
       (match operation_stage operation with
        | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => [CancelTicket id ticket]
        | Granted _ | AfterHooksReady _ _ _ => [] end)

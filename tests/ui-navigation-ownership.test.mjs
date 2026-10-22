@@ -209,6 +209,11 @@ test('Work and Side creation failures display the exact server code and explanat
   let diagnostic = await failure;
   assert.equal(diagnostic.code, 'invalid_name');
   await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).waitFor();
+  await page.setViewportSize({ width: 500, height: 800 });
+  await page.getByRole('button', { name: 'Open Task list', exact: true }).waitFor();
+  assert.equal(await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).isVisible(), true,
+    'A completed physical viewport observation must preserve the creation diagnostic');
+  await page.setViewportSize({ width: 1280, height: 900 });
 
   const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
   await selectTask(fixture, task_id);

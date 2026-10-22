@@ -59,9 +59,11 @@ Definition common key semantic label role := [("id",key);("data-logical-key",sem
  ("data-surface-role",Roles.role_name role)] ++
  (match role with Roles.Main|Roles.Heading|Roles.Dialog|Roles.Menu=>[("tabindex","-1")]|_=>[]end) ++
  (if String.eqb label "" then [] else [("aria-label",label)]).
+(* Local navigation and dialog headings must not introduce page banner landmarks. *)
 Definition role_tag role := match role with
  | Roles.GlobalNavigation _ | Roles.Navigation => "nav"
-  | Roles.CompactHeader | Roles.NavigationHeader | Roles.DialogHeader => "header"
+ | Roles.CompactHeader => "header"
+ | Roles.NavigationHeader | Roles.DialogHeader => "div"
  | Roles.Main => "main" | Roles.Heading => "h2"
  | Roles.Section | Roles.Activity | Roles.Approval => "section"
   | Roles.Dialog => "dialog" | Roles.DialogActions => "footer" | _ => "div" end.
@@ -298,7 +300,9 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  (if supporting then ControlContent.support_row_attributes key else []) in
  let styles:=NativeAppearance.role_properties env role ++
  (match meaning with S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
- |Model.AnchoredMenu=>[("position","fixed");("inset","auto");("top","anchor(bottom)");("left","anchor(left)");("margin","0") ]
+ |Model.AnchoredMenu=>[("position","fixed");("inset","auto");("position-area","bottom span-right");
+ ("position-try-fallbacks","flip-block, flip-inline, flip-block flip-inline");
+ ("position-try-order","most-block-size");("margin","0") ]
  |Model.TrailingDetails=>if Model.layer_beside behavior then [("inline-size",Typography.px(Layout.details_width(Layout.parameters env)));("flex","none")] else []
  |Model.ModalDialog=>[]end|_=>[]end) ++ SemanticAppearance.meaning_properties env activity meaning ++ SemanticAppearance.source_properties env source meaning ++
  (match role with
@@ -320,9 +324,16 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
     let viewport_width:=Nat.sub(Layout.viewport_width env)(2*clearance) in
     let maximum_width:=Nat.min(Typography.scaled(Layout.root_font_size_milli env)640)viewport_width in
     let maximum_height:=Nat.sub(Layout.viewport_height env)(2*clearance) in
-    set_style "max-block-size" (Typography.px maximum_height)
-     (set_style "max-inline-size" (Typography.px maximum_width)
-      (set_style "overflow" "hidden" styles))
+    match Model.layer_presentation behavior with
+    |Model.AnchoredMenu=>
+     (* The position area is the available side of the trigger; constrain a tall
+        menu to that area so every action remains reachable by scrolling. *)
+     set_style "max-block-size" "100%"
+      (set_style "max-inline-size" (Typography.px maximum_width)
+       (set_style "overflow" "auto" styles))
+    |_=>set_style "max-block-size" (Typography.px maximum_height)
+      (set_style "max-inline-size" (Typography.px maximum_width)
+       (set_style "overflow" "hidden" styles)) end
    else styles
  |_=>styles end in
  let element tag extra events metadata content:=DOM.Element key tag (attrs++extra) styles events metadata content in

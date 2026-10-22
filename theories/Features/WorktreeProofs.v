@@ -5,6 +5,13 @@ From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
+(** A completion looked up by owner can only update that registry identity. *)
+Lemma lookup_has_owner : forall id value tree,
+ Worktree.lookup id value = Some tree -> F.worktree_task tree = id.
+Proof.
+ intros id value tree found. unfold Worktree.lookup in found.
+ apply find_some in found as [_ matches]. apply N.eqb_eq in matches. symmetry; exact matches.
+Qed.
 (** The registry is replaced through the operation used by setup, archive and
     callback admission. A write cannot retain another entry for that owner or
     change an unrelated resource. *)
@@ -59,6 +66,9 @@ Proof.
  intros tree [sequence tasks ticket environment projects features].
  destruct features; reflexivity.
 Qed.
+Lemma store_preserves_tasks : forall tree value,
+ world_tasks (Worktree.store tree value) = world_tasks value.
+Proof. intros tree [sequence tasks ticket environment projects features]; destruct features; reflexivity. Qed.
 (** A host success must name its primary directory and carry guidance from that
     directory. Malformed observations never turn a pending setup into failure. *)
 Theorem created_completion_requires_explicit_primary : forall source value id observed,
@@ -125,6 +135,60 @@ Proof.
    cbv [set F.with_worktree_phase]. cbn.
    rewrite N.eqb_refl. reflexivity.
  - split; reflexivity.
+Qed.
+(** Promotion can record queued input, but it preserves the frozen execution
+    contract and current settings. *)
+Lemma promote_preserves_frozen_fields : forall task,
+ Selvedge.Kernel.Domain.task_contract (Selvedge.Kernel.Tasks.promote task) =
+   Selvedge.Kernel.Domain.task_contract task /\
+ Selvedge.Kernel.Domain.task_current_settings (Selvedge.Kernel.Tasks.promote task) =
+   Selvedge.Kernel.Domain.task_current_settings task.
+Proof.
+ intros [contract profile settings lifecycle history queued lineage parent side_cursor model_cursor].
+ destruct lifecycle as [phase operations|phase operations|phase operations|];
+   try destruct phase; try destruct calls; destruct queued;
+   cbn [Selvedge.Kernel.Tasks.promote];
+   unfold Selvedge.Kernel.Domain.with_lifecycle, Selvedge.Kernel.Domain.with_queued,
+     Selvedge.Kernel.Domain.append_history, Selvedge.Kernel.Domain.with_history;
+   cbv [set]; simpl; split; reflexivity.
+Qed.
+(** The contract and execution settings are frame fields of promotion. *)
+Lemma promote_preserves_contract_settings : forall task,
+ Selvedge.Kernel.Domain.contract_settings
+   (Selvedge.Kernel.Domain.task_contract (Selvedge.Kernel.Tasks.promote task)) =
+ Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task).
+Proof.
+ intros task. destruct (promote_preserves_frozen_fields task) as [contract_field _].
+ now rewrite contract_field.
+Qed.
+Lemma promote_preserves_current_settings : forall task,
+ Selvedge.Kernel.Domain.task_current_settings (Selvedge.Kernel.Tasks.promote task) =
+ Selvedge.Kernel.Domain.task_current_settings task.
+Proof.
+ intros task. destruct (promote_preserves_frozen_fields task) as [_ settings_field].
+ exact settings_field.
+Qed.
+(** Completion selects the host-observed settings independently for the frozen
+    contract and the task's current execution settings. *)
+Lemma completed_task_contract_settings : forall space guidance task,
+ Selvedge.Kernel.Domain.contract_settings
+   (Selvedge.Kernel.Domain.task_contract (Worktree.completed_task space guidance task)) =
+ Worktree.selected_settings
+   (Worktree.selected_workspace (Worktree.primary space)
+      (Selvedge.Kernel.Domain.settings_workspace
+        (Selvedge.Kernel.Domain.contract_settings
+          (Selvedge.Kernel.Domain.task_contract task)))) guidance
+   (Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task)).
+Proof.
+ intros space guidance task. unfold Worktree.completed_task.
+ rewrite promote_preserves_contract_settings. reflexivity.
+Qed.
+Lemma completed_task_current_settings : forall space guidance task,
+ Selvedge.Kernel.Domain.task_current_settings (Worktree.completed_task space guidance task) =
+ Worktree.selected_settings space guidance (Selvedge.Kernel.Domain.task_current_settings task).
+Proof.
+ intros space guidance task. unfold Worktree.completed_task.
+ rewrite promote_preserves_current_settings. reflexivity.
 Qed.
 (** Result validation rolls back the complete decision when a workspace is held. *)
 Theorem unavailable_result_has_no_effects : forall before result,

@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Streams.
 Import ListNotations.
 
@@ -45,4 +46,19 @@ Proof.
   intros restored previous. cbn.
   destruct (forallb (fun entry => parts_within_budget (stream_parts entry)) (normalized_state restored)) eqn:bounded;
     cbn;[exact (fun _ => bounded)|discriminate].
+Qed.
+
+Theorem unadmitted_namespace_preserves_stream_state : forall config valid namespace source received streams,
+  string_field "namespace" source = Some received ->
+  (valid = false \/ received <> namespace) ->
+  match decode_event_in_namespace valid namespace source with
+  | Some notice => step config notice streams
+  | None => (streams,false)
+  end = (streams,false).
+Proof.
+  intros config valid namespace source received streams Namespace Unadmitted.
+  unfold decode_event_in_namespace. rewrite Namespace.
+  destruct valid eqn:Valid;cbn;[|reflexivity].
+  destruct (String.eqb received namespace) eqn:Same;cbn;[|reflexivity].
+  apply String.eqb_eq in Same. destruct Unadmitted as [Invalid|Foreign];[discriminate|contradiction].
 Qed.

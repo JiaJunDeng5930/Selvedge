@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import Numbers State InputDecoder Packet PacketProofs WorldInvariant Notifications Delivery.
+From Selvedge.Kernel Require Import Numbers State InputDecoder Packet PacketProofs WorldInvariant Notifications Delivery CommitAdmission.
 From Selvedge.Features Require Import Board BoardProofs Remote Worktree Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -103,12 +103,15 @@ Proof.
  intros source value result transition unchanged no_effects.
  unfold Packet.packet. destruct (N.leb _ _) eqn:frame.
  - rewrite transition. cbn beta iota zeta.
-   assert (admitted : decision_world (Packet.admit false None value result)=value /\
-     decision_effects (Packet.admit false None value result)=[]).
+   assert (retained : CommitAdmission.retain_live_effects result=result).
+   { destruct result as [world reply effects]. cbn in no_effects.
+     subst effects. reflexivity. }
+   assert (admitted : decision_world (Packet.admit false None source value result)=value /\
+     decision_effects (Packet.admit false None source value result)=[]).
    { pose proof (PacketProofs.actual_commit_admission_is_authorized_or_rolled_back
-       false None value result) as [rollback|[_ kept]].
+       false None source value result) as [rollback|[_ kept]].
      - exact rollback.
-     - rewrite kept. cbn [Notifications.decorate].
+     - rewrite kept, retained. cbn [Notifications.decorate].
        apply world_invariant_keeps_an_unchanged_empty_decision; assumption. }
    destruct admitted as [admitted_world admitted_effects].
    unfold Selvedge.Kernel.Observation.envelope.

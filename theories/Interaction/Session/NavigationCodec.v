@@ -66,17 +66,19 @@ Definition encode_layer layer:=JObject[("panel",encode_panel(State.layer_panel l
  ("source_expanded",JBool(State.layer_source_expanded layer));
  ("decision_field",encode_optional encode_decision(State.layer_decision_field layer));
  ("parameter_buffer",encode_optional JString(State.layer_parameter_buffer layer));
- ("feedback",encode_optional JString(State.layer_feedback layer));("pending",JBool(State.layer_pending layer))].
-Definition decode_layer value:=panel<-bind(field "panel" value)decode_panel;;trigger<-string_field "trigger" value;;initial<-string_field "initial_attention" value;;query<-string_field "query" value;;occurrence<-natural_field "occurrence" value;;source<-bool_field "source_expanded" value;;decision<-bind(field "decision_field" value)(decode_optional(decode_decision panel));;buffer<-bind(field "parameter_buffer" value)(decode_optional as_string);;feedback<-bind(field "feedback" value)(decode_optional as_string);;pending<-bool_field "pending" value;;Some(State.Layer panel trigger initial query occurrence source decision buffer feedback pending).
+ ("feedback",encode_optional(fun feedback=>feedback)(State.layer_feedback layer));("pending",JBool(State.layer_pending layer))].
+Definition decode_layer value:=panel<-bind(field "panel" value)decode_panel;;trigger<-string_field "trigger" value;;initial<-string_field "initial_attention" value;;query<-string_field "query" value;;occurrence<-natural_field "occurrence" value;;source<-bool_field "source_expanded" value;;decision<-bind(field "decision_field" value)(decode_optional(decode_decision panel));;buffer<-bind(field "parameter_buffer" value)(decode_optional as_string);;feedback<-bind(field "feedback" value)(decode_optional(fun feedback=>Some feedback));;pending<-bool_field "pending" value;;Some(State.Layer panel trigger initial query occurrence source decision buffer feedback pending).
 Definition encode_visibility visibility:=JString(match visibility with State.AutomaticNavigation=>"automatic"|State.OpenNavigation=>"open"|State.ClosedNavigation=>"closed"end).
 Definition decode_visibility value:=match value with JString "automatic"=>Some State.AutomaticNavigation|JString "open"=>Some State.OpenNavigation|JString "closed"=>Some State.ClosedNavigation|_=>None end.
 Definition encode_visit value:=JObject[("work",optional_id(fst value));("route",encode_route(snd value))].
 Definition decode_visit value:=work<-bind(field "work" value)decode_id;;route<-bind(field "route" value)decode_route;;Some(work,route).
 Definition encode_navigation value:=JObject[("location",encode_route(State.location value));
  ("work",optional_id(State.active_work value));("visits",JArray(map encode_visit(State.visits value)));
- ("visibility",encode_visibility(State.navigation_intent value));("generation",number(State.generation value));
+ ("visibility",encode_visibility(State.navigation_intent value));
+ ("desktop_task_list_visible",JBool(State.desktop_task_list_visible value));
+ ("generation",number(State.generation value));
  ("layers",JArray(map encode_layer(State.layers value)))].
-Definition decode_navigation value:=location<-bind(field "location" value)decode_route;;work<-bind(field "work" value)decode_id;;visits<-list_field decode_visit "visits" value;;visibility<-bind(field "visibility" value)decode_visibility;;generation<-natural_field "generation" value;;layers<-list_field decode_layer "layers" value;;Some(State.Navigation location work visits visibility generation layers).
+Definition decode_navigation value:=location<-bind(field "location" value)decode_route;;work<-bind(field "work" value)decode_id;;visits<-list_field decode_visit "visits" value;;visibility<-bind(field "visibility" value)decode_visibility;;desktop_visible<-bool_field "desktop_task_list_visible" value;;generation<-natural_field "generation" value;;layers<-list_field decode_layer "layers" value;;Some(State.Navigation location work visits visibility desktop_visible generation layers).
 Definition encode_reading intent:=JString(match intent with State.FollowingLatest=>"follow"|State.ReadingHistory=>"history"end).
 Definition decode_reading value:=match value with JString "follow"=>Some State.FollowingLatest|JString "history"=>Some State.ReadingHistory|_=>None end.
 Definition encode_disclosure disclosure:=let '(group,occurrence,expanded):=disclosure in JObject[("group",number group);("occurrence",number occurrence);("expanded",JBool expanded)].

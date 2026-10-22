@@ -1,4 +1,5 @@
 From Stdlib Require Import String Bool NArith.
+From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require CodeBlock.
 From Selvedge.Interaction.Submission Require Fields.
 
@@ -13,7 +14,9 @@ Inductive purpose :=
 | MoreActions (expanded : bool)
 | OpenPanel (symbol : string) (menu expanded : bool)
 | ChooseValue (expanded : bool) | WorkspacePicker (expanded : bool)
-| SelectedOption (checked : bool) | Dismiss
+| SelectedOption (checked : bool)
+| BoardFilterChoice (category : BoardFilter.category) (value : string)
+| Dismiss
 | StopExecution | PauseExecution | ResumeExecution | InterruptExecution | AbortOperation
 | ApprovalDecision (allow : bool) | DeleteItem | ArchiveItem (archived : bool)
 | PinItem (pinned : bool) | AutomaticScheduling (enabled : bool) | Regenerate

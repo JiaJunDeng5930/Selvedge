@@ -60,11 +60,15 @@ Definition same_scope left right := match left,right with
  |Document,Document=>true
  |Temporary a _ _ _ x,Temporary b _ _ _ y=>String.eqb a b && same_occurrence x y
  |_,_=>false end.
+Definition retained_scope_target before current eligible := match current with
+ |Temporary identity _ _ _ _=>
+   if same_scope before current && negb eligible then identity else initial current
+ |Document=>initial current end.
 Definition top scopes := match rev scopes with current::_=>current|[]=>Document end.
 Definition request previous current eligible : option(string*string) :=
  let before:=top previous in let after:=top current in
  if transition before after eligible then
  let returning:=match after with Document=>true|_=>existsb(same_scope after)previous end in
  if returning && changed before after then Some(restore before,fallback before)
- else Some(initial after,fallback after)
+ else Some(retained_scope_target before after eligible,fallback after)
  else None.

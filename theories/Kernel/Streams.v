@@ -112,6 +112,12 @@ Definition decode_event (source : json) : option event :=
       else Some Ignore
     end
   end.
+Definition decode_event_in_namespace (namespace_is_valid : bool) (namespace : string) (source : json) : option event :=
+  match string_field "namespace" source with
+  | Some received =>
+      if namespace_is_valid && String.eqb received namespace then decode_event source else Some Ignore
+  | None => None
+  end.
 Definition part_json (part : stream_part) := JObject [("output_index",JNumber (show_natural part.(part_index)));("text",JString part.(part_text))].
 Definition stream_json (entry : stream) := JObject [("task_id",JNumber (show_natural entry.(stream_identity).(stream_task)));
   ("ticket",JNumber (show_natural entry.(stream_identity).(stream_ticket)));("parts",JArray (map part_json entry.(stream_parts)))].

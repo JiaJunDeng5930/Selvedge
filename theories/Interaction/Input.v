@@ -37,7 +37,8 @@ Inductive input :=
 | InspectSource(owner:editor)(request:activity_request)(trigger:string)
 | ClosePanel | OpenInformation(kind:State.information_panel)(trigger:string) | Confirm
 | Confirmation(command:State.public_command)(caption:string)(destination:route)(trigger:string)
-| BeginSide(task:N)(trigger:string) | ShowSide(task:N)(trigger:string) | CloseSide | NavigationExpanded(value:bool)
+| BeginSide(task:N)(trigger:string) | ShowSide(task:N)(trigger:string) | CloseSide
+| NavigationExpanded(value:bool) | TaskListVisible(value:bool)
 | WriteHistoryQuery(query:string) | ChooseHistoryScope(project:bool)(scope:option N)
 | SubmitHistorySearch(after:N) | OpenHistoryMessage(task index:N)
 | ReadTimeline(task generation:N)(intent:State.reading_intent)
@@ -51,6 +52,31 @@ Inductive input :=
 | LoadSkills(owner:editor)(explicit:bool) | SkillsLoaded(ticket:N)(outcome:sum string json)
 | SkillSelected(owner:editor)(path:string) | SkillSelection(owner:editor)(caret:N)(composing:bool)
 | SkillMove(owner:editor)(offset:Z) | SkillDismiss(owner:editor).
+
+(* Only semantic user actions acknowledge a displayed command receipt. Focus,
+   selection, layout, and IO observations can also be delivered without intent. *)
+Definition acknowledges_feedback (incoming:input) := match incoming with
+|Completed _ _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
+|Snapshot|Stream _|CodeObserved _|AppearanceRestored _|SkillsLoaded _ _
+|ActivityFocus _ _ _|SkillSelection _ _ _|ReadTimeline _ _ _=>false
+|LoadSkills _ explicit=>explicit
+|ServiceInput service=>match service with
+ |Services.CommandAssessed _ _|Services.RestoreModelPreference _
+ |Services.StorageProblem _|Services.WorkspaceGitCompleted _ _|Services.Connect
+ |Services.Authenticated _ _|Services.Disconnected _ _ _|Services.RetryConnection _
+ |Services.Uploaded _ _|Services.Previewed _ _|Services.DirectoryListed _ _=>false
+ |_=>true end
+|SpeechInput speech=>match speech with
+ |Speech.Refresh|Speech.Capabilities _|Speech.CapabilitiesFailed _
+ |Speech.Captured _ _ _|Speech.Transcribed _ _|Speech.TaskCreated _ _
+ |Speech.VoiceReady _|Speech.LiveText _ _|Speech.Failed _ _|Speech.Ended _ _
+ |Speech.Released=>false
+ |_=>true end
+|Interactive language=>match language with
+ |Types.ValueChanged _ _|Types.ActionClicked _|Types.ViewChanged _ _
+ |Types.SourceDisclosure _|Types.CopyDefinition _=>true
+ |_=>false end
+|_=>true end.
 
 Definition assign_subject {e} (subject:Model.subject e) (incoming:json) : option input :=
  if Parameters.editable e(Model.subject_declaration subject)then

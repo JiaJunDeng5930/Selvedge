@@ -278,5 +278,14 @@ Definition message_json (owner : N) (value : message) :=
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
    ("operation_id",number operation);("call",call_json invocation);("content",result);("is_error",JBool error)]
  | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]
- | ForkReceipt _ call child => JObject [("role", JString "function_output"); ("call_id", JString (call_id call)); ("content", number child); ("is_error", JBool false)]
+ | ForkReceipt _ call child => JObject [("role", JString "function_output"); ("call_id", JString (call_id call));
+   ("content", number child); ("is_error", JBool false); ("receipt_kind", JString "fork_result")]
  end.
+
+Theorem fork_receipt_json_preserves_provider_result : forall owner invocation child,
+ field "role" (message_json owner (ForkReceipt owner invocation child)) = Some (JString "function_output") /\
+ field "call_id" (message_json owner (ForkReceipt owner invocation child)) = Some (JString (call_id invocation)) /\
+ field "content" (message_json owner (ForkReceipt owner invocation child)) = Some (number child) /\
+ field "is_error" (message_json owner (ForkReceipt owner invocation child)) = Some (JBool false) /\
+ field "receipt_kind" (message_json owner (ForkReceipt owner invocation child)) = Some (JString "fork_result").
+Proof. intros; repeat split; reflexivity. Qed.

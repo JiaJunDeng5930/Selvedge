@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 TextJson.
+From Selvedge.Kernel Require Import Conversation.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
@@ -11,7 +12,7 @@ Definition extract (item : json) : option response_piece :=
   if String.eqb (str item "type") "text" then
     if is_text (get item "text") then Some (Captured (get item "text")) else None
   else if String.eqb (str item "type") "context" then
-    let value := get item "value" in
+    let value := Conversation.provider_value (get item "value") in
     if String.eqb (str value "type") "reasoning" then Some Skipped
     else if String.eqb (str value "type") "message" && String.eqb (str value "role") "assistant" then
       match items (get value "content") with

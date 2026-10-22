@@ -106,11 +106,11 @@ Definition decode_body e value :option body :=match e with
 |Identity.TitlePrompts=>revision<-natural_field "revision" value;;task<-string_field "task_prompt" value;;agent<-string_field "agent_prompt" value;;Some(TitlePromptsBody revision task agent)end.
 Definition encode_feedback value:=match value with Editing=>JObject[("kind",JString "editing")]
 |Accepted revision reply=>JObject[("kind",JString "accepted");("revision",number revision);("reply",reply)]
-|Rejected revision reason=>JObject[("kind",JString "rejected");("revision",number revision);("reason",JString reason)]
+|Rejected revision diagnostic=>JObject[("kind",JString "rejected");("revision",number revision);("reason",diagnostic)]
 |WorkspaceRejected revision reason=>JObject[("kind",JString "workspace_rejected");("revision",number revision);("reason",JString reason)]end.
 Definition decode_feedback value:=match string_field "kind" value with
 |Some "editing"=>Some Editing|Some "accepted"=>revision<-natural_field "revision" value;;reply<-field "reply" value;;Some(Accepted revision reply)
-|Some "rejected"=>revision<-natural_field "revision" value;;reason<-string_field "reason" value;;Some(Rejected revision reason)
+|Some "rejected"=>revision<-natural_field "revision" value;;diagnostic<-field "reason" value;;Some(Rejected revision diagnostic)
 |Some "workspace_rejected"=>revision<-natural_field "revision" value;;reason<-string_field "reason" value;;Some(WorkspaceRejected revision reason)|_=>None end.
 Definition encode_draft value:=JObject[("owner",encode_editor(owner value));("revision",number(revision value));("body",encode_body(contents value));("feedback",encode_feedback(draft_feedback value));("directory_entry",JString(directory_entry value))].
 Definition decode_draft value:=e<-bind(field "owner" value)decode_editor;;revision<-natural_field "revision" value;;body<-bind(field "body" value)(decode_body e);;feedback<-bind(field "feedback" value)decode_feedback;;entry<-string_field "directory_entry" value;;Some(Draft revision body feedback entry).

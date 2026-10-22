@@ -486,7 +486,8 @@ Proof.
  - rewrite create_ok in accepted. discriminate.
 Qed.
 
-(** A real one-attempt batch removes its selected card from the runnable\n    queue: success links it to its new Task, while failure blocks it. *)
+(** A real one-attempt batch removes its selected card from the runnable
+    queue: success links it to its new Task, while failure blocks it. *)
 Theorem pump_one_resolves_selected_card : forall result id card,
  Board.next (decision_world result)=Some id ->
  Board.lookup id (decision_world result)=Some card ->

@@ -66,6 +66,11 @@ Definition graph_endpoints p:=let nodes:=property_array "nodes"p in let edges:=p
  |_,_=>false end)edges.
 Definition graph_identities items:=forallb(fun item=>match string_field "identity"item with
  |Some id=>negb(String.eqb id "")|None=>false end)items.
+Definition graph_selection_valid locals p:=match property "select"p with
+ |Some(JString id)=>match Local.find_local id locals with
+   |Some local=>match local.(Local.local_shape)with Local.Text _=>true|_=>false end
+   |None=>false end
+ |None|Some JNull=>true|Some _=>false end.
 Definition required_label_valid p:=forallb(fun field=>
  if String.eqb field.(field_name)"label"then match field.(field_kind)with
  |KText=>negb(String.eqb(property_text "label"p)"")|_=>true end else true)p.(description).(component_fields).
@@ -124,6 +129,8 @@ with expand_node(fuel:nat)(b:block)(prepared:prepared)(external_env:json)(ctx:co
    |Good props=>match component_values spec props with
      |None=>message path("Invalid component properties: "++tag)allocation
      |Some values=>let props:=Properties spec values in
+       if String.eqb tag "graph-view"&&negb(graph_selection_valid prepared.(prepared_locals) props)
+       then message path "Graph selection must bind a root string state" allocation else
        if negb(property_bool true "visible"props)then([],allocation)else
        if negb spec.(container)&&negb(Nat.eqb(List.length children)0)then message path "Leaf component cannot contain children"allocation else
        if negb(extra_valid props children)then message path "Invalid component data or child structure"allocation else

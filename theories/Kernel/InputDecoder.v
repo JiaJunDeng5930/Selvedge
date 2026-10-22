@@ -40,8 +40,8 @@ Definition parse_approval_outcome (source : json) : option approval_outcome :=
    let reason := head (tail fields) in
    let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason
     | _ => ApprovalFailed "The review did not return a valid decision" end in
-   (* A blank but otherwise valid reason is malformed; invalid text still settles
-      through normalize_outcome as a failed review. *)
+   (* DEFENSE: Native approval callbacks can supply a blank reason. Reject that
+      malformed outcome; invalid text still settles as a failed review. *)
    if ApprovalProtocol.valid_justification reason then
      Some (ApprovalProtocol.normalize_outcome outcome)
    else if ApprovalProtocol.valid_reason reason then None

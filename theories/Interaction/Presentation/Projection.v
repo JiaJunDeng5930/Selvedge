@@ -3,8 +3,9 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Kernel Require Domain Codec.
 From Selvedge.Features Require BoardFilter.
 From Selvedge.Interaction Require Import Identity Codec DocumentState.
-From Selvedge.Interaction.Session Require State Navigation Context.
+From Selvedge.Interaction.Session Require State Navigation Context Observation.
 Module SessionNavigation := Selvedge.Interaction.Session.Navigation.
+Module SessionObservation := Selvedge.Interaction.Session.Observation.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -79,9 +80,14 @@ Definition archived_cards snapshot := option_map(filter(flag "archived"))(board_
 Definition count_working snapshot := match board_cards snapshot with
 |None=>0%N|Some cards=>N.of_nat(List.length(filter(fun card=>BoardFilter.task_working card snapshot)cards))end.
 Definition selected_project snapshot s :=
- match State.location(State.navigation_state s) with
+ let navigation:=State.navigation_state s in
+ match State.location navigation with
  |ProjectHome id=>Some id
  |Conversation task=>bind(find_task task snapshot)task_project
+ |Start=>match SessionObservation.draft_preview snapshot
+   (State.current_draft s (NewTask(State.active_work navigation)))with
+   |Context.ProspectiveContext _ project _ _ _ _=>project
+   |_=>None end
  |_=>None end.
 Definition document_context snapshot s :=
  Selvedge.Interaction.Session.Context.document_context

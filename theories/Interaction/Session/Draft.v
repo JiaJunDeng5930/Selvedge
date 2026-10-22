@@ -25,7 +25,7 @@ Inductive body :=
 | TaskGraphBody (graph : option N) (declaration : string) (parsed : option json) (work : option N)
 | TitlePromptsBody (revision : N) (task_prompt agent_prompt : string).
 Inductive feedback := Editing | Accepted (revision : N) (reply : json)
-| Rejected (revision : N) (reason : string) | WorkspaceRejected (revision : N) (reason : string).
+| Rejected (revision : N) (diagnostic : json) | WorkspaceRejected (revision : N) (reason : string).
 Record draft := Draft {
   revision : N;
   contents : body;

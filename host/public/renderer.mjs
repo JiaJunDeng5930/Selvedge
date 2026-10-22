@@ -15,6 +15,14 @@ function unmount(node) {
   }
   node.remove();
 }
+function focusVisible(node) {
+  if (!node?.isConnected || node.disabled || node.closest('[inert],[hidden]')
+    || !node.getClientRects().length || getComputedStyle(node).visibility === 'hidden') return false;
+  const bounds = node.getBoundingClientRect();
+  const viewport = node.ownerDocument.defaultView;
+  return bounds.left >= 0 && bounds.top >= 0
+    && bounds.right <= viewport.innerWidth && bounds.bottom <= viewport.innerHeight;
+}
 function reconcile(parent, children) {
   const retained = new Set(children);
   // Remove replaced text before ordering so unchanged editor ancestors never move.
@@ -178,15 +186,25 @@ export class Renderer {
     node.addEventListener('touchmove', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('scroll', event => this.callbacks.reading?.('anchor', event, record.key, node), { passive: true });
     const transferredFiles = event => Array.from((event.clipboardData ?? event.dataTransfer)?.files ?? []);
+    // A pasted file targets the editor; its form's ReceiveFile control owns admission.
+    const fileReceivers = () => {
+      const candidates = node.form
+        ? Array.from(this.records.values()).filter(candidate => candidate.node.form === node.form)
+        : [record];
+      return candidates.filter(candidate => !candidate.node.disabled)
+        .flatMap(candidate => candidate.events.some(binding => binding.kind === 'files') ? [candidate] : []);
+    };
     for (const type of ['paste', 'drop']) node.addEventListener(type, event => {
-      if (transferredFiles(event).length && record.events.some(binding => binding.kind === 'files')) {
+      const receivers = fileReceivers();
+      if (transferredFiles(event).length && receivers.length) {
         event.preventDefault();
-        for (const binding of record.events.filter(binding => binding.kind === 'files'))
-          this.callbacks.event?.(binding, event, record.key, node, record.generation);
+        for (const receiver of receivers)
+          for (const binding of receiver.events.filter(binding => binding.kind === 'files'))
+            this.callbacks.event?.(binding, event, receiver.key, receiver.node, receiver.generation);
       }
     });
     node.addEventListener('dragover', event => {
-      if (record.events.some(binding => binding.kind === 'files')) event.preventDefault();
+      if (fileReceivers().length) event.preventDefault();
     });
   }
   render(document, generation = 0) {
@@ -314,10 +332,15 @@ export class Renderer {
     for (const record of this.records.values()) if (record.metadata.code)
       this.callbacks.codePublication?.(record.metadata.code);
     if (!this.isolated) {
-      const eligible = active?.isConnected && !active.closest('[inert],[hidden]') && !active.disabled
-        && (!this.modal || this.modal.contains(active));
+      const eligible = focusVisible(active) && (!this.modal || this.modal.contains(active));
       const focus = this.callbacks.focusPlan?.({ previous: previousScope, current: this.focusScope, eligible });
-      if (focus) this.resolveTarget(focus.target, { fallback: focus.fallback })?.focus({ preventScroll: true });
+      if (focus) {
+        const target = this.resolveTarget(focus.target, { fallback: focus.fallback });
+        const container = this.modalRecord()?.node;
+        const recoveringContainer = target === container && focus.target === container?.dataset.key;
+        const canFocusContainer = target?.matches('dialog') && target.hasAttribute('tabindex') && focusVisible(target);
+        if (target && (!recoveringContainer || canFocusContainer)) target.focus({ preventScroll: true });
+      }
     }
     if (document.title) this.root.ownerDocument.title = document.title;
   }

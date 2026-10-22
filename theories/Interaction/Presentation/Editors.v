@@ -25,7 +25,8 @@ Definition submit_label e := match e with
 |Agent None=>"Create agent"|TaskGraph None _=>"Create task graph"|Fork _=>"Fork task"
 |Compact _=>"Compact history"|_=>"Save"end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
-|Draft.Rejected _ reason|Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
+|Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
+|Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
 Definition assessment_availability {e}(value:UX.assessment e) :=match UX.assessment_outcome value with
 |UX.PreparationReady=>Available|UX.DirectoryObservationRequired _=>NeedsDirectoryObservation
 |UX.PreparationBlocked first _=>Unavailable(UX.obstruction_message first)end.
@@ -174,10 +175,12 @@ Definition editor_view snapshot s e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
  let submit:=Control "submit"(submit_label e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
- Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
-  (title_prompt_controls e parent(UX.action_pending unit)++
-   section_nodes snapshot s e parent++
-   [assessment_nodes parent assessment]++
-   Composer.action_feedback parent unit(draft_feedback(Session.current_draft s e))++
-   [region parent "actions" "Actions" Roles.DialogActions
-     [Node(part parent "submit")"submit"(control_label submit)Roles.PrimaryButton(ActionCommit e assessment submit)[]]])%list.
+ let body := (title_prompt_controls e parent (UX.action_pending unit) ++
+   section_nodes snapshot s e parent ++
+   [assessment_nodes parent assessment] ++
+   Composer.action_feedback parent unit (draft_feedback (Session.current_draft s e)))%list in
+ [dialog_header parent [title parent(editor_title e)];
+  Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
+   (dialog_body parent body::
+    [dialog_actions parent
+      [Node(part parent "submit")"submit"(control_label submit)Roles.PrimaryButton(ActionCommit e assessment submit)[]]])].

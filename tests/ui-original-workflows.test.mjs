@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { browserFixture } from './fixtures/browser.mjs';
@@ -10,8 +10,11 @@ test('a Project task keeps its readable context and its primary and supporting a
   const { page, command, root } = await browserFixture(t);
   const workspace = path.join(root, 'Original project workspace');
   await mkdir(workspace);
+  await writeFile(path.join(workspace, 'AGENTS.md'), 'Original Project guidance.');
   const project = await command({ op: 'create_project', name: 'Harbour 海港',
     workspace: { roots: [workspace], primary_root: workspace } });
+  const savedProject = await command({ op: 'read_project', project_id: project.project_id });
+  const revision = savedProject.guidance.revision;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('region', { name: 'Harbour 海港', exact: true }).hover();
@@ -53,6 +56,26 @@ test('a Project task keeps its readable context and its primary and supporting a
   assert.equal(task.settings.project_id, project.project_id);
   assert.deepEqual(task.settings.workspace, { roots: [workspace], primary_root: workspace });
   await page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Task details', exact: true }).click();
+  const details = page.getByRole('dialog');
+  await details.getByText('Harbour 海港', { exact: true }).waitFor();
+  assert.ok(await details.getByText(workspace, { exact: true }).count() > 0,
+    'Task details must include the Project workspace');
+  await details.getByText('Guidance revision', { exact: true }).waitFor();
+  await details.getByText(revision, { exact: true }).waitFor();
+});
+
+test('a projectless task identifies its context without inventing a Project revision', async t => {
+  const { page, command } = await browserFixture(t);
+  const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
+  const { task } = await command({ op: 'read', task_id });
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: task.title, exact: true }).click();
+  await page.getByRole('button', { name: 'Task details', exact: true }).click();
+  const details = page.getByRole('dialog');
+  await details.getByText('Projectless task', { exact: true }).waitFor();
+  assert.equal(await details.getByText('Guidance revision', { exact: true }).count(), 0,
+    'A projectless task has no Project guidance revision');
 });
 
 test('interactive source disclosure controls the original Markdown fence without duplicating it', async t => {

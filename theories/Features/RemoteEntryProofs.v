@@ -78,11 +78,13 @@ Proof.
  assert (Authorize : Remote.authorize_command true (G.Cmd_stop (G.Build_stop 0))
    request (Remote.registry value) = Remote.Admitted).
  { exact Admitted. }
- unfold Remote.execute_remote. rewrite Authorize.
+ assert (Configuration : Remote.configuration_allowed
+   (G.Cmd_stop (G.Build_stop 0)) stop_first_source = true) by reflexivity.
+ unfold Remote.execute_remote. rewrite Configuration, Authorize.
  cbn [stop_first_source stop_first_wire Remote.observation_command Remote.required_rights].
  assert (Decoded : G.decode stop_first_wire = Some (G.Cmd_stop (G.Build_stop 0))) by reflexivity.
  assert (Field : field "command" stop_first_source = Some stop_first_wire) by reflexivity.
- rewrite Field, Decoded. cbn [G.declared_command]. rewrite Authorize.
+ rewrite Field, Decoded. cbn [G.declared_command]. rewrite Configuration, Authorize.
  assert (Prepared : Remote.prepared_world stop_first_source value = Some value) by reflexivity.
  rewrite Prepared.
  rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running Workspace).

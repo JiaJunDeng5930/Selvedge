@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Numbers.
 From Selvedge.Kernel Require Import Conversation Streams.
 From Selvedge.Interaction Require Import Codec Identity Origin CodeSource DocumentPublication DocumentState Documents Audit Graphics.
 From Selvedge.Interaction.Interactive Require Import Types State Language.
-From Selvedge.Interaction.Presentation Require Import Surface Roles Model.
+From Selvedge.Interaction.Presentation Require Import Surface Roles Model Information.
 Import ListNotations.
 Open Scope string_scope.
 Module S := Selvedge.Interaction.Presentation.Surface.
@@ -60,15 +60,15 @@ Definition speech {A} action context retained interactive task occurrence messag
    then R.AssistantMessage else R.UserMessage)
   (reading source (value_or "" (Conversation.json_message_text message)) retained)
   (attachments action context retained interactive source).
-Definition group {A} (action:actions A) context retained interactive task disclosures (entry:Audit.group) : S.node A :=
+Definition group {A} (action:actions A) context retained interactive task disclosures history (entry:Audit.group) : S.node A :=
  match entry with
  |Audit.Spoken (occurrence,message)=>speech action.(reading_interactive) context retained interactive task (N.of_nat occurrence) message
  |Audit.Activity first rest=>let entries:=first::rest in
    let identity:=N.of_nat (fst first) in let attention:=Audit.attention entries in
    let expanded:=Audit.disclosed identity disclosures attention in
    let key:="task/"++show_natural task++"/activity/"++show_natural identity in
-   S.Node key ("activity/"++show_natural identity) (Audit.summary entries) R.Activity
-    (S.ActivityContent expanded (Audit.faces entries))
+   S.Node key ("activity/"++show_natural identity) (Audit.summary history entries) R.Activity
+    (S.ActivityContent expanded (Audit.faces history entries))
     [control (key++"/disclosure") (if expanded then "Collapse activity" else "Expand activity")
       (action.(reading_disclosure) task identity attention (negb expanded))]
  end.
@@ -101,12 +101,18 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
 Definition timeline {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=Identity.task_view_task view in
  let messages:=match DocumentState.find_task task (context_world context) with Some value=>items "history" value|None=>[] end in
- let history:=map (group action context retained interactive task disclosures) (Audit.groups 0 messages) in
+ let history:=map (group action context retained interactive task disclosures messages) (Audit.groups 0 messages) in
  let live:=flat_map (fun output=>if N.eqb task (Streams.output_task output)
    then map (preview action.(reading_interactive) context retained interactive output) (Streams.output_parts output) else []) (current_previews context) in
  let unfinished:=flat_map (retained_part action context retained interactive)
    (filter (fun stamp=>N.eqb task (document_viewer stamp)) (Documents.retained_stamps context retained)) in
- map (in_view view) (List.app history (List.app live unfinished)).
+ let unfinished_section:=match unfinished with
+ |[]=>[]
+ |parts=>[S.Node "unfinished-replies" "unfinished-replies" "未完成回复" R.Content S.Region
+   (S.Node "unfinished-replies/heading" "heading" "未完成回复" R.Content
+     (S.InformationText Information.GroupTitle) []::parts)]
+ end in
+ map (in_view view) (List.app history (List.app unfinished_section live)).
 Definition shared_ui {A} (on_interactive:Types.input->A) context retained interactive : list (S.node A) :=
  fold_right (fun block rest=>match Documents.shared_work context block.(block_owner),
    Documents.publication_identity context block.(block_owner) retained with

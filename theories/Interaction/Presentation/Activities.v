@@ -196,7 +196,7 @@ Definition project_menu snapshot s e occurrence parent behavior:=
      String.concat " "(Domain.workspace_roots(Projection.project_workspace project));
      value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project))])))projects)end end in
  Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
-  (title parent "Choose project"::content).
+  [dialog_header parent [title parent "Choose project"];dialog_body parent content].
 Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
 Definition activity_view snapshot s e request occurrence source_expanded parent behavior :=
  if workspace_request request && match e with Identity.Project _=>false|_=>true end
@@ -205,20 +205,20 @@ Definition activity_view snapshot s e request occurrence source_expanded parent 
  then project_menu snapshot s e occurrence parent behavior else
  match Observation.observe_activity snapshot s e request with
  |None=>Node parent "activity-unavailable" "Settings unavailable"Roles.Dialog(LayerRegion behavior)
-   [read_only parent "unavailable" "Settings unavailable" "The original settings observation is unavailable"]
+   [dialog_header parent [title parent "Settings unavailable"];
+    dialog_body parent [read_only parent "unavailable" "Settings unavailable" "The original settings observation is unavailable"]]
  |Some activity=>
   let layer:=current_layer s occurrence in
   let view:=Observation.view_for activity(match layer with Some layer=>Observation.layer_focus layer|None=>None end)source_expanded in
   let query:=match layer with Some layer=>State.layer_query layer|None=>""end in
   let caption:=view_title activity view in
   let completion:=Observation.completion_for activity view in
-  Node parent "activity"caption Roles.Dialog(ActivityGroup e activity view behavior)
-   ((match completion with
+  let header:=match completion with
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
       [Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
        [declared parent Roles.Button(secondary "back" "Back"(Input.ActivityComplete occurrence));title parent caption]]
-    |_=>[title parent caption]end)++
-    (if Observation.search_required activity view then
+    |_=>[title parent caption]end in
+  let body:=((if Observation.search_required activity view then
      [Node(part parent "search")"search" "Search models"Roles.Field
       (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++
     activity_fields snapshot s occurrence parent activity++
@@ -226,4 +226,7 @@ Definition activity_view snapshot s e request occurrence source_expanded parent 
     (match view with Act.PrincipalView=>
       [Node(part parent "inspection")"inspection" ""Roles.Section(ActivityRow InspectionRow)
        [declared parent Roles.Button(secondary "source"(inspection_label(UX.property_kind_of(Act.activity_property activity)))
-         (Input.TogglePropertySource e occurrence))]]|_=>[]end))%list end.
+         (Input.TogglePropertySource e occurrence))]]|_=>[]end))%list in
+  Node parent "activity"caption Roles.Dialog(ActivityGroup e activity view behavior)
+   (if Model.modal_layer behavior then [dialog_header parent header;dialog_body parent body]
+    else header++body) end.

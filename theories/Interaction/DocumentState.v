@@ -73,7 +73,8 @@ Record context := DocumentContext {
  context_shared : option shared_occurrence;
  context_work : option N;
  context_streams : Streams.state;
- context_connected : bool
+ context_connected : bool;
+ context_revoked : bool
 }.
 Definition find_world collection identity value world :=
  find (fun item=>match natural_field identity item with Some found=>N.eqb value found|None=>false end)

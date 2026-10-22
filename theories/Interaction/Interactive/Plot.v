@@ -14,6 +14,11 @@ Definition data_point x y row:=
  |JString s=>Good(Point None dy)
  |JNumber _=>dx <-? from_option "Chart x field must be finite"(decimal_value vx);;Good(Point(Some dx)dy)
  |_=>Error "Chart x field must be numeric or a string category"end.
+Definition numeric_x p:=match p.(x_number)with Some _=>true|None=>false end.
+Definition homogeneous_x_axis points:=match points with
+ |[]=>true
+ |first::rest=>forallb(fun point=>Bool.eqb(numeric_x first)(numeric_x point))rest
+ end.
 Definition chart_whole (value:Z)
  (valid:Z.leb (Z.abs(value*Decimal.scale)) Decimal.limit=true) :Decimal.decimal :=
  exist _ (value*Decimal.scale) (proj1 (Z.leb_le (Z.abs(value*Decimal.scale)) Decimal.limit) valid).
@@ -58,6 +63,7 @@ Definition bar_width (count:nat) := Nat.min 20 (Nat.max 1 (Nat.div 320 (Nat.max 
 Definition chart_rows p:=firstn Bounds.chart_points(property_array "data"p).
 Definition chart p : outcome(plot input):=
  points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
+ if homogeneous_x_axis points then
  x_domain <-? magnitude (fun p=>match p.(x_number) with Some x=>Decimal.units x|None=>0 end) points;;
  y_domain <-? magnitude (fun p=>Decimal.units p.(y_number)) points;;
  coordinates <-? chart_coordinates x_domain y_domain 0 (List.length points) points;;
@@ -65,7 +71,8 @@ Definition chart p : outcome(plot input):=
   then [FilledPath (bar_path (bar_width (List.length points)) coordinates) Neutral]
   else [StrokePath (line_path true coordinates) Neutral;StrokePath (point_path coordinates) Neutral] in
  Good(Plot 480%positive 240%positive
-  ([Line 40 20 40 220 Neutral;Line 40 120 460 120 Neutral]++values)).
+  ([Line 40 20 40 220 Neutral;Line 40 120 460 120 Neutral]++values))
+ else Error "Chart x axis mixes numeric and categorical values".
 Fixpoint node_index wanted index nodes:=match nodes with []=>None|node::rest=>
  match string_field "identity"node with Some id=>if String.eqb id wanted then Some index else node_index wanted(S index)rest|None=>None end end.
 Definition rounded_integer d:=match Decimal.rounded_division(Decimal.units d)Decimal.scale with Some n=>n|None=>0 end.

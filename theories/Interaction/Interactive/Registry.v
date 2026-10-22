@@ -16,12 +16,16 @@ Fixpoint evaluate_attributes budget environment attributes : outcome(list(string
    |(Error e,remaining_budget)=>(Error e,remaining_budget)|(Good values,remaining_budget)=>(Good((a.(attribute_name),value)::values),remaining_budget)end end end.
 Definition literal_text name attrs:=j <-? literal_attr name attrs;;from_option("Text literal required: "++name)(as_string j).
 Definition lexical_id attrs:=match literal_text "id"attrs with Good id=>if valid_id id then Some id else None|_=>None end.
+Definition literal_bind tag attrs:=match component tag with
+ |Some spec=>match spec.(component_role)with Field=>match literal_text "bind"attrs with Good _=>true|_=>false end|_=>true end
+ |None=>true end.
 Fixpoint structural_scan(fuel:nat)(scope:string)(seen:list string)(nodes:list element):list element*list string*option string:=
  match fuel,nodes with
  | _,[]=>([],seen,None)
  | O,_=>([],seen,Some "Component structure budget")
  | S k,(Element tag attrs children closed)::rest=>
    if declaration tag then([],seen,Some "Declarations are only allowed directly inside ui")else
+   if negb(literal_bind tag attrs)then([],seen,Some "Input bind must be a literal root state id")else
    let template:=String.eqb tag "node-template"in
    let id:=if template then Some ""else lexical_id attrs in
    match id with
@@ -132,5 +136,5 @@ Definition prepare syntax previous old_sources environment:=
        let p:=prepare_children 2048 previous old_sources environment children(start previous)in
        if Nat.eqb(List.length rest)0 then p else with_diagnostic "Exactly one ui root is allowed"true p
      else with_diagnostic "Unknown ui attribute"true(start previous)end
- | []=>start previous
+ | []=>if syntax.(sealed)then with_diagnostic "The document ended without a ui root"true(start previous)else start previous
  | _=>with_diagnostic "Exactly one ui root is required"true(start previous)end.

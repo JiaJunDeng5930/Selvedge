@@ -41,9 +41,9 @@ Proof.
  intros operations task; unfold with_operations; destruct (task_lifecycle task); reflexivity.
 Qed.
 Local Lemma waking_after_a_result_keeps_history : forall task,
- exists suffix, task_history (Callbacks.wake_after_result task) = task_history task ++ suffix.
+ exists suffix, task_history (Tasks.wake_after_result task) = task_history task ++ suffix.
 Proof.
- intros task; unfold Callbacks.wake_after_result, Tasks.promote.
+ intros task; unfold Tasks.wake_after_result, Tasks.promote.
  destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|];
  try destruct phase; try destruct calls; destruct (task_queued task); cbn;
  try (exists []; rewrite app_nil_r; reflexivity);

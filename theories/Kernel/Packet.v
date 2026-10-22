@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits WorldInvariant.
+From Selvedge.Kernel Require Import CommitAdmission.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -73,13 +74,17 @@ Definition transition (source : json) (value : world) : bool * bool * option inp
      | None => (false,false,None,reject "invalid_input" "Unknown input kind or malformed domain callback" value)
      end
  end.
-Definition admit (durable : bool) (source : option input) (before : world) (result : decision) :=
- Delivery.deliver durable (WorldInvariant.validate before (Notifications.decorate durable source before result)) before.
+Definition admit (durable : bool) (source : option input) (raw_source : json)
+ (before : world) (result : decision) :=
+ let result := CommitAdmission.retain_live_effects result in
+ Delivery.deliver durable
+  (CommitAdmission.validate durable source raw_source before
+    (WorldInvariant.validate before (Notifications.decorate durable source before result))) before.
 Definition packet (source : json) (value : world) : world * json :=
  if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
  let '(durable,schedules,input,result) := transition source value in
  let result := if schedules then Selvedge.Features.Runtime.finish (Scheduler.run execute_command Selvedge.Features.Runtime.can_schedule_task result) else result in
- let result := admit durable input value result in
+ let result := admit durable input source value result in
  let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
    else decision_world result in
  (committed,Observation.envelope durable result)

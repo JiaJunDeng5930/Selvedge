@@ -196,7 +196,7 @@ Definition granted_operation (id : N) (operation : operation) (task : task) (val
    let '(ticket, allocated) := allocate_ticket value in
    let running := Operation (operation_id operation) (operation_call operation) (operation_announced operation) (Elevated ticket reviewer) in
    accept (JObject [("accepted",JBool true)])
-    (put_task id (Callbacks.wake_after_result (with_operations (replace_operation running (task_operations task)) task)) allocated)
+    (put_task id (Tasks.wake_after_result (with_operations (replace_operation running (task_operations task)) task)) allocated)
     [ExecuteTool id ticket (operation_id operation) tool (operation_call operation) (task_current_settings task) ElevatedAccess]
    else acknowledged (put_task id (settle_operation operation (State.failure "approval_expired" "The tool capability changed before the one-operation grant could be used") true task) value)
  | Granted _, None => acknowledged (put_task id (settle_operation operation (State.failure "unknown_tool" "The granted tool is not in the frozen task contract") true task) value)

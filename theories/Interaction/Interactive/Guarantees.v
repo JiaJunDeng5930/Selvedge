@@ -1,12 +1,60 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Interaction.Interactive Require Import Types State Local Registry Expand Snapshot Runtime Language.
+From Selvedge.Interaction.Interactive Require Import Types State Local Syntax Registry Expand Snapshot Runtime Language.
 Import ListNotations.
 
 Definition authored_effect effect := match effect with
  | FillDraft _ _ _ | SendMessage _ _ _ _ | WriteClipboard _ _ _ _ | OpenUrl _ _ _ _ => true
  | _=>false end.
 Definition no_authored output := forallb (fun effect=>negb(authored_effect effect)) output.
+
+Theorem terminal_source_extension_reparses who source closed ending external b :
+ same_owner who b.(State.block_owner)=true ->
+ String.eqb b.(State.source)source=false ->
+ String.prefix b.(State.source)source=true ->
+ (b.(State.block_ending)=Complete \/ b.(State.block_ending)=Interrupted) ->
+ Runtime.source_update who source closed ending external (Some b)=
+ Some(Runtime.seal(State.set_source source (Syntax.append source Syntax.empty) ending closed external b)).
+Proof.
+ intros same_owner changed prefix terminal.
+ unfold Runtime.source_update. rewrite same_owner,changed,prefix.
+ destruct terminal as [complete|interrupted].
+ - rewrite complete. reflexivity.
+ - rewrite interrupted. reflexivity.
+Qed.
+
+Theorem unchanged_source_reuses_syntax who source closed ending external b :
+ same_owner who b.(State.block_owner)=true ->
+ String.eqb b.(State.source)source=true ->
+ Bool.eqb b.(State.fence_closed)closed=true ->
+ String.eqb(Types.ending_name b.(State.block_ending))(Types.ending_name ending)=true ->
+ Runtime.source_update who source closed ending external (Some b)=Some(State.with_external external b).
+Proof.
+ intros same_owner same_source same_fence same_ending.
+ unfold Runtime.source_update.
+ rewrite same_owner,same_source,same_fence,same_ending. reflexivity.
+Qed.
+
+Theorem sealed_empty_definition_is_fatal : forall (syntax:Syntax.syntax) previous old_sources environment,
+ Syntax.roots syntax=[] -> Syntax.sealed syntax=true ->
+ let prepared:=Registry.prepare syntax previous old_sources environment in
+ prepared.(Registry.fatal)=true /\
+ prepared.(Registry.diagnostics)=["The document ended without a ui root"].
+Proof.
+ intros syntax previous old_sources environment no_root sealed.
+ unfold Registry.prepare. rewrite no_root,sealed.
+ unfold Registry.with_diagnostic,Registry.start. simpl. auto.
+Qed.
+
+Theorem unsealed_empty_definition_waits : forall (syntax:Syntax.syntax) previous old_sources environment,
+ Syntax.roots syntax=[] -> Syntax.sealed syntax=false ->
+ let prepared:=Registry.prepare syntax previous old_sources environment in
+ prepared.(Registry.fatal)=false /\ prepared.(Registry.diagnostics)=[].
+Proof.
+ intros syntax previous old_sources environment no_root unsealed.
+ unfold Registry.prepare. rewrite no_root,unsealed.
+ unfold Registry.start. simpl. auto.
+Qed.
 
 Theorem feedback_never_issues_effects visible state environment who path ticket ok message :
  (Runtime.step_visible visible (Feedback who path ticket ok message) state environment).(effects) = [].

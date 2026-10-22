@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Interaction Require Import Codec Identity Input Services Speech Resource CommandAssessment ObjectActions.
+From Selvedge.Features Require Import BoardFilter.
+From Selvedge.Interaction Require Import Codec Identity Input Services Speech CommandAssessment ObjectActions.
 From Selvedge.Interaction.Session Require State Navigation Authoring.
 From Selvedge.Interaction.Experience Require Model Activity.
 From Selvedge.Browser Require ControlPurpose.
@@ -44,6 +45,8 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.Command command|Input.Confirmation command _ _ _=>command_purpose command
 |Input.OpenNavigation kind _=>P.OpenPanel(match kind with GlobalMenu=>"menu-lines"|WorkOverview=>"home"|TasksDrawer=>"conversation"end)true false
 |Input.OpenBoard kind _=>P.OpenPanel(match kind with State.BoardSettings=>"settings"|State.BoardFilters=>"filter-funnel"|State.ArchivedCards=>"archive-box"end)false false
+|Input.BoardToggle category value=>match BoardFilter.parse_category category with
+ |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
 |Input.OpenInformation(SS.CardDetails card) _=>P.OpenCardDetails card
 |Input.OpenInformation _ _=>P.OpenPanel "inspector" false false
 |Input.OpenActivity owner request _=>match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker(activity_expanded owner request state)
@@ -52,12 +55,13 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
 |Input.ClosePanel|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded expanded=>P.ToggleNavigation expanded
+|Input.TaskListVisible visible=>P.ToggleNavigation visible
 |Input.ToggleProjectGroup project=>P.ProjectDisclosure project
 |Input.FollowLatest _=>P.Latest|Input.ResetTitlePrompts=>P.ResetDefaults
 |Input.RemoveAttachment _ _|Input.ActivityWorkspaceChange _ (Input.RemoveDirectory _)=>P.RemoveValue
 |Input.RetryWorkspace _ _|Input.RetryMenuAssessment _ _ _=>P.RetryTransfer
 |Input.ServiceInput input=>match input with
- |Services.Connect|Services.RetryConnection _=>P.Connect(match Services.connection(State.service_state state)with Resource.Loading _ _=>true|_=>false end)
+ |Services.Connect|Services.RetryConnection _=>P.Connect(match Services.connection(State.service_state state)with Services.ConnectionLoading _=>true|_=>false end)
  |Services.OpenSettings=>P.OpenPanel "settings"false(Services.settings_open(State.service_state state))
  |Services.CloseSettings|Services.CloseDirectory|Services.ClosePreview=>P.Dismiss
  |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer

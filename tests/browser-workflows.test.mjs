@@ -79,6 +79,12 @@ test('Project task creation preserves explicitly empty workspaces through the br
   assert.equal(emptyTask.settings.project_id, project_id);
   assert.deepEqual(emptyTask.settings.workspace, { roots: [], primary_root: null },
     'Explicitly removing roots must not silently return to Project inheritance');
+  await page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Task details', exact: true }).click();
+  const details = page.getByRole('dialog');
+  await details.getByText('No working directory', { exact: true }).waitFor();
+  assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 0,
+    'An empty workspace does not render an empty primary directory');
 });
 
 test('ordered image content and the active composer survive responsive navigation', async t => {

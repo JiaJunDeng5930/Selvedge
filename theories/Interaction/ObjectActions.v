@@ -126,12 +126,13 @@ Definition approval_actions snapshot state task :=match DocumentState.find_task 
  |Some id=>if flag "awaitingHuman" operation then
    singleton(approval_action snapshot state task id true)++singleton(approval_action snapshot state task id false)
   else[]|None=>[]end)(Codec.items "operations" value)end.
+Definition cancellation_action snapshot state task id :=
+ action<-native("cancel/"++show_natural id)("Cancel operation #"++show_natural id)None
+  (G.Cmd_cancel_operation(G.Build_cancel_operation task id));;
+ Some(observe snapshot state(TaskActions task)action).
 Definition cancellation_actions snapshot state task :=match DocumentState.find_task task snapshot with
 |None=>[]|Some value=>flat_map(fun operation=>match natural_field "operation_id" operation with
- |Some id=>match native("cancel/"++show_natural id)"Cancel operation"None
-    (G.Cmd_cancel_operation(G.Build_cancel_operation task id))with
-   |Some action=>[observe snapshot state(TaskActions task)action]|None=>[]end
- |None=>[]end)(Codec.items "operations" value)end.
+ |Some id=>singleton(cancellation_action snapshot state task id)|None=>[]end)(Codec.items "operations" value)end.
 Definition worktree_retry_action snapshot state task :=
  value<-DocumentState.find_world "worktrees" "task_id" task snapshot;;
  if String.eqb(text "status" value)"archive_failed"then

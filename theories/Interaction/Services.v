@@ -37,15 +37,42 @@ Definition decode_directory_observation value:=workspace<-bind(field "workspace"
  if Selvedge.Kernel.Codec.valid_guidance guidance && Selvedge.Kernel.Codec.guidance_member workspace guidance then Some(DirectoryObservation workspace guidance)else None.
 Definition encode_git_request (r:editor*string) := JObject[("editor",encode_editor(fst r));("primary",JString(snd r))].
 Definition decode_git_request j := e<-bind(field "editor" j)decode_editor;;p<-string_field "primary" j;;Some(e,p).
+Inductive connection_observation :=
+| ConnectionDormant
+| ConnectionLoading (ticket:N)
+| ConnectionReady (ticket:N)
+| ConnectionFailed (ticket:N) (reason:string)
+| ConnectionRevoked (ticket:N) (reason:string).
+Definition connection_ticket observation := match observation with
+ |ConnectionDormant=>None
+ |ConnectionLoading ticket|ConnectionReady ticket|ConnectionFailed ticket _|ConnectionRevoked ticket _=>Some ticket end.
+Definition connection_active observation := match observation with
+ |ConnectionLoading _|ConnectionReady _=>true|_=>false end.
+Definition connection_revoked observation := match observation with ConnectionRevoked _ _=>true|_=>false end.
+Definition connection_matches ticket observation := match connection_ticket observation with
+ |Some current=>N.eqb ticket current|None=>false end.
+Definition encode_connection observation := match observation with
+ |ConnectionDormant=>JObject[("status",JString "idle")]
+ |ConnectionLoading ticket=>JObject[("status",JString "loading");("ticket",number ticket);("request",JNull)]
+ |ConnectionReady ticket=>JObject[("status",JString "ready");("ticket",number ticket);("request",JNull);("value",JNull)]
+ |ConnectionFailed ticket reason=>JObject[("status",JString "failed");("ticket",number ticket);("request",JNull);("error",JString reason)]
+ |ConnectionRevoked ticket reason=>JObject[("status",JString "revoked");("ticket",number ticket);("request",JNull);("error",JString reason)] end.
+Definition decode_connection value := match string_field "status" value with
+ |Some "idle"=>Some ConnectionDormant
+ |Some "loading"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;Some(ConnectionLoading ticket)
+ |Some "ready"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;result<-bind(field "value" value)(fun j=>match j with JNull=>Some tt|_=>None end);;Some(ConnectionReady ticket)
+ |Some "failed"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionFailed ticket reason)
+ |Some "revoked"=>ticket<-natural_field "ticket" value;;request<-bind(field "request" value)(fun j=>match j with JNull=>Some tt|_=>None end);;reason<-string_field "error" value;;Some(ConnectionRevoked ticket reason)
+ |_=>None end.
 Record services := Services {
-  connection:resource unit unit; settings_return:option string; theme:appearance; next_ticket:N;
+  connection:connection_observation; settings_return:option string; theme:appearance; next_ticket:N;
   uploads:list(resource upload_request attachment); preview:resource preview_request string;
   directory:resource directory_request json; directory_location:string;
   model_preference:option (string * string); storage_problem:option string;
   preparations:list(resource preparation directory_observation); workspace_git:resource (editor*string) bool;
   command_assessments:list(resource CommandAssessment.request CommandAssessment.observation) }.
-Definition initial := Services Dormant None SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [].
-Definition connected s := match connection s with Loaded _ _ _ => true | _ => false end.
+Definition initial := Services ConnectionDormant None SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [].
+Definition connected s := match connection s with ConnectionReady _ => true | _ => false end.
 Definition settings_focus_target trigger :=
   if String.eqb trigger "nav/settings" || String.eqb trigger "global-navigation-toggle"
   then "settings-return" else trigger.
@@ -94,7 +121,9 @@ Definition cancel_editor e s :=
    if same_editor e(directory_editor request)then with_directory Dormant "" s else s|Dormant=>s end.
 Definition upload_owner (r:resource upload_request attachment) := match r with Dormant=>None|Loading _ a|Loaded _ a _|Failed _ a _=>Some(upload_editor a) end.
 Definition blocks e s := existsb(fun r=>match upload_owner r with Some owner=>same_editor e owner|None=>false end)(uploads s).
-Definition ticket_matches {A B} (t:N) (r:resource A B) := match resource_ticket r with Some u=>N.eqb t u|None=>false end.
+Definition ticket_matches {A B} (ticket:N) (resource:resource A B) :=
+ match resource_ticket resource with Some current=>N.eqb ticket current|None=>false end.
+Definition connection_ticket_matches (t:N) (observation:connection_observation) := connection_matches t observation.
 Definition forget_upload t s := with_uploads(filter(fun r=>negb(ticket_matches t r))(uploads s))s.
 Inductive service_input :=
 | CommandAssessed(ticket:N)(outcome:sum string CommandAssessment.observation) | RetryAssessment(owner:editor)
@@ -139,12 +168,13 @@ Definition end_connection reason s :=
 Definition connect s :=
   let ended:=end_connection "Connection replaced" s in
   let clean:=service_state ended in let t:=next_ticket clean in
-  effects(with_next(N.succ t)(with_connection(Loading t tt)clean))
+  effects(with_next(N.succ t)(with_connection(ConnectionLoading t)clean))
     (service_effects ended++[Authenticate t]).
-Definition auth_result t result s :=
+Definition auth_result t (result:sum string unit) s :=
   match connection s with
-  | Loading u _ => if N.eqb t u then
-      let s':=with_connection(settle t result (connection s))s in
+  | ConnectionLoading u => if N.eqb t u then
+      let observation:=match result with inl error=>ConnectionFailed t error|inr _=>ConnectionReady t end in
+      let s':=with_connection observation s in
       match result with inr _=>effects(with_settings_return None s')[]
       |inl _=>effects(with_settings_return(Some(match settings_return s' with
           Some trigger=>trigger|None=>"main"end))s')[Reconnect t 1000]end
@@ -187,13 +217,16 @@ Definition service_step input s :=
   | DismissStorageProblem => keep (with_storage_problem None s)
   | OpenSettings=>effects(with_settings_return(Some "nav/settings")s)[Focus "settings"]
   | CloseSettings=>effects(with_settings_return None s)(match settings_return s with Some trigger=>[Focus(settings_focus_target trigger)]|None=>[]end)
-  | Connect=>match connection s with Loading _ _|Loaded _ _ _=>keep s|_=>connect s end
+  | Connect=>match connection s with ConnectionLoading _|ConnectionReady _=>keep s|_=>connect s end
   | Authenticated t r=>auth_result t r s
-  | Disconnected t error _=>if ticket_matches t(connection s)then
+  | Disconnected t error revoked=>if connection_active(connection s)&&connection_ticket_matches t(connection s)then
       let ended:=end_connection error s in
-      effects(with_connection(Failed t tt error)(service_state ended))
+      let observation:=if revoked then ConnectionRevoked t error else ConnectionFailed t error in
+      effects(with_connection observation(service_state ended))
         (service_effects ended++[Reconnect t 1000])else keep s
-  | RetryConnection t=>match connection s with Failed u _ _=>if N.eqb t u then connect s else keep s|_=>keep s end
+  | RetryConnection t=>match connection s with
+      |ConnectionFailed u _|ConnectionRevoked u _=>if N.eqb t u then connect s else keep s
+      |_=>keep s end
   | ChooseAppearance a=>effects(with_theme a s)[SaveAppearance a]
   | AddFile e f=>if connected s then begin_upload e f s else keep s | RetryUpload t=>retry_upload t s
   | CancelUpload t=>effects(forget_upload t s)(match find(ticket_matches t)(uploads s)with Some(Loading _ _)=>[AbortUpload t]|_=>[]end)
@@ -218,9 +251,9 @@ Definition service_step input s :=
   end.
 Definition encode_unit (_:unit):json:=JNull.
 Definition decode_unit(j:json):option unit:=match j with JNull=>Some tt|_=>None end.
-Definition encode_services s := JObject[("connection",encode_resource encode_unit encode_unit(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end)].
+Definition encode_services s := JObject[("connection",encode_connection(connection s));("settings_return",match settings_return s with None=>JNull|Some trigger=>JString trigger end);("appearance",JString(appearance_name(theme s)));("next",number(next_ticket s));("uploads",JArray(map(encode_resource encode_upload encode_attachment)(uploads s)));("preview",encode_resource encode_preview JString(preview s));("directory",encode_resource encode_directory(fun j=>j)(directory s));("directory_location",JString(directory_location s));("preparations",JArray(map(encode_resource encode_preparation encode_directory_observation)(preparations s)));("workspace_git",encode_resource encode_git_request JBool(workspace_git s));("command_assessments",JArray(map(encode_resource CommandAssessment.encode_request CommandAssessment.encode_observation)(command_assessments s)));("model_preference",match model_preference s with None=>JNull|Some value=>preference_json value end);("storage_problem",match storage_problem s with None=>JNull|Some message=>JString message end)].
 Definition decode_services j :=
-  c<-bind(field "connection" j)(decode_resource decode_unit decode_unit);;o<-bind(field "settings_return" j)(fun value=>match value with JNull=>Some None|JString trigger=>Some(Some trigger)|_=>None end);;
+  c<-bind(field "connection" j)decode_connection;;o<-bind(field "settings_return" j)(fun value=>match value with JNull=>Some None|JString trigger=>Some(Some trigger)|_=>None end);;
   a<-bind(string_field "appearance" j)decode_appearance;;n<-natural_field "next" j;;
   u<-list_field(decode_resource decode_upload decode_attachment)"uploads" j;;
   p<-bind(field "preview" j)(decode_resource decode_preview as_string);;

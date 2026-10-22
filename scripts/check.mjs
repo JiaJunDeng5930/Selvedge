@@ -1,10 +1,9 @@
 import { readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { parse } from 'acorn';
 import { build, root, run } from './build.mjs';
 import { auditAssumptions } from './assumptions.mjs';
-
-const syntax = new Bun.Transpiler({ loader: 'js' });
 
 async function sources(directory) {
   return (await Promise.all((await readdir(path.join(root, directory), { withFileTypes: true })).map(entry => {
@@ -27,7 +26,7 @@ export async function check(buildResult) {
       const filename = scripts[cursor++];
       const source = await Bun.file(path.join(root, filename)).text();
       try {
-        syntax.transformSync(source);
+        parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
       } catch (error) {
         throw new Error(`JavaScript syntax check failed: ${filename}`, { cause: error });
       }

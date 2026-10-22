@@ -178,7 +178,9 @@ Theorem disabled_remote_cannot_execute : forall execute source request command v
  decision_world result = value /\ decision_effects result = [].
 Proof.
  intros execute source request command value disabled.
- unfold Remote.execute_remote,Remote.authorize_command.
+ unfold Remote.execute_remote.
+ destruct (Remote.configuration_allowed command source); [|split;reflexivity].
+ unfold Remote.authorize_command.
  destruct (Remote.required_rights command) as [rights|] eqn:required; [|split;reflexivity].
  unfold Remote.observation_command. rewrite required.
  destruct (F.may_read rights); cbn.
@@ -221,10 +223,12 @@ Proof.
  intros execute source request command value readonly.
  unfold Remote.execute_remote. rewrite readonly.
  cbn beta iota zeta delta [negb].
+ destruct (Remote.configuration_allowed command source); [|split;reflexivity].
  destruct (Remote.authorize_command true command request (Remote.registry value)) as [code reason| |reply];
    try (split;reflexivity).
  destruct (field "command" source) as [prepared|]; [|split;reflexivity].
  destruct (G.decode prepared) as [prepared_command|]; [|split;reflexivity].
+ destruct (Remote.configuration_allowed prepared_command source); [|split;reflexivity].
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
    [|split;reflexivity].
  destruct (Remote.authorize_command true prepared_command request (Remote.registry value)); split;reflexivity.
@@ -303,9 +307,13 @@ Proof.
  now rewrite equivalent_is_reflexive.
 Qed.
 
-(** A retained response constrains the real dispatch entry: its reply and lack
-    of new effects do not depend on the supplied executor. *)
+(** The public service probes before observing files or preparing configuration.
+    The decoded envelope and command therefore bind a replay to the retained
+    intent, while the grant generation still supplies its current authority. *)
 Theorem remote_replay_has_no_effect : forall execute source command required request before candidate issued,
+ string_field "kind" source = Some "remote_probe" ->
+ Remote.parse_request false source = Some request ->
+ G.decode (Remote.intent request) = Some command ->
  Remote.required_rights command = Some required ->
  F.may_read required = false ->
  F.remote_enabled (Remote.registry before) = true ->
@@ -315,11 +323,12 @@ Theorem remote_replay_has_no_effect : forall execute source command required req
  granted_permissions required (F.grant_rights issued) ->
  Remote.payload_valid (decision_reply candidate) = true ->
  let after := decision_world (Remote.record_result request before candidate) in
- Remote.execute_remote execute source request command after =
- (true,false,Decision after (decision_reply candidate) []).
+ Remote.completion execute source after =
+ Some (false,false,accept
+   (JObject [("replayed",JBool true);("reply",decision_reply candidate)]) after []).
 Proof.
  intros execute source command required request before candidate issued
-   Rights Mutation Enabled Valid Granted Epoch Allowed Bounded after.
+   Kind Parsed Decoded Rights Mutation Enabled Valid Granted Epoch Allowed Bounded after.
  assert (Replay : Remote.authorize required request (Remote.registry after) =
      Remote.Replay (decision_reply candidate)).
  { unfold after. eapply retained_remote_result_is_replayable; eassumption. }
@@ -327,8 +336,10 @@ Proof.
      Remote.Replay (decision_reply candidate)).
  { unfold Remote.authorize_command, Remote.observation_command.
    rewrite Rights. cbn. now rewrite Mutation. }
- unfold Remote.execute_remote. rewrite Authorized. cbn.
- unfold Remote.observation_command. now rewrite Rights, Mutation.
+ unfold Remote.completion. rewrite Kind.
+ cbn beta iota zeta delta [String.eqb Ascii.eqb Bool.eqb].
+ rewrite Parsed, Decoded.
+ rewrite Authorized. reflexivity.
 Qed.
 
 Lemma removed_remote_controller_is_absent : forall controller grants,
