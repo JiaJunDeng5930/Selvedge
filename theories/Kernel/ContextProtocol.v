@@ -50,20 +50,13 @@ Definition parse_value_field (source : json) :=
    | IdentityValue _ => Some (ValueField name from true)
    | _ => option_map (ValueField name from) (bool_field "required" source) end
  | _,_ => None end.
-Definition valid_definition (value : definition) :=
- negb (String.eqb (definition_kind value) "") && negb (String.eqb (definition_semantics value) "") &&
- negb (Nat.eqb (List.length (definition_identity value)) 0) && negb (Nat.eqb (List.length (definition_fields value)) 0) &&
- Schema.unique_names (map identity_name (definition_identity value)) && Schema.unique_names (map value_name (definition_fields value)) &&
- (match definition_scope value with Global => true | _ =>
-  existsb (fun spec => identity_required spec && match identity_from spec with WorkspaceRoot => true | _ => false end) (definition_identity value) end) &&
- forallb (fun spec => match value_from spec with IdentityValue name => existsb (String.eqb name) (map identity_name (definition_identity value)) | _ => true end) (definition_fields value).
 Definition parse_definition (source : json) :=
  match string_field "kind" source,string_field "semantics" source,parse_scope (value_or_null "scope" source),
   parse_observer (value_or_null "observer" source),array_field "identity" source,array_field "fields" source with
  | Some kind,Some semantics,Some scope,Some observer,Some identity,Some fields =>
    match Codec.traverse parse_identity_field identity,Codec.traverse parse_value_field fields with
    | Some identity,Some fields => let definition:=ContextDefinition kind semantics scope observer identity fields in
-     if valid_definition definition then Some definition else None
+     if ContextUpdates.valid_definition definition then Some definition else None
    | _,_ => None end
  | _,_,_,_,_,_ => None end.
 Definition self_key (source : json) :=
@@ -75,9 +68,9 @@ Definition self_key (source : json) :=
 Definition self_snapshot (source : json) :=
  match self_key (value_or_null "key" source),string_field "revision" source,
   ContextUpdates.parse_fields (value_or_null "fields" (value_or_null "value" source)) with
- | Some key,Some revision,Some fields => if negb (String.eqb revision "") &&
-   String.eqb (definition_kind (key_definition key)) (text_default "type" (value_or_null "value" source) "") &&
-   ContextUpdates.valid_value key fields then Some (Snapshot key revision fields) else None
+ | Some key,Some revision,Some fields =>
+   if String.eqb (definition_kind (key_definition key)) (text_default "type" (value_or_null "value" source) "")
+   then ContextUpdates.construct_snapshot (key_definition key) (key_identity key) revision fields else None
  | _,_,_ => None end.
 Definition patch := ContextUpdates.parse_patch.
 Definition ordered_edits := ContextUpdates.ordered_edits.

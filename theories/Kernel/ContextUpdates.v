@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Import Json JsonObjects Schema Utf8.
 From Selvedge.Kernel Require Import Numbers Context Domain Codec.
 Import ListNotations.
 Open Scope string_scope.
@@ -12,11 +12,27 @@ Fixpoint text_fields (value : list (string * json)) : option (list (string * str
    if Utf8.well_formed text then option_map (cons (key,text)) (text_fields rest) else None
  | _ => None end.
 Definition parse_fields (value : json) :=
- match value with JObject fields => if unique_names (map fst fields) then text_fields fields else None | _ => None end.
+ match value with JObject fields => text_fields fields | _ => None end.
 Fixpoint find_text (name : string) (fields : list (string * string)) :=
  match fields with [] => None | (key,value) :: rest => if String.eqb name key then Some value else find_text name rest end.
+Definition nonempty_text (value : string) := negb (String.eqb value "").
+Definition declared_names_valid (names : list string) :=
+ unique_names names && forallb nonempty_text names.
+Definition valid_definition (value : definition) :=
+ let identity := definition_identity value in
+ let fields := definition_fields value in
+ let names := map identity_name identity in
+ nonempty_text (definition_kind value) && nonempty_text (definition_semantics value) &&
+ negb (Nat.eqb (List.length identity) 0) && negb (Nat.eqb (List.length fields) 0) &&
+ (match definition_scope value with
+  | Global => true
+  | PrimaryWorkspace | EveryWorkspace => existsb (fun field =>
+      match identity_from field with WorkspaceRoot => identity_required field | _ => false end) identity
+  end) && declared_names_valid names && declared_names_valid (map value_name fields) &&
+ forallb (fun field => match value_from field with
+   | IdentityValue name => existsb (String.eqb name) names | _ => true end) fields.
 Definition required_text (required : bool) (value : option string) :=
- match value with Some text => if required then nonempty text else true | None => negb required end.
+ match value with Some text => if required then nonempty_text text else true | None => negb required end.
 Definition valid_identity (definition : ContextTypes.definition) (fields : list (string * string)) :=
  Json.equal (JArray (map (fun field => JString (fst field)) fields))
    (JArray (map (fun field => JString (identity_name field)) (definition_identity definition))) &&
@@ -38,29 +54,39 @@ Definition valid_value (key : context_key) (fields : list (string * string)) :=
  Json.equal (JArray (map (fun field => JString (fst field)) fields))
    (JArray (map (fun field => JString (value_name field)) (definition_fields (key_definition key)))) &&
  forallb (fun field => existsb (String.eqb (fst field)) (map value_name (definition_fields (key_definition key)))) fields &&
- forallb (fun spec => required_text (value_required spec) (find_text (value_name spec) fields) &&
- match value_from spec with
+ forallb (fun spec => match value_from spec with
  | IdentityValue name => match find_text name (key_identity key), find_text (value_name spec) fields with
    | Some expected, Some actual => String.eqb expected actual | _,_ => false end
- | _ => match find_text (value_name spec) fields with Some text => valid_observation_text key spec text | None => false end end) (definition_fields (key_definition key)).
+ | _ => required_text (value_required spec) (find_text (value_name spec) fields) &&
+   match find_text (value_name spec) fields with Some text => valid_observation_text key spec text | None => false end end)
+ (definition_fields (key_definition key)).
+Definition valid_snapshot (value : snapshot) :=
+ let key := snapshot_key value in
+ nonempty_text (snapshot_revision value) && valid_definition (key_definition key) &&
+ valid_identity (key_definition key) (key_identity key) && valid_value key (snapshot_fields value).
 Definition construct_snapshot (definition : ContextTypes.definition)
  (identity : list (string * string)) (revision : string) (fields : list (string * string)) :=
  let key := ContextKey definition identity in
- if nonempty revision && valid_identity definition identity && valid_value key fields
- then Some (Snapshot key revision fields) else None.
-Definition parse_key (source : json) : option context_key :=
+ let value := Snapshot key revision fields in
+ if valid_snapshot value then Some value else None.
+Definition registered_key_candidate (source : json) : option context_key :=
  match string_field "type" source, parse_fields (value_or_null "identity" source),
- find (fun definition => Json.equal (definition_json definition) (value_or_null "definition" source)) definitions with
+ find (fun definition => JsonObjects.equivalent (definition_json definition) (value_or_null "definition" source)) definitions with
  | Some kind, Some fields, Some definition =>
-   if String.eqb kind (definition_kind definition) && valid_identity definition fields
+   if String.eqb kind (definition_kind definition)
    then Some (ContextKey definition fields) else None
  | _,_,_ => None end.
-Definition parse_snapshot (source : json) : option snapshot :=
- match parse_key (value_or_null "key" source), string_field "revision" source,
+Definition parse_key (source : json) : option context_key :=
+ match registered_key_candidate source with
+ | Some key => if valid_definition (key_definition key) && valid_identity (key_definition key) (key_identity key)
+   then Some key else None
+ | None => None end.
+Definition snapshot_candidate (source : json) : option snapshot :=
+ match registered_key_candidate (value_or_null "key" source), string_field "revision" source,
  parse_fields (value_or_null "fields" (value_or_null "value" source)) with
  | Some key, Some revision, Some fields =>
-   if negb (String.eqb revision "") && String.eqb (text_default "type" (value_or_null "value" source) "") (definition_kind (key_definition key)) &&
-    valid_value key fields then Some (Snapshot key revision fields) else None
+   if String.eqb (text_default "type" (value_or_null "value" source) "") (definition_kind (key_definition key))
+   then Some (Snapshot key revision fields) else None
  | _,_,_ => None end.
 Definition parse_edit (source : json) : option text_edit :=
  match natural_field "start" source, string_field "removed" source, string_field "inserted" source with
@@ -77,7 +103,7 @@ Definition parse_patch (source : json) :=
  | _,_ => None end.
 Definition parse_observation (source : json) : option context_observation :=
  match string_field "type" source with
- | Some "present" => match parse_snapshot (value_or_null "snapshot" source), parse_patch (value_or_null "patch" source) with
+ | Some "present" => match snapshot_candidate (value_or_null "snapshot" source), parse_patch (value_or_null "patch" source) with
    | Some snapshot, Some patch => Some (Present snapshot patch) | _,_ => None end
  | Some "absent" => option_map Absent (parse_key (value_or_null "key" source))
  | Some "failure" => match parse_key (value_or_null "key" source), string_field "message" source with
@@ -157,6 +183,9 @@ Definition observation_changes (observation : context_observation) (values : lis
  | Absent key => match find_snapshot key values with
    | None => Some [] | Some previous => Some [Remove key (snapshot_revision previous)] end
  | Present current patch =>
+   (* DEFENSE: The observation contract rejects snapshots with an invalid
+      definition, source identity or value before accepting any context change. *)
+   if valid_snapshot current then
    let key := snapshot_key current in
    match find_snapshot key values with
    | None => Some [Introduce current]
@@ -169,15 +198,26 @@ Definition observation_changes (observation : context_observation) (values : lis
      | Some fields => if Json.equal (fields_json fields) (fields_json (snapshot_fields current))
        then Some [Amend key (snapshot_revision previous) (snapshot_revision current) patch] else None
      | None => None end else None
-   end
+   end else None
  end.
-Fixpoint observe_all (observations : list context_observation) (values : list snapshot) : option (list context_change) :=
+Definition source_diagnostics (observation : context_observation) :=
+ match observation with
+ | ObservationFailure _ message => [String.append "Context source observation failed: " message]
+ | _ => [] end.
+Fixpoint observe_all (observations : list context_observation) (values : list snapshot)
+ : list context_change * list string :=
  match observations with
- | [] => Some []
+ | [] => ([],[])
  | observation :: rest => match observation_changes observation values with
-   | None => None
-   | Some changes => option_map (fun tail => changes ++ tail)
-      (observe_all rest (fold_left (fun values change => apply_change change values) changes values)) end
+   | None =>
+     (* DEFENSE: An invalid revision or patch belongs to one observed source;
+        reject it without discarding accepted updates from the other sources. *)
+     let '(changes,diagnostics) := observe_all rest values in
+     (changes,"Context update rejected: invalid revision or patch for tracked source." :: diagnostics)
+   | Some changes =>
+     let '(later,diagnostics) := observe_all rest
+       (fold_left (fun values change => apply_change change values) changes values) in
+     (changes ++ later,source_diagnostics observation ++ diagnostics) end
  end.
 
 (* DEFENSE: A registered NativeText descriptor can arrive with an obsolete

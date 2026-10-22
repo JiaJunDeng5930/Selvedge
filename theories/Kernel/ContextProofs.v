@@ -1,24 +1,130 @@
 From Selvedge.Features Require Import WorkspaceBinding.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonProofs.
-From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain Codec ContextUpdates Tasks.
+From Selvedge.Foundation Require Import Json JsonProofs Utf8.
+From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain Codec ContextUpdates ContextProtocol State Tasks Callbacks LifecycleProofs.
 Import ListNotations.
+Open Scope string_scope.
+Open Scope list_scope.
 
 Theorem constructed_snapshots_obey_the_declared_source : forall definition identity revision fields snapshot,
  ContextUpdates.construct_snapshot definition identity revision fields = Some snapshot ->
  snapshot_key snapshot = ContextKey definition identity /\ snapshot_revision snapshot = revision /\
  snapshot_fields snapshot = fields /\ ContextUpdates.valid_identity definition identity = true /\
- ContextUpdates.valid_value (ContextKey definition identity) fields = true /\ nonempty revision = true.
+ ContextUpdates.valid_value (ContextKey definition identity) fields = true /\
+ ContextUpdates.valid_definition definition = true /\ ContextUpdates.nonempty_text revision = true.
 Proof.
  intros definition identity revision fields snapshot Constructed.
  unfold ContextUpdates.construct_snapshot in Constructed.
- destruct (nonempty revision && ContextUpdates.valid_identity definition identity &&
-  ContextUpdates.valid_value (ContextKey definition identity) fields) eqn:Admitted; try discriminate.
+ destruct (ContextUpdates.valid_snapshot (Snapshot (ContextKey definition identity) revision fields)) eqn:Admitted; try discriminate.
  inversion Constructed; subst snapshot.
- apply andb_true_iff in Admitted as [Identity Value].
- apply andb_true_iff in Identity as [Revision Identity].
+ change (ContextUpdates.nonempty_text revision && ContextUpdates.valid_definition definition &&
+  ContextUpdates.valid_identity definition identity && ContextUpdates.valid_value (ContextKey definition identity) fields = true) in Admitted.
+ repeat rewrite andb_true_iff in Admitted.
+ destruct Admitted as [[[Revision Declared] Identity] Value].
  repeat split; assumption || reflexivity.
+Qed.
+
+Theorem registered_context_definitions_are_valid :
+ forallb ContextUpdates.valid_definition Context.definitions = true.
+Proof. vm_compute. reflexivity. Qed.
+
+Theorem context_fields_roundtrip : forall fields,
+ forallb (fun field => Utf8.well_formed (snd field)) fields = true ->
+ ContextUpdates.parse_fields (fields_json fields) = Some fields.
+Proof.
+ induction fields as [|[name text] rest IH]; intro Valid; [reflexivity|].
+ apply andb_true_iff in Valid as [Text Rest].
+ change (Utf8.well_formed text = true) in Text.
+ change ((if Utf8.well_formed text then
+   option_map (cons (name,text)) (ContextUpdates.parse_fields (fields_json rest)) else None) = Some ((name,text)::rest)).
+ rewrite Text.
+ rewrite IH by exact Rest; reflexivity.
+Qed.
+
+Theorem constructed_context_snapshots_are_admitted : forall definition identity revision fields current,
+ ContextUpdates.construct_snapshot definition identity revision fields = Some current ->
+ ContextUpdates.valid_snapshot current = true.
+Proof.
+ intros definition identity revision fields current Constructed.
+ unfold ContextUpdates.construct_snapshot in Constructed.
+ destruct (ContextUpdates.valid_snapshot (Snapshot (ContextKey definition identity) revision fields)) eqn:Valid; try discriminate.
+ inversion Constructed; subst current; exact Valid.
+Qed.
+
+Theorem parsed_context_definitions_obey_the_shared_definition_contract : forall source definition,
+ ContextProtocol.parse_definition source = Some definition -> ContextUpdates.valid_definition definition = true.
+Proof.
+ intros source definition Parsed; unfold ContextProtocol.parse_definition in Parsed.
+ destruct (string_field "kind" source) as [kind|]; try discriminate.
+ destruct (string_field "semantics" source) as [semantics|]; try discriminate.
+ destruct (ContextProtocol.parse_scope (value_or_null "scope" source)) as [scope|]; try discriminate.
+ destruct (ContextProtocol.parse_observer (value_or_null "observer" source)) as [observer|]; try discriminate.
+ destruct (array_field "identity" source) as [encoded_identity|]; try discriminate.
+ destruct (array_field "fields" source) as [encoded_fields|]; try discriminate.
+ destruct (Codec.traverse ContextProtocol.parse_identity_field encoded_identity) as [identity|]; try discriminate.
+ destruct (Codec.traverse ContextProtocol.parse_value_field encoded_fields) as [fields|]; try discriminate.
+ destruct (ContextUpdates.valid_definition (ContextDefinition kind semantics scope observer identity fields)) eqn:Valid; try discriminate.
+ inversion Parsed; subst definition; exact Valid.
+Qed.
+
+Theorem parsed_context_snapshots_obey_the_shared_source_contract : forall source current,
+ ContextProtocol.self_snapshot source = Some current -> ContextUpdates.valid_snapshot current = true.
+Proof.
+ intros source current Parsed; unfold ContextProtocol.self_snapshot in Parsed.
+ destruct (ContextProtocol.self_key (value_or_null "key" source)); try discriminate.
+ destruct (string_field "revision" source); try discriminate.
+ destruct (ContextUpdates.parse_fields (value_or_null "fields" (value_or_null "value" source))); try discriminate.
+ destruct (String.eqb _ _); try discriminate.
+ eapply constructed_context_snapshots_are_admitted; exact Parsed.
+Qed.
+
+Theorem invalid_context_snapshots_are_rejected : forall current patches values,
+ ContextUpdates.valid_snapshot current = false ->
+ ContextUpdates.observation_changes (Present current patches) values = None.
+Proof. intros; unfold ContextUpdates.observation_changes; rewrite H; reflexivity. Qed.
+
+Theorem accepted_context_observations_use_admitted_snapshots : forall current patches values changes,
+ ContextUpdates.observation_changes (Present current patches) values = Some changes ->
+ ContextUpdates.valid_snapshot current = true.
+Proof.
+ intros current patches values changes Accepted.
+ unfold ContextUpdates.observation_changes in Accepted.
+ destruct (ContextUpdates.valid_snapshot current) eqn:Valid; [reflexivity|discriminate].
+Qed.
+
+Theorem context_history_reconstructs_each_accepted_change : forall history change,
+ ContextUpdates.bindings (history ++ [ContextObservation change]) =
+ ContextUpdates.apply_change change (ContextUpdates.bindings history).
+Proof. intros; unfold ContextUpdates.bindings; rewrite fold_left_app; reflexivity. Qed.
+
+Theorem context_replacement_preserves_the_reconstructed_sources : forall history replacement,
+ ContextUpdates.bindings (history ++ [ContextReplacement replacement]) = ContextUpdates.bindings history.
+Proof. intros; unfold ContextUpdates.bindings; rewrite fold_left_app; reflexivity. Qed.
+
+Theorem rejecting_one_source_does_not_discard_the_other_context_changes :
+ forall before after current patch values,
+ ContextUpdates.valid_snapshot current = false ->
+ fst (ContextUpdates.observe_all (before ++ Present current patch :: after) values) =
+ fst (ContextUpdates.observe_all (before ++ after) values).
+Proof.
+ induction before as [|first rest IH]; intros after current patch values Invalid.
+ - cbn [List.app ContextUpdates.observe_all].
+   rewrite (invalid_context_snapshots_are_rejected current patch values Invalid).
+   destruct (ContextUpdates.observe_all after values); reflexivity.
+ - cbn [List.app ContextUpdates.observe_all].
+   destruct (ContextUpdates.observation_changes first values) as [changes|].
+   + pose proof (IH after current patch
+       (fold_left (fun values change => ContextUpdates.apply_change change values) changes values) Invalid) as Other.
+     destruct (ContextUpdates.observe_all (rest ++ Present current patch :: after)
+       (fold_left (fun values change => ContextUpdates.apply_change change values) changes values)).
+     destruct (ContextUpdates.observe_all (rest ++ after)
+       (fold_left (fun values change => ContextUpdates.apply_change change values) changes values)).
+     cbn in Other |- *; rewrite Other; reflexivity.
+   + pose proof (IH after current patch values Invalid) as Other.
+     destruct (ContextUpdates.observe_all (rest ++ Present current patch :: after) values).
+     destruct (ContextUpdates.observe_all (rest ++ after) values).
+     cbn in Other |- *; exact Other.
 Qed.
 
 Lemma replacing_text_preserves_field_names : forall fields name text,
@@ -58,6 +164,7 @@ Theorem accepted_amendment_matches_the_observed_fields : forall current patches 
 Proof.
  intros current patches bindings key base revision changes H.
  unfold ContextUpdates.observation_changes in H.
+ destruct (ContextUpdates.valid_snapshot current); try discriminate.
  destruct (ContextUpdates.find_snapshot (snapshot_key current) bindings) as [previous|] eqn:Found; try discriminate.
  destruct (Json.equal (fields_json (snapshot_fields current)) (fields_json (snapshot_fields previous))); try discriminate.
  destruct (negb (String.eqb (snapshot_revision current) (snapshot_revision previous)) && ContextUpdates.valid_patch (snapshot_key current) patches); try discriminate.
@@ -107,12 +214,13 @@ Proof.
  rewrite String.eqb_refl, Applied; reflexivity.
 Qed.
 Theorem unchanged_context_fields_do_not_append_a_revision_only_change : forall current patch previous bindings,
+ ContextUpdates.valid_snapshot current = true ->
  ContextUpdates.find_snapshot (snapshot_key current) bindings = Some previous ->
  snapshot_fields current = snapshot_fields previous ->
  ContextUpdates.observation_changes (Present current patch) bindings = Some [].
 Proof.
- intros current patch previous bindings Found Same.
- unfold ContextUpdates.observation_changes; rewrite Found, Same, equal_is_reflexive; reflexivity.
+ intros current patch previous bindings Valid Found Same.
+ unfold ContextUpdates.observation_changes; rewrite Valid, Found, Same, equal_is_reflexive; reflexivity.
 Qed.
 Theorem actual_context_amendments_obey_the_shared_patch_contract : forall current patch bindings key base revision changes,
  ContextUpdates.observation_changes (Present current patch) bindings = Some [Amend key base revision changes] ->
@@ -120,6 +228,7 @@ Theorem actual_context_amendments_obey_the_shared_patch_contract : forall curren
 Proof.
  intros current patch bindings key base revision changes Accepted.
  unfold ContextUpdates.observation_changes in Accepted.
+ destruct (ContextUpdates.valid_snapshot current); try discriminate.
  destruct (ContextUpdates.find_snapshot (snapshot_key current) bindings) as [previous|]; try discriminate.
  destruct (Json.equal (fields_json (snapshot_fields current)) (fields_json (snapshot_fields previous))); try discriminate.
  destruct (negb (String.eqb (snapshot_revision current) (snapshot_revision previous)) &&
@@ -146,6 +255,47 @@ Proof.
  apply equal_reflects_equality in Fields.
  apply context_fields_encoding_is_injective in Fields.
  exists value; repeat split; assumption.
+Qed.
+
+Local Lemma context_diagnostic_preserves_the_task_contract : forall message task,
+ task_contract (Callbacks.record_context_diagnostic message task) = task_contract task.
+Proof.
+ intros; unfold Callbacks.record_context_diagnostic.
+ destruct (existsb _ _); reflexivity.
+Qed.
+
+Local Lemma context_diagnostics_preserve_the_task_contract : forall messages task,
+ task_contract (fold_left (fun task message => Callbacks.record_context_diagnostic message task) messages task) =
+ task_contract task.
+Proof.
+ induction messages as [|message rest IH]; intro task; [reflexivity|].
+ cbn [fold_left]; rewrite IH; apply context_diagnostic_preserves_the_task_contract.
+Qed.
+
+Local Lemma observing_context_preserves_the_task_contract : forall phase task,
+ task_contract (with_activity phase task) = task_contract task.
+Proof. intros; unfold with_activity; destruct (task_lifecycle task); reflexivity. Qed.
+
+Theorem actual_context_callbacks_preserve_the_frozen_contract :
+ forall id ticket observations diagnostic value before,
+ find_task id value = Some before ->
+ exists after,
+ find_task id (decision_world (Callbacks.context_completed id ticket observations diagnostic value)) = Some after /\
+ task_contract after = task_contract before.
+Proof.
+ intros id ticket observations diagnostic value before Found.
+ unfold Callbacks.context_completed; rewrite Found.
+ destruct (task_activity before) as
+   [ | | | expected | expected callable mode | expected source_length | calls |
+     invocation pending calls | expected plugin invocation remaining calls];
+   try (exists before; split; [exact Found|reflexivity]).
+ destruct (N.eqb expected ticket); [|exists before; split; [exact Found|reflexivity]].
+ destruct observations as [observations|].
+ - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history before))) as [changes diagnostics].
+   cbn [decision_world accept]. eexists; split; [eapply find_put_task; exact Found|].
+   rewrite observing_context_preserves_the_task_contract, context_diagnostics_preserve_the_task_contract; reflexivity.
+ - cbn [decision_world accept]. eexists; split; [eapply find_put_task; exact Found|].
+   rewrite observing_context_preserves_the_task_contract; apply context_diagnostic_preserves_the_task_contract.
 Qed.
 
 Theorem omitted_project_selection_preserves_environment_binding : forall model settings value,

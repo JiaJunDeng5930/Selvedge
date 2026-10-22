@@ -71,10 +71,6 @@ Definition record_context_diagnostic (message : string) (task : task) :=
  if existsb (fun entry => match entry with
    | FailureMessage previous => String.eqb previous message | _ => false end) (task_history task)
  then task else append_history [FailureMessage message] task.
-Definition context_diagnostics (observations : list context_observation) :=
- fold_right (fun observation rest => match observation with
- | ObservationFailure _ message => (String.append "Context source observation failed: " message) :: rest
- | _ => rest end) [] observations.
 Definition context_completed (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) :=
  match find_task id value with
  | None => ignored value
@@ -82,14 +78,11 @@ Definition context_completed (id ticket : N) (observations : option (list contex
    | ObservingContext expected => if N.eqb expected ticket then
      let '(accepted,task) := match observations with
      | None => (false,record_context_diagnostic diagnostic task)
-     | Some observations => match observe_all observations (ContextUpdates.bindings (task_history task)) with
-       | Some changes =>
-         let diagnostics := context_diagnostics observations in
-         (Nat.eqb (List.length diagnostics) 0,
-          fold_left (fun task message => record_context_diagnostic message task) diagnostics
-            (append_history (map ContextObservation changes) task))
-       | None => (false,record_context_diagnostic
-          "Context patch does not match the accepted baseline and observed snapshot" task) end
+     | Some observations =>
+       let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings (task_history task)) in
+       (Nat.eqb (List.length diagnostics) 0,
+        fold_left (fun task message => record_context_diagnostic message task) diagnostics
+          (append_history (map ContextObservation changes) task))
      end in
      accept (JObject [("accepted",JBool true);("observations_accepted",JBool accepted)])
       (put_task id (with_activity ReadyForModel task) value) []
