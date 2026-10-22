@@ -34,13 +34,18 @@ Definition parse_after (source : json) : option after_outcome :=
  | Some "failed" => option_map AfterFailure (parse_reason_decision "failed" source)
  | _ => None end.
 Definition parse_approval_outcome (source : json) : option approval_outcome :=
- match Schema.decode [Field "decision" KText; Field "reason" (KOptional KText)] source with
+ match Schema.decode [Field "decision" KText; Field "reason" KText] source with
  | None => None
  | Some fields =>
-   let reason := match head (tail fields) with Some reason => reason | None => "" end in
-   Some (ApprovalProtocol.normalize_outcome
-    (match head fields with "allow" => Approved reason | "deny" => Denied reason
-    | _ => ApprovalFailed "The review did not return a valid decision" end))
+   let reason := head (tail fields) in
+   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason
+    | _ => ApprovalFailed "The review did not return a valid decision" end in
+   (* A blank but otherwise valid reason is malformed; invalid text still settles
+      through normalize_outcome as a failed review. *)
+   if ApprovalProtocol.valid_justification reason then
+     Some (ApprovalProtocol.normalize_outcome outcome)
+   else if ApprovalProtocol.valid_reason reason then None
+   else Some (ApprovalProtocol.normalize_outcome outcome)
  end.
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
