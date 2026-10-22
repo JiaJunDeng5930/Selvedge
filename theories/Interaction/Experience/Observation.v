@@ -12,6 +12,8 @@ Open Scope list_scope.
 Definition profile_label (value:Selvedge.Kernel.Domain.profile):string:=
  match string_field "name"(Selvedge.Kernel.Domain.profile_metadata value)with
  |Some name=>name|None=>Selvedge.Kernel.Domain.profile_provider value++" / "++Selvedge.Kernel.Domain.profile_model value end.
+Definition selectable_profiles (profiles:list Selvedge.Kernel.Domain.profile):list Selvedge.Kernel.Domain.profile:=
+ filter(fun profile=>negb(Selvedge.Kernel.ModelCapabilities.is_codex_auto_review profile))profiles.
 Definition observe_subject snapshot state {e}(subject:Model.subject e):Fields.observed:=
  Session.Observation.observe_field_in_state snapshot state(State.current_draft state e)(subject_declaration subject).
 Definition profile_for_subject snapshot {e}(subject:Model.subject e) key:=match e with
@@ -31,7 +33,8 @@ Definition retain_observed_choice snapshot {e}(subject:Model.subject e)(profiles
  |None=>profiles end.
 Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
  let profiles:=Session.Observation.catalog snapshot in
- let models:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(retain_observed_choice snapshot subject profiles)in
+ let models:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
+   (selectable_profiles(retain_observed_choice snapshot subject profiles))in
  match subject_declaration subject with
  |Fields.ContextOrigin=>project_choices snapshot "No project"
  |Fields.CardProject=>project_choices snapshot "No project"
@@ -52,7 +55,7 @@ Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fie
  |Fields.CardStage=>map(fun stage=>let name:=Selvedge.Features.Domain.stage_name stage in Fields.ChoiceValue name(Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
  |Fields.CardPriority=>map(fun priority=>let name:=Selvedge.Features.Domain.priority_name priority in Fields.ChoiceValue name(Selvedge.Features.Domain.priority_label priority))Selvedge.Features.Domain.priorities
  |Fields.CardOwner=>[Fields.ChoiceValue "none" "未分配";Fields.ChoiceValue "self" "我"]++
-    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))profiles++
+    map(fun profile=>Fields.ChoiceValue("profile/"++Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))(selectable_profiles profiles)++
     fold_right(fun agent rest=>match natural_field "id" agent,string_field "name" agent with
     |Some id,Some name=>Fields.ChoiceValue("agent/"++show_natural id)name::rest|_,_=>rest end)[]
       (match field "board" snapshot with Some board=>items "agents" board|None=>[]end)
