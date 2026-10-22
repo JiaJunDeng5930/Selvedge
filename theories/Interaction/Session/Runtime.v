@@ -168,6 +168,8 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  else Authoring.fail state "The interactive input is not accepted from this source."
 |Input.RetainedOutput identity toggle=>Authoring.keep(SS.with_retention
  (Documents.edit_retained(context namespace snapshot state)identity toggle(SS.document_retention state))state)
+|Input.ClearDiscarded task=>Authoring.keep(SS.with_retention
+ (Documents.clear_discarded task(SS.document_retention state))state)
 |Input.MenuAction subject key occurrence=>menu_action snapshot subject key occurrence state
 |Input.RetryMenuAssessment subject key occurrence=>Authoring.keep(SS.with_services
  (Services.forget_owned_assessment(CommandAssessment.MenuOwner subject key)(SS.service_state state))state)

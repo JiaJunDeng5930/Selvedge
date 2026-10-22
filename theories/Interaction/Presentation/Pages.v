@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
 From Selvedge.Kernel Require Commands Domain.
 From Selvedge.Generated Require Commands.
-From Selvedge.Interaction Require Import Codec Identity Input Context AuditReading ObjectActions.
+From Selvedge.Interaction Require Import Codec Identity Input Context AuditReading Documents ObjectActions.
 From Selvedge.Interaction.Experience Require Model Observation.
 From Selvedge.Interaction.Session Require Draft State Observation Navigation.
 Module SessionNavigation := Selvedge.Interaction.Session.Navigation.
@@ -91,6 +91,14 @@ Definition task_side_controls snapshot s task parent:=match ObjectActions.return
  (match ObjectActions.command action with
   |Some command=>[declared parent Roles.Button(Control(ObjectActions.action_key action)(ObjectActions.action_label action)Secondary(Input.Command command)(approval_availability action))]|None=>[]end)
  [declared parent Roles.Button(secondary "side/show" "打开侧窗口"(Input.ShowSide task(part parent "side/show")))]end.
+Definition discarded_unfinished_notice s task parent:=
+ let count:=Documents.discarded_count task(State.document_retention s)in
+ if N.eqb count 0 then [] else
+ let key:=part parent "discarded-unfinished" in
+ [region parent "discarded-unfinished" "未完成回复" Roles.Alert
+  [information key "discarded-unfinished-count" Information.Description
+    ("已有 "++show_natural count++" 条未完成回复因会话容量限制被移除。");
+   declared key Roles.Button(secondary "clear-discarded-unfinished" "清除此提示"(Input.ClearDiscarded task))]].
 Definition task_contents snapshot s view parent task :=
  let id:=task_id task in
  let observation:=task_observation task in
@@ -102,8 +110,9 @@ Definition task_contents snapshot s view parent task :=
    (List.app [declared parent Roles.Button(secondary "details" "Task details"(Input.OpenInformation(State.TaskDetails id)(part parent "details")));
     Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent));
   page_region parent Composition.TimelineContent Composition.BodyPosition
-   [Node(Identity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
-     (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline]] ++
+   (discarded_unfinished_notice s id parent ++
+    [Node(Identity.task_view_key view "timeline")"timeline" "Conversation"Roles.Timeline
+      (ReadingTimeline view(State.reader_generation(SessionNavigation.reader_for s id)))timeline])] ++
  (if SessionNavigation.return_latest s id then
  [page_region parent Composition.LatestAction Composition.DockPosition
   [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[]) ++

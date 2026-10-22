@@ -45,7 +45,7 @@ Inductive input :=
 | CardPlaced(id revision observed_at:N)(status:string)(before:option N)
 | CardField(id revision:N)(name:string)(value:json) | BoardProfile(profile:string)
 | BoardQuery(query:string) | BoardTab(tab:string) | BoardToggle(category value:string)
-| RetainedOutput(identity:string)(toggle:bool)
+| RetainedOutput(identity:string)(toggle:bool) | ClearDiscarded(task:N)
 | ClockObserved(now:N) | EnvironmentObserved | Snapshot | Stream(message:json) | CodeObserved(observation:json)
 | Interactive(input:Types.input) | AppearanceRestored(theme:appearance)
 | LoadSkills(owner:editor)(explicit:bool) | SkillsLoaded(ticket:N)(outcome:sum string json)

@@ -136,6 +136,13 @@ Definition add_discarded task counts:=
  let previous:=match find(fun entry=>N.eqb task(fst entry))counts with Some entry=>snd entry|None=>0 end in
  (task,N.succ previous)::filter(fun entry=>negb(N.eqb task(fst entry)))counts.
 
+Definition discarded_count task r:=
+ match find(fun entry=>N.eqb task(fst entry))(discarded_outputs r)with
+ |Some entry=>snd entry|None=>0 end.
+Definition clear_discarded task r:=
+ Retention (retention_namespace r) (retention_next_epoch r) (document_lifetimes r)
+  (filter(fun entry=>negb(N.eqb task(fst entry)))(discarded_outputs r)).
+
 Definition scoped_retention namespace world r :=
  if String.eqb namespace (retention_namespace r) then
    with_document_lifetimes (filter (fun stamp=>match find_task (document_viewer stamp) world with
