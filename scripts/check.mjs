@@ -10,10 +10,11 @@ async function sources(directory) {
     return entry.isDirectory() ? sources(filename) : filename.endsWith('.mjs') ? [filename] : [];
   }))).flat();
 }
+await run('bash', ['-n', 'scripts/bootstrap.sh']);
 await build({ check: true });
 await auditAssumptions();
 await run('bun', ['scripts/check-web-vendor.mjs']);
-const scripts = (await Promise.all(['host', 'scripts', 'remote', 'relay', 'plugins', 'tests'].map(sources))).flat();
+const scripts = (await Promise.all(['host', 'scripts', 'remote', 'relay', 'plugins', 'examples', 'tests'].map(sources))).flat();
 let cursor = 0;
 await Promise.all(Array.from({ length: 4 }, async () => {
   while (cursor < scripts.length) await run('node', ['--check', scripts[cursor++]]);
