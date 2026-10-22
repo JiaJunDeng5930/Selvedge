@@ -1,20 +1,7 @@
 From Stdlib Require Import List Relations Relation_Operators PeanoNat.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import State Inputs InputDecoder Packet PacketProofs.
+From Selvedge.Kernel Require Import State Inputs InputDecoder Packet PacketProofs Journal WorldInvariant WorldInvariantProofs.
 Import ListNotations.
-
-(* A trace records the complete envelopes returned by the actual exported
-   packet entry. The physical journal replays this entry one input at a time;
-   effect descriptions are retained as data, never performed by replay. *)
-Record trace := Trace { trace_world : world; trace_receipts : list json }.
-Definition advance (source : json) (state : trace) :=
- let '(next,receipt) := Packet.packet source (trace_world state) in
- Trace next (receipt :: trace_receipts state).
-Definition run (events : list json) (state : trace) := fold_left (fun state source => advance source state) events state.
-Definition replay (events : list json) (state : world) :=
- fold_left (fun state source => fst (Packet.packet source state)) events state.
-Definition edge (before after : trace) := exists source, after = advance source before.
-Definition reachable := clos_refl_trans trace edge.
 
 Theorem batches_preserve_input_and_receipt_order : forall first second state,
  run (first ++ second) state = run second (run first state).
@@ -73,4 +60,42 @@ Proof.
  destruct (actual_query_preserves_world_and_emits_no_effect
   source command reply (replay first state) Decoded Query) as [Unchanged _].
  unfold replay in Unchanged; rewrite Unchanged; reflexivity.
+Qed.
+
+
+Theorem every_actual_history_step_preserves_world_requirements : forall source state,
+ world_valid (trace_world state) = true -> world_valid (trace_world (advance source state)) = true.
+Proof.
+ intros source state Before; unfold advance.
+ pose proof (every_actual_packet_preserves_world_requirements source (trace_world state) Before) as Safe.
+ destruct (Packet.packet source (trace_world state)); exact Safe.
+Qed.
+Theorem every_actual_history_preserves_world_requirements : forall events state,
+ world_valid (trace_world state) = true -> world_valid (trace_world (run events state)) = true.
+Proof.
+ induction events as [|source rest IH]; intros state Before; [exact Before|].
+ change (world_valid (trace_world (run rest (advance source state))) = true).
+ apply IH, every_actual_history_step_preserves_world_requirements; exact Before.
+Qed.
+Theorem actual_reachability_preserves_world_requirements : forall before after,
+ reachable before after -> world_valid (trace_world before) = true -> world_valid (trace_world after) = true.
+Proof.
+ intros before after Path; induction Path; intros Valid.
+ - destruct H as [source Step]; subst y.
+   apply every_actual_history_step_preserves_world_requirements; exact Valid.
+ - exact Valid.
+ - apply IHPath2, IHPath1; exact Valid.
+Qed.
+Theorem every_actual_replay_preserves_world_requirements : forall events before,
+ world_valid before = true -> world_valid (replay events before) = true.
+Proof.
+ induction events as [|source rest IH]; intros before Valid; [exact Valid|].
+ change (world_valid (replay rest (fst (Packet.packet source before))) = true).
+ apply IH, every_actual_packet_preserves_world_requirements; exact Valid.
+Qed.
+Theorem replay_from_initial_establishes_every_named_world_requirement : forall events,
+ well_formed (replay events State.initial).
+Proof.
+ intros events; apply the_world_checker_establishes_all_requirements.
+ apply every_actual_replay_preserves_world_requirements, the_initial_world_is_well_formed.
 Qed.

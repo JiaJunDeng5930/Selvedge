@@ -54,8 +54,6 @@ Definition public_message (message : message) := match message with
  | FunctionOutput id value error => Some (JObject [("role",JString "function_output");("call_id",JString id);("content",public_value 512 value);("is_error",JBool error)])
  | OperationResult _ call value error => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
     ("name",JString (call_name call));("content",public_value 512 value);("is_error",JBool error)])
- | ForkReceipt _ call branch => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
-    ("content",JNumber (Selvedge.Foundation.Numbers.show_natural branch));("is_error",JBool false)])
  | _ => None end.
 Definition preview_value value := let rendered := TextJson.render_json value in
  match Utf8.scalar_count rendered with Some count => if Nat.leb count 1024 then value else JString (excerpt rendered)

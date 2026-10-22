@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
 Import ListNotations.
 Open Scope string_scope.
@@ -137,3 +137,44 @@ Theorem measured_scope_and_reserve_reach_the_executed_request : forall id ticket
  A.prepare_model_effects value [K.RequestModel id ticket model task fallback_scope fallback_reserve] =
  [K.RequestModel id ticket model task scope (reserve_tokens budget)].
 Proof. intros. unfold A.prepare_model_effects. cbn. now rewrite H. Qed.
+
+
+Theorem manual_compaction_captures_context_before_any_summary_request : forall id task value entry,
+ entry = A.current_entry id (A.registry value) ->
+ A.job_pending (entry_job entry) = false ->
+ K.decision_effects (A.manual id task value) =
+ (map K.MaintainContext (A.cancellations id entry) ++
+  [K.ObserveContext id (K.world_next_ticket value) task])%list.
+Proof.
+ intros id task value entry Entry Ready. unfold A.manual. rewrite <- Entry, Ready.
+ unfold Reasoning.observe_context, K.allocate_ticket, A.commit, A.acknowledged.
+ reflexivity.
+Qed.
+
+Theorem suspended_manual_context_completion_cancels_its_job :
+ forall id ticket revision input before result previous task operations,
+ K.find_task id before = Some previous ->
+ task_activity previous = ObservingContext ticket revision ->
+ K.find_task id (K.decision_world result) = Some task ->
+ entry_job (A.current_entry id (A.registry (K.decision_world result))) = Resuming input Manual ->
+ (task_lifecycle task = Frozen WantsModel operations \/ task_lifecycle task = Stopped WantsModel operations) ->
+ let cancelled := Tasks.promote (with_activity Idle (append_history
+   [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task)) in
+ A.observe_manual before id result =
+ A.combine result (A.cancel id cancelled (A.current_entry id (A.registry (K.decision_world result)))
+   (K.put_task id cancelled (K.decision_world result))) /\
+ task_activity cancelled = Idle /\
+ entry_job (A.clear_entry cancelled (A.current_entry id (A.registry (K.decision_world result)))) = NoJob.
+Proof.
+ intros id ticket revision input before result previous task operations Previous Phase Found Job Paused cancelled.
+ unfold A.observe_manual; rewrite Previous, Found, Job, Phase.
+ destruct Paused as [FrozenTask|StoppedTask].
+ - assert (Activity : task_activity task = WantsModel) by (unfold task_activity; rewrite FrozenTask; reflexivity).
+   rewrite Activity, FrozenTask. split; [reflexivity|]. split; [|reflexivity].
+   unfold cancelled. destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   cbn in FrozenTask; subst lifecycle; reflexivity.
+ - assert (Activity : task_activity task = WantsModel) by (unfold task_activity; rewrite StoppedTask; reflexivity).
+   rewrite Activity, StoppedTask. split; [reflexivity|]. split; [|reflexivity].
+   unfold cancelled. destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   cbn in StoppedTask; subst lifecycle; destruct queued; reflexivity.
+Qed.

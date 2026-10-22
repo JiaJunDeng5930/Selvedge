@@ -276,6 +276,26 @@ Local Lemma observing_context_preserves_the_task_contract : forall phase task,
  task_contract (with_activity phase task) = task_contract task.
 Proof. intros; unfold with_activity; destruct (task_lifecycle task); reflexivity. Qed.
 
+Local Lemma actual_observations_preserve_the_task_contract : forall observations diagnostic task,
+ task_contract (snd (Callbacks.observed_context observations diagnostic task)) = task_contract task.
+Proof.
+ intros [observations|] diagnostic task; unfold Callbacks.observed_context.
+ - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history task))) as [changes diagnostics].
+   cbn [snd]. rewrite context_diagnostics_preserve_the_task_contract; reflexivity.
+ - cbn [snd]. apply context_diagnostic_preserves_the_task_contract.
+Qed.
+
+Local Lemma context_ready_preserves_the_frozen_contract : forall accepted id task value,
+ find_task id value = Some task ->
+ exists after,
+ find_task id (decision_world (Callbacks.context_ready accepted id task value)) = Some after /\
+ task_contract after = task_contract task.
+Proof.
+ intros accepted id task value Found. unfold Callbacks.context_ready.
+ cbn [decision_world accept]. eexists; split; [eapply find_put_task; exact Found|].
+ apply observing_context_preserves_the_task_contract.
+Qed.
+
 Theorem actual_context_callbacks_preserve_the_frozen_contract :
  forall id ticket observations diagnostic value before,
  find_task id value = Some before ->
@@ -286,16 +306,23 @@ Proof.
  intros id ticket observations diagnostic value before Found.
  unfold Callbacks.context_completed; rewrite Found.
  destruct (task_activity before) as
-   [ | | | expected | expected callable mode | expected source_length | calls |
+   [ | | | expected revision | expected callable mode | expected source_length | calls |
      invocation pending calls | expected plugin invocation remaining calls];
    try (exists before; split; [exact Found|reflexivity]).
  destruct (N.eqb expected ticket); [|exists before; split; [exact Found|reflexivity]].
- destruct observations as [observations|].
- - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history before))) as [changes diagnostics].
-   cbn [decision_world accept]. eexists; split; [eapply find_put_task; exact Found|].
-   rewrite observing_context_preserves_the_task_contract, context_diagnostics_preserve_the_task_contract; reflexivity.
- - cbn [decision_world accept]. eexists; split; [eapply find_put_task; exact Found|].
-   rewrite observing_context_preserves_the_task_contract; apply context_diagnostic_preserves_the_task_contract.
+ destruct (Nat.eqb revision (List.length (task_history before))).
+ - pose proof (actual_observations_preserve_the_task_contract observations diagnostic before) as Contract.
+   destruct (Callbacks.observed_context observations diagnostic before) as [accepted observed] eqn:Observed.
+   cbn [snd] in Contract. unfold Callbacks.context_ready. cbn [decision_world accept].
+   eexists; split; [eapply find_put_task; exact Found|].
+   rewrite observing_context_preserves_the_task_contract; exact Contract.
+ - destruct (task_lifecycle before).
+   + unfold Reasoning.observe_context, allocate_ticket. cbn [decision_world accept].
+     eexists; split; [eapply find_put_task; exact Found|].
+     unfold Reasoning.capture; apply observing_context_preserves_the_task_contract.
+   + apply context_ready_preserves_the_frozen_contract; exact Found.
+   + apply context_ready_preserves_the_frozen_contract; exact Found.
+   + apply context_ready_preserves_the_frozen_contract; exact Found.
 Qed.
 
 Theorem omitted_project_selection_preserves_environment_binding : forall model settings value,

@@ -1,8 +1,15 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Tasks ReasoningView ReasoningProtocol.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks ReasoningView ReasoningProtocol.
 Import ListNotations.
 Open Scope string_scope.
+
+Definition capture (ticket : N) (task : task) :=
+ with_activity (ObservingContext ticket (List.length (task_history task))) task.
+Definition observe_context (id : N) (task : task) (value : world) :=
+ let '(ticket, allocated) := allocate_ticket value in
+ accept (JObject [("accepted",JBool true)])
+  (put_task id (capture ticket task) allocated) [ObserveContext id ticket task].
 
 Definition failed_result (error : bool) (value : json) :=
  error || match natural_field "exit_code" value with Some code => N.ltb 0 code | None => false end.
@@ -11,7 +18,7 @@ Definition lease_step (owner : N) (previous : lease) (message : message) :=
  match message with
  | ReasoningRecord actual effort remaining _ => if N.eqb owner actual then Lease effort remaining else NoLease
  | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
- | FailureMessage _ | ContextReplacement _ | SettingsMessage _ _ _ => NoLease
+ | FailureMessage _ | ContextReplacement _ => NoLease
  | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
    if failed_result error value then NoLease else previous
  | ModelContext _ value => if String.eqb (text_default "type" (provider_value value) "") "compaction" then NoLease else previous
@@ -54,7 +61,7 @@ Definition last_configuration (history : list message) :=
 Definition trailing_configuration (history : list message) :=
  fold_left (fun previous entry => match entry with
  | ReasoningConfigurationMessage _ => true
- | ReasoningRecord _ _ _ _ | HookReceipt _ _ _ _ | AfterReceipt _ _ _ _
+ | ReasoningRecord _ _ _ _ | AfterReceipt _ _ _ _
  | ApprovalReceipt _ _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
  | _ => false end) history false.
 Definition generation (owner : N) (model : profile) (remaining : N) (task : task) :=

@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Capabilities Compaction CompactionPlan ContextSelection Limits Scheduler Reasoning.
 From Selvedge.Features Require Import Domain State CompactionTypes CompactionCodec.
 Import ListNotations.
 Open Scope string_scope.
@@ -312,7 +312,7 @@ Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.wor
  else if running task then
  (* Model input is measured after the admitted workspace observation. Holding
     WantsModel here would prevent the observation that makes the count current. *)
- match task_activity task with WantsModel | ObservingContext _ => None | _ =>
+ match task_activity task with WantsModel | ObservingContext _ _ => None | _ =>
  match entry_job entry with
  | Resuming input purpose =>
    if relevant input task value then
@@ -334,13 +334,18 @@ Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N) (resul
  match Selvedge.Kernel.State.find_task id before, Selvedge.Kernel.State.find_task id value, entry_job (current_entry id (registry value)) with
  | Some previous, Some task, Resuming _ Manual =>
    match task_activity previous, task_activity task, task_lifecycle task with
-   | ObservingContext _, ReadyForModel, Running _ _ =>
+   | ObservingContext _ _, ReadyForModel, Running _ _ =>
      let task := with_activity Idle task in
      (* Only the core callback reports whether its actual observation admission
         succeeded; failure text is not an authorization signal. *)
      combine result (match bool_field "observations_accepted" (value_or_null "result" (Selvedge.Kernel.State.decision_reply result)) with
      | Some true => begin_scope id (capture_task task value) (Some Manual) (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value)
      | _ => cancel id task (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value) end)
+   | ObservingContext _ _, WantsModel, Frozen _ _
+   | ObservingContext _ _, WantsModel, Stopped _ _ =>
+     let task := Tasks.promote (with_activity Idle (append_history
+       [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task)) in
+     combine result (cancel id task (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value))
    | _, _, _ => result end
  | _, _, _ => result end.
 Definition synchronize_task (id : N) (result : Selvedge.Kernel.State.decision) :=
@@ -379,12 +384,11 @@ Definition supplied (id : N) (task : task) (summary : string) (value : Selvedge.
 Definition manual (id : N) (task : task) (value : Selvedge.Kernel.State.world) :=
  let entry := current_entry id (registry value) in
  if job_pending (entry_job entry) then acknowledged false value [] else
- let '(ticket, allocated) := Selvedge.Kernel.State.allocate_ticket value in
- let waiting := with_activity (ObservingContext ticket) task in
+ let observation := Reasoning.observe_context id task value in
  let result := commit id (with_measurement Unmeasured (with_job (Resuming (capture_task task value) Manual) entry))
-  (Selvedge.Kernel.State.put_task id waiting allocated) (cancellations id entry) in
+  (Selvedge.Kernel.State.decision_world observation) (cancellations id entry) in
  Selvedge.Kernel.State.Decision (Selvedge.Kernel.State.decision_world result) (Selvedge.Kernel.State.decision_reply result)
-  (Selvedge.Kernel.State.decision_effects result ++ [Selvedge.Kernel.State.ObserveContext id ticket waiting])%list.
+  (Selvedge.Kernel.State.decision_effects result ++ Selvedge.Kernel.State.decision_effects observation)%list.
 Definition command (command : Selvedge.Generated.Commands.command) (_caller : option N) (value : Selvedge.Kernel.State.world) : option Selvedge.Kernel.State.decision :=
  match command with
  | Selvedge.Generated.Commands.Cmd_compact payload => Some (

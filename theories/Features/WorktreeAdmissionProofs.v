@@ -1,7 +1,7 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Domain State Codec Packet InputDecoder Inputs Notifications Delivery.
+From Selvedge.Kernel Require Import Domain State Codec Packet InputDecoder Inputs Notifications Delivery PacketProofs.
 From Selvedge.Features Require Import Worktree Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -25,22 +25,6 @@ Proof.
  rewrite found, related, failed. reflexivity.
 Qed.
 
-Local Lemma admission_preserves_unchanged_world : forall durable source before result,
- decision_world result = before ->
- decision_world (Packet.admit durable source before result) = before.
-Proof.
- intros durable source before result same. unfold Packet.admit, Delivery.deliver.
- destruct (Delivery.fits durable (Notifications.decorate durable source before result)); [|reflexivity].
- unfold Notifications.decorate. destruct durable; [|exact same].
- destruct (Notifications.input_events source before (decision_world result) ++
-   concat (Numbers.indexed (fun id task => Notifications.task_events before id task (decision_world result))
-     0 (world_tasks (decision_world result))) ++
-   flat_map (Notifications.effect_events (decision_world result)) (decision_effects result))
-   as [|notice rest]; [exact same|].
- destruct (Delivery.fits true (Decision (decision_world result) (decision_reply result)
-   (decision_effects result ++ [NotifyPlugins (notice :: rest)]))); exact same.
-Qed.
-
 Local Lemma rejected_command_preserves_tasks_at_packet : forall source command value code reason,
  InputDecoder.decode source = Some (UserCommand command) ->
  Packet.execute_domain command None value = reject code reason value ->
@@ -51,7 +35,7 @@ Proof.
    [|reflexivity].
  unfold Packet.transition. rewrite decoded.
  destruct (Packet.query command None value) as [reply|] eqn:queried.
- - cbn. rewrite (admission_preserves_unchanged_world false _ value (Decision value reply []) eq_refl).
+ - cbn. rewrite (actual_commit_admission_keeps_an_unchanged_world false _ value (Decision value reply []) eq_refl).
    reflexivity.
  - unfold Packet.execute_command. rewrite refused.
    assert (does_not_schedule : Packet.command_schedules command (reject code reason value) = false)
@@ -62,7 +46,7 @@ Proof.
    cbn beta iota zeta.
    (* Project state first; reducing the unused observation here is expensive. *)
    cbn [fst].
-   rewrite (admission_preserves_unchanged_world true _ value (reject code reason value) eq_refl).
+   rewrite (actual_commit_admission_keeps_an_unchanged_world true _ value (reject code reason value) eq_refl).
    reflexivity.
 Qed.
 

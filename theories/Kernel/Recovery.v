@@ -5,7 +5,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 Definition recovered_phase (phase : activity) := match phase with
- | ObservingContext _ | AskingModel _ _ _ | EvaluatingReasoning _ _ => WantsModel
+ | ObservingContext _ _ | AskingModel _ _ _ | EvaluatingReasoning _ _ => WantsModel
  | CheckingHook _ _ _ _ remaining => PendingCalls remaining
  | other => other end.
 Definition recovery_receipts (owner : N) (phase : activity) := match phase with

@@ -132,7 +132,7 @@ Definition send (id : N) (contents : content) (value : world) :=
  end.
 Definition inference_effects (id : N) (task : task) :=
  match task_activity task with
- | ObservingContext ticket | AskingModel ticket _ _ | EvaluatingReasoning ticket _
+ | ObservingContext ticket _ | AskingModel ticket _ _ | EvaluatingReasoning ticket _
  | CheckingHook ticket _ _ _ _ => [CancelTicket id ticket]
  | _ => [] end.
 Definition unknown_operations (operations : list operation) :=

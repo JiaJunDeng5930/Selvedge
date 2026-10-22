@@ -237,11 +237,7 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
    match ready_operation operations with
    | Some operation => Some (operation_step id operation task value)
    | None => match phase with
-     | WantsModel => let task := publish_operations task in
-       let '(ticket, allocated) := allocate_ticket value in
-       Some (accept (JObject [("accepted",JBool true)])
-        (put_task id (with_activity (ObservingContext ticket) task) allocated)
-        [ObserveContext id ticket task])
+     | WantsModel => Some (Reasoning.observe_context id (publish_operations task) value)
      | ReadyForModel => Some (ready_model id task value)
      | ReadyForHooks invocation pending remaining => Some (ready_hooks execute id invocation pending remaining task value)
      | PendingCalls (first :: rest) => Some (start_call execute id first rest task value)

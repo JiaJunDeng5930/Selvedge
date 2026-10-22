@@ -51,7 +51,7 @@ Definition interrupted_phase (phase : activity) := match phase with
  | CheckingHook _ _ invocation _ remaining =>
    FunctionOutput (call_id invocation) (failure "hook_cancelled"
     "Authorization was interrupted; the tool was not dispatched. The plugin callback may already have run.") true :: map cancelled_call remaining
- | ObservingContext _ => [FailureMessage "Context observation interrupted by the user; no model request was sent"]
+ | ObservingContext _ _ => [FailureMessage "Context observation interrupted by the user; no model request was sent"]
  | AskingModel _ _ _ => [FailureMessage "Model request interrupted by the user"]
  | EvaluatingReasoning _ _ => [FailureMessage "Reasoning evaluation interrupted by the user; no model request was sent"]
  | Idle | WantsModel | ReadyForModel => [] end.

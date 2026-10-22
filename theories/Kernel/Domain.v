@@ -139,7 +139,7 @@ Inductive activity :=
 | Idle
 | WantsModel
 | ReadyForModel
-| ObservingContext (ticket : N)
+| ObservingContext (ticket : N) (source_length : nat)
 | AskingModel (ticket : N) (callable : list string) (mode : output_mode)
 | EvaluatingReasoning (ticket : N) (source_length : nat)
 | PendingCalls (calls : list call)
@@ -226,5 +226,5 @@ Definition task_busy (value : task) :=
 
 Definition activity_name (value : activity) := match value with
  | Idle => "idle" | WantsModel | ReadyForModel | PendingCalls _ => "ready"
- | ObservingContext _ => "context_pending" | AskingModel _ _ _ => "model_pending"
+ | ObservingContext _ _ => "context_pending" | AskingModel _ _ _ => "model_pending"
  | EvaluatingReasoning _ _ => "reasoning_pending" | ReadyForHooks _ _ _ | CheckingHook _ _ _ _ _ => "hook_pending" end.

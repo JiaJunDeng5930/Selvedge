@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Kernel Require Import Domain State.
+From Selvedge.Kernel Require Import Domain State Reasoning.
 Import ListNotations.
 
 Definition request_coordinate (request : effect) := match request with
@@ -36,8 +36,9 @@ Definition capture_request (request : effect) (value : world) : world * effect :
  match request with
  | ObserveContext id ticket original => match side_task id value with
    | Some current => match task_activity current with
-     | ObservingContext expected => if N.eqb expected ticket then
-       (value,ObserveContext id ticket (with_history (task_history current) original)) else (value,request)
+     | ObservingContext expected _ => if N.eqb expected ticket then
+       (put_task id (Reasoning.capture ticket current) value,
+        ObserveContext id ticket (with_history (task_history current) original)) else (value,request)
      | _ => (value,request) end
    | None => (value,request) end
  | RequestModel id ticket model original scope reserve => match side_task id value with

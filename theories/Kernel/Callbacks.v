@@ -8,7 +8,7 @@ Open Scope list_scope.
 Definition ignored (value : world) := accept (JObject [("ignored",JBool true)]) value [].
 Definition acknowledged (value : world) := accept (JObject [("accepted",JBool true)]) value [].
 Definition matching_activity (ticket : N) (phase : activity) := match phase with
- | ObservingContext expected | AskingModel expected _ _ | EvaluatingReasoning expected _
+ | ObservingContext expected _ | AskingModel expected _ _ | EvaluatingReasoning expected _
  | CheckingHook expected _ _ _ _ => N.eqb ticket expected | _ => false end.
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   match tool_origin tool with
@@ -71,21 +71,32 @@ Definition record_context_diagnostic (message : string) (task : task) :=
  if existsb (fun entry => match entry with
    | FailureMessage previous => String.eqb previous message | _ => false end) (task_history task)
  then task else append_history [FailureMessage message] task.
+Definition observed_context (observations : option (list context_observation)) (diagnostic : string) (task : task) :=
+ match observations with
+ | None => (false,record_context_diagnostic diagnostic task)
+ | Some observations =>
+   let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings (task_history task)) in
+   (Nat.eqb (List.length diagnostics) 0,
+    fold_left (fun task message => record_context_diagnostic message task) diagnostics
+      (append_history (map ContextObservation changes) task))
+ end.
+Definition context_ready (accepted : bool) (id : N) (task : task) (value : world) :=
+ let phase := match task_lifecycle task with Running _ _ => ReadyForModel | _ => WantsModel end in
+ accept (JObject [("accepted",JBool true);("observations_accepted",JBool accepted)])
+  (put_task id (with_activity phase task) value) [].
 Definition context_completed (id ticket : N) (observations : option (list context_observation)) (diagnostic : string) (value : world) :=
  match find_task id value with
  | None => ignored value
  | Some task => match task_activity task with
-   | ObservingContext expected => if N.eqb expected ticket then
-     let '(accepted,task) := match observations with
-     | None => (false,record_context_diagnostic diagnostic task)
-     | Some observations =>
-       let '(changes,diagnostics) := observe_all observations (ContextUpdates.bindings (task_history task)) in
-       (Nat.eqb (List.length diagnostics) 0,
-        fold_left (fun task message => record_context_diagnostic message task) diagnostics
-          (append_history (map ContextObservation changes) task))
-     end in
-     accept (JObject [("accepted",JBool true);("observations_accepted",JBool accepted)])
-      (put_task id (with_activity ReadyForModel task) value) []
+   | ObservingContext expected revision => if N.eqb expected ticket then
+     (* DEFENSE: Tool completions and speech input can append history while source
+        IO reads the captured prefix. Its patches belong only to that revision. *)
+     if Nat.eqb revision (List.length (task_history task)) then
+       let '(accepted,task) := observed_context observations diagnostic task in
+       context_ready accepted id task value
+     else match task_lifecycle task with
+       | Running _ _ => Reasoning.observe_context id task value
+       | _ => context_ready false id task value end
      else ignored value
    | _ => ignored value end
  end.
