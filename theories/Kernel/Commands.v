@@ -98,3 +98,90 @@ Definition command_specs : list command_spec := [
   Command "read_worktree" task_identity;
   Command "retry_worktree_archive" task_identity
 ].
+
+(** Descriptions accompany the shared command declarations without repeating
+    their argument schemas. *)
+Definition command_descriptions : list (string * string) := [
+  ("configure_task_execution", "Change a quiescent task's current execution settings while preserving its creation snapshot.");
+  ("create", "Start an agent with a frozen model and tool contract.");
+  ("create_idle", "Create a task with frozen execution settings without submitting an initial input.");
+  ("send", "Commit or queue a user message; reactivate a stopped task.");
+  ("steer", "Replace current model work with immediate user input without cancelling independent operations or discarding queued follow-ups. Frozen tasks remain frozen.");
+  ("cancel_operation", "Cancel one live operation. Other work continues; previous side effects cannot be undone.");
+  ("freeze", "Suspend dispatch without discarding accepted results.");
+  ("unfreeze", "Resume a frozen task.");
+  ("stop", "Settle accepted tools without requesting another model reply.");
+  ("interrupt", "Cancel current work without archiving. Retain queued messages; record unknown outcomes for already-dispatched tools. A new message resumes the task.");
+  ("archive", "Permanently archive a task and cancel external work.");
+  ("fork", "Fork an idle task, subject to every ancestor's descendant limit.");
+  ("open_side_conversation", "Open a side conversation from the task's committed history while its work continues. An omitted message creates an idle side task.");
+  ("return_side_conversation", "Append only this side conversation's new content to its parent, excluding side instructions and parent lifecycle updates. Current work continues.");
+  ("compact", "Checkpoint an idle task without deleting original history. Without summary, request a model summary (active tasks only). A supplied bounded summary also works on stopped or frozen tasks, without calling a model.");
+  ("read", "Read a bounded history page without advancing the task.");
+  ("search_history", "Search committed conversation text across tasks, optionally restricted to a project or Work. Read an original message with read after=message_index (0-based).");
+  ("list", "Read task summaries and the currently available model profiles and tools.");
+  ("describe", "Read this executable command vocabulary and the effect-boundary limits.");
+  ("create_project", "Create an organizational project with default workspace roots; existing tasks never follow later default changes.");
+  ("update_project", "Change the project's name or workspace defaults without rewriting task contracts.");
+  ("delete_project", "Delete an empty project. A project referenced by any task cannot be deleted.");
+  ("list_projects", "Read project summaries without advancing tasks.");
+  ("read_project", "Read a project's workspace defaults and frozen root guidance.");
+  ("review_approval", "Approve exactly one pending human-reviewed command, or deny it. A grant cannot change the command, task settings, or any later operation.");
+  ("record_speech_transcript", "Record a final speech transcript without invoking or scheduling the task model.");
+  ("accept_speech_delegation", "Accept a voice work delegation through ordinary task input, retaining its receipt in the same decision.");
+  ("create_card", "Capture planned work without starting a task; assisted creation requests a separate bounded title/description suggestion.");
+  ("update_card", "Update only named card fields, guarded by the observed card revision. Execution inputs remain frozen after linking a task.");
+  ("move_card", "Move a revision-bound card before another card, or to the end when before_card is empty. Preserve the relative order of other cards.");
+  ("archive_card", "Archive a card and interrupt its active execution. Its stage and linked task history are retained.");
+  ("restore_card", "Restore an archived card to its retained stage without replaying its execution.");
+  ("delete_card", "Delete an idle card, not its linked task or conversation.");
+  ("run_card", "Start the assigned agent exactly once, freezing the current project and agent execution settings.");
+  ("link_card", "Attach an existing unlinked conversation to a card without creating or replaying a task.");
+  ("regenerate_card_title", "Request a revision-correlated title suggestion; retain the description, assignments and task link.");
+  ("pin_card", "Pin or unpin an idle card. Pinned cards precede other cards in both the board and automatic dispatch queue.");
+  ("board_settings", "Configure automatic dispatch and the independent ordinary profile used for drafting.");
+  ("save_board_agent", "Create or edit a reusable board role; blank agent means create. Existing task contracts are never rewritten.");
+  ("delete_board_agent", "Delete an unused board role without deleting its endpoint configuration.");
+  ("list_cards", "Observe the card registry, automatic-dispatch setting and independent drafting profile.");
+  ("read_card", "Observe one card and its current execution capabilities.");
+  ("list_board_agents", "Observe reusable board roles and their current configured endpoints.");
+  ("configure_chatgpt_connections", "Replace local ChatGPT connection grants; administrative access only.");
+  ("chatgpt_exec", "Commit one project-scoped Bash operation. Retained request IDs deduplicate retries.");
+  ("chatgpt_cancel", "Interrupt one connection-owned operation; physical changes are not undone.");
+  ("chatgpt_forget", "Delete a settled receipt and end its request-ID deduplication retention.");
+  ("chatgpt_projects", "List only projects granted to this connection.");
+  ("chatgpt_project", "Read an authorized project and its root guidance.");
+  ("chatgpt_operation", "Read one operation owned by this connection and project.");
+  ("chatgpt_operations", "List bounded operation summaries, without their output bodies.");
+  ("remote_enable", "Enable locally granted remote controllers; administrative access only.");
+  ("remote_disable", "Disable remote control immediately without cancelling local tasks; administrative access only.");
+  ("remote_grant", "Grant or replace one remote controller's permissions and issue a fresh grant generation; administrative access only.");
+  ("remote_revoke", "Revoke one remote controller and remove its retained command receipts; administrative access only.");
+  ("remote_status", "Read local remote-control status and granted controllers; administrative access only.");
+  ("create_task_graph", "Create Tasks and install their output handlers atomically before scheduling them. Optional work_id scopes the graph: existing Tasks must already belong to that Work and new Tasks join it.");
+  ("update_task_graph", "Replace a graph declaration atomically; retained Task references keep their existing settings and history.");
+  ("delete_task_graph", "Remove a graph and its future output handlers without archiving its Tasks.");
+  ("list_task_graphs", "Observe installed Task graphs, resolved Task references and latest delivery receipts.");
+  ("read_task_graph", "Observe one installed Task graph, its rules and latest delivery receipts.");
+  ("read_title_settings", "Read independent Task board and Agent conversation title instructions.");
+  ("configure_title_settings", "Save independent title instructions at their current revision; existing names and pending requests are preserved.");
+  ("create_work", "Create a Work independent of Projects; an omitted name becomes Work #id.");
+  ("rename_work", "Rename a Work while preserving its Tasks and Task graphs.");
+  ("create_work_task", "Create a root Task and record its immutable Work ownership atomically; optionally create a managed worktree.");
+  ("list_works", "Observe Works with their derived Task IDs and associated Task graph IDs.");
+  ("read_work", "Observe one Work with its derived Task IDs and associated Task graph IDs.");
+  ("read_work_ui", "Read the persistent shared UI source and revision of this calling Task's Work. The source uses the same selvedge-ui DSL as conversation interfaces, without a Markdown fence. No Work or Task identifier is accepted.");
+  ("apply_work_ui_patch", "Edit this Task's Work UI atomically using the revision from read_work_ui. Patch exactly one virtual file work-ui.dsl using *** Begin Patch, *** Add File: work-ui.dsl (for empty source), *** Update File: work-ui.dsl with @@ and exact context/-/+ lines, or *** Delete File: work-ui.dsl (clear), then *** End Patch. Example initial patch:
+*** Begin Patch
+*** Add File: work-ui.dsl
++<ui id=""work""><metric id=""progress"" label=""Progress"" value={0} /></ui>
+*** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch.");
+  ("create_workspace_task", "Create a task after preparing a local worktree or a cloud environment.");
+  ("create_worktree_task", "Create a task in a managed Git worktree before starting its execution.");
+  ("list_worktrees", "List managed task worktrees and their current operation state.");
+  ("read_worktree", "Read the managed worktree associated with one task.");
+  ("retry_worktree_archive", "Retry archiving a task worktree after an external archive failure.")
+].
+
+Definition command_description (name : string) : option string :=
+  option_map snd (find (fun entry => String.eqb name (fst entry)) command_descriptions).

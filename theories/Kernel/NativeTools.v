@@ -1,14 +1,45 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema.
+From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema Arguments Numbers.
 From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
+From Selvedge.Features Require Import Titles.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import TaskGraphDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition kind_json := SchemaJson.kind_schema.
-Definition schema_json := SchemaJson.schema_json.
+Definition attachment_item_schema := SchemaJson.object_fields
+  (map (fun name => (name,JObject (SchemaJson.kind_schema KText))) ["id";"name";"mime";"path";"bytes"])
+  ["id"].
+Definition attachment_array_schema :=
+  [("type",JString "array");("items",JObject attachment_item_schema)].
+(** These public JSON Schema bounds mirror byte limits enforced by the owning
+    domain operations; JSON Schema's length keywords count characters. *)
+Definition controller_id_schema :=
+  SchemaJson.kind_schema KText ++ [("minLength",JNumber "1");
+    ("maxLength",JNumber (Numbers.show_natural 128%N))].
+Definition title_prompt_schema :=
+  SchemaJson.kind_schema KText ++ [("minLength",JNumber "1");
+    ("maxLength",JNumber (Numbers.show_natural Titles.maximum_instruction_bytes))].
+Definition permission_names := ["read";"control";"configure";"approve"].
+Definition permissions_schema := SchemaJson.object_fields
+  (map (fun name => (name,JObject (SchemaJson.kind_schema KBool))) permission_names)
+  permission_names.
+Definition command_field_refinements (name : string) :=
+  if String.eqb name "create_card" || String.eqb name "update_card" then
+    [("attachments",attachment_array_schema)] else
+  if String.eqb name "configure_title_settings" then
+    [("task_prompt",title_prompt_schema);("agent_prompt",title_prompt_schema)] else
+  if String.eqb name "remote_grant" then
+    [("controller_id",controller_id_schema);("permissions",permissions_schema)] else
+  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else [].
+Definition command_schema (specification : command_spec) :=
+  let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
+    (map Arguments.from_field (Field "op" KText :: command_fields specification)) in
+  JObject (SchemaJson.object_fields
+    (map (fun argument => (Arguments.argument_name argument,
+      JObject (Arguments.type_schema (Arguments.argument_type_of argument)))) declaration)
+    (map Arguments.argument_name (filter Arguments.argument_required declaration))).
 Record command_binding := CommandBinding {
  binding_tool : string;
  binding_command : string;

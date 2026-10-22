@@ -18,7 +18,9 @@ Definition read_task (id after limit : N) (value : world) :=
  end.
 Definition describe := JObject [
  ("commands", JArray (map (fun command => JObject [("name", JString (command_name command));
- ("description", JString (command_name command)); ("schema", NativeTools.schema_json (Field "op" KText :: command_fields command))]) Selvedge.Kernel.Commands.command_specs));
+ ("description", JString (match Selvedge.Kernel.Commands.command_description (command_name command) with
+   | Some description => description | None => "" end));
+ ("schema", NativeTools.command_schema command)]) Selvedge.Kernel.Commands.command_specs));
  ("limits", Limits.boundary_limits); ("plugins", JObject [("protocolVersion", JString "selvedge-plugin-2");
   ("max_plugins", number Limits.plugin_limit); ("events", JArray (map JString Limits.plugin_events))])].
 Definition list_tasks (value : world) := State.success (JObject [
