@@ -21,8 +21,6 @@ JSON admission, physical journal persistence and effect execution have separate
 validation boundaries. Inter-transition retention and effect authorization are
 additional contracts; a well-formed candidate alone does not establish them.
 
-[ADR 0069](../../docs/adr/0069-preserve-world-admission-through-extraction.md)
-records why commit admission and history preservation must remain connected.
 
 For reasoning policy, start with `Domain`, `Codec.parse_reasoning_policy`, and
 `Reasoning.next`. `ReasoningProofs` states the requirements on the actual
@@ -31,6 +29,3 @@ scheduler, context callbacks, generation history, and public evaluator preview;
 context boundary. `ReasoningView` is an evaluator transport preview, while the
 retained task history remains the source for model requests. Host tokenizer
 budgets and the evaluator's choice quality remain separate execution boundaries.
-[ADR 0071](../../docs/adr/0071-capture-context-history-revisions.md) explains why
-context source reads capture history revisions and how suspended summaries
-retain their original product behavior.

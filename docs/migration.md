@@ -20,12 +20,12 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
   MCP argument admission, and corrected conversation classification change those
   decisions. Model-issued history searches also record their results, so changes
   to searchable message roles affect replay. Earlier formats cannot
-  preserve the current replay contract. See [ADR 0065](adr/0065-distinguish-speech-from-provider-activity.md).
+  preserve the current replay contract.
 - MCP tools retain their server's JSON Schema, including numeric, nested and
   referenced schemas. The extension descriptor's deliberately restricted schema
   language no longer constrains MCP configuration or calls. MCP arguments must
   be objects; the server owns full schema validation. Native and extension tools
-  retain their respective local admission rules. See [ADR 0060](adr/0060-preserve-tool-protocol-contracts.md).
+  retain their respective local admission rules.
 
 - Raw HTTP command admission and provider function arguments use the extracted
   domain parser and reject duplicate object members. Stdio JSON-RPC retains its
@@ -55,7 +55,7 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
 - Browser layout uses native CSS geometry, including fractional dimensions,
   instead of the old saturated integer pixel allocator. Navigation retains one
   header and moves the Task list into a modal when needed, preserving its actual
-  trigger and reading position. See [ADR 0062](adr/0062-preserve-activity-and-navigation-contracts.md).
+  trigger and reading position.
   Charts reject mixed numeric/categorical
   axes instead of silently combining their coordinate interpretations.
 - Graph node spacing follows the displayed node bounds at low zoom. The old
