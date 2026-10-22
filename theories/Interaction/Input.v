@@ -51,6 +51,7 @@ Inductive input :=
 | Interactive(input:Types.input) | AppearanceRestored(theme:appearance)
 | LoadSkills(owner:editor)(explicit:bool) | SkillsLoaded(ticket:N)(outcome:sum string json)
 | SkillSelected(owner:editor)(path:string) | SkillSelection(owner:editor)(caret:N)(composing:bool)
+| SkillRefocus(owner:editor)(caret:N)(composing:bool)
 | SkillMove(owner:editor)(offset:Z) | SkillDismiss(owner:editor).
 
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,
@@ -58,7 +59,7 @@ Inductive input :=
 Definition acknowledges_feedback (incoming:input) := match incoming with
 |Completed _ _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
 |Snapshot|Stream _|CodeObserved _|AppearanceRestored _|SkillsLoaded _ _
-|ActivityFocus _ _ _|SkillSelection _ _ _|ReadTimeline _ _ _=>false
+|ActivityFocus _ _ _|SkillSelection _ _ _|SkillRefocus _ _ _|ReadTimeline _ _ _=>false
 |LoadSkills _ explicit=>explicit
 |ServiceInput service=>match service with
  |Services.CommandAssessed _ _|Services.RestoreModelPreference _
@@ -89,7 +90,9 @@ Definition assign_activity {e} occurrence (subject:Model.subject e) incoming : o
 Definition selection_input {e} (subject:Model.subject e) incoming : option input :=
  caret<-natural_field "start" incoming;;
  finish<-natural_field "end" incoming;;composing<-bool_field "composing" incoming;;
- if N.eqb caret finish then Some(SkillSelection e caret composing) else Some(SkillDismiss e).
+ if N.eqb caret finish then
+ Some(match bool_field "refocus" incoming with Some true=>SkillRefocus e caret composing|_=>SkillSelection e caret composing end)
+ else Some(SkillDismiss e).
 
 Definition attach_files owner incoming:option input:=
  files<-match incoming with JArray files=>traverse Attachments.decode_file files|value=>option_map(fun value=>[value])(Attachments.decode_file value)end;;
@@ -97,7 +100,8 @@ Definition attach_files owner incoming:option input:=
 Definition skill_key owner (mention:SkillMention.mention_state)(skills:list SkillMention.skill) incoming:option input:=
  key<-string_field "key" incoming;;
  match mention with SkillMention.Suggesting _ _=>match key with
- |"ArrowDown"=>Some(SkillMove owner 1%Z)|"ArrowUp"=>Some(SkillMove owner (-1)%Z)
+ |"ArrowDown"=>_ <- SkillMention.highlighted skills mention;;Some(SkillMove owner 1%Z)
+ |"ArrowUp"=>_ <- SkillMention.highlighted skills mention;;Some(SkillMove owner (-1)%Z)
  |"Escape"=>Some(SkillDismiss owner)
  |"Enter"|"Tab"=>skill<-SkillMention.highlighted skills mention;;Some(SkillSelected owner(SkillMention.skill_path skill))
  |_=>None end|_=>None end.

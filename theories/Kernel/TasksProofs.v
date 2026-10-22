@@ -7,6 +7,18 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
+Theorem actual_fork_rejects_observed_ancestor_capacity invoked id count messages requested value parent:
+ find_task id value=Some parent ->
+ TaskConstraints.fork_capacities_valid count
+  (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
+ Tasks.fork_with_caller invoked id count messages requested value=
+ reject "fork_unavailable"
+  "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value.
+Proof.
+ intros Found Capacity. unfold Tasks.fork_with_caller. rewrite Found.
+ unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r. reflexivity.
+Qed.
+
 Theorem archived_control_is_terminal : forall task,
  task_lifecycle task = Archived ->
  Tasks.control_task Tasks.Archive task = task.
@@ -180,7 +192,7 @@ Theorem invoked_fork_rejects_unpermitted_settings : forall id count messages req
      "Task tools cannot expand the caller's workspace, sandbox or approval authority" value.
 Proof.
  intros id count messages requested value parent selected Hfind Heligible Hresolved Hdelegate.
- unfold Tasks.fork_with_caller. rewrite Hfind, Heligible, Hresolved.
+ unfold Tasks.fork_with_caller,Tasks.fork_parent_ready. rewrite Hfind, Heligible, Hresolved.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 

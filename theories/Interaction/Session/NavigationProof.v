@@ -1,8 +1,30 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Interaction Require Input.
+From Selvedge.Interaction Require Input Identity.
+From Selvedge.Generated Require Commands.
 From Selvedge.Interaction.Session Require State Navigation.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
+
+Theorem editing_history_search_discards_previous_result state query project work:
+ State.location(State.navigation_state state)=Identity.HistorySearch ->
+ State.history_search(State.authoring_state
+  (Navigation.result_state(Navigation.edit_search query project work state)))=
+ State.Search query project work None None.
+Proof.
+ intro Location. unfold Navigation.edit_search. rewrite Location.
+ reflexivity.
+Qed.
+
+Theorem submitted_history_search_uses_shared_bounded_query state after:
+ State.location(State.navigation_state state)=Identity.HistorySearch ->
+ let search:=State.history_search(State.authoring_state state)in
+ let ticket:=State.next(State.authoring_state state)in
+ Navigation.submit_search after state=
+ Navigation.generated(Commands.Cmd_search_history(Commands.Build_search_history
+  (State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)))
+  (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)
+  (Navigation.set_search(set State.search_latest(fun _=>Some ticket)search)state).
+Proof. intro Location. unfold Navigation.submit_search. rewrite Location. reflexivity. Qed.
 
 Lemma reader_for_task state task :
  State.reading_task(Navigation.reader_for state task)=task.

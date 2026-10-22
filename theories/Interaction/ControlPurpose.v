@@ -43,7 +43,8 @@ Definition describe snapshot state input:P.purpose:=match input with
  |Some action=>match ObjectActions.command action with Some command=>command_purpose command|None=>match ObjectActions.action_operation action with
   ObjectActions.Editor owner=>editor_purpose owner|ObjectActions.Destination route=>P.NavigateTo(route_symbol route)|_=>P.NamedAction end end|None=>P.NamedAction end
 |Input.Command command|Input.Confirmation command _ _ _=>command_purpose command
-|Input.OpenNavigation kind _=>P.OpenPanel(match kind with GlobalMenu=>"menu-lines"|WorkOverview=>"home"|TasksDrawer=>"conversation"end)true false
+|Input.OpenNavigation kind _=>match kind with GlobalMenu=>P.GlobalDestinations
+ |WorkOverview=>P.OpenPanel "home" true false|TasksDrawer=>P.OpenPanel "conversation" true false end
 |Input.OpenBoard kind _=>P.OpenPanel(match kind with State.BoardSettings=>"settings"|State.BoardFilters=>"filter-funnel"|State.ArchivedCards=>"archive-box"end)false false
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
@@ -62,7 +63,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.RetryWorkspace _ _|Input.RetryMenuAssessment _ _ _=>P.RetryTransfer
 |Input.ServiceInput input=>match input with
  |Services.Connect|Services.RetryConnection _=>P.Connect(match Services.connection(State.service_state state)with Services.ConnectionLoading _=>true|_=>false end)
- |Services.OpenSettings=>P.OpenPanel "settings"false(Services.settings_open(State.service_state state))
+ |Services.OpenSettings=>P.ApplicationSettings(Services.settings_open(State.service_state state))
  |Services.CloseSettings|Services.CloseDirectory|Services.ClosePreview=>P.Dismiss
  |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer
  |Services.CancelUpload _=>P.AbortOperation|Services.OpenPreview _ _=>P.PreviewFile|Services.Download _=>P.DownloadFile

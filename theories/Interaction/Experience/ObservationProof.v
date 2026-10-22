@@ -78,3 +78,41 @@ Theorem frozen_approval_observation_ignores_catalog first second value:
  Session.Observation.parse_observed_approval first value=
  Session.Observation.parse_observed_approval second value.
 Proof. reflexivity. Qed.
+
+(** The complete draft assessment retains every independently observed cause;
+    presentation may choose attention without deleting the other causes. *)
+Theorem blocked_draft_preserves_all_requirements snapshot state e first rest:
+ Services.connected(State.service_state state)=true ->
+ draft_requirements snapshot state e=first::rest ->
+ assessment_obstructions(assessment_outcome(observe_assessment snapshot state e))=first::rest.
+Proof.
+ intros Connected Requirements. unfold observe_assessment.
+ rewrite Connected,Requirements. reflexivity.
+Qed.
+
+Theorem attention_is_an_actual_nonpassive_cause e(outcome:assessment_result e)cause:
+ attention_obstruction outcome=Some cause ->
+ In cause(assessment_obstructions outcome) /\
+ obstruction_code cause<>"empty_message" /\ obstruction_code cause<>"pending".
+Proof.
+ unfold attention_obstruction. intros Found.
+ apply find_some in Found as[Member Active]. split;[exact Member|].
+ apply Bool.negb_true_iff in Active. apply Bool.orb_false_iff in Active as[Empty Pending].
+ apply String.eqb_neq in Empty. apply String.eqb_neq in Pending. auto.
+Qed.
+
+Theorem observed_property_retains_complete_help snapshot state e kind value:
+ observe_property snapshot state e kind=Some value ->
+ property_help value=property_help_text snapshot state value.
+Proof.
+ unfold observe_property. destruct(Model.admit_subject e(Parameters.name(property_field kind)))as[subject|];cbn;try discriminate.
+ intros Same. inversion Same. subst. unfold property_help_text,property_source_description.
+ reflexivity.
+Qed.
+
+Theorem unavailable_model_retains_saved_profile_and_effort snapshot e(subject:subject e)key effort:
+ profile_for_subject snapshot subject key=None ->
+ information_of snapshot subject(Fields.ModelValue key effort)=
+ UnavailableInformation(String.append "Missing model "
+  (String.append key(String.append " · Reasoning: " effort))).
+Proof. intros Missing. unfold information_of. rewrite Missing. reflexivity. Qed.

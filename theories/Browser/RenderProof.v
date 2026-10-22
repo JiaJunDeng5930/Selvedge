@@ -13,9 +13,10 @@ Theorem native_fence_retains_complete_payload {A} (describe : A -> ControlPurpos
  DOM.Mount
    (Observation.physical_target view
      (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Preview))
-   (map (Document.compile_node describe env generation
+   (Document.interactive_status env activity (String.append key "/@pending") "data-interactive-pending" "正在更新显示" ::
+    map (Document.compile_node describe env generation
      (@Document.area_for A area Roles.Content (Surface.InteractiveRegion policy)) activity
-     (Surface.InteractiveRegion policy) view component) children).
+     (Document.source_context source (Surface.InteractiveRegion policy)) view component) children).
 Proof. reflexivity. Qed.
 
 Theorem native_fence_preserves_payload_order {A} (describe : A -> ControlPurpose.purpose)
@@ -26,12 +27,13 @@ Theorem native_fence_preserves_payload_order {A} (describe : A -> ControlPurpose
  DOM.Mount
    (Observation.physical_target view
      (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Preview))
-   (map (Document.compile_node describe env generation
-       (@Document.area_for A area Roles.Content (Surface.InteractiveRegion policy)) activity
-       (Surface.InteractiveRegion policy) view component) first ++
+   (Document.interactive_status env activity (String.append key "/@pending") "data-interactive-pending" "正在更新显示" ::
     map (Document.compile_node describe env generation
        (@Document.area_for A area Roles.Content (Surface.InteractiveRegion policy)) activity
-       (Surface.InteractiveRegion policy) view component) later).
+       (Document.source_context source (Surface.InteractiveRegion policy)) view component) first ++
+    map (Document.compile_node describe env generation
+       (@Document.area_for A area Roles.Content (Surface.InteractiveRegion policy)) activity
+       (Document.source_context source (Surface.InteractiveRegion policy)) view component) later).
 Proof. rewrite native_fence_retains_complete_payload, map_app; reflexivity. Qed.
 
 Theorem interactive_chrome_preserves_rest_channels env style :

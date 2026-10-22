@@ -106,11 +106,14 @@ pre, code { font-family: var(--rich-code-font); }
 [data-supporting-form="compact"] [data-support-secondary] { display: none !important; }
 
 /* Sidebar attention changes exposure while retaining the original slot width. */
-[data-navigation-owner] { border-radius: 6px; }
+[data-navigation-owner] {
+  border-radius: 6px;
+  --navigation-background: var(--navigation-rest-background);
+}
 [data-navigation-owner]:hover,
 [data-navigation-owner]:focus-within,
-[data-navigation-owner][data-navigation-active="true"] {
-  background: var(--color-token-list-hover-background);
+[data-navigation-owner][data-navigation-feedback="true"] {
+  --navigation-background: var(--navigation-hover-background);
 }
 @media (hover: hover) {
   [data-navigation-owner] > [data-navigation-slot="auxiliary"] { visibility: hidden; }

@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
-From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend.
-From Selvedge.Features Require Domain BoardParameters.
+From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints.
+From Selvedge.Features Require Domain BoardParameters Board Work Titles.
 From Selvedge.Interaction Require Import Codec Identity Context Resource Services CommandAssessment DocumentState ModelSelection.
 From Selvedge.Interaction.Session Require Draft State Observation Initialize.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
@@ -149,13 +149,15 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  match value with
  |Fields.TextValue text=>if String.eqb text ""then OptionalAbsence else present(Model.TextValue text)
  |Fields.ModelValue key effort=>match profile_for_subject snapshot subject key with
-  |None=>UnavailableInformation "The selected model is no longer available."
+  |None=>UnavailableInformation(String.append "Missing model "
+    (String.append key(String.append " · Reasoning: " effort)))
   |Some profile=>if ModelSelection.permitted_profile profile effort then
     match subject_declaration subject with
     |Fields.ReasoningEffort=>present(Model.TextValue effort)
     |_=>PresentInformation(SummaryValue subject(NamedChoice(profile_label profile)"Model"))
       (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort))end
-    else InvalidInformation "The selected reasoning effort is not available for this model."end
+    else InvalidInformation(String.append "Reasoning effort "
+      (String.append effort(String.append " is not available for model " key)))end
  |Fields.WorkspaceValue workspace=>workspace_information subject workspace false
  |Fields.ContextValue(Context.ContextUnavailable reason)_=>UnavailableInformation reason
  |Fields.ContextValue(Context.ProspectiveContext _ project workspace sandbox approval _)_=>
@@ -187,9 +189,78 @@ Definition property_field kind:=match kind with ProjectProperty=>Fields.ContextO
 Definition property_members_fields kind:=match kind with ProjectProperty=>[]|WorkspaceProperty=>[Fields.WorkspacePrimary;Fields.TaskEnvironment]
 |PermissionsProperty=>[Fields.SandboxMode;Fields.NetworkAccess;Fields.ApprovalReviewer]|ModelProperty=>[Fields.ReasoningEffort]|DeliveryProperty=>[]end.
 Definition subjects_for e fields:=fold_right(fun field rest=>match Model.admit_subject e(Parameters.name field)with Some subject=>subject::rest|None=>rest end)[]fields.
+Open Scope string_scope.
+Definition context_origin_label source:=match source with
+ |Context.EnvironmentDefaults=>"Environment defaults"
+ |Context.ProjectDefaults _|Context.ProjectForParent _ _=>"Project configuration"
+ |Context.ParentTask task=>"Parent task "++show_natural task end.
+Definition permission_origin_label source:=match source with
+ |Context.EnvironmentDefaults|Context.ProjectDefaults _=>"Environment defaults"
+ |Context.ParentTask task|Context.ProjectForParent task _=>"Parent task "++show_natural task end.
+Definition prospective_source kind source workspace sandbox approval:=match kind with
+ |WorkspaceProperty=>match workspace with
+   |Context.InheritedWorkspace _=>context_origin_label source
+   |Context.EnteredWorkspace _=>"Custom workspace; overrides "++context_origin_label source end
+ |PermissionsProperty=>"Filesystem and network: "++
+   (match sandbox with Context.InheritedSandbox _=>permission_origin_label source|Context.ChosenSandbox _=>"Custom"end)++
+   String (Ascii.ascii_of_nat 10)("Approval: "++match approval with
+    Context.InheritedApproval _=>permission_origin_label source|Context.ChosenApproval _=>"Custom"end)
+ |_=>context_origin_label source end.
+Definition property_source_description snapshot state {e}(property:property e):string:=
+ match property_kind_of property with
+ |ModelProperty=>match e with
+   |Identity.NewTask _=>"Configured model list for this new task"
+   |Identity.Message _=>"Configured model list for this task; the current selection retains its captured model definition"
+   |Identity.Agent _=>"Configured model list for this agent profile"
+   |Identity.Fork _=>"Configured model list for the new fork"|_=>"Configured model list for this editor"end
+ |DeliveryProperty=>"Message delivery for this task"
+ |kind=>match observe_subject snapshot state(property_subject property)with
+   |Fields.ContextValue(Context.ContextUnavailable reason)_=>reason
+   |Fields.ContextValue(Context.ProspectiveContext source project workspace sandbox approval _)_=>
+     prospective_source kind source workspace sandbox approval++
+      (match kind,project with WorkspaceProperty,Some id=>match Session.Observation.project_name id snapshot with
+        Some name=>" · "++name|None=>""end|_,_=>""end)
+   |Fields.CommittedContextValue task _ _=>match kind with
+      |WorkspaceProperty=>"Task workspace"
+      |PermissionsProperty=>"Filesystem and network: Task "++show_natural task++
+        String (Ascii.ascii_of_nat 10)("Approval: Task "++show_natural task)
+      |_=>"Task context"end
+   |Fields.ProjectValue None=>"Environment defaults"
+   |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with
+     Some name=>"Project configuration · "++name|None=>"The selected project is no longer available"end
+   |Fields.WorkspaceValue _=>"Project workspace configuration"
+   |_=>"The settings source is unavailable"end end.
+
+Definition property_help_text snapshot state {e}(property:property e):string:=
+ let source:=property_source_description snapshot state property in
+ let value:=principal_information property in
+ let detail:=match secondary_information property with Some text=>" · "++text|None=>""end in
+ match property_kind_of property with
+ |WorkspaceProperty=>let workspace:=match observe_subject snapshot state(property_subject property)with
+   |Fields.WorkspaceValue value=>Some value
+   |Fields.ContextValue(Context.ProspectiveContext _ _ workspace _ _ _)_=>Some(match workspace with
+      Context.InheritedWorkspace value|Context.EnteredWorkspace value=>value end)
+   |Fields.CommittedContextValue _ settings _=>Some(Selvedge.Kernel.Domain.settings_workspace settings)
+   |_=>None end in
+   source++String(Ascii.ascii_of_nat 10)(match workspace with
+    Some workspace=>String.concat(String(Ascii.ascii_of_nat 10)"")(Selvedge.Kernel.Domain.workspace_roots workspace)
+    |None=>value end)
+ |PermissionsProperty=>let full_access:=match observe_subject snapshot state(property_subject property)with
+   |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>
+     match resolve_approval snapshot approval with Some Selvedge.Kernel.Domain.FullAccess=>true|_=>false end
+   |Fields.CommittedContextValue _ settings _=>match Selvedge.Kernel.Domain.settings_approval settings with
+     Selvedge.Kernel.Domain.FullAccess=>true|_=>false end
+   |_=>false end in
+   "Permissions: "++(if full_access then "Full access · Network available · No approval"else value++detail)++
+     String(Ascii.ascii_of_nat 10)source
+ |_=>property_label property++": "++value++detail end.
 Definition observe_property snapshot state e kind:option(property e):=
  subject<-Model.admit_subject e(Parameters.name(property_field kind));;
- Some(Property kind subject(subjects_for e(property_members_fields kind))(information_of snapshot subject(observe_subject snapshot state subject))).
+ let members:=subjects_for e(property_members_fields kind)in
+ let information:=information_of snapshot subject(observe_subject snapshot state subject)in
+ let property:=Property kind subject members information ""in
+ Some(Property kind subject members information(property_help_text snapshot state property)).
+Open Scope list_scope.
 Definition observe_properties snapshot state e:list(property e):=
  fold_right(fun kind rest=>match observe_property snapshot state e kind with Some value=>value::rest|None=>rest end)[]
  [ProjectProperty;WorkspaceProperty;PermissionsProperty;ModelProperty;DeliveryProperty].
@@ -232,6 +303,91 @@ Definition project_precondition snapshot state (draft:Draft.draft):option(option
 Definition requirement_obstruction e(field:option Fields.field)(code reason:string):obstruction e:=
  Obstruction(match field with Some field=>match Model.admit_subject e(Parameters.name field)with
    Some subject=>RepairField subject|None=>RepairEditor end|None=>RepairEditor end)code reason.
+Definition failed_requirement e (valid:bool) field code reason:list(obstruction e):=
+ if valid then []else [requirement_obstruction e field code reason].
+Definition model_requirements snapshot e profile effort:list(obstruction e):=
+ match ModelSelection.observed_profile snapshot profile with
+ |None=>[requirement_obstruction e(Some Fields.ModelProfile)"model_not_found" Tasks.profile_required_message]
+ |Some value=>failed_requirement e(ModelSelection.permitted_profile value effort)
+   (Some Fields.ReasoningEffort)"invalid_reasoning" Tasks.invalid_reasoning_message end.
+Definition text_has_content value:=Tasks.content_nonempty
+ (Domain.TextPart(Draft.text_value value)::map(fun image=>Domain.ImagePart
+  (Domain.ImageAsset(Selvedge.Features.Domain.attachment_id image)
+   (Selvedge.Features.Domain.attachment_mime image)(Selvedge.Features.Domain.attachment_bytes image)Domain.ImageAuto))
+  (Draft.text_images value)).
+Definition decode_fork_capacities source:=list_field(fun value=>match value with
+ |JNull=>Some None
+ |_=>descendants<-natural_field "descendants" value;;limit<-natural_field "limit" value;;
+   Some(Some(descendants,limit))end)"capacities" source.
+Definition fork_requirements snapshot e task count (messages:list string):list(obstruction e):=
+ match DocumentState.find_task task snapshot with
+ |None=>[requirement_obstruction e None "task_not_found" "The target task does not exist."]
+ |Some parent=>match field "fork" parent,natural_field "max_fork" parent with
+  |Some observed,Some limit=>match bool_field "parent_ready" observed,decode_fork_capacities observed with
+   |Some ready,Some capacities=>
+    failed_requirement e ready None "task_busy" "A manual fork requires an active, idle task."++
+    failed_requirement e(TaskConstraints.fork_count_valid count limit)(Some Fields.ForkCount)
+      "invalid_fork_count" "Choose a fork count within the task limit."++
+    failed_requirement e(TaskConstraints.fork_messages_valid count(List.length messages))(Some Fields.ForkMessages)
+      "invalid_fork_messages" "Provide one message per fork, or no messages."++
+    failed_requirement e(TaskConstraints.fork_capacities_valid count capacities)None
+      "resource_limit" "An ancestor descendant limit prevents this fork."
+   |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end
+  |_,_=>[requirement_obstruction e None "unavailable_task" "The target task's fork admission has not been observed."]end end.
+Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
+ match body with
+ |Draft.NewTaskBody message profile effort _ _ _=>
+   failed_requirement e(text_has_content message)(Some Fields.MessageText)"empty_message" Tasks.input_required_message++
+   model_requirements snapshot e profile effort
+ |Draft.MessageBody _ message _=>failed_requirement e(text_has_content message)
+   (Some Fields.MessageText)"empty_message" Tasks.input_required_message
+ |Draft.WorkNameBody _ name=>failed_requirement e(Work.valid_name name)
+   (Some Fields.WorkName)"invalid_work_name" "Work names must contain between 1 and 4096 UTF-8 bytes."
+ |Draft.ProjectBody _ name _ _=>failed_requirement e(Workspace.valid_project_name name)
+   (Some Fields.ProjectName)"invalid_project_name" "Project names must contain between 1 and 256 UTF-8 bytes."
+ |Draft.AgentBody _ _ name profile effort instructions _ concurrency=>
+   failed_requirement e(Board.agent_name_valid name)(Some Fields.AgentName)"invalid_agent_name" "Enter a valid agent name."++
+   failed_requirement e(Board.agent_profile_valid profile)(Some Fields.ModelProfile)"invalid_agent_profile" "Enter a valid model profile."++
+   failed_requirement e(Board.agent_reasoning_valid effort)(Some Fields.ReasoningEffort)"invalid_agent_reasoning" "Enter a valid reasoning effort."++
+   failed_requirement e(Board.agent_instructions_valid instructions)(Some Fields.AgentInstructions)"invalid_agent_instructions" "Shorten the agent instructions."++
+   failed_requirement e(Board.agent_concurrency_valid concurrency)(Some Fields.AgentConcurrency)"invalid_agent_concurrency" "Choose concurrency from 1 to 64."++
+   model_requirements snapshot e profile effort
+ |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
+ |Draft.TaskGraphBody _ _ parsed _=>failed_requirement e
+   (match parsed with None=>false|Some _=>match Command.command_json None body with Some value=>
+     match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with Some _=>true|None=>false end|None=>false end end)
+   (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Enter a valid task graph declaration."
+ |Draft.TitlePromptsBody _ task agent=>
+   failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
+   failed_requirement e(Titles.valid_instructions agent)(Some Fields.AgentTitlePrompt)"invalid_agent_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"
+ |_=>[]end.
+Definition record_requirements snapshot e (body:Draft.body):list(obstruction e):=
+ match body with
+ |Draft.ProjectBody(Some id)_ _ _=>failed_requirement e
+   (match Session.Observation.project_by_id id snapshot with Some _=>true|None=>false end)
+   None "project_not_found" "The project does not exist."
+ |Draft.AgentBody(Some id)_ _ _ _ _ _ _=>failed_requirement e
+   (match Session.Initialize.board_object "agents" id snapshot with Some _=>true|None=>false end)
+   None "agent_not_found" "The agent does not exist."
+ |_=>[]end.
+Definition draft_requirements snapshot state e:list(obstruction e):=
+ let draft:=State.current_draft state e in
+ (* Every observed cause survives assessment. A pending submission must not
+    hide the editable field that will still need attention afterwards. *)
+ (match Draft.draft_feedback draft with
+  |Draft.WorkspaceRejected revision reason=>failed_requirement e(negb(N.eqb revision(Draft.revision draft)))
+    (Some Fields.WorkspaceDirectories)"workspace_rejected" reason|_=>[]end)++
+ (match project_precondition snapshot state draft with Some(field,code,reason)=>[requirement_obstruction e field code reason]|None=>[]end)++
+ failed_requirement e(negb(State.pending_editor e state))None "pending" "Wait for the current submission to finish."++
+ (match Session.Observation.draft_context draft with None=>[]|Some _=>
+  match Session.Observation.draft_preview snapshot draft with Context.ContextUnavailable reason=>
+   [requirement_obstruction e(Some Fields.ContextOrigin)"context_unavailable" reason]|_=>[]end end)++
+ record_requirements snapshot e(Draft.contents draft)++body_requirements snapshot e(Draft.contents draft).
+Definition assessment_obstructions {e}(outcome:assessment_result e):list(obstruction e):=
+ match outcome with PreparationBlocked first rest=>first::rest|_=>[]end.
+Definition attention_obstruction {e}(outcome:assessment_result e):option(obstruction e):=
+ find(fun cause=>negb(String.eqb(obstruction_code cause)"empty_message"||
+   String.eqb(obstruction_code cause)"pending"))(assessment_obstructions outcome).
 Definition preparation_admission snapshot state e draft command:availability:=
  match admission snapshot state(CommandAssessment.DraftOwner e)(Draft.revision draft)command with
  |Unavailable reason=>Unavailable reason
@@ -244,9 +400,9 @@ Definition observe_assessment snapshot state e:assessment e:=
  let obstruction (reason:string):assessment_result e:=PreparationBlocked(Obstruction RepairEditor "NotAdmitted" reason)[]in
  Assessment(ActionIdentity(Draft.revision draft))
  (if negb(Services.connected(State.service_state state))then obstruction "Connect to continue."else
- match project_precondition snapshot state draft with
- |Some(field,code,reason)=>PreparationBlocked(requirement_obstruction e field code reason)[]
- |None=>if State.pending_editor e state then obstruction "Wait for the current submission to finish."else if Services.blocks e(State.service_state state)then obstruction "Finish or cancel the attachment transfer before submitting."
+ match draft_requirements snapshot state e with
+ |first::rest=>PreparationBlocked first rest
+ |[]=>if Services.blocks e(State.service_state state)then obstruction "Finish or cancel the attachment transfer before submitting."
  else if negb(Session.Observation.worktree_submission_allowed snapshot state draft)then obstruction "Wait for Git verification of the primary workspace before creating a worktree."
  else match Draft.contents draft,State.now state with
  |Draft.CardBody _ _ _ _ _ _,None=>obstruction "The current time has not yet been observed."
@@ -404,7 +560,7 @@ Definition explanation_relations snapshot state {e}(property:property e):list(re
  RequiredValue property::relation_body snapshot state property++
  fold_right(fun subject rest=>let information:=information_of snapshot subject(observe_subject snapshot state subject)in
   match information with NotApplicable _=>rest
-  |_=>SupportingValue(Property(property_kind_of property)subject[]information)::rest end)[](property_members property)++
+  |_=>SupportingValue(Property(property_kind_of property)subject[]information(property_help property))::rest end)[](property_members property)++
  [SupportingValue property;AssessedAction(action_unit_for state e)(assessment_outcome(observe_assessment snapshot state e))].
 Definition property_kind_for_field field:=match field with
  |Fields.ModelProfile|Fields.ReasoningEffort=>ModelProperty
@@ -598,7 +754,9 @@ Definition expression_kind_for {e}(property:property e)(coverage:coverage e)(sub
 Definition obstruction_matches_subject {e}(subject:subject e)(obstruction:obstruction e):bool:=
  match obstruction_target obstruction with RepairField target=>same_subject target subject|RepairEditor=>false end.
 Definition field_obstruction {e}(subject:subject e)(outcome:assessment_result e):option string:=
- match outcome with PreparationBlocked first rest=>option_map obstruction_message(find(obstruction_matches_subject subject)(first::rest))|_=>None end.
+ match attention_obstruction outcome with
+ |Some obstruction=>if obstruction_matches_subject subject obstruction then Some(obstruction_message obstruction)else None
+ |None=>None end.
 Inductive dependency_state:=IndependentInformation|InactiveInformation|ActiveInformation.
 Definition merge_dependency left right:=match left,right with
  |ActiveInformation,_|_,ActiveInformation=>ActiveInformation
@@ -636,43 +794,3 @@ Definition property_for_request snapshot state e request:option(property e):=
  kind<-(match e with Identity.Project _=>Some ProjectProperty|_=>request_kind e request end);;
  observe_property snapshot state e kind.
 Open Scope string_scope.
-Definition context_origin_label source:=match source with
- |Context.EnvironmentDefaults=>"Environment defaults"
- |Context.ProjectDefaults _|Context.ProjectForParent _ _=>"Project configuration"
- |Context.ParentTask task=>"Parent task "++show_natural task end.
-Definition permission_origin_label source:=match source with
- |Context.EnvironmentDefaults|Context.ProjectDefaults _=>"Environment defaults"
- |Context.ParentTask task|Context.ProjectForParent task _=>"Parent task "++show_natural task end.
-Definition prospective_source kind source workspace sandbox approval:=match kind with
- |WorkspaceProperty=>match workspace with
-   |Context.InheritedWorkspace _=>context_origin_label source
-   |Context.EnteredWorkspace _=>"Custom workspace; overrides "++context_origin_label source end
- |PermissionsProperty=>"Filesystem and network: "++
-   (match sandbox with Context.InheritedSandbox _=>permission_origin_label source|Context.ChosenSandbox _=>"Custom"end)++
-   String (Ascii.ascii_of_nat 10)("Approval: "++match approval with
-    Context.InheritedApproval _=>permission_origin_label source|Context.ChosenApproval _=>"Custom"end)
- |_=>context_origin_label source end.
-Definition property_source_description snapshot state {e}(property:property e):string:=
- match property_kind_of property with
- |ModelProperty=>match e with
-   |Identity.NewTask _=>"Configured model list for this new task"
-   |Identity.Message _=>"Configured model list for this task; the current selection retains its captured model definition"
-   |Identity.Agent _=>"Configured model list for this agent profile"
-   |Identity.Fork _=>"Configured model list for the new fork"|_=>"Configured model list for this editor"end
- |DeliveryProperty=>"Message delivery for this task"
- |kind=>match observe_subject snapshot state(property_subject property)with
-   |Fields.ContextValue(Context.ContextUnavailable reason)_=>reason
-   |Fields.ContextValue(Context.ProspectiveContext source project workspace sandbox approval _)_=>
-     prospective_source kind source workspace sandbox approval++
-      (match kind,project with WorkspaceProperty,Some id=>match Session.Observation.project_name id snapshot with
-        Some name=>" · "++name|None=>""end|_,_=>""end)
-   |Fields.CommittedContextValue task _ _=>match kind with
-      |WorkspaceProperty=>"Task workspace"
-      |PermissionsProperty=>"Filesystem and network: Task "++show_natural task++
-        String (Ascii.ascii_of_nat 10)("Approval: Task "++show_natural task)
-      |_=>"Task context"end
-   |Fields.ProjectValue None=>"Environment defaults"
-   |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with
-     Some name=>"Project configuration · "++name|None=>"The selected project is no longer available"end
-   |Fields.WorkspaceValue _=>"Project workspace configuration"
-   |_=>"The settings source is unavailable"end end.

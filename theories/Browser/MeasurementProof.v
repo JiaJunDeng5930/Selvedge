@@ -4,6 +4,36 @@ From Selvedge.Browser Require Import Runtime Observation LayoutProof.
 Import ListNotations.
 Open Scope string_scope.
 
+Theorem stale_measurement_failure_does_not_replace_the_current_page source measured current reason :
+ Runtime.binary_field "measured_generation" source = Some measured ->
+ Runtime.binary_field "current_generation" source = Some current ->
+ string_field "reason" source = Some reason ->
+ measured <> current ->
+ Runtime.call "measurement_failure" source = success JNull.
+Proof.
+ intros Measured Current Reason Different.
+ change (Runtime.measurement_failure_call source = success JNull).
+ unfold Runtime.measurement_failure_call.
+ rewrite Measured, Current, Reason.
+ unfold Observation.measurement_failure, Observation.current_measurement.
+ assert (Stale : N.eqb measured current = false) by (apply N.eqb_neq; exact Different).
+ rewrite Stale; reflexivity.
+Qed.
+
+Theorem owned_measurement_failure_keeps_its_diagnostic source generation reason :
+ Runtime.binary_field "measured_generation" source = Some generation ->
+ Runtime.binary_field "current_generation" source = Some generation ->
+ string_field "reason" source = Some reason ->
+ Runtime.call "measurement_failure" source = success (JString reason).
+Proof.
+ intros Measured Current Reason.
+ change (Runtime.measurement_failure_call source = success (JString reason)).
+ unfold Runtime.measurement_failure_call.
+ rewrite Measured, Current, Reason.
+ unfold Observation.measurement_failure, Observation.current_measurement.
+ rewrite N.eqb_refl; reflexivity.
+Qed.
+
 Theorem stale_measurement_does_not_decode_receipts source measured current :
  Runtime.binary_field "measured_generation" source = Some measured ->
  Runtime.binary_field "current_generation" source = Some current ->

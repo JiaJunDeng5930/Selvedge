@@ -1,5 +1,19 @@
-From Stdlib Require Import Arith Lia.
+From Stdlib Require Import Arith Lia List String.
 From Selvedge.Browser Require Import Layout Typography.
+From Selvedge.Interaction.Presentation Require Composition.
+Import ListNotations.
+Open Scope string_scope.
+
+Theorem every_page_preserves_content_edges env page :
+  In ("padding-inline", Typography.px 24)
+    (page_properties env page) /\
+  In ("padding-block", Typography.px 24)
+    (page_properties env page).
+Proof. unfold page_properties. split; apply in_or_app; left; simpl; tauto. Qed.
+Theorem every_page_preserves_section_separation env page :
+  In ("gap", Typography.px 12)
+    (page_properties env page).
+Proof. unfold page_properties. apply in_or_app; left; simpl; tauto. Qed.
 
 (* Keep comparison proofs abstract: reducing unary font-scaled bounds bloats checking. *)
 Local Opaque Nat.leb.

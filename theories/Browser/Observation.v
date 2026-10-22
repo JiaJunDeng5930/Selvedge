@@ -7,6 +7,8 @@ Open Scope string_scope.
 
 (* Font and region observations belong to the document generation measured. *)
 Definition current_measurement (measured current : N) := N.eqb measured current.
+Definition measurement_failure (measured current : N) (reason : string) :=
+  if current_measurement measured current then Some reason else None.
 
 Definition pixel_field name source := match number_field name source with
  |Some text=>parse_nat text|None=>None end.

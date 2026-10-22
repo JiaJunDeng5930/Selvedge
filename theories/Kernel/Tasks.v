@@ -13,6 +13,9 @@ Definition find_tool (name : string) (catalog : list tool) :=
 Definition content_text := Domain.content_text.
 Definition content_nonempty (parts : content) :=
  existsb (fun part => match part with TextPart text => Utf8.nonblank text | ImagePart _ => true end) parts.
+Definition input_required_message := "A task input needs text or an image".
+Definition profile_required_message := "The configured model profile does not exist".
+Definition invalid_reasoning_message := "The selected reasoning effort is unavailable for this profile".
 Definition selected_reasoning (effort : option string) (profile : profile) :=
  match effort with None | Some "default" => Some profile
  | Some value =>
@@ -93,15 +96,15 @@ Definition make_task (chosen : profile) (settings : task_settings) (contents : c
 Definition create_with_defaults (name : string) (reasoning : option string) (contents : content)
  (settings : option json) (idle : bool) (fallback : task_settings) (value : world) : decision :=
  match find_profile name (environment_profiles (world_environment value)) with
- | None => reject "profile_not_found" "The configured model profile does not exist" value
+ | None => reject "profile_not_found" profile_required_message value
  | Some profile => match selected_reasoning reasoning profile,
     resolve_for_profile name settings fallback value with
    | Some chosen, Some resolved =>
      if idle || content_nonempty contents then
        accept (JObject [("task_id", number (next_task value))])
          (append_task (make_task chosen resolved contents idle (world_environment value)) value) []
-     else reject "invalid_message" "A task input needs text or an image" value
-   | None,_ => reject "invalid_reasoning" "The selected reasoning effort is unavailable for this profile" value
+     else reject "invalid_message" input_required_message value
+   | None,_ => reject "invalid_reasoning" invalid_reasoning_message value
    | _,None => reject "invalid_settings" "Task settings do not resolve to a current project and workspace" value
    end
  end.
@@ -127,7 +130,7 @@ Definition send (id : N) (contents : content) (value : world) :=
    | Archived => reject "task_archived" "Archived tasks cannot accept input" value
    | _ => if content_nonempty contents then
       accept (JObject [("task_id", number id)]) (put_task id (receive contents task) value) []
-     else reject "invalid_message" "A task input needs text or an image" value
+     else reject "invalid_message" input_required_message value
    end
  end.
 Definition inference_effects (id : N) (task : task) :=
@@ -187,7 +190,7 @@ Definition steer (id : N) (contents : content) (value : world) :=
      accept (JObject [("task_id", number id)])
       (put_task id (with_lifecycle lifecycle (append_history (History.interrupted_phase (task_activity task) ++ [UserMessage contents]) task)) value)
       (inference_effects id task)
-     else reject "invalid_message" "A task input needs text or an image" value
+     else reject "invalid_message" input_required_message value
    end end.
 Definition promote (task : task) :=
  match task_lifecycle task, task_queued task with
@@ -221,11 +224,16 @@ Definition quiescent (task : task) :=
  negb (task_busy task) && Nat.eqb (List.length (task_queued task)) 0.
 Definition descendant_count (ancestor : N) (tasks : list task) :=
  N.of_nat (List.length (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) tasks)).
+Definition ancestor_capacity (value:world)(ancestor:N):option(N*N):=
+ match find_task ancestor value with
+ |Some task=>Some(descendant_count ancestor(world_tasks value),contract_max_descendants(task_contract task))
+ |None=>None end.
 Definition ancestors_fit (parents : list N) (count : N) (value : world) :=
- forallb (fun ancestor => match find_task ancestor value with
- | Some task => N.leb (count + descendant_count ancestor (world_tasks value))
-     (contract_max_descendants (task_contract task))
- | None => false end) parents.
+ TaskConstraints.fork_capacities_valid count(map(ancestor_capacity value)parents).
+Definition fork_parent_ready (invoked:bool)(task:task) :=
+ (quiescent task || (invoked && match task_lifecycle task with
+  |Running(PendingCalls _)[]|Running(ReadyForHooks _ _ _)[]=>true|_=>false end)) &&
+ negb(String.eqb(task_status task)"archived").
 Definition context_selected (selected : workspace) (key : context_key) :=
  match definition_scope (key_definition key) with
  | Global => true
@@ -289,7 +297,7 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value
  | Some task =>
-   if (quiescent task || (invoked && match task_lifecycle task with Running (PendingCalls _) [] | Running (ReadyForHooks _ _ _) [] => true | _ => false end)) && negb (String.eqb (task_status task) "archived") &&
+   if fork_parent_ready invoked task &&
     TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) &&
     TaskConstraints.fork_messages_valid count (List.length messages) &&
     ancestors_fit (id :: task_lineage task) count value then
@@ -355,7 +363,7 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
     | None => Some (task_current_profile task)
     | Some name => find_profile name (environment_profiles (world_environment value)) end in
    match model with
-   | None => reject "profile_not_found" "The configured model profile does not exist" value
+   | None => reject "profile_not_found" profile_required_message value
    | Some profile => match execution_reasoning reasoning profile with
      | None => reject "invalid_reasoning" "The selected reasoning effort is unavailable" value
      | Some chosen =>

@@ -56,7 +56,7 @@ Theorem a_full_access_native_fork_accepts_any_resolved_child_settings :
 Proof.
  intros id count messages options value task selected remaining
    Found Pending Count Messages Capacity Resolved Full.
- unfold Tasks.fork_with_caller; rewrite Found.
+ unfold Tasks.fork_with_caller,Tasks.fork_parent_ready; rewrite Found.
  unfold task_status; rewrite Pending, orb_true_r.
  cbn [String.eqb negb andb].
  rewrite Count, Messages, Capacity, Resolved.

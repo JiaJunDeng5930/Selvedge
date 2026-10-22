@@ -240,10 +240,12 @@ Definition project_header {A} describe env key project selected expanded
     (native_selected (project_auxiliary describe) children native) in
   let menu_open := existsb (has_selected (open_menu describe)) children in
   box (private_key key "project-header") "div"
-    [("data-navigation-owner",key);("data-navigation-active",flag (selected || menu_open))]
+    [("data-navigation-owner",key);("data-navigation-active",flag (selected || menu_open));
+     ("data-navigation-selected",flag selected);("data-navigation-feedback",flag menu_open)]
+    (Appearance.navigation_feedback_properties selected ++
     [("display","flex");("flex-direction","row");("align-items","center");
      ("min-block-size",Typography.px target);("min-inline-size","0");
-     ("gap",Typography.px (navigation_following env))]
+     ("gap",Typography.px (navigation_following env))])
     ([box (private_key key "disclosure-slot") "div" [("data-navigation-slot","disclosure")]
       [("display","flex");("align-items","center");("justify-content","center");
        ("inline-size",Typography.px (Nat.max (navigation_rail env) target));("flex","none")]

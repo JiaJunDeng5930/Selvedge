@@ -2,7 +2,7 @@ import { boundary } from './model-boundary.mjs';
 import { browser, interaction } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 import { Renderer } from './renderer.mjs';
-import { editorKeyboard, keyObservation, applyByteSelection } from './keyboard.mjs';
+import { editorKeyboard, applyByteSelection } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
@@ -79,13 +79,16 @@ function publicationEvent(event, values = {}) {
 function admitted(generation) {
   return publicationEvent('admit', { receipt_generation: generation });
 }
-function snapshot(body, expected = publication.namespace, authenticating = false) {
-  if (!browser('snapshot', { ...publication, expected_namespace: expected, incoming_namespace: body.namespace,
-    incoming_sequence: body.sequence, authenticating })) return;
+function snapshot(body, expected = publication.namespace, authenticating = false, authenticationTicket) {
+  const receipt = browser('snapshot', { ...publication, expected_namespace: expected, incoming_namespace: body.namespace,
+    incoming_sequence: body.sequence, authenticating,
+    sources_fresh: sourceFresh,
+    ...(authenticating ? { authentication_ticket: authenticationTicket, connection: state.services.connection } : {}) });
+  if (!receipt.accepted) return;
   if (body.namespace !== publication.namespace) retireDocumentViews();
   world = body.program;
   publication = { ...publication, namespace: body.namespace, sequence: body.sequence };
-  sourceFresh = true;
+  sourceFresh = receipt.sources_fresh;
   dispatch({ type: 'snapshot', world });
 }
 function retireDocumentViews() {
@@ -137,6 +140,8 @@ function render() {
   const plan = interaction('observe', { state, world, environment, generation: publication.generation,
     namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), display_lagged: !publicationEvent('ready') });
   renderer.render(plan, publication.generation);
+  surface.dataset.displayPending = String(!publicationEvent('ready'));
+  surface.dataset.sourcesFresh = String(sourceFresh);
   physical.refresh();
   if (!plan.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: publication.generation });
@@ -159,7 +164,16 @@ async function refreshPhysical() {
       const requestedRootFontSize = physical.viewport().root_font_size_milli;
       const specs = browser('font_specs', { root_font_size_milli: requestedRootFontSize });
       const observedGeneration = publication.generation;
-      const observations = await physical.measure(specs);
+      let observations;
+      try { observations = await physical.measure(specs); }
+      catch (error) {
+        // DEFENSE: a font/DOM observation can reject after another generation has
+        // replaced its document. Its failure cannot replace that newer page.
+        const failure = browser('measurement_failure', { measured_generation: observedGeneration,
+          current_generation: publication.generation, reason: error.message });
+        if (failure === null) { measureAgain = true; continue; }
+        throw error;
+      }
       const receipt = browser('environment', { observations, requested_root_font_size_milli: requestedRootFontSize,
         measured_generation: observedGeneration, current_generation: publication.generation,
         system_dark: matchMedia('(prefers-color-scheme: dark)').matches,
@@ -193,6 +207,15 @@ const renderer = new Renderer(surface, {
   resolveTarget(source) { return browser('resolve_target', source); },
   fieldSession(source) { return browser('field_session', source); },
   focusPlan(source) { return browser('focus_plan', source); },
+  keyboard(source) { return browser('key', source); },
+  focus(event, key, node) {
+    if (event.target !== node || typeof node.selectionStart !== 'number') return;
+    const record = renderer.records.get(key);
+    const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
+    if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
+    dispatch({ ...binding.action, gesture: 'selection',
+      value: { ...observedSelection(node, renderer.composing.has(node)), refocus: true } });
+  },
   event(binding, event, key, node, generation) {
     if (binding.kind === 'retry_render') {
       event.preventDefault(); refreshPhysical().then(render).catch(fatal); return;
@@ -201,7 +224,7 @@ const renderer = new Renderer(surface, {
     if (binding.kind === 'files') registerFiles(binding.action,
       Array.from(event.clipboardData?.files ?? event.dataTransfer?.files ?? node.files ?? []));
     else if (binding.kind === 'value') dispatch({ ...binding.action, value: node.value,
-      raw: node.value, selection: observedSelection(node, event.isComposing) });
+      raw: node.value, selection: observedSelection(node, event.isComposing || renderer.composing.has(node)) });
     else if (binding.kind === 'values') dispatch({ ...binding.action, value: Array.from(node.selectedOptions, option => option.value) });
     else if (binding.kind === 'checked') dispatch({ ...binding.action, value: node.checked });
     else {
@@ -209,12 +232,12 @@ const renderer = new Renderer(surface, {
       dispatch(binding.kind === 'dismiss' ? { ...binding.action, value: 'escape' } : binding.action);
     }
   },
-  key(event, key, node, record) {
+  key(event, key, node, record, keyboard) {
     // DEFENSE: A handled keydown still bubbles through ancestor renderer records.
     if (event.defaultPrevented) return;
     if (!admitted(record.generation)) return;
-    if (record.metadata.key_input && !event.isComposing && event.keyCode !== 229
-        && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+    const composing = event.isComposing || renderer.composing.has(node);
+    if (record.metadata.key_input && keyboard.unmodified) {
       const input = { op: 'element', key, gesture: 'key', generation: record.generation, value: { key: event.key } };
       if (interaction('accepts_element', { state, input, world, environment, generation: publication.generation,
           namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)) })) {
@@ -225,7 +248,7 @@ const renderer = new Renderer(surface, {
     if (form && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT')) {
       const submitter = form.querySelector('button[type="submit"],input[type="submit"]');
       editorKeyboard(event, observation => browser('key', { ...observation,
-        multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled, pending: false }), () => form.requestSubmit());
+        multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled, pending: false }), () => form.requestSubmit(), composing);
     }
     const dialog = node.closest('dialog[open],[aria-modal="true"]');
     if (dialog && event.key === 'Tab') {
@@ -429,7 +452,7 @@ async function authenticate(effect) {
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
       signal: controller.signal,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
-      snapshot: body => snapshot(body, publication.namespace, true),
+      snapshot: body => snapshot(body, publication.namespace, true, effect.ticket),
       ready() {
         if (ready) return;
         ready = true; dispatch({ type: 'authenticated', ticket: effect.ticket, ok: true, value: null });

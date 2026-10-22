@@ -88,7 +88,8 @@ Definition settings s :=
  |Some trigger=>let parent:="/settings"in
   [Node parent "settings" "Settings"Roles.Dialog
    (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
-     (part parent(String.append "appearance/"(Appearance.appearance_name(Services.theme(State.service_state s)))))trigger "/main"trigger(Input.ServiceInput Services.CloseSettings) true true))
+     (part parent(String.append "appearance/"(Appearance.appearance_name(Services.theme(State.service_state s)))))
+     (Services.settings_focus_target trigger) "/main"trigger(Input.ServiceInput Services.CloseSettings) true true))
    [dialog_header parent [title parent "Settings";
      declared parent Roles.Button(secondary "close" "Close settings"(Input.ServiceInput Services.CloseSettings))];
     dialog_body parent
@@ -100,6 +101,16 @@ Definition settings s :=
          [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
       declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")))]]]
   end.
+
+Theorem settings_preserves_return_attention s trigger :
+ Services.settings_return (State.service_state s) = Some trigger ->
+ exists tree, settings s = [tree] /\
+ option_map layer_return_attention (layer_region (node_meaning tree)) =
+   Some (Services.settings_focus_target trigger).
+Proof.
+ intros Open. unfold settings. rewrite Open.
+ eexists. split; reflexivity.
+Qed.
 
 Definition directory_view s :=
  let services:=State.service_state s in

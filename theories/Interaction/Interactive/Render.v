@@ -19,11 +19,17 @@ Definition button key label action (active:bool) : scene :=
  S.Node key "interactive-markdown/control" label R.Button
   (S.Activate (M.Control key label M.Secondary action
     (if active then M.Available else M.Unavailable "Control is not available"))) [].
+Definition component_caption event_id p : list scene :=
+  let label := property_text "label" p in
+  match p.(description).(component_role) with
+  | Field | Action | TextLeaf | MarkdownLeaf | Column => []
+  | _ => if String.eqb label "" then [] else
+      [text (Types.event_key event_id+++"/@label") label] end.
 Definition component_node event_id p binding children : scene :=
  S.Node (Types.event_key event_id) ("interactive-markdown/"+++p.(description).(component_tag))
   (property_text "label" p)
   (match binding with FieldLink _ _=>R.Field|ActionLink _ _=>R.Button|_=>R.Content end)
-  (S.InteractiveNode (IP.Component event_id p binding)) children.
+  (S.InteractiveNode (IP.Component event_id p binding)) (component_caption event_id p++children).
 Definition synthetic event_id part tag attrs children : scene :=
  let event_id:=Event event_id.(event_owner) (event_id.(path)+++"/@"+++part) event_id.(occurrence) in
  match Vocabulary.component tag with
@@ -34,11 +40,18 @@ Definition synthetic event_id part tag attrs children : scene :=
 Definition toolbar event_id part children : scene :=
  S.Node (Types.event_key event_id+++"/@"+++part) "interactive-markdown/toolbar" "" R.Toolbar S.Region children.
 Definition scalar_text value := match value with JString s|JNumber s=>s|JBool b=>if b then "true" else "false"|_=>"" end.
+Definition formatted_value value style := match value with
+ |JNumber source=>if String.eqb style "" then source else
+   match decimal_value value with
+   |Some d=>match formatted d style with Good s=>s|Error e=>"显示错误："+++e end
+   |None=>"显示错误：Invalid number" end
+ |_=>scalar_text value end.
 Definition metric p := match property "value" p with
- |Some (JNumber _ as value)=>match decimal_value value with
-   |Some d=>match formatted d (match property "format" p with Some (JString style)=>style|_=>"number" end) with Good s=>s|Error e=>e end
-   |None=>"Invalid number" end
- |Some value=>scalar_text value|None=>"" end.
+ |Some value=>formatted_value value (property_text "format" p)|None=>"" end.
+
+Theorem unformatted_number_preserves_its_text source :
+ formatted_value (JNumber source) "" = source.
+Proof. reflexivity. Qed.
 Definition feedback_text path b := match State.feedback_at path b with
  |Some (FeedbackEntry _ (Waiting _ _ _))|Some (FeedbackEntry _ (CopyingDefinition _))=>"Pending"
  |Some (FeedbackEntry _ (Answered _ _ message))=>message|None=>"" end.
@@ -61,10 +74,8 @@ Definition table_order rows columns path b budget := match State.view_at path fa
    |None=>(Error "Saved sort column is currently hidden",budget) end
  |_ =>(Good rows,budget) end.
 Definition table_page path b := match State.view_at path false b with TableView _ _ page=>page|_=>0 end.
-Definition cell_value p row := let value:=get_path (property_text "field" p) row in
- match value,property "format" p with
- |JNumber _,Some (JString style)=>match decimal_value value with Some d=>match formatted d style with Good s=>s|Error e=>e end|_=>"Invalid number" end
- |_,_=>scalar_text value end.
+Definition cell_value p row :=
+ formatted_value (get_path (property_text "field" p) row) (property_text "format" p).
 Definition table_column event_id b (sortable active:bool) p : IP.table_column Types.input :=
  let id:=property_text "id" p in
  IP.TableColumn id (property_text "label" p)
@@ -89,6 +100,14 @@ Definition render_table event_id p b children active ordered : list scene :=
  end.
 Definition placement key position children : scene :=
  S.Node key "interactive-markdown/placement" "" R.Content (S.InteractivePlacement position) children.
+Definition chart_summary_table event_id p : scene :=
+  let x_label := property_text "x-label" p in let y_label := property_text "y-label" p in
+  S.Node (Types.event_key event_id+++"/@data") "interactive-markdown/chart-data" "图表数据" R.Content
+    (S.Table "图表数据"
+      [if String.eqb x_label "" then property_text "x" p else x_label;
+       if String.eqb y_label "" then property_text "y" p else y_label]
+      (map (fun row => [scalar_text (get_path (property_text "x" p) row);
+                        scalar_text (get_path (property_text "y" p) row)]) (Plot.chart_rows p))) [].
 Definition chart_summary event_id p :list scene :=
  let key:=Types.event_key event_id in
  let all_rows:=property_array "data" p in let count:=List.length all_rows in
@@ -99,12 +118,7 @@ Definition chart_summary event_id p :list scene :=
  (if Nat.ltb Bounds.chart_points count then
   [text (key+++"/@truncation") ("共 "+++show_nat count+++" 行，图中显示前 "+++show_nat Bounds.chart_points+++" 行。")] else [])++
  (if Nat.eqb count 0 then [text (key+++"/@empty") "暂无数据"] else [])++
- [S.Node (key+++"/@data") "interactive-markdown/chart-data" "图表数据" R.Content
-  (S.Table "图表数据"
-   [if String.eqb x_label "" then property_text "x" p else x_label;
-    if String.eqb y_label "" then property_text "y" p else y_label]
-   (map (fun row=>[scalar_text (get_path (property_text "x" p) row);
-                   scalar_text (get_path (property_text "y" p) row)]) rows)) []].
+ [chart_summary_table event_id p].
 Definition render_chart event_id p : list scene :=
  let key:=Types.event_key event_id in
  match Plot.chart p with
@@ -209,9 +223,26 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
    end) nodes ([],budget) in (rev (fst result),snd result)
  end.
 Definition source_open b := match State.view_at "@source" false b with SourceView open=>open|_=>false end.
+Definition presentation_cost p (children:list expanded) :=
+  match p.(description).(component_role) with
+  | Table => 16 + (2 + 2 * Nat.min Bounds.table_page (List.length (property_array "rows" p))) * List.length children
+  | Chart => 8 + Nat.min Bounds.chart_points (List.length (property_array "data" p))
+  | Graph => 34 + 4 * List.length (property_array "nodes" p) + List.length (property_array "edges" p)
+  | _ => if String.eqb p.(description).(component_tag) "grid" then 1 + List.length children else 1 end.
+Fixpoint expansion_cost (fuel : nat) (nodes : list expanded) : nat :=
+  match fuel with
+  | O => if Nat.eqb (List.length nodes) 0 then 0 else S Bounds.expanded_components
+  | S remaining => fold_right (fun node cost => match node with
+      | Message _ _ => S cost
+      | Mounted _ p _ children => presentation_cost p children + expansion_cost remaining children + cost end) 0 nodes
+  end.
+Definition admitted_content identity b prepared nodes budget :=
+  if Nat.leb (expansion_cost 64 nodes + List.length prepared.(diagnostics)) Bounds.expanded_components
+  then fst (render_nodes 64 identity b prepared nodes budget)
+  else [text (CodeSource.key identity+++"/@presentation-limit") "交互界面展开超过 4096 个节点；局部输入已保留，请查看源码。"].
 Definition content identity b prepared nodes budget : list scene :=
  let key:=CodeSource.key identity in
- fst (render_nodes 64 identity b prepared nodes budget)++
+ admitted_content identity b prepared nodes budget++
  map (fun reason=>text (key+++"/@diagnostic/"+++reason) reason) prepared.(diagnostics)++
  (match b.(syntax).(syntax_error) with Some reason=>[text (key+++"/@syntax") reason]|None=>[] end)++
  (match b.(block_ending) with Interrupted=>[text (key+++"/@interrupted") "生成未完成（仅保留在本次浏览器会话）"]|_=>[] end)++

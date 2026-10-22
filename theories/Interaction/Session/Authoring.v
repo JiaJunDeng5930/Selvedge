@@ -513,6 +513,17 @@ Definition step snapshot input state:option result:=match input with
 |Input.LoadSkills owner explicit=>Some(load_skills snapshot owner explicit state)
 |Input.SkillsLoaded ticket outcome=>Some(skills_loaded ticket outcome state)
 |Input.SkillSelected owner path=>Some(choose_skill snapshot owner path state)
+|Input.SkillRefocus owner caret composing=>Some(match draft_text(SS.current_draft state owner)with
+ |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat caret)composing(mention_for owner state)in
+  let state:=set_mention owner mention state in
+  match mention with SkillMention.Suggesting trigger _=>
+   let state:=set_mention owner(SkillMention.Suggesting trigger 0)state in
+   let authoring:=SS.authoring_state state in
+   let authoring:=set SS.skill_catalogs(fun resources=>filter(fun resource=>match resource_request resource with
+    |Some request=>negb(same_editor owner(SS.skill_editor request))|None=>true end)resources)authoring in
+   load_skills snapshot owner false(SS.with_authoring authoring state)
+  |_=>keep state end
+ |None=>keep state end)
 |Input.SkillSelection owner caret composing=>Some(match draft_text(SS.current_draft state owner)with
  |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat caret)composing(mention_for owner state)in
   let state:=set_mention owner mention state in match mention with SkillMention.Suggesting _ _=>load_skills snapshot owner false state|_=>keep state end

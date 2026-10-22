@@ -13,6 +13,7 @@ Inductive purpose :=
 | NavigateTo (symbol : string)
 | MoreActions (expanded : bool)
 | OpenPanel (symbol : string) (menu expanded : bool)
+| ApplicationSettings (expanded : bool) | GlobalDestinations
 | ChooseValue (expanded : bool) | WorkspacePicker (expanded : bool)
 | SelectedOption (checked : bool)
 | BoardFilterChoice (category : BoardFilter.category) (value : string)

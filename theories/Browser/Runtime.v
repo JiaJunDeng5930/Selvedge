@@ -23,9 +23,16 @@ Definition native_key (source : json) : json :=
         Some code => Nat.eqb code 229 | None => false end in
       let input := Keyboard.Observe key (bool_value "composing" source) ime
         (bool_value "shift" source) (bool_value "alt" source) (bool_value "modified" source) in
-      let decision := Keyboard.normalize input (bool_value "multiline" source) (bool_value "enabled" source) (bool_value "pending" source) in
+      let editor_composing := bool_value "editor_composing" source in
+      let decision := if editor_composing then Keyboard.Decide false false else
+        Keyboard.normalize input (bool_value "multiline" source) (bool_value "enabled" source) (bool_value "pending" source) in
       success (JObject [("submit", JBool (Keyboard.submit decision));
-        ("prevent_default", JBool (Keyboard.prevent_default decision))])
+        ("prevent_default", JBool (Keyboard.prevent_default decision));
+        ("editing", JBool (Keyboard.editing_key input editor_composing));
+        ("unmodified", JBool (Keyboard.unmodified_editing_key input editor_composing));
+        ("confirm", JBool (Keyboard.text_confirmation input editor_composing));
+        ("activate", JBool (Keyboard.control_activation input editor_composing));
+        ("input_started", JBool (Keyboard.begins_input input editor_composing))])
   end.
 Definition publication_state source : option Publication.state :=
  match binary_field "generation" source, string_field "phase" source,
@@ -53,12 +60,31 @@ Definition publication_call source :=
  Some ns,Some seq=>success(JBool(Publication.refresh_needed ns seq (bool_value "sources_fresh" source) state))
  |_,_=>invalid "Commit notice requires namespace and sequence" end
  |_,_=>invalid "Publication requires a valid state and event" end.
+Definition snapshot_receipt origin accepted source :=
+ success(JObject[("accepted",JBool accepted);
+   ("sources_fresh",JBool(Publication.snapshot_freshness origin accepted
+     (bool_value "sources_fresh" source))) ]).
 Definition snapshot_call source :=
  match publication_state source,string_field "expected_namespace" source,
  string_field "incoming_namespace" source,binary_field "incoming_sequence" source with
- |Some state,Some expected,Some incoming,Some seq=>success(JBool(Publication.admit_snapshot
- (if bool_value "authenticating" source then Publication.Authentication else Publication.ExistingSession) expected incoming seq state))
+ |Some state,Some expected,Some incoming,Some seq=>
+ if bool_value "authenticating" source then
+ match binary_field "authentication_ticket" source,
+   (match field "connection" source with
+    |Some value=>Services.decode_connection value|None=>None end) with
+ |Some ticket,Some connection=>snapshot_receipt Publication.Authentication
+   (Publication.admit_authenticated_snapshot ticket connection expected incoming seq state) source
+ |_,_=>invalid "Authenticated snapshot requires its current connection and request ticket" end
+ else snapshot_receipt Publication.ExistingSession
+   (Publication.admit_snapshot Publication.ExistingSession expected incoming seq state) source
  |_,_,_,_=>invalid "Snapshot requires request scope and source cursor" end.
+Definition measurement_failure_call source :=
+ match binary_field "measured_generation" source,binary_field "current_generation" source,
+   string_field "reason" source with
+ |Some measured,Some current,Some reason=>success
+   (match Observation.measurement_failure measured current reason with
+    |Some reason=>JString reason|None=>JNull end)
+ |_,_,_=>invalid "Measurement failure requires its requested generation and reason" end.
 Fixpoint text_observations (values : list json) : option (list string) :=
   match values with
   | [] => Some []
@@ -258,6 +284,7 @@ Definition call operation source := match operation with
  |"key"=>native_key source
  |"field_session"=>FieldSession.field_session_call source
  |"publication"=>publication_call source|"snapshot"=>snapshot_call source
+ |"measurement_failure"=>measurement_failure_call source
  |"focus_cycle"=>focus_call source|"resolve_target"=>resolve_target_call source
  |"reading_bind"=>reading_bind source|"reading"=>reading_call source|"font_specs"=>font_specs source|"environment"=>environment_call source
  |"code_present"=>code_call "present" source

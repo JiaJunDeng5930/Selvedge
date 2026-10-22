@@ -16,6 +16,29 @@ Theorem user_scroll_takes_over_viewport : forall current reduced,
   step BeginUserScroll reduced current = (State ReadHistory None, [LeaveViewport]).
 Proof. reflexivity. Qed.
 
+Theorem history_layout_preserves_the_saved_anchor : forall point,
+  layout (State ReadHistory (Some point)) = [PreserveAnchor point].
+Proof. reflexivity. Qed.
+Theorem history_without_a_bookmark_requests_an_observation :
+  layout (State ReadHistory None) = [MeasureAnchor].
+Proof. reflexivity. Qed.
+Theorem latest_layout_cancels_history_observation : forall point,
+  layout (State FollowLatest point) = [CancelAnchorObservation; AlignLatest false].
+Proof. reflexivity. Qed.
+Theorem resizing_reserves_the_composer_before_restoring_reading :
+  forall current height viewport reduced,
+  step (LayoutChanged height viewport) reduced current =
+    (current, ReserveComposer height viewport :: layout current).
+Proof. reflexivity. Qed.
+Theorem explicit_history_owns_its_selected_anchor : forall current point reduced,
+  step (ReadHistoryAt point) reduced current =
+    (State ReadHistory (Some point), [LeaveViewport]).
+Proof. reflexivity. Qed.
+Theorem anchor_observation_is_not_a_scroll_request : forall current point reduced,
+  step (AnchorObserved point) reduced current =
+    (State (reading_intent current) (Some point), []).
+Proof. reflexivity. Qed.
+
 Theorem a_new_reader_occurrence_discards_old_anchor : forall previous observed current,
  previous <> observed -> bind_generation previous observed current = State FollowLatest None.
 Proof. intros. unfold bind_generation. apply N.eqb_neq in H. rewrite H. reflexivity. Qed.

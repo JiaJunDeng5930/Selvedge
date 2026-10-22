@@ -47,12 +47,24 @@ Definition control_attributes {A} (focusable help:bool) (action:Model.control A)
  (if available then [] else if focusable then [("aria-disabled","true")] else disabled false) ++
  (if help then let description:=control_help action in
    [("data-help",description)] else []).
-Definition checkbox_target env key (field:DOM.node) :=
- let target:=Typography.px (Layout.motor_minimum env) in
+Definition checkbox_target (env : Layout.environment) key (field:DOM.node) :=
+ let target:=Typography.px Layout.base_motor_minimum in
  DOM.Element (String.append key "/checkbox-target") "span" [("data-control-target","checkbox")]
  [("display","grid");("place-items","center");("inline-size",target);("min-inline-size",target);
   ("block-size",target);("min-block-size",target);("flex","none");("cursor","pointer")]
  [] empty [field].
+Definition interactive_status env (activity : bool) key attribute message :=
+  let tier := if activity then Typography.ActivityPrimary else Typography.Body in
+  DOM.Element key "output" [(attribute,"");("role","status")]
+    [("display","block");("block-size",Typography.px (Typography.line_height (Layout.root_font_size_milli env) tier));
+     ("flex","none");("white-space","nowrap");("overflow-x","auto");("overflow-y","hidden")]
+    [] empty [DOM.Text message].
+Definition table_properties : list (string * string) :=
+  [("display","table");("table-layout","auto");("border-collapse","collapse");
+   ("inline-size","max-content");("max-inline-size","none")].
+Definition table_cell_properties : list (string * string) :=
+  [("min-inline-size","100px");("inline-size","auto");("max-inline-size","240px");
+   ("overflow-wrap","anywhere");("vertical-align","top")].
 Definition control_children {A} (action:Model.control A) (children:list DOM.node) :=
  match children with []=>[DOM.Text (Model.control_label action)]|_=>children end.
 Definition common key semantic label role := [("id",key);("data-logical-key",semantic);("data-semantic-key",semantic);
@@ -73,8 +85,9 @@ Definition text_tag role := match role with
 Definition native_string value := match value with
  | JString value=>value | JNull=>"" | value=>render_json value end.
 Definition native_checked value := match value with JBool value=>value|_=>false end.
-Definition physical_markdown wrapper_key markdown_key text complete metadata : DOM.node :=
- DOM.Element wrapper_key "div" [("class","physical-markdown")] [] [] (JObject [])
+Definition physical_markdown env tier kind wrapper_key markdown_key text complete metadata : DOM.node :=
+ DOM.Element wrapper_key "div" [("class","physical-markdown")]
+  (NativeAppearance.markdown_properties env tier kind) [] (JObject [])
   [DOM.Markdown markdown_key text complete metadata].
 Definition selection_json (value:option(N*N*bool)) := match value with
  | None=>JNull | Some (start,stop,backward)=>JObject [("start",JNumber (text_number start));
@@ -87,13 +100,13 @@ Definition choices selected values := map (fun value => DOM.Element
 Definition descriptions {A}(children:list(S.node A)) := String.concat " "
  (map S.node_key (filter(fun child=>match S.node_meaning child with
  |S.InformationText Information.FieldValue|S.InformationText Information.Description=>true|_=>false end)children)).
-Definition editor {A} env key label generation field (value:Model.edit_control A) attributes styles :=
+Definition editor {A} env key label generation owner field (value:Model.edit_control A) attributes styles :=
  let native:=Parameters.native_value field (Model.editing_observation value) in
  let text:=match Model.editing_buffer value with Some raw=>raw|None=>native_string native end in
  let enabled:=Model.available (Model.editing_availability value) in
  let events:=match Model.editing_input value with None=>[]|Some _=>
  [event key generation "input" "value" Gesture.Change] end in
- let metadata:=JObject [("field_session",JObject [("owner",JString key);("source",JString text)]);
+ let metadata:=JObject [("field_session",JObject [("owner",Identity.encode_editor owner);("source",JString text)]);
  ("selection",selection_json (Model.editing_selection value))] in
  let attrs:=attributes ++ [("aria-label",label)] ++
  (match field with
@@ -144,9 +157,14 @@ Definition interactive_editor {A} env key label generation (component:option IP.
  let schema:=Local.shape_json(IP.editing_shape value) in
  let constraints:=fold_right (fun name rest=>match field name schema with
  |Some JNull|None=>rest|Some value=>(name,native_string value)::rest end) [] ["min";"max";"step"] in
- let metadata:=JObject [("field_session",JObject [("owner",JString key);("source",JString text)])] in
+ let identity:=JObject (Selvedge.Interaction.Interactive.Types.event_fields
+     (IP.component_event (IP.editing_component value)) ++
+   [("state",JString (match IP.component_binding (IP.editing_component value) with Expand.FieldLink id _=>id|_=>"" end));
+    ("schema",schema); ("tag",JString component_tag)]) in
+ let metadata:=JObject [("field_session",JObject [("owner",identity);("source",JString text)])] in
  if String.eqb component_tag "checkbox" then checkbox_target env key (DOM.Element key "input"
- (attrs ++ [("type","checkbox")] ++ if native_checked (IP.editing_value value) then [("checked","checked")] else []) styles (events "change" "checked") metadata [])
+ (attrs ++ [("type","checkbox")] ++ if native_checked (IP.editing_value value) then [("checked","checked")] else [])
+ (styles ++ SemanticAppearance.toggle_properties env) (events "change" "checked") metadata [])
  else if String.eqb component_tag "select" then
  let options:=match array_field "options" schema with Some values=>values|None=>[] end in
  DOM.Element key "select" (attrs ++ [("value",text)]) styles (events "change" "value") metadata
@@ -193,10 +211,10 @@ Definition layer_metadata {A} key (behavior:Model.layer_behavior A) :=
  ("outside",JBool (Model.layer_outside behavior));("escape",JBool (Model.layer_escape behavior))])].
 Definition artwork name := match NativeAppearance.find_symbol name with None=>[]|Some symbol=>
  [DOM.Element "" "svg" [("viewBox","0 0 20 20");("width","16");("height","16");("aria-hidden","true")]
- [("flex","none")] [] empty [DOM.Element "" "path"
+ [("flex","none");("inline-size","var(--control-icon-size,16px)");("block-size","var(--control-icon-size,16px)")] [] empty [DOM.Element "" "path"
  ([("d",NativeAppearance.symbol_path symbol);("stroke-linecap","round");("stroke-linejoin","round")] ++
  match NativeAppearance.symbol_paint symbol with NativeAppearance.Filled=>[("fill","currentColor")]
- |NativeAppearance.Outline=>[("fill","none");("stroke","currentColor");("stroke-width","1.5")]end) [] [] empty []]] end.
+ |NativeAppearance.Outline=>[("fill","none");("stroke","currentColor");("stroke-width","1.4")]end) [] [] empty []]] end.
 Definition glyph name := if String.eqb name "spinner" then
  [DOM.Element "" "span" [("data-interactive-motion-glyph","");("aria-hidden","true")]
  [("inline-size","16px");("block-size","16px");("flex","none")] [] empty (artwork name)] else artwork name.
@@ -213,6 +231,7 @@ Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning wi
 Definition purpose_icon purpose := match purpose with
  |C.MessageSubmission=>Some "arrow-up"|C.CreateItem|C.ProjectTaskCreation=>Some "plus"
  |C.WorkCreation=>Some "plus"|C.EditItem=>Some "pencil"|C.NavigateTo icon|C.OpenPanel icon _ _=>Some icon
+ |C.ApplicationSettings _=>Some "settings"|C.GlobalDestinations=>Some "menu-lines"
  |C.MoreActions _=>Some "more-dots"|C.WorkspacePicker _=>Some "folder"
  |C.Dismiss|C.AbortOperation=>Some "close-cross"
  |C.StopExecution|C.InterruptExecution=>Some "stop-square"|C.PauseExecution=>Some "pause-bars"
@@ -229,13 +248,82 @@ Definition purpose_icon purpose := match purpose with
 Definition icon_only purpose area := match purpose,area with
  |C.WorkCreation,ToolbarArea|C.MessageSubmission,ComposerArea|C.Dismiss,_|C.MoreActions _,_|C.Latest,_|C.ToggleNavigation _,_
  |C.ProjectTaskCreation,NavigationArea|C.CreateItem,BoardLaneArea
- |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.OpenPanel "filter-funnel" _ _,_
+ |C.OpenPanel "inspector" _ _,ToolbarArea|C.OpenPanel "settings" _ _,_|C.ApplicationSettings _,_|C.GlobalDestinations,_|C.OpenPanel "filter-funnel" _ _,_
  |C.OpenPanel "archive-box" _ _,ToolbarArea|C.CopyCode _,CodeArea|C.WrapCode _,CodeArea
  |C.RemoveValue,CollectionArea|C.StopExecution,ToolbarArea|C.PauseExecution,ToolbarArea
  |C.ResumeExecution,ToolbarArea|C.InterruptExecution,ToolbarArea=>true|_,_=>false end.
+
+Record control_geometry := ControlGeometry {
+  target_width : nat; target_height : nat; control_radius : nat;
+  control_insets : Enclosure.insets; control_gap : nat
+}.
+Definition geometry_for purpose area (icon choice supporting : bool) :=
+  if choice then ControlGeometry 0 28 6 (Enclosure.spacing Enclosure.OptionControl) 8 else
+  if supporting then ControlGeometry 0 32 6 (Enclosure.Insets 8 0) 8 else
+  if icon then match purpose, area with
+  | C.MessageSubmission, ComposerArea => ControlGeometry 32 32 16 (Enclosure.spacing Enclosure.IconControl) 0
+  | C.ProjectTaskCreation, NavigationArea => ControlGeometry 24 24 6 (Enclosure.spacing Enclosure.IconControl) 0
+  | _, _ => ControlGeometry 32 32 8 (Enclosure.spacing Enclosure.IconControl) 0 end
+  else match purpose, area with
+  | C.ChooseValue _, ComposerArea | C.WorkspacePicker _, ComposerArea =>
+      ControlGeometry 0 28 6 (Enclosure.spacing Enclosure.TextControl) 6
+  | _, MenuArea => ControlGeometry 0 28 6 (Enclosure.spacing Enclosure.TextControl) 6
+  | _, NavigationArea => ControlGeometry 0 29 6 (Enclosure.spacing Enclosure.NavigationRow) 6
+  | _, _ => ControlGeometry 0 32 8 (Enclosure.spacing Enclosure.TextControl) 6 end.
+Definition navigation_target env role area :=
+  let compact := match Layout.observe_capacity env with Some (false, _) => true | _ => false end in
+  match area, role with
+  | TouchNavigationArea, _ | _, Roles.CompactNavigationEntry _
+  | _, Roles.GlobalNavigationEntry _ true => true
+  | NavigationArea, _ => compact
+  | _, _ => false end.
+Definition control_geometry_properties env (activity : bool) role area purpose icon choice supporting :=
+  let value := geometry_for purpose area icon choice supporting in
+  let scale := fun amount => if activity then match amount with
+    | 0 => 0 | S _ => Typography.scaled (Layout.root_font_size_milli env) amount end else amount in
+  let motor := if activity then Layout.motor_minimum env else Layout.base_motor_minimum in
+  let touch := navigation_target env role area in
+  let height := Nat.max (if touch then 44 else motor)
+    (if activity then Nat.max motor (target_height value)
+     else scale (target_height value)) in
+  let edges := if activity then
+    (if icon then Enclosure.Insets 0 0 else Enclosure.Insets 8 6)
+    else control_insets value in
+  [("min-inline-size",Typography.px motor);
+   ("min-block-size",Typography.px height);
+   ("border-radius",Typography.px (scale (control_radius value)));
+   ("padding-inline",Typography.px (scale (Enclosure.inline_inset edges)));
+   ("padding-block",Typography.px (scale (Enclosure.block_inset edges)));
+   ("gap",Typography.px (scale (control_gap value)));
+   ("justify-content",if icon then "center" else "flex-start");
+   ("--control-icon-size",Typography.px (scale 16))] ++
+  if icon then
+    let width := Nat.max (if touch then 44 else motor)
+      (if activity then Nat.max motor (target_width value)
+       else scale (target_width value)) in
+    [("inline-size",Typography.px width); ("block-size",Typography.px height); ("flex","none")]
+  else [].
+Definition meaning_geometry {A} (describe : A -> C.purpose) env activity role area (meaning:S.meaning A) :=
+  let properties action choice supporting :=
+    let purpose := describe (Model.control_input action) in
+    let activity := activity || supporting || match role with
+      | Roles.GlobalNavigationEntry _ _ | Roles.CompactNavigationEntry _
+      | Roles.CompactWorkScope _ _ | Roles.NavigationEntry _ | Roles.WorkOverviewButton _ => true
+      | _ => false end in
+    control_geometry_properties env activity role area purpose (icon_only purpose area) choice supporting in
+  match role, meaning with
+  | Roles.WorkTab _, _ | _, S.WorkChoice _ _ _ =>
+      [("min-inline-size",Typography.px Layout.base_motor_minimum)]
+  | _, S.Activate action | _, S.SettingEntry _ _ action | _, S.ActionCommit _ _ action
+  | _, S.PanelToggle _ action | _, S.SkillSuggestion _ action => properties action false false
+  | _, S.SupportingControl _ _ _ action => properties action false true
+  | _, S.Choice _ _ _ action => properties action true false
+  | _, _ => [] end.
 Definition purpose_attributes purpose := match purpose with
  |C.MoreActions expanded|C.OpenPanel _ _ expanded|C.ChooseValue expanded
  |C.WorkspacePicker expanded|C.ShowActivity expanded|C.ToggleNavigation expanded=>[("aria-expanded",flag expanded)]
+ |C.ApplicationSettings expanded=>[("aria-expanded",flag expanded);("data-focus-alias","settings-return")]
+ |C.GlobalDestinations=>[("aria-expanded","false");("data-focus-alias","settings-return")]
  |C.Connect true|C.CopyCode(CodeBlock.Pending _)=>[("data-interactive-motion","spin")]
  |C.SelectedOption checked=>[("aria-checked",flag checked)]
  |C.PinItem pinned|C.AutomaticScheduling pinned|C.WrapCode pinned=>[("aria-pressed",flag pinned)]
@@ -243,6 +331,7 @@ Definition purpose_attributes purpose := match purpose with
 Definition control_styles purpose role := match purpose,role with
  |C.OpenPanel icon _ _,Roles.GlobalNavigationEntry _ _=>
  if String.eqb icon "settings" then [("margin-block-start","auto")]else[]
+ |C.ApplicationSettings _,Roles.GlobalNavigationEntry _ _=>[("margin-block-start","auto")]
  |_,_=>[]end.
 Definition face_children purpose area role label children :=
  let text:=match children with []=>[DOM.Text label]|_=>children end in
@@ -266,7 +355,10 @@ Fixpoint commit_key {A} (value:S.node A) : option string :=
 Definition component_context {A} (current:option IP.component) (meaning:S.meaning A) :=
  match meaning with S.InteractiveNode value=>Some value|_=>current end.
 Definition source_context {A} (current:S.meaning A) (meaning:S.meaning A) :=
- match meaning with S.Region|S.InformationText _=>current|_=>meaning end.
+ match meaning with
+ | S.ActivityRow _ | S.ActivityGroup _ _ _ _ | S.LayerRegion _ => meaning
+ | S.Region | S.InformationText _ => current
+ | _ => match current with S.ActivityRow S.SupportingRow => current | _ => meaning end end.
 Definition available_placements {A} (values:list(S.placement A)) :=
  filter(fun value=>Model.available(Model.control_availability(S.placement_control value)))values.
 Definition card_movement {A} (values:list(S.node A)) :=
@@ -298,13 +390,14 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
  (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
  (if supporting then ControlContent.support_row_attributes key else []) in
- let styles:=NativeAppearance.role_properties env role ++
+ let styles:=NativeAppearance.role_properties_at env activity role ++
  (match meaning with S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
  |Model.AnchoredMenu=>[("position","fixed");("inset","auto");("position-area","bottom span-right");
  ("position-try-fallbacks","flip-block, flip-inline, flip-block flip-inline");
  ("position-try-order","most-block-size");("margin","0") ]
  |Model.TrailingDetails=>if Model.layer_beside behavior then [("inline-size",Typography.px(Layout.details_width(Layout.parameters env)));("flex","none")] else []
- |Model.ModalDialog=>[]end|_=>[]end) ++ SemanticAppearance.meaning_properties env activity meaning ++ SemanticAppearance.source_properties env source meaning ++
+ |Model.ModalDialog=>[]end|_=>[]end) ++ SemanticAppearance.meaning_properties env activity meaning ++
+ meaning_geometry describe env activity role current_area meaning ++ SemanticAppearance.source_properties env source meaning ++
  (match role with
  |Roles.WorkTabs=>[("display","flex");("flex-direction","row");("align-items","center");("min-block-size",Typography.px(Layout.toolbar_height(Layout.parameters env)));("flex","none");("overflow","hidden")]
  |Roles.WorkTabGroup=>[("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("overflow-x","auto")]
@@ -341,12 +434,17 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  let purpose:=describe(Model.control_input action)in
  let focusable:=andb (icon_only purpose current_area) (match role with Roles.NavigationEntry _=>false|_=>true end) in
  let available:=Model.available(Model.control_availability action) in
- let help:=focusable || negb available || match role with Roles.NavigationEntry _=>true|_=>false end in
+ let property_help:=match meaning with S.SettingEntry _ property _|S.SupportingControl _ _ property _=>Some(UX.property_help property)|_=>None end in
+ let description:=match Model.control_availability action with Model.Unavailable reason=>reason
+ | _=>match property_help with Some text=>text|None=>control_help action end end in
+ let help:=focusable || negb available || match property_help with Some _=>true|None=>match role with Roles.NavigationEntry _=>true|_=>false end end in
  let type_:=(if andb submit available then "submit" else "button") in
  let events:=if available then [event key generation "click" "activate" Gesture.Press] else [] in
- DOM.Element key "button" (attrs++[("type",type_)] ++control_attributes (focusable || negb available) help action++purpose_attributes purpose++help_describedby key help extra)
+ DOM.Element key "button" (attrs++[("type",type_)] ++control_attributes (focusable || negb available) help action++
+ (match property_help with Some _=>[("title",description)]|None=>[]end)++
+ (if help then [("data-help",description)]else[])++purpose_attributes purpose++help_describedby key help extra)
  (styles++control_styles purpose role++
- (match source with S.TaskRow _ _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size","0");("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,purpose with S.CardContent _,C.OpenCardDetails _=>
+ (match source with S.TaskRow _ _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size",Typography.px(Layout.motor_minimum env));("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,purpose with S.CardContent _,C.OpenCardDetails _=>
  [("background","transparent");("border","0");("padding","0");("text-align","left");("font-weight","600");("white-space","normal")]|_,_=>[]end)
  events empty
  ((match ControlContent.face_content env key glyph meaning (S.node_children value) with Some content=>content|None=>
@@ -365,7 +463,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |_,_=>face_children purpose current_area role(Model.control_label action)children end end) ++
  (if help then [DOM.Element (String.append key "/help") "span"
    [("id",String.append key "/help");("class","visually-hidden")] [] [] empty
-   [DOM.Text(control_help action)]] else []))in
+   [DOM.Text description]] else []))in
  match meaning with
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
@@ -375,16 +473,19 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  [] empty [DOM.Text message]
  |S.DirectoryBrowserLocation path=>element "p" [] [] empty [DOM.Text path]
  |S.PublishedText document=>element "div" [] [] empty
- (physical_markdown (String.append key "/@physical-markdown") (String.append key "/markdown")
+ (physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.PublishedMarkdown
+ (String.append key "/@physical-markdown") (String.append key "/markdown")
  (DocumentPublication.published_text document)
  (match DocumentPublication.published_ending document with
  Selvedge.Interaction.Interactive.Types.Open=>false|_=>true end)
  (match DocumentPublication.encode_document document with JObject fields=>JObject(("view",Observation.encode_view view)::fields)|metadata=>metadata end)::children)
  |S.RichText provenance text=>element "div" [] [] empty
- (physical_markdown (String.append key "/@physical-markdown") (String.append key "/markdown") text
+ (physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.PublishedMarkdown
+ (String.append key "/@physical-markdown") (String.append key "/markdown") text
  (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
  (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children)
- |S.EmbeddedMarkdown text=>physical_markdown (String.append key "/@physical-markdown") key text true empty
+ |S.EmbeddedMarkdown text=>physical_markdown env (if activity then Typography.ActivityPrimary else Typography.Body) NativeAppearance.EmbeddedMarkdown
+ (String.append key "/@physical-markdown") key text true empty
  |S.CodeFacts facts=>
  let who:=CodeBlock.presented_identity facts in
  let target part:=Observation.physical_target view (DocumentPublication.target_key who part) in
@@ -394,7 +495,8 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  [DOM.Element (target DocumentPublication.Toolbar) "div" [] [] [] empty [];
  DOM.Element (target DocumentPublication.Source) "pre" [] [] [] empty
  [DOM.Element (target DocumentPublication.Body) "code" [] [] [] empty [DOM.Text(CodeBlock.presented_literal facts)]]]]
- |S.InteractiveRegion policy=>DOM.Mount (Observation.physical_target view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Preview)) children
+ |S.InteractiveRegion policy=>DOM.Mount (Observation.physical_target view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Preview))
+   (interactive_status env activity (String.append key "/@pending") "data-interactive-pending" "正在更新显示" :: children)
  |S.Activate action=>button false action []
  |S.SettingEntry _ _ action|S.SupportingControl _ _ _ action=>button false action
  (let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
@@ -407,7 +509,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |S.Edit owner subject value=>
  let field_attrs:=attrs ++ match current_area,UX.subject_declaration subject with
  |ComposerArea,Fields.MessageText=>[("data-focus-owner","embedded")]|_,_=>[]end in
- let native:=match editor env key label generation (UX.subject_declaration subject) value field_attrs styles with
+ let native:=match editor env key label generation owner (UX.subject_declaration subject) value field_attrs styles with
  |DOM.Element key tag attrs styles events (JObject fields) content=>DOM.Element key tag attrs styles events
  (JObject(("key_input",JBool(match Model.editing_key_input value with Some _=>true|None=>false end))::("editor",Identity.encode_editor owner)::("selection_enabled",JBool(match Model.editing_selection_input value with Some _=>true|None=>false end))::fields)) content|native=>native end in
  match UX.subject_declaration subject,Model.editing_entry value with
@@ -444,12 +546,12 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  ("width",text_number(Npos(Graphics.width plot)));("height",text_number(Npos(Graphics.height plot)))])
  (styles++[("max-inline-size","none");("flex","none")]) [] empty (map (graphic_primitive generation) (Graphics.primitives plot))
  |S.Image src alternative=>element "img" [("src",src);("alt",alternative)] [] empty []
- |S.Table caption headings rows=>element "table" [] [] empty
+ |S.Table caption headings rows=>DOM.Element key "table" attrs (styles++table_properties) [] empty
  ([DOM.Element (key++"/caption")%string "caption" [] [] [] empty [DOM.Text caption];
  DOM.Element (key++"/head")%string "thead" [] [] [] empty [DOM.Element "" "tr" [] [] [] empty
- (map(fun text=>DOM.Element "" "th" [("scope","col")] [] [] empty [DOM.Text text])headings)];
+ (map(fun text=>DOM.Element "" "th" [("scope","col")] table_cell_properties [] empty [DOM.Text text])headings)];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty
- (map(fun row=>DOM.Element "" "tr" [] [] [] empty (map(fun text=>DOM.Element "" "td" [] [] [] empty [DOM.Text text])row))rows)])
+ (map(fun row=>DOM.Element "" "tr" [] [] [] empty (map(fun text=>DOM.Element "" "td" [] table_cell_properties [] empty [DOM.Text text])row))rows)])
  |S.InteractivePlacement placement=>element "div" [] [] empty children
  |S.ReadingTimeline task_view reader_generation=>element "section"
  [("data-reading-root","true");("data-task-id",text_number(Identity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
@@ -468,6 +570,9 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  let motion:=Expand.property_text "motion" properties in
  let common:=[("data-interactive-component",Vocabulary.component_tag(Expand.description properties));
  ("data-interactive-key",key);("data-interactive-transition",Expand.property_text "transition" properties)] in
+ let children:=if String.eqb(Vocabulary.component_tag(Expand.description properties))"resource-view"
+   then interactive_status env activity (String.append key "/@stale") "data-interactive-stale" "连接已断开，显示上次同步状态"::children
+   else children in
  let native:=element (role_tag role)
  (common ++ if String.eqb(Vocabulary.component_tag(Expand.description properties))"row-layout"
  then [("data-native-responsive-row",key)] else []) [] empty children in
@@ -477,16 +582,16 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  [] empty (glyph "spinner"++[native])
  else match native with DOM.Element key tag attrs styles events metadata children=>
  DOM.Element key tag (("data-interactive-motion",motion)::attrs) styles events metadata children|other=>other end
- |S.InteractiveTable table=>element "table" [] [] empty
+ |S.InteractiveTable table=>DOM.Element key "table" attrs (styles++table_properties) [] empty
  [DOM.Element (key++"/caption")%string "caption" [] [] [] empty [DOM.Text(IP.table_caption table)];
  DOM.Element (key++"/head")%string "thead" [] [] [] empty [DOM.Element "" "tr" [] [] [] empty
  (map(fun column=>let identity:=IP.column_key key column in DOM.Element identity "th"
- [("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)] [] [] empty
+ [("scope","col");("aria-sort",match IP.column_order column with None=>"none"|Some true=>"descending"|Some false=>"ascending" end)] table_cell_properties [] empty
  (match IP.column_sort column with None=>[DOM.Text(IP.column_heading column)]|Some _=>
  [DOM.Element (identity++"/control")%string "button" ([("type","button")]++disabled(IP.column_enabled column))
  (NativeAppearance.role_properties env Roles.Button) [event identity generation "click" "activate" Gesture.Press] empty [DOM.Text(IP.column_heading column)]]end)) (IP.table_columns table))];
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty (map(fun row=>DOM.Element "" "tr" [] [] [] empty
- (map(fun text=>DOM.Element "" "td" [] [] [] empty [DOM.Text text])row))(IP.table_rows table))]
+ (map(fun text=>DOM.Element "" "td" [] table_cell_properties [] empty [DOM.Text text])row))(IP.table_rows table))]
  |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
  ((if expanded then [] else [DOM.Element (String.append key "/summary") "p"
  [("data-activity-summary","true")] [("margin","0")] [] empty [DOM.Text label]]) ++
@@ -494,7 +599,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  let face_key:=String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face))) in
  DOM.Element face_key "section" [] [] [] empty
  [DOM.Element "" "h4" [] [] [] empty [DOM.Text(Audit.face_title face)];
-  physical_markdown (String.append face_key "/@physical-markdown") ""
+  physical_markdown env Typography.Support NativeAppearance.PublishedMarkdown (String.append face_key "/@physical-markdown") ""
    (Audit.detail(Audit.face_source face)) true (JObject [])])audit else [])
  |S.SummaryList=>element "ul" [("role","list")]
  [] empty (map(fun child=>DOM.Element "" "li" [] [] [] empty [child])children)
@@ -592,11 +697,7 @@ Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface
  let beside:=filter beside_layer (S.overlays surface) in
  let layers:=filter(fun value=>negb(beside_layer value))(S.overlays surface) in
  let p:=Layout.parameters env in
- let dark:=match S.surface_appearance surface with
- |Selvedge.Interaction.Appearance.SystemAppearance=>Layout.system_dark env
- |Selvedge.Interaction.Appearance.LightAppearance=>false
- |Selvedge.Interaction.Appearance.DarkAppearance=>true end in
- let theme:=if dark then "dark" else "light" in
+ let theme:=NativeAppearance.theme_name (S.surface_appearance surface) (Layout.system_dark env) in
  DOM.encode (DOM.Document
  (DOM.Element "selvedge" "div" [("data-selvedge-root","true")]
  (NativeAppearance.root_properties env ++ [("display","flex");("flex-direction","row");("block-size","100%");("min-block-size","0")]) [] empty

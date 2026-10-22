@@ -1,12 +1,12 @@
 /** Native observations retain composition; the extracted editor chooses handling. */
-export function keyObservation(event) {
-  return { keyboard: event.key, composing: Boolean(event.isComposing), key_code: event.keyCode,
+export function keyObservation(event, editorComposing = false) {
+  return { keyboard: event.key, composing: Boolean(event.isComposing), editor_composing: Boolean(editorComposing), key_code: event.keyCode,
     shift: Boolean(event.shiftKey), alt: Boolean(event.altKey),
     modified: Boolean(event.ctrlKey || event.metaKey) };
 }
 
-export function editorKeyboard(event, normalize, deliver) {
-  const decision = normalize(keyObservation(event));
+export function editorKeyboard(event, normalize, deliver, editorComposing = false) {
+  const decision = normalize(keyObservation(event, editorComposing));
   if (decision.prevent_default) event.preventDefault();
   if (decision.submit) deliver();
 }

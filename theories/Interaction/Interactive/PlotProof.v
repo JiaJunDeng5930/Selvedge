@@ -153,8 +153,6 @@ Proof.
     (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))
     (P.chart_rows properties)) as [points|reason] eqn:Rows;
     cbn [E.bind] in Admitted; try discriminate.
-  destruct (P.homogeneous_x_axis points) eqn:Homogeneous;
-    cbn [E.bind] in Admitted; try discriminate.
   destruct (P.magnitude
     (fun point => match P.x_number point with Some x => D.units x | None => 0 end) points)
     as [x_domain|reason] eqn:XDomain; cbn [E.bind] in Admitted; try discriminate.

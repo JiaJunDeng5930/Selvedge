@@ -119,13 +119,21 @@ Definition graph_snapshot id graph features :=
  match graph_json id graph with JObject fields=>JObject(fields++
   [("work_id",optional_number(association id (Selvedge.Features.Domain.feature_graph_owners features)))])
  |other=>other end.
+Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
+ ("parent_ready",JBool(Tasks.fork_parent_ready false task));
+ ("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
+  |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
+  (id::task_lineage task)))].
+Definition task_snapshot_in_world id task value:=
+ match task_snapshot id task(world_features value)with
+ |JObject fields=>JObject(fields++[("fork",fork_observation id task value)])|result=>result end.
 Definition world_json (value : world) :=
  let features := world_features value in JObject [
  ("sequence", number (world_sequence value));
  ("compaction",Selvedge.Features.CompactionCodec.state_json (Selvedge.Features.Domain.feature_compaction features));
  ("title_settings", Selvedge.Features.Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings features));
  ("defaults", JObject [("settings",experience_settings_json (Tasks.creation_defaults (world_environment value)))]);
- ("tasks", JArray (indexed (fun id task => task_snapshot id task features) 0 (world_tasks value)));
+ ("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)));
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));
  ("projects", JArray (fold_right (fun value rest => match value with Some value => value :: rest | None => rest end) []

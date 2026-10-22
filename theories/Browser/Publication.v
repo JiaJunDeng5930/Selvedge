@@ -1,4 +1,5 @@
 From Stdlib Require Import String Bool NArith.
+From Selvedge.Interaction Require Import Services.
 Open Scope string_scope.
 
 (** A single generation and a phase replace three independently writable
@@ -42,3 +43,17 @@ Definition admit_snapshot origin expected incoming incoming_sequence value :=
   String.eqb expected (namespace value) &&
   if String.eqb incoming (namespace value) then N.leb (sequence value) incoming_sequence
   else match origin with Authentication => true | ExistingSession => false end.
+
+(** Authentication can finish after another request has acquired the connection.
+    Reuse the service's ticket, so a late snapshot cannot install its world before
+    the owning authentication completion is checked. *)
+Definition admit_authenticated_snapshot ticket connection expected incoming incoming_sequence value :=
+  Services.connection_active connection && Services.connection_matches ticket connection &&
+    admit_snapshot Authentication expected incoming incoming_sequence value.
+
+(** A command can refresh its admission snapshot after the event connection has
+    failed. That refresh updates the world, not the observation of that connection. *)
+Definition snapshot_freshness (origin : snapshot_origin) (accepted previous : bool) :=
+  if accepted then match origin with
+    | Authentication => true | ExistingSession => previous end
+  else previous.

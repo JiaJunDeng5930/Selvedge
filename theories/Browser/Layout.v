@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Arith Bool.
-From Selvedge.Browser Require Import Typography.
+From Selvedge.Browser Require Import Typography Enclosure.
 From Selvedge.Interaction.Presentation Require Import Composition.
 Import ListNotations.
 Open Scope string_scope.
@@ -93,15 +93,20 @@ Definition group_properties env activity : list (string * string) :=
 Definition page_properties env page : list (string * string) :=
   let p := parameters env in
   let recipe := Composition.recipe page in
+  let area := Enclosure.spacing Enclosure.PageContent in
+  let edges := 2 * Enclosure.inline_inset area in
   [("display","flex"); ("flex-direction","column"); ("min-inline-size","0");
    ("min-block-size","0"); ("block-size","100%");
+   ("padding-inline",Typography.px (Enclosure.inline_inset area));
+   ("padding-block",Typography.px (Enclosure.block_inset area));
+   ("gap",Typography.px (Enclosure.separation Enclosure.Sections));
    ("inline-size","100%"); ("margin-inline","auto");
    ("max-inline-size",match Composition.reading_measure recipe with
-      | Composition.ReadingMeasure => Typography.px (reading_maximum_width p)
-      | Composition.OverviewMeasure => Typography.px (overview_maximum_width p)
+      | Composition.ReadingMeasure => Typography.px (reading_maximum_width p + edges)
+      | Composition.OverviewMeasure => Typography.px (overview_maximum_width p + edges)
       | Composition.AvailableMeasure => "none" end)] ++
   match Composition.body_kind recipe with
-  | Composition.CenteredCreation => [("justify-content","center"); ("padding-block",Typography.px (clearance env))]
+  | Composition.CenteredCreation => [("justify-content","safe center")]
   | _ => [] end.
 
 Definition region_properties env (region : Composition.region) (position : Composition.position)
@@ -115,15 +120,15 @@ Definition region_properties env (region : Composition.region) (position : Compo
    end) ++
   match region with
   | Composition.ConversationHeader => [("display","flex"); ("flex-direction","row");
-      ("flex-wrap","nowrap"); ("align-items","center"); ("gap",Typography.px (clearance env))]
+      ("flex-wrap","nowrap"); ("align-items","center"); ("gap",Typography.px (Enclosure.separation Enclosure.ComposerControls))]
   | Composition.ConversationTitle => [("flex","1 1 auto"); ("overflow","hidden"); ("white-space","nowrap")]
   | Composition.TaskActions => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
-      ("align-items","center"); ("gap",Typography.px (Typography.scaled (root_font_size_milli env) 8)); ("flex","none")]
+      ("align-items","center"); ("gap",Typography.px (Enclosure.separation Enclosure.InlineControls)); ("flex","none")]
   | Composition.TimelineContent => [("flex","1 1 auto"); ("min-block-size","0"); ("overflow-y","auto")]
   | Composition.ComposerInput => [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
-  | Composition.CreationIntroduction => [("text-align","center"); ("margin-block-end",Typography.px (Typography.scaled (root_font_size_milli env) 32))]
-  | Composition.BoardStages => [("display","flex"); ("gap",Typography.px (Typography.scaled (root_font_size_milli env) 16));
+  | Composition.CreationIntroduction => [("text-align","center")]
+  | Composition.BoardStages => [("display","flex"); ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
       ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.
 

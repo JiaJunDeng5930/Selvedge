@@ -28,10 +28,13 @@ Definition component_properties env (value : Presentation.component) : list (str
  | "row-layout" => Layout.row_properties Layout.Vertical ++ [("align-items","stretch")]
  | "card" | "badge" => enclosed
  | "table" => [("min-block-size","40px"); ("max-block-size","560px"); ("overflow","auto")]
- | "checkbox" => [("inline-size","16px"); ("block-size","16px"); ("min-block-size","16px"); ("padding","0")]
  | "text-input" | "number-input" | "select" | "textarea" | "slider" =>
      [("min-block-size",Typography.px (Layout.motor_minimum env))]
  | "button" => Appearance.role_properties env Roles.Button
+ | _ => [] end) ++
+ (match Presentation.component_binding value with
+ | Expand.FieldLink _ _ | Expand.ActionLink _ _ =>
+     [("padding","0"); ("border-width","0"); ("background","transparent"); ("min-block-size","0")]
  | _ => [] end).
 Definition npx value := String.append (Numbers.show_natural value) "px".
 Definition zpx value := String.append (Numbers.show_integer value) "px".
@@ -44,5 +47,5 @@ Definition placement_properties (env : Layout.environment) (value : Presentation
  | Presentation.GraphNode x y width height selected => enclosed ++
      [("position","absolute"); ("inset-inline-start",zpx x); ("inset-block-start",zpx y);
       ("inline-size",npx width); ("block-size",npx height); ("overflow-y","auto"); ("overflow-x","hidden");
-      ("border-color",Appearance.token (if selected then "--color-token-focus-border" else "--color-token-border-default"))]
+      ("border-color",Appearance.token (if selected then "--color-token-text-link-foreground" else "--color-token-border-default"))]
  end.

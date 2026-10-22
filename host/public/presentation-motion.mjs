@@ -20,7 +20,7 @@ export class PresentationMotion {
     for (const node of current) {
       if (!this.nodes.has(node)) this.observer.observe(node);
       const disabled = this.reduced.matches || document.visibilityState !== 'visible'
-        || this.visible.get(node) === false
+        || this.visible.get(node) === false || this.root.dataset.sourcesFresh === 'false'
         || Boolean(node.closest('[hidden],[aria-hidden="true"],[inert]')) || Boolean(modal && !modal.contains(node));
       node.dataset.motionPaused = String(disabled);
     }

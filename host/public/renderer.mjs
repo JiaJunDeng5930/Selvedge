@@ -1,6 +1,7 @@
 import { Markdown } from './markdown.mjs';
 import { MarkdownFenceObserver } from './markdown-fences.mjs';
 import { stringifyJson } from './json-tokens.mjs';
+import { keyObservation } from './keyboard.mjs';
 
 const booleanProperties = new Set(['disabled', 'checked', 'indeterminate', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus', 'open']);
 const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 'text', 'g']);
@@ -167,13 +168,13 @@ export class Renderer {
       if (this.fieldSession(record, 'composition_ended').deliver) dispatch('input', event);
     });
     node.addEventListener('keydown', event => {
-      if (!event.isComposing && event.keyCode !== 229 && event.key !== 'Process') this.fieldSession(record, 'input_started');
-      if (!event.isComposing && event.keyCode !== 229) {
-        if (event.key === 'Enter') dispatch('keydown', event);
-        else if (event.key === ' ') for (const binding of record.events.filter(binding => binding.kind === 'press_key'))
+      const keyboard = this.callbacks.keyboard?.(keyObservation(event, this.composing.has(node)));
+      if (keyboard?.input_started) this.fieldSession(record, 'input_started');
+      for (const binding of record.events.filter(binding => binding.event === 'keydown')) {
+        if (binding.kind === 'confirm' ? keyboard?.confirm : keyboard?.activate)
           this.callbacks.event?.(binding, event, record.key, node, record.generation);
       }
-      this.callbacks.key?.(event, record.key, node, record);
+      this.callbacks.key?.(event, record.key, node, record, keyboard);
     });
     node.addEventListener('pointerdown', event => {
       if (node.dataset.retainFocus === 'true') event.preventDefault();

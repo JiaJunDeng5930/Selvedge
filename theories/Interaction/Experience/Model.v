@@ -72,13 +72,15 @@ Record property (e : editor) := Property {
   property_kind_of : property_kind;
   property_subject : subject e;
   property_members : list (subject e);
-  property_information : information e
+  property_information : information e;
+  property_help : string
 }.
 Arguments Property {e}.
 Arguments property_kind_of {e}.
 Arguments property_subject {e}.
 Arguments property_members {e}.
 Arguments property_information {e}.
+Arguments property_help {e}.
 Definition property_editor {e} (_ : property e) := e.
 Definition property_owner {e} (p : property e) := subject_object (property_subject p).
 Definition property_subjects {e} (p : property e) := property_subject p :: property_members p.

@@ -5,9 +5,19 @@ From Selvedge.Interaction.Session Require Draft State Authoring.
 From Selvedge.Interaction.Experience Require Activity Model Observation.
 From Selvedge.Interaction.Submission Require Parameters.
 From Selvedge.Browser Require Layout.
+Import ListNotations.
 Module EO:=Selvedge.Interaction.Experience.Observation.
 Module EM:=Selvedge.Interaction.Experience.Model.
 Module SS:=Selvedge.Interaction.Session.State.
+
+(** A world refresh can follow ordinary command admission while the stream is
+    disconnected. Only the separately correlated authentication receipt owns
+    connection recovery. *)
+Theorem ordinary_snapshot_preserves_connection namespace snapshot lagged state:
+ let result:=Selvedge.Interaction.Session.Runtime.core namespace snapshot lagged Input.Snapshot state in
+ Services.connection(SS.service_state(Authoring.result_state result))=
+ Services.connection(SS.service_state state) /\ Authoring.result_effects result=[].
+Proof. split;reflexivity. Qed.
 
 Theorem stale_element_cannot_produce_a_product_input snapshot current environment generation raw incoming:
  natural_field "generation" raw=Some incoming -> incoming<>generation ->
