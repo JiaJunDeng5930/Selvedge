@@ -1,0 +1,10 @@
+bun test v1.4.2 (744846f84)
+
+tests/ui-migration-boundaries.test.mjs:
+(pass) a submitted Task survives directory preparation while newer writing and navigation remain intact [26268.45ms]
+(pass) supporting controls compact and stack when measured space shrinks, then recover their full information [14687.80ms]
+(pass) a saved Agent still shows its model ID and reasoning after that profile leaves the catalog [9628.75ms]
+
+ 3 pass
+ 0 fail
+Ran 3 tests across 1 file. [51.62s]
