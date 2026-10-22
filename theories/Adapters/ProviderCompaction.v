@@ -6,11 +6,16 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Record request_content := RequestContent { opaque_content : bool; image_count : N }.
+Record request_content := RequestContent {
+  opaque_content : bool;
+  encrypted_content_present : bool;
+  image_count : N
+}.
 Definition combine_content (left right : request_content) :=
   RequestContent (opaque_content left || opaque_content right)
+    (encrypted_content_present left || encrypted_content_present right)
     (image_count left + image_count right).
-Definition empty_content := RequestContent false 0.
+Definition empty_content := RequestContent false false 0.
 (* Image handles and encrypted continuations cannot be bounded by their textual
    representation. The complete request, rather than an IO assertion, owns this fact. *)
 Fixpoint classify_content (value : json) : request_content :=
@@ -26,7 +31,7 @@ Fixpoint classify_content (value : json) : request_content :=
          let image := String.eqb name "image_asset" && is_object item in
          let encrypted := String.eqb name "encrypted_content" && is_text item &&
            negb (String.eqb (text item) "") in
-         combine_content (RequestContent (image || encrypted) (if image then 1 else 0))
+         combine_content (RequestContent (image || encrypted) encrypted (if image then 1 else 0))
            (combine_content (classify_content item) (scan tail)) end) fields
   | _ => empty_content
   end.
@@ -114,9 +119,11 @@ Definition measurement_plan (source : json) :=
   (* DEFENSE: Token accounting must inspect the full request, never a host classification. *)
   if negb (is_object request) then err "Context measurement requires the complete encoded request"
   else let content := classify_content request in let images := N.ltb 0 (image_count content) in
-  if String.eqb (str (get source "profile") "provider") "chatgpt" && images then
+  if String.eqb (str (get source "profile") "provider") "chatgpt" && images &&
+     negb (encrypted_content_present content) then
     (* The account transport does not promise the public token-count endpoint.
-       Its image estimate is ceil(7373/4), plus the complete UTF-8 request length. *)
+       This estimate covers image plus readable text; encrypted continuations
+       must use provider metering, whose unsupported-route fallback rejects them. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
         1844 * image_count content)); ("tokenizer",JString "codex_image_estimate")])

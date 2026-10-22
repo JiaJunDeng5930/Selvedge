@@ -47,31 +47,91 @@ Theorem public_readable_unsupported_route_uses_byte_bound : forall source,
     ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")]).
 Proof. intros source H I R;change (meter_fallback source = success (JObject [("action",JString "local"); ("scope",get source "scope"); ("input_tokens",get source "bytes"); ("tokenizer",JString "utf8_upper_bound")]));unfold meter_fallback;now rewrite H,I,R. Qed.
 
-Definition content_consistent value := image_count value = 0 \/ opaque_content value = true.
+Definition content_consistent value :=
+  (image_count value = 0 \/ opaque_content value = true) /\
+  (encrypted_content_present value = false \/ opaque_content value = true).
 Lemma combine_content_consistent : forall left right,
   content_consistent left -> content_consistent right -> content_consistent (combine_content left right).
 Proof.
- intros [lo li] [ro ri] [L|L] [R|R];unfold content_consistent,combine_content in *;cbn in *.
- - left;now rewrite L,R.
- - right;now rewrite R,orb_true_r.
- - right;now rewrite L.
- - right;now rewrite L.
+ intros [lo le li] [ro re ri] [Limage Lencrypted] [Rimage Rencrypted];
+ unfold content_consistent,combine_content in *;cbn in *;split.
+ - destruct Limage as [Limage|Limage];destruct Rimage as [Rimage|Rimage].
+   + left;lia.
+   + right;rewrite Rimage;apply orb_true_r.
+   + right;rewrite Limage;apply orb_true_l.
+   + right;rewrite Limage;apply orb_true_l.
+ - destruct Lencrypted as [Lencrypted|Lencrypted];destruct Rencrypted as [Rencrypted|Rencrypted].
+   + left;now rewrite Lencrypted,Rencrypted.
+   + right;rewrite Rencrypted;apply orb_true_r.
+   + right;rewrite Lencrypted;apply orb_true_l.
+   + right;rewrite Lencrypted;apply orb_true_l.
 Qed.
-Theorem complete_request_image_count_is_opaque : forall value,
+
+Theorem public_chatgpt_image_estimate_excludes_encrypted_continuations : forall source,
+  is_object (get source "request") = true ->
+  str (get source "profile") "provider" = "chatgpt" ->
+  encrypted_content_present (classify_content (get source "request")) = false ->
+  0 < image_count (classify_content (get source "request")) ->
+  str (get (Api.call "backend.compaction_measurement_plan" source) "value") "tokenizer" =
+    "codex_image_estimate".
+Proof.
+ intros source request_object chatgpt no_encrypted images.
+ change (str (get (measurement_plan source) "value") "tokenizer" = "codex_image_estimate");
+ unfold measurement_plan;rewrite request_object,chatgpt.
+ assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
+   by (apply N.ltb_lt;exact images).
+ rewrite has_images,no_encrypted;reflexivity.
+Qed.
+Theorem complete_request_classification_is_consistent : forall value,
   content_consistent (classify_content value).
 Proof.
- fix induction_json 1;intro value;destruct value as [|b|n|s|values|fields];try (left;reflexivity).
- - cbn;induction values as [|head tail IH];[left;reflexivity|].
+ fix induction_json 1;intro value;destruct value as [|b|n|s|values|fields];
+   try (split;[left;reflexivity|left;reflexivity]).
+ - cbn;induction values as [|head tail IH];[split;[left|left];reflexivity|].
    apply combine_content_consistent;[apply induction_json|exact IH].
- - cbn;induction fields as [|[name item] tail IH];[left;reflexivity|].
+ - cbn;induction fields as [|[name item] tail IH];[split;[left|left];reflexivity|].
    apply combine_content_consistent.
-   + unfold content_consistent;cbn;destruct (String.eqb name "image_asset" && is_object item);[right|left];reflexivity.
+   + unfold content_consistent;cbn;split.
+     * destruct (String.eqb name "image_asset" && is_object item);[right;apply orb_true_l|left];reflexivity.
+     * destruct (String.eqb name "encrypted_content" && is_text item && negb (String.eqb (text item) ""));
+       [right;apply orb_true_r|left];reflexivity.
    + apply combine_content_consistent;[apply induction_json|exact IH].
 Qed.
+Theorem complete_request_image_count_is_opaque : forall value,
+  image_count (classify_content value) = 0 \/ opaque_content (classify_content value) = true.
+Proof. intros value;exact (proj1 (complete_request_classification_is_consistent value)). Qed.
+Theorem complete_request_encrypted_continuation_is_opaque : forall value,
+  encrypted_content_present (classify_content value) = false \/ opaque_content (classify_content value) = true.
+Proof. intros value;exact (proj2 (complete_request_classification_is_consistent value)). Qed.
 Theorem public_image_requests_never_use_textual_fallback : forall source,
   0 < image_count (classify_content (get source "request")) ->
   Api.call "backend.compaction_meter_fallback" source = action "error".
 Proof.
  intros source positive;apply public_opaque_requests_never_use_textual_fallback.
  destruct (complete_request_image_count_is_opaque (get source "request")) as [zero|opaque];[lia|exact opaque].
+Qed.
+Theorem public_encrypted_requests_never_use_textual_fallback : forall source,
+  encrypted_content_present (classify_content (get source "request")) = true ->
+  Api.call "backend.compaction_meter_fallback" source = action "error".
+Proof.
+ intros source encrypted;apply public_opaque_requests_never_use_textual_fallback.
+ destruct (complete_request_encrypted_continuation_is_opaque (get source "request")) as [absent|opaque];
+   [rewrite encrypted in absent;discriminate|exact opaque].
+Qed.
+
+Theorem public_encrypted_chatgpt_image_requests_are_metered : forall source,
+  is_object (get source "request") = true ->
+  str (get source "profile") "provider" = "chatgpt" ->
+  encrypted_content_present (classify_content (get source "request")) = true ->
+  0 < image_count (classify_content (get source "request")) ->
+  N.leb (num source "bytes") 33554432 = true ->
+  Api.call "backend.compaction_measurement_plan" source =
+    success (JObject [("action",JString "remote")]).
+Proof.
+ intros source request_object chatgpt encrypted images within_frame.
+ change (measurement_plan source = success (JObject [("action",JString "remote")]));
+ unfold measurement_plan;rewrite request_object,chatgpt.
+ assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
+   by (apply N.ltb_lt;exact images).
+ rewrite has_images,encrypted,within_frame;reflexivity.
 Qed.

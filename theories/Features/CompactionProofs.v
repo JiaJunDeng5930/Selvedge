@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning.
+From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning CompactionPlan.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
 Import ListNotations.
 Open Scope string_scope.
@@ -11,6 +11,7 @@ Module K := Selvedge.Kernel.State.
 Module C := Selvedge.Features.CompactionTypes.
 Module CC := Selvedge.Features.CompactionCodec.
 Module A := Selvedge.Features.Compaction.
+Module P := Selvedge.Kernel.CompactionPlan.
 Module G := Selvedge.Generated.Commands.
 
 Lemma a_blocked_model_waits_with_live_operations : forall id value task operations,
@@ -177,4 +178,21 @@ Proof.
    rewrite Activity, StoppedTask. split; [reflexivity|]. split; [|reflexivity].
    unfold cancelled. destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
    cbn in StoppedTask; subst lifecycle; destruct queued; reflexivity.
+Qed.
+
+(** The feature callback forwards recovered progress with its captured input,
+    purpose and scope to the currently configured target. The kernel planner
+    separately proves that recovered progress retains native raw history. *)
+Theorem native_unavailable_callback_dispatches_portable_rebuild :
+ forall id ticket task input purpose progress scope entry value target portable,
+ C.entry_job entry = C.Compacting ticket input purpose progress scope ->
+ A.relevant input task value = true ->
+ P.receive progress (JObject [("action",JString "native_unavailable")]) = P.Next portable ->
+ A.configured_target task (A.registry value) = Some target ->
+ A.compact_result id ticket task (JObject [("action",JString "native_unavailable")]) false entry value =
+ Some (A.dispatch_compact id task input purpose target portable scope entry value).
+Proof.
+ intros id ticket task input purpose progress scope entry value target portable Job Relevant Recovered Target.
+ unfold A.compact_result. rewrite Job, N.eqb_refl, Relevant.
+ rewrite Recovered, Target. reflexivity.
 Qed.
