@@ -27,7 +27,7 @@ export async function taskIdle(service, taskId = 0) {
   throw new Error(`Task did not settle: ${JSON.stringify(page)}`);
 }
 
-export async function responsesServer(t, respond, { measure } = {}) {
+export async function responsesServer(t, respond, { measure, observeRequest } = {}) {
   const requests = [];
   const failures = [];
   const server = http.createServer((request, response) => {
@@ -35,6 +35,7 @@ export async function responsesServer(t, respond, { measure } = {}) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      observeRequest?.(body, request);
       if (measure && request.url.endsWith('/input_tokens')) {
         const input_tokens = await measure(body, request);
         response.writeHead(200, { 'content-type': 'application/json' });

@@ -8,6 +8,11 @@ Open Scope list_scope.
 
 Definition indexed {A B : Type} := @Numbers.indexed A B.
 Definition association := Selvedge.Features.Domain.association.
+(* Auxiliary text generation reuses the connection, without the Task's effort
+   or adaptive evaluator. The provider resolves its ordinary default effort. *)
+Definition task_text_model_json (value : profile) := JObject [
+ ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
+ ("name", JString (profile_model value)); ("reasoning", JString "default")].
 Definition task_owner (id : N) (value : task) (features : Selvedge.Features.Domain.state) := Selvedge.Features.Domain.owner_id id (task_lineage value) features.
 Definition operation_status (value : operation) := match operation_stage value with
  | Executing _ | Elevated _ _ => "running"
@@ -179,10 +184,10 @@ Definition effect_json (state : world) (value : effect) : json :=
  | ArchiveWorktree id source root backend => JObject [("kind", JString "worktree_archive"); ("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id); ("root", JString root); ("source_root", JString source)]
  | SuggestTitle id ticket profile prompt => JObject [
    ("kind", JString "task_title"); ("task_id", number id); ("ticket", number ticket);
-   ("model", model_json profile); ("prompt", JString prompt)]
+   ("model", task_text_model_json profile); ("prompt", JString prompt)]
  | SuggestCard id ticket revision profile prompt draft retitle => JObject [
    ("kind", JString "board_text"); ("card_id", number id); ("ticket", number ticket);
-   ("model", model_json profile); ("prompt", JString prompt); ("retitle", JBool retitle)]
+   ("model", task_text_model_json profile); ("prompt", JString prompt); ("retitle", JBool retitle)]
  | RunConnectionJob id job => JObject [
    ("kind", JString "chatgpt_exec"); ("operation_id", number id);
    ("arguments", Selvedge.Features.Domain.job_arguments_json job); ("execution", JObject [
