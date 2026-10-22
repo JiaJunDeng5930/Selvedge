@@ -6,6 +6,13 @@ Open Scope string_scope.
 Definition request_limit : nat := 4%nat.
 Definition request_scalars : nat := 4096%nat.
 
+Fixpoint request_plain_text (parts : content) : string :=
+  match parts with
+  | [] => EmptyString
+  | TextPart text :: rest => String.append text (request_plain_text rest)
+  | ImagePart _ :: rest => request_plain_text rest
+  end.
+
 (* Task text has already passed UTF-8 admission. Continuation bytes belong to
    the preceding scalar, including when its leading byte exhausts the budget. *)
 Fixpoint request_excerpt_end (count : nat) (text : string) (offset : nat) {struct text} : nat :=
@@ -22,7 +29,7 @@ Fixpoint request_excerpt_end (count : nat) (text : string) (offset : nat) {struc
 Definition request_excerpt (text : string) : string :=
   String.substring O (request_excerpt_end request_scalars text O) text.
 Definition user_requests (history : list message) : list json :=
-  map (fun parts => JString (request_excerpt (content_text parts)))
+  map (fun parts => JString (request_excerpt (request_plain_text parts)))
     (fold_left (fun requests message =>
       match message with
       | UserMessage parts => firstn request_limit (parts :: requests)
