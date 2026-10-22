@@ -345,7 +345,13 @@ Theorem resolved_installation_associates_its_work : forall id owner checked call
 Proof.
  intros id owner checked caller original prepared nodes effects Owned Prepared.
  unfold TaskGraph.install. rewrite Owned, Prepared.
- cbn -[N.eqb]; now rewrite N.eqb_refl.
+ unfold F.association, K.with_features, Selvedge.Features.State.with_graph_owners.
+ (* RecordUpdate setters reduce when their input records are constructors. *)
+ destruct (TaskGraph.store id
+   (F.TaskGraph (TaskGraph.declaration_name (proj1_sig checked)) nodes
+     (TaskGraph.declaration_rules (proj1_sig checked)) []) prepared)
+   as [sequence tasks ticket environment projects features].
+ destruct features. cbn -[N.eqb]; now rewrite N.eqb_refl.
 Qed.
 
 Theorem graph_removal_preserves_other_identities : forall request caller value previous,
