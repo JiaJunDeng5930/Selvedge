@@ -17,38 +17,43 @@ async function submitTask(page) {
   return reply.result.task_id;
 }
 
-async function projectTask(page, name) {
-  await page.getByRole('navigation', { name: 'Global navigation', exact: true })
-    .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name, exact: true }).click();
-  await page.getByRole('main').getByRole('list', { name: 'Workspace directories', exact: true }).waitFor();
-  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
+async function projectTask(page) {
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
+    .getByRole('button', { name: 'Acceptance Project', exact: true }).click();
   await page.getByRole('button', { name: 'Start task', exact: true }).waitFor();
 }
 
-test('Project task creation preserves restored inheritance and explicitly empty workspaces through the browser', async t => {
+async function projectWorkspaceFixture(t) {
   const fixture = await browserFixture(t);
-  const { page, command } = fixture;
+  const { command } = fixture;
   const root = path.join(fixture.root, 'Project workspace');
   await mkdir(root);
   await writeFile(path.join(root, 'AGENTS.md'), 'Use the Project acceptance instructions.');
   const { project_id } = await command({ op: 'create_project', name: 'Acceptance Project',
     workspace: { roots: [root], primary_root: root } });
+  return { fixture, root, project_id };
+}
+
+test('Project task creation restores Project workspace inheritance through the browser', async t => {
+  const { fixture, root, project_id } = await projectWorkspaceFixture(t);
+  const { page, command } = fixture;
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'Acceptance Project', exact: true }).click();
-  await page.getByRole('main').getByRole('list', { name: 'Workspace directories', exact: true }).waitFor();
-  assert.equal(await page.getByRole('main').getByRole('list', { name: 'Workspace directories', exact: true }).innerText(), root);
+  await page.getByRole('main').getByRole('region', { name: 'Acceptance Project', exact: true }).hover();
+  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Project details', exact: true }).click();
+  await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).waitFor();
+  assert.ok((await page.getByRole('main').innerText()).includes(root));
   await page.getByText('Use the Project acceptance instructions.', { exact: true }).waitFor();
   await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   await start.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task remains a passive draft');
-  await page.getByRole('button', { name: 'Primary directory', exact: true }).click();
-  let workspace = page.getByRole('dialog', { name: 'Primary directory', exact: true });
-  await workspace.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  let workspace = page.getByRole('dialog');
+  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).click();
-  await workspace.getByRole('button', { name: 'Remove', exact: true }).waitFor();
+  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
   await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Use inherited Project workspace');
@@ -56,11 +61,15 @@ test('Project task creation preserves restored inheritance and explicitly empty 
   const inheritedTask = (await command({ op: 'read', task_id: inherited })).task;
   assert.equal(inheritedTask.settings.project_id, project_id);
   assert.deepEqual(inheritedTask.settings.workspace, { roots: [root], primary_root: root });
+});
 
-  await projectTask(page, 'Acceptance Project');
-  await page.getByRole('button', { name: 'Primary directory', exact: true }).click();
-  workspace = page.getByRole('dialog', { name: 'Primary directory', exact: true });
-  await workspace.getByRole('button', { name: 'Remove', exact: true }).click();
+test('Project task creation preserves explicitly empty workspaces through the browser', async t => {
+  const { fixture, root, project_id } = await projectWorkspaceFixture(t);
+  const { page, command } = fixture;
+  await projectTask(page);
+  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  const workspace = page.getByRole('dialog');
+  await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
@@ -83,7 +92,7 @@ test('ordered image content and the active composer survive responsive navigatio
     { type: 'text', text: 'After images marker' },
   ] });
   await taskIdle(fixture.running.service, task_id);
-  await page.getByRole('navigation', { name: 'Tasks', exact: true })
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: /^Image fixture task/ }).click();
   await page.getByText('Image request accepted.', { exact: true }).waitFor();
   const order = await page.getByRole('main').evaluate((root, id) => {
@@ -114,15 +123,15 @@ test('ordered image content and the active composer survive responsive navigatio
   assert.equal(await page.getByRole('banner').count(), 1);
   await tasks.focus();
   await tasks.press('Space');
-  await page.getByRole('dialog', { name: 'Tasks', exact: true }).waitFor();
+  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
   assert.equal(await page.getByRole('banner').count(), 1);
   await page.keyboard.press('Escape');
-  await page.getByRole('dialog', { name: 'Tasks', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await tasks.evaluate(node => node === document.activeElement), true,
     'Closing the Task tree restores its actual keyboard launcher');
 });
 
-test('live graph node templates remain operable and restore state only to their own document', { timeout: 60000 }, async t => {
+async function graphTemplateFixture(t) {
   const fixture = await browserFixture(t);
   const { page, command } = fixture;
   const alpha = await command({ op: 'create_idle', profile: 'demo' });
@@ -156,28 +165,36 @@ test('live graph node templates remain operable and restore state only to their 
     assert.ok(fixture.requests.length > index, 'The complete service must request the viewer reply from its model');
     fixture.finish(index, { text: '```selvedge-ui\n' + source + '\n```' });
     const { task } = await taskIdle(fixture.running.service, task_id);
-    await page.getByRole('navigation', { name: 'Tasks', exact: true })
-      .getByRole('button').filter({ hasText: task.title }).click();
+    const taskEntry = page.getByRole('navigation', { name: 'Task tree', exact: true })
+      .getByRole('button').filter({ hasText: task.title });
+    await taskEntry.waitFor();
+    await taskEntry.click();
+    await page.getByRole('main').getByText(task.title, { exact: true }).first().waitFor();
     await page.getByRole('button', { name: 'Increment alpha', exact: true }).waitFor();
     return task.title;
   }
+  return { page, viewer };
+}
+
+test('live graph node templates remain operable and restore their own state atomically', { timeout: 60000 }, async t => {
+  const { page, viewer } = await graphTemplateFixture(t);
   const title = await viewer('Graph interaction acceptance');
-  assert.match(await page.getByRole('list', { name: 'Graph node states', exact: true }).innerText(), /alpha[\s\S]*beta/);
-  assert.match(await page.getByRole('list', { name: 'Connection rules', exact: true }).innerText(), /flow/);
+  assert.match(await page.getByRole('list', { name: '图节点状态', exact: true }).innerText(), /alpha[\s\S]*beta/);
+  assert.match(await page.getByRole('list', { name: '连接规则', exact: true }).innerText(), /flow/);
   await page.getByRole('button', { name: 'Increment alpha', exact: true }).click();
   await page.getByText('Count: 1', { exact: true }).waitFor();
   await page.getByRole('textbox', { name: 'Shared note', exact: true }).fill('One persistent logical note');
   await page.getByRole('button', { name: 'Increment beta', exact: true }).click();
   await page.getByText('Count: 2', { exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: 'Shared note', exact: true }).inputValue(), 'One persistent logical note');
-  await page.getByRole('button', { name: '→', exact: true }).click();
+  await page.getByRole('button', { name: '右移', exact: true }).click();
   const panned = await page.getByRole('button', { name: 'Increment alpha', exact: true }).boundingBox();
-  await page.getByRole('button', { name: 'Fit width', exact: true }).click();
+  await page.getByRole('button', { name: '适应宽度', exact: true }).click();
   await page.waitForFunction(x => {
     const action = [...document.querySelectorAll('button')].find(node => node.textContent === 'Increment alpha');
     return action && action.getBoundingClientRect().x !== x;
   }, panned.x);
-  for (let step = 0; step < 3; step++) await page.getByRole('button', { name: '−', exact: true }).click();
+  for (let step = 0; step < 3; step++) await page.getByRole('button', { name: '缩小', exact: true }).click();
   const first = await page.getByRole('button', { name: 'Increment alpha', exact: true }).boundingBox();
   const second = await page.getByRole('button', { name: 'Increment beta', exact: true }).boundingBox();
   assert.ok(first.width >= 24 && first.height >= 24 && second.width >= 24 && second.height >= 24,
@@ -186,7 +203,8 @@ test('live graph node templates remain operable and restore state only to their 
     || first.y + first.height <= second.y || second.y + second.height <= first.y,
   'Different node controls must not overlap at low zoom');
   await page.reload();
-  await page.getByRole('navigation', { name: 'Tasks', exact: true }).getByRole('button').filter({ hasText: title }).click();
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
+  await page.getByRole('navigation', { name: 'Task tree', exact: true }).getByRole('button').filter({ hasText: title }).click();
   await page.getByText('Count: 2', { exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: 'Shared note', exact: true }).inputValue(), 'One persistent logical note');
   const invalid = await page.evaluate(() => {
@@ -198,10 +216,19 @@ test('live graph node templates remain operable and restore state only to their 
   });
   await page.evaluate(([key, raw]) => localStorage.setItem(key, raw), invalid);
   await page.reload();
-  await page.getByRole('navigation', { name: 'Tasks', exact: true }).getByRole('button').filter({ hasText: title }).click();
+  await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
+  await page.getByRole('navigation', { name: 'Task tree', exact: true }).getByRole('button').filter({ hasText: title }).click();
   await page.getByText('Count: 0', { exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: 'Shared note', exact: true }).inputValue(), '',
     'An invalid persisted field must reject the whole restoration before any other field is applied');
+});
+
+test('the same graph definition in another Task keeps an independent local state', { timeout: 60000 }, async t => {
+  const { page, viewer } = await graphTemplateFixture(t);
+  await viewer('Graph document with saved state');
+  await page.getByRole('button', { name: 'Increment alpha', exact: true }).click();
+  await page.getByText('Count: 1', { exact: true }).waitFor();
+  await page.getByRole('textbox', { name: 'Shared note', exact: true }).fill('This note belongs to the first Task.');
   await viewer('Independent graph document');
   await page.getByText('Count: 0', { exact: true }).waitFor();
   assert.equal(await page.getByRole('textbox', { name: 'Shared note', exact: true }).inputValue(), '',

@@ -14,7 +14,9 @@ test('a Project task keeps its readable context and its primary and supporting a
     workspace: { roots: [workspace], primary_root: workspace } });
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
-  await page.getByRole('main').getByRole('button', { name: 'Harbour 海港', exact: true }).click();
+  await page.getByRole('main').getByRole('region', { name: 'Harbour 海港', exact: true }).hover();
+  await page.getByRole('main').getByRole('button', { name: 'Project actions', exact: true }).click();
+  await page.getByRole('button', { name: 'Project details', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
   await page.getByText('Work on Harbour 海港', { exact: true }).waitFor();
 
@@ -72,7 +74,7 @@ test('interactive source disclosure controls the original Markdown fence without
   fixture.finish(requestIndex, { text: '```text\nOrdinary fence remains readable\n```\n\n```selvedge-ui\n'
     + source + '\n```' });
   const { task } = await taskIdle(fixture.running.service, task_id);
-  await page.getByRole('navigation', { name: 'Tasks', exact: true })
+  await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button').filter({ hasText: task.title }).click();
   const increase = page.getByRole('button', { name: 'Increase original count', exact: true });
   await increase.waitFor();
