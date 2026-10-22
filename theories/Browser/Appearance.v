@@ -277,11 +277,10 @@ Definition root_properties env : list (string * string) :=
   [("color",primary_text); ("background",background CanvasPaint Rest);
    ("--layout-clearance",Typography.px (Layout.clearance env));
    ("--native-focus-ring",token "--color-token-focus-border");
-   ("--native-focus-width","2px"); ("--native-focus-offset","-4px");
-   ("--rich-body-font",Typography.font_family Typography.Body);
-   ("--rich-code-font",Typography.font_family Typography.CodeBody)] ++
+   ("--native-focus-width","2px"); ("--native-focus-offset","-4px")] ++
   flat_map (fun '(name, tier, strength) =>
-    [(String.append "--rich-" (String.append name "-size"),Typography.px (Typography.size root tier));
+    [(String.append "--rich-" (String.append name "-font"),Typography.font_family tier);
+     (String.append "--rich-" (String.append name "-size"),Typography.px (Typography.size root tier));
      (String.append "--rich-" (String.append name "-line"),Typography.px (Typography.line_height root tier));
      (String.append "--rich-" (String.append name "-weight"),Numbers.show_nat (Typography.weight strength))])
     [("title",Typography.Title,Typography.Medium); ("section",Typography.Section,Typography.Strong);

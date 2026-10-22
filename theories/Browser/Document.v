@@ -40,6 +40,9 @@ Definition text_tag role := match role with
 Definition native_string value := match value with
  | JString value=>value | JNull=>"" | value=>render_json value end.
 Definition native_checked value := match value with JBool value=>value|_=>false end.
+Definition physical_markdown wrapper_key markdown_key text complete metadata : DOM.node :=
+ DOM.Element wrapper_key "div" [("class","physical-markdown")] [] [] (JObject [])
+  [DOM.Markdown markdown_key text complete metadata].
 Definition selection_json (value:option(N*N*bool)) := match value with
  | None=>JNull | Some (start,stop,backward)=>JObject [("start",JNumber (text_number start));
  ("end",JNumber (text_number stop));("direction",JString (if backward then "backward" else "forward"))] end.
@@ -304,15 +307,16 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |S.ActionFeedback _ _ message=>element "p" [("role","status")] [] empty [DOM.Text message]
  |S.DirectoryBrowserLocation path=>element "p" [] [] empty [DOM.Text path]
  |S.PublishedText document=>element "div" [] [] empty
- (DOM.Markdown (String.append key "/markdown") (DocumentPublication.published_text document)
+ (physical_markdown (String.append key "/@physical-markdown") (String.append key "/markdown")
+ (DocumentPublication.published_text document)
  (match DocumentPublication.published_ending document with
  Selvedge.Interaction.Interactive.Types.Open=>false|_=>true end)
  (match DocumentPublication.encode_document document with JObject fields=>JObject(("view",Observation.encode_view view)::fields)|metadata=>metadata end)::children)
  |S.RichText provenance text=>element "div" [] [] empty
- (DOM.Markdown (String.append key "/markdown") text
+ (physical_markdown (String.append key "/@physical-markdown") (String.append key "/markdown") text
  (match provenance with CodeSource.Generated _ _ _ complete=>complete|_=>true end)
  (JObject [("source",CodeSource.encode_source provenance);("view",Observation.encode_view view)])::children)
- |S.EmbeddedMarkdown text=>DOM.Markdown key text true empty
+ |S.EmbeddedMarkdown text=>physical_markdown (String.append key "/@physical-markdown") key text true empty
  |S.CodeFacts facts=>
  let who:=CodeBlock.presented_identity facts in
  let target part:=Observation.physical_target view (DocumentPublication.target_key who part) in
@@ -413,10 +417,12 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  DOM.Element (key++"/body")%string "tbody" [] [] [] empty (map(fun row=>DOM.Element "" "tr" [] [] [] empty
  (map(fun text=>DOM.Element "" "td" [] [] [] empty [DOM.Text text])row))(IP.table_rows table))]
  |S.ActivityContent expanded audit=>element "section" [("data-expanded",flag expanded)] [] empty
- (children ++ if expanded then map(fun face=>DOM.Element
- (String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face)))) "section" [] [] [] empty
+ (children ++ if expanded then map(fun face=>
+ let face_key:=String.append key (String.append "/audit/" (text_number(Audit.face_occurrence face))) in
+ DOM.Element face_key "section" [] [] [] empty
  [DOM.Element "" "h4" [] [] [] empty [DOM.Text(Audit.face_title face)];
- DOM.Markdown "" (Audit.detail(Audit.face_source face)) true empty])audit else [])
+  physical_markdown (String.append face_key "/@physical-markdown") ""
+   (Audit.detail(Audit.face_source face)) true (JObject [])])audit else [])
  |S.SummaryList=>element "ul" [("role","list")]
  [] empty (map(fun child=>DOM.Element "" "li" [] [] [] empty [child])children)
  |S.SkillSuggestions field active=>DOM.Element key "div"
