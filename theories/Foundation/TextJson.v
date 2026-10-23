@@ -92,7 +92,7 @@ Fixpoint drop_prefix prefix source : option string :=
  | _,_=>None end.
 Definition keyword {A} (name:string) (value:A) (s:string) : scan A := match drop_prefix name s with
  | Some rest=>Scanned value rest | None=>Invalid "Invalid JSON literal" end.
-Fixpoint json_value (fuel:nat) (s:string) : scan json :=
+Fixpoint json_value_with (unique_members : bool) (fuel:nat) (s:string) : scan json :=
  match fuel with
  | O=>Invalid "JSON nesting or token budget exceeded"
  | S k=>let s:=trim_left s in match s with
@@ -107,7 +107,7 @@ Fixpoint json_value (fuel:nat) (s:string) : scan json :=
           match text with
           | EmptyString=>More
           | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append reversed [])r else
-            match json_value k text with
+            match json_value_with unique_members k text with
             | Scanned value rest=>let rest:=trim_left rest in
               match rest with
               | EmptyString=>More
@@ -129,11 +129,11 @@ Fixpoint json_value (fuel:nat) (s:string) : scan json :=
           | EmptyString=>More
           | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append reversed [])r else
             match quoted k text with
-            | Scanned key rest=>if existsb (String.eqb key) seen then Invalid "Duplicate object key" else
+            | Scanned key rest=>if unique_members && existsb (String.eqb key) seen then Invalid "Duplicate object key" else
               match trim_left rest with
               | EmptyString=>More
               | String c r=>if Ascii.eqb c ":" then
-                match json_value k r with
+                match json_value_with unique_members k r with
                 | Scanned value rest=>match trim_left rest with
                   | EmptyString=>More
                   | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append((key,value)::reversed)[])r else
@@ -153,11 +153,20 @@ Fixpoint json_value (fuel:nat) (s:string) : scan json :=
     let '(number,rest):=take_while number_char s in
     if number_lexeme number then Scanned (JNumber number) rest else Invalid "Invalid JSON number"
    end end.
+Definition json_value := json_value_with true.
+
 (* DEFENSE: The public JSON entry receives untrusted bytes; invalid UTF-8 cannot become a domain string. *)
 Definition parse_json (s:string) : option json :=
  if Utf8.well_formed s then match json_value (S(String.length s)) s with
  | Scanned value rest=>if String.eqb (trim_left rest) "" then Some value else None
  | _=>None end else None.
+
+(* Raw service values and tool arguments retain every member occurrence.
+   Protocol records use parse_json, whose unique-member admission is unchanged. *)
+Definition parse_json_members (s : string) : option json :=
+ if Utf8.well_formed s then match json_value_with false (S (String.length s)) s with
+ | Scanned value rest => if String.eqb (trim_left rest) "" then Some value else None
+ | _ => None end else None.
 
 Definition utf8_count (s:string) : option nat := option_map (@List.length N) (Utf8.decode s).
 Definition within_scalars maximum s := match utf8_count s with Some n=>(n<=?maximum) | None=>false end.

@@ -52,18 +52,30 @@ Qed.
 Theorem public_invalid_raw_json_is_rejected : forall source,
   base_source source = true -> strings source ["text"] = true ->
   TextJson.parse_json (str source "text") = None ->
+  domain_json_failure (str source "text") = false ->
   Api.call "web.decode" source = failure "SyntaxError" "Invalid ChatGPT Web JSON".
 Proof.
- intros source B S P.
+ intros source B S P D.
  change ((if base_source source && strings source ["text"] then decode_text (str source "text")
    else err "Invalid ChatGPT Web JSON source") = failure "SyntaxError" "Invalid ChatGPT Web JSON").
- rewrite B,S;cbn;unfold decode_text;now rewrite P.
+ rewrite B,S;cbn;unfold decode_text;now rewrite P,D.
+Qed.
+Theorem public_invalid_domain_json_is_rejected : forall source,
+  base_source source = true -> strings source ["text"] = true ->
+  TextJson.parse_json (str source "text") = None ->
+  domain_json_failure (str source "text") = true ->
+  Api.call "web.decode" source = err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode".
+Proof.
+ intros source B S P D.
+ change ((if base_source source && strings source ["text"] then decode_text (str source "text")
+   else err "Invalid ChatGPT Web JSON source") = err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode").
+ rewrite B,S;cbn;unfold decode_text;now rewrite P,D.
 Qed.
 Theorem public_successful_invalid_http_json_reports_protocol_error : forall source,
   base_source source = true ->
   objects source ["response"] && Json.is_bool (get (get source "response") "ok") &&
     natural (get (get source "response") "status") && strings source ["text"] = true ->
-  TextJson.parse_json (str source "text") = None -> boolean_field (get source "response") "ok" = true ->
+  TextJson.parse_json_members (str source "text") = None -> boolean_field (get source "response") "ok" = true ->
   Api.call "web.http_json" source = failure "http_json_parse" "The service returned invalid JSON".
 Proof.
  intros source B S P O.

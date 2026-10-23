@@ -110,7 +110,7 @@ Definition account_function_output arguments namespace := JObject [
   ("output",JArray [JObject [("type",JString "function_call");("namespace",JString namespace);
     ("call_id",JString "call-1");("name",JString "read_work");("arguments",JString arguments)]])].
 Theorem public_local_function_call_decodes_raw_arguments : forall arguments fields,
-  TextJson.parse_json arguments = Some (JObject fields) ->
+  TextJson.parse_json_members arguments = Some (JObject fields) ->
   Api.call "backend.output" (account_function_output arguments "selvedge") =
     success (JArray [JObject [("type",JString "call");("id",JString "call-1");
       ("name",JString "read_work");("arguments",JObject fields)]]).
@@ -118,7 +118,7 @@ Proof.
   intros arguments fields parsed.
   change (Api.call "backend.output" (account_function_output arguments "selvedge"))
     with (BackendResponses.output (account_function_output arguments "selvedge")).
-  cbn -[TextJson.parse_json]. rewrite parsed. reflexivity.
+  cbn -[TextJson.parse_json_members]. rewrite parsed. reflexivity.
 Qed.
 Theorem public_foreign_function_namespace_is_rejected : forall arguments namespace,
   namespace <> local_tool_namespace ->
@@ -129,17 +129,17 @@ Proof.
   apply String.eqb_neq in foreign.
   change (Api.call "backend.output" (account_function_output arguments namespace))
     with (BackendResponses.output (account_function_output arguments namespace)).
-  cbn -[TextJson.parse_json]. rewrite foreign. reflexivity.
+  cbn -[TextJson.parse_json_members]. rewrite foreign. reflexivity.
 Qed.
 Theorem public_unparseable_function_arguments_are_rejected : forall arguments,
-  TextJson.parse_json arguments = None ->
+  TextJson.parse_json_members arguments = None ->
   Api.call "backend.output" (account_function_output arguments "selvedge") =
     err "Invalid JSON function arguments".
 Proof.
   intros arguments malformed.
   change (Api.call "backend.output" (account_function_output arguments "selvedge"))
     with (BackendResponses.output (account_function_output arguments "selvedge")).
-  cbn -[TextJson.parse_json]. rewrite malformed. reflexivity.
+  cbn -[TextJson.parse_json_members]. rewrite malformed. reflexivity.
 Qed.
 Theorem public_helper_request_has_no_tool_authority : forall tools callable,
   let source := JObject [("effect",JObject [("kind",JString "context_compaction");

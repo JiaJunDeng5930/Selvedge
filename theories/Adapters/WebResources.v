@@ -100,7 +100,7 @@ Definition event (header : bool) source :=
 
 Definition frame source := if eq (get source "frame") "data" "[DONE]" then success JNull
   else decode_text (str (get source "frame") "data").
-Definition http_json source := match TextJson.parse_json (str source "text") with
+Definition http_json source := match TextJson.parse_json_members (str source "text") with
   | Some value => success (JObject [("present",JBool true);("value",value)])
   | None => if boolean_field (get source "response") "ok"
     then failure "http_json_parse" "The service returned invalid JSON"

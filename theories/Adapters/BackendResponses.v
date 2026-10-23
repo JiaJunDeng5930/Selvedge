@@ -28,7 +28,7 @@ Definition parse_output (profile item markdown_fences : json) : outcome provider
     else if nonempty (get item "call_id") && nonempty (get item "name") && is_text (get item "arguments") then
       (* DEFENSE: Provider function arguments are external JSON text, including
          duplicate object members; they must be parsed before tool dispatch. *)
-      match TextJson.parse_json (str item "arguments") with
+      match TextJson.parse_json_members (str item "arguments") with
       | Some (JObject fields) => Accepted (ToolCall (str item "call_id") (str item "name") (JObject fields))
       | Some _ => reject "Function arguments must be a JSON object"
       | None => reject "Invalid JSON function arguments" end
