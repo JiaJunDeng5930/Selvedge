@@ -290,7 +290,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       signal?.throwIfAborted();
       // The PTY foreground job owns signals; the sandbox supervisor stays outside its process group.
       const command = launch.command ?? (mode === 'pty'
-        ? ['-c', 'set -m; "$@"; exit "$?"', 'selvedge-pty', '/bin/bash', '--noprofile', '--norc', '-c', arguments_.command]
+        ? ['-c', 'set -m; "$@"; exit "$?"', 'selvedge-pty', '/bin/bash', '--noprofile', '--norc', '-i', '-c', arguments_.command]
         : ['-c', arguments_.command]);
       child = Bun.spawn([launch.file, ...launch.prefix, ...command], {
         cwd: launch.cwd, env: { ...launch.env, ...(mode === 'pty' ? { TERM: 'xterm-256color' } : {}) },
