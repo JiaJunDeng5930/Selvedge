@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, access, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -6,7 +6,7 @@ import path from 'node:path';
 const plugin = fileURLToPath(new URL('../', import.meta.url));
 const checkout = path.resolve(plugin, '../..');
 const hash = value => createHash('sha256').update(value).digest('hex');
-const assets = ['host-model.mjs', 'host-runtime.js', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
+const assets = ['host-model.mjs', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
 export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
 
 /** Runtime packages contain the actual extracted definitions and no compiler dependency. */
@@ -33,7 +33,6 @@ export async function buildModel({ buildResult } = {}) {
   await mkdir(generated, { recursive: true });
   const sources = {
     'host-model.mjs': '.build/host-model.mjs',
-    'host-runtime.js': '.build/host-runtime.js',
     'json-tokens.mjs': 'host/public/json-tokens.mjs',
     'model-boundary.mjs': 'host/public/model-boundary.mjs',
     'opaque-credentials.mjs': 'host/opaque-credentials.mjs',
@@ -42,8 +41,7 @@ export async function buildModel({ buildResult } = {}) {
   for (const [name, source] of Object.entries(sources)) {
     const original = await readFile(path.join(checkout, source));
     // DEFENSE: Another build can replace an extraction artifact after the supplied build result was captured.
-    const artifact = ['host-model.mjs', 'host-runtime.js'].indexOf(name);
-    if (artifact >= 0 && hash(original) !== model.artifacts[artifact]) {
+    if (name === 'host-model.mjs' && hash(original) !== model.artifacts[0]) {
       throw new Error(`Host extraction changed before plugin packaging: ${source}`);
     }
     const packaged = name === 'model-boundary.mjs'
@@ -51,6 +49,8 @@ export async function buildModel({ buildResult } = {}) {
     await writeFile(path.join(generated, name), packaged);
     provenance[name] = { source, sourceSha256: hash(original), sha256: hash(packaged) };
   }
+  // DEFENSE: Rebuilding a package can leave the retired split runtime in its shipped directory.
+  await rm(path.join(generated, 'host-runtime.js'), { force: true });
   await writeFile(path.join(generated, 'sources.json'), `${JSON.stringify({ format: 'selvedge-rocq-plugin-1',
     model, modelFingerprint: hash(JSON.stringify(model)), assets: provenance }, null, 2)}\n`);
   return requirePackagedModel();
@@ -62,10 +62,10 @@ export async function requirePackagedModel() {
   try {
     manifest = JSON.parse(await readFile(path.join(generated, 'sources.json'), 'utf8'));
     if (manifest.format !== 'selvedge-rocq-plugin-1') throw new Error('Unknown extracted model manifest format');
-    // DEFENSE: An interrupted or edited manifest must still bind the extraction inputs to its two shipped artifacts.
+    // DEFENSE: An interrupted or edited manifest must still bind the extraction inputs to the shipped bundle.
     if (manifest.modelFingerprint !== hash(JSON.stringify(manifest.model))
-        || manifest.model?.artifacts?.[0] !== manifest.assets?.['host-model.mjs']?.sha256
-        || manifest.model?.artifacts?.[1] !== manifest.assets?.['host-runtime.js']?.sha256) {
+        || manifest.model?.artifacts?.length !== 1
+        || manifest.model.artifacts[0] !== manifest.assets?.['host-model.mjs']?.sha256) {
       throw new Error('Packaged plugin extraction identity does not match its assets');
     }
     for (const name of assets) {
