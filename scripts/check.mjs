@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { parse } from 'acorn';
 import { build, root, run } from './build.mjs';
-import { auditAssumptions } from './assumptions.mjs';
 
 async function sources(directory) {
   return (await Promise.all((await readdir(path.join(root, directory), { withFileTypes: true })).map(entry => {
@@ -17,7 +16,6 @@ export async function check(buildResult) {
   const completed = buildResult ?? await build({ check: true });
   if (!completed.checked) throw new Error('Repository check requires a complete checked production build');
   await run('bash', ['-n', 'scripts/bootstrap.sh']);
-  await auditAssumptions();
   await run('bun', ['scripts/check-web-vendor.mjs']);
   const scripts = (await Promise.all(['host', 'scripts', 'remote', 'relay', 'plugins', 'examples', 'tests'].map(sources))).flat();
   let cursor = 0;
