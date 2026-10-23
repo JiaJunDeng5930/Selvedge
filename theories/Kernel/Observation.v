@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection WorkspaceBackend.
+From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection WorkspaceBackend Workspace.
 From Selvedge.Features Require Import Domain Observation CompactionCodec WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
@@ -110,6 +110,8 @@ Definition board_json := @Selvedge.Features.Observation.board_json.
 Definition rights_json := @Selvedge.Features.Observation.rights_json.
 Definition grant_json := @Selvedge.Features.Observation.grant_json.
 Definition remote_json := @Selvedge.Features.Observation.remote_json.
+Definition projects_json (projects : list project) :=
+ map (fun entry => project_json (fst entry) (snd entry)) (Workspace.ordered_projects projects).
 Definition worktree_json := @Selvedge.Features.Observation.worktree_json.
 Definition graph_message_json := @Selvedge.Features.Observation.graph_message_json.
 Definition graph_action_json := @Selvedge.Features.Observation.graph_action_json.
@@ -136,8 +138,7 @@ Definition world_json (value : world) :=
  ("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)));
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));
- ("projects", JArray (fold_right (fun value rest => match value with Some value => value :: rest | None => rest end) []
- (indexed (fun id project => if project_deleted project then None else Some (project_json id project)) 0 (world_projects value))));
+ ("projects", JArray (projects_json (world_projects value)));
  ("works", JArray (indexed work_json 0 (Selvedge.Features.Domain.feature_works features)));
  ("graphs", JArray (present_values(fun id graph=>graph_snapshot id graph features)(Selvedge.Features.Domain.feature_graphs features)));
  ("board", Selvedge.Features.Observation.board_json_in_world value);

@@ -37,7 +37,8 @@ Definition create_project (name : string) (source : json) (guidance : option jso
       Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
       N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
    let id := N.of_nat (List.length (world_projects value)) in
-   let project := Project name workspace guidance (match worktree with Some value => value | None => false end) false in
+   let project := Project name workspace guidance (match worktree with Some value => value | None => false end)
+    (Workspace.next_project_order (world_projects value)) false in
    accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
    else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
  end.
@@ -52,7 +53,8 @@ Definition update_project (id : N) (name : option string) (workspace guidance : 
      let name := match name with Some name => name | None => project_name project end in
      let guidance := match guidance with Some value => value | None => Domain.project_guidance project end in
      if Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance then
-     let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end) false in
+     let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
+      (Workspace.next_project_order (world_projects value)) false in
      accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
      else reject "invalid_project" "Project name or guidance is invalid" value
    end
@@ -65,7 +67,7 @@ Definition delete_project (id : N) (value : world) :=
      | Some current => N.eqb id current | None => false end) (world_tasks value)
    then reject "project_in_use" "A project referenced by a task cannot be deleted" value
    else accept (JObject [("project_id",number id)])
-    (with_projects (replace id (Project "" (Workspace [] None) JNull false true) (world_projects value)) value) []
+    (with_projects (replace id (Project "" (Workspace [] None) JNull false (project_order project) true) (world_projects value)) value) []
  end.
 Definition speech_transcript (id : N) (session item : string) (speaker : Domain.speaker)
  (completion : speech_completion) (text : string) (value : world) :=

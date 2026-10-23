@@ -72,7 +72,7 @@ Definition lineage_valid (id : N) (value : Domain.task) (state : world) :=
    end
  end.
 Definition project_valid (value : Domain.project) :=
- Workspace.valid_project_name (project_name value) && Workspace.valid_workspace (project_workspace value) &&
+ if project_deleted value then true else Workspace.valid_project_name (project_name value) && Workspace.valid_workspace (project_workspace value) &&
  valid_guidance (Domain.project_guidance value) && guidance_member (project_workspace value) (Domain.project_guidance value).
 Definition project_binding (settings : Domain.task_settings) (state : world) := match settings_project settings with
  | None => true | Some id => match registry_at id (world_projects state) with Some project => negb (project_deleted project) | None => false end end.

@@ -171,6 +171,7 @@ Record project := Project {
   project_workspace : workspace;
   project_guidance : json;
   project_worktree : bool;
+  project_order : N;
   project_deleted : bool
 }.
 

@@ -37,8 +37,7 @@ Definition read_project (id : N) (value : world) :=
    else State.success (project_json id project)
  | None => State.failure "project_not_found" "The project does not exist" end.
 Definition projects_json (value : world) :=
- fold_right (fun item rest => match item with Some item => item :: rest | None => rest end) []
-  (indexed (fun id project => if project_deleted project then None else Some (project_json id project)) 0 (world_projects value)).
+ Observation.projects_json (world_projects value).
 Definition answer (command : Selvedge.Generated.Commands.command) (value : world) : option json :=
  match command with
  | Selvedge.Generated.Commands.Cmd_describe _ => Some (State.success describe)

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Schema Utf8 Numbers.
-From Selvedge.Kernel Require Import Domain.
+From Selvedge.Kernel Require Import Domain Numbers.
 Import ListNotations.
 Open Scope string_scope.
 Definition valid_project_name (name : string) :=
@@ -49,3 +49,17 @@ Definition may_delegate (child parent : task_settings) :=
      (settings_workspace child) (settings_workspace parent) &&
    approval_bound (settings_approval child) approval
  end.
+
+(* Stable registry positions are identities; the last registry edit controls
+   presentation order independently of that identity. *)
+Definition next_project_order (projects : list project) :=
+ N.succ (fold_right (fun value order => N.max (project_order value) order) 0%N projects).
+Fixpoint insert_project (entry : N * project) (entries : list (N * project)) :=
+ match entries with
+ | [] => [entry]
+ | first :: rest => if N.leb (project_order (snd first)) (project_order (snd entry))
+   then entry :: entries else first :: insert_project entry rest
+ end.
+Definition ordered_projects (projects : list project) :=
+ fold_right insert_project []
+  (filter (fun entry => negb (project_deleted (snd entry))) (Numbers.indexed pair 0 projects)).
