@@ -53,7 +53,4 @@ Fit uses a single column; zoom returns to the stable grid. Viewport state belong
 to the logical document, while each main or side presentation has separate DOM
 keys and native editing sessions.
 
-Migration corrects three old behaviors: expression errors retain their consumed
-budget, graph panning admits negative displacement, and minimum node enclosures
-do not overlap at low zoom. Graph zoom and fit retain their range and step behavior.
 Build and migration decisions are recorded in repository ADRs.

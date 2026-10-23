@@ -59,7 +59,9 @@ Definition chart_rows p:=firstn Bounds.chart_points(property_array "data"p).
 Definition chart p : outcome(plot input):=
  if negb(valid_field_path(property_text "x" p)&&valid_field_path(property_text "y" p))
  then Error "Chart x and y require nonempty field paths" else
- points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
+ (* The drawing bound must not hide invalid data later in the source collection. *)
+ all_points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(property_array "data"p);;
+ let points:=firstn Bounds.chart_points all_points in
  x_domain <-? magnitude (fun p=>match p.(x_number) with Some x=>Decimal.units x|None=>0 end) points;;
  y_domain <-? magnitude (fun p=>Decimal.units p.(y_number)) points;;
  coordinates <-? chart_coordinates x_domain y_domain 0 (List.length points) points;;
@@ -86,7 +88,7 @@ Definition graph_view path b:=match State.view_at path true b with
  |GraphView zoom x y fit selected=>(zoom,x,y,fit,selected)
  |_ =>(Decimal.one,Decimal.zero,Decimal.zero,false,"")end.
 Definition selected p path b:=let '(zoom,x,y,fit,selection):=graph_view path b in
- match property "select"p with Some(JString id)=>match find_local id b.(locals)with
+ match Expand.graph_selection_target p with Some id=>match find_local id b.(locals)with
  |Some l=>match canonical l with JString s=>s|_=>selection end|None=>selection end|_=>selection end.
 Definition graph_extent count zoom fit pan_x pan_y:=
  fold_left(fun '(width,height) index=>let '(x,y):=position index zoom fit pan_x pan_y in

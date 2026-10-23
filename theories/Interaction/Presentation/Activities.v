@@ -73,6 +73,7 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
      [declared key Roles.Button(secondary "primary" "Use as primary"(Input.ActivityWorkspaceChange occurrence(Input.ChoosePrimaryDirectory path)));
       declared key Roles.Button(secondary "remove" "Remove directory"(Input.ActivityWorkspaceChange occurrence(Input.RemoveDirectory path)))]else[]))roots ++
   if editable then
+   (if String.eqb buffer ""then[]else[information parent "unadded-directory" Information.Status "Add or clear the directory before saving"])++
    [Node(part parent "directory")"directory" "Add directory"Roles.Field
     (EnterDirectory e buffer(fun value=>option_map(Input.ActivityParameter occurrence)(as_string value))
       (if String.eqb buffer ""then None else Some(Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))))[];
@@ -81,8 +82,10 @@ Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
        (Input.ActivityWorkspaceChange occurrence(Input.AddDirectory buffer))
        (if String.eqb buffer ""then Unavailable "Enter a directory"else Available));
       declared parent Roles.Button(secondary "clear" "Clear"(Input.ActivityParameter occurrence ""));
-      declared parent Roles.Button(secondary "browse" "Browse…"
-       (Input.ServiceInput(Services.OpenDirectory e buffer(part parent "browse"))))]] ++
+      declared parent Roles.Button(Control "browse" "Browse…" Secondary
+       (Input.ServiceInput(Services.OpenDirectory e
+         (if String.eqb buffer ""then value_or ""(Domain.workspace_primary workspace)else buffer)(part parent "browse")))
+       (if State.pending_editor e s then Unavailable "Wait for the current action to finish"else Available))]] ++
    if Parameters.inheritable e && negb(UX.collection_inherited members)then
     [declared parent Roles.Button(secondary "inherit" "Use inherited workspace"(Input.ActivityWorkspaceChange occurrence Input.InheritWorkspace))]else[]
   else[])%list.
@@ -183,8 +186,8 @@ Fixpoint relation_nodes {e} snapshot s occurrence parent query request
       Composer.action_feedback parent action(Editors.draft_feedback(State.current_draft s e))++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
        [dialog_actions parent
-        [Node(part parent "submit")"submit"(Editors.submit_label e)Roles.PrimaryButton
-          (ActionCommit e assessment(Control "submit"(Editors.submit_label e)Primary(Input.Submit e(part parent "submit"))
+        [Node(part parent "submit")"submit"(Editors.submit_label(State.current_draft s e)e)Roles.PrimaryButton
+          (ActionCommit e assessment(Control "submit"(Editors.submit_label(State.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))
            (Editors.unit_availability action assessment)))[]]]])]
  |_,_=>children end.
 Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=

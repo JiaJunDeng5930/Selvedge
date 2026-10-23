@@ -1,4 +1,4 @@
-From Stdlib Require Import NArith ZArith.
+From Stdlib Require Import List NArith ZArith.
 From Stdlib Require Export Extraction ExtrOcamlBasic ExtrOcamlNativeString ExtrOcamlNatBigInt ExtrOcamlZBigInt.
 Extraction Language OCaml.
 (* Extracted modules must not shadow native modules used by string mappings. *)
@@ -7,6 +7,9 @@ Extraction Blacklist String List.
 (* Native strings report their byte length without recursively copying suffixes.
    Convert that representable native length to the exact extracted nat. *)
 Extract Constant String.length => "(fun s -> Big_int_Z.big_int_of_int (Stdlib.String.length s))".
+(* Native tail traversal avoids a frame per cell; every increment remains an
+   arbitrary-precision natural rather than a machine-integer accumulator. *)
+Extract Constant List.length => "(fun xs -> Stdlib.List.fold_left (fun count _ -> Big_int_Z.succ_big_int count) Big_int_Z.zero_big_int xs)".
 (** Peano elimination overflowed the JS stack on ordinary surrogate escapes.
     These standard arbitrary-precision representations preserve natural and
     signed integer values; no machine-integer bounds are assumed. *)

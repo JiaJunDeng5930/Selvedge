@@ -25,8 +25,9 @@ Definition decode_view value:=kind <- string_field "kind"value;;match kind with
  |"source"=>open <- bool_field "open"value;;Some(SourceView open)
  |"graph"=>zoom <- decimal_field "zoom"value;;x <- decimal_field "x"value;;y <- decimal_field "y"value;;fit <- bool_field "fit"value;;selected <- string_field "selected"value;;
    if Z.leb (Z.quot Decimal.scale 4)(Decimal.units zoom)&&Z.leb(Decimal.units zoom)(2*Decimal.scale)&&
-      Z.leb(-2000*Decimal.scale)(Decimal.units x)&&Z.leb(Decimal.units x)(2000*Decimal.scale)&&
-      Z.leb(-2000*Decimal.scale)(Decimal.units y)&&Z.leb(Decimal.units y)(2000*Decimal.scale)
+      Decimal.integral x&&Decimal.integral y&&
+      Z.leb 0(Decimal.units x)&&Z.leb(Decimal.units x)(2000*Decimal.scale)&&
+      Z.leb 0(Decimal.units y)&&Z.leb(Decimal.units y)(2000*Decimal.scale)
    then Some(GraphView zoom x y fit selected)else None
  |"table"=>sort_field <- field "sort_field"value;;sort_field <- decode_optional_text sort_field;;descending <- bool_field "descending"value;;page <- number_field "page"value;;page <- parse_nat page;;
    if Nat.leb page Bounds.table_max_page_index then Some(TableView sort_field descending page)else None|_=>None end.

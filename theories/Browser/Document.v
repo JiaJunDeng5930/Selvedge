@@ -98,6 +98,7 @@ Definition control_children {A} (action:Model.control A) (children:list DOM.node
 Definition common key semantic label role := [("id",key);("data-logical-key",semantic);("data-semantic-key",semantic);
  ("data-surface-role",Roles.role_name role)] ++
  (match role with Roles.Main|Roles.Heading|Roles.Dialog|Roles.Menu=>[("tabindex","-1")]|_=>[]end) ++
+ (match role with Roles.Alert=>[("role","alert")]|_=>[]end) ++
  (if String.eqb label "" then [] else [("aria-label",label)]).
 (* Local navigation and dialog headings must not introduce page banner landmarks. *)
 Definition role_tag role := match role with
@@ -701,12 +702,12 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
  |S.ReadOnly text=>element "span"
- (match role with Roles.Alert=>[("role","alert")]|_=>[]end) [] empty [DOM.Text text]
+ [] [] empty [DOM.Text text]
  |S.Fact text=>element "span"
- (match role with Roles.Alert=>[("role","alert")]|_=>[]end) [] empty
+ [] [] empty
  [DOM.Text(if String.eqb text ""then "—"else text)]
  |S.ActionFeedback _ _ message=>element "p"
- (match role with Roles.Alert=>[("role","alert");("aria-live","assertive")]|_=>[("role","status")]end)
+ (match role with Roles.Alert=>[("aria-live","assertive")]|_=>[("role","status")]end)
  [] empty [DOM.Text message]
  |S.DirectoryBrowserLocation path=>element "p" [] [] empty [DOM.Text path]
  |S.PublishedText document=>element "div" [] [] empty

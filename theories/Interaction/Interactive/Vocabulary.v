@@ -43,7 +43,13 @@ Definition provided_types_valid description source:=forallb(fun spec=>
  | Some value,KOptional kind=>match decode_value kind value with Some _=>true|None=>false end
  | _,_=>true end)description.
 Definition component_values(spec:component_spec)(source:list(string*json)):option(fields(full_schema spec)):=
- if provided_types_valid(full_schema spec)source then Schema.decode(full_schema spec)(JObject source)else None.
+ (* Optional decoding erases attribute presence, so reset checks the authored fields first. *)
+ let action_shape:=match spec.(component_role),lookup "action"source with
+ |Action,Some(JString "reset")=>match lookup "target"source,lookup "value"source with
+   |None,None=>true|_,_=>false end
+ |_,_=>true end in
+ if action_shape&&provided_types_valid(full_schema spec)source
+ then Schema.decode(full_schema spec)(JObject source)else None.
 Definition role_name value:=match value with
  |Layout=>"layout"|TextLeaf=>"text"|MarkdownLeaf=>"markdown"|MetricLeaf=>"metric"
  |Field=>"input"|Action=>"action"|Table=>"table"|Column=>"table column"|Chart=>"chart"

@@ -123,7 +123,6 @@ Definition directory_view s :=
     |Resource.Failed _ _ reason=>[read_only parent "failure" "Directory listing failed"reason;
       declared parent Roles.Button(secondary "retry" "Retry"(Input.ServiceInput Services.GoDirectory))]
     |Resource.Loaded _ _ catalog=>(
-      (match string_field "parent" catalog with None=>[]|Some path=>[declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end)++
       map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
        (Input.ServiceInput(Services.VisitDirectory(text "path" entry)))))(Selvedge.Interaction.Codec.items "entries" catalog)++
       (if flag "truncated" catalog then[read_only parent "truncated" "Directories" "The directory listing is truncated"]else[]))%list
@@ -135,12 +134,16 @@ Definition directory_view s :=
      (Input.ServiceInput Services.CloseDirectory)true true))
     [dialog_header parent [title parent "Choose directory"];
      dialog_body parent(match resource with
-      |Resource.Loaded _ _ _=>
-       Node(part parent "location")"directory-location" "Directory"Roles.Field
-        (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
-         (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
-         (Some(Input.ServiceInput Services.GoDirectory)))[]::
-       declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))::content
+      |Resource.Loaded _ _ catalog=>
+       [region parent "navigation" "Folder navigation" Roles.Section
+        ([Node(part parent "location")"directory-location" "Directory"Roles.Field
+          (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
+           (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
+           (Some(Input.ServiceInput Services.GoDirectory)))[];
+         declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))]++
+         match string_field "parent" catalog with None=>[]|Some path=>
+          [declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end);
+        region parent "folders" "Folders" Roles.Section content]
       |_=>content end);
      dialog_actions parent
       (List.app(match resource with Resource.Loaded _ _ _=>

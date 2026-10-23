@@ -25,3 +25,12 @@ Proof.
  rewrite IH. unfold SS.unknown_outcome.
  destruct(N.eqb ticket(SS.ticket pending)); reflexivity.
 Qed.
+
+Theorem unknown_document_callback_is_idle namespace snapshot lagged input state owner:
+ Runtime.callback_owner input=Some owner->
+ Selvedge.Interaction.Documents.known_owner(Runtime.context namespace snapshot state)owner(SS.document_retention state)=false->
+ Runtime.language_step namespace snapshot lagged input state=
+ Selvedge.Interaction.Interactive.State.Decision(SS.interactive_state state)nil.
+Proof.
+ intros callback unknown. unfold Runtime.language_step. rewrite callback,unknown. reflexivity.
+Qed.

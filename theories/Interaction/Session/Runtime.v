@@ -25,10 +25,19 @@ Definition native_language namespace snapshot state input:=match input with
 |IT.SourceDisclosure owner|IT.CopyDefinition owner=>visible namespace snapshot state owner
 |IT.Continue _|IT.Feedback _ _ _ _ _|IT.Restore _ _ _ _|IT.StorageResult _ _ _ _=>true
 |IT.SourceChanged _ _ _ _ _|IT.ExternalChanged _ _|IT.EnvironmentChanged|IT.Remove _=>false end.
+Definition callback_owner input:=match input with
+ |IT.Continue owner|IT.Feedback owner _ _ _ _|IT.Restore owner _ _ _|IT.StorageResult owner _ _ _=>Some owner
+ |_=>None end.
+Definition language_step namespace snapshot lagged input state:=
+ let ctx:=context namespace snapshot state in
+ let admitted:=match callback_owner input with
+ |Some owner=>Documents.known_owner ctx owner(SS.document_retention state)
+ |None=>true end in
+ if admitted then Language.step_visible(visible namespace snapshot state)input(SS.interactive_state state)(Documents.environment ctx lagged)
+ else IS.Decision(SS.interactive_state state)[].
 Definition language_failure namespace snapshot lagged owner path ticket message state:=
  let ctx:=context namespace snapshot state in
- let decision:=Language.step_visible(visible namespace snapshot state)(IT.Feedback owner path ticket false message)
-   (SS.interactive_state state)(Documents.environment ctx lagged)in
+ let decision:=language_step namespace snapshot lagged(IT.Feedback owner path ticket false message)state in
  Authoring.changed(SS.with_interactive_state(IS.next_state decision)state)(map IT.encode_effect(IS.effects decision)).
 Definition language_admission_draft task revision text:=
  Draft.Draft revision(Draft.MessageBody task(Draft.Text text [])Fields.Send)Draft.Editing "" None.
@@ -143,7 +152,7 @@ Definition interpret_language namespace snapshot lagged effect state:Authoring.r
  |_=>Authoring.changed state[IT.encode_effect effect]end.
 Definition apply_language namespace snapshot lagged input state:=
  let ctx:=context namespace snapshot state in
- let decision:=Language.step_visible(visible namespace snapshot state)input(SS.interactive_state state)(Documents.environment ctx lagged)in
+ let decision:=language_step namespace snapshot lagged input state in
  fold_left(fun result effect=>Authoring.append result(interpret_language namespace snapshot lagged effect(Authoring.result_state result)))
  (IS.effects decision)(Authoring.keep(SS.with_interactive_state(IS.next_state decision)state)).
 Definition synchronize namespace snapshot lagged state:=
@@ -152,6 +161,9 @@ Definition synchronize namespace snapshot lagged state:=
  let ctx:=context namespace snapshot state in
  let retained:=Documents.synchronize_documents ctx lagged(SS.document_retention state)in
  let state:=SS.with_retention retained state in
+ (* Inactive owners stay cached; removed documents and replaced epochs do not. *)
+ let state:=SS.with_interactive_state(IS.State(filter(fun block=>
+   Documents.known_owner ctx(IS.block_owner block)retained)(IS.blocks(SS.interactive_state state))))state in
  let definition:=Documents.shared_definition(context namespace snapshot state)retained in
  let initial:=match definition with Some input=>apply_language namespace snapshot lagged input state|None=>Authoring.keep state end in
  Authoring.append skills(Authoring.append initial(apply_language namespace snapshot lagged IT.EnvironmentChanged(Authoring.result_state initial))).
@@ -263,7 +275,7 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  |Documents.IrrelevantObservation=>Authoring.keep state
  |Documents.MalformedObservation=>Authoring.fail state "The document observation does not belong to the current output."end
 |Input.Interactive input=>if native_language namespace snapshot state input then apply_language namespace snapshot lagged input state
- else Authoring.fail state "The interactive input is not accepted from this source."
+ else Authoring.keep state
 |Input.RetainedOutput identity toggle=>Authoring.keep(SS.with_retention
  (Documents.edit_retained(context namespace snapshot state)identity toggle(SS.document_retention state))state)
 |Input.ClearDiscarded task=>Authoring.keep(SS.with_retention

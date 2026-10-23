@@ -16,33 +16,38 @@ Definition valid_id s :=
  match s with EmptyString=>false|String c _=>
  let n:=nat_of_ascii c in (((65<=?n)&&(n<=?90))||((97<=?n)&&(n<=?122)))&&
  (String.length s<=?Bounds.identifier_length)&&forallb name_char(list_ascii_of_string s)end.
-Fixpoint cut_tag (fuel depth:nat)(quoted escaped:bool)(text:string) : scan string :=
+(* Bounded tokens can still exceed the physical JavaScript call stack. *)
+Fixpoint cut_tag_acc (fuel depth:nat)(quoted escaped:bool)(text:string)
+ (reversed:list ascii) : scan string :=
  match fuel with
  | O=>Invalid "Token exceeds its scalar budget"
  | S k=>match text with EmptyString=>More | String c rest=>
    if quoted then
-     if escaped then scan_map(fun suffix=>String c suffix)(cut_tag k depth true false rest)else
-     if Ascii.eqb c "\" then scan_map(fun suffix=>String c suffix)(cut_tag k depth true true rest)else
-     if Ascii.eqb c """" then scan_map(fun suffix=>String c suffix)(cut_tag k depth false false rest)
-     else scan_map(fun suffix=>String c suffix)(cut_tag k depth true false rest)
-   else if Ascii.eqb c """" then scan_map(fun suffix=>String c suffix)(cut_tag k depth true false rest)
-   else if Ascii.eqb c "{"then scan_map(fun suffix=>String c suffix)(cut_tag k(S depth)false false rest)
-   else if Ascii.eqb c "}"then match depth with O=>Invalid "Unmatched attribute brace"|S n=>scan_map(fun suffix=>String c suffix)(cut_tag k n false false rest)end
-   else if Ascii.eqb c ">"&&Nat.eqb depth 0 then Scanned(String c "")rest
-   else scan_map(fun suffix=>String c suffix)(cut_tag k depth false false rest)
+     if escaped then cut_tag_acc k depth true false rest(c::reversed)else
+     if Ascii.eqb c "\" then cut_tag_acc k depth true true rest(c::reversed)else
+     if Ascii.eqb c """" then cut_tag_acc k depth false false rest(c::reversed)
+     else cut_tag_acc k depth true false rest(c::reversed)
+   else if Ascii.eqb c """" then cut_tag_acc k depth true false rest(c::reversed)
+   else if Ascii.eqb c "{"then cut_tag_acc k(S depth)false false rest(c::reversed)
+   else if Ascii.eqb c "}"then match depth with O=>Invalid "Unmatched attribute brace"|S n=>cut_tag_acc k n false false rest(c::reversed)end
+   else if Ascii.eqb c ">"&&Nat.eqb depth 0 then Scanned(finish_string(c::reversed))rest
+   else cut_tag_acc k depth false false rest(c::reversed)
    end end.
-Fixpoint cut_brace(fuel depth:nat)(quoted escaped:bool)(text:string):scan string:=
+Definition cut_tag fuel depth quoted escaped text:=cut_tag_acc fuel depth quoted escaped text [].
+Fixpoint cut_brace_acc(fuel depth:nat)(quoted escaped:bool)(text:string)
+ (reversed:list ascii):scan string:=
  match fuel with O=>Invalid "Expression token budget"|S k=>match text with
  | EmptyString=>More|String c rest=>
    if quoted then
-     scan_map(fun suffix=>String c suffix)(cut_brace k depth
+     cut_brace_acc k depth
        (if escaped then true else negb(Ascii.eqb c """"))
-       (if escaped then false else Ascii.eqb c "\")rest)
-   else if Ascii.eqb c """"then scan_map(fun suffix=>String c suffix)(cut_brace k depth true false rest)
-   else if Ascii.eqb c "{"then scan_map(fun suffix=>String c suffix)(cut_brace k(S depth)false false rest)
-   else if Ascii.eqb c "}"then match depth with O=>Scanned ""rest|S n=>scan_map(fun suffix=>String c suffix)(cut_brace k n false false rest)end
-   else scan_map(fun suffix=>String c suffix)(cut_brace k depth false false rest)
+       (if escaped then false else Ascii.eqb c "\")rest(c::reversed)
+   else if Ascii.eqb c """"then cut_brace_acc k depth true false rest(c::reversed)
+   else if Ascii.eqb c "{"then cut_brace_acc k(S depth)false false rest(c::reversed)
+   else if Ascii.eqb c "}"then match depth with O=>Scanned(finish_string reversed)rest|S n=>cut_brace_acc k n false false rest(c::reversed)end
+   else cut_brace_acc k depth false false rest(c::reversed)
    end end.
+Definition cut_brace fuel depth quoted escaped text:=cut_brace_acc fuel depth quoted escaped text [].
 Inductive tag_token := StartTag(tag:string)(attrs:list attribute)(leaf:bool)|EndTag(tag:string).
 Fixpoint tag_attributes(fuel:nat)(seen:list string)(text:string):outcome(list attribute*bool):=
  match fuel with O=>Error "Attribute count limit"|S k=>
@@ -56,7 +61,7 @@ Fixpoint tag_attributes(fuel:nat)(seen:list string)(text:string):outcome(list at
     let value:=match rest with
       | String c rest=>if Ascii.eqb c "{"then
           match cut_brace(S(String.length rest))0 false false rest with
-          | Scanned source rest=>match Expression.parse source with Good value=>Good(value,source,rest)|Error e=>Error e end
+          | Scanned source rest=>match Expression.parse source with Good value=>Good(value,source,rest)|Error e=>Good(InvalidExpression e,source,rest)end
           | _=>Error "Invalid braced expression"end
         else match TextJson.quoted(S(String.length rest)) (String c rest)with
           | Scanned value rest=>Good(Value(JString value),TextJson.quote value,rest)

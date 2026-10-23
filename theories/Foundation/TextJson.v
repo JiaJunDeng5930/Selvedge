@@ -47,6 +47,18 @@ Definition escaped_scalar s : scan string :=
  | More=>More | Invalid e=>Invalid e end.
 Definition finish_string reversed:=String.string_of_list_ascii(List.rev_append reversed []).
 Fixpoint push_string s reversed:=match s with EmptyString=>reversed|String c rest=>push_string rest(c::reversed)end.
+Definition quoted_escape s : scan string :=
+ match s with
+ |EmptyString=>More
+ |String e rest=>
+   if Ascii.eqb e "u" then escaped_scalar rest else
+   if Ascii.eqb e """" || Ascii.eqb e "\" || Ascii.eqb e "/" then Scanned (String e "") rest else
+   if Ascii.eqb e "b" then Scanned (byte 8) rest else
+   if Ascii.eqb e "f" then Scanned (byte 12) rest else
+   if Ascii.eqb e "n" then Scanned (byte 10) rest else
+   if Ascii.eqb e "r" then Scanned (byte 13) rest else
+   if Ascii.eqb e "t" then Scanned (byte 9) rest else Invalid "Invalid string escape"
+ end.
 Fixpoint quoted_acc (fuel:nat) (s:string) (reversed:list ascii) : scan string :=
  match fuel with
  | O=>Invalid "String token exceeds its budget"
@@ -56,21 +68,9 @@ Fixpoint quoted_acc (fuel:nat) (s:string) (reversed:list ascii) : scan string :=
      if Ascii.eqb c """" then Scanned(finish_string reversed)r else
      if ascii_code c <? 32 then Invalid "Control character in quoted string" else
      if Ascii.eqb c "\" then
-       match r with
-       | EmptyString=>More
-       | String e rest=>
-         let decoded :=
-           if Ascii.eqb e "u" then escaped_scalar rest else
-           if Ascii.eqb e """" || Ascii.eqb e "\" || Ascii.eqb e "/" then Scanned (String e "") rest else
-           if Ascii.eqb e "b" then Scanned (byte 8) rest else
-           if Ascii.eqb e "f" then Scanned (byte 12) rest else
-           if Ascii.eqb e "n" then Scanned (byte 10) rest else
-           if Ascii.eqb e "r" then Scanned (byte 13) rest else
-           if Ascii.eqb e "t" then Scanned (byte 9) rest else Invalid "Invalid string escape" in
-         match decoded with
+         match quoted_escape r with
          | Scanned head tail=>quoted_acc k tail(push_string head reversed)
          | More=>More | Invalid e=>Invalid e end
-       end
      else quoted_acc k r(c::reversed)
    end
  end.

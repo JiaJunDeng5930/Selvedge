@@ -164,12 +164,14 @@ Definition document_stamp namespace doc s:=find(fun stamp=>String.eqb(key namesp
 Definition eligible_fence namespace doc ordinal s:=match document_stamp namespace doc s with None=>false|Some stamp=>
  negb(document_archived stamp)&&(existsb(N.eqb ordinal)(document_fences stamp)||Nat.ltb(List.length(document_fences stamp))Bounds.interactive_fences_per_document)end.
 
-Definition owner_ordinal namespace doc owner:=
- let prefix:=String.append(key namespace doc)"/fence/"in
+Definition retained_owner_ordinal identity owner:=
+ let prefix:=String.append identity "/fence/"in
  if String.prefix prefix(Types.owner_key owner)then
   let suffix:=substring(String.length prefix)(String.length(Types.owner_key owner))(Types.owner_key owner)in
   ordinal<-parse_natural suffix;;if String.eqb suffix(show_natural ordinal)then Some ordinal else None
  else None.
+
+Definition owner_ordinal namespace doc owner:=retained_owner_ordinal(key namespace doc)owner.
 
 Definition document_key_matches namespace doc owner:=match owner_ordinal namespace doc owner with Some _=>true|None=>false end.
 
@@ -181,6 +183,19 @@ Definition document_owns namespace owner s doc:=
 Definition find_document observation owner r :=
  find (document_owns (context_namespace observation) owner r) (visible_documents observation r).
 Definition shared_key namespace work:=(show_nat(String.length namespace)++":"++namespace++"/work/"++show_natural work)%string.
+
+Definition known_owner observation owner r:=
+ let namespace:=context_namespace observation in
+ let shared_prefix:=(show_nat(String.length namespace)++":"++namespace++"/work/")%string in
+ let shared:=if String.prefix shared_prefix(Types.owner_key owner)then
+   let suffix:=substring(String.length shared_prefix)(String.length(Types.owner_key owner))(Types.owner_key owner)in
+   match parse_natural suffix with Some work=>String.eqb suffix(show_natural work)|None=>false end else false in
+ valid_namespace namespace&&String.eqb namespace(retention_namespace r)&&
+ (shared||existsb(fun stamp=>
+   String.eqb namespace(document_namespace stamp)&&Origin.interactive_origin(document_origin stamp)&&
+   N.eqb(Types.epoch owner)(document_epoch stamp)&&
+   match retained_owner_ordinal(document_identity stamp)owner with
+   |Some ordinal=>existsb(N.eqb ordinal)(document_fences stamp)|None=>false end)(document_lifetimes r)).
 
 Definition shared_work observation owner := match context_shared observation with
  |None=>None

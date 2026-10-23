@@ -433,7 +433,12 @@ Definition apply_activity snapshot occurrence (owner:editor) (assignment:Activit
  |EM.Unavailable reason=>fail state reason
  |EM.Available=>let updated:=apply_field snapshot owner assignment state in
   match EO.activity_completion snapshot state owner request with
-  |EO.ApplyAndDismiss=>append updated(adopt_navigation snapshot(Navigation.close_panel(result_state updated)))
+  |EO.ApplyAndDismiss=>let closed:=Navigation.close_panel(result_state updated)in
+    let closed:=match owner,request with
+    |Identity.NewTask _,Activity.PropertyActivity EM.ProjectProperty=>
+      set Navigation.result_effects(fun _=>[Navigation.Attend(message_focus(Navigation.result_state closed)owner)])closed
+    |_,_=>closed end in
+    append updated(adopt_navigation snapshot closed)
   |EO.ApplyAndReturn=>append updated(adopt_navigation snapshot(Navigation.leave_request occurrence owner(result_state updated)))
   |_=>updated end end
  else keep state|None=>keep state end.

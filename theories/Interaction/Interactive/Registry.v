@@ -92,9 +92,13 @@ Definition dataset_row attrs p:outcome prepared:=
  else Error "Invalid or duplicate dataset row".
 Definition declare_one previous old_sources environment tag attrs p:=
  let path:=match lexical_id attrs with Some id=>id|None=>tag end in
- if negb(attrs_known tag attrs) then with_diagnostic_at path "Unknown declaration attribute"true p else
+ if String.eqb tag "row"then
+   if negb(attrs_known tag attrs)then with_diagnostic_at path "Unknown declaration attribute"false p else
+   if negb(forallb(fun a=>is_literal 33 a.(attribute_value))attrs)then
+     with_diagnostic_at path "Declaration attributes must be literal"false p else
+   match dataset_row attrs p with Good p=>p|Error e=>with_diagnostic_at path e false p end
+ else if negb(attrs_known tag attrs) then with_diagnostic_at path "Unknown declaration attribute"true p else
  if negb(forallb(fun a=>if String.eqb tag "derive"&&String.eqb a.(attribute_name)"value"then true else is_literal 33 a.(attribute_value))attrs)then with_diagnostic_at path "Declaration attributes must be literal"true p else
- if String.eqb tag "row"then match dataset_row attrs p with Good p=>p|Error e=>with_diagnostic_at path e false p end else
  if Bounds.declarations<=?List.length p.(declared)then with_diagnostic_at path "Declaration count limit"true p else
  if p.(layout_started)then with_diagnostic_at path "Declarations must precede visual children"true p else
  match lexical_id attrs with
@@ -106,9 +110,10 @@ Definition declare_one previous old_sources environment tag attrs p:=
  else if String.eqb tag "derive"then
    match attr "value"attrs with
    | None=>with_diagnostic_at path "derive requires value"true p
-   | Some a=>let '(value,remaining_budget):=evaluate p.(remaining)p.(bindings)a.(attribute_value)in
+   | Some a=>match a.(attribute_value)with InvalidExpression reason=>with_diagnostic_at id reason true p|_=>
+     let '(value,remaining_budget):=evaluate p.(remaining)p.(bindings)a.(attribute_value)in
      let p:=declare_binding id value(with_budget remaining_budget p)in
-     match value with Good _=>p|Error e=>with_diagnostic_at id e false p end end
+     match value with Good _=>p|Error e=>with_diagnostic_at id e false p end end end
  else if String.eqb tag "source"then match parse_source id attrs with
    | Good req=>let previous:=match lookup id old_sources with Some v=>v|None=>JNull end in
       add_source req(Sources.refresh req environment previous)p

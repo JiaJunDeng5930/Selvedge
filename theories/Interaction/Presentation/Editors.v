@@ -20,10 +20,12 @@ Definition editor_title e := match e with
 |Agent None=>"New agent"|Agent(Some _)=>"Edit agent"|Fork _=>"Fork task"|Compact _=>"Compact history"
 |TaskGraph None _=>"New task graph"|TaskGraph(Some _) _=>"Edit task graph"
 |WorkName _=>"Rename Work"|TitlePrompts=>"标题生成设置"end.
-Definition submit_label e := match e with
+Definition submit_label draft e :=match Draft.contents draft with
+|Draft.MessageBody _ _ Fields.Steer=>"Steer"
+|_=>match e with
 |NewTask _=>"Start task"|Message _=>"Send"|Identity.Project None=>"Create project"|Card None=>"Create card"
 |Agent None=>"Create agent"|TaskGraph None _=>"Create task graph"|Fork _=>"Fork task"
-|Compact _=>"Compact history"|_=>"Save"end.
+|Compact _=>"Compact history"|_=>"Save"end end.
 Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.Rejected _ diagnostic=>Some(Codec.diagnostic_message diagnostic)
 |Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
@@ -140,7 +142,7 @@ Definition composer_view snapshot s e parent :=
  |None=>None
  |Some subject=>let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
- let commit:=Control "submit"(submit_label e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let commit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  Some(Composer.composer parent unit subject(field_control snapshot s subject)
   (List.app (List.app (match e with NewTask _=>field_nodes snapshot s e parent [Fields.TaskEnvironment]|_=>[]end)
      [ServiceControls.speech_controls snapshot s e(Draft.revision(Session.current_draft s e))parent(Session.speech_state s);
@@ -182,7 +184,7 @@ Definition title_prompt_controls e parent (pending:bool):list(node Input.input):
 Definition editor_view snapshot s e parent :=
  let assessment:=Observe.observe_assessment snapshot s e in
  let unit:=Observe.action_unit_for s e in
- let submit:=Control "submit"(submit_label e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
+ let submit:=Control "submit"(submit_label(Session.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))(unit_availability unit assessment)in
  let body := (title_prompt_controls e parent (UX.action_pending unit) ++
    section_nodes snapshot s e parent ++
    [assessment_nodes parent assessment] ++

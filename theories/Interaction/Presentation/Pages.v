@@ -126,6 +126,8 @@ Definition task_details_control s task parent :=
  Node(part parent "details")"details" "Task details"Roles.Button
   (PanelToggle expanded(secondary "details" "Task details"
     (Input.OpenInformation(State.TaskDetails task)(part parent "details"))))[].
+Definition task_has_composer s task :=negb(String.eqb(task_status task)"archived")||
+ match Draft.find_draft(Message(task_id task))(State.drafts(State.authoring_state s))with Some _=>true|None=>false end.
 Definition task_contents snapshot s view parent task :=
  let id:=task_id task in
  let observation:=task_observation task in
@@ -145,10 +147,8 @@ Definition task_contents snapshot s view parent task :=
  [page_region parent Composition.LatestAction Composition.DockPosition
   [declared parent Roles.Button(secondary "latest" "Return to latest"(Input.FollowLatest id))]]else[]) ++
  approvals snapshot s id parent observation ++
- match task_status task with
- |"archived"=>[]
- |_=>match Editors.composer_view snapshot s(Message id)(Identity.task_view_key view(editor_key(Message id)))with
-   |None=>[]|Some composer=>[page_region parent Composition.ComposerInput Composition.DockPosition[composer]]end end)%list.
+ if task_has_composer s task then match Editors.composer_view snapshot s(Message id)(Identity.task_view_key view(editor_key(Message id)))with
+   |None=>[]|Some composer=>[page_region parent Composition.ComposerInput Composition.DockPosition[composer]]end else[])%list.
 Definition conversation_page snapshot s view parent :=
  match find_task(Identity.task_view_task view)snapshot with
  |None=>missing parent "This task no longer exists"
@@ -213,7 +213,7 @@ Definition page_kind snapshot s :=match State.location(State.navigation_state s)
 |Start=>Composition.Creation true
 |Conversation task=>match find_task task snapshot with
  |None=>Composition.Unavailable
- |Some value=>Composition.Conversation(negb(String.eqb(task_status value)"archived"))
+ |Some value=>Composition.Conversation(task_has_composer s value)
    (existsb(fun operation=>String.eqb(text "stage" operation)"approval_pending")(Selvedge.Interaction.Codec.items "operations"(task_observation value)))
    (SessionNavigation.return_latest s task)end
 |Projects=>Composition.ProjectCollection

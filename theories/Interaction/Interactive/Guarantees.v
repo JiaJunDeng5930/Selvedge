@@ -149,20 +149,20 @@ Qed.
 
 Theorem forbidden_external_action_issues_no_effect event_id b environment :
  Expand.external_allowed b (Runtime.prepared b environment) environment=false ->
- match Runtime.clicked event_id b environment with (_,output,_)=>output=[] end.
+ (match Runtime.clicked event_id b environment with Some(_,output,_)=>output|None=>[]end)=[].
 Proof.
  intro forbidden. unfold Runtime.clicked.
  destruct(Runtime.event_node b environment event_id)as[node|]; [destruct node as[current props binding children|key reason]|];try reflexivity.
  destruct binding as[active|id active|action availability];try reflexivity.
  destruct availability;try reflexivity.
  rewrite forbidden. destruct action as[id value| |text|text|text|url];simpl;try reflexivity.
- destruct(Local.find_local id (locals b));try reflexivity.
- destruct(Local.assign l value);reflexivity.
+ unfold Codec.bind. destruct(Local.find_local id (locals b))as[local|];cbn;try reflexivity.
+ destruct(Local.assign local value);reflexivity.
 Qed.
 
 Theorem preview_or_interrupted_actions_issue_no_external_effect event_id b environment :
  b.(block_ending) <> Complete ->
- match Runtime.clicked event_id b environment with (_,output,_)=>output=[] end.
+ (match Runtime.clicked event_id b environment with Some(_,output,_)=>output|None=>[]end)=[].
 Proof.
  intro incomplete. apply forbidden_external_action_issues_no_effect.
  unfold Expand.external_allowed. destruct(block_ending b);try contradiction;
