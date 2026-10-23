@@ -50,7 +50,7 @@ Definition response_text (approval : bool) (source : json) :=
     end.
 Definition approval_outcome (source : json) :=
   match TextJson.parse_json (str source "text") with
-  | Some value =>
+  | Some (JObject [(_,JString _);(_,JString _)] as value) =>
     if exact_fields ["decision";"reason"] value &&
       existsb (String.eqb (str value "decision")) ["allow";"deny"] &&
       is_text (get value "reason") && Utf8.nonblank (str value "reason") &&
@@ -58,7 +58,7 @@ Definition approval_outcome (source : json) :=
       bound (get source "limit") (N.of_nat (String.length (str value "reason"))) 9007199254740991
     then success value
     else type_error "The approval reviewer returned a malformed decision"
-  | None => type_error "The approval reviewer must return exactly two string fields"
+  | _ => type_error "The approval reviewer must return exactly two string fields"
   end.
 Definition task_text_outcome (source : json) :=
   match TextJson.parse_json (str source "text") with
