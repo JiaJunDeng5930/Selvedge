@@ -68,7 +68,7 @@ Theorem completion_preserves_execution_context : forall id job result error valu
  exists finished,Chatgpt.find_job id (Chatgpt.registry (decision_world decision))=Some finished /\
  F.job_connection finished=F.job_connection job /\ F.job_project finished=F.job_project job /\
  F.job_request finished=F.job_request job /\ F.job_arguments finished=F.job_arguments job /\
- F.job_workspace finished=F.job_workspace job /\ F.job_sandbox finished=F.job_sandbox job /\
+ F.job_workspace finished=F.job_workspace job /\ F.job_resource finished=F.job_resource job /\ F.job_sandbox finished=F.job_sandbox job /\
  F.job_state finished=F.JobFinished result error.
 Proof.
  intros. unfold Chatgpt.settle. rewrite H,H0. cbn.
@@ -77,8 +77,8 @@ Proof.
  destruct job; repeat split;reflexivity.
 Qed.
 
-Theorem recovery_never_replays_running_job : forall connection project request arguments workspace sandbox,
- F.job_state (Chatgpt.recover_job (F.ConnectionJob connection project request arguments workspace sandbox F.JobRunning)) =
+Theorem recovery_never_replays_running_job : forall connection project request arguments workspace resource sandbox,
+ F.job_state (Chatgpt.recover_job (F.ConnectionJob connection project request arguments workspace resource sandbox F.JobRunning)) =
  F.JobInterrupted "Service restarted; execution may have happened and will not be replayed".
 Proof. reflexivity. Qed.
 
@@ -148,21 +148,22 @@ Theorem accepted_public_exec_emits_frozen_job : forall connection project reques
  Chatgpt.project project value=Some target -> workspace_primary (project_workspace target)<>None ->
  Chatgpt.retry connection request (Chatgpt.registry value)=None ->
  Worktree.workspace_available (project_workspace target) value=true ->
+ WorkspaceBinding.resource_ready (project_workspace target) (project_resource target) value=true ->
  ((N.of_nat (List.length (F.sharing_jobs (Chatgpt.registry value))) <? 128) &&
    (F.sharing_next (Chatgpt.registry value) <? ChatgptArguments.identity_maximum))=true ->
  exists decision job,
  Chatgpt.command (G.Cmd_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments)) caller value=Some decision /\
  decision_effects decision=[RunConnectionJob (F.sharing_next (Chatgpt.registry value)) job] /\
  F.job_connection job=connection /\ F.job_project job=project /\ F.job_arguments job=decoded /\
- F.job_workspace job=project_workspace target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
+ F.job_workspace job=project_workspace target /\ F.job_resource job=project_resource target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
 Proof.
- intros connection project request arguments decoded granted target value caller ids bounded admitted authority project_found primary retry available capacity.
+ intros connection project request arguments decoded granted target value caller ids bounded admitted authority project_found primary retry available resource capacity.
  change (Chatgpt.command (G.Cmd_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments)) caller value)
    with (Some (Chatgpt.run connection project request arguments value)).
  unfold Chatgpt.run. rewrite ids,bounded,admitted,authority,project_found.
  cbn beta iota zeta delta [andb negb].
  destruct (workspace_primary (project_workspace target)) eqn:found; [|contradiction].
- unfold Chatgpt.start. rewrite retry,available,capacity.
+ unfold Chatgpt.start. rewrite retry,available,resource,capacity.
  eexists; eexists; repeat split;reflexivity.
 Qed.
 

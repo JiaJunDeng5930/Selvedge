@@ -307,11 +307,11 @@ Theorem describe_payload_roundtrip : forall payload, describe_from_fields (descr
 Proof. intros []; reflexivity. Qed.
 
 Definition create_project_schema := command_fields (List.nth 19 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Theorem create_project_schema_declaration : create_project_schema = [Field "name" KText; Field "workspace" KJson; Field "guidance" (KOptional KJson); Field "create_worktree" (KOptional KBool)].
+Theorem create_project_schema_declaration : create_project_schema = [Field "name" KText; Field "workspace" KJson; Field "guidance" (KOptional KJson); Field "create_worktree" (KOptional KBool); Field "workspace_binding" (KOptional KJson)].
 Proof. reflexivity. Qed.
-Record create_project_payload : Type := Build_create_project { create_project_name : denote KText; create_project_workspace : denote KJson; create_project_guidance : denote (KOptional KJson); create_project_create_worktree : denote (KOptional KBool) }.
-Definition create_project_from_fields (values : fields create_project_schema) : create_project_payload := Build_create_project (head values) (head (tail values)) (head (tail (tail values))) (head (tail (tail (tail values)))).
-Definition create_project_to_fields (payload : create_project_payload) : fields create_project_schema := (@FCons (Field "name" KText) _ (create_project_name payload) (@FCons (Field "workspace" KJson) _ (create_project_workspace payload) (@FCons (Field "guidance" (KOptional KJson)) _ (create_project_guidance payload) (@FCons (Field "create_worktree" (KOptional KBool)) _ (create_project_create_worktree payload) FNil)))).
+Record create_project_payload : Type := Build_create_project { create_project_name : denote KText; create_project_workspace : denote KJson; create_project_guidance : denote (KOptional KJson); create_project_create_worktree : denote (KOptional KBool); create_project_workspace_binding : denote (KOptional KJson) }.
+Definition create_project_from_fields (values : fields create_project_schema) : create_project_payload := Build_create_project (head values) (head (tail values)) (head (tail (tail values))) (head (tail (tail (tail values)))) (head (tail (tail (tail (tail values))))).
+Definition create_project_to_fields (payload : create_project_payload) : fields create_project_schema := (@FCons (Field "name" KText) _ (create_project_name payload) (@FCons (Field "workspace" KJson) _ (create_project_workspace payload) (@FCons (Field "guidance" (KOptional KJson)) _ (create_project_guidance payload) (@FCons (Field "create_worktree" (KOptional KBool)) _ (create_project_create_worktree payload) (@FCons (Field "workspace_binding" (KOptional KJson)) _ (create_project_workspace_binding payload) FNil))))).
 Definition decode_create_project (source : json) : option create_project_payload := option_map create_project_from_fields (Schema.decode create_project_schema source).
 Definition encode_create_project (payload : create_project_payload) : json := Schema.encode create_project_schema (create_project_to_fields payload).
 Theorem create_project_payload_roundtrip : forall payload, create_project_from_fields (create_project_to_fields payload) = payload.
@@ -324,13 +324,15 @@ Theorem create_project_guidance_field : forall payload, lookup_field "guidance" 
 Proof. intros; reflexivity. Qed.
 Theorem create_project_create_worktree_field : forall payload, lookup_field "create_worktree" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_project_schema (Field "" KJson))) (create_project_create_worktree payload)).
 Proof. intros; reflexivity. Qed.
+Theorem create_project_workspace_binding_field : forall payload, lookup_field "workspace_binding" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_project_schema (Field "" KJson))) (create_project_workspace_binding payload)).
+Proof. intros; reflexivity. Qed.
 
 Definition update_project_schema := command_fields (List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Theorem update_project_schema_declaration : update_project_schema = [Field "project_id" KNatural; Field "name" (KOptional KText); Field "workspace" (KOptional KJson); Field "guidance" (KOptional KJson); Field "create_worktree" (KOptional KBool)].
+Theorem update_project_schema_declaration : update_project_schema = [Field "project_id" KNatural; Field "name" (KOptional KText); Field "workspace" (KOptional KJson); Field "guidance" (KOptional KJson); Field "create_worktree" (KOptional KBool); Field "workspace_binding" (KOptional KJson)].
 Proof. reflexivity. Qed.
-Record update_project_payload : Type := Build_update_project { update_project_project_id : denote KNatural; update_project_name : denote (KOptional KText); update_project_workspace : denote (KOptional KJson); update_project_guidance : denote (KOptional KJson); update_project_create_worktree : denote (KOptional KBool) }.
-Definition update_project_from_fields (values : fields update_project_schema) : update_project_payload := Build_update_project (head values) (head (tail values)) (head (tail (tail values))) (head (tail (tail (tail values)))) (head (tail (tail (tail (tail values))))).
-Definition update_project_to_fields (payload : update_project_payload) : fields update_project_schema := (@FCons (Field "project_id" KNatural) _ (update_project_project_id payload) (@FCons (Field "name" (KOptional KText)) _ (update_project_name payload) (@FCons (Field "workspace" (KOptional KJson)) _ (update_project_workspace payload) (@FCons (Field "guidance" (KOptional KJson)) _ (update_project_guidance payload) (@FCons (Field "create_worktree" (KOptional KBool)) _ (update_project_create_worktree payload) FNil))))).
+Record update_project_payload : Type := Build_update_project { update_project_project_id : denote KNatural; update_project_name : denote (KOptional KText); update_project_workspace : denote (KOptional KJson); update_project_guidance : denote (KOptional KJson); update_project_create_worktree : denote (KOptional KBool); update_project_workspace_binding : denote (KOptional KJson) }.
+Definition update_project_from_fields (values : fields update_project_schema) : update_project_payload := Build_update_project (head values) (head (tail values)) (head (tail (tail values))) (head (tail (tail (tail values)))) (head (tail (tail (tail (tail values))))) (head (tail (tail (tail (tail (tail values)))))).
+Definition update_project_to_fields (payload : update_project_payload) : fields update_project_schema := (@FCons (Field "project_id" KNatural) _ (update_project_project_id payload) (@FCons (Field "name" (KOptional KText)) _ (update_project_name payload) (@FCons (Field "workspace" (KOptional KJson)) _ (update_project_workspace payload) (@FCons (Field "guidance" (KOptional KJson)) _ (update_project_guidance payload) (@FCons (Field "create_worktree" (KOptional KBool)) _ (update_project_create_worktree payload) (@FCons (Field "workspace_binding" (KOptional KJson)) _ (update_project_workspace_binding payload) FNil)))))).
 Definition decode_update_project (source : json) : option update_project_payload := option_map update_project_from_fields (Schema.decode update_project_schema source).
 Definition encode_update_project (payload : update_project_payload) : json := Schema.encode update_project_schema (update_project_to_fields payload).
 Theorem update_project_payload_roundtrip : forall payload, update_project_from_fields (update_project_to_fields payload) = payload.
@@ -344,6 +346,8 @@ Proof. intros; reflexivity. Qed.
 Theorem update_project_guidance_field : forall payload, lookup_field "guidance" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 3 update_project_schema (Field "" KJson))) (update_project_guidance payload)).
 Proof. intros; reflexivity. Qed.
 Theorem update_project_create_worktree_field : forall payload, lookup_field "create_worktree" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 4 update_project_schema (Field "" KJson))) (update_project_create_worktree payload)).
+Proof. intros; reflexivity. Qed.
+Theorem update_project_workspace_binding_field : forall payload, lookup_field "workspace_binding" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 5 update_project_schema (Field "" KJson))) (update_project_workspace_binding payload)).
 Proof. intros; reflexivity. Qed.
 
 Definition delete_project_schema := command_fields (List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1226,6 +1230,21 @@ Proof. intros []; reflexivity. Qed.
 Theorem retry_worktree_archive_task_id_field : forall payload, lookup_field "task_id" (retry_worktree_archive_to_fields payload) = Some (encode_value (field_kind (List.nth 0 retry_worktree_archive_schema (Field "" KJson))) (retry_worktree_archive_task_id payload)).
 Proof. intros; reflexivity. Qed.
 
+Definition resolve_workspace_schema := command_fields (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])).
+Theorem resolve_workspace_schema_declaration : resolve_workspace_schema = [Field "workspace" (KOptional KJson); Field "project_id" (KOptional KNatural)].
+Proof. reflexivity. Qed.
+Record resolve_workspace_payload : Type := Build_resolve_workspace { resolve_workspace_workspace : denote (KOptional KJson); resolve_workspace_project_id : denote (KOptional KNatural) }.
+Definition resolve_workspace_from_fields (values : fields resolve_workspace_schema) : resolve_workspace_payload := Build_resolve_workspace (head values) (head (tail values)).
+Definition resolve_workspace_to_fields (payload : resolve_workspace_payload) : fields resolve_workspace_schema := (@FCons (Field "workspace" (KOptional KJson)) _ (resolve_workspace_workspace payload) (@FCons (Field "project_id" (KOptional KNatural)) _ (resolve_workspace_project_id payload) FNil)).
+Definition decode_resolve_workspace (source : json) : option resolve_workspace_payload := option_map resolve_workspace_from_fields (Schema.decode resolve_workspace_schema source).
+Definition encode_resolve_workspace (payload : resolve_workspace_payload) : json := Schema.encode resolve_workspace_schema (resolve_workspace_to_fields payload).
+Theorem resolve_workspace_payload_roundtrip : forall payload, resolve_workspace_from_fields (resolve_workspace_to_fields payload) = payload.
+Proof. intros []; reflexivity. Qed.
+Theorem resolve_workspace_workspace_field : forall payload, lookup_field "workspace" (resolve_workspace_to_fields payload) = Some (encode_value (field_kind (List.nth 0 resolve_workspace_schema (Field "" KJson))) (resolve_workspace_workspace payload)).
+Proof. intros; reflexivity. Qed.
+Theorem resolve_workspace_project_id_field : forall payload, lookup_field "project_id" (resolve_workspace_to_fields payload) = Some (encode_value (field_kind (List.nth 1 resolve_workspace_schema (Field "" KJson))) (resolve_workspace_project_id payload)).
+Proof. intros; reflexivity. Qed.
+
 Inductive command : Type :=
 
 | Cmd_configure_task_execution (payload : configure_task_execution_payload)
@@ -1377,6 +1396,8 @@ Inductive command : Type :=
 | Cmd_read_worktree (payload : read_worktree_payload)
 
 | Cmd_retry_worktree_archive (payload : retry_worktree_archive_payload)
+
+| Cmd_resolve_workspace (payload : resolve_workspace_payload)
 
 .
 
@@ -1531,6 +1552,8 @@ if String.eqb name "list_worktrees" then option_map Cmd_list_worktrees (decode_l
 if String.eqb name "read_worktree" then option_map Cmd_read_worktree (decode_read_worktree source) else
 
 if String.eqb name "retry_worktree_archive" then option_map Cmd_retry_worktree_archive (decode_retry_worktree_archive source) else
+
+if String.eqb name "resolve_workspace" then option_map Cmd_resolve_workspace (decode_resolve_workspace source) else
 
 None.
 
@@ -1692,6 +1715,8 @@ Definition declared_command (value : command) : command_spec := match value with
 
 | Cmd_retry_worktree_archive _ => List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])
 
+| Cmd_resolve_workspace _ => List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])
+
 end.
 
 Definition declared_payload (value : command) : list (string * json) := match value with
@@ -1846,6 +1871,8 @@ Definition declared_payload (value : command) : list (string * json) := match va
 
 | Cmd_retry_worktree_archive payload => encode_fields (retry_worktree_archive_to_fields payload)
 
+| Cmd_resolve_workspace payload => encode_fields (resolve_workspace_to_fields payload)
+
 end.
 
 Definition encode (value : command) : json := match value with
@@ -1999,6 +2026,8 @@ Definition encode (value : command) : json := match value with
 | Cmd_read_worktree payload => Schema.encode_declared (List.nth 73 Selvedge.Kernel.Commands.command_specs (Command "" [])) (read_worktree_to_fields payload)
 
 | Cmd_retry_worktree_archive payload => Schema.encode_declared (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])) (retry_worktree_archive_to_fields payload)
+
+| Cmd_resolve_workspace payload => Schema.encode_declared (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])) (resolve_workspace_to_fields payload)
 
 end.
 
@@ -2161,5 +2190,7 @@ Ltac command_payload_case handler := match goal with
 | [payload : read_worktree_payload |- _] => handler read_worktree_schema read_worktree_to_fields read_worktree_from_fields Cmd_read_worktree payload
 
 | [payload : retry_worktree_archive_payload |- _] => handler retry_worktree_archive_schema retry_worktree_archive_to_fields retry_worktree_archive_from_fields Cmd_retry_worktree_archive payload
+
+| [payload : resolve_workspace_payload |- _] => handler resolve_workspace_schema resolve_workspace_to_fields resolve_workspace_from_fields Cmd_resolve_workspace payload
 
 end.

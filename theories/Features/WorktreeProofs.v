@@ -234,21 +234,36 @@ Proof.
  destruct (List.forallb _ _); [contradiction|split;reflexivity].
 Qed.
 
-(** Project background jobs use the host environment. They hold local roots,
-    whereas an identical path in a cloud environment is a different resource. *)
+Theorem an_unavailable_resource_cannot_be_selected_by_a_new_task : forall before result id task,
+ In (id,task) (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) ->
+ Selvedge.Kernel.State.find_task id before=None ->
+ Worktree.binding_available (task_current_settings task) (decision_world result)=false ->
+ decision_world (Worktree.guard_result before result)=before /\
+ decision_effects (Worktree.guard_result before result)=nil.
+Proof.
+ intros before result id task Member Missing Unavailable.
+ unfold Worktree.guard_result.
+ destruct (List.forallb _ _) eqn:Available; [|split;reflexivity].
+ apply forallb_forall with (x:=(id,task)) in Available; [|exact Member].
+ cbn beta iota zeta delta [fst snd] in Available.
+ rewrite Missing, Unavailable, andb_false_r in Available. discriminate.
+Qed.
+
+(** Host jobs hold local roots. A frozen cloud selection is a different resource
+    even when its path text is identical. *)
 Theorem running_connection_job_blocks_local_archive : forall owner root value tree id job,
  Worktree.lookup owner value=Some tree -> F.worktree_backend tree=WorkspaceBackend.Local ->
  In (id,job) (F.sharing_jobs (F.feature_sharing (world_features value))) ->
- F.job_state job=F.JobRunning ->
+ F.job_state job=F.JobRunning -> F.job_resource job=None ->
  Worktree.any_inside root (workspace_roots (F.job_workspace job))=true ->
  Worktree.root_unused owner root value=false.
 Proof.
- intros owner root value tree id job found backend member running uses.
+ intros owner root value tree id job found backend member running resource uses.
  apply Bool.not_true_is_false. intro available.
  unfold Worktree.root_unused in available. rewrite found,backend in available.
  apply Bool.andb_true_iff in available as [_ jobs].
  apply forallb_forall with (x:=(id,job)) in jobs; [|exact member].
- cbn in jobs. unfold Worktree.job_uses_root in jobs. rewrite running,uses in jobs. discriminate.
+ cbn in jobs. unfold Worktree.job_uses_root in jobs. rewrite running,resource,uses in jobs. discriminate.
 Qed.
 (** A frozen borrower holds the owner's cloud resource regardless of path text
     or whether the owner later changes its current task settings. *)
@@ -440,4 +455,20 @@ Proof.
  assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
  rewrite Different, Live, Bound in Available; unfold Workspace.same_resource in Available.
  rewrite N.eqb_refl in Available; discriminate.
+Qed.
+
+Theorem running_connection_job_blocks_its_cloud_archive : forall owner root value tree id job,
+ Worktree.lookup owner value=Some tree -> F.worktree_backend tree=WorkspaceBackend.TencentCvm ->
+ In (id,job) (F.sharing_jobs (F.feature_sharing (world_features value))) ->
+ F.job_state job=F.JobRunning -> F.job_resource job=Some owner ->
+ Worktree.root_unused owner root value=false.
+Proof.
+ intros owner root value tree id job Found Backend Member Running Resource.
+ apply Bool.not_true_is_false. intro Available.
+ unfold Worktree.root_unused in Available. rewrite Found,Backend in Available.
+ apply Bool.andb_true_iff in Available as [_ Jobs].
+ apply forallb_forall with (x:=(id,job)) in Jobs; [|exact Member].
+ cbn in Jobs. unfold Worktree.job_uses_resource in Jobs.
+ rewrite Running,Resource in Jobs. unfold Workspace.same_resource in Jobs.
+ rewrite N.eqb_refl in Jobs. discriminate.
 Qed.

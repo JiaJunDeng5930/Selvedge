@@ -328,7 +328,10 @@ Definition sharing_valid (state : world) :=
  forallb (fun entry => let '(id,job) := entry in (id <? F.sharing_next sharing)%N &&
    Remote.identifier_valid (F.job_request job) &&
    ChatgptArguments.valid_args (F.job_arguments_json job) &&
-   Workspace.valid_workspace (F.job_workspace job)) (F.sharing_jobs sharing).
+   Workspace.valid_workspace (F.job_workspace job) &&
+   match F.job_state job with
+   | F.JobRunning => WorkspaceBinding.resource_ready (F.job_workspace job) (F.job_resource job) state
+   | _ => true end) (F.sharing_jobs sharing).
 Definition graph_valid (id : N) (graph : F.task_graph) (state : world) :=
  TaskGraph.valid_declaration (F.graph_name graph)
    (map (fun node => F.ExistingNode (F.node_key node) (F.node_task node)) (F.graph_nodes graph)) (F.graph_rules graph) &&

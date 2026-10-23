@@ -6,7 +6,7 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-4`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-5`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 

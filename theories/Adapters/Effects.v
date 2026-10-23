@@ -42,6 +42,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.workspace_selected",Workspaces.workspace_selected);
   ("effect.workspace_selection",Workspaces.workspace_selection);
   ("effect.workspace_bound",Workspaces.workspace_bound);
+  ("effect.workspace_environment_bound",Workspaces.workspace_environment_bound);
   ("effect.worktree_locations",Workspaces.worktree_locations);
   ("effect.worktree_path",Workspaces.worktree_path);
   ("effect.worktree_receipt",Workspaces.worktree_receipt);

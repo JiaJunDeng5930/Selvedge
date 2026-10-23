@@ -172,7 +172,8 @@ Record project := Project {
   project_guidance : json;
   project_worktree : bool;
   project_order : N;
-  project_deleted : bool
+  project_deleted : bool;
+  project_resource : option N
 }.
 
 Definition default_workspace := Workspace [] None.

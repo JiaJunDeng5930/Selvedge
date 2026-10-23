@@ -97,7 +97,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
 Definition project_fields (id : N) (value : project) := [
  ("id", number id); ("project_id", number id); ("name", JString (project_name value));
  ("workspace", workspace_json (project_workspace value)); ("guidance", Domain.project_guidance value);
- ("create_worktree", JBool (project_worktree value))].
+ ("workspace_resource",optional_number (project_resource value)); ("create_worktree", JBool (project_worktree value))].
 Definition project_json (id : N) (value : project) := JObject (project_fields id value).
 Definition project_task_count (id : N) (tasks : list task) :=
  N.of_nat (List.length (filter (fun task => match settings_project (task_current_settings task) with
@@ -217,7 +217,7 @@ Definition effect_json (state : world) (value : effect) : json :=
  | RunConnectionJob id job => JObject [
    ("kind", JString "chatgpt_exec"); ("operation_id", number id);
    ("arguments", Selvedge.Features.Domain.job_arguments_json job); ("execution", JObject [
-    ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));("resource",JNull);("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));
+    ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));("resource",WorkspaceBinding.reference_execution (Selvedge.Features.Domain.job_resource job) state);("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));
     ("access",JString "sandboxed");("scope",JString "project")])]
  | CancelConnectionJob id => JObject [("kind", JString "chatgpt_cancel"); ("operation_id", number id)]
  | MaintainContext request => Selvedge.Features.CompactionCodec.effect_json request

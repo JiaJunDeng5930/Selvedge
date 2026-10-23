@@ -595,6 +595,7 @@ Definition same_connection_job (left right : F.connection_job) :=
  String.eqb (F.job_request left) (F.job_request right) &&
  Json.equal (F.job_arguments_json left) (F.job_arguments_json right) &&
  Json.equal (Codec.workspace_json (F.job_workspace left)) (Codec.workspace_json (F.job_workspace right)) &&
+ Workspace.same_resource (F.job_resource left) (F.job_resource right) &&
  Json.equal (Codec.sandbox_json (F.job_sandbox left)) (Codec.sandbox_json (F.job_sandbox right)) &&
  match F.job_state left, F.job_state right with
  | F.JobRunning, F.JobRunning => true

@@ -2,65 +2,76 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Workspace CommandExecution Queries LifecycleProofs.
+From Selvedge.Features Require Import WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
 
 (* Projects are birth defaults. Updating their registry never rewrites the
    execution settings or history of tasks already created from those defaults. *)
-Theorem creating_a_project_preserves_all_existing_tasks : forall name workspace guidance worktree value,
+Theorem creating_a_project_preserves_all_existing_tasks : forall name workspace guidance worktree resource value,
  world_tasks (decision_world
-  (CommandExecution.create_project name workspace guidance worktree value)) = world_tasks value.
+  (CommandExecution.create_project name workspace guidance worktree resource value)) = world_tasks value.
 Proof.
- intros; unfold CommandExecution.create_project.
- destruct (parse_workspace workspace); [|reflexivity].
+ intros name workspace guidance worktree resource value; unfold CommandExecution.create_project.
+ destruct (parse_workspace workspace) as [space|]; [|reflexivity].
+ destruct (match resource with Some source => parse_workspace_binding source
+  | None => WorkspaceBinding.select_resource space value end); [|reflexivity].
  repeat match goal with
  | |- context [if ?condition then _ else _] => destruct condition
  end; reflexivity.
 Qed.
 
-Theorem updating_a_project_preserves_all_existing_tasks : forall id name workspace guidance worktree value,
+Theorem updating_a_project_preserves_all_existing_tasks : forall id name workspace guidance worktree resource value,
  world_tasks (decision_world
-  (CommandExecution.update_project id name workspace guidance worktree value)) = world_tasks value.
+  (CommandExecution.update_project id name workspace guidance worktree resource value)) = world_tasks value.
 Proof.
- intros; unfold CommandExecution.update_project.
+ intros id name workspace guidance worktree resource value; unfold CommandExecution.update_project.
  destruct (registry_at id (world_projects value)) as [previous|]; [|reflexivity].
  destruct (project_deleted previous); [reflexivity|].
  destruct (match workspace with
-  | Some source => parse_workspace source | None => Some (project_workspace previous) end);
- [|reflexivity].
- destruct (Workspace.valid_project_name
-  (match name with Some name => name | None => project_name previous end) &&
-  valid_guidance (match guidance with Some source => source | None => inherited_guidance w (Domain.project_guidance previous) end) &&
-  guidance_member w (match guidance with Some source => source | None => inherited_guidance w (Domain.project_guidance previous) end));
- reflexivity.
+  | Some source => parse_workspace source | None => Some (project_workspace previous) end)
+  as [space|]; [|reflexivity].
+ destruct (match resource, workspace with
+  | Some source,_ => parse_workspace_binding source
+  | None,Some _ => WorkspaceBinding.select_resource space value
+  | None,None => Some (project_resource previous) end) as [owner|]; [|reflexivity].
+ repeat match goal with
+ | |- context [if ?condition then _ else _] => destruct condition
+ end; reflexivity.
 Qed.
 
 Theorem an_accepted_project_update_uses_the_requested_worktree_preference :
- forall id name workspace guidance requested value previous,
+ forall id name workspace guidance requested resource value previous,
  registry_at id (world_projects value) = Some previous ->
  bool_default "ok" (decision_reply
-  (CommandExecution.update_project id name workspace guidance requested value)) false = true ->
+  (CommandExecution.update_project id name workspace guidance requested resource value)) false = true ->
  exists updated,
   registry_at id (world_projects (decision_world
-   (CommandExecution.update_project id name workspace guidance requested value))) = Some updated /\
+   (CommandExecution.update_project id name workspace guidance requested resource value))) = Some updated /\
   project_worktree updated =
    match requested with Some selected => selected | None => project_worktree previous end.
 Proof.
- intros id name workspace guidance requested value previous Found Accepted.
+ intros id name workspace guidance requested resource value previous Found Accepted.
  unfold CommandExecution.update_project in Accepted |- *; rewrite Found in Accepted |- *.
  destruct (project_deleted previous); [discriminate|].
  destruct (match workspace with
   | Some source => parse_workspace source | None => Some (project_workspace previous) end)
   as [space|]; [|discriminate].
- destruct (Workspace.valid_project_name
-  (match name with Some name => name | None => project_name previous end) &&
+ destruct (match resource, workspace with
+  | Some source,_ => parse_workspace_binding source
+  | None,Some _ => WorkspaceBinding.select_resource space value
+  | None,None => Some (project_resource previous) end) as [owner|]; [|discriminate].
+ destruct ((match resource, workspace with None,None => true
+  | _,_ => WorkspaceBinding.resource_ready space owner value end) &&
+  Workspace.valid_project_name
+   (match name with Some name => name | None => project_name previous end) &&
   valid_guidance (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end) &&
   guidance_member space (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end));
  [|discriminate].
  pose (updated := Project (match name with Some name => name | None => project_name previous end) space
   (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end)
   (match requested with Some selected => selected | None => project_worktree previous end)
-  (Workspace.next_project_order (world_projects value)) false).
+  (Workspace.next_project_order (world_projects value)) false owner).
  exists updated; split.
  - change (registry_at id (replace id updated (world_projects value)) = Some updated).
    eapply registry_replace_selected; exact Found.
@@ -154,19 +165,21 @@ Theorem query_and_snapshot_use_the_same_project_order : forall value,
  Queries.projects_json value = Observation.projects_json (world_projects value) (world_tasks value).
 Proof. reflexivity. Qed.
 
-Theorem moving_a_project_discards_unselected_guidance : forall id value project raw workspace,
+Theorem moving_a_project_discards_unselected_guidance : forall id value project raw workspace owner,
  registry_at id (world_projects value) = Some project ->
  project_deleted project = false -> parse_workspace raw = Some workspace ->
+ WorkspaceBinding.select_resource workspace value = Some owner ->
+ WorkspaceBinding.resource_ready workspace owner value = true ->
  Workspace.valid_project_name (project_name project) = true ->
  guidance_member workspace (Domain.project_guidance project) = false ->
- let result := decision_reply (CommandExecution.update_project id None (Some raw) None None value) in
+ let result := decision_reply (CommandExecution.update_project id None (Some raw) None None None value) in
  bool_default "ok" result false = true /\
  field "guidance" (value_or_null "result" result) = Some JNull.
 Proof.
- intros id value project raw workspace Found Live Parsed Name Unselected; cbn zeta.
- unfold CommandExecution.update_project; rewrite Found, Live, Parsed.
+ intros id value project raw workspace owner Found Live Parsed Selected Ready Name Unselected; cbn zeta.
+ unfold CommandExecution.update_project; rewrite Found, Live, Parsed, Selected.
  unfold inherited_guidance; rewrite Unselected.
- cbn [valid_guidance guidance_member]; rewrite Name; split; reflexivity.
+ cbn [valid_guidance guidance_member]; rewrite Ready, Name; split; reflexivity.
 Qed.
 
 Theorem project_query_reports_current_bindings : forall value id project,

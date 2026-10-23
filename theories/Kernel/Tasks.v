@@ -41,12 +41,17 @@ Definition resolve_settings (model : profile) (source : option json) (fallback :
    | Some id => match registry_at id (world_projects value) with
      | Some project => if project_deleted project then None else
        Some (Settings (project_workspace project) (Some id) (settings_sandbox fallback)
-        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) None)
+        (settings_approval fallback) (Domain.project_guidance project) (project_worktree project) (project_resource project))
      | None => None end end
  end in
  match base with
  | Some base => match parse_settings model (environment_profiles (world_environment value)) raw base with
-   | Some settings => Some (WorkspaceBinding.normalize_settings settings value) | None => None end
+   | Some settings =>
+     let selected := match field "workspace_binding" raw, field "workspace" raw with
+       | None, Some (JObject _) => WorkspaceBinding.select_bound_workspace base settings value
+       | _, _ => Some settings end in
+     option_map (fun settings => WorkspaceBinding.normalize_settings settings value) selected
+   | None => None end
  | None => None end.
 Definition resolve_for_profile (name : string) (source : option json) (fallback : task_settings) (value : world) :=
  match find_profile name (environment_profiles (world_environment value)) with
@@ -54,15 +59,23 @@ Definition resolve_for_profile (name : string) (source : option json) (fallback 
 
 (* Native commands cannot perform realpath or observe guidance. Only roots
    from committed caller, environment or project observations may be reused. *)
-Definition observed_creation_roots (caller : task_settings) (value : world) :=
- workspace_roots (settings_workspace caller) ++
- workspace_roots (settings_workspace (creation_defaults (world_environment value))) ++
- List.concat (map (fun project => if project_deleted project then [] else workspace_roots (project_workspace project)) (world_projects value)).
+Definition observed_creation_roots (selected caller : task_settings) (value : world) :=
+ let roots_in reference space :=
+   if WorkspaceBinding.same_environment (settings_resource selected) reference value
+   then workspace_roots space else [] in
+ let defaults := creation_defaults (world_environment value) in
+ roots_in (settings_resource caller) (settings_workspace caller) ++
+ roots_in (settings_resource defaults) (settings_workspace defaults) ++
+ List.concat (map (fun project => if project_deleted project then []
+   else roots_in (project_resource project) (project_workspace project)) (world_projects value)).
+Definition no_resource_observation (options : option json) :=
+ match options with None => true | Some source => match field "workspace_binding" source with
+ | None => true | Some _ => false end end.
 Definition native_creation_allowed (options : option json) (selected caller : task_settings) (value : world) :=
  let no_guidance := match options with None => true | Some options =>
    match field "guidance" options with None => true | Some _ => false end end in
- Workspace.may_delegate selected caller && no_guidance &&
- forallb (fun root => existsb (String.eqb root) (observed_creation_roots caller value))
+ Workspace.may_delegate selected caller && no_guidance && no_resource_observation options &&
+ forallb (fun root => existsb (String.eqb root) (observed_creation_roots selected caller value))
    (workspace_roots (settings_workspace selected)).
 Definition initial_project_guidance (settings : task_settings) :=
  let source := settings_guidance settings in
@@ -307,7 +320,7 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
     match resolve_settings (task_current_profile task) settings (task_current_settings task) value with
     | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
     | Some selected =>
-      if invoked && negb (Workspace.may_delegate selected (task_current_settings task)) then
+      if invoked && negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) then
        reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value else
       let settings := selected in
       let '(ticket, allocated) := allocate_ticket value in

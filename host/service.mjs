@@ -363,8 +363,8 @@ export class Service extends EventEmitter {
           onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
         input = boundary('effect.completion', { effect, result: { observations } });
       } else if (effect.kind === 'chatgpt_exec') {
-        const environment = await this.#workspaceEnvironment(effect.execution.resource, signal);
-        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, environment, readOnlyPaths: [this.home] });
+        const resource = await this.#resourceWorkspace(effect.execution.resource, signal);
+        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] });
         input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'board_text' || effect.kind === 'task_title') {
         input = boundary('effect.completion', { effect, result: await requestTaskText(effect, this.config, this.home, this.limits, { signal }) });
@@ -647,6 +647,13 @@ export class Service extends EventEmitter {
     }
     const selectedSettings = command.settings;
     let observed = await observeWorkspaceCommand(command, this.limits, {
+      workspaceEnvironment: async selection => {
+        const result = await this.journal.execute({ kind: 'command', command: { op: 'resolve_workspace', ...selection } });
+        // DEFENSE: A selected cloud resource can be ambiguous, unavailable or archived before directory observation.
+        if (!result.reply.ok) throw new Error(result.reply.error.message);
+        const resource = result.reply.result.resource;
+        return { resource, workspace_binding: result.reply.result.workspace_binding, ...await this.#resourceWorkspace(resource) };
+      },
       projectWorkspace: async project_id => {
         const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
         return result.reply.ok ? result.reply.result.workspace : undefined;
@@ -696,9 +703,7 @@ export class Service extends EventEmitter {
     try {
       const imagesObserved = await observeMessageImages(command, this.home);
       const boardObserved = await observeBoardCommand(imagesObserved, this.home);
-      return hasRootTaskCreation(boardObserved)
-        ? await this.#observeCommandWorkspace(boardObserved)
-        : await observeWorkspaceCommand(boardObserved, this.limits);
+      return await this.#observeCommandWorkspace(boardObserved);
     // DEFENSE: Client-supplied paths or image references can fail their trusted host observation before domain submission.
     } catch (cause) { throw new CommandNotSubmitted(cause); }
   }

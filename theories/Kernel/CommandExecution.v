@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 TextJson Numbers.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks History Workspace Inputs Callbacks Limits Observation ApprovalProtocol.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Features Require Import WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -28,36 +29,53 @@ Definition create_in_context (name : string) (effort : option string) (contents 
      end
    end
  end.
-Definition create_project (name : string) (source : json) (guidance : option json) (worktree : option bool) (value : world) :=
+Definition create_project (name : string) (source : json) (guidance : option json) (worktree : option bool)
+ (resource : option json) (value : world) :=
  match parse_workspace source with
  | None => reject "invalid_workspace" "Project roots must be distinct absolute canonical paths" value
  | Some workspace =>
-   let guidance := match guidance with Some source => source | None => JNull end in
-   if Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance &&
-      Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
-      N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
-   let id := N.of_nat (List.length (world_projects value)) in
-   let project := Project name workspace guidance (match worktree with Some value => value | None => false end)
-    (Workspace.next_project_order (world_projects value)) false in
-   accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
-   else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
+   let selected := match resource with Some source => parse_workspace_binding source | None => WorkspaceBinding.select_resource workspace value end in
+   match selected with
+   | None => reject "workspace_unavailable" "The workspace does not select one available execution environment" value
+   | Some owner =>
+     let guidance := match guidance with Some source => source | None => JNull end in
+     if WorkspaceBinding.resource_ready workspace owner value &&
+        Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance &&
+        Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
+        N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
+     let id := N.of_nat (List.length (world_projects value)) in
+     let project := Project name workspace guidance (match worktree with Some value => value | None => false end)
+      (Workspace.next_project_order (world_projects value)) false owner in
+     accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
+     else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
+   end
  end.
-Definition update_project (id : N) (name : option string) (workspace guidance : option json)
- (worktree : option bool) (value : world) :=
+Definition update_project (id : N) (name : option string) (workspace_source guidance : option json)
+ (worktree : option bool) (resource : option json) (value : world) :=
  match registry_at id (world_projects value) with
  | None => reject "project_not_found" "The project does not exist" value
  | Some project => if project_deleted project then reject "project_not_found" "The project does not exist" value else
-   match (match workspace with Some source => parse_workspace source | None => Some (project_workspace project) end) with
+   match (match workspace_source with Some source => parse_workspace source | None => Some (project_workspace project) end) with
    | None => reject "invalid_workspace" "Project roots must be distinct absolute canonical paths" value
    | Some workspace =>
-     let name := match name with Some name => name | None => project_name project end in
-     let guidance := match guidance with Some value => value
-       | None => inherited_guidance workspace (Domain.project_guidance project) end in
-     if Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance then
-     let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
-      (Workspace.next_project_order (world_projects value)) false in
-     accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
-     else reject "invalid_project" "Project name or guidance is invalid" value
+     let selected := match resource, workspace_source with
+       | Some source,_ => parse_workspace_binding source
+       | None,Some _ => WorkspaceBinding.select_resource workspace value
+       | None,None => Some (project_resource project) end in
+     match selected with
+     | None => reject "workspace_unavailable" "The workspace does not select one available execution environment" value
+     | Some owner =>
+       let ready := match resource, workspace_source with None,None => true
+         | _,_ => WorkspaceBinding.resource_ready workspace owner value end in
+       let name := match name with Some name => name | None => project_name project end in
+       let guidance := match guidance with Some value => value
+         | None => inherited_guidance workspace (Domain.project_guidance project) end in
+       if ready && Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance then
+       let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
+        (Workspace.next_project_order (world_projects value)) false owner in
+       accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
+       else reject "invalid_project" "Project name or guidance is invalid" value
+     end
    end
  end.
 Definition delete_project (id : N) (value : world) :=
@@ -68,7 +86,7 @@ Definition delete_project (id : N) (value : world) :=
      | Some current => N.eqb id current | None => false end) (world_tasks value)
    then reject "project_in_use" "A project referenced by a task cannot be deleted" value
    else accept (JObject [("project_id",number id)])
-    (with_projects (replace id (Project "" (Workspace [] None) JNull false (project_order project) true) (world_projects value)) value) []
+    (with_projects (replace id (Project "" (Workspace [] None) JNull false (project_order project) true None) (world_projects value)) value) []
  end.
 Definition speech_transcript (id : N) (session item : string) (speaker : Domain.speaker)
  (completion : speech_completion) (text : string) (value : world) :=
@@ -161,8 +179,8 @@ Definition execute (command : Selvedge.Generated.Commands.command) (caller : opt
      (Selvedge.Generated.Commands.configure_task_execution_reasoning request)
      (Selvedge.Generated.Commands.configure_task_execution_sandbox request)
      (Selvedge.Generated.Commands.configure_task_execution_approval request) value)
- | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) value)
- | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) value)
+ | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding request) value)
+ | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding request) value)
  | Selvedge.Generated.Commands.Cmd_delete_project request => Some (delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value)
  | Selvedge.Generated.Commands.Cmd_review_approval request => Some (
    let reason := match Selvedge.Generated.Commands.review_approval_reason request with Some reason => reason | None => "" end in

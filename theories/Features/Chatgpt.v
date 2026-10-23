@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Workspace Queries ChatgptArguments.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Domain State Worktree.
+From Selvedge.Features Require Import Domain State Worktree WorkspaceBinding.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
@@ -93,11 +93,12 @@ Definition start connection project_id request arguments granted target value :=
  | None=>
  (* DEFENSE: Projects can retain a managed root while its owner is archiving;
     only a new physical execution needs an available workspace. *)
- if negb (Worktree.workspace_available (project_workspace target) value) then
+ if negb (Worktree.workspace_available (project_workspace target) value &&
+    WorkspaceBinding.resource_ready (project_workspace target) (project_resource target) value) then
  reject "worktree_unavailable" "The Project workspace belongs to an unavailable managed worktree" value
  else if (N.of_nat (List.length (Selvedge.Features.Domain.sharing_jobs state)) <? 128) && (Selvedge.Features.Domain.sharing_next state <? ChatgptArguments.identity_maximum) then
    let id:=Selvedge.Features.Domain.sharing_next state in
-   let job:=Selvedge.Features.Domain.ConnectionJob connection project_id request arguments (project_workspace target) (Selvedge.Features.Domain.connection_sandbox granted) Selvedge.Features.Domain.JobRunning in
+   let job:=Selvedge.Features.Domain.ConnectionJob connection project_id request arguments (project_workspace target) (project_resource target) (Selvedge.Features.Domain.connection_sandbox granted) Selvedge.Features.Domain.JobRunning in
    let next:=set Selvedge.Features.Domain.sharing_next (fun _=>N.succ id) (replace_job id job state) in
    accept (receipt id job) (store next value) [RunConnectionJob id job]
    else reject "operation_capacity" "Forget a completed operation before starting more work" value end.

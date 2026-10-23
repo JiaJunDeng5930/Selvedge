@@ -27,7 +27,7 @@ Definition settings_arguments := map (fun field =>
    Arguments.with_structure (Arguments.schema_fields Codec.sandbox_patch_arguments) argument else
  if String.eqb (field_name field) "approval" then
    Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
- (filter (fun field => negb (String.eqb (field_name field) "guidance")) Codec.task_settings_schema).
+ (filter (fun field => negb (String.eqb (field_name field) "guidance" || String.eqb (field_name field) "workspace_binding")) Codec.task_settings_schema).
 Definition settings_schema := Arguments.schema_fields settings_arguments.
 Definition public_settings_schema := Json.set_field "type"
  (JArray [JString "object"; JString "null"]) settings_schema.
@@ -164,7 +164,7 @@ Definition primitive_kind (value : native_tool) := match value with
 Definition primitive_entry (value : native_tool) :=
  Tool (ToolArguments.tool_name value)
   (match value with
-   | Bash => "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. Running or awaiting_approval is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Default access obeys the task sandbox. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification before executing it. Failure may leave partial effects; there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied."
+   | Bash => "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. Running or awaiting_approval is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Full Access runs commands unrestricted; other modes obey the task sandbox by default. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification before executing it. Failure may leave partial effects; there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied."
    | ReadProcess => "Read available incremental output from this task's Bash operation while running or after completion. Use next_cursor from the previous read. Output is bounded and explicitly marks discarded content. Call on demand; do not poll automatically."
    | WriteProcess => "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable."
    | ReadImage => (String.append "Read a local PNG, JPEG, GIF or WebP image in this task's sandbox and return visual content to the model. Relative paths use the task workspace. Images are snapshotted before use; maximum bytes: " (String.append (Numbers.show_natural Images.image_byte_limit) ". detail defaults to auto.")) end)

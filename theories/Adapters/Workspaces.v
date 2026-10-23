@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 Schema.
-From Selvedge.Kernel Require Import Commands.
+From Selvedge.Kernel Require Import Commands Workspace.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
@@ -80,13 +80,14 @@ Definition workspace_settings (source : json) :=
   (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
   let workspace_supplied := has value "workspace" in
   (* DEFENSE: Non-null guidance snapshots supplied by a client must not acquire service authority. *)
-  type_admit (is_null (get value "guidance"))
+  type_admit (is_null (get value "guidance") && negb (has value "workspace_binding"))
     (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&
       bound (get value "project_id") 0 9007199254740991 then get value "project_id" else JNull);
-      ("observe_workspace",JBool workspace_supplied)]) "Root guidance is observed by the service, not supplied by a client".
+      ("observe_workspace",JBool workspace_supplied)]) "Root guidance and workspace resources are observed by the service, not supplied by a client".
 Definition observed_settings (selected observation : json) :=
   let workspace := if has observation "workspace" then set selected "workspace" (get observation "workspace") else selected in
-  if has observation "guidance" then set workspace "guidance" (get observation "guidance") else workspace.
+  let selected := if has observation "workspace_binding" then set workspace "workspace_binding" (get observation "workspace_binding") else workspace in
+  if has observation "guidance" then set selected "guidance" (get observation "guidance") else selected.
 Fixpoint observed_nodes (index : nat) (nodes : list json) (settings : json) :=
   match index,nodes with
   | O,node::rest => set node "settings" settings :: rest
@@ -145,3 +146,11 @@ Definition worktree_recovery_effect (source : json) :=
   let entry := get source "entry" in
   success (JObject [("kind",JString (if existsb (String.eqb (str entry "status")) ["creating";"creating_archived"] then "worktree_create" else "worktree_archive"));
     ("task_id",get entry "task_id");("source_root",get entry "source_root");("root",get entry "root")]).
+
+(* DEFENSE: A selected cloud root can resolve through a symlink or '..' into
+   another environment. Canonical paths must still belong to the selected root. *)
+Definition workspace_environment_bound (source : json) :=
+  type_admit (is_text (get source "root") &&
+    forallb (fun root => is_text root && Workspace.root_within (text root) (str source "root"))
+      (items (get (get source "workspace") "roots"))) JNull
+    "A cloud workspace must stay within its task repository".

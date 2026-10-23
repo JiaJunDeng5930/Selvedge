@@ -19,7 +19,7 @@ Qed.
 
 Lemma unobserved_roots_fail_native_admission : forall options selected caller value root,
  In root (workspace_roots (settings_workspace selected)) ->
- ~ In root (Tasks.observed_creation_roots caller value) ->
+ ~ In root (Tasks.observed_creation_roots selected caller value) ->
  Tasks.native_creation_allowed options selected caller value = false.
 Proof.
  intros options selected caller value root Member Unknown.
@@ -34,7 +34,7 @@ Theorem actual_native_creation_rejects_unobserved_roots : forall name effort con
  find_task caller_id value = Some caller ->
  resolve_for_profile name options (task_current_settings caller) value = Some selected ->
  In root (workspace_roots (settings_workspace selected)) ->
- ~ In root (Tasks.observed_creation_roots (task_current_settings caller) value) ->
+ ~ In root (Tasks.observed_creation_roots selected (task_current_settings caller) value) ->
  decision_world (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = value /\
  decision_effects (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = [].
 Proof.
@@ -61,18 +61,19 @@ Theorem a_full_access_native_fork_accepts_any_resolved_child_settings :
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
  Tasks.ancestors_fit (id :: task_lineage task) count value = true ->
  Tasks.resolve_settings (task_current_profile task) options (task_current_settings task) value = Some selected ->
+ Tasks.no_resource_observation options = true ->
  settings_approval (task_current_settings task) = FullAccess ->
  bool_default "ok" (decision_reply (Tasks.fork_with_caller true id count messages options value)) false = true /\
  decision_world (Tasks.fork_with_caller true id count messages options value) =
    Tasks.fork_children (N.to_nat count) id task messages selected value.
 Proof.
  intros id count messages options value task selected remaining
-   Found Pending Count Messages Capacity Resolved Full.
+   Found Pending Count Messages Capacity Resolved Observed Full.
  unfold Tasks.fork_with_caller,Tasks.fork_parent_ready; rewrite Found.
  unfold task_status; rewrite Pending, orb_true_r.
  cbn [String.eqb negb andb].
  rewrite Count, Messages, Capacity, Resolved.
- unfold Workspace.may_delegate; rewrite Full; cbn [negb andb].
+ unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
  destruct (allocate_ticket value); split; reflexivity.
 Qed.
 

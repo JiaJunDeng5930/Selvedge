@@ -41,8 +41,8 @@ Definition command_specs : list command_spec := [
   Command "search_history" [req "query" KText; opt "project_id" KNatural; opt "work_id" KNatural; opt "after" KNatural; opt "limit" KNatural];
   Command "list" [];
   Command "describe" [];
-  Command "create_project" [req "name" KText; req "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool];
-  Command "update_project" [req "project_id" KNatural; opt "name" KText; opt "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool];
+  Command "create_project" [req "name" KText; req "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson];
+  Command "update_project" [req "project_id" KNatural; opt "name" KText; opt "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson];
   Command "delete_project" [req "project_id" KNatural];
   Command "list_projects" [];
   Command "read_project" [req "project_id" KNatural];
@@ -96,7 +96,8 @@ Definition command_specs : list command_spec := [
   Command "create_workspace_task" (req "backend" WorkspaceBackend.declaration :: creation_fields ++ [opt "work_id" KNatural]);
   Command "list_worktrees" [];
   Command "read_worktree" task_identity;
-  Command "retry_worktree_archive" task_identity
+  Command "retry_worktree_archive" task_identity;
+  Command "resolve_workspace" [opt "workspace" KJson; opt "project_id" KNatural]
 ].
 
 Definition command_field_description (command field : string) :=
@@ -131,7 +132,7 @@ Definition command_argument (command : string) (field : field_spec) :=
 
 Definition command_arguments (specification : command_spec) :=
   map (command_argument (command_name specification))
-    (Field "op" KText :: command_fields specification).
+    (Field "op" KText :: filter (fun field => negb (String.eqb (field_name field) "workspace_binding")) (command_fields specification)).
 
 (* Host workspace observation and native remote admission share this schema-level judgment. *)
 Definition graph_node_creates_root_task (node : json) :=
@@ -225,6 +226,7 @@ Definition command_descriptions : list (string * string) := [
 *** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch.");
   ("create_workspace_task", "Create a task after preparing a local worktree or a cloud environment.");
   ("create_worktree_task", "Create a task in a managed Git worktree before starting its execution.");
+  ("resolve_workspace", "Resolve the selected workspace environment before observing its directories.");
   ("list_worktrees", "List managed task worktrees and their current operation state.");
   ("read_worktree", "Read the managed worktree associated with one task.");
   ("retry_worktree_archive", "Retry archiving a task worktree after an external archive failure.")

@@ -99,8 +99,15 @@ Definition select_optional {A : Type} (parse : json -> option A)
 Definition select_override {A : Type} (parse : json -> option A)
  (key : string) (source : json) (fallback : A) :=
  match field key source with None => Some fallback | Some value => parse value end.
+Definition workspace_binding_json (owner : option N) :=
+ JObject [("task_id",optional_number owner)].
+Definition parse_workspace_binding (source : json) : option (option N) :=
+ match source with
+ | JObject [("task_id",JNull)] => Some None
+ | JObject [("task_id",owner)] => option_map (@Some N) (natural owner)
+ | _ => None end.
 Definition task_settings_schema := [Field "workspace" (KOptional KJson); Field "sandbox" (KOptional KJson);
- Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson)].
+ Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson); Field "workspace_binding" (KOptional KJson)].
 Definition valid_guidance (value : json) := match value with JNull => true | _ =>
  match Schema.decode [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText] value with
  | None => false | Some _ =>
@@ -133,11 +140,14 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
      let guidance := match field "guidance" value with
        | None | Some JNull => inherited_guidance workspace (settings_guidance fallback)
        | Some guidance => guidance end in
-     match project with
-     | Some project => if guidance_member workspace guidance then
-       Some (Settings workspace project sandbox approval guidance (settings_worktree fallback)
-         (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)) else None
-     | None => None end
+     let resource := match field "workspace_binding" value with
+       | Some observation => parse_workspace_binding observation
+       | None => Some (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)
+       end in
+     match project,resource with
+     | Some project,Some owner => if guidance_member workspace guidance then
+       Some (Settings workspace project sandbox approval guidance (settings_worktree fallback) owner) else None
+     | _,_ => None end
    | _,_,_ => None end else None
  | _ => None end end end.
 Definition profile_json (value : profile) := profile_metadata value.

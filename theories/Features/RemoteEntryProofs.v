@@ -43,7 +43,12 @@ Proof.
  unfold Selvedge.Features.Runtime.guard_result, Worktree.guard_result, accept, put_task.
  destruct value; cbn in Tasks; subst.
  destruct task; cbn in Running; subst. cbn -[Json.equal].
- rewrite !JsonProofs.equal_is_reflexive. reflexivity.
+ rewrite !JsonProofs.equal_is_reflexive.
+ match goal with
+ | |- context [Selvedge.Kernel.Workspace.same_resource ?reference ?reference] =>
+   destruct reference; cbn [Selvedge.Kernel.Workspace.same_resource];
+   rewrite ?N.eqb_refl; reflexivity
+ end.
 Qed.
 
 Definition stop_first_wire := JObject [("op",JString "stop");("task_id",number 0)].

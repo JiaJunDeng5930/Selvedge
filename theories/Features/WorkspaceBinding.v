@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State WorkspaceBackend.
+From Selvedge.Kernel Require Import Numbers Domain State WorkspaceBackend Workspace.
 From Selvedge.Features Require Import Domain.
 Import ListNotations.
 Open Scope string_scope.
@@ -8,6 +8,22 @@ Open Scope string_scope.
 Definition owned (id : N) (value : world) :=
   find (fun tree => N.eqb id (Selvedge.Features.Domain.worktree_task tree))
     (Selvedge.Features.Domain.feature_worktrees (world_features value)).
+
+Definition environment_reference (reference : option N) (value : world) : option (option N) :=
+  match reference with
+  | None => Some None
+  | Some owner => match owned owner value with
+    | None => None
+    | Some tree => Some (if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)
+      then Some owner else None)
+    end
+  end.
+
+Definition same_environment (first second : option N) (value : world) :=
+  match environment_reference first value, environment_reference second value with
+  | Some first, Some second => Workspace.same_resource first second
+  | _, _ => false
+  end.
 
 Definition inside (root path : string) :=
   String.eqb root path || String.prefix (String.append root "/") path.
@@ -59,6 +75,61 @@ Definition resource_json (tree : Selvedge.Features.Domain.worktree) := JObject [
 
 Definition execution (settings : task_settings) (value : world) :=
   match resolve settings value with Some tree => resource_json tree | None => JNull end.
+
+Definition reference_execution (owner : option N) (value : world) :=
+  match owner with
+  | Some id => match owned id value with Some tree => resource_json tree | None => JNull end
+  | None => JNull
+  end.
+Definition within_resource (space : workspace) (tree : Selvedge.Features.Domain.worktree) :=
+  match Selvedge.Features.Domain.worktree_root tree with
+  | Some root => forallb (inside root) (workspace_roots space)
+  | None => false end.
+Definition resource_ready (space : workspace) (owner : option N) (value : world) :=
+  match owner with
+  | None => true
+  | Some id => match owned id value with
+    | Some tree => WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) &&
+      within_resource space tree && match Selvedge.Features.Domain.worktree_phase tree with
+        | Selvedge.Features.Domain.TreeReady _ _ => true | _ => false end
+    | None => false end end.
+Definition cloud_intersects (space : workspace) (tree : Selvedge.Features.Domain.worktree) :=
+  WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) &&
+  match Selvedge.Features.Domain.worktree_root tree with
+  | Some root => existsb (inside root) (workspace_roots space)
+  | None => false end.
+(* This is a workspace selection, not an execution-time lookup. The observed
+   choice is retained by the project, task settings and the connection job. *)
+Definition select_resource (space : workspace) (value : world) : option (option N) :=
+  match filter (cloud_intersects space)
+    (Selvedge.Features.Domain.feature_worktrees (world_features value)) with
+  | [] => Some None
+  | [tree] => let owner := Some (Selvedge.Features.Domain.worktree_task tree) in
+    if resource_ready space owner value then Some owner else None
+  (* DEFENSE: Two cloud instances can expose the same path. A path selection
+     cannot choose between them, or combine roots from different environments. *)
+  | _ => None end.
+
+(* An explicit directory can still belong to the already selected environment.
+   Keep that identity instead of interpreting its path on the local host. *)
+Definition select_bound_workspace (base selected : task_settings) (value : world)
+ : option task_settings :=
+ match settings_resource base with
+ | None => Some selected
+ | Some owner => match owned owner value with
+   | None => Some selected
+   | Some tree =>
+     if cloud_intersects (settings_workspace selected) tree then
+       (* DEFENSE: A native request can combine an observed cloud root and a
+          local project root; one execution cannot span both environments. *)
+       if within_resource (settings_workspace selected) tree then
+         Some (Settings (settings_workspace selected) (settings_project selected)
+           (settings_sandbox selected) (settings_approval selected) (settings_guidance selected)
+           (settings_worktree selected) (Some owner))
+       else None
+     else Some selected
+   end
+ end.
 
 Lemma resolve_owned : forall settings value owner tree,
   settings_resource settings = Some owner ->

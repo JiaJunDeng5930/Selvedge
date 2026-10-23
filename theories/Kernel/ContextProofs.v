@@ -337,3 +337,49 @@ Proof.
  destruct (WorkspaceBinding.resolve settings value) as [tree|]; [|repeat split;reflexivity].
  destruct (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree));repeat split;reflexivity.
 Qed.
+
+Theorem an_explicit_directory_keeps_its_selected_cloud_environment :
+ forall model source fields base selected value owner tree,
+ field "project_id" source = None ->
+ field "workspace_binding" source = None ->
+ field "workspace" source = Some (JObject fields) ->
+ Codec.parse_settings model (environment_profiles (world_environment value)) source base = Some selected ->
+ settings_resource base = Some owner -> WorkspaceBinding.owned owner value = Some tree ->
+ WorkspaceBinding.cloud_intersects (settings_workspace selected) tree = true ->
+ WorkspaceBinding.within_resource (settings_workspace selected) tree = true ->
+ exists resolved, Tasks.resolve_settings model (Some source) base value = Some resolved /\
+ settings_workspace resolved = settings_workspace selected /\
+ settings_resource resolved = Some owner /\
+ settings_sandbox resolved = Sandbox WorkspaceWrite true /\
+ settings_approval resolved = FullAccess.
+Proof.
+ intros model source fields base selected value owner tree NoProject NoObservation Explicit
+   Parsed Reference Owned Intersects Inside.
+ assert (Cloud : WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) = true).
+ { unfold WorkspaceBinding.cloud_intersects in Intersects.
+   apply andb_true_iff in Intersects; exact (proj1 Intersects). }
+ unfold Tasks.resolve_settings; cbn zeta.
+ rewrite NoProject, Parsed, NoObservation, Explicit.
+ unfold WorkspaceBinding.select_bound_workspace; rewrite Reference, Owned, Intersects, Inside.
+ unfold WorkspaceBinding.normalize_settings, WorkspaceBinding.resolve; cbn.
+ rewrite Owned, Cloud; eexists; repeat split; reflexivity.
+Qed.
+
+Theorem an_explicit_directory_cannot_mix_the_selected_cloud_with_another_environment :
+ forall model source fields base selected value owner tree,
+ field "project_id" source = None ->
+ field "workspace_binding" source = None ->
+ field "workspace" source = Some (JObject fields) ->
+ Codec.parse_settings model (environment_profiles (world_environment value)) source base = Some selected ->
+ settings_resource base = Some owner -> WorkspaceBinding.owned owner value = Some tree ->
+ WorkspaceBinding.cloud_intersects (settings_workspace selected) tree = true ->
+ WorkspaceBinding.within_resource (settings_workspace selected) tree = false ->
+ Tasks.resolve_settings model (Some source) base value = None.
+Proof.
+ intros model source fields base selected value owner tree NoProject NoObservation Explicit
+   Parsed Reference Owned Intersects Outside.
+ unfold Tasks.resolve_settings; cbn zeta.
+ rewrite NoProject, Parsed, NoObservation, Explicit.
+ unfold WorkspaceBinding.select_bound_workspace; rewrite Reference, Owned, Intersects, Outside.
+ reflexivity.
+Qed.
