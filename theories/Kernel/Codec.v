@@ -114,6 +114,8 @@ Definition valid_guidance (value : json) := match value with JNull => true | _ =
 Definition guidance_member (workspace : workspace) (guidance : json) := match guidance with
  | JNull => true | _ => match workspace_primary workspace, string_field "workspace" guidance with
  | Some root, Some observed => String.eqb root observed | _,_ => false end end.
+Definition inherited_guidance (workspace : workspace) (guidance : json) :=
+ if guidance_member workspace guidance then guidance else JNull.
 Definition parse_settings (model : profile) (catalog : list profile) (value : json) (fallback : task_settings) : option task_settings :=
  match value with JNull => Some fallback | _ =>
  match Schema.decode task_settings_schema value with None => None | Some _ =>
@@ -126,14 +128,16 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
          select_override (parse_approval model catalog) "approval" value (settings_approval fallback) with
    | Some workspace, Some sandbox, Some approval =>
      let project := match field "project_id" value with
-       | None => settings_project fallback | Some JNull => None
-       | Some value => natural value end in
+       | None => Some (settings_project fallback)
+       | Some value => option_map (@Some N) (natural value) end in
      let guidance := match field "guidance" value with
-       | None | Some JNull => if guidance_member workspace (settings_guidance fallback) then settings_guidance fallback else JNull
+       | None | Some JNull => inherited_guidance workspace (settings_guidance fallback)
        | Some guidance => guidance end in
-     if guidance_member workspace guidance then
-     Some (Settings workspace project sandbox approval guidance (settings_worktree fallback)
-       (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)) else None
+     match project with
+     | Some project => if guidance_member workspace guidance then
+       Some (Settings workspace project sandbox approval guidance (settings_worktree fallback)
+         (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)) else None
+     | None => None end
    | _,_,_ => None end else None
  | _ => None end end end.
 Definition profile_json (value : profile) := profile_metadata value.

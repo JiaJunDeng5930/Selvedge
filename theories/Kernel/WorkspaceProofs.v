@@ -30,8 +30,8 @@ Proof.
  [|reflexivity].
  destruct (Workspace.valid_project_name
   (match name with Some name => name | None => project_name previous end) &&
-  valid_guidance (match guidance with Some source => source | None => Domain.project_guidance previous end) &&
-  guidance_member w (match guidance with Some source => source | None => Domain.project_guidance previous end));
+  valid_guidance (match guidance with Some source => source | None => inherited_guidance w (Domain.project_guidance previous) end) &&
+  guidance_member w (match guidance with Some source => source | None => inherited_guidance w (Domain.project_guidance previous) end));
  reflexivity.
 Qed.
 
@@ -54,11 +54,11 @@ Proof.
   as [space|]; [|discriminate].
  destruct (Workspace.valid_project_name
   (match name with Some name => name | None => project_name previous end) &&
-  valid_guidance (match guidance with Some source => source | None => Domain.project_guidance previous end) &&
-  guidance_member space (match guidance with Some source => source | None => Domain.project_guidance previous end));
+  valid_guidance (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end) &&
+  guidance_member space (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end));
  [|discriminate].
  pose (updated := Project (match name with Some name => name | None => project_name previous end) space
-  (match guidance with Some source => source | None => Domain.project_guidance previous end)
+  (match guidance with Some source => source | None => inherited_guidance space (Domain.project_guidance previous) end)
   (match requested with Some selected => selected | None => project_worktree previous end)
   (Workspace.next_project_order (world_projects value)) false).
  exists updated; split.
@@ -153,6 +153,21 @@ Qed.
 Theorem query_and_snapshot_use_the_same_project_order : forall value,
  Queries.projects_json value = Observation.projects_json (world_projects value) (world_tasks value).
 Proof. reflexivity. Qed.
+
+Theorem moving_a_project_discards_unselected_guidance : forall id value project raw workspace,
+ registry_at id (world_projects value) = Some project ->
+ project_deleted project = false -> parse_workspace raw = Some workspace ->
+ Workspace.valid_project_name (project_name project) = true ->
+ guidance_member workspace (Domain.project_guidance project) = false ->
+ let result := decision_reply (CommandExecution.update_project id None (Some raw) None None value) in
+ bool_default "ok" result false = true /\
+ field "guidance" (value_or_null "result" result) = Some JNull.
+Proof.
+ intros id value project raw workspace Found Live Parsed Name Unselected; cbn zeta.
+ unfold CommandExecution.update_project; rewrite Found, Live, Parsed.
+ unfold inherited_guidance; rewrite Unselected.
+ cbn [valid_guidance guidance_member]; rewrite Name; split; reflexivity.
+Qed.
 
 Theorem project_query_reports_current_bindings : forall value id project,
  In (id, project) (Workspace.ordered_projects (world_projects value)) ->

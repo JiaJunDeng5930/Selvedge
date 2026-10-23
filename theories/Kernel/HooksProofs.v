@@ -54,7 +54,7 @@ Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :
      (with_operations (replace_operation waiting (task_operations recorded)) recorded) value).
 Proof.
  intros id ticket result error value task current plugin rest Found Owned Hooks.
- unfold Callbacks.tool_completed; rewrite Found, Owned, Hooks; reflexivity.
+ unfold Callbacks.tool_completed, Callbacks.begin_result; rewrite Found, Owned, Hooks; reflexivity.
 Qed.
 
 Theorem allowed_before_hook_resumes_the_same_call_before_its_suffix :

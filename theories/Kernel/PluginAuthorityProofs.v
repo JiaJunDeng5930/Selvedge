@@ -30,14 +30,17 @@ Theorem admitted_mcp_calls_dispatch : forall execute id name description schema 
  N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
  decision_effects (Scheduler.execute_checked_call execute id advertised invocation remaining task value) =
  [ExecuteTool id (world_next_ticket value) (world_next_ticket value) advertised invocation
-   (task_current_settings task) DefaultAccess].
+   (task_current_settings task)
+   (match settings_approval (task_current_settings task) with
+    | FullAccess => ElevatedAccess | _ => DefaultAccess end)].
 Proof.
  intros execute id name description schema server remote invocation remaining task value advertised
    Available [fields Arguments] NoNative NoDiscover NoBash Room.
  unfold Scheduler.execute_checked_call. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
  rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
- unfold Scheduler.start_external. rewrite Room, NoBash. reflexivity.
+ unfold Scheduler.start_external. rewrite Room, NoBash.
+ destruct (settings_approval (task_current_settings task)); reflexivity.
 Qed.
 
 Lemma same_reference_preserves_identity : forall left right,

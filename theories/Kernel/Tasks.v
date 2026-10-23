@@ -35,8 +35,7 @@ Definition resolve_settings (model : profile) (source : option json) (fallback :
  let raw := match source with Some raw => raw | None => JNull end in
  let base := match field "project_id" raw with
  | None => Some fallback
- | Some JNull => Some (Settings (settings_workspace fallback) None (settings_sandbox fallback)
-    (settings_approval fallback) (settings_guidance fallback) (settings_worktree fallback) (settings_resource fallback))
+ | Some JNull => None
  | Some source => match natural source with
    | None => None
    | Some id => match registry_at id (world_projects value) with

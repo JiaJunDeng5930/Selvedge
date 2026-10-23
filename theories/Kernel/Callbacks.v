@@ -115,6 +115,15 @@ Definition settle_operation (operation : operation) (result : json) (error : boo
  (append_history [History.operation_result operation result error] task)).
 Definition after_plugins (task : task) :=
  Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).
+Definition begin_result (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
+ match after_plugins task with
+ | [] => settle_operation operation result error task
+ | pending =>
+   let task := append_history [ToolReceipt owner (operation_id operation) (operation_call operation) result error] task in
+   let waiting := Operation (operation_id operation) (operation_call operation) (operation_announced operation)
+     (AfterHooksReady pending result error) in
+   with_operations (replace_operation waiting (task_operations task)) task
+ end.
 Definition tool_completed (id ticket : N) (result : json) (error : bool) (value : world) :=
  (* DEFENSE: Tool delivery can be duplicated or delayed after cancellation;
     a settled operation cannot acquire another completion or start a hook. *)
@@ -122,14 +131,7 @@ Definition tool_completed (id ticket : N) (result : json) (error : bool) (value 
  | None => ignored value
  | Some task => match find (operation_executing ticket) (task_operations task) with
    | None => ignored value
-   | Some operation => match after_plugins task with
-     | [] => acknowledged (put_task id (settle_operation operation result error task) value)
-     | pending =>
-     let task := append_history [ToolReceipt id (operation_id operation) (operation_call operation) result error] task in
-     let waiting := Operation (operation_id operation) (operation_call operation) (operation_announced operation)
-         (AfterHooksReady pending result error) in
-     acknowledged (put_task id (with_operations (replace_operation waiting (task_operations task)) task) value)
-     end
+   | Some operation => acknowledged (put_task id (begin_result id operation result error task) value)
    end
  end.
 Definition find_pending_approval (selected : N -> N -> reviewer -> bool) (operations : list operation)
@@ -147,8 +149,8 @@ Definition approval_decision (owner : N) (operation : operation) (reviewed_by : 
  | Approved _ =>
    with_operations (replace_operation (Operation (operation_id operation) (operation_call operation)
      (operation_announced operation) (Granted reviewed_by)) (task_operations task)) task
- | Denied reason | ApprovalFailed reason => settle_operation operation
-   (State.failure "approval_denied" reason) true task
+ | Denied reason | ApprovalFailed reason => begin_result owner operation
+   (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true task
  end.
 Definition approval_completed (id ticket : N) (outcome : approval_outcome) (value : world) :=
  match find_task id value with

@@ -32,7 +32,8 @@ Theorem an_after_hook_retains_the_original_execution_receipt :
  [ToolReceipt id (operation_id operation) (operation_call operation) result error].
 Proof.
  intros id ticket result error value task operation first rest Found Owned Hooks.
- unfold Callbacks.tool_completed; rewrite Found, Owned, Hooks.
+ unfold Callbacks.tool_completed; rewrite Found, Owned.
+ unfold Callbacks.begin_result; rewrite Hooks.
  eexists; split; [apply find_put_task with task; exact Found|].
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
  destruct lifecycle; reflexivity.

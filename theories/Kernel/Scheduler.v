@@ -56,12 +56,13 @@ Definition start_external (id : N) (tool : tool) (invocation : call) (remaining 
  match settings_approval settings with
  | AskForApproval =>
    let operation := Operation ticket invocation false (AwaitingApproval ticket HumanReviewer) in
-   acknowledged (put_task id (append_operation operation remaining task) allocated)
+   acknowledged (put_task id (Tasks.promote (append_operation operation remaining task)) allocated)
  | ReviewWith reviewer =>
      let operation := Operation ticket invocation false (AwaitingApproval ticket (ModelReviewer reviewer)) in
+     let waiting := Tasks.promote (append_operation operation remaining task) in
      accept (JObject [("accepted",JBool true)])
-      (put_task id (append_operation operation remaining task) allocated)
-      [RequestApproval id ticket reviewer invocation task]
+      (put_task id waiting allocated)
+      [RequestApproval id ticket reviewer invocation waiting]
  | FullAccess =>
    let operation := Operation ticket invocation false (Elevated ticket HumanReviewer) in
    accept (JObject [("accepted",JBool true)])

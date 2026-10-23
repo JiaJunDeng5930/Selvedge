@@ -51,7 +51,8 @@ Definition update_project (id : N) (name : option string) (workspace guidance : 
    | None => reject "invalid_workspace" "Project roots must be distinct absolute canonical paths" value
    | Some workspace =>
      let name := match name with Some name => name | None => project_name project end in
-     let guidance := match guidance with Some value => value | None => Domain.project_guidance project end in
+     let guidance := match guidance with Some value => value
+       | None => inherited_guidance workspace (Domain.project_guidance project) end in
      if Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance then
      let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
       (Workspace.next_project_order (world_projects value)) false in

@@ -84,7 +84,10 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  text_default "sandbox_permissions" (call_arguments invocation) "use_default" = "require_escalated" ->
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  decision_effects (Scheduler.start_external id tool invocation remaining task value) =
- [RequestApproval id (world_next_ticket value) reviewer invocation task].
+ [RequestApproval id (world_next_ticket value) reviewer invocation
+   (Tasks.promote (Scheduler.append_operation
+     (Operation (world_next_ticket value) invocation false
+       (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
 Proof.
  intros id tool invocation remaining task value reviewer Room Bash Elevated Policy.
  unfold Scheduler.start_external; rewrite Room, Bash, Elevated; cbn.

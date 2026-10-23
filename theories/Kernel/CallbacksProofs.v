@@ -48,7 +48,7 @@ Theorem tool_completion_without_after_hooks_settles_the_exact_owned_result :
  (released = [] \/ released = task_queued task).
 Proof.
  intros id ticket result error value task operation Found Owned Hooks.
- unfold Callbacks.tool_completed; rewrite Found, Owned, Hooks; cbn.
+ unfold Callbacks.tool_completed, Callbacks.begin_result; rewrite Found, Owned, Hooks; cbn.
  split; [reflexivity|].
  set (settled := with_operations
    (Callbacks.remove_operation (operation_id operation) (task_operations task))
@@ -175,7 +175,7 @@ Proof.
  pose proof (tool_completion_without_after_hooks_settles_the_exact_owned_result
    id ticket result error value task operation Found Owned Hooks)
    as [_ [updated [released [Updated [Operations _]]]]].
- unfold completed; unfold Callbacks.tool_completed at 1; rewrite Updated, Operations.
+ unfold completed; unfold Callbacks.tool_completed at 1; unfold Callbacks.begin_result; rewrite Updated, Operations.
  rewrite no_execution_after_removing_the_ticket_owner with (operation := operation).
  - reflexivity.
  - eapply valid_world_execution_tickets_are_unique; eauto.

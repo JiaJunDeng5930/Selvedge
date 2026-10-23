@@ -9,6 +9,28 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
+(* Public creation commands and model tools share the settings declaration.
+   Guidance is a host observation, never model-supplied authority. *)
+(* A command's interval takes precedence over the generic natural bound. *)
+Definition natural_bounds (argument : argument_spec) :=
+ match argument_type_of argument with
+ | Scalar KNatural => match argument_bounds argument with
+   | Some _ => argument
+   | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
+   end
+ | _ => argument end.
+Definition settings_arguments := map (fun field =>
+ let argument := natural_bounds (Arguments.omittable_nonnull (Arguments.from_field field)) in
+ if String.eqb (field_name field) "workspace" then
+   Arguments.with_structure (SchemaJson.omittable_fields Workspace.workspace_schema) argument else
+ if String.eqb (field_name field) "sandbox" then
+   Arguments.with_structure (Arguments.schema_fields Codec.sandbox_patch_arguments) argument else
+ if String.eqb (field_name field) "approval" then
+   Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
+ (filter (fun field => negb (String.eqb (field_name field) "guidance")) Codec.task_settings_schema).
+Definition settings_schema := Arguments.schema_fields settings_arguments.
+Definition public_settings_schema := Json.set_field "type"
+ (JArray [JString "object"; JString "null"]) settings_schema.
 Definition attachment_item_schema := SchemaJson.object_fields
   (map (fun name => (name,JObject (SchemaJson.kind_schema KText))) ["id";"name";"mime";"path";"bytes"])
   ["id"].
@@ -43,13 +65,14 @@ Definition connection_field_refinements (name : string) :=
       | _ => [] end
   | None => [] end.
 Definition command_field_refinements (name : string) :=
-  if String.eqb name "create_card" || String.eqb name "update_card" then
+  ("settings",public_settings_schema) ::
+  (  if String.eqb name "create_card" || String.eqb name "update_card" then
     [("attachments",attachment_array_schema)] else
   if String.eqb name "configure_title_settings" then
     [("task_prompt",title_prompt_schema);("agent_prompt",title_prompt_schema)] else
   if String.eqb name "remote_grant" then
     [("controller_id",controller_id_schema);("permissions",permissions_schema)] else
-  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else connection_field_refinements name.
+  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else connection_field_refinements name).
 Definition command_schema (specification : command_spec) :=
   let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
     (Commands.command_arguments specification) in
@@ -96,27 +119,6 @@ Definition binding_schema (binding : command_binding) (specification : command_s
    map (fun field => if String.eqb name (field_name field) then Field name (KOptional KNatural) else field) (command_fields specification)
    else filter (fun field => negb (String.eqb name (field_name field))) (command_fields specification)
  end.
-(* Model-created tasks can select bounded settings, but guidance is a host
-   observation and cannot be supplied as model authority. Field names and value
-   kinds come from the same declarations used by the command decoder. *)
-(* A command's interval takes precedence over the generic natural bound. *)
-Definition natural_bounds (argument : argument_spec) :=
- match argument_type_of argument with
- | Scalar KNatural => match argument_bounds argument with
-   | Some _ => argument
-   | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
-   end
- | _ => argument end.
-Definition settings_arguments := map (fun field =>
- let argument := natural_bounds (Arguments.omittable_nonnull (Arguments.from_field field)) in
- if String.eqb (field_name field) "workspace" then
-   Arguments.with_structure (SchemaJson.omittable_fields Workspace.workspace_schema) argument else
- if String.eqb (field_name field) "sandbox" then
-   Arguments.with_structure (Arguments.schema_fields Codec.sandbox_patch_arguments) argument else
- if String.eqb (field_name field) "approval" then
-   Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
- (filter (fun field => negb (String.eqb (field_name field) "guidance")) Codec.task_settings_schema).
-Definition settings_schema := Arguments.schema_fields settings_arguments.
 Definition model_field (binding : command_binding) (argument : argument_spec) :=
  let argument := Arguments.omittable_nonnull argument in
  if (String.eqb (binding_command binding) "create" || String.eqb (binding_command binding) "send") &&
