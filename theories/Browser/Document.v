@@ -64,7 +64,7 @@ Definition checkbox_target (env : Layout.environment) key (field:DOM.node) :=
  |DOM.Element field_key tag attributes styles events metadata children=>
   let checked:=match attribute_value "checked" attributes with Some _=>true|None=>false end in
   let inactive:=match attribute_value "disabled" attributes with Some _=>true|None=>false end in
-  DOM.Element (String.append key "/checkbox-target") "label" [("data-control-target","checkbox")]
+  DOM.Element (String.append key "/checkbox-target") "span" [("data-control-target","checkbox")]
    [("display","grid");("place-items","center");("position","relative");
     ("inline-size",target);("min-inline-size",target);("block-size",target);
     ("min-block-size",target);("flex","none");("cursor",if inactive then "default"else"pointer")]
@@ -81,9 +81,10 @@ Definition checkbox_target (env : Layout.environment) key (field:DOM.node) :=
  | _=>field end.
 Definition interactive_status env (activity : bool) key attribute message :=
   let tier := if activity then Typography.ActivityPrimary else Typography.Body in
-  DOM.Element key "output" [(attribute,"");("role","status")]
+  DOM.Element key "output" [(attribute,"");("role","status");("title",message)]
     [("display","block");("block-size",Typography.px (Typography.line_height (Layout.root_font_size_milli env) tier));
-     ("flex","none");("white-space","nowrap");("overflow-x","auto");("overflow-y","hidden")]
+     ("flex","none");("min-inline-size","0");("white-space","nowrap");
+     ("overflow","hidden");("text-overflow","ellipsis")]
     [] empty [DOM.Text message].
 Definition table_properties : list (string * string) :=
   [("display","table");("table-layout","auto");("border-collapse","collapse");
