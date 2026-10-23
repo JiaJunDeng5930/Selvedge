@@ -58,12 +58,7 @@ Theorem launch_links_and_preserves_created_task : forall id revision observed ca
  revision=F.card_revision card ->
  Board.runnable card value=true ->
  Board.owner_agent (F.draft_owner (F.card_contents card)) value=Some agent ->
- let settings:=match F.agent_settings agent with
- | JObject fields=>let fields:=remove_field "project_id" fields in
-   JObject (match F.draft_project (F.card_contents card) with
-     | Some project=>Json.set_field "project_id" (number project) fields
-     | None=>fields end)
- | other=>other end in
+ let settings:=Board.launch_settings agent (F.card_contents card) in
  let created:=Worktree.create_selected (F.agent_profile agent) (Some (F.agent_reasoning agent))
    (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
    (Some settings) false caller None value in

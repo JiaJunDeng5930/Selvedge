@@ -207,7 +207,7 @@ Theorem an_accepted_patch_updates_its_captured_binding : forall bindings key bas
  ContextUpdates.find_snapshot key bindings = Some (Snapshot key base before) ->
  ContextUpdates.apply_fields patches before = Some after ->
  ContextUpdates.apply_change (Amend key base revision patches) bindings =
- ContextUpdates.remove_snapshot key bindings ++ [Snapshot key revision after].
+ Snapshot key revision after :: ContextUpdates.remove_snapshot key bindings.
 Proof.
  intros bindings key base revision before after patches Found Applied.
  cbn [ContextUpdates.apply_change]; rewrite Found; cbn.

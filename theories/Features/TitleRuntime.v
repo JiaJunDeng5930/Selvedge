@@ -36,7 +36,7 @@ Definition selected_profile (task:task) (value:world) :=
  match find (fun p=>String.eqb (profile_provider current) "chatgpt" && negb (String.eqb prefix "") && String.prefix prefix (profile_key p) && String.eqb (profile_provider p) "chatgpt" && String.eqb (profile_model p) "gpt-5.6-luna" && ordinary p) configured with
  | Some chosen=>Some chosen | None=>fallback end.
 Definition prompt := Titles.prompt_with.
-Definition accepts (task:task) := match task_lifecycle task with Running _ _|Frozen _ _=>true | _=>false end.
+Definition accepts (task:task) := match task_lifecycle task with Archived _=>false | _=>true end.
 Definition start (id:N) (task:task) (result:decision) :decision :=
  let value:=decision_world result in
  match entry id value with Some _=>result | None=>

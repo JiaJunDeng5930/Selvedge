@@ -15,15 +15,15 @@ Definition decode_configure_task_execution (source : json) : option configure_ta
 Definition encode_configure_task_execution (payload : configure_task_execution_payload) : json := Schema.encode configure_task_execution_schema (configure_task_execution_to_fields payload).
 Theorem configure_task_execution_payload_roundtrip : forall payload, configure_task_execution_from_fields (configure_task_execution_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem configure_task_execution_task_id_field : forall payload, lookup_field "task_id" (configure_task_execution_to_fields payload) = Some (encode_value (field_kind (List.nth 0 configure_task_execution_schema (Field "" KJson))) (configure_task_execution_task_id payload)).
+Theorem configure_task_execution_task_id_field : forall payload, lookup_field "task_id" (configure_task_execution_to_fields payload) = encode_field (List.nth 0 configure_task_execution_schema (Field "" KJson)) (configure_task_execution_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem configure_task_execution_profile_field : forall payload, lookup_field "profile" (configure_task_execution_to_fields payload) = Some (encode_value (field_kind (List.nth 1 configure_task_execution_schema (Field "" KJson))) (configure_task_execution_profile payload)).
+Theorem configure_task_execution_profile_field : forall payload, lookup_field "profile" (configure_task_execution_to_fields payload) = encode_field (List.nth 1 configure_task_execution_schema (Field "" KJson)) (configure_task_execution_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem configure_task_execution_reasoning_field : forall payload, lookup_field "reasoning" (configure_task_execution_to_fields payload) = Some (encode_value (field_kind (List.nth 2 configure_task_execution_schema (Field "" KJson))) (configure_task_execution_reasoning payload)).
+Theorem configure_task_execution_reasoning_field : forall payload, lookup_field "reasoning" (configure_task_execution_to_fields payload) = encode_field (List.nth 2 configure_task_execution_schema (Field "" KJson)) (configure_task_execution_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem configure_task_execution_sandbox_field : forall payload, lookup_field "sandbox" (configure_task_execution_to_fields payload) = Some (encode_value (field_kind (List.nth 3 configure_task_execution_schema (Field "" KJson))) (configure_task_execution_sandbox payload)).
+Theorem configure_task_execution_sandbox_field : forall payload, lookup_field "sandbox" (configure_task_execution_to_fields payload) = encode_field (List.nth 3 configure_task_execution_schema (Field "" KJson)) (configure_task_execution_sandbox payload).
 Proof. intros; reflexivity. Qed.
-Theorem configure_task_execution_approval_field : forall payload, lookup_field "approval" (configure_task_execution_to_fields payload) = Some (encode_value (field_kind (List.nth 4 configure_task_execution_schema (Field "" KJson))) (configure_task_execution_approval payload)).
+Theorem configure_task_execution_approval_field : forall payload, lookup_field "approval" (configure_task_execution_to_fields payload) = encode_field (List.nth 4 configure_task_execution_schema (Field "" KJson)) (configure_task_execution_approval payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_schema := command_fields (List.nth 1 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -36,15 +36,15 @@ Definition decode_create (source : json) : option create_payload := option_map c
 Definition encode_create (payload : create_payload) : json := Schema.encode create_schema (create_to_fields payload).
 Theorem create_payload_roundtrip : forall payload, create_from_fields (create_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_profile_field : forall payload, lookup_field "profile" (create_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_schema (Field "" KJson))) (create_profile payload)).
+Theorem create_profile_field : forall payload, lookup_field "profile" (create_to_fields payload) = encode_field (List.nth 0 create_schema (Field "" KJson)) (create_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_reasoning_field : forall payload, lookup_field "reasoning" (create_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_schema (Field "" KJson))) (create_reasoning payload)).
+Theorem create_reasoning_field : forall payload, lookup_field "reasoning" (create_to_fields payload) = encode_field (List.nth 1 create_schema (Field "" KJson)) (create_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_message_field : forall payload, lookup_field "message" (create_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_schema (Field "" KJson))) (create_message payload)).
+Theorem create_message_field : forall payload, lookup_field "message" (create_to_fields payload) = encode_field (List.nth 2 create_schema (Field "" KJson)) (create_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_images_field : forall payload, lookup_field "images" (create_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_schema (Field "" KJson))) (create_images payload)).
+Theorem create_images_field : forall payload, lookup_field "images" (create_to_fields payload) = encode_field (List.nth 3 create_schema (Field "" KJson)) (create_images payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_settings_field : forall payload, lookup_field "settings" (create_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_schema (Field "" KJson))) (create_settings payload)).
+Theorem create_settings_field : forall payload, lookup_field "settings" (create_to_fields payload) = encode_field (List.nth 4 create_schema (Field "" KJson)) (create_settings payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_idle_schema := command_fields (List.nth 2 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -57,15 +57,15 @@ Definition decode_create_idle (source : json) : option create_idle_payload := op
 Definition encode_create_idle (payload : create_idle_payload) : json := Schema.encode create_idle_schema (create_idle_to_fields payload).
 Theorem create_idle_payload_roundtrip : forall payload, create_idle_from_fields (create_idle_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_idle_profile_field : forall payload, lookup_field "profile" (create_idle_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_idle_schema (Field "" KJson))) (create_idle_profile payload)).
+Theorem create_idle_profile_field : forall payload, lookup_field "profile" (create_idle_to_fields payload) = encode_field (List.nth 0 create_idle_schema (Field "" KJson)) (create_idle_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_idle_reasoning_field : forall payload, lookup_field "reasoning" (create_idle_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_idle_schema (Field "" KJson))) (create_idle_reasoning payload)).
+Theorem create_idle_reasoning_field : forall payload, lookup_field "reasoning" (create_idle_to_fields payload) = encode_field (List.nth 1 create_idle_schema (Field "" KJson)) (create_idle_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_idle_settings_field : forall payload, lookup_field "settings" (create_idle_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_idle_schema (Field "" KJson))) (create_idle_settings payload)).
+Theorem create_idle_settings_field : forall payload, lookup_field "settings" (create_idle_to_fields payload) = encode_field (List.nth 2 create_idle_schema (Field "" KJson)) (create_idle_settings payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_idle_work_id_field : forall payload, lookup_field "work_id" (create_idle_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_idle_schema (Field "" KJson))) (create_idle_work_id payload)).
+Theorem create_idle_work_id_field : forall payload, lookup_field "work_id" (create_idle_to_fields payload) = encode_field (List.nth 3 create_idle_schema (Field "" KJson)) (create_idle_work_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_idle_create_worktree_field : forall payload, lookup_field "create_worktree" (create_idle_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_idle_schema (Field "" KJson))) (create_idle_create_worktree payload)).
+Theorem create_idle_create_worktree_field : forall payload, lookup_field "create_worktree" (create_idle_to_fields payload) = encode_field (List.nth 4 create_idle_schema (Field "" KJson)) (create_idle_create_worktree payload).
 Proof. intros; reflexivity. Qed.
 
 Definition send_schema := command_fields (List.nth 3 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -78,11 +78,11 @@ Definition decode_send (source : json) : option send_payload := option_map send_
 Definition encode_send (payload : send_payload) : json := Schema.encode send_schema (send_to_fields payload).
 Theorem send_payload_roundtrip : forall payload, send_from_fields (send_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem send_task_id_field : forall payload, lookup_field "task_id" (send_to_fields payload) = Some (encode_value (field_kind (List.nth 0 send_schema (Field "" KJson))) (send_task_id payload)).
+Theorem send_task_id_field : forall payload, lookup_field "task_id" (send_to_fields payload) = encode_field (List.nth 0 send_schema (Field "" KJson)) (send_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem send_message_field : forall payload, lookup_field "message" (send_to_fields payload) = Some (encode_value (field_kind (List.nth 1 send_schema (Field "" KJson))) (send_message payload)).
+Theorem send_message_field : forall payload, lookup_field "message" (send_to_fields payload) = encode_field (List.nth 1 send_schema (Field "" KJson)) (send_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem send_images_field : forall payload, lookup_field "images" (send_to_fields payload) = Some (encode_value (field_kind (List.nth 2 send_schema (Field "" KJson))) (send_images payload)).
+Theorem send_images_field : forall payload, lookup_field "images" (send_to_fields payload) = encode_field (List.nth 2 send_schema (Field "" KJson)) (send_images payload).
 Proof. intros; reflexivity. Qed.
 
 Definition steer_schema := command_fields (List.nth 4 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -95,11 +95,11 @@ Definition decode_steer (source : json) : option steer_payload := option_map ste
 Definition encode_steer (payload : steer_payload) : json := Schema.encode steer_schema (steer_to_fields payload).
 Theorem steer_payload_roundtrip : forall payload, steer_from_fields (steer_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem steer_task_id_field : forall payload, lookup_field "task_id" (steer_to_fields payload) = Some (encode_value (field_kind (List.nth 0 steer_schema (Field "" KJson))) (steer_task_id payload)).
+Theorem steer_task_id_field : forall payload, lookup_field "task_id" (steer_to_fields payload) = encode_field (List.nth 0 steer_schema (Field "" KJson)) (steer_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem steer_message_field : forall payload, lookup_field "message" (steer_to_fields payload) = Some (encode_value (field_kind (List.nth 1 steer_schema (Field "" KJson))) (steer_message payload)).
+Theorem steer_message_field : forall payload, lookup_field "message" (steer_to_fields payload) = encode_field (List.nth 1 steer_schema (Field "" KJson)) (steer_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem steer_images_field : forall payload, lookup_field "images" (steer_to_fields payload) = Some (encode_value (field_kind (List.nth 2 steer_schema (Field "" KJson))) (steer_images payload)).
+Theorem steer_images_field : forall payload, lookup_field "images" (steer_to_fields payload) = encode_field (List.nth 2 steer_schema (Field "" KJson)) (steer_images payload).
 Proof. intros; reflexivity. Qed.
 
 Definition cancel_operation_schema := command_fields (List.nth 5 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -112,9 +112,9 @@ Definition decode_cancel_operation (source : json) : option cancel_operation_pay
 Definition encode_cancel_operation (payload : cancel_operation_payload) : json := Schema.encode cancel_operation_schema (cancel_operation_to_fields payload).
 Theorem cancel_operation_payload_roundtrip : forall payload, cancel_operation_from_fields (cancel_operation_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem cancel_operation_task_id_field : forall payload, lookup_field "task_id" (cancel_operation_to_fields payload) = Some (encode_value (field_kind (List.nth 0 cancel_operation_schema (Field "" KJson))) (cancel_operation_task_id payload)).
+Theorem cancel_operation_task_id_field : forall payload, lookup_field "task_id" (cancel_operation_to_fields payload) = encode_field (List.nth 0 cancel_operation_schema (Field "" KJson)) (cancel_operation_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem cancel_operation_operation_id_field : forall payload, lookup_field "operation_id" (cancel_operation_to_fields payload) = Some (encode_value (field_kind (List.nth 1 cancel_operation_schema (Field "" KJson))) (cancel_operation_operation_id payload)).
+Theorem cancel_operation_operation_id_field : forall payload, lookup_field "operation_id" (cancel_operation_to_fields payload) = encode_field (List.nth 1 cancel_operation_schema (Field "" KJson)) (cancel_operation_operation_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition freeze_schema := command_fields (List.nth 6 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -127,7 +127,7 @@ Definition decode_freeze (source : json) : option freeze_payload := option_map f
 Definition encode_freeze (payload : freeze_payload) : json := Schema.encode freeze_schema (freeze_to_fields payload).
 Theorem freeze_payload_roundtrip : forall payload, freeze_from_fields (freeze_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem freeze_task_id_field : forall payload, lookup_field "task_id" (freeze_to_fields payload) = Some (encode_value (field_kind (List.nth 0 freeze_schema (Field "" KJson))) (freeze_task_id payload)).
+Theorem freeze_task_id_field : forall payload, lookup_field "task_id" (freeze_to_fields payload) = encode_field (List.nth 0 freeze_schema (Field "" KJson)) (freeze_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition unfreeze_schema := command_fields (List.nth 7 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -140,7 +140,7 @@ Definition decode_unfreeze (source : json) : option unfreeze_payload := option_m
 Definition encode_unfreeze (payload : unfreeze_payload) : json := Schema.encode unfreeze_schema (unfreeze_to_fields payload).
 Theorem unfreeze_payload_roundtrip : forall payload, unfreeze_from_fields (unfreeze_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem unfreeze_task_id_field : forall payload, lookup_field "task_id" (unfreeze_to_fields payload) = Some (encode_value (field_kind (List.nth 0 unfreeze_schema (Field "" KJson))) (unfreeze_task_id payload)).
+Theorem unfreeze_task_id_field : forall payload, lookup_field "task_id" (unfreeze_to_fields payload) = encode_field (List.nth 0 unfreeze_schema (Field "" KJson)) (unfreeze_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition stop_schema := command_fields (List.nth 8 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -153,7 +153,7 @@ Definition decode_stop (source : json) : option stop_payload := option_map stop_
 Definition encode_stop (payload : stop_payload) : json := Schema.encode stop_schema (stop_to_fields payload).
 Theorem stop_payload_roundtrip : forall payload, stop_from_fields (stop_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem stop_task_id_field : forall payload, lookup_field "task_id" (stop_to_fields payload) = Some (encode_value (field_kind (List.nth 0 stop_schema (Field "" KJson))) (stop_task_id payload)).
+Theorem stop_task_id_field : forall payload, lookup_field "task_id" (stop_to_fields payload) = encode_field (List.nth 0 stop_schema (Field "" KJson)) (stop_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition interrupt_schema := command_fields (List.nth 9 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -166,7 +166,7 @@ Definition decode_interrupt (source : json) : option interrupt_payload := option
 Definition encode_interrupt (payload : interrupt_payload) : json := Schema.encode interrupt_schema (interrupt_to_fields payload).
 Theorem interrupt_payload_roundtrip : forall payload, interrupt_from_fields (interrupt_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem interrupt_task_id_field : forall payload, lookup_field "task_id" (interrupt_to_fields payload) = Some (encode_value (field_kind (List.nth 0 interrupt_schema (Field "" KJson))) (interrupt_task_id payload)).
+Theorem interrupt_task_id_field : forall payload, lookup_field "task_id" (interrupt_to_fields payload) = encode_field (List.nth 0 interrupt_schema (Field "" KJson)) (interrupt_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition archive_schema := command_fields (List.nth 10 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -179,7 +179,7 @@ Definition decode_archive (source : json) : option archive_payload := option_map
 Definition encode_archive (payload : archive_payload) : json := Schema.encode archive_schema (archive_to_fields payload).
 Theorem archive_payload_roundtrip : forall payload, archive_from_fields (archive_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem archive_task_id_field : forall payload, lookup_field "task_id" (archive_to_fields payload) = Some (encode_value (field_kind (List.nth 0 archive_schema (Field "" KJson))) (archive_task_id payload)).
+Theorem archive_task_id_field : forall payload, lookup_field "task_id" (archive_to_fields payload) = encode_field (List.nth 0 archive_schema (Field "" KJson)) (archive_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition fork_schema := command_fields (List.nth 11 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -192,13 +192,13 @@ Definition decode_fork (source : json) : option fork_payload := option_map fork_
 Definition encode_fork (payload : fork_payload) : json := Schema.encode fork_schema (fork_to_fields payload).
 Theorem fork_payload_roundtrip : forall payload, fork_from_fields (fork_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem fork_task_id_field : forall payload, lookup_field "task_id" (fork_to_fields payload) = Some (encode_value (field_kind (List.nth 0 fork_schema (Field "" KJson))) (fork_task_id payload)).
+Theorem fork_task_id_field : forall payload, lookup_field "task_id" (fork_to_fields payload) = encode_field (List.nth 0 fork_schema (Field "" KJson)) (fork_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem fork_child_count_field : forall payload, lookup_field "child_count" (fork_to_fields payload) = Some (encode_value (field_kind (List.nth 1 fork_schema (Field "" KJson))) (fork_child_count payload)).
+Theorem fork_child_count_field : forall payload, lookup_field "child_count" (fork_to_fields payload) = encode_field (List.nth 1 fork_schema (Field "" KJson)) (fork_child_count payload).
 Proof. intros; reflexivity. Qed.
-Theorem fork_messages_field : forall payload, lookup_field "messages" (fork_to_fields payload) = Some (encode_value (field_kind (List.nth 2 fork_schema (Field "" KJson))) (fork_messages payload)).
+Theorem fork_messages_field : forall payload, lookup_field "messages" (fork_to_fields payload) = encode_field (List.nth 2 fork_schema (Field "" KJson)) (fork_messages payload).
 Proof. intros; reflexivity. Qed.
-Theorem fork_settings_field : forall payload, lookup_field "settings" (fork_to_fields payload) = Some (encode_value (field_kind (List.nth 3 fork_schema (Field "" KJson))) (fork_settings payload)).
+Theorem fork_settings_field : forall payload, lookup_field "settings" (fork_to_fields payload) = encode_field (List.nth 3 fork_schema (Field "" KJson)) (fork_settings payload).
 Proof. intros; reflexivity. Qed.
 
 Definition open_side_conversation_schema := command_fields (List.nth 12 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -211,11 +211,11 @@ Definition decode_open_side_conversation (source : json) : option open_side_conv
 Definition encode_open_side_conversation (payload : open_side_conversation_payload) : json := Schema.encode open_side_conversation_schema (open_side_conversation_to_fields payload).
 Theorem open_side_conversation_payload_roundtrip : forall payload, open_side_conversation_from_fields (open_side_conversation_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem open_side_conversation_task_id_field : forall payload, lookup_field "task_id" (open_side_conversation_to_fields payload) = Some (encode_value (field_kind (List.nth 0 open_side_conversation_schema (Field "" KJson))) (open_side_conversation_task_id payload)).
+Theorem open_side_conversation_task_id_field : forall payload, lookup_field "task_id" (open_side_conversation_to_fields payload) = encode_field (List.nth 0 open_side_conversation_schema (Field "" KJson)) (open_side_conversation_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem open_side_conversation_message_field : forall payload, lookup_field "message" (open_side_conversation_to_fields payload) = Some (encode_value (field_kind (List.nth 1 open_side_conversation_schema (Field "" KJson))) (open_side_conversation_message payload)).
+Theorem open_side_conversation_message_field : forall payload, lookup_field "message" (open_side_conversation_to_fields payload) = encode_field (List.nth 1 open_side_conversation_schema (Field "" KJson)) (open_side_conversation_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem open_side_conversation_images_field : forall payload, lookup_field "images" (open_side_conversation_to_fields payload) = Some (encode_value (field_kind (List.nth 2 open_side_conversation_schema (Field "" KJson))) (open_side_conversation_images payload)).
+Theorem open_side_conversation_images_field : forall payload, lookup_field "images" (open_side_conversation_to_fields payload) = encode_field (List.nth 2 open_side_conversation_schema (Field "" KJson)) (open_side_conversation_images payload).
 Proof. intros; reflexivity. Qed.
 
 Definition return_side_conversation_schema := command_fields (List.nth 13 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -228,7 +228,7 @@ Definition decode_return_side_conversation (source : json) : option return_side_
 Definition encode_return_side_conversation (payload : return_side_conversation_payload) : json := Schema.encode return_side_conversation_schema (return_side_conversation_to_fields payload).
 Theorem return_side_conversation_payload_roundtrip : forall payload, return_side_conversation_from_fields (return_side_conversation_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem return_side_conversation_task_id_field : forall payload, lookup_field "task_id" (return_side_conversation_to_fields payload) = Some (encode_value (field_kind (List.nth 0 return_side_conversation_schema (Field "" KJson))) (return_side_conversation_task_id payload)).
+Theorem return_side_conversation_task_id_field : forall payload, lookup_field "task_id" (return_side_conversation_to_fields payload) = encode_field (List.nth 0 return_side_conversation_schema (Field "" KJson)) (return_side_conversation_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition compact_schema := command_fields (List.nth 14 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -241,9 +241,9 @@ Definition decode_compact (source : json) : option compact_payload := option_map
 Definition encode_compact (payload : compact_payload) : json := Schema.encode compact_schema (compact_to_fields payload).
 Theorem compact_payload_roundtrip : forall payload, compact_from_fields (compact_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem compact_task_id_field : forall payload, lookup_field "task_id" (compact_to_fields payload) = Some (encode_value (field_kind (List.nth 0 compact_schema (Field "" KJson))) (compact_task_id payload)).
+Theorem compact_task_id_field : forall payload, lookup_field "task_id" (compact_to_fields payload) = encode_field (List.nth 0 compact_schema (Field "" KJson)) (compact_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem compact_summary_field : forall payload, lookup_field "summary" (compact_to_fields payload) = Some (encode_value (field_kind (List.nth 1 compact_schema (Field "" KJson))) (compact_summary payload)).
+Theorem compact_summary_field : forall payload, lookup_field "summary" (compact_to_fields payload) = encode_field (List.nth 1 compact_schema (Field "" KJson)) (compact_summary payload).
 Proof. intros; reflexivity. Qed.
 
 Definition read_schema := command_fields (List.nth 15 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -256,11 +256,11 @@ Definition decode_read (source : json) : option read_payload := option_map read_
 Definition encode_read (payload : read_payload) : json := Schema.encode read_schema (read_to_fields payload).
 Theorem read_payload_roundtrip : forall payload, read_from_fields (read_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem read_task_id_field : forall payload, lookup_field "task_id" (read_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_schema (Field "" KJson))) (read_task_id payload)).
+Theorem read_task_id_field : forall payload, lookup_field "task_id" (read_to_fields payload) = encode_field (List.nth 0 read_schema (Field "" KJson)) (read_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem read_after_field : forall payload, lookup_field "after" (read_to_fields payload) = Some (encode_value (field_kind (List.nth 1 read_schema (Field "" KJson))) (read_after payload)).
+Theorem read_after_field : forall payload, lookup_field "after" (read_to_fields payload) = encode_field (List.nth 1 read_schema (Field "" KJson)) (read_after payload).
 Proof. intros; reflexivity. Qed.
-Theorem read_limit_field : forall payload, lookup_field "limit" (read_to_fields payload) = Some (encode_value (field_kind (List.nth 2 read_schema (Field "" KJson))) (read_limit payload)).
+Theorem read_limit_field : forall payload, lookup_field "limit" (read_to_fields payload) = encode_field (List.nth 2 read_schema (Field "" KJson)) (read_limit payload).
 Proof. intros; reflexivity. Qed.
 
 Definition search_history_schema := command_fields (List.nth 16 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -273,15 +273,15 @@ Definition decode_search_history (source : json) : option search_history_payload
 Definition encode_search_history (payload : search_history_payload) : json := Schema.encode search_history_schema (search_history_to_fields payload).
 Theorem search_history_payload_roundtrip : forall payload, search_history_from_fields (search_history_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem search_history_query_field : forall payload, lookup_field "query" (search_history_to_fields payload) = Some (encode_value (field_kind (List.nth 0 search_history_schema (Field "" KJson))) (search_history_query payload)).
+Theorem search_history_query_field : forall payload, lookup_field "query" (search_history_to_fields payload) = encode_field (List.nth 0 search_history_schema (Field "" KJson)) (search_history_query payload).
 Proof. intros; reflexivity. Qed.
-Theorem search_history_project_id_field : forall payload, lookup_field "project_id" (search_history_to_fields payload) = Some (encode_value (field_kind (List.nth 1 search_history_schema (Field "" KJson))) (search_history_project_id payload)).
+Theorem search_history_project_id_field : forall payload, lookup_field "project_id" (search_history_to_fields payload) = encode_field (List.nth 1 search_history_schema (Field "" KJson)) (search_history_project_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem search_history_work_id_field : forall payload, lookup_field "work_id" (search_history_to_fields payload) = Some (encode_value (field_kind (List.nth 2 search_history_schema (Field "" KJson))) (search_history_work_id payload)).
+Theorem search_history_work_id_field : forall payload, lookup_field "work_id" (search_history_to_fields payload) = encode_field (List.nth 2 search_history_schema (Field "" KJson)) (search_history_work_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem search_history_after_field : forall payload, lookup_field "after" (search_history_to_fields payload) = Some (encode_value (field_kind (List.nth 3 search_history_schema (Field "" KJson))) (search_history_after payload)).
+Theorem search_history_after_field : forall payload, lookup_field "after" (search_history_to_fields payload) = encode_field (List.nth 3 search_history_schema (Field "" KJson)) (search_history_after payload).
 Proof. intros; reflexivity. Qed.
-Theorem search_history_limit_field : forall payload, lookup_field "limit" (search_history_to_fields payload) = Some (encode_value (field_kind (List.nth 4 search_history_schema (Field "" KJson))) (search_history_limit payload)).
+Theorem search_history_limit_field : forall payload, lookup_field "limit" (search_history_to_fields payload) = encode_field (List.nth 4 search_history_schema (Field "" KJson)) (search_history_limit payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_schema := command_fields (List.nth 17 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -316,15 +316,15 @@ Definition decode_create_project (source : json) : option create_project_payload
 Definition encode_create_project (payload : create_project_payload) : json := Schema.encode create_project_schema (create_project_to_fields payload).
 Theorem create_project_payload_roundtrip : forall payload, create_project_from_fields (create_project_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_project_name_field : forall payload, lookup_field "name" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_project_schema (Field "" KJson))) (create_project_name payload)).
+Theorem create_project_name_field : forall payload, lookup_field "name" (create_project_to_fields payload) = encode_field (List.nth 0 create_project_schema (Field "" KJson)) (create_project_name payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_project_workspace_field : forall payload, lookup_field "workspace" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_project_schema (Field "" KJson))) (create_project_workspace payload)).
+Theorem create_project_workspace_field : forall payload, lookup_field "workspace" (create_project_to_fields payload) = encode_field (List.nth 1 create_project_schema (Field "" KJson)) (create_project_workspace payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_project_guidance_field : forall payload, lookup_field "guidance" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_project_schema (Field "" KJson))) (create_project_guidance payload)).
+Theorem create_project_guidance_field : forall payload, lookup_field "guidance" (create_project_to_fields payload) = encode_field (List.nth 2 create_project_schema (Field "" KJson)) (create_project_guidance payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_project_create_worktree_field : forall payload, lookup_field "create_worktree" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_project_schema (Field "" KJson))) (create_project_create_worktree payload)).
+Theorem create_project_create_worktree_field : forall payload, lookup_field "create_worktree" (create_project_to_fields payload) = encode_field (List.nth 3 create_project_schema (Field "" KJson)) (create_project_create_worktree payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_project_workspace_binding_field : forall payload, lookup_field "workspace_binding" (create_project_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_project_schema (Field "" KJson))) (create_project_workspace_binding payload)).
+Theorem create_project_workspace_binding_field : forall payload, lookup_field "workspace_binding" (create_project_to_fields payload) = encode_field (List.nth 4 create_project_schema (Field "" KJson)) (create_project_workspace_binding payload).
 Proof. intros; reflexivity. Qed.
 
 Definition update_project_schema := command_fields (List.nth 20 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -337,17 +337,17 @@ Definition decode_update_project (source : json) : option update_project_payload
 Definition encode_update_project (payload : update_project_payload) : json := Schema.encode update_project_schema (update_project_to_fields payload).
 Theorem update_project_payload_roundtrip : forall payload, update_project_from_fields (update_project_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem update_project_project_id_field : forall payload, lookup_field "project_id" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 0 update_project_schema (Field "" KJson))) (update_project_project_id payload)).
+Theorem update_project_project_id_field : forall payload, lookup_field "project_id" (update_project_to_fields payload) = encode_field (List.nth 0 update_project_schema (Field "" KJson)) (update_project_project_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_project_name_field : forall payload, lookup_field "name" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 1 update_project_schema (Field "" KJson))) (update_project_name payload)).
+Theorem update_project_name_field : forall payload, lookup_field "name" (update_project_to_fields payload) = encode_field (List.nth 1 update_project_schema (Field "" KJson)) (update_project_name payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_project_workspace_field : forall payload, lookup_field "workspace" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 2 update_project_schema (Field "" KJson))) (update_project_workspace payload)).
+Theorem update_project_workspace_field : forall payload, lookup_field "workspace" (update_project_to_fields payload) = encode_field (List.nth 2 update_project_schema (Field "" KJson)) (update_project_workspace payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_project_guidance_field : forall payload, lookup_field "guidance" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 3 update_project_schema (Field "" KJson))) (update_project_guidance payload)).
+Theorem update_project_guidance_field : forall payload, lookup_field "guidance" (update_project_to_fields payload) = encode_field (List.nth 3 update_project_schema (Field "" KJson)) (update_project_guidance payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_project_create_worktree_field : forall payload, lookup_field "create_worktree" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 4 update_project_schema (Field "" KJson))) (update_project_create_worktree payload)).
+Theorem update_project_create_worktree_field : forall payload, lookup_field "create_worktree" (update_project_to_fields payload) = encode_field (List.nth 4 update_project_schema (Field "" KJson)) (update_project_create_worktree payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_project_workspace_binding_field : forall payload, lookup_field "workspace_binding" (update_project_to_fields payload) = Some (encode_value (field_kind (List.nth 5 update_project_schema (Field "" KJson))) (update_project_workspace_binding payload)).
+Theorem update_project_workspace_binding_field : forall payload, lookup_field "workspace_binding" (update_project_to_fields payload) = encode_field (List.nth 5 update_project_schema (Field "" KJson)) (update_project_workspace_binding payload).
 Proof. intros; reflexivity. Qed.
 
 Definition delete_project_schema := command_fields (List.nth 21 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -360,7 +360,7 @@ Definition decode_delete_project (source : json) : option delete_project_payload
 Definition encode_delete_project (payload : delete_project_payload) : json := Schema.encode delete_project_schema (delete_project_to_fields payload).
 Theorem delete_project_payload_roundtrip : forall payload, delete_project_from_fields (delete_project_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem delete_project_project_id_field : forall payload, lookup_field "project_id" (delete_project_to_fields payload) = Some (encode_value (field_kind (List.nth 0 delete_project_schema (Field "" KJson))) (delete_project_project_id payload)).
+Theorem delete_project_project_id_field : forall payload, lookup_field "project_id" (delete_project_to_fields payload) = encode_field (List.nth 0 delete_project_schema (Field "" KJson)) (delete_project_project_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_projects_schema := command_fields (List.nth 22 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -384,7 +384,7 @@ Definition decode_read_project (source : json) : option read_project_payload := 
 Definition encode_read_project (payload : read_project_payload) : json := Schema.encode read_project_schema (read_project_to_fields payload).
 Theorem read_project_payload_roundtrip : forall payload, read_project_from_fields (read_project_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem read_project_project_id_field : forall payload, lookup_field "project_id" (read_project_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_project_schema (Field "" KJson))) (read_project_project_id payload)).
+Theorem read_project_project_id_field : forall payload, lookup_field "project_id" (read_project_to_fields payload) = encode_field (List.nth 0 read_project_schema (Field "" KJson)) (read_project_project_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition review_approval_schema := command_fields (List.nth 24 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -397,13 +397,13 @@ Definition decode_review_approval (source : json) : option review_approval_paylo
 Definition encode_review_approval (payload : review_approval_payload) : json := Schema.encode review_approval_schema (review_approval_to_fields payload).
 Theorem review_approval_payload_roundtrip : forall payload, review_approval_from_fields (review_approval_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem review_approval_task_id_field : forall payload, lookup_field "task_id" (review_approval_to_fields payload) = Some (encode_value (field_kind (List.nth 0 review_approval_schema (Field "" KJson))) (review_approval_task_id payload)).
+Theorem review_approval_task_id_field : forall payload, lookup_field "task_id" (review_approval_to_fields payload) = encode_field (List.nth 0 review_approval_schema (Field "" KJson)) (review_approval_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem review_approval_operation_id_field : forall payload, lookup_field "operation_id" (review_approval_to_fields payload) = Some (encode_value (field_kind (List.nth 1 review_approval_schema (Field "" KJson))) (review_approval_operation_id payload)).
+Theorem review_approval_operation_id_field : forall payload, lookup_field "operation_id" (review_approval_to_fields payload) = encode_field (List.nth 1 review_approval_schema (Field "" KJson)) (review_approval_operation_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem review_approval_decision_field : forall payload, lookup_field "decision" (review_approval_to_fields payload) = Some (encode_value (field_kind (List.nth 2 review_approval_schema (Field "" KJson))) (review_approval_decision payload)).
+Theorem review_approval_decision_field : forall payload, lookup_field "decision" (review_approval_to_fields payload) = encode_field (List.nth 2 review_approval_schema (Field "" KJson)) (review_approval_decision payload).
 Proof. intros; reflexivity. Qed.
-Theorem review_approval_reason_field : forall payload, lookup_field "reason" (review_approval_to_fields payload) = Some (encode_value (field_kind (List.nth 3 review_approval_schema (Field "" KJson))) (review_approval_reason payload)).
+Theorem review_approval_reason_field : forall payload, lookup_field "reason" (review_approval_to_fields payload) = encode_field (List.nth 3 review_approval_schema (Field "" KJson)) (review_approval_reason payload).
 Proof. intros; reflexivity. Qed.
 
 Definition record_speech_transcript_schema := command_fields (List.nth 25 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -416,17 +416,17 @@ Definition decode_record_speech_transcript (source : json) : option record_speec
 Definition encode_record_speech_transcript (payload : record_speech_transcript_payload) : json := Schema.encode record_speech_transcript_schema (record_speech_transcript_to_fields payload).
 Theorem record_speech_transcript_payload_roundtrip : forall payload, record_speech_transcript_from_fields (record_speech_transcript_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem record_speech_transcript_task_id_field : forall payload, lookup_field "task_id" (record_speech_transcript_to_fields payload) = Some (encode_value (field_kind (List.nth 0 record_speech_transcript_schema (Field "" KJson))) (record_speech_transcript_task_id payload)).
+Theorem record_speech_transcript_task_id_field : forall payload, lookup_field "task_id" (record_speech_transcript_to_fields payload) = encode_field (List.nth 0 record_speech_transcript_schema (Field "" KJson)) (record_speech_transcript_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem record_speech_transcript_session_id_field : forall payload, lookup_field "session_id" (record_speech_transcript_to_fields payload) = Some (encode_value (field_kind (List.nth 1 record_speech_transcript_schema (Field "" KJson))) (record_speech_transcript_session_id payload)).
+Theorem record_speech_transcript_session_id_field : forall payload, lookup_field "session_id" (record_speech_transcript_to_fields payload) = encode_field (List.nth 1 record_speech_transcript_schema (Field "" KJson)) (record_speech_transcript_session_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem record_speech_transcript_item_id_field : forall payload, lookup_field "item_id" (record_speech_transcript_to_fields payload) = Some (encode_value (field_kind (List.nth 2 record_speech_transcript_schema (Field "" KJson))) (record_speech_transcript_item_id payload)).
+Theorem record_speech_transcript_item_id_field : forall payload, lookup_field "item_id" (record_speech_transcript_to_fields payload) = encode_field (List.nth 2 record_speech_transcript_schema (Field "" KJson)) (record_speech_transcript_item_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem record_speech_transcript_speaker_field : forall payload, lookup_field "speaker" (record_speech_transcript_to_fields payload) = Some (encode_value (field_kind (List.nth 3 record_speech_transcript_schema (Field "" KJson))) (record_speech_transcript_speaker payload)).
+Theorem record_speech_transcript_speaker_field : forall payload, lookup_field "speaker" (record_speech_transcript_to_fields payload) = encode_field (List.nth 3 record_speech_transcript_schema (Field "" KJson)) (record_speech_transcript_speaker payload).
 Proof. intros; reflexivity. Qed.
-Theorem record_speech_transcript_completion_field : forall payload, lookup_field "completion" (record_speech_transcript_to_fields payload) = Some (encode_value (field_kind (List.nth 4 record_speech_transcript_schema (Field "" KJson))) (record_speech_transcript_completion payload)).
+Theorem record_speech_transcript_completion_field : forall payload, lookup_field "completion" (record_speech_transcript_to_fields payload) = encode_field (List.nth 4 record_speech_transcript_schema (Field "" KJson)) (record_speech_transcript_completion payload).
 Proof. intros; reflexivity. Qed.
-Theorem record_speech_transcript_text_field : forall payload, lookup_field "text" (record_speech_transcript_to_fields payload) = Some (encode_value (field_kind (List.nth 5 record_speech_transcript_schema (Field "" KJson))) (record_speech_transcript_text payload)).
+Theorem record_speech_transcript_text_field : forall payload, lookup_field "text" (record_speech_transcript_to_fields payload) = encode_field (List.nth 5 record_speech_transcript_schema (Field "" KJson)) (record_speech_transcript_text payload).
 Proof. intros; reflexivity. Qed.
 
 Definition accept_speech_delegation_schema := command_fields (List.nth 26 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -439,15 +439,15 @@ Definition decode_accept_speech_delegation (source : json) : option accept_speec
 Definition encode_accept_speech_delegation (payload : accept_speech_delegation_payload) : json := Schema.encode accept_speech_delegation_schema (accept_speech_delegation_to_fields payload).
 Theorem accept_speech_delegation_payload_roundtrip : forall payload, accept_speech_delegation_from_fields (accept_speech_delegation_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem accept_speech_delegation_task_id_field : forall payload, lookup_field "task_id" (accept_speech_delegation_to_fields payload) = Some (encode_value (field_kind (List.nth 0 accept_speech_delegation_schema (Field "" KJson))) (accept_speech_delegation_task_id payload)).
+Theorem accept_speech_delegation_task_id_field : forall payload, lookup_field "task_id" (accept_speech_delegation_to_fields payload) = encode_field (List.nth 0 accept_speech_delegation_schema (Field "" KJson)) (accept_speech_delegation_task_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem accept_speech_delegation_session_id_field : forall payload, lookup_field "session_id" (accept_speech_delegation_to_fields payload) = Some (encode_value (field_kind (List.nth 1 accept_speech_delegation_schema (Field "" KJson))) (accept_speech_delegation_session_id payload)).
+Theorem accept_speech_delegation_session_id_field : forall payload, lookup_field "session_id" (accept_speech_delegation_to_fields payload) = encode_field (List.nth 1 accept_speech_delegation_schema (Field "" KJson)) (accept_speech_delegation_session_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem accept_speech_delegation_delegation_id_field : forall payload, lookup_field "delegation_id" (accept_speech_delegation_to_fields payload) = Some (encode_value (field_kind (List.nth 2 accept_speech_delegation_schema (Field "" KJson))) (accept_speech_delegation_delegation_id payload)).
+Theorem accept_speech_delegation_delegation_id_field : forall payload, lookup_field "delegation_id" (accept_speech_delegation_to_fields payload) = encode_field (List.nth 2 accept_speech_delegation_schema (Field "" KJson)) (accept_speech_delegation_delegation_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem accept_speech_delegation_message_field : forall payload, lookup_field "message" (accept_speech_delegation_to_fields payload) = Some (encode_value (field_kind (List.nth 3 accept_speech_delegation_schema (Field "" KJson))) (accept_speech_delegation_message payload)).
+Theorem accept_speech_delegation_message_field : forall payload, lookup_field "message" (accept_speech_delegation_to_fields payload) = encode_field (List.nth 3 accept_speech_delegation_schema (Field "" KJson)) (accept_speech_delegation_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem accept_speech_delegation_mode_field : forall payload, lookup_field "mode" (accept_speech_delegation_to_fields payload) = Some (encode_value (field_kind (List.nth 4 accept_speech_delegation_schema (Field "" KJson))) (accept_speech_delegation_mode payload)).
+Theorem accept_speech_delegation_mode_field : forall payload, lookup_field "mode" (accept_speech_delegation_to_fields payload) = encode_field (List.nth 4 accept_speech_delegation_schema (Field "" KJson)) (accept_speech_delegation_mode payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_card_schema := command_fields (List.nth 27 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -460,60 +460,60 @@ Definition decode_create_card (source : json) : option create_card_payload := op
 Definition encode_create_card (payload : create_card_payload) : json := Schema.encode create_card_schema (create_card_to_fields payload).
 Theorem create_card_payload_roundtrip : forall payload, create_card_from_fields (create_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_card_observed_at_field : forall payload, lookup_field "observed_at" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_card_schema (Field "" KJson))) (create_card_observed_at payload)).
+Theorem create_card_observed_at_field : forall payload, lookup_field "observed_at" (create_card_to_fields payload) = encode_field (List.nth 0 create_card_schema (Field "" KJson)) (create_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_title_field : forall payload, lookup_field "title" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_card_schema (Field "" KJson))) (create_card_title payload)).
+Theorem create_card_title_field : forall payload, lookup_field "title" (create_card_to_fields payload) = encode_field (List.nth 1 create_card_schema (Field "" KJson)) (create_card_title payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_description_field : forall payload, lookup_field "description" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_card_schema (Field "" KJson))) (create_card_description payload)).
+Theorem create_card_description_field : forall payload, lookup_field "description" (create_card_to_fields payload) = encode_field (List.nth 2 create_card_schema (Field "" KJson)) (create_card_description payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_status_field : forall payload, lookup_field "status" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_card_schema (Field "" KJson))) (create_card_status payload)).
+Theorem create_card_status_field : forall payload, lookup_field "status" (create_card_to_fields payload) = encode_field (List.nth 3 create_card_schema (Field "" KJson)) (create_card_status payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_priority_field : forall payload, lookup_field "priority" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_card_schema (Field "" KJson))) (create_card_priority payload)).
+Theorem create_card_priority_field : forall payload, lookup_field "priority" (create_card_to_fields payload) = encode_field (List.nth 4 create_card_schema (Field "" KJson)) (create_card_priority payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_assignee_field : forall payload, lookup_field "assignee" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 5 create_card_schema (Field "" KJson))) (create_card_assignee payload)).
+Theorem create_card_assignee_field : forall payload, lookup_field "assignee" (create_card_to_fields payload) = encode_field (List.nth 5 create_card_schema (Field "" KJson)) (create_card_assignee payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_project_field : forall payload, lookup_field "project" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 6 create_card_schema (Field "" KJson))) (create_card_project payload)).
+Theorem create_card_project_field : forall payload, lookup_field "project" (create_card_to_fields payload) = encode_field (List.nth 6 create_card_schema (Field "" KJson)) (create_card_project payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_labels_field : forall payload, lookup_field "labels" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 7 create_card_schema (Field "" KJson))) (create_card_labels payload)).
+Theorem create_card_labels_field : forall payload, lookup_field "labels" (create_card_to_fields payload) = encode_field (List.nth 7 create_card_schema (Field "" KJson)) (create_card_labels payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_attachments_field : forall payload, lookup_field "attachments" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 8 create_card_schema (Field "" KJson))) (create_card_attachments payload)).
+Theorem create_card_attachments_field : forall payload, lookup_field "attachments" (create_card_to_fields payload) = encode_field (List.nth 8 create_card_schema (Field "" KJson)) (create_card_attachments payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_assisted_field : forall payload, lookup_field "assisted" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 9 create_card_schema (Field "" KJson))) (create_card_assisted payload)).
+Theorem create_card_assisted_field : forall payload, lookup_field "assisted" (create_card_to_fields payload) = encode_field (List.nth 9 create_card_schema (Field "" KJson)) (create_card_assisted payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_card_draft_profile_field : forall payload, lookup_field "draft_profile" (create_card_to_fields payload) = Some (encode_value (field_kind (List.nth 10 create_card_schema (Field "" KJson))) (create_card_draft_profile payload)).
+Theorem create_card_draft_profile_field : forall payload, lookup_field "draft_profile" (create_card_to_fields payload) = encode_field (List.nth 10 create_card_schema (Field "" KJson)) (create_card_draft_profile payload).
 Proof. intros; reflexivity. Qed.
 
 Definition update_card_schema := command_fields (List.nth 28 Selvedge.Kernel.Commands.command_specs (Command "" [])).
-Theorem update_card_schema_declaration : update_card_schema = [Field "card_id" KNatural; Field "revision" KNatural; Field "observed_at" (KOptional KText); Field "title" (KOptional KText); Field "description" (KOptional KText); Field "status" (KOptional KText); Field "priority" (KOptional KText); Field "assignee" (KOptional KText); Field "project" (KOptional KText); Field "labels" (KOptional (KArray KText)); Field "attachments" (KOptional (KArray KJson))].
+Theorem update_card_schema_declaration : update_card_schema = [Field "card_id" KNatural; Field "revision" KNatural; Field "observed_at" (KOptional KText); Field "title" (KOptional KText); Field "description" (KOptional KText); OmittableField "status" (KOptional KText); OmittableField "priority" (KOptional KText); OmittableField "assignee" (KOptional KText); OmittableField "project" (KOptional KText); OmittableField "labels" (KOptional (KArray KText)); OmittableField "attachments" (KOptional (KArray KJson))].
 Proof. reflexivity. Qed.
-Record update_card_payload : Type := Build_update_card { update_card_card_id : denote KNatural; update_card_revision : denote KNatural; update_card_observed_at : denote (KOptional KText); update_card_title : denote (KOptional KText); update_card_description : denote (KOptional KText); update_card_status : denote (KOptional KText); update_card_priority : denote (KOptional KText); update_card_assignee : denote (KOptional KText); update_card_project : denote (KOptional KText); update_card_labels : denote (KOptional (KArray KText)); update_card_attachments : denote (KOptional (KArray KJson)) }.
+Record update_card_payload : Type := Build_update_card { update_card_card_id : denote KNatural; update_card_revision : denote KNatural; update_card_observed_at : denote (KOptional KText); update_card_title : denote (KOptional KText); update_card_description : denote (KOptional KText); update_card_status : option (denote (KOptional KText)); update_card_priority : option (denote (KOptional KText)); update_card_assignee : option (denote (KOptional KText)); update_card_project : option (denote (KOptional KText)); update_card_labels : option (denote (KOptional (KArray KText))); update_card_attachments : option (denote (KOptional (KArray KJson))) }.
 Definition update_card_from_fields (values : fields update_card_schema) : update_card_payload := Build_update_card (head values) (head (tail values)) (head (tail (tail values))) (head (tail (tail (tail values)))) (head (tail (tail (tail (tail values))))) (head (tail (tail (tail (tail (tail values)))))) (head (tail (tail (tail (tail (tail (tail values))))))) (head (tail (tail (tail (tail (tail (tail (tail values)))))))) (head (tail (tail (tail (tail (tail (tail (tail (tail values))))))))) (head (tail (tail (tail (tail (tail (tail (tail (tail (tail values)))))))))) (head (tail (tail (tail (tail (tail (tail (tail (tail (tail (tail values))))))))))).
-Definition update_card_to_fields (payload : update_card_payload) : fields update_card_schema := (@FCons (Field "card_id" KNatural) _ (update_card_card_id payload) (@FCons (Field "revision" KNatural) _ (update_card_revision payload) (@FCons (Field "observed_at" (KOptional KText)) _ (update_card_observed_at payload) (@FCons (Field "title" (KOptional KText)) _ (update_card_title payload) (@FCons (Field "description" (KOptional KText)) _ (update_card_description payload) (@FCons (Field "status" (KOptional KText)) _ (update_card_status payload) (@FCons (Field "priority" (KOptional KText)) _ (update_card_priority payload) (@FCons (Field "assignee" (KOptional KText)) _ (update_card_assignee payload) (@FCons (Field "project" (KOptional KText)) _ (update_card_project payload) (@FCons (Field "labels" (KOptional (KArray KText))) _ (update_card_labels payload) (@FCons (Field "attachments" (KOptional (KArray KJson))) _ (update_card_attachments payload) FNil))))))))))).
+Definition update_card_to_fields (payload : update_card_payload) : fields update_card_schema := (@FCons (Field "card_id" KNatural) _ (update_card_card_id payload) (@FCons (Field "revision" KNatural) _ (update_card_revision payload) (@FCons (Field "observed_at" (KOptional KText)) _ (update_card_observed_at payload) (@FCons (Field "title" (KOptional KText)) _ (update_card_title payload) (@FCons (Field "description" (KOptional KText)) _ (update_card_description payload) (@FCons (OmittableField "status" (KOptional KText)) _ (update_card_status payload) (@FCons (OmittableField "priority" (KOptional KText)) _ (update_card_priority payload) (@FCons (OmittableField "assignee" (KOptional KText)) _ (update_card_assignee payload) (@FCons (OmittableField "project" (KOptional KText)) _ (update_card_project payload) (@FCons (OmittableField "labels" (KOptional (KArray KText))) _ (update_card_labels payload) (@FCons (OmittableField "attachments" (KOptional (KArray KJson))) _ (update_card_attachments payload) FNil))))))))))).
 Definition decode_update_card (source : json) : option update_card_payload := option_map update_card_from_fields (Schema.decode update_card_schema source).
 Definition encode_update_card (payload : update_card_payload) : json := Schema.encode update_card_schema (update_card_to_fields payload).
 Theorem update_card_payload_roundtrip : forall payload, update_card_from_fields (update_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem update_card_card_id_field : forall payload, lookup_field "card_id" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 update_card_schema (Field "" KJson))) (update_card_card_id payload)).
+Theorem update_card_card_id_field : forall payload, lookup_field "card_id" (update_card_to_fields payload) = encode_field (List.nth 0 update_card_schema (Field "" KJson)) (update_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_revision_field : forall payload, lookup_field "revision" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 update_card_schema (Field "" KJson))) (update_card_revision payload)).
+Theorem update_card_revision_field : forall payload, lookup_field "revision" (update_card_to_fields payload) = encode_field (List.nth 1 update_card_schema (Field "" KJson)) (update_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_observed_at_field : forall payload, lookup_field "observed_at" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 update_card_schema (Field "" KJson))) (update_card_observed_at payload)).
+Theorem update_card_observed_at_field : forall payload, lookup_field "observed_at" (update_card_to_fields payload) = encode_field (List.nth 2 update_card_schema (Field "" KJson)) (update_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_title_field : forall payload, lookup_field "title" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 3 update_card_schema (Field "" KJson))) (update_card_title payload)).
+Theorem update_card_title_field : forall payload, lookup_field "title" (update_card_to_fields payload) = encode_field (List.nth 3 update_card_schema (Field "" KJson)) (update_card_title payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_description_field : forall payload, lookup_field "description" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 4 update_card_schema (Field "" KJson))) (update_card_description payload)).
+Theorem update_card_description_field : forall payload, lookup_field "description" (update_card_to_fields payload) = encode_field (List.nth 4 update_card_schema (Field "" KJson)) (update_card_description payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_status_field : forall payload, lookup_field "status" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 5 update_card_schema (Field "" KJson))) (update_card_status payload)).
+Theorem update_card_status_field : forall payload, lookup_field "status" (update_card_to_fields payload) = encode_field (List.nth 5 update_card_schema (Field "" KJson)) (update_card_status payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_priority_field : forall payload, lookup_field "priority" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 6 update_card_schema (Field "" KJson))) (update_card_priority payload)).
+Theorem update_card_priority_field : forall payload, lookup_field "priority" (update_card_to_fields payload) = encode_field (List.nth 6 update_card_schema (Field "" KJson)) (update_card_priority payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_assignee_field : forall payload, lookup_field "assignee" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 7 update_card_schema (Field "" KJson))) (update_card_assignee payload)).
+Theorem update_card_assignee_field : forall payload, lookup_field "assignee" (update_card_to_fields payload) = encode_field (List.nth 7 update_card_schema (Field "" KJson)) (update_card_assignee payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_project_field : forall payload, lookup_field "project" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 8 update_card_schema (Field "" KJson))) (update_card_project payload)).
+Theorem update_card_project_field : forall payload, lookup_field "project" (update_card_to_fields payload) = encode_field (List.nth 8 update_card_schema (Field "" KJson)) (update_card_project payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_labels_field : forall payload, lookup_field "labels" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 9 update_card_schema (Field "" KJson))) (update_card_labels payload)).
+Theorem update_card_labels_field : forall payload, lookup_field "labels" (update_card_to_fields payload) = encode_field (List.nth 9 update_card_schema (Field "" KJson)) (update_card_labels payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_card_attachments_field : forall payload, lookup_field "attachments" (update_card_to_fields payload) = Some (encode_value (field_kind (List.nth 10 update_card_schema (Field "" KJson))) (update_card_attachments payload)).
+Theorem update_card_attachments_field : forall payload, lookup_field "attachments" (update_card_to_fields payload) = encode_field (List.nth 10 update_card_schema (Field "" KJson)) (update_card_attachments payload).
 Proof. intros; reflexivity. Qed.
 
 Definition move_card_schema := command_fields (List.nth 29 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -526,15 +526,15 @@ Definition decode_move_card (source : json) : option move_card_payload := option
 Definition encode_move_card (payload : move_card_payload) : json := Schema.encode move_card_schema (move_card_to_fields payload).
 Theorem move_card_payload_roundtrip : forall payload, move_card_from_fields (move_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem move_card_card_id_field : forall payload, lookup_field "card_id" (move_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 move_card_schema (Field "" KJson))) (move_card_card_id payload)).
+Theorem move_card_card_id_field : forall payload, lookup_field "card_id" (move_card_to_fields payload) = encode_field (List.nth 0 move_card_schema (Field "" KJson)) (move_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem move_card_revision_field : forall payload, lookup_field "revision" (move_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 move_card_schema (Field "" KJson))) (move_card_revision payload)).
+Theorem move_card_revision_field : forall payload, lookup_field "revision" (move_card_to_fields payload) = encode_field (List.nth 1 move_card_schema (Field "" KJson)) (move_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem move_card_observed_at_field : forall payload, lookup_field "observed_at" (move_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 move_card_schema (Field "" KJson))) (move_card_observed_at payload)).
+Theorem move_card_observed_at_field : forall payload, lookup_field "observed_at" (move_card_to_fields payload) = encode_field (List.nth 2 move_card_schema (Field "" KJson)) (move_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
-Theorem move_card_status_field : forall payload, lookup_field "status" (move_card_to_fields payload) = Some (encode_value (field_kind (List.nth 3 move_card_schema (Field "" KJson))) (move_card_status payload)).
+Theorem move_card_status_field : forall payload, lookup_field "status" (move_card_to_fields payload) = encode_field (List.nth 3 move_card_schema (Field "" KJson)) (move_card_status payload).
 Proof. intros; reflexivity. Qed.
-Theorem move_card_before_card_field : forall payload, lookup_field "before_card" (move_card_to_fields payload) = Some (encode_value (field_kind (List.nth 4 move_card_schema (Field "" KJson))) (move_card_before_card payload)).
+Theorem move_card_before_card_field : forall payload, lookup_field "before_card" (move_card_to_fields payload) = encode_field (List.nth 4 move_card_schema (Field "" KJson)) (move_card_before_card payload).
 Proof. intros; reflexivity. Qed.
 
 Definition archive_card_schema := command_fields (List.nth 30 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -547,11 +547,11 @@ Definition decode_archive_card (source : json) : option archive_card_payload := 
 Definition encode_archive_card (payload : archive_card_payload) : json := Schema.encode archive_card_schema (archive_card_to_fields payload).
 Theorem archive_card_payload_roundtrip : forall payload, archive_card_from_fields (archive_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem archive_card_card_id_field : forall payload, lookup_field "card_id" (archive_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 archive_card_schema (Field "" KJson))) (archive_card_card_id payload)).
+Theorem archive_card_card_id_field : forall payload, lookup_field "card_id" (archive_card_to_fields payload) = encode_field (List.nth 0 archive_card_schema (Field "" KJson)) (archive_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem archive_card_revision_field : forall payload, lookup_field "revision" (archive_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 archive_card_schema (Field "" KJson))) (archive_card_revision payload)).
+Theorem archive_card_revision_field : forall payload, lookup_field "revision" (archive_card_to_fields payload) = encode_field (List.nth 1 archive_card_schema (Field "" KJson)) (archive_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem archive_card_observed_at_field : forall payload, lookup_field "observed_at" (archive_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 archive_card_schema (Field "" KJson))) (archive_card_observed_at payload)).
+Theorem archive_card_observed_at_field : forall payload, lookup_field "observed_at" (archive_card_to_fields payload) = encode_field (List.nth 2 archive_card_schema (Field "" KJson)) (archive_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
 
 Definition restore_card_schema := command_fields (List.nth 31 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -564,11 +564,11 @@ Definition decode_restore_card (source : json) : option restore_card_payload := 
 Definition encode_restore_card (payload : restore_card_payload) : json := Schema.encode restore_card_schema (restore_card_to_fields payload).
 Theorem restore_card_payload_roundtrip : forall payload, restore_card_from_fields (restore_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem restore_card_card_id_field : forall payload, lookup_field "card_id" (restore_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 restore_card_schema (Field "" KJson))) (restore_card_card_id payload)).
+Theorem restore_card_card_id_field : forall payload, lookup_field "card_id" (restore_card_to_fields payload) = encode_field (List.nth 0 restore_card_schema (Field "" KJson)) (restore_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem restore_card_revision_field : forall payload, lookup_field "revision" (restore_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 restore_card_schema (Field "" KJson))) (restore_card_revision payload)).
+Theorem restore_card_revision_field : forall payload, lookup_field "revision" (restore_card_to_fields payload) = encode_field (List.nth 1 restore_card_schema (Field "" KJson)) (restore_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem restore_card_observed_at_field : forall payload, lookup_field "observed_at" (restore_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 restore_card_schema (Field "" KJson))) (restore_card_observed_at payload)).
+Theorem restore_card_observed_at_field : forall payload, lookup_field "observed_at" (restore_card_to_fields payload) = encode_field (List.nth 2 restore_card_schema (Field "" KJson)) (restore_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
 
 Definition delete_card_schema := command_fields (List.nth 32 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -581,11 +581,11 @@ Definition decode_delete_card (source : json) : option delete_card_payload := op
 Definition encode_delete_card (payload : delete_card_payload) : json := Schema.encode delete_card_schema (delete_card_to_fields payload).
 Theorem delete_card_payload_roundtrip : forall payload, delete_card_from_fields (delete_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem delete_card_card_id_field : forall payload, lookup_field "card_id" (delete_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 delete_card_schema (Field "" KJson))) (delete_card_card_id payload)).
+Theorem delete_card_card_id_field : forall payload, lookup_field "card_id" (delete_card_to_fields payload) = encode_field (List.nth 0 delete_card_schema (Field "" KJson)) (delete_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem delete_card_revision_field : forall payload, lookup_field "revision" (delete_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 delete_card_schema (Field "" KJson))) (delete_card_revision payload)).
+Theorem delete_card_revision_field : forall payload, lookup_field "revision" (delete_card_to_fields payload) = encode_field (List.nth 1 delete_card_schema (Field "" KJson)) (delete_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem delete_card_observed_at_field : forall payload, lookup_field "observed_at" (delete_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 delete_card_schema (Field "" KJson))) (delete_card_observed_at payload)).
+Theorem delete_card_observed_at_field : forall payload, lookup_field "observed_at" (delete_card_to_fields payload) = encode_field (List.nth 2 delete_card_schema (Field "" KJson)) (delete_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
 
 Definition run_card_schema := command_fields (List.nth 33 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -598,11 +598,11 @@ Definition decode_run_card (source : json) : option run_card_payload := option_m
 Definition encode_run_card (payload : run_card_payload) : json := Schema.encode run_card_schema (run_card_to_fields payload).
 Theorem run_card_payload_roundtrip : forall payload, run_card_from_fields (run_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem run_card_card_id_field : forall payload, lookup_field "card_id" (run_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 run_card_schema (Field "" KJson))) (run_card_card_id payload)).
+Theorem run_card_card_id_field : forall payload, lookup_field "card_id" (run_card_to_fields payload) = encode_field (List.nth 0 run_card_schema (Field "" KJson)) (run_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem run_card_revision_field : forall payload, lookup_field "revision" (run_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 run_card_schema (Field "" KJson))) (run_card_revision payload)).
+Theorem run_card_revision_field : forall payload, lookup_field "revision" (run_card_to_fields payload) = encode_field (List.nth 1 run_card_schema (Field "" KJson)) (run_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem run_card_observed_at_field : forall payload, lookup_field "observed_at" (run_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 run_card_schema (Field "" KJson))) (run_card_observed_at payload)).
+Theorem run_card_observed_at_field : forall payload, lookup_field "observed_at" (run_card_to_fields payload) = encode_field (List.nth 2 run_card_schema (Field "" KJson)) (run_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
 
 Definition link_card_schema := command_fields (List.nth 34 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -615,13 +615,13 @@ Definition decode_link_card (source : json) : option link_card_payload := option
 Definition encode_link_card (payload : link_card_payload) : json := Schema.encode link_card_schema (link_card_to_fields payload).
 Theorem link_card_payload_roundtrip : forall payload, link_card_from_fields (link_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem link_card_card_id_field : forall payload, lookup_field "card_id" (link_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 link_card_schema (Field "" KJson))) (link_card_card_id payload)).
+Theorem link_card_card_id_field : forall payload, lookup_field "card_id" (link_card_to_fields payload) = encode_field (List.nth 0 link_card_schema (Field "" KJson)) (link_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem link_card_revision_field : forall payload, lookup_field "revision" (link_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 link_card_schema (Field "" KJson))) (link_card_revision payload)).
+Theorem link_card_revision_field : forall payload, lookup_field "revision" (link_card_to_fields payload) = encode_field (List.nth 1 link_card_schema (Field "" KJson)) (link_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem link_card_observed_at_field : forall payload, lookup_field "observed_at" (link_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 link_card_schema (Field "" KJson))) (link_card_observed_at payload)).
+Theorem link_card_observed_at_field : forall payload, lookup_field "observed_at" (link_card_to_fields payload) = encode_field (List.nth 2 link_card_schema (Field "" KJson)) (link_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
-Theorem link_card_task_id_field : forall payload, lookup_field "task_id" (link_card_to_fields payload) = Some (encode_value (field_kind (List.nth 3 link_card_schema (Field "" KJson))) (link_card_task_id payload)).
+Theorem link_card_task_id_field : forall payload, lookup_field "task_id" (link_card_to_fields payload) = encode_field (List.nth 3 link_card_schema (Field "" KJson)) (link_card_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition regenerate_card_title_schema := command_fields (List.nth 35 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -634,13 +634,13 @@ Definition decode_regenerate_card_title (source : json) : option regenerate_card
 Definition encode_regenerate_card_title (payload : regenerate_card_title_payload) : json := Schema.encode regenerate_card_title_schema (regenerate_card_title_to_fields payload).
 Theorem regenerate_card_title_payload_roundtrip : forall payload, regenerate_card_title_from_fields (regenerate_card_title_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem regenerate_card_title_card_id_field : forall payload, lookup_field "card_id" (regenerate_card_title_to_fields payload) = Some (encode_value (field_kind (List.nth 0 regenerate_card_title_schema (Field "" KJson))) (regenerate_card_title_card_id payload)).
+Theorem regenerate_card_title_card_id_field : forall payload, lookup_field "card_id" (regenerate_card_title_to_fields payload) = encode_field (List.nth 0 regenerate_card_title_schema (Field "" KJson)) (regenerate_card_title_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem regenerate_card_title_revision_field : forall payload, lookup_field "revision" (regenerate_card_title_to_fields payload) = Some (encode_value (field_kind (List.nth 1 regenerate_card_title_schema (Field "" KJson))) (regenerate_card_title_revision payload)).
+Theorem regenerate_card_title_revision_field : forall payload, lookup_field "revision" (regenerate_card_title_to_fields payload) = encode_field (List.nth 1 regenerate_card_title_schema (Field "" KJson)) (regenerate_card_title_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem regenerate_card_title_observed_at_field : forall payload, lookup_field "observed_at" (regenerate_card_title_to_fields payload) = Some (encode_value (field_kind (List.nth 2 regenerate_card_title_schema (Field "" KJson))) (regenerate_card_title_observed_at payload)).
+Theorem regenerate_card_title_observed_at_field : forall payload, lookup_field "observed_at" (regenerate_card_title_to_fields payload) = encode_field (List.nth 2 regenerate_card_title_schema (Field "" KJson)) (regenerate_card_title_observed_at payload).
 Proof. intros; reflexivity. Qed.
-Theorem regenerate_card_title_draft_profile_field : forall payload, lookup_field "draft_profile" (regenerate_card_title_to_fields payload) = Some (encode_value (field_kind (List.nth 3 regenerate_card_title_schema (Field "" KJson))) (regenerate_card_title_draft_profile payload)).
+Theorem regenerate_card_title_draft_profile_field : forall payload, lookup_field "draft_profile" (regenerate_card_title_to_fields payload) = encode_field (List.nth 3 regenerate_card_title_schema (Field "" KJson)) (regenerate_card_title_draft_profile payload).
 Proof. intros; reflexivity. Qed.
 
 Definition pin_card_schema := command_fields (List.nth 36 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -653,13 +653,13 @@ Definition decode_pin_card (source : json) : option pin_card_payload := option_m
 Definition encode_pin_card (payload : pin_card_payload) : json := Schema.encode pin_card_schema (pin_card_to_fields payload).
 Theorem pin_card_payload_roundtrip : forall payload, pin_card_from_fields (pin_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem pin_card_card_id_field : forall payload, lookup_field "card_id" (pin_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 pin_card_schema (Field "" KJson))) (pin_card_card_id payload)).
+Theorem pin_card_card_id_field : forall payload, lookup_field "card_id" (pin_card_to_fields payload) = encode_field (List.nth 0 pin_card_schema (Field "" KJson)) (pin_card_card_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem pin_card_revision_field : forall payload, lookup_field "revision" (pin_card_to_fields payload) = Some (encode_value (field_kind (List.nth 1 pin_card_schema (Field "" KJson))) (pin_card_revision payload)).
+Theorem pin_card_revision_field : forall payload, lookup_field "revision" (pin_card_to_fields payload) = encode_field (List.nth 1 pin_card_schema (Field "" KJson)) (pin_card_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem pin_card_observed_at_field : forall payload, lookup_field "observed_at" (pin_card_to_fields payload) = Some (encode_value (field_kind (List.nth 2 pin_card_schema (Field "" KJson))) (pin_card_observed_at payload)).
+Theorem pin_card_observed_at_field : forall payload, lookup_field "observed_at" (pin_card_to_fields payload) = encode_field (List.nth 2 pin_card_schema (Field "" KJson)) (pin_card_observed_at payload).
 Proof. intros; reflexivity. Qed.
-Theorem pin_card_pinned_field : forall payload, lookup_field "pinned" (pin_card_to_fields payload) = Some (encode_value (field_kind (List.nth 3 pin_card_schema (Field "" KJson))) (pin_card_pinned payload)).
+Theorem pin_card_pinned_field : forall payload, lookup_field "pinned" (pin_card_to_fields payload) = encode_field (List.nth 3 pin_card_schema (Field "" KJson)) (pin_card_pinned payload).
 Proof. intros; reflexivity. Qed.
 
 Definition board_settings_schema := command_fields (List.nth 37 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -672,9 +672,9 @@ Definition decode_board_settings (source : json) : option board_settings_payload
 Definition encode_board_settings (payload : board_settings_payload) : json := Schema.encode board_settings_schema (board_settings_to_fields payload).
 Theorem board_settings_payload_roundtrip : forall payload, board_settings_from_fields (board_settings_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem board_settings_automatic_field : forall payload, lookup_field "automatic" (board_settings_to_fields payload) = Some (encode_value (field_kind (List.nth 0 board_settings_schema (Field "" KJson))) (board_settings_automatic payload)).
+Theorem board_settings_automatic_field : forall payload, lookup_field "automatic" (board_settings_to_fields payload) = encode_field (List.nth 0 board_settings_schema (Field "" KJson)) (board_settings_automatic payload).
 Proof. intros; reflexivity. Qed.
-Theorem board_settings_draft_profile_field : forall payload, lookup_field "draft_profile" (board_settings_to_fields payload) = Some (encode_value (field_kind (List.nth 1 board_settings_schema (Field "" KJson))) (board_settings_draft_profile payload)).
+Theorem board_settings_draft_profile_field : forall payload, lookup_field "draft_profile" (board_settings_to_fields payload) = encode_field (List.nth 1 board_settings_schema (Field "" KJson)) (board_settings_draft_profile payload).
 Proof. intros; reflexivity. Qed.
 
 Definition save_board_agent_schema := command_fields (List.nth 38 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -687,21 +687,21 @@ Definition decode_save_board_agent (source : json) : option save_board_agent_pay
 Definition encode_save_board_agent (payload : save_board_agent_payload) : json := Schema.encode save_board_agent_schema (save_board_agent_to_fields payload).
 Theorem save_board_agent_payload_roundtrip : forall payload, save_board_agent_from_fields (save_board_agent_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem save_board_agent_agent_field : forall payload, lookup_field "agent" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 0 save_board_agent_schema (Field "" KJson))) (save_board_agent_agent payload)).
+Theorem save_board_agent_agent_field : forall payload, lookup_field "agent" (save_board_agent_to_fields payload) = encode_field (List.nth 0 save_board_agent_schema (Field "" KJson)) (save_board_agent_agent payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_revision_field : forall payload, lookup_field "revision" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 1 save_board_agent_schema (Field "" KJson))) (save_board_agent_revision payload)).
+Theorem save_board_agent_revision_field : forall payload, lookup_field "revision" (save_board_agent_to_fields payload) = encode_field (List.nth 1 save_board_agent_schema (Field "" KJson)) (save_board_agent_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_name_field : forall payload, lookup_field "name" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 2 save_board_agent_schema (Field "" KJson))) (save_board_agent_name payload)).
+Theorem save_board_agent_name_field : forall payload, lookup_field "name" (save_board_agent_to_fields payload) = encode_field (List.nth 2 save_board_agent_schema (Field "" KJson)) (save_board_agent_name payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_profile_field : forall payload, lookup_field "profile" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 3 save_board_agent_schema (Field "" KJson))) (save_board_agent_profile payload)).
+Theorem save_board_agent_profile_field : forall payload, lookup_field "profile" (save_board_agent_to_fields payload) = encode_field (List.nth 3 save_board_agent_schema (Field "" KJson)) (save_board_agent_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_reasoning_field : forall payload, lookup_field "reasoning" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 4 save_board_agent_schema (Field "" KJson))) (save_board_agent_reasoning payload)).
+Theorem save_board_agent_reasoning_field : forall payload, lookup_field "reasoning" (save_board_agent_to_fields payload) = encode_field (List.nth 4 save_board_agent_schema (Field "" KJson)) (save_board_agent_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_instructions_field : forall payload, lookup_field "instructions" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 5 save_board_agent_schema (Field "" KJson))) (save_board_agent_instructions payload)).
+Theorem save_board_agent_instructions_field : forall payload, lookup_field "instructions" (save_board_agent_to_fields payload) = encode_field (List.nth 5 save_board_agent_schema (Field "" KJson)) (save_board_agent_instructions payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_settings_field : forall payload, lookup_field "settings" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 6 save_board_agent_schema (Field "" KJson))) (save_board_agent_settings payload)).
+Theorem save_board_agent_settings_field : forall payload, lookup_field "settings" (save_board_agent_to_fields payload) = encode_field (List.nth 6 save_board_agent_schema (Field "" KJson)) (save_board_agent_settings payload).
 Proof. intros; reflexivity. Qed.
-Theorem save_board_agent_concurrency_field : forall payload, lookup_field "concurrency" (save_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 7 save_board_agent_schema (Field "" KJson))) (save_board_agent_concurrency payload)).
+Theorem save_board_agent_concurrency_field : forall payload, lookup_field "concurrency" (save_board_agent_to_fields payload) = encode_field (List.nth 7 save_board_agent_schema (Field "" KJson)) (save_board_agent_concurrency payload).
 Proof. intros; reflexivity. Qed.
 
 Definition delete_board_agent_schema := command_fields (List.nth 39 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -714,9 +714,9 @@ Definition decode_delete_board_agent (source : json) : option delete_board_agent
 Definition encode_delete_board_agent (payload : delete_board_agent_payload) : json := Schema.encode delete_board_agent_schema (delete_board_agent_to_fields payload).
 Theorem delete_board_agent_payload_roundtrip : forall payload, delete_board_agent_from_fields (delete_board_agent_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem delete_board_agent_agent_id_field : forall payload, lookup_field "agent_id" (delete_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 0 delete_board_agent_schema (Field "" KJson))) (delete_board_agent_agent_id payload)).
+Theorem delete_board_agent_agent_id_field : forall payload, lookup_field "agent_id" (delete_board_agent_to_fields payload) = encode_field (List.nth 0 delete_board_agent_schema (Field "" KJson)) (delete_board_agent_agent_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem delete_board_agent_revision_field : forall payload, lookup_field "revision" (delete_board_agent_to_fields payload) = Some (encode_value (field_kind (List.nth 1 delete_board_agent_schema (Field "" KJson))) (delete_board_agent_revision payload)).
+Theorem delete_board_agent_revision_field : forall payload, lookup_field "revision" (delete_board_agent_to_fields payload) = encode_field (List.nth 1 delete_board_agent_schema (Field "" KJson)) (delete_board_agent_revision payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_cards_schema := command_fields (List.nth 40 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -740,7 +740,7 @@ Definition decode_read_card (source : json) : option read_card_payload := option
 Definition encode_read_card (payload : read_card_payload) : json := Schema.encode read_card_schema (read_card_to_fields payload).
 Theorem read_card_payload_roundtrip : forall payload, read_card_from_fields (read_card_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem read_card_card_id_field : forall payload, lookup_field "card_id" (read_card_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_card_schema (Field "" KJson))) (read_card_card_id payload)).
+Theorem read_card_card_id_field : forall payload, lookup_field "card_id" (read_card_to_fields payload) = encode_field (List.nth 0 read_card_schema (Field "" KJson)) (read_card_card_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_board_agents_schema := command_fields (List.nth 42 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -764,7 +764,7 @@ Definition decode_configure_chatgpt_connections (source : json) : option configu
 Definition encode_configure_chatgpt_connections (payload : configure_chatgpt_connections_payload) : json := Schema.encode configure_chatgpt_connections_schema (configure_chatgpt_connections_to_fields payload).
 Theorem configure_chatgpt_connections_payload_roundtrip : forall payload, configure_chatgpt_connections_from_fields (configure_chatgpt_connections_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem configure_chatgpt_connections_connections_field : forall payload, lookup_field "connections" (configure_chatgpt_connections_to_fields payload) = Some (encode_value (field_kind (List.nth 0 configure_chatgpt_connections_schema (Field "" KJson))) (configure_chatgpt_connections_connections payload)).
+Theorem configure_chatgpt_connections_connections_field : forall payload, lookup_field "connections" (configure_chatgpt_connections_to_fields payload) = encode_field (List.nth 0 configure_chatgpt_connections_schema (Field "" KJson)) (configure_chatgpt_connections_connections payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_exec_schema := command_fields (List.nth 44 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -777,13 +777,13 @@ Definition decode_chatgpt_exec (source : json) : option chatgpt_exec_payload := 
 Definition encode_chatgpt_exec (payload : chatgpt_exec_payload) : json := Schema.encode chatgpt_exec_schema (chatgpt_exec_to_fields payload).
 Theorem chatgpt_exec_payload_roundtrip : forall payload, chatgpt_exec_from_fields (chatgpt_exec_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_exec_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_exec_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_exec_schema (Field "" KJson))) (chatgpt_exec_connection_id payload)).
+Theorem chatgpt_exec_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_exec_to_fields payload) = encode_field (List.nth 0 chatgpt_exec_schema (Field "" KJson)) (chatgpt_exec_connection_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_exec_project_id_field : forall payload, lookup_field "project_id" (chatgpt_exec_to_fields payload) = Some (encode_value (field_kind (List.nth 1 chatgpt_exec_schema (Field "" KJson))) (chatgpt_exec_project_id payload)).
+Theorem chatgpt_exec_project_id_field : forall payload, lookup_field "project_id" (chatgpt_exec_to_fields payload) = encode_field (List.nth 1 chatgpt_exec_schema (Field "" KJson)) (chatgpt_exec_project_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_exec_request_id_field : forall payload, lookup_field "request_id" (chatgpt_exec_to_fields payload) = Some (encode_value (field_kind (List.nth 2 chatgpt_exec_schema (Field "" KJson))) (chatgpt_exec_request_id payload)).
+Theorem chatgpt_exec_request_id_field : forall payload, lookup_field "request_id" (chatgpt_exec_to_fields payload) = encode_field (List.nth 2 chatgpt_exec_schema (Field "" KJson)) (chatgpt_exec_request_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_exec_arguments_field : forall payload, lookup_field "arguments" (chatgpt_exec_to_fields payload) = Some (encode_value (field_kind (List.nth 3 chatgpt_exec_schema (Field "" KJson))) (chatgpt_exec_arguments payload)).
+Theorem chatgpt_exec_arguments_field : forall payload, lookup_field "arguments" (chatgpt_exec_to_fields payload) = encode_field (List.nth 3 chatgpt_exec_schema (Field "" KJson)) (chatgpt_exec_arguments payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_cancel_schema := command_fields (List.nth 45 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -796,11 +796,11 @@ Definition decode_chatgpt_cancel (source : json) : option chatgpt_cancel_payload
 Definition encode_chatgpt_cancel (payload : chatgpt_cancel_payload) : json := Schema.encode chatgpt_cancel_schema (chatgpt_cancel_to_fields payload).
 Theorem chatgpt_cancel_payload_roundtrip : forall payload, chatgpt_cancel_from_fields (chatgpt_cancel_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_cancel_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_cancel_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_cancel_schema (Field "" KJson))) (chatgpt_cancel_connection_id payload)).
+Theorem chatgpt_cancel_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_cancel_to_fields payload) = encode_field (List.nth 0 chatgpt_cancel_schema (Field "" KJson)) (chatgpt_cancel_connection_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_cancel_project_id_field : forall payload, lookup_field "project_id" (chatgpt_cancel_to_fields payload) = Some (encode_value (field_kind (List.nth 1 chatgpt_cancel_schema (Field "" KJson))) (chatgpt_cancel_project_id payload)).
+Theorem chatgpt_cancel_project_id_field : forall payload, lookup_field "project_id" (chatgpt_cancel_to_fields payload) = encode_field (List.nth 1 chatgpt_cancel_schema (Field "" KJson)) (chatgpt_cancel_project_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_cancel_operation_id_field : forall payload, lookup_field "operation_id" (chatgpt_cancel_to_fields payload) = Some (encode_value (field_kind (List.nth 2 chatgpt_cancel_schema (Field "" KJson))) (chatgpt_cancel_operation_id payload)).
+Theorem chatgpt_cancel_operation_id_field : forall payload, lookup_field "operation_id" (chatgpt_cancel_to_fields payload) = encode_field (List.nth 2 chatgpt_cancel_schema (Field "" KJson)) (chatgpt_cancel_operation_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_forget_schema := command_fields (List.nth 46 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -813,11 +813,11 @@ Definition decode_chatgpt_forget (source : json) : option chatgpt_forget_payload
 Definition encode_chatgpt_forget (payload : chatgpt_forget_payload) : json := Schema.encode chatgpt_forget_schema (chatgpt_forget_to_fields payload).
 Theorem chatgpt_forget_payload_roundtrip : forall payload, chatgpt_forget_from_fields (chatgpt_forget_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_forget_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_forget_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_forget_schema (Field "" KJson))) (chatgpt_forget_connection_id payload)).
+Theorem chatgpt_forget_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_forget_to_fields payload) = encode_field (List.nth 0 chatgpt_forget_schema (Field "" KJson)) (chatgpt_forget_connection_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_forget_project_id_field : forall payload, lookup_field "project_id" (chatgpt_forget_to_fields payload) = Some (encode_value (field_kind (List.nth 1 chatgpt_forget_schema (Field "" KJson))) (chatgpt_forget_project_id payload)).
+Theorem chatgpt_forget_project_id_field : forall payload, lookup_field "project_id" (chatgpt_forget_to_fields payload) = encode_field (List.nth 1 chatgpt_forget_schema (Field "" KJson)) (chatgpt_forget_project_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_forget_operation_id_field : forall payload, lookup_field "operation_id" (chatgpt_forget_to_fields payload) = Some (encode_value (field_kind (List.nth 2 chatgpt_forget_schema (Field "" KJson))) (chatgpt_forget_operation_id payload)).
+Theorem chatgpt_forget_operation_id_field : forall payload, lookup_field "operation_id" (chatgpt_forget_to_fields payload) = encode_field (List.nth 2 chatgpt_forget_schema (Field "" KJson)) (chatgpt_forget_operation_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_projects_schema := command_fields (List.nth 47 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -830,7 +830,7 @@ Definition decode_chatgpt_projects (source : json) : option chatgpt_projects_pay
 Definition encode_chatgpt_projects (payload : chatgpt_projects_payload) : json := Schema.encode chatgpt_projects_schema (chatgpt_projects_to_fields payload).
 Theorem chatgpt_projects_payload_roundtrip : forall payload, chatgpt_projects_from_fields (chatgpt_projects_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_projects_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_projects_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_projects_schema (Field "" KJson))) (chatgpt_projects_connection_id payload)).
+Theorem chatgpt_projects_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_projects_to_fields payload) = encode_field (List.nth 0 chatgpt_projects_schema (Field "" KJson)) (chatgpt_projects_connection_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_project_schema := command_fields (List.nth 48 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -843,9 +843,9 @@ Definition decode_chatgpt_project (source : json) : option chatgpt_project_paylo
 Definition encode_chatgpt_project (payload : chatgpt_project_payload) : json := Schema.encode chatgpt_project_schema (chatgpt_project_to_fields payload).
 Theorem chatgpt_project_payload_roundtrip : forall payload, chatgpt_project_from_fields (chatgpt_project_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_project_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_project_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_project_schema (Field "" KJson))) (chatgpt_project_connection_id payload)).
+Theorem chatgpt_project_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_project_to_fields payload) = encode_field (List.nth 0 chatgpt_project_schema (Field "" KJson)) (chatgpt_project_connection_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_project_project_id_field : forall payload, lookup_field "project_id" (chatgpt_project_to_fields payload) = Some (encode_value (field_kind (List.nth 1 chatgpt_project_schema (Field "" KJson))) (chatgpt_project_project_id payload)).
+Theorem chatgpt_project_project_id_field : forall payload, lookup_field "project_id" (chatgpt_project_to_fields payload) = encode_field (List.nth 1 chatgpt_project_schema (Field "" KJson)) (chatgpt_project_project_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_operation_schema := command_fields (List.nth 49 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -858,11 +858,11 @@ Definition decode_chatgpt_operation (source : json) : option chatgpt_operation_p
 Definition encode_chatgpt_operation (payload : chatgpt_operation_payload) : json := Schema.encode chatgpt_operation_schema (chatgpt_operation_to_fields payload).
 Theorem chatgpt_operation_payload_roundtrip : forall payload, chatgpt_operation_from_fields (chatgpt_operation_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_operation_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_operation_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_operation_schema (Field "" KJson))) (chatgpt_operation_connection_id payload)).
+Theorem chatgpt_operation_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_operation_to_fields payload) = encode_field (List.nth 0 chatgpt_operation_schema (Field "" KJson)) (chatgpt_operation_connection_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_operation_project_id_field : forall payload, lookup_field "project_id" (chatgpt_operation_to_fields payload) = Some (encode_value (field_kind (List.nth 1 chatgpt_operation_schema (Field "" KJson))) (chatgpt_operation_project_id payload)).
+Theorem chatgpt_operation_project_id_field : forall payload, lookup_field "project_id" (chatgpt_operation_to_fields payload) = encode_field (List.nth 1 chatgpt_operation_schema (Field "" KJson)) (chatgpt_operation_project_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_operation_operation_id_field : forall payload, lookup_field "operation_id" (chatgpt_operation_to_fields payload) = Some (encode_value (field_kind (List.nth 2 chatgpt_operation_schema (Field "" KJson))) (chatgpt_operation_operation_id payload)).
+Theorem chatgpt_operation_operation_id_field : forall payload, lookup_field "operation_id" (chatgpt_operation_to_fields payload) = encode_field (List.nth 2 chatgpt_operation_schema (Field "" KJson)) (chatgpt_operation_operation_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition chatgpt_operations_schema := command_fields (List.nth 50 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -875,9 +875,9 @@ Definition decode_chatgpt_operations (source : json) : option chatgpt_operations
 Definition encode_chatgpt_operations (payload : chatgpt_operations_payload) : json := Schema.encode chatgpt_operations_schema (chatgpt_operations_to_fields payload).
 Theorem chatgpt_operations_payload_roundtrip : forall payload, chatgpt_operations_from_fields (chatgpt_operations_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem chatgpt_operations_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_operations_to_fields payload) = Some (encode_value (field_kind (List.nth 0 chatgpt_operations_schema (Field "" KJson))) (chatgpt_operations_connection_id payload)).
+Theorem chatgpt_operations_connection_id_field : forall payload, lookup_field "connection_id" (chatgpt_operations_to_fields payload) = encode_field (List.nth 0 chatgpt_operations_schema (Field "" KJson)) (chatgpt_operations_connection_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem chatgpt_operations_project_id_field : forall payload, lookup_field "project_id" (chatgpt_operations_to_fields payload) = Some (encode_value (field_kind (List.nth 1 chatgpt_operations_schema (Field "" KJson))) (chatgpt_operations_project_id payload)).
+Theorem chatgpt_operations_project_id_field : forall payload, lookup_field "project_id" (chatgpt_operations_to_fields payload) = encode_field (List.nth 1 chatgpt_operations_schema (Field "" KJson)) (chatgpt_operations_project_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition remote_enable_schema := command_fields (List.nth 51 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -912,9 +912,9 @@ Definition decode_remote_grant (source : json) : option remote_grant_payload := 
 Definition encode_remote_grant (payload : remote_grant_payload) : json := Schema.encode remote_grant_schema (remote_grant_to_fields payload).
 Theorem remote_grant_payload_roundtrip : forall payload, remote_grant_from_fields (remote_grant_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem remote_grant_controller_id_field : forall payload, lookup_field "controller_id" (remote_grant_to_fields payload) = Some (encode_value (field_kind (List.nth 0 remote_grant_schema (Field "" KJson))) (remote_grant_controller_id payload)).
+Theorem remote_grant_controller_id_field : forall payload, lookup_field "controller_id" (remote_grant_to_fields payload) = encode_field (List.nth 0 remote_grant_schema (Field "" KJson)) (remote_grant_controller_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem remote_grant_permissions_field : forall payload, lookup_field "permissions" (remote_grant_to_fields payload) = Some (encode_value (field_kind (List.nth 1 remote_grant_schema (Field "" KJson))) (remote_grant_permissions payload)).
+Theorem remote_grant_permissions_field : forall payload, lookup_field "permissions" (remote_grant_to_fields payload) = encode_field (List.nth 1 remote_grant_schema (Field "" KJson)) (remote_grant_permissions payload).
 Proof. intros; reflexivity. Qed.
 
 Definition remote_revoke_schema := command_fields (List.nth 54 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -927,7 +927,7 @@ Definition decode_remote_revoke (source : json) : option remote_revoke_payload :
 Definition encode_remote_revoke (payload : remote_revoke_payload) : json := Schema.encode remote_revoke_schema (remote_revoke_to_fields payload).
 Theorem remote_revoke_payload_roundtrip : forall payload, remote_revoke_from_fields (remote_revoke_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem remote_revoke_controller_id_field : forall payload, lookup_field "controller_id" (remote_revoke_to_fields payload) = Some (encode_value (field_kind (List.nth 0 remote_revoke_schema (Field "" KJson))) (remote_revoke_controller_id payload)).
+Theorem remote_revoke_controller_id_field : forall payload, lookup_field "controller_id" (remote_revoke_to_fields payload) = encode_field (List.nth 0 remote_revoke_schema (Field "" KJson)) (remote_revoke_controller_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition remote_status_schema := command_fields (List.nth 55 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -951,13 +951,13 @@ Definition decode_create_task_graph (source : json) : option create_task_graph_p
 Definition encode_create_task_graph (payload : create_task_graph_payload) : json := Schema.encode create_task_graph_schema (create_task_graph_to_fields payload).
 Theorem create_task_graph_payload_roundtrip : forall payload, create_task_graph_from_fields (create_task_graph_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_task_graph_work_id_field : forall payload, lookup_field "work_id" (create_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_task_graph_schema (Field "" KJson))) (create_task_graph_work_id payload)).
+Theorem create_task_graph_work_id_field : forall payload, lookup_field "work_id" (create_task_graph_to_fields payload) = encode_field (List.nth 0 create_task_graph_schema (Field "" KJson)) (create_task_graph_work_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_task_graph_name_field : forall payload, lookup_field "name" (create_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_task_graph_schema (Field "" KJson))) (create_task_graph_name payload)).
+Theorem create_task_graph_name_field : forall payload, lookup_field "name" (create_task_graph_to_fields payload) = encode_field (List.nth 1 create_task_graph_schema (Field "" KJson)) (create_task_graph_name payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_task_graph_nodes_field : forall payload, lookup_field "nodes" (create_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_task_graph_schema (Field "" KJson))) (create_task_graph_nodes payload)).
+Theorem create_task_graph_nodes_field : forall payload, lookup_field "nodes" (create_task_graph_to_fields payload) = encode_field (List.nth 2 create_task_graph_schema (Field "" KJson)) (create_task_graph_nodes payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_task_graph_rules_field : forall payload, lookup_field "rules" (create_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_task_graph_schema (Field "" KJson))) (create_task_graph_rules payload)).
+Theorem create_task_graph_rules_field : forall payload, lookup_field "rules" (create_task_graph_to_fields payload) = encode_field (List.nth 3 create_task_graph_schema (Field "" KJson)) (create_task_graph_rules payload).
 Proof. intros; reflexivity. Qed.
 
 Definition update_task_graph_schema := command_fields (List.nth 57 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -970,13 +970,13 @@ Definition decode_update_task_graph (source : json) : option update_task_graph_p
 Definition encode_update_task_graph (payload : update_task_graph_payload) : json := Schema.encode update_task_graph_schema (update_task_graph_to_fields payload).
 Theorem update_task_graph_payload_roundtrip : forall payload, update_task_graph_from_fields (update_task_graph_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem update_task_graph_graph_id_field : forall payload, lookup_field "graph_id" (update_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 0 update_task_graph_schema (Field "" KJson))) (update_task_graph_graph_id payload)).
+Theorem update_task_graph_graph_id_field : forall payload, lookup_field "graph_id" (update_task_graph_to_fields payload) = encode_field (List.nth 0 update_task_graph_schema (Field "" KJson)) (update_task_graph_graph_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_task_graph_name_field : forall payload, lookup_field "name" (update_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 1 update_task_graph_schema (Field "" KJson))) (update_task_graph_name payload)).
+Theorem update_task_graph_name_field : forall payload, lookup_field "name" (update_task_graph_to_fields payload) = encode_field (List.nth 1 update_task_graph_schema (Field "" KJson)) (update_task_graph_name payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_task_graph_nodes_field : forall payload, lookup_field "nodes" (update_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 2 update_task_graph_schema (Field "" KJson))) (update_task_graph_nodes payload)).
+Theorem update_task_graph_nodes_field : forall payload, lookup_field "nodes" (update_task_graph_to_fields payload) = encode_field (List.nth 2 update_task_graph_schema (Field "" KJson)) (update_task_graph_nodes payload).
 Proof. intros; reflexivity. Qed.
-Theorem update_task_graph_rules_field : forall payload, lookup_field "rules" (update_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 3 update_task_graph_schema (Field "" KJson))) (update_task_graph_rules payload)).
+Theorem update_task_graph_rules_field : forall payload, lookup_field "rules" (update_task_graph_to_fields payload) = encode_field (List.nth 3 update_task_graph_schema (Field "" KJson)) (update_task_graph_rules payload).
 Proof. intros; reflexivity. Qed.
 
 Definition delete_task_graph_schema := command_fields (List.nth 58 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -989,7 +989,7 @@ Definition decode_delete_task_graph (source : json) : option delete_task_graph_p
 Definition encode_delete_task_graph (payload : delete_task_graph_payload) : json := Schema.encode delete_task_graph_schema (delete_task_graph_to_fields payload).
 Theorem delete_task_graph_payload_roundtrip : forall payload, delete_task_graph_from_fields (delete_task_graph_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem delete_task_graph_graph_id_field : forall payload, lookup_field "graph_id" (delete_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 0 delete_task_graph_schema (Field "" KJson))) (delete_task_graph_graph_id payload)).
+Theorem delete_task_graph_graph_id_field : forall payload, lookup_field "graph_id" (delete_task_graph_to_fields payload) = encode_field (List.nth 0 delete_task_graph_schema (Field "" KJson)) (delete_task_graph_graph_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_task_graphs_schema := command_fields (List.nth 59 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1013,7 +1013,7 @@ Definition decode_read_task_graph (source : json) : option read_task_graph_paylo
 Definition encode_read_task_graph (payload : read_task_graph_payload) : json := Schema.encode read_task_graph_schema (read_task_graph_to_fields payload).
 Theorem read_task_graph_payload_roundtrip : forall payload, read_task_graph_from_fields (read_task_graph_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem read_task_graph_graph_id_field : forall payload, lookup_field "graph_id" (read_task_graph_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_task_graph_schema (Field "" KJson))) (read_task_graph_graph_id payload)).
+Theorem read_task_graph_graph_id_field : forall payload, lookup_field "graph_id" (read_task_graph_to_fields payload) = encode_field (List.nth 0 read_task_graph_schema (Field "" KJson)) (read_task_graph_graph_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition read_title_settings_schema := command_fields (List.nth 61 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1037,11 +1037,11 @@ Definition decode_configure_title_settings (source : json) : option configure_ti
 Definition encode_configure_title_settings (payload : configure_title_settings_payload) : json := Schema.encode configure_title_settings_schema (configure_title_settings_to_fields payload).
 Theorem configure_title_settings_payload_roundtrip : forall payload, configure_title_settings_from_fields (configure_title_settings_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem configure_title_settings_revision_field : forall payload, lookup_field "revision" (configure_title_settings_to_fields payload) = Some (encode_value (field_kind (List.nth 0 configure_title_settings_schema (Field "" KJson))) (configure_title_settings_revision payload)).
+Theorem configure_title_settings_revision_field : forall payload, lookup_field "revision" (configure_title_settings_to_fields payload) = encode_field (List.nth 0 configure_title_settings_schema (Field "" KJson)) (configure_title_settings_revision payload).
 Proof. intros; reflexivity. Qed.
-Theorem configure_title_settings_task_prompt_field : forall payload, lookup_field "task_prompt" (configure_title_settings_to_fields payload) = Some (encode_value (field_kind (List.nth 1 configure_title_settings_schema (Field "" KJson))) (configure_title_settings_task_prompt payload)).
+Theorem configure_title_settings_task_prompt_field : forall payload, lookup_field "task_prompt" (configure_title_settings_to_fields payload) = encode_field (List.nth 1 configure_title_settings_schema (Field "" KJson)) (configure_title_settings_task_prompt payload).
 Proof. intros; reflexivity. Qed.
-Theorem configure_title_settings_agent_prompt_field : forall payload, lookup_field "agent_prompt" (configure_title_settings_to_fields payload) = Some (encode_value (field_kind (List.nth 2 configure_title_settings_schema (Field "" KJson))) (configure_title_settings_agent_prompt payload)).
+Theorem configure_title_settings_agent_prompt_field : forall payload, lookup_field "agent_prompt" (configure_title_settings_to_fields payload) = encode_field (List.nth 2 configure_title_settings_schema (Field "" KJson)) (configure_title_settings_agent_prompt payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_work_schema := command_fields (List.nth 63 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1054,7 +1054,7 @@ Definition decode_create_work (source : json) : option create_work_payload := op
 Definition encode_create_work (payload : create_work_payload) : json := Schema.encode create_work_schema (create_work_to_fields payload).
 Theorem create_work_payload_roundtrip : forall payload, create_work_from_fields (create_work_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_work_name_field : forall payload, lookup_field "name" (create_work_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_work_schema (Field "" KJson))) (create_work_name payload)).
+Theorem create_work_name_field : forall payload, lookup_field "name" (create_work_to_fields payload) = encode_field (List.nth 0 create_work_schema (Field "" KJson)) (create_work_name payload).
 Proof. intros; reflexivity. Qed.
 
 Definition rename_work_schema := command_fields (List.nth 64 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1067,9 +1067,9 @@ Definition decode_rename_work (source : json) : option rename_work_payload := op
 Definition encode_rename_work (payload : rename_work_payload) : json := Schema.encode rename_work_schema (rename_work_to_fields payload).
 Theorem rename_work_payload_roundtrip : forall payload, rename_work_from_fields (rename_work_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem rename_work_work_id_field : forall payload, lookup_field "work_id" (rename_work_to_fields payload) = Some (encode_value (field_kind (List.nth 0 rename_work_schema (Field "" KJson))) (rename_work_work_id payload)).
+Theorem rename_work_work_id_field : forall payload, lookup_field "work_id" (rename_work_to_fields payload) = encode_field (List.nth 0 rename_work_schema (Field "" KJson)) (rename_work_work_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem rename_work_name_field : forall payload, lookup_field "name" (rename_work_to_fields payload) = Some (encode_value (field_kind (List.nth 1 rename_work_schema (Field "" KJson))) (rename_work_name payload)).
+Theorem rename_work_name_field : forall payload, lookup_field "name" (rename_work_to_fields payload) = encode_field (List.nth 1 rename_work_schema (Field "" KJson)) (rename_work_name payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_work_task_schema := command_fields (List.nth 65 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1082,19 +1082,19 @@ Definition decode_create_work_task (source : json) : option create_work_task_pay
 Definition encode_create_work_task (payload : create_work_task_payload) : json := Schema.encode create_work_task_schema (create_work_task_to_fields payload).
 Theorem create_work_task_payload_roundtrip : forall payload, create_work_task_from_fields (create_work_task_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_work_task_work_id_field : forall payload, lookup_field "work_id" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_work_task_schema (Field "" KJson))) (create_work_task_work_id payload)).
+Theorem create_work_task_work_id_field : forall payload, lookup_field "work_id" (create_work_task_to_fields payload) = encode_field (List.nth 0 create_work_task_schema (Field "" KJson)) (create_work_task_work_id payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_work_task_profile_field : forall payload, lookup_field "profile" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_work_task_schema (Field "" KJson))) (create_work_task_profile payload)).
+Theorem create_work_task_profile_field : forall payload, lookup_field "profile" (create_work_task_to_fields payload) = encode_field (List.nth 1 create_work_task_schema (Field "" KJson)) (create_work_task_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_work_task_reasoning_field : forall payload, lookup_field "reasoning" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_work_task_schema (Field "" KJson))) (create_work_task_reasoning payload)).
+Theorem create_work_task_reasoning_field : forall payload, lookup_field "reasoning" (create_work_task_to_fields payload) = encode_field (List.nth 2 create_work_task_schema (Field "" KJson)) (create_work_task_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_work_task_message_field : forall payload, lookup_field "message" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_work_task_schema (Field "" KJson))) (create_work_task_message payload)).
+Theorem create_work_task_message_field : forall payload, lookup_field "message" (create_work_task_to_fields payload) = encode_field (List.nth 3 create_work_task_schema (Field "" KJson)) (create_work_task_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_work_task_images_field : forall payload, lookup_field "images" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_work_task_schema (Field "" KJson))) (create_work_task_images payload)).
+Theorem create_work_task_images_field : forall payload, lookup_field "images" (create_work_task_to_fields payload) = encode_field (List.nth 4 create_work_task_schema (Field "" KJson)) (create_work_task_images payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_work_task_settings_field : forall payload, lookup_field "settings" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 5 create_work_task_schema (Field "" KJson))) (create_work_task_settings payload)).
+Theorem create_work_task_settings_field : forall payload, lookup_field "settings" (create_work_task_to_fields payload) = encode_field (List.nth 5 create_work_task_schema (Field "" KJson)) (create_work_task_settings payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_work_task_create_worktree_field : forall payload, lookup_field "create_worktree" (create_work_task_to_fields payload) = Some (encode_value (field_kind (List.nth 6 create_work_task_schema (Field "" KJson))) (create_work_task_create_worktree payload)).
+Theorem create_work_task_create_worktree_field : forall payload, lookup_field "create_worktree" (create_work_task_to_fields payload) = encode_field (List.nth 6 create_work_task_schema (Field "" KJson)) (create_work_task_create_worktree payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_works_schema := command_fields (List.nth 66 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1118,7 +1118,7 @@ Definition decode_read_work (source : json) : option read_work_payload := option
 Definition encode_read_work (payload : read_work_payload) : json := Schema.encode read_work_schema (read_work_to_fields payload).
 Theorem read_work_payload_roundtrip : forall payload, read_work_from_fields (read_work_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem read_work_work_id_field : forall payload, lookup_field "work_id" (read_work_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_work_schema (Field "" KJson))) (read_work_work_id payload)).
+Theorem read_work_work_id_field : forall payload, lookup_field "work_id" (read_work_to_fields payload) = encode_field (List.nth 0 read_work_schema (Field "" KJson)) (read_work_work_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition read_work_ui_schema := command_fields (List.nth 68 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1142,9 +1142,9 @@ Definition decode_apply_work_ui_patch (source : json) : option apply_work_ui_pat
 Definition encode_apply_work_ui_patch (payload : apply_work_ui_patch_payload) : json := Schema.encode apply_work_ui_patch_schema (apply_work_ui_patch_to_fields payload).
 Theorem apply_work_ui_patch_payload_roundtrip : forall payload, apply_work_ui_patch_from_fields (apply_work_ui_patch_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem apply_work_ui_patch_patch_field : forall payload, lookup_field "patch" (apply_work_ui_patch_to_fields payload) = Some (encode_value (field_kind (List.nth 0 apply_work_ui_patch_schema (Field "" KJson))) (apply_work_ui_patch_patch payload)).
+Theorem apply_work_ui_patch_patch_field : forall payload, lookup_field "patch" (apply_work_ui_patch_to_fields payload) = encode_field (List.nth 0 apply_work_ui_patch_schema (Field "" KJson)) (apply_work_ui_patch_patch payload).
 Proof. intros; reflexivity. Qed.
-Theorem apply_work_ui_patch_revision_field : forall payload, lookup_field "revision" (apply_work_ui_patch_to_fields payload) = Some (encode_value (field_kind (List.nth 1 apply_work_ui_patch_schema (Field "" KJson))) (apply_work_ui_patch_revision payload)).
+Theorem apply_work_ui_patch_revision_field : forall payload, lookup_field "revision" (apply_work_ui_patch_to_fields payload) = encode_field (List.nth 1 apply_work_ui_patch_schema (Field "" KJson)) (apply_work_ui_patch_revision payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_worktree_task_schema := command_fields (List.nth 70 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1157,15 +1157,15 @@ Definition decode_create_worktree_task (source : json) : option create_worktree_
 Definition encode_create_worktree_task (payload : create_worktree_task_payload) : json := Schema.encode create_worktree_task_schema (create_worktree_task_to_fields payload).
 Theorem create_worktree_task_payload_roundtrip : forall payload, create_worktree_task_from_fields (create_worktree_task_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_worktree_task_profile_field : forall payload, lookup_field "profile" (create_worktree_task_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_worktree_task_schema (Field "" KJson))) (create_worktree_task_profile payload)).
+Theorem create_worktree_task_profile_field : forall payload, lookup_field "profile" (create_worktree_task_to_fields payload) = encode_field (List.nth 0 create_worktree_task_schema (Field "" KJson)) (create_worktree_task_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_worktree_task_reasoning_field : forall payload, lookup_field "reasoning" (create_worktree_task_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_worktree_task_schema (Field "" KJson))) (create_worktree_task_reasoning payload)).
+Theorem create_worktree_task_reasoning_field : forall payload, lookup_field "reasoning" (create_worktree_task_to_fields payload) = encode_field (List.nth 1 create_worktree_task_schema (Field "" KJson)) (create_worktree_task_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_worktree_task_message_field : forall payload, lookup_field "message" (create_worktree_task_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_worktree_task_schema (Field "" KJson))) (create_worktree_task_message payload)).
+Theorem create_worktree_task_message_field : forall payload, lookup_field "message" (create_worktree_task_to_fields payload) = encode_field (List.nth 2 create_worktree_task_schema (Field "" KJson)) (create_worktree_task_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_worktree_task_images_field : forall payload, lookup_field "images" (create_worktree_task_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_worktree_task_schema (Field "" KJson))) (create_worktree_task_images payload)).
+Theorem create_worktree_task_images_field : forall payload, lookup_field "images" (create_worktree_task_to_fields payload) = encode_field (List.nth 3 create_worktree_task_schema (Field "" KJson)) (create_worktree_task_images payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_worktree_task_settings_field : forall payload, lookup_field "settings" (create_worktree_task_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_worktree_task_schema (Field "" KJson))) (create_worktree_task_settings payload)).
+Theorem create_worktree_task_settings_field : forall payload, lookup_field "settings" (create_worktree_task_to_fields payload) = encode_field (List.nth 4 create_worktree_task_schema (Field "" KJson)) (create_worktree_task_settings payload).
 Proof. intros; reflexivity. Qed.
 
 Definition create_workspace_task_schema := command_fields (List.nth 71 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1178,19 +1178,19 @@ Definition decode_create_workspace_task (source : json) : option create_workspac
 Definition encode_create_workspace_task (payload : create_workspace_task_payload) : json := Schema.encode create_workspace_task_schema (create_workspace_task_to_fields payload).
 Theorem create_workspace_task_payload_roundtrip : forall payload, create_workspace_task_from_fields (create_workspace_task_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem create_workspace_task_backend_field : forall payload, lookup_field "backend" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 0 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_backend payload)).
+Theorem create_workspace_task_backend_field : forall payload, lookup_field "backend" (create_workspace_task_to_fields payload) = encode_field (List.nth 0 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_backend payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_workspace_task_profile_field : forall payload, lookup_field "profile" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 1 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_profile payload)).
+Theorem create_workspace_task_profile_field : forall payload, lookup_field "profile" (create_workspace_task_to_fields payload) = encode_field (List.nth 1 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_profile payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_workspace_task_reasoning_field : forall payload, lookup_field "reasoning" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 2 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_reasoning payload)).
+Theorem create_workspace_task_reasoning_field : forall payload, lookup_field "reasoning" (create_workspace_task_to_fields payload) = encode_field (List.nth 2 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_reasoning payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_workspace_task_message_field : forall payload, lookup_field "message" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 3 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_message payload)).
+Theorem create_workspace_task_message_field : forall payload, lookup_field "message" (create_workspace_task_to_fields payload) = encode_field (List.nth 3 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_message payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_workspace_task_images_field : forall payload, lookup_field "images" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 4 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_images payload)).
+Theorem create_workspace_task_images_field : forall payload, lookup_field "images" (create_workspace_task_to_fields payload) = encode_field (List.nth 4 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_images payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_workspace_task_settings_field : forall payload, lookup_field "settings" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 5 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_settings payload)).
+Theorem create_workspace_task_settings_field : forall payload, lookup_field "settings" (create_workspace_task_to_fields payload) = encode_field (List.nth 5 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_settings payload).
 Proof. intros; reflexivity. Qed.
-Theorem create_workspace_task_work_id_field : forall payload, lookup_field "work_id" (create_workspace_task_to_fields payload) = Some (encode_value (field_kind (List.nth 6 create_workspace_task_schema (Field "" KJson))) (create_workspace_task_work_id payload)).
+Theorem create_workspace_task_work_id_field : forall payload, lookup_field "work_id" (create_workspace_task_to_fields payload) = encode_field (List.nth 6 create_workspace_task_schema (Field "" KJson)) (create_workspace_task_work_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition list_worktrees_schema := command_fields (List.nth 72 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1214,7 +1214,7 @@ Definition decode_read_worktree (source : json) : option read_worktree_payload :
 Definition encode_read_worktree (payload : read_worktree_payload) : json := Schema.encode read_worktree_schema (read_worktree_to_fields payload).
 Theorem read_worktree_payload_roundtrip : forall payload, read_worktree_from_fields (read_worktree_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem read_worktree_task_id_field : forall payload, lookup_field "task_id" (read_worktree_to_fields payload) = Some (encode_value (field_kind (List.nth 0 read_worktree_schema (Field "" KJson))) (read_worktree_task_id payload)).
+Theorem read_worktree_task_id_field : forall payload, lookup_field "task_id" (read_worktree_to_fields payload) = encode_field (List.nth 0 read_worktree_schema (Field "" KJson)) (read_worktree_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition retry_worktree_archive_schema := command_fields (List.nth 74 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1227,7 +1227,7 @@ Definition decode_retry_worktree_archive (source : json) : option retry_worktree
 Definition encode_retry_worktree_archive (payload : retry_worktree_archive_payload) : json := Schema.encode retry_worktree_archive_schema (retry_worktree_archive_to_fields payload).
 Theorem retry_worktree_archive_payload_roundtrip : forall payload, retry_worktree_archive_from_fields (retry_worktree_archive_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem retry_worktree_archive_task_id_field : forall payload, lookup_field "task_id" (retry_worktree_archive_to_fields payload) = Some (encode_value (field_kind (List.nth 0 retry_worktree_archive_schema (Field "" KJson))) (retry_worktree_archive_task_id payload)).
+Theorem retry_worktree_archive_task_id_field : forall payload, lookup_field "task_id" (retry_worktree_archive_to_fields payload) = encode_field (List.nth 0 retry_worktree_archive_schema (Field "" KJson)) (retry_worktree_archive_task_id payload).
 Proof. intros; reflexivity. Qed.
 
 Definition resolve_workspace_schema := command_fields (List.nth 75 Selvedge.Kernel.Commands.command_specs (Command "" [])).
@@ -1240,9 +1240,9 @@ Definition decode_resolve_workspace (source : json) : option resolve_workspace_p
 Definition encode_resolve_workspace (payload : resolve_workspace_payload) : json := Schema.encode resolve_workspace_schema (resolve_workspace_to_fields payload).
 Theorem resolve_workspace_payload_roundtrip : forall payload, resolve_workspace_from_fields (resolve_workspace_to_fields payload) = payload.
 Proof. intros []; reflexivity. Qed.
-Theorem resolve_workspace_workspace_field : forall payload, lookup_field "workspace" (resolve_workspace_to_fields payload) = Some (encode_value (field_kind (List.nth 0 resolve_workspace_schema (Field "" KJson))) (resolve_workspace_workspace payload)).
+Theorem resolve_workspace_workspace_field : forall payload, lookup_field "workspace" (resolve_workspace_to_fields payload) = encode_field (List.nth 0 resolve_workspace_schema (Field "" KJson)) (resolve_workspace_workspace payload).
 Proof. intros; reflexivity. Qed.
-Theorem resolve_workspace_project_id_field : forall payload, lookup_field "project_id" (resolve_workspace_to_fields payload) = Some (encode_value (field_kind (List.nth 1 resolve_workspace_schema (Field "" KJson))) (resolve_workspace_project_id payload)).
+Theorem resolve_workspace_project_id_field : forall payload, lookup_field "project_id" (resolve_workspace_to_fields payload) = encode_field (List.nth 1 resolve_workspace_schema (Field "" KJson)) (resolve_workspace_project_id payload).
 Proof. intros; reflexivity. Qed.
 
 Inductive command : Type :=
@@ -2032,10 +2032,6 @@ Definition encode (value : command) : json := match value with
 end.
 
 Theorem encode_declared_wire : forall value, encode value = JObject (("op", JString (command_name (declared_command value))) :: declared_payload value).
-
-Proof. intros []; reflexivity. Qed.
-
-Theorem encode_declared_keys : forall value, (match encode value with JObject values => source_keys values | _ => [] end) = "op" :: declared_names (command_fields (declared_command value)).
 
 Proof. intros []; reflexivity. Qed.
 

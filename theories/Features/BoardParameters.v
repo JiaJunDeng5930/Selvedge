@@ -15,9 +15,15 @@ Definition owner (name:string) :option Selvedge.Features.Domain.owner :=
  if nonempty key && limited name 1024 then Some (Selvedge.Features.Domain.ProfileOwner key) else None
  else if String.prefix "agent/" name then option_map Selvedge.Features.Domain.AgentOwner (text_id (String.substring 6 (String.length name) name)) else None.
 Definition optional_project (text:string) :option (option N) := if String.eqb text "" then Some None else option_map (@Some N) (text_id text).
+Definition attachment_schema := [Field "id" KText;Field "name" KText;Field "mime" (KOptional KText);Field "path" KText;Field "bytes" (KOptional KText)].
 Definition attachment (source:json) :option Selvedge.Features.Domain.attachment :=
- match Schema.decode [Field "id" KText;Field "name" KText;Field "mime" KText;Field "path" KText;Field "bytes" KText] source,
- string_field "id" source,string_field "name" source,string_field "mime" source,string_field "path" source,string_field "bytes" source with
- | Some _,Some id,Some name,Some mime,Some path,Some bytes=>match text_id bytes with
+ match Schema.decode attachment_schema source with
+ | None=>None | Some values=>
+ let id:=head values in let values:=tail values in
+ let name:=head values in let values:=tail values in
+ let mime:=match head values with Some text=>text|None=>"" end in let values:=tail values in
+ let path:=head values in let values:=tail values in
+ let count:=match head values with Some text=>text_id text|None=>Some 0 end in
+ match count with
  | Some count=>if Nat.eqb (String.length id) 64 && nonempty name && limited name 256 && limited mime 128 && String.prefix "/" path && limited path 4096 && N.leb count 10485760 then Some (Selvedge.Features.Domain.Attachment id name mime path count) else None
- | None=>None end | _,_,_,_,_,_=>None end.
+ | None=>None end end.

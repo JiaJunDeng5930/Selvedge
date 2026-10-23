@@ -31,7 +31,7 @@ Definition present_schema (description : kind) :=
  end.
 Definition schema_fields_with (describe : kind -> list (string * json)) (declaration : schema) := object_fields
   (map (fun f => (f.(field_name),JObject (describe f.(field_kind)))) declaration)
-  (map field_name (filter (fun f => negb (optional_kind f.(field_kind))) declaration)).
+  (map field_name (filter (fun f => negb (f.(field_omittable) || optional_kind f.(field_kind))) declaration)).
 Definition schema_fields := schema_fields_with kind_schema.
 Definition omittable_fields := schema_fields_with present_schema.
 Definition schema_json declaration := JObject (schema_fields declaration).

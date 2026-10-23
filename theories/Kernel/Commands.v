@@ -50,7 +50,10 @@ Definition command_specs : list command_spec := [
   Command "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]);
   Command "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]);
   Command "create_card" (opt "observed_at" KText :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]);
-  Command "update_card" (card_identity ++ card_metadata);
+  (* Nullable metadata resets a card only when supplied; nullable title/description are unchanged. *)
+  Command "update_card" (card_identity ++ map (fun field =>
+    if String.eqb (field_name field) "title" || String.eqb (field_name field) "description"
+    then field else OmittableField (field_name field) (field_kind field)) card_metadata);
   Command "move_card" (card_identity ++ [opt "status" KText; opt "before_card" KText]);
   Command "archive_card" card_identity;
   Command "restore_card" card_identity;

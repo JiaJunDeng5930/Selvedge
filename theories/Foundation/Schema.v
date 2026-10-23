@@ -22,11 +22,21 @@ Fixpoint denote (description : kind) : Type :=
   | KEnum first rest => { value : string | In value (first :: rest) }
   end.
 
-Record field_spec := Field { field_name : string; field_kind : kind }.
+Record field_spec := FieldSpec {
+  field_name : string;
+  field_kind : kind;
+  field_omittable : bool
+}.
+Definition Field name description := FieldSpec name description false.
+(** An omitted field and a present nullable value are separate inputs. *)
+Definition OmittableField name description := FieldSpec name description true.
+Definition field_representation (field : field_spec) :=
+  if field_omittable field then KOptional (field_kind field) else field_kind field.
+Definition field_value (field : field_spec) := denote (field_representation field).
 Definition schema := list field_spec.
 Inductive fields : schema -> Type :=
 | FNil : fields []
-| FCons : forall field rest, denote (field_kind field) -> fields rest -> fields (field :: rest).
+| FCons : forall field rest, field_value field -> fields rest -> fields (field :: rest).
 Arguments FCons {field rest} _ _.
 
 Fixpoint decode_list {A} (decode : json -> option A) (values : list json) : option (list A) :=
@@ -80,13 +90,20 @@ Definition default_value (description : kind) : denote description :=
 Fixpoint defaults (description : schema) : fields description :=
   match description with
   | [] => FNil
-  | field :: rest => FCons (default_value (field_kind field)) (defaults rest)
+  | field :: rest => FCons (default_value (field_representation field)) (defaults rest)
+  end.
+Definition encode_field (field : field_spec) : field_value field -> option json :=
+  match field as field return field_value field -> option json with
+  | FieldSpec _ description false => fun value => Some (encode_value description value)
+  | FieldSpec _ description true => fun value => option_map (encode_value description) value
   end.
 Fixpoint encode_fields {description} (values : fields description) : list (string * json) :=
   match values with
   | FNil => []
   | @FCons field rest value values =>
-      (field_name field, encode_value (field_kind field) value) :: encode_fields values
+      match encode_field field value with
+      | Some encoded => (field_name field, encoded) :: encode_fields values
+      | None => encode_fields values end
   end.
 Definition encode (description : schema) (values : fields description) : json := JObject (encode_fields values).
 Fixpoint unique_names (names : list string) : bool :=
@@ -104,13 +121,20 @@ Definition missing_value (description : kind) : option (denote description) :=
   | KOptional _ => Some None
   | _ => None
   end.
+Definition decode_field (field : field_spec) : option json -> option (field_value field) :=
+  match field as field return option json -> option (field_value field) with
+  | FieldSpec _ description false => fun source => match source with
+    | Some value => decode_value description value
+    | None => missing_value description end
+  | FieldSpec _ description true => fun source => match source with
+    | Some value => option_map Some (decode_value description value)
+    | None => Some None end
+  end.
 Fixpoint decode_fields (description : schema) (source : list (string * json)) : option (fields description) :=
   match description as description return option (fields description) with
   | [] => Some FNil
   | field :: rest =>
-      let value := match lookup (field_name field) source with
-        Some value => decode_value (field_kind field) value
-      | None => missing_value (field_kind field) end in
+      let value := decode_field field (lookup (field_name field) source) in
       match value, decode_fields rest source with
       | Some value, Some values => Some (FCons value values)
       | _, _ => None end
@@ -126,7 +150,7 @@ Fixpoint lookup_field {description} (name : string) (values : fields description
   match values with
   | FNil => None
   | @FCons field rest value values =>
-      if String.eqb name (field_name field) then Some (encode_value (field_kind field) value)
+      if String.eqb name (field_name field) then encode_field field value
       else lookup_field name values
   end.
 Fixpoint update_field {description} (name : string) (source : json) (values : fields description) : option (fields description) :=
@@ -134,7 +158,7 @@ Fixpoint update_field {description} (name : string) (source : json) (values : fi
   | FNil => None
   | @FCons field rest value values =>
       if String.eqb name (field_name field) then
-        option_map (fun value => FCons value values) (decode_value (field_kind field) source)
+        option_map (fun value => FCons value values) (decode_field field (Some source))
       else option_map (fun values => FCons value values) (update_field name source values)
   end.
 
@@ -169,9 +193,9 @@ Fixpoint encode_command {commands} (value : command_value commands) : json :=
   | @CNext _ _ value => encode_command value
   end.
 
-Definition head {field rest} (values : fields (field :: rest)) : denote (field_kind field) :=
+Definition head {field rest} (values : fields (field :: rest)) : field_value field :=
   match values in fields description return
-    match description with [] => unit | field :: _ => denote (field_kind field) end with
+    match description with [] => unit | field :: _ => field_value field end with
   | FNil => tt
   | FCons value _ => value
   end.
@@ -187,7 +211,7 @@ Fixpoint projections (description : schema) : list (projection description) :=
   match description as description return list (projection description) with
   | [] => []
   | field :: rest =>
-      existT _ (field_kind field) (field_name field, @head field rest) ::
+      existT _ (field_representation field) (field_name field, @head field rest) ::
       map (fun entry => match entry with
         existT _ kind entry =>
           existT _ kind (fst entry, fun values => snd entry (tail values))

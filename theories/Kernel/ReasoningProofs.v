@@ -342,6 +342,5 @@ Proof. reflexivity. Qed.
 Theorem model_context_preview_exposes_only_the_public_reasoning_summary : forall origin secret summary,
  ReasoningView.public_message (ModelContext origin (JObject [("type",JString "reasoning");
    ("encrypted_content",secret);("summary",JArray summary)])) =
- Some (ReasoningView.text_message "reasoning_summary" (String.concat ""
-   (map (fun part => text_default "text" part "") (ReasoningView.public_parts summary)))).
+ Some (ReasoningView.text_message "reasoning_summary" (ReasoningView.public_parts_text summary)).
 Proof. reflexivity. Qed.

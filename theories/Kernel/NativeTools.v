@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema Arguments Numbers.
 From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
 From Selvedge.Kernel Require Import ChatgptArguments ChatgptProtocol.
-From Selvedge.Features Require Import Titles.
+From Selvedge.Features Require Import Titles BoardParameters.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import TaskGraphDeclarations.
 Import ListNotations.
@@ -45,9 +45,7 @@ Definition public_content_argument (argument : argument_spec) :=
    else argument
  | _ => argument
  end.
-Definition attachment_item_schema := SchemaJson.object_fields
-  (map (fun name => (name,JObject (SchemaJson.kind_schema KText))) ["id";"name";"mime";"path";"bytes"])
-  ["id"].
+Definition attachment_item_schema := SchemaJson.schema_fields BoardParameters.attachment_schema.
 Definition attachment_array_schema :=
   [("type",JString "array");("items",JObject attachment_item_schema)].
 (** These public JSON Schema bounds mirror byte limits enforced by the owning
@@ -100,6 +98,20 @@ Record command_binding := CommandBinding {
  binding_caller_field : option string;
  binding_description : string
 }.
+Definition feature_commands := [
+ "archive_card"; "board_settings"; "chatgpt_cancel"; "chatgpt_exec";
+ "chatgpt_forget"; "chatgpt_operation"; "chatgpt_operations"; "chatgpt_project";
+ "chatgpt_projects"; "configure_chatgpt_connections"; "configure_title_settings";
+ "create_card"; "create_workspace_task"; "create_worktree_task"; "delete_board_agent";
+ "delete_card"; "link_card"; "list_board_agents"; "list_cards"; "list_worktrees";
+ "move_card"; "pin_card"; "read_card"; "read_title_settings"; "read_worktree";
+ "regenerate_card_title"; "remote_disable"; "remote_enable"; "remote_grant";
+ "remote_revoke"; "remote_status"; "restore_card"; "retry_worktree_archive";
+ "run_card"; "save_board_agent"; "update_card"].
+Definition feature_bindings := map (fun entry =>
+ CommandBinding (fst entry) (fst entry) None (snd entry))
+ (filter (fun entry => existsb (String.eqb (fst entry)) feature_commands)
+   Commands.command_descriptions).
 Definition bindings := [
   CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
   CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
@@ -125,8 +137,9 @@ Definition bindings := [
 *** Add File: work-ui.dsl
 +<ui id=""work""><metric id=""progress"" label=""Progress"" value={0} /></ui>
 *** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch."
-].
+] ++ feature_bindings.
 Definition binding_schema (binding : command_binding) (specification : command_spec) :=
+ if String.eqb (binding_tool binding) "read_current_task" then [] else
  match binding_caller_field binding with
  | None => command_fields specification
  | Some name => if String.eqb (binding_command binding) "cancel_operation" then
@@ -141,10 +154,12 @@ Definition model_field (binding : command_binding) (argument : argument_spec) :=
  then Arguments.with_scalar (KArray KText) false argument else argument.
 Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
  Arguments.refine_fields
- (ContentDeclarations.native_argument_fields (binding_command binding) ++
+ (filter (fun entry => negb (String.eqb (fst entry) "settings"))
+    (command_field_refinements (binding_command binding)) ++
+  ContentDeclarations.native_argument_fields (binding_command binding) ++
   TaskGraphDeclarations.native_argument_fields (JObject settings_schema) (binding_command binding))
- (map (fun field => let argument := model_field binding
-   (Commands.command_argument (binding_command binding) field) in
+ (map (fun field => let declared := Commands.command_argument (binding_command binding) field in
+   let argument := if field_omittable field then declared else model_field binding declared in
    if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "child_count"
    then Arguments.with_bounds (1,max_fork) argument else
    if String.eqb (field_name field) "settings" then Arguments.with_structure settings_schema argument else
@@ -174,6 +189,13 @@ Definition discover_schema := [Field "query" (KOptional KText); Field "names" (K
  Field "offset" (KOptional KNatural); Field "limit" (KOptional KNatural)].
 Definition discover_arguments := map (fun field =>
  let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
+ let argument := Arguments.with_description
+   (match field_name field with
+    | "query" => "Case-insensitive keywords matched against tool names and descriptions."
+    | "names" => "Exact tool names; bypasses query, offset and limit. Unknown names are returned in missing."
+    | "offset" => "Zero-based directory page offset; defaults to 0."
+    | "limit" => "Directory page size from 1 to 20; defaults to 5."
+    | _ => "" end) argument in
  if String.eqb (field_name field) "limit" then Arguments.with_bounds (1,20) argument else
  if String.eqb (field_name field) "offset" then Arguments.with_bounds (0,JsonSchema.maximum_natural) argument else argument)
  discover_schema.
@@ -192,6 +214,9 @@ Definition command (caller : N) (invocation : call) : option Selvedge.Generated.
       | Some JNull => Json.set_field name (Numbers.number caller) fields
       | Some _ => fields end
     | None => fields end in
+   let fields := if String.eqb (binding_tool binding) "read_current_task" then
+     Json.set_field "after" (Numbers.number 0) (Json.set_field "limit" (Numbers.number 1) fields)
+     else fields in
    Selvedge.Generated.Commands.decode (JObject (("op", JString (binding_command binding)) :: fields))
  | _,_ => None end.
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].

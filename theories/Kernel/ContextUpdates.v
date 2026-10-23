@@ -149,14 +149,13 @@ Definition patches_editable (key : context_key) (patches : list field_patch) :=
 Fixpoint ordered_edits (cursor : N) (values : list text_edit) := match values with
  | [] => true | value :: rest => match Utf8.scalar_count (edit_removed value) with
    | None => false | Some removed => N.leb cursor (edit_start value) &&
-      Utf8.well_formed (edit_inserted value) && negb (String.eqb (edit_removed value) (edit_inserted value)) &&
+      Utf8.well_formed (edit_inserted value) &&
       ordered_edits (edit_start value + N.of_nat removed)%N rest end end.
 Definition valid_patch (key : context_key) (values : list field_patch) :=
- negb (Nat.eqb (List.length values) 0) && patches_editable key values &&
- forallb (fun value => negb (Nat.eqb (List.length (patch_edits value)) 0) && ordered_edits 0 (patch_edits value)) values.
+ patches_editable key values && forallb (fun value => ordered_edits 0 (patch_edits value)) values.
 Definition apply_change (change : context_change) (values : list snapshot) : list snapshot :=
  match change with
- | Introduce value => remove_snapshot (snapshot_key value) values ++ [value]
+ | Introduce value => value :: remove_snapshot (snapshot_key value) values
  | Remove key base => match find_snapshot key values with
    | None => values
    | Some previous =>
@@ -172,7 +171,7 @@ Definition apply_change (change : context_change) (values : list snapshot) : lis
      if String.eqb (snapshot_revision previous) base then
      match apply_fields patches (snapshot_fields previous) with
      | None => values
-     | Some fields => remove_snapshot key values ++ [Snapshot key revision fields]
+     | Some fields => Snapshot key revision fields :: remove_snapshot key values
      end else values end
  end.
 Definition bindings (history : list message) := fold_left
