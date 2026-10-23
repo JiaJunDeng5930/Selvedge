@@ -31,7 +31,7 @@ Definition language_failure namespace snapshot lagged owner path ticket message 
    (SS.interactive_state state)(Documents.environment ctx lagged)in
  Authoring.changed(SS.with_interactive_state(IS.next_state decision)state)(map IT.encode_effect(IS.effects decision)).
 Definition language_admission_draft task revision text:=
- Draft.Draft revision(Draft.MessageBody task(Draft.Text text [])Fields.Send)Draft.Editing "".
+ Draft.Draft revision(Draft.MessageBody task(Draft.Text text [])Fields.Send)Draft.Editing "" None.
 Definition language_send_command task text:=
  Schema.decode_command command_specs(JObject[("op",JString "send");("task_id",number task);("message",JString text)]).
 Definition forget_pending ticket state:=

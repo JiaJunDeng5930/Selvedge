@@ -99,3 +99,5 @@ Definition physical_request previous current eligible focused_before focused_aft
    else observed_request previous current eligible focused_before focused_after
  |_,_=>observed_request previous current eligible focused_before focused_after
  end.
+
+Definition permits_composer current := match current with Document=>true|Temporary _ _ _ _ _=>false end.

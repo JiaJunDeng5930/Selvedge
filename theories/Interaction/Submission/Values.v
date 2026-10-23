@@ -106,7 +106,7 @@ Definition origin_workspace_mode snapshot source:=match source with
  |None=>Draft.CurrentWorkspace end
 |_=>Draft.CurrentWorkspace end.
 Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming:json) :option Draft.body:=
- match Observation.draft_context(Draft.Draft 0 body Draft.Editing "") with
+ match Observation.draft_context(Draft.Draft 0 body Draft.Editing "" None) with
  |Some configuration=>if existsb(fun candidate=>if Parameters.field_eq_dec candidate field then true else false)Parameters.context_fields
    then updated<-modify_context snapshot body configuration field incoming;;
     Some(match field,body with
@@ -121,7 +121,7 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
    |Fields.MessageText=>match body with
      |Draft.NewTaskBody message profile reasoning context mode work=>text<-as_string incoming;;Some(Draft.NewTaskBody(Draft.Text text(Draft.text_images message))profile reasoning context mode work)
      |_=>None end
-   |_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing ""))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end
+   |_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing "" None))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end
  |None=>match field,body with
    |Fields.TaskGraphDeclaration,Draft.TaskGraphBody graph _ _ work=>declaration<-as_string incoming;;
      Some(Draft.TaskGraphBody graph declaration(TextJson.parse_json declaration)work)
@@ -135,7 +135,7 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
      |Fields.AssistanceProfile=>profile<-as_string incoming;;Some(Draft.CardBody card revision value assist profile keep)
      |Fields.ContinueCapture=>keep<-as_bool incoming;;Some(Draft.CardBody card revision value assist profile keep)
      |_=>updated<-DraftCodec.decode_card(replace(Parameters.name field)incoming(DraftCodec.encode_card value));;Some(Draft.CardBody card revision updated assist profile keep)end
-   |_,_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing ""))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end end.
+   |_,_=>DraftCodec.decode_body(Draft.owner(Draft.Draft 0 body Draft.Editing "" None))(replace(Parameters.name field)incoming(DraftCodec.encode_body body))end end.
 Definition apply_assignment snapshot value {e}(assignment:Activity.assignment e):option Draft.draft:=
  if same_editor e(Draft.owner value) && Parameters.editable e(Model.subject_declaration(Activity.assignment_subject assignment))
    && negb(Parameters.live_configuration e(Model.subject_declaration(Activity.assignment_subject assignment)))then

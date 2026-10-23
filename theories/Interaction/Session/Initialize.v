@@ -27,4 +27,4 @@ Definition materialize_body snapshot services e :option Draft.body:=match e with
 |Identity.TaskGraph(Some id)work=>graph<-DocumentState.find_world "graphs" "graph_id" id snapshot;;name<-field "name" graph;;nodes<-field "nodes" graph;;rules<-field "rules" graph;;let declaration:=JObject[("name",name);("nodes",nodes);("rules",rules)]in Some(Draft.TaskGraphBody(Some id)(TextJson.render_json declaration)(Some declaration)work)
 |Identity.WorkName work=>value<-DocumentState.find_work work snapshot;;name<-string_field "name" value;;Some(Draft.WorkNameBody work name)
 |Identity.TitlePrompts=>settings<-field "title_settings" snapshot;;revision<-natural_field "revision" settings;;task<-string_field "task_prompt" settings;;agent<-string_field "agent_prompt" settings;;Some(Draft.TitlePromptsBody revision task agent)end.
-Definition materialize snapshot services e:=body<-materialize_body snapshot services e;;Some(Draft.Draft 0 body Draft.Editing "").
+Definition materialize snapshot services e:=body<-materialize_body snapshot services e;;Some(Draft.Draft 0 body Draft.Editing "" None).

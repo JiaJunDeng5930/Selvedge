@@ -15,7 +15,7 @@ Definition bool_value (name : string) (source : json) :=
   match bool_field name source with Some value => value | None => false end.
 Definition nat_json (value : nat) := JNumber (show_nat value).
 Definition invalid (message : string) := failure "TypeError" message.
-Definition native_key (source : json) : json :=
+Definition native_key_in_scope (permitted:bool) (source : json) : json :=
   match string_field "keyboard" source with
   | None => invalid "Native key requires keyboard"
   | Some key =>
@@ -24,8 +24,9 @@ Definition native_key (source : json) : json :=
       let input := Keyboard.Observe key (bool_value "composing" source) ime
         (bool_value "shift" source) (bool_value "alt" source) (bool_value "modified" source) in
       let editor_composing := bool_value "editor_composing" source in
-      let decision := if editor_composing then Keyboard.Decide false false else
+      let base := if editor_composing then Keyboard.Decide false false else
         Keyboard.normalize input (bool_value "multiline" source) (bool_value "enabled" source) (bool_value "pending" source) in
+      let decision:=Keyboard.in_composer_scope base (bool_value "composer_binding" source) permitted in
       success (JObject [("submit", JBool (Keyboard.submit decision));
         ("prevent_default", JBool (Keyboard.prevent_default decision));
         ("editing", JBool (Keyboard.editing_key input editor_composing));
@@ -236,6 +237,7 @@ Definition environment_call source :=
  |_,_=>invalid "Environment requires the requested root font size and native observations" end
  else success(JObject[("stale",JBool true)])
  |_,_=>invalid "Environment requires the measured and current document generations" end.
+Definition native_key := native_key_in_scope true.
 Definition decode_scope source := match string_field "type" source with
  |Some "document"=>Some Focus.Document
  |Some "temporary"=>match string_field "identity" source,string_field "initial" source,
@@ -246,6 +248,11 @@ Definition decode_scope source := match string_field "type" source with
  |_,_,_,_,_=>None end|_=>None end.
 Fixpoint decode_scopes values := match values with []=>Some[]|value::rest=>
  match decode_scope value,decode_scopes rest with Some value,Some rest=>Some(value::rest)|_,_=>None end end.
+Definition editor_key source := match array_field "scope"source with
+ |Some values=>match decode_scopes values with
+  |Some scopes=>native_key_in_scope(Focus.permits_composer(Focus.top scopes))source
+  |None=>invalid "Invalid editor focus scopes"end
+ |None=>invalid "Editor key requires the current focus scopes"end.
 Definition focus_observation name source := match field name source with
  |Some JNull=>Some None|Some(JString key)=>Some(Some key)|_=>None end.
 Definition focus_plan source := match array_field "previous" source,array_field "current" source,bool_field "eligible" source,
@@ -327,7 +334,7 @@ Definition call operation source := match operation with
  |Some root,Some generation,Some reason=>success(Document.recovery root generation reason)
  |_,_,_=>invalid "Recovery requires the actual root font size, generation and reason"end
  |"focus_plan"=>focus_plan source|"responsive_rows"=>responsive_rows source
- |"key"=>native_key source
+ |"key"=>native_key source|"editor_key"=>editor_key source
  |"field_session"=>FieldSession.field_session_call source
  |"publication"=>publication_call source|"snapshot"=>snapshot_call source
  |"measurement_failure"=>measurement_failure_call source

@@ -3,12 +3,13 @@ From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Interaction Require Import Codec Identity Services Speech SkillMention.
 From Selvedge.Interaction.Experience Require Import Model Activity.
-From Selvedge.Interaction.Session Require State.
+From Selvedge.Interaction.Session Require State Draft.
 From Selvedge.Interaction.Interactive Require Types.
 Import ListNotations.
 Open Scope string_scope.
 Inductive workspace_change := AddDirectory (path:string) | RemoveDirectory (path:string)
 | ChoosePrimaryDirectory (path:string) | InheritWorkspace.
+Inductive selection_change := SelectionChanged | SelectionFocused | SelectionBlurred.
 Inductive input :=
 | ResetTitlePrompts
 | ToggleProjectGroup(project:N) | BeginTask(project:option N)
@@ -52,8 +53,8 @@ Inductive input :=
 | ClockObserved(now:N) | EnvironmentObserved | Snapshot | Stream(message:json) | CodeObserved(observation:json)
 | Interactive(input:Types.input) | AppearanceRestored(theme:appearance)
 | LoadSkills(owner:editor)(explicit:bool) | SkillsLoaded(ticket:N)(outcome:sum string json)
-| SkillSelected(owner:editor)(path:string) | SkillSelection(owner:editor)(start finish:N)(composing:bool)
-| SkillRefocus(owner:editor)(start finish:N)(composing:bool)
+| SkillSelected(owner:editor)(path:string)
+| EditorSelection(owner:editor)(start finish:N)(direction:Draft.selection_direction)(composing:bool)(change:selection_change)
 | SkillMove(owner:editor)(offset:Z) | SkillDismiss(owner:editor).
 
 (* Geometry, motion, parser and reading observations change presentation, without
@@ -67,7 +68,7 @@ Definition semantic_change incoming := match incoming with
 Definition acknowledges_feedback (incoming:input) := match incoming with
 |Completed _ _|CompletionUnknown _ _|NativeFailed _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
 |Snapshot|Stream _|CodeObserved _|AppearanceRestored _|SkillsLoaded _ _
-|ActivityFocus _ _ _|SkillSelection _ _ _ _|SkillRefocus _ _ _ _|ReadTimeline _ _ _=>false
+|ActivityFocus _ _ _|EditorSelection _ _ _ _ _ _|ReadTimeline _ _ _=>false
 |LoadSkills _ explicit=>explicit
 |ServiceInput service=>match service with
  |Services.CommandAssessed _ _|Services.RestoreModelPreference _
@@ -98,9 +99,10 @@ Definition assign_activity {e} occurrence (subject:Model.subject e) incoming : o
 Definition selection_input {e} (subject:Model.subject e) incoming : option input :=
  caret<-natural_field "start" incoming;;
  finish<-natural_field "end" incoming;;composing<-bool_field "composing" incoming;;
- if match bool_field "blur" incoming with Some true=>true|_=>false end then Some(SkillDismiss e)
- else Some(match bool_field "refocus" incoming with
-  |Some true=>SkillRefocus e caret finish composing|_=>SkillSelection e caret finish composing end).
+ direction<-bind(string_field "direction"incoming)Draft.decode_direction;;
+ Some(EditorSelection e caret finish direction composing
+ (if match bool_field "blur" incoming with Some true=>true|_=>false end then SelectionBlurred
+ else if match bool_field "refocus" incoming with Some true=>true|_=>false end then SelectionFocused else SelectionChanged)).
 
 Definition assignment_selection {e} (assignment:Activity.assignment e) raw : option input :=
  match assignment with Activity.Assignment subject _=>

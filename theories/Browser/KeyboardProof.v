@@ -56,3 +56,13 @@ Proof. intros; destruct ime; reflexivity. Qed.
 Theorem enabled_multiline_enter_submits : forall modified,
  normalize(Observe "Enter" false false false false modified)true true false=Decide true true.
 Proof. reflexivity. Qed.
+
+Theorem temporary_message_enter_does_not_submit value :
+ submit(in_composer_scope value true false)=false.
+Proof. unfold in_composer_scope; simpl; apply andb_false_r. Qed.
+Theorem composer_scope_preserves_native_default_handling value bound permitted :
+ prevent_default(in_composer_scope value bound permitted)=prevent_default value.
+Proof. reflexivity. Qed.
+Theorem ordinary_fields_keep_their_keyboard_submission value permitted :
+ in_composer_scope value false permitted=value.
+Proof. destruct value; unfold in_composer_scope; simpl; now rewrite andb_true_r. Qed.

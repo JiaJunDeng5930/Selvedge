@@ -16,6 +16,9 @@ Definition normalize value multiline enabled pending :=
   let confirm := confirmation value in
   Decide (confirm && (multiline || modified value) && enabled && negb pending) confirm.
 
+Definition in_composer_scope value message_bound permitted :=
+ Decide (submit value && (negb message_bound || permitted)) (prevent_default value).
+
 (** The DOM's event composition flag and the retained editor composition session
     are separate observations. Both must admit a key before it becomes a product
     gesture: browsers can clear the event flag before compositionend arrives. *)

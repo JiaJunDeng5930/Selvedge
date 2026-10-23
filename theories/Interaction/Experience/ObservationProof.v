@@ -197,7 +197,7 @@ Proof.
  apply Bool.andb_true_iff. split;[exact Roots|exact Member].
 Qed.
 
-Theorem existing_graph_draft_keeps_owner graph declaration parsed left_work right_work revision feedback entry :
- Draft.owner(Draft.Draft revision(Draft.TaskGraphBody(Some graph)declaration parsed left_work)feedback entry)=
- Draft.owner(Draft.Draft revision(Draft.TaskGraphBody(Some graph)declaration parsed right_work)feedback entry).
+Theorem existing_graph_draft_keeps_owner graph declaration parsed left_work right_work revision feedback entry selection :
+ Draft.owner(Draft.Draft revision(Draft.TaskGraphBody(Some graph)declaration parsed left_work)feedback entry selection)=
+ Draft.owner(Draft.Draft revision(Draft.TaskGraphBody(Some graph)declaration parsed right_work)feedback entry selection).
 Proof. reflexivity. Qed.

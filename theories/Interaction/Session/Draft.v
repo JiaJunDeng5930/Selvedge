@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
 From Selvedge.Kernel Require Domain WorkspaceBackend.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction Require Import Identity Context.
@@ -26,11 +26,25 @@ Inductive body :=
 | TitlePromptsBody (revision : N) (task_prompt agent_prompt : string).
 Inductive feedback := Editing | Accepted (revision : N) (reply : json)
 | Rejected (revision : N) (diagnostic : json) | WorkspaceRejected (revision : N) (reason : string).
+Inductive selection_direction := DirectionNone | DirectionForward | DirectionBackward.
+Record selection := Selection { selection_start : N; selection_end : N;
+  selection_orientation : selection_direction }.
+Definition direction_name value := match value with
+ |DirectionNone=>"none"|DirectionForward=>"forward"|DirectionBackward=>"backward"end.
+Definition decode_direction value := match value with
+ |"none"=>Some DirectionNone|"forward"=>Some DirectionForward|"backward"=>Some DirectionBackward|_=>None end.
+Definition selection_from_bytes text start finish direction :=
+ if N.leb start finish && N.leb finish (N.of_nat(String.length text))then
+ match Utf8.scalar_count(String.substring 0 (N.to_nat start)text),
+       Utf8.scalar_count(String.substring 0 (N.to_nat finish)text)with
+ |Some start_count,Some end_count=>Some(Selection(N.of_nat start_count)(N.of_nat end_count)direction)
+ |_,_=>None end else None.
 Record draft := Draft {
   revision : N;
   contents : body;
   draft_feedback : feedback;
-  directory_entry : string
+  directory_entry : string;
+  message_selection : option selection
 }.
 Definition owner value := match contents value with
 | WorkNameBody work _ => Identity.WorkName work
@@ -58,10 +72,11 @@ Definition new_body e := match e with
 | Identity.TaskGraph id work => TaskGraphBody id "" None work
 | Identity.WorkName work => WorkNameBody work ""
 | Identity.TitlePrompts => TitlePromptsBody 0 "" "" end.
-Definition new_draft e := Draft 0 (new_body e) Editing "".
-Definition with_body value d := Draft (N.succ (revision d)) value Editing (directory_entry d).
-Definition with_directory_entry value d := Draft (revision d) (contents d) (draft_feedback d) value.
-Definition with_feedback value d := Draft (revision d) (contents d) value (directory_entry d).
+Definition new_draft e := Draft 0 (new_body e) Editing "" None.
+Definition with_body value d := Draft (N.succ (revision d)) value Editing (directory_entry d) (message_selection d).
+Definition with_directory_entry value d := Draft (revision d) (contents d) (draft_feedback d) value (message_selection d).
+Definition with_feedback value d := Draft (revision d) (contents d) value (directory_entry d) (message_selection d).
+Definition with_selection value d := Draft (revision d) (contents d) (draft_feedback d) (directory_entry d) value.
 Definition find_draft e values := find (fun value => same_editor e (owner value)) values.
 Definition store_draft value values := value :: filter (fun own => negb (same_editor (owner value) (owner own))) values.
 

@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Interaction.Submission Require Fields.
+From Selvedge.Interaction.Session Require Draft.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction.Experience Require Model.
 
@@ -39,7 +40,7 @@ Record edit_control (Action : Type) := EditControl {
   editing_observation : Fields.observed;
   editing_buffer : option string;
   editing_choices : list Fields.choice_value;
-  editing_selection : option (N * N * bool);
+  editing_selection : option Draft.selection;
   editing_availability : availability;
   editing_input : option (json -> option Action);
   editing_selection_input : option (json -> option Action);

@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
 From Selvedge.Kernel Require Domain Codec WorkspaceBackend.
 From Selvedge.Features Require Domain Observation BoardParameters.
 From Selvedge.Interaction Require Import Codec Identity Context Attachments.
@@ -112,5 +112,14 @@ Definition decode_feedback value:=match string_field "kind" value with
 |Some "editing"=>Some Editing|Some "accepted"=>revision<-natural_field "revision" value;;reply<-field "reply" value;;Some(Accepted revision reply)
 |Some "rejected"=>revision<-natural_field "revision" value;;diagnostic<-field "reason" value;;Some(Rejected revision diagnostic)
 |Some "workspace_rejected"=>revision<-natural_field "revision" value;;reason<-string_field "reason" value;;Some(WorkspaceRejected revision reason)|_=>None end.
-Definition encode_draft value:=JObject[("owner",encode_editor(owner value));("revision",number(revision value));("body",encode_body(contents value));("feedback",encode_feedback(draft_feedback value));("directory_entry",JString(directory_entry value))].
-Definition decode_draft value:=e<-bind(field "owner" value)decode_editor;;revision<-natural_field "revision" value;;body<-bind(field "body" value)(decode_body e);;feedback<-bind(field "feedback" value)decode_feedback;;entry<-string_field "directory_entry" value;;Some(Draft revision body feedback entry).
+Definition encode_selection value := JObject[("start",number(selection_start value));
+ ("end",number(selection_end value));("direction",JString(direction_name(selection_orientation value)))].
+Definition decode_selection value := start<-natural_field "start"value;;finish<-natural_field "end"value;;
+ direction<-bind(string_field "direction"value)decode_direction;;
+ if N.leb start finish then Some(Selection start finish direction)else None.
+Definition native_selection text value :=
+ start_text<-Utf8.take(N.to_nat(selection_start value))text;;end_text<-Utf8.take(N.to_nat(selection_end value))text;;
+ Some(JObject[("start",number(N.of_nat(String.length start_text)));("end",number(N.of_nat(String.length end_text)));
+ ("direction",JString(direction_name(selection_orientation value))) ]).
+Definition encode_draft value:=JObject[("owner",encode_editor(owner value));("revision",number(revision value));("body",encode_body(contents value));("feedback",encode_feedback(draft_feedback value));("directory_entry",JString(directory_entry value));("selection",optional_value encode_selection(message_selection value))].
+Definition decode_draft value:=e<-bind(field "owner" value)decode_editor;;revision<-natural_field "revision" value;;body<-bind(field "body" value)(decode_body e);;feedback<-bind(field "feedback" value)decode_feedback;;entry<-string_field "directory_entry" value;;selection<-bind(field "selection"value)(parse_optional decode_selection);;Some(Draft revision body feedback entry selection).

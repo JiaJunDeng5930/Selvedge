@@ -12,9 +12,9 @@ export function editorKeyboard(event, normalize, deliver, editorComposing = fals
 }
 
 /** Domain skill and dictation ranges use UTF-8 bytes; native selection uses UTF-16. */
-export function applyByteSelection(node, start, end) {
+export function applyByteSelection(node, start, end, direction = 'none', focus = true) {
   const bytes = new TextEncoder().encode(node.value);
   const offset = position => new TextDecoder('utf-8', { fatal: true }).decode(bytes.slice(0, Number(position))).length;
-  node.focus({ preventScroll: true });
-  node.setSelectionRange(offset(start), offset(end));
+  if (focus) node.focus({ preventScroll: true });
+  node.setSelectionRange(offset(start), offset(end), direction);
 }

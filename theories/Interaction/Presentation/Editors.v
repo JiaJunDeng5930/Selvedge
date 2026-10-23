@@ -35,7 +35,8 @@ Definition unit_availability {e}(unit:UX.action_unit e)(assessment:UX.assessment
  if UX.action_pending unit then Unavailable "This action is pending"else assessment_availability assessment.
 Definition field_control snapshot s {e}(subject:UX.subject e) :=
  EditControl(Observe.entry snapshot s subject)(Observe.observe_subject snapshot s subject)
-  None(Observe.choices snapshot s subject)None Available(if Parameters.editable e(UX.subject_declaration subject)then Some(Input.assign_subject subject)else None)
+  None(Observe.choices snapshot s subject)
+  (match UX.subject_declaration subject with Fields.MessageText=>Draft.message_selection(Session.current_draft s e)|_=>None end) Available(if Parameters.editable e(UX.subject_declaration subject)then Some(Input.assign_subject subject)else None)
   (match UX.subject_declaration subject with Fields.MessageText=>Some(Input.selection_input subject)|_=>None end)
   (match UX.subject_declaration subject with Fields.MessageText=>
     let skills:=Selvedge.Interaction.Session.Authoring.skill_view snapshot s e in

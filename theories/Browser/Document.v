@@ -1,3 +1,4 @@
+From Selvedge.Interaction.Session Require Draft DraftCodec.
 From Stdlib Require Import String List Bool Arith NArith ZArith.
 From Selvedge.Foundation Require Import Json TextJson Numbers.
 From Selvedge.Browser Require Import DOM Focus Layout Appearance ControlPurpose ControlContent SemanticAppearance InteractiveAppearance Observation.
@@ -116,10 +117,8 @@ Definition physical_markdown env tier kind wrapper_key markdown_key text complet
  DOM.Element wrapper_key "div" [("class","physical-markdown")]
   (NativeAppearance.markdown_properties env tier kind) [] (JObject [])
   [DOM.Markdown markdown_key text complete metadata].
-Definition selection_json (value:option(N*N*bool)) := match value with
- | None=>JNull | Some (start,stop,backward)=>JObject [("start",JNumber (text_number start));
- ("end",JNumber (text_number stop));("direction",JString (if backward then "backward" else "forward"))] end.
-(* The renderer retains option nodes globally; each select owns its choices. *)
+Definition selection_json text (value:option Draft.selection) := match value with
+ |None=>JNull|Some value=>match DraftCodec.native_selection text value with Some value=>value|None=>JNull end end.
 Definition choices parent selected values := map (fun value => DOM.Element
  (Identity.key_part parent ("option/" ++ Fields.choice_value_of value)) "option"
  ([("value",Fields.choice_value_of value)] ++
@@ -151,7 +150,9 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  let events:=match Model.editing_input value with None=>[]|Some _=>
  [event key generation "input" "value" Gesture.Change] end in
  let metadata:=JObject [("field_session",JObject [("owner",Identity.encode_editor owner);("source",JString text)]);
- ("selection",selection_json (Model.editing_selection value))] in
+ ("selection",selection_json text (Model.editing_selection value));
+ ("composer_binding",JBool(match field,Model.editing_selection_input value with
+   Fields.MessageText,Some _=>true|_,_=>false end))] in
  let attrs:=attributes ++ [("aria-label",label)] ++
  (match field with
  |Fields.MessageText=>[("placeholder","Ask anything, or describe a task")]

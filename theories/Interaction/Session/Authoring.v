@@ -33,14 +33,14 @@ Definition reopen_draft snapshot owner state:=
  |Some previous=>match Draft.draft_feedback previous with
   |Draft.Accepted _ _=>match owner with
    |Identity.NewTask _=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))
-     (Draft.contents previous)Draft.Editing(Draft.directory_entry previous))state
+     (Draft.contents previous)Draft.Editing(Draft.directory_entry previous)(Draft.message_selection previous))state
    |_=>match Initialize.materialize snapshot(SS.service_state state)owner with
-    |Some fresh=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))(Draft.contents fresh)Draft.Editing "")state
+    |Some fresh=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))(Draft.contents fresh)Draft.Editing "" None)state
     |None=>state end end
   |_=>state end
  |None=>match Initialize.materialize snapshot(SS.service_state state)owner with
    |Some fresh=>let fresh:=match owner with
-     |Identity.Project _|Identity.TitlePrompts=>Draft.Draft(SS.next_layer state)(Draft.contents fresh)Draft.Editing ""
+     |Identity.Project _|Identity.TitlePrompts=>Draft.Draft(SS.next_layer state)(Draft.contents fresh)Draft.Editing "" None
      |_=>fresh end in SS.save_draft fresh state
    |None=>state end end.
 Definition pending_for_editor owner pending:=match SS.purpose pending with
@@ -311,7 +311,8 @@ Definition clear_accepted reply draft:=
   (Selvedge.Features.Domain.CardDraft "" ""(Selvedge.Features.Domain.draft_stage value)(Selvedge.Features.Domain.draft_priority value)
    (Selvedge.Features.Domain.draft_owner value)(Selvedge.Features.Domain.draft_project value)(Selvedge.Features.Domain.draft_labels value)[])assist profile true
  |body=>body end in
- Draft.Draft(N.succ(Draft.revision draft))body(Draft.Accepted(Draft.revision draft)reply)(Draft.directory_entry draft).
+ Draft.Draft(N.succ(Draft.revision draft))body(Draft.Accepted(Draft.revision draft)reply)(Draft.directory_entry draft)
+ (match Draft.contents draft with Draft.NewTaskBody _ _ _ _ _ _|Draft.MessageBody _ _ _=>None|_=>Draft.message_selection draft end).
 Definition completion_success (outcome:sum string json):=match outcome with inr reply=>flag "ok" reply|_=>false end.
 Definition completion_value (outcome:sum string json):=match outcome with inr reply=>field "result" reply|_=>None end.
 Definition completion_error (outcome:sum string json):=Selvedge.Interaction.Codec.command_failure outcome.
@@ -597,20 +598,20 @@ Definition step snapshot input state:option result:=match input with
 |Input.LoadSkills owner explicit=>Some(load_skills snapshot owner explicit state)
 |Input.SkillsLoaded ticket outcome=>Some(skills_loaded ticket outcome state)
 |Input.SkillSelected owner path=>Some(choose_skill snapshot owner path state)
-|Input.SkillRefocus owner caret finish composing=>Some(match draft_text(SS.current_draft state owner)with
- |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(current_mention snapshot state owner)in
-  let state:=set_mention owner mention state in
-  match mention with SkillMention.Suggesting trigger _=>
-   let state:=set_mention owner(SkillMention.Suggesting trigger 0)state in
-   load_skills snapshot owner false(refresh_skill_catalog owner state)
-  |_=>keep state end
- |None=>keep state end)
-|Input.SkillSelection owner caret finish composing=>Some(match draft_text(SS.current_draft state owner)with
- |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(current_mention snapshot state owner)in
-  let previously_open:=match current_mention snapshot state owner with SkillMention.Suggesting _ _=>true|_=>false end in
-  let state:=set_mention owner mention state in match mention with SkillMention.Suggesting _ _=>
-   load_skills snapshot owner false(if previously_open then state else refresh_skill_catalog owner state)
-  |_=>keep state end
+|Input.EditorSelection owner caret finish direction composing change=>
+ let draft:=SS.current_draft state owner in
+ Some(match draft_text draft with
+ |Some text=>match Draft.selection_from_bytes(Draft.text_value text)caret finish direction with
+ |None=>keep state
+ |Some selection=>let state:=SS.save_draft(Draft.with_selection(Some selection)draft)state in
+  match change with Input.SelectionBlurred=>keep(set_mention owner(SkillMention.dismiss_mention(mention_for owner state))state)
+  |_=>let previously_open:=match current_mention snapshot state owner with SkillMention.Suggesting _ _=>true|_=>false end in
+   let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(current_mention snapshot state owner)in
+   let state:=set_mention owner mention state in match mention with
+   |SkillMention.Suggesting trigger _=>match change with
+    |Input.SelectionFocused=>load_skills snapshot owner false(refresh_skill_catalog owner(set_mention owner(SkillMention.Suggesting trigger 0)state))
+    |_=>load_skills snapshot owner false(if previously_open then state else refresh_skill_catalog owner state)end
+   |_=>keep state end end end
  |None=>keep state end)
 |Input.SkillMove owner offset=>let view:=skill_view snapshot state owner in
  Some(keep(set_mention owner(SkillMention.move_mention(Z.ltb offset 0)(skill_items view)(skill_mention view))state))
@@ -641,7 +642,7 @@ Definition resolve_creation_model snapshot state:=
   if chosen && ModelSelection.valid_preference snapshot(profile,reasoning)then state else
   match Initialize.initial_model snapshot(SS.service_state state)with
   |Some(selected,effort)=>SS.save_draft(Draft.Draft(Draft.revision draft)
-    (Draft.NewTaskBody message selected effort configuration mode work)(Draft.draft_feedback draft)(Draft.directory_entry draft))state
+    (Draft.NewTaskBody message selected effort configuration mode work)(Draft.draft_feedback draft)(Draft.directory_entry draft)(Draft.message_selection draft))state
   |None=>state end
  |_=>state end.
 Definition ensure_workspace_git snapshot state:=

@@ -238,7 +238,7 @@ async function refreshPhysical() {
 function observedSelection(node, composing = false) {
   const encode = value => new TextEncoder().encode(value).length;
   return { start: encode(node.value.slice(0, node.selectionStart ?? node.value.length)),
-    end: encode(node.value.slice(0, node.selectionEnd ?? node.value.length)), composing };
+    end: encode(node.value.slice(0, node.selectionEnd ?? node.value.length)), direction: node.selectionDirection, composing };
 }
 function registerFiles(action, selected) {
   for (const file of selected) {
@@ -301,8 +301,8 @@ const renderer = new Renderer(surface, {
     const form = node.form;
     if (form && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT')) {
       const submitter = form.querySelector('button[type="submit"],input[type="submit"]');
-      editorKeyboard(event, observation => browser('key', { ...observation,
-        multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled, pending: false }), () => form.requestSubmit(), composing);
+      editorKeyboard(event, observation => browser('editor_key', { ...observation,
+        scope: renderer.focusScope, composer_binding: record.metadata.composer_binding === true, multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled, pending: false }), () => form.requestSubmit(), composing);
     }
     const dialog = node.closest('dialog[open],[aria-modal="true"]');
     if (dialog && event.key === 'Tab') {

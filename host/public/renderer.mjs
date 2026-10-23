@@ -1,7 +1,7 @@
 import { Markdown } from './markdown.mjs';
 import { MarkdownFenceObserver } from './markdown-fences.mjs';
 import { stringifyJson } from './json-tokens.mjs';
-import { keyObservation } from './keyboard.mjs';
+import { keyObservation, applyByteSelection } from './keyboard.mjs';
 import { revealAndFocus } from './layout-reveal.mjs';
 
 const booleanProperties = new Set(['disabled', 'checked', 'indeterminate', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus', 'open']);
@@ -188,8 +188,13 @@ export class Renderer {
     record.attributes = next;
     if (next.has('value') && 'value' in node && !this.isolated && this.callbacks.fieldSession) {
       const identity = stringifyJson({ key: record.key, owner: record.metadata.field_session?.owner });
+      const initialize = !record.fieldSession || record.fieldSession.identity !== identity;
       if (record.fieldSession) this.fieldSession(record, 'rebind', identity);
       this.fieldSession(record, 'synchronize', next.get('value'));
+      if (initialize && record.metadata.selection) {
+        const { start, end, direction } = record.metadata.selection;
+        applyByteSelection(node, start, end, direction, false);
+      }
     }
   }
   listeners(record) {
