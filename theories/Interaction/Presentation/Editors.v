@@ -29,7 +29,8 @@ Definition draft_feedback d :=match Draft.draft_feedback d with
 |Draft.WorkspaceRejected _ reason=>Some reason|_=>None end.
 Definition assessment_availability {e}(value:UX.assessment e) :=match UX.assessment_outcome value with
 |UX.PreparationReady=>Available|UX.DirectoryObservationRequired _=>NeedsDirectoryObservation
-|UX.PreparationBlocked first _=>Unavailable(UX.obstruction_message first)end.
+|UX.PreparationBlocked first rest=>Unavailable
+ (String.concat " · " (map(fun obstruction=>UX.obstruction_message obstruction)(first::rest)))end.
 Definition unit_availability {e}(unit:UX.action_unit e)(assessment:UX.assessment e):availability:=
  if UX.action_pending unit then Unavailable "This action is pending"else assessment_availability assessment.
 Definition field_control snapshot s {e}(subject:UX.subject e) :=

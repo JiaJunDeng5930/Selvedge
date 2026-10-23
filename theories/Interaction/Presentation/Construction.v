@@ -28,7 +28,7 @@ Definition read_only {A} parent name label value : node A :=
   let key := part parent name in
   Node key name label Roles.Content Region
     ((if String.eqb label "" then [] else [information key "label" Information.FieldLabel label]) ++
-     [Node (part key "value") "value" "" Roles.Content (ReadOnly value) []])%list.
+     [Node (part key "value") "value" "" Roles.Content (Fact value) []])%list.
 Definition title {A} parent label := information (A:=A) parent "heading" Information.SurfaceTitle label.
 Definition group_title {A} parent label := information (A:=A) parent "heading" Information.GroupTitle label.
 Definition availability_reason (value : availability) := match value with

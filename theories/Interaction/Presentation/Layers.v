@@ -42,26 +42,38 @@ Definition detail_action_nodes snapshot s subject parent:=map(fun action=>
   (match ObjectActions.action_confirmation action with Some _=>Destructive|None=>Secondary end)
   (detail_action_input parent action)(status_availability(ObjectActions.action_status action))))
  (ObjectActions.items snapshot s subject).
-Definition context_facts {A} snapshot task parent:list(node A) :=match SessionObserve.task_settings task snapshot with
+Definition task_workspace_facts {A} parent workspace:list(node A) :=
+ let roots:=Domain.workspace_roots workspace in
+ [read_only parent "workspace" "Working directories"
+   (match roots with []=>"No working directory"|_=>String.concat "
+" roots end);
+  read_only parent "primary" "Primary directory"(value_or ""(Domain.workspace_primary workspace))].
+Definition committed_workspace_facts {A} parent workspace:list(node A) :=
+ let primary:=Domain.workspace_primary workspace in
+ let roots:=Domain.workspace_roots workspace in
+ let selected path:=match primary with Some value=>String.eqb value path|None=>false end in
+ (if existsb selected roots then []else
+  [read_only parent "working-directory" "Working directory"(value_or "No working directory"primary)])++
+ map(fun path=>let key:=part parent("directory/"++path)in
+  Node key("directory/"++path)path Roles.Content(DirectoryRow path(selected path))
+   [read_only key "path" "" path;
+    read_only key "primary" ""(if selected path then "Primary working directory"else "Additional directory")])roots.
+Definition context_facts {A} directories snapshot task parent:list(node A) :=match SessionObserve.task_settings task snapshot with
 |None=>[read_only parent "unavailable" "Execution context" "The committed context is unavailable"]
 |Some settings=>
  let workspace:=Domain.settings_workspace settings in
  let sandbox:=Domain.settings_sandbox settings in
- let project_facts:=match Domain.settings_project settings with
+ (* Directory, revision and instructions belong to the same committed observation. *)
+ let guidance:=Domain.settings_guidance settings in
+ let project_facts:=List.app (match Domain.settings_project settings with
  |None=>[read_only parent "project" "Project" "Projectless task"]
  |Some id=>
-   List.app [read_only parent "project" "Project"
-     (value_or ("Project unavailable (ID "++show_natural id++")")(SessionObserve.project_name id snapshot))]
-    (match Observation.project_revision snapshot id with
-     |Some revision=>[read_only parent "guidance-revision" "Guidance revision" revision]
-     |None=>[]end) end in
- let roots:=Domain.workspace_roots workspace in
- let directory_facts:=List.app [read_only parent "workspace" "Working directories"
-   (match roots with []=>"No working directory"|_=>String.concat "
-" roots end)]
-   (match Domain.workspace_primary workspace with
-    |Some primary=>[read_only parent "primary" "Primary directory" primary]
-    |None=>[]end) in
+   [read_only parent "project" "Project"
+     (value_or ("Project unavailable (ID "++show_natural id++")")(SessionObserve.project_name id snapshot))]end)
+  (match Domain.settings_project settings,guidance with None,_|_,JNull=>[]|Some _,_=>
+   [read_only parent "project-directory" "Directory"(text "workspace" guidance);
+    read_only parent "guidance-revision" "Guidance revision"(text "revision" guidance)]end) in
+ let directory_facts:=directories workspace in
  List.app project_facts (List.app directory_facts
  [
   read_only parent "filesystem" "Filesystem access"(Observation.filesystem_summary sandbox(Domain.settings_approval settings));
@@ -69,11 +81,13 @@ Definition context_facts {A} snapshot task parent:list(node A) :=match SessionOb
   read_only parent "approval" "Approval policy"(match Domain.settings_approval settings with
    |Domain.FullAccess=>"Unrestricted"|Domain.AskForApproval=>"Ask"
    |Domain.ReviewWith reviewer=>"Automatic review: "++Observation.profile_label reviewer end);
-   read_only parent "guidance" "Project guidance"(match Domain.settings_guidance settings with JNull=>"No project guidance"|guidance=>text "instructions" guidance end)])end.
+  read_only parent "guidance" "Project guidance"(match guidance with JNull=>"No project guidance"|_=>
+   let instructions:=text "instructions" guidance in
+   if String.eqb instructions ""then "No project instructions"else instructions end)])end.
 Definition task_details snapshot s task parent :=match find_task task snapshot with
 |None=>[read_only parent "missing" "Task unavailable" "The task no longer exists"]
 |Some task=>
- (context_facts snapshot(task_id task)parent++
+ (context_facts(task_workspace_facts parent)snapshot(task_id task)parent++
  [read_only parent "model" "Model"(text "model"(task_observation task)++" · "++text "reasoning"(task_observation task));
   read_only parent "status" "Status"(text "status_label"(task_observation task));
   read_only parent "phase" "Phase"(text "phase"(task_observation task));
@@ -164,7 +178,7 @@ Definition behavior s capacity layer :=
   (State.layer_trigger layer)"/main"(anchor s layer) Input.ClosePanel dismissal dismissal.
 Definition information_panel snapshot s kind parent :=match kind with
 |State.TaskDetails task=>task_details snapshot s task parent
-|State.TaskContext task=>context_facts snapshot task parent
+|State.TaskContext task=>context_facts(committed_workspace_facts parent)snapshot task parent
 |State.CardDetails card=>card_details snapshot s card parent
 |State.PropertySource e request=>match Observation.property_for_request snapshot s e request with
  |None=>[read_only parent "unavailable" "Source" "The original settings observation is unavailable"]

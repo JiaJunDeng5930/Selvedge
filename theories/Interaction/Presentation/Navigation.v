@@ -49,7 +49,7 @@ Fixpoint task_entry_tree current parent (tree:task_tree) : node Input.input :=
       (secondary "open"(task_title task)(Input.Navigate(Conversation(task_id task))))] ++
    match children with
    |[]=>[]
-   |_=>[Node(part key "children")"task-children" "" Roles.NavigationCollection
+   |_=>[Node(part key "children")"task-children" "Subtasks" Roles.NavigationCollection
          (TaskChildren(task_id task))(map(task_entry_tree current key)children)]end)%list.
 Definition project_entry snapshot s current parent tasks (project:project) :=
  let id:=project_id project in

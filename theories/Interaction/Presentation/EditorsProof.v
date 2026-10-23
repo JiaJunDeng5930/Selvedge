@@ -29,9 +29,9 @@ Theorem assessment_presentation_retains_complete_observation e parent (assessmen
  node_meaning(assessment_nodes parent assessment)=ActionExplanation e assessment.
 Proof. reflexivity. Qed.
 
-Theorem blocked_editing_still_disables_commit e identity (first:UX.obstruction e) rest :
+Theorem blocked_editing_explains_all_commit_obstructions e identity (first:UX.obstruction e) rest :
  assessment_availability(UX.Assessment identity(UX.PreparationBlocked first rest))=
- Model.Unavailable(UX.obstruction_message first).
+ Model.Unavailable(String.concat " · "(map(fun cause=>UX.obstruction_message cause)(first::rest))).
 Proof. reflexivity. Qed.
 
 Theorem field_obstruction_is_explained_at_its_field e parent (assessment:UX.assessment e) cause subject :
