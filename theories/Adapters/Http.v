@@ -164,10 +164,11 @@ Definition body_stage (body : bool) (source : json) :=
   else match as_string (get source "text") with
   | None => body_error target
   | Some original =>
-    match TextJson.parse_json original with
-    | Some value => if body_shape target value then JObject
+    match TextJson.parse_input_json original with
+    | TextJson.InputAccepted value => if body_shape target value then JObject
       [("action",JString target);("body",value)] else body_error target
-    | None => body_error target
+    | TextJson.InputInvalid => body_error target
+    | TextJson.InputNestingExceeded => exception "RangeError" TextJson.input_nesting_error
     end
   end.
 Definition audio_limits := JObject [("allowed",JBool true);("max_bytes",number Audio.asr_max_bytes);

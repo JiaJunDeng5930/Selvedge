@@ -26,7 +26,7 @@ Theorem public_admitted_command_body_is_delivered : forall source original value
   str source "method" = "POST" -> str source "pathname" = "/api/commands" ->
   str source "target" = "command" ->
   starts (str source "content_type") "application/json" = true ->
-  as_string (get source "text") = Some original -> TextJson.parse_json original = Some value ->
+  as_string (get source "text") = Some original -> TextJson.parse_input_json original = TextJson.InputAccepted value ->
   Api.call "http.body" source = success (JObject [("action",JString "command");("body",value)]).
 Proof.
  intros source original value opened host authorization origin method pathname selected mime text parsed.

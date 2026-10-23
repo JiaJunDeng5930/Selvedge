@@ -14,7 +14,11 @@ export const targets = {
 };
 export const jsonEntries = {
   selvedge_parse_json: 'Foundation.TextJson.parse_json',
-  selvedge_render_json: 'Foundation.TextJson.render_json'
+  selvedge_render_json: 'Foundation.TextJson.render_json',
+  selvedge_parse_input_json: 'Foundation.TextJson.parse_input_json',
+  selvedge_input_nesting: 'Foundation.TextJson.input_nesting',
+  selvedge_input_nesting_error: 'Foundation.TextJson.input_nesting_error',
+  selvedge_consume_input_nesting: 'Foundation.TextJson.consume_input_nesting'
 };
 
 export async function run(command, args, options = {}) {

@@ -92,10 +92,16 @@ Fixpoint drop_prefix prefix source : option string :=
  | _,_=>None end.
 Definition keyword {A} (name:string) (value:A) (s:string) : scan A := match drop_prefix name s with
  | Some rest=>Scanned value rest | None=>Invalid "Invalid JSON literal" end.
-Fixpoint json_value_with (unique_members : bool) (fuel:nat) (s:string) : scan json :=
+(* External structured inputs retain the original depth-zero through depth-256 admission. *)
+Definition input_nesting := 257.
+Definition input_nesting_error := "JSON nesting exceeds 256 containers".
+Definition consume_input_nesting nesting := match nesting with O=>None | S rest=>Some rest end.
+Fixpoint json_value_at (unique_members : bool) (fuel nesting:nat) (s:string) {struct fuel} : scan json :=
  match fuel with
  | O=>Invalid "JSON nesting or token budget exceeded"
- | S k=>let s:=trim_left s in match s with
+ | S k=>match consume_input_nesting nesting with
+   | None=>Invalid input_nesting_error
+   | Some child_nesting=>let s:=trim_left s in match s with
    | EmptyString=>More
    | String c r=>
     if Ascii.eqb c """" then scan_map JString (quoted_body k r) else
@@ -107,7 +113,7 @@ Fixpoint json_value_with (unique_members : bool) (fuel:nat) (s:string) : scan js
           match text with
           | EmptyString=>More
           | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append reversed [])r else
-            match json_value_with unique_members k text with
+            match json_value_at unique_members k child_nesting text with
             | Scanned value rest=>let rest:=trim_left rest in
               match rest with
               | EmptyString=>More
@@ -133,7 +139,7 @@ Fixpoint json_value_with (unique_members : bool) (fuel:nat) (s:string) : scan js
               match trim_left rest with
               | EmptyString=>More
               | String c r=>if Ascii.eqb c ":" then
-                match json_value_with unique_members k r with
+                match json_value_at unique_members k child_nesting r with
                 | Scanned value rest=>match trim_left rest with
                   | EmptyString=>More
                   | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append((key,value)::reversed)[])r else
@@ -152,7 +158,8 @@ Fixpoint json_value_with (unique_members : bool) (fuel:nat) (s:string) : scan js
     if Ascii.eqb c "n" then keyword "null" JNull s else
     let '(number,rest):=take_while number_char s in
     if number_lexeme number then Scanned (JNumber number) rest else Invalid "Invalid JSON number"
-   end end.
+   end end end.
+Definition json_value_with unique_members fuel s := json_value_at unique_members fuel fuel s.
 Definition json_value := json_value_with true.
 
 (* DEFENSE: The public JSON entry receives untrusted bytes; invalid UTF-8 cannot become a domain string. *)
@@ -167,6 +174,22 @@ Definition parse_json_members (s : string) : option json :=
  if Utf8.well_formed s then match json_value_with false (S (String.length s)) s with
  | Scanned value rest => if String.eqb (trim_left rest) "" then Some value else None
  | _ => None end else None.
+
+Inductive input_admission :=
+| InputAccepted (value : json)
+| InputInvalid
+| InputNestingExceeded.
+
+(* DEFENSE: HTTP commands and structured worker inputs can exceed the admitted nesting;
+   ordinary raw provider JSON continues to use its separate unbounded parser. *)
+Definition parse_input_json (s : string) : input_admission :=
+ if Utf8.well_formed s then
+   match json_value_at true (S (String.length s)) input_nesting s with
+   | Scanned value rest => if String.eqb (trim_left rest) "" then InputAccepted value else InputInvalid
+   | Invalid reason => if String.eqb reason input_nesting_error then InputNestingExceeded else InputInvalid
+   | More => InputInvalid
+   end
+ else InputInvalid.
 
 Definition utf8_count (s:string) : option nat := option_map (@List.length N) (Utf8.decode s).
 Definition within_scalars maximum s := match utf8_count s with Some n=>(n<=?maximum) | None=>false end.

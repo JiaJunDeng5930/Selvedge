@@ -90,9 +90,10 @@ Definition event_dispatch source := let event := get source "event" in
 Definition event (header : bool) source :=
   if eq (get source "frame") "data" "[DONE]" then
     event_action "stop" (set source "event" JNull) []
-  else match TextJson.parse_json (str (get source "frame") "data") with
-    | None => failure "SyntaxError" "Invalid ChatGPT Web JSON"
-    | Some value => let source := set source "event" value in
+  else match TextJson.parse_input_json (str (get source "frame") "data") with
+    | TextJson.InputInvalid => failure "SyntaxError" "Invalid ChatGPT Web JSON"
+    | TextJson.InputNestingExceeded => failure "RangeError" TextJson.input_nesting_error
+    | TextJson.InputAccepted value => let source := set source "event" value in
       if negb (is_object value) then err "ChatGPT Web returned an invalid SSE event"
       else if has value "type" && negb (eq value "type" (event_kind source))
       then err "ChatGPT Web returned conflicting SSE event names"

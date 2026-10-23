@@ -7,11 +7,15 @@ let projectedWorld;
 let projection;
 parentPort.on('message', ({ text: input, snapshot, operation }) => {
   try {
-    if (operation === 'assess') {
-      parentPort.postMessage({ text: model.assess(input, world) });
+    const output = operation === 'assess' ? model.assess(input, world) : model.packet(input, world);
+    if (output.inputError) {
+      parentPort.postMessage({ inputError: output.inputError });
       return;
     }
-    const output = model.packet(input, world);
+    if (operation === 'assess') {
+      parentPort.postMessage({ text: output.envelope });
+      return;
+    }
     world = output.world;
     const text = output.envelope;
     if (snapshot) {
@@ -22,8 +26,8 @@ parentPort.on('message', ({ text: input, snapshot, operation }) => {
       }
       parentPort.postMessage({ text, programText: projection });
     } else parentPort.postMessage({ text });
-  // DEFENSE: A failed extracted transition retires this worker; its uncommitted world must never serve another input.
+  // DEFENSE: Extracted transitions can throw OCaml exception arrays; they must be failures even without a JavaScript message.
   } catch (error) {
-    parentPort.postMessage({ error: error.message });
+    parentPort.postMessage({ error: error instanceof Error ? error.message : String(error) });
   }
 });
