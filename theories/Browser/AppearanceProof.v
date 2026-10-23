@@ -43,6 +43,11 @@ Theorem selected_navigation_rest_and_feedback_remain_distinct :
   background (ChoicePaint true) Hovered = selected_wash EmphasizedWash.
 Proof. split; reflexivity. Qed.
 
+Theorem heading_role_keeps_moderate_emphasis env :
+  In ("font-weight",Numbers.show_nat(Typography.weight Typography.Medium))
+    (role_typography env Roles.Heading).
+Proof. simpl. auto. Qed.
+
 Theorem ordinary_dialog_partitions_preserve_edges :
   style_frame (role_style Roles.DialogHeader) = Frame 24 14 0 /\
   style_frame (role_style Roles.DialogBody) = Frame 24 20 16 /\
@@ -52,6 +57,12 @@ Proof. repeat split; reflexivity. Qed.
 Theorem chosen_work_tab_keeps_canvas_background :
   chrome_paint (style_chrome (role_style (Roles.WorkTab true))) = CanvasPaint.
 Proof. reflexivity. Qed.
+
+Theorem user_message_cap_preserves_intrinsic_room env :
+  In ("max-inline-size","calc-size(min-content,min(100%,max(size,70%)))")
+    (role_properties env Roles.UserMessage).
+Proof. unfold role_properties, style_properties. cbn [role_style enclosure_fields fields adaptive_width_limit].
+  repeat rewrite in_app_iff. simpl. tauto. Qed.
 
 Theorem embedded_markdown_retains_authored_spacing env parent :
   rich_code_frame (markdown_policy env parent EmbeddedMarkdown) = Frame 8 8 8 /\

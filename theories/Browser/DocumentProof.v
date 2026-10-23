@@ -6,6 +6,23 @@ From Selvedge.Interaction.Presentation Require Surface Roles.
 Import ListNotations.
 Open Scope string_scope.
 
+Theorem native_range_retains_browser_appearance :
+  native_field_properties "range" = [("appearance","auto")].
+Proof. reflexivity. Qed.
+Theorem authored_fields_replace_browser_appearance kind :
+  String.eqb kind "range" = false ->
+  native_field_properties kind = [("appearance","none")].
+Proof. intros Other. unfold native_field_properties. rewrite Other. reflexivity. Qed.
+
+Theorem heading_context_preserves_the_reading_hierarchy env :
+  heading_properties env false CreationArea =
+    Typography.properties (Layout.root_font_size_milli env) Typography.Display Typography.Medium /\
+  heading_properties env false PageArea =
+    Typography.properties (Layout.root_font_size_milli env) Typography.Title Typography.Medium /\
+  heading_properties env false OutsideArea =
+    Typography.properties (Layout.root_font_size_milli env) Typography.Section Typography.Medium.
+Proof. repeat split; reflexivity. Qed.
+
 Theorem compiled_document_uses_configured_theme {A} (describe : A -> ControlPurpose.purpose)
     env generation (surface : Surface.surface A) :
   field "target_updates" (compile describe env generation surface) = Some (JArray
@@ -25,7 +42,7 @@ Proof. reflexivity. Qed.
 
 Theorem supporting_role_survives_nested_content {A} (value : Surface.meaning A) :
   match value with
-  | Surface.ActivityRow _ | Surface.ActivityGroup _ _ _ _ | Surface.LayerRegion _ | Surface.WorkOverviewRegion _ => True
+  | Surface.ActivityRow _ | Surface.ActivityGroup _ _ _ _ | Surface.LayerRegion _ | Surface.NavigationRegion _ _ => True
   | _ => source_context (Surface.ActivityRow Surface.SupportingRow) value =
       Surface.ActivityRow Surface.SupportingRow end.
 Proof. destruct value; exact I || reflexivity. Qed.

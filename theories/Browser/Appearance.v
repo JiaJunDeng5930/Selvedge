@@ -232,6 +232,11 @@ Definition overflow_properties value : list (string * string) :=
   end.
 Definition overflow_attributes value text : list (string * string) :=
   match value with SingleLineOverflow => [("title",text)] | _ => [] end.
+Definition adaptive_width_limit percent :=
+  if Nat.ltb percent 100 then
+    String.append "calc-size(min-content,min(100%,max(size,"
+      (String.append (Numbers.show_nat percent) "%)))")
+  else String.append (Numbers.show_nat percent) "%".
 Definition style_properties env value : list (string * string) :=
   let root := Layout.root_font_size_milli env in
   let scale := fun value : nat => value in
@@ -249,7 +254,7 @@ Definition style_properties env value : list (string * string) :=
    ("padding-inline",Typography.px (scale (padding_inline frame)));
    ("padding-block",Typography.px (scale (padding_block frame)));
    ("gap",Typography.px (scale (frame_gap frame)));
-   ("max-inline-size",String.append (Numbers.show_nat (style_maximum_percent value)) "%")] ++
+   ("max-inline-size",adaptive_width_limit (style_maximum_percent value))] ++
   (if Nat.eqb (style_minimum_height value) 0 then [] else
     [("min-block-size",Typography.px (Nat.max (style_minimum_height value) (scale (style_minimum_height value))))]) ++
   (if chrome_shadow chrome then [("box-shadow","var(--shadow-sm)")] else []) ++
@@ -273,6 +278,7 @@ Definition role_typography env role : list (string * string) :=
   | Roles.WorkTabGroup | Roles.WorkTabs => set Typography.ActivityPrimary Typography.Regular
   | Roles.WorkOverviewButton _ | Roles.WorkTab _ => set Typography.ActivityPrimary Typography.Medium
   | Roles.NavigationHeader => set Typography.Body Typography.Medium
+  | Roles.Heading => set Typography.Title Typography.Medium
   | Roles.WorkChoiceRow | Roles.UserMessage | Roles.AssistantMessage | Roles.Composer
   | Roles.Field | Roles.Dialog | Roles.Menu | Roles.Details | Roles.Toolbar
   | Roles.DialogActions | Roles.DialogHeader | Roles.DialogBody | Roles.ComposerActions => set Typography.Body Typography.Regular

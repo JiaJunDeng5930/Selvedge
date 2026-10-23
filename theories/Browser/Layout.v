@@ -74,6 +74,19 @@ Definition work_overview_width env := Nat.min (2 * reading_maximum_width (parame
   (viewport_width env - 2 * work_overview_clearance).
 Definition work_overview_height env := Nat.min (viewport_height env * 94 / 100)
   (viewport_height env - 2 * work_overview_clearance).
+Definition modal_navigation_width env :=
+  match observe_capacity env with
+  |Some (true,_)=>navigation_width(parameters env)
+  |_=>viewport_width env end.
+Definition modal_navigation_properties env : list(string*string) :=
+  [("position","fixed");("inset-inline-start","0");("inset-inline-end","auto");
+   ("inset-block-start","0");("inset-block-end","auto");("margin","0");
+   ("inline-size",Typography.px(modal_navigation_width env));
+   ("block-size",Typography.px(viewport_height env));
+   ("max-inline-size",Typography.px(viewport_width env));
+   ("max-block-size",Typography.px(viewport_height env));
+   ("padding","0");("gap","0");("border-width","0");("border-radius","0");
+   ("box-shadow","none");("overflow","hidden")].
 
 Record hierarchy := Hierarchy {
   hierarchy_member_gap : nat; hierarchy_heading_extra : nat;
@@ -93,7 +106,7 @@ Definition member_properties env (activity nested : bool) : list (string * strin
   let grammar := hierarchy_for env activity in
   [("display","flex"); ("flex-direction","column");
    ("gap",Typography.px (member_gap grammar));
-   ("padding-inline-start",Typography.px (if nested then nesting_inset grammar else 0))].
+   ("padding-inline",Typography.px (if nested then nesting_inset grammar else 0))].
 Definition heading_properties env activity : list (string * string) :=
   [("display","flex"); ("flex-direction","column");
    ("gap",Typography.px (heading_gap (hierarchy_for env activity)))].
@@ -142,6 +155,9 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.ComposerInput => [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
   | Composition.CreationIntroduction => [("text-align","center")]
+  | Composition.CreationContext => [("display","flex");("flex-direction","column");
+      ("align-items","center");("text-align","center");("padding-inline","0");
+      ("padding-block","0");("gap","8px");("min-block-size","0")]
   | Composition.BoardStages => [("display","flex"); ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
       ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.

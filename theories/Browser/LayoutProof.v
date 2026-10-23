@@ -23,6 +23,16 @@ Theorem work_overview_preserves_its_reading_span_and_viewport_edges env :
 Proof. unfold work_overview_width, work_overview_height.
   repeat split; apply Nat.le_min_l || apply Nat.le_min_r. Qed.
 
+Theorem compact_navigation_uses_the_viewport env details :
+  observe_capacity env = Some (false,details) ->
+  modal_navigation_width env = viewport_width env.
+Proof. intros Capacity. unfold modal_navigation_width. rewrite Capacity. reflexivity. Qed.
+Theorem modal_navigation_retains_its_full_height_and_leading_origin env :
+  In ("block-size",Typography.px(viewport_height env)) (modal_navigation_properties env) /\
+  In ("inset-inline-start","0") (modal_navigation_properties env) /\
+  In ("inset-block-start","0") (modal_navigation_properties env).
+Proof. simpl. tauto. Qed.
+
 (* Keep comparison proofs abstract: reducing unary font-scaled bounds bloats checking. *)
 Local Opaque Nat.leb.
 
@@ -37,6 +47,11 @@ Theorem hierarchy_groups_separate_headings grammar :
 Proof. unfold group_gap. lia. Qed.
 Theorem hierarchy_indentation_is_positive grammar : 0 < nesting_inset grammar.
 Proof. unfold nesting_inset. lia. Qed.
+
+Theorem nested_members_preserve_both_inline_edges env activity :
+  In ("padding-inline", Typography.px (nesting_inset (hierarchy_for env activity)))
+    (member_properties env activity true).
+Proof. unfold member_properties. simpl. auto. Qed.
 Theorem multiline_editor_remains_bounded env :
   input_minimum_height (parameters env) <= input_maximum_height (parameters env).
 Proof.

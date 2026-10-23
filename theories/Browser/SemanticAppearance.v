@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool Arith NArith.
 From Selvedge.Browser Require Import Appearance Typography Layout ControlPurpose.
 From Selvedge.Interaction.Presentation Require Import Model Roles Information Composition Surface.
 From Selvedge.Interaction.Submission Require Fields.
+From Selvedge.Interaction.Interactive Require Expand Vocabulary Presentation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -45,9 +46,12 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   | Surface.BoardGroup _ => false
   | Surface.PageRegion Composition.ConversationHeader _
   | Surface.PageRegion Composition.BoardControls _ => true
+  | Surface.PageRegion Composition.CreationContext _ => false
+  | Surface.InteractiveNode component =>
+      String.eqb (Vocabulary.component_tag (Expand.description (Presentation.component_properties component))) "row-layout"
   | Surface.PageRegion Composition.TaskActions _ => false
   | Surface.Region =>
-      match source,role with Surface.ProjectGroup _ _ _,Roles.Section => false | _,_ =>
+      match source,role with Surface.ProjectGroup _ _ _,Roles.Section => true | _,_ =>
         responsive_role role end
   | _ => responsive_role role
   end.
@@ -112,7 +116,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
       [("flex","1 1 auto");("min-block-size","0");("overflow","hidden")]
   | Surface.ReadingTimeline _ _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto")]
-  | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
+  | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","4px")]
   | Surface.TaskRow _ _ _ _ selected =>
       Appearance.style_properties env (Appearance.navigation_style selected 6 0)
   | Surface.TaskChildren _ => Layout.member_properties env false true
@@ -160,6 +164,8 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
 Definition source_properties {Action} env (source current : Surface.meaning Action)
     : list (string * string) :=
   match source,current with
+  | Surface.PageRegion Composition.CreationIntroduction _,Surface.InformationText _ =>
+      [("text-align","center");("inline-size","100%");("align-self","center")]
   | Surface.PageRegion Composition.ConversationTitle _,Surface.InformationText _
   | Surface.WorkChoice _ _ _,Surface.InformationText _ =>
       [("display","block");("min-inline-size","1ch");("overflow","hidden");
@@ -185,7 +191,7 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
   | Surface.ProjectGroup _ _ _, Surface.InformationText Information.GroupTitle =>
       Typography.properties (Layout.root_font_size_milli env) Typography.ActivityPrimary Typography.Strong
   | Surface.LayerRegion behavior, Surface.ActionUnit _ _
-  | Surface.WorkOverviewRegion behavior, Surface.ActionUnit _ _ =>
+  | Surface.NavigationRegion _ behavior, Surface.ActionUnit _ _ =>
       if Model.modal_layer behavior then
         [("flex","1 1 auto"); ("min-inline-size","0"); ("min-block-size","0");
          ("padding","0"); ("gap","0")]

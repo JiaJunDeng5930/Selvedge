@@ -60,7 +60,7 @@ Definition support_row_attributes key :=
 (* The slot receives its parent's residual width independently of text demand.
    Measuring its full form must not resize the available-width denominator. *)
 Definition support_row_properties : list (string * string) :=
-  [("display","flex");("flex-direction","row");("flex-wrap","nowrap");("align-items","stretch");
+  [("display","flex");("flex-direction","row");("flex-wrap","nowrap");("align-items","flex-start");
    ("flex","1 1 0%");("min-inline-size","0");("justify-content","flex-start")].
 
 Definition property_icon {e} (property : UX.property e) :=
@@ -118,7 +118,7 @@ Definition summary_member {A e} (property : UX.property e) (child : S.node A)
   | S.InformationText Information.FieldValue =>
       [span key [("data-summary-role","principal");
         ("data-summary-subject",summary_subject property false);
-        ("title",text);("data-native-compact-minimum-inline","1ch")]
+        ("title",text)]
         inline_properties text]
   | S.InformationText Information.Description =>
       [span key [("data-summary-role","secondary");
@@ -251,16 +251,19 @@ Definition project_header {A} describe env key project selected expanded
     map (replace_content [("data-navigation-slot","title")]
       [("flex","1 1 0%");("min-inline-size","0");("padding-inline","0");
        ("text-align","start");("white-space","nowrap")]
-      [DOM.Text (snd entry)]) (native_for (fst entry) native))
+      [span (private_key (fst entry) "caption") (single_line_attributes (snd entry))
+        (("flex","1 1 auto")::single_line_properties) (snd entry)]) (native_for (fst entry) native))
     (flat_map project_titles children) in
   let auxiliary := map (add_properties target_style)
     (native_selected (project_auxiliary describe) children native) in
   let menu_open := existsb (has_selected (open_menu describe)) children in
   box (private_key key "project-header") "div"
-    [("data-navigation-owner",key);("data-navigation-active",flag (selected || menu_open));
+    [("data-native-responsive-row",private_key key "project-header");
+     ("data-navigation-owner",key);("data-navigation-active",flag (selected || menu_open));
      ("data-navigation-selected",flag selected);("data-navigation-feedback",flag menu_open)]
     (Appearance.navigation_feedback_properties selected ++
-    [("display","flex");("flex-direction","row");("align-items","center");
+    Layout.row_properties Layout.Vertical ++
+    [
      ("min-block-size",Typography.px target);("min-inline-size","0");
      ("gap",Typography.px (navigation_following env))])
     ([box (private_key key "disclosure-slot") "div" [("data-navigation-slot","disclosure")]
@@ -324,7 +327,7 @@ Definition board_filter_choice_content artwork label category value native :=
       match native with [] => [DOM.Text label] | _ => native end)
   | None => None
   end.
-Definition node_properties {A} env (role : Roles.role) (meaning : S.meaning A)
+Definition node_properties {A} env (activity:bool) (role : Roles.role) (meaning : S.meaning A)
     : list (string * string) :=
   (match role with
   | Roles.WorkChoiceRow => [("display","flex");("flex-direction","row");
@@ -341,7 +344,7 @@ Definition node_properties {A} env (role : Roles.role) (meaning : S.meaning A)
       ("min-block-size",pixels env 120);("white-space","nowrap")]
   | S.SettingEntry _ _ _ => [("inline-size","100%");("text-align","start")]
   | S.SupportingControl _ _ _ _ => [("flex","0 1 auto");("white-space","nowrap");
-      ("justify-content","flex-start");("gap",pixels env 6)]
+      ("justify-content","flex-start");("gap",pixels env (if activity then 8 else 6))]
   | _ => [] end.
 
 Definition container_content {A} (describe : A -> C.purpose)
