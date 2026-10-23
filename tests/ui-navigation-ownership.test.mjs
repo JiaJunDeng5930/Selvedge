@@ -232,7 +232,7 @@ function gitResponse(page, primary) {
 }
 
 async function replaceWorkspace(page, directory) {
-  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  await page.locator('button[data-logical-key="composer/workspace"]').click();
   const dialog = page.getByRole('dialog', { name: 'Workspace', exact: true });
   const remove = dialog.getByRole('button', { name: 'Remove directory', exact: true });
   while (await remove.count()) await remove.first().click();
@@ -281,7 +281,7 @@ test('a real non-Git observation resets the local environment and an old Git rep
   await started.promise;
   await startWork(page);
   await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Retain the newer default-workspace draft.');
-  const primary = await page.getByRole('button', { name: 'Workspace', exact: true }).innerText();
+  const primary = await page.locator('button[data-logical-key="composer/workspace"]').innerText();
   assert.ok(primary.includes(root), primary);
   assert.ok(!primary.includes(source), primary);
   released.resolve();
@@ -289,7 +289,7 @@ test('a real non-Git observation resets the local environment and an old Git rep
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await environment.inputValue(), 'current');
   assert.equal(await page.getByRole('textbox', { name: 'Task', exact: true }).inputValue(), 'Retain the newer default-workspace draft.');
-  assert.equal(await page.getByRole('button', { name: 'Workspace', exact: true }).innerText(), primary);
+  assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').innerText(), primary);
   await environment.selectOption({ label: 'Local worktree' });
   assert.equal(await environment.inputValue(), 'current', 'The stale Git success must not authorize Local worktree for a non-Git draft');
 });

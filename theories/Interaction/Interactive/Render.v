@@ -127,7 +127,8 @@ Definition chart_summary event_id p :list scene :=
 Definition render_chart event_id p : list scene :=
  let key:=Types.event_key event_id in
  match Plot.chart p with
- |Error reason=>[text (key+++"/@error") reason]
+ |Error reason=>[S.Node (key+++"/@error") "interactive-markdown/status" reason R.Content
+   (S.InformationText Information.Status) []]
  |Good drawing=>
  [placement (key+++"/@viewport") IP.ChartViewport
    [placement (key+++"/@canvas") (IP.GraphCanvas (Npos (Graphics.width drawing)) (Npos (Graphics.height drawing)))

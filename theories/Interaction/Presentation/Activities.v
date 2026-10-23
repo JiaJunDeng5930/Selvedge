@@ -183,8 +183,7 @@ Fixpoint relation_nodes {e} snapshot s occurrence parent query request
       Composer.action_feedback parent action(Editors.draft_feedback(State.current_draft s e))++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
        [dialog_actions parent
-        [declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel);
-         Node(part parent "submit")"submit"(Editors.submit_label e)Roles.PrimaryButton
+        [Node(part parent "submit")"submit"(Editors.submit_label e)Roles.PrimaryButton
           (ActionCommit e assessment(Control "submit"(Editors.submit_label e)Primary(Input.Submit e(part parent "submit"))
            (Editors.unit_availability action assessment)))[]]]])]
  |_,_=>children end.
@@ -275,6 +274,9 @@ Definition activity_view snapshot s e request occurrence source_expanded parent 
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
       [navigation_header parent caption(Input.ActivityComplete occurrence)]
     |_=>[title parent caption]end in
+  let header:=List.app header(match completion with
+    |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]
+    |_=>[]end)in
   let body:=((if Observation.search_required activity view then
      [Node(part parent "search")"search" "Search models"Roles.Field
       (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++

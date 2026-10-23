@@ -49,7 +49,7 @@ test('Project task creation restores Project workspace inheritance through the b
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   await start.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task remains a passive draft');
-  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  await page.locator('button[data-logical-key="composer/workspace"]').click();
   let workspace = page.getByRole('dialog');
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).click();
@@ -67,7 +67,7 @@ test('Project task creation preserves explicitly empty workspaces through the br
   const { fixture, root, project_id } = await projectWorkspaceFixture(t);
   const { page, command } = fixture;
   await projectTask(page);
-  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  await page.locator('button[data-logical-key="composer/workspace"]').click();
   const workspace = page.getByRole('dialog');
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).click();
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).waitFor();
@@ -127,11 +127,12 @@ test('ordered image content and the active composer survive responsive navigatio
   assert.equal(await message.evaluate(node => node === document.activeElement), true,
     'A layout change must preserve the user activity instead of opening the Task tree');
   assert.equal(await message.inputValue(), 'Keep this unsent draft while narrowing.');
-  assert.equal(await page.getByRole('banner').count(), 1);
+  assert.equal(await page.getByRole('navigation', { name: 'Workspace navigation', exact: true }).count(), 1);
   await tasks.focus();
   await tasks.press('Space');
   await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
-  assert.equal(await page.getByRole('banner').count(), 1);
+  assert.equal(await page.getByRole('dialog', { name: 'Task tree', exact: true })
+    .getByRole('navigation', { name: 'Workspace navigation', exact: true }).count(), 1);
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await tasks.evaluate(node => node === document.activeElement), true,

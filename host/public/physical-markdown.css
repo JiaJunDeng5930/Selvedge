@@ -55,8 +55,8 @@
 }
 .physical-markdown .markdown .code-toolbar {
   display: flex;
-  align-items: center;
-  gap: var(--physical-code-gap);
+  align-items: stretch;
+  gap: 0;
   height: var(--physical-toolbar-height);
   min-height: 0;
   margin: 0;

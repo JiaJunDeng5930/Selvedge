@@ -168,7 +168,7 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.CreationIntroduction => [("text-align","center")]
   | Composition.CreationContext => [("display","flex");("flex-direction","column");
       ("align-items","center");("text-align","center");("padding-inline","0");
-      ("padding-block","0");("gap","8px");("min-block-size","0")]
+      ("padding-block","0");("gap",Typography.px (Enclosure.separation Enclosure.Sections));("min-block-size","0")]
   | Composition.BoardStages => [("display","flex"); ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
       ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.

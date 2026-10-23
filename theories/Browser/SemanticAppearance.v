@@ -42,6 +42,7 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   | Surface.Edit _ _ _ | Surface.RichText _ _ | Surface.PublishedText _
   | Surface.EmbeddedMarkdown _ => false
   | Surface.TaskRow _ _ _ _ _ => false
+  | Surface.ActivityRow Surface.NavigationRow | Surface.ActivityRow Surface.TerminalRow => false
   | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => activity
   | Surface.BoardGroup _ => false
   | Surface.PageRegion Composition.ConversationHeader _
@@ -51,7 +52,7 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
       String.eqb (Vocabulary.component_tag (Expand.description (Presentation.component_properties component))) "row-layout"
   | Surface.PageRegion Composition.TaskActions _ => false
   | Surface.Region =>
-      match source,role with Surface.ProjectGroup _ _ _,Roles.Section => true | _,_ =>
+      match source,role with Surface.ProjectGroup _ _ _,Roles.Section => false | _,_ =>
         responsive_role role end
   | _ => responsive_role role
   end.
@@ -116,12 +117,13 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
       [("flex","1 1 auto");("min-block-size","0");("overflow","hidden")]
   | Surface.ReadingTimeline _ _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto")]
-  | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","4px")]
+  | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
   | Surface.TaskRow _ _ _ _ selected =>
       Appearance.style_properties env (Appearance.navigation_style selected 6 0)
   | Surface.TaskChildren _ => Layout.member_properties env false true
   | Surface.ProjectChooser _ => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("gap","0"); ("padding","0")]
-  | Surface.ActivityGroup _ _ _ _ => surface_properties env
+  | Surface.ActivityGroup _ _ _ _ => surface_properties env ++
+      [("padding",pixels env 8); ("gap",pixels env 4)]
   | Surface.LayerRegion behavior =>
       match Model.layer_presentation behavior with Model.AnchoredMenu => surface_properties env | _ => [] end
   | Surface.ContextSummary _ => [("display","flex"); ("flex-direction","column"); ("gap","4px"); ("padding-inline","8px")]
@@ -139,6 +141,10 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.ObjectGroup _ => Layout.group_properties env activity
   | Surface.ActivityRow Surface.ObjectHeading => Layout.heading_properties env activity
   | Surface.ActivityRow Surface.SupportingRow => Layout.member_properties env true false ++ supporting_properties env
+  | Surface.ActivityRow Surface.NavigationRow => Layout.member_properties env activity false ++
+      Layout.row_properties Layout.Horizontal ++ [("align-items","center")]
+  | Surface.ActivityRow Surface.TerminalRow => Layout.member_properties env activity false ++
+      Layout.row_properties Layout.Horizontal ++ [("justify-content","flex-end")]
   | Surface.ActivityRow _ => Layout.member_properties env activity false
   | Surface.SettingEntry _ _ _ | Surface.SupportingControl _ _ _ _ => compact_control env
   | Surface.BoardLane _ _ => [("background",Appearance.token "--color-surface-secondary");
@@ -164,9 +170,14 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
 Definition source_properties {Action} env (source current : Surface.meaning Action)
     : list (string * string) :=
   match source,current with
+  | Surface.ActivityRow Surface.NavigationRow,Surface.InformationText _ =>
+      [("white-space","nowrap");("flex","0 1 auto");("min-inline-size","0")]
   | Surface.PageRegion Composition.CreationIntroduction _,Surface.InformationText _ =>
       [("text-align","center");("inline-size","100%");("align-self","center")]
-  | Surface.PageRegion Composition.ConversationTitle _,Surface.InformationText _
+  | Surface.PageRegion Composition.ConversationTitle _,Surface.InformationText _ =>
+      Typography.properties (Layout.root_font_size_milli env) Typography.Section Typography.Medium ++
+      [("display","block");("min-inline-size","1ch");("overflow","hidden");
+       ("text-overflow","ellipsis");("white-space","nowrap")]
   | Surface.WorkChoice _ _ _,Surface.InformationText _ =>
       [("display","block");("min-inline-size","1ch");("overflow","hidden");
        ("text-overflow","ellipsis");("white-space","nowrap")]
@@ -184,7 +195,7 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
   | Surface.SkillSuggestions _ _ _, Surface.InformationText Information.Status =>
       [("padding","10px 12px");("font-size","13px")]
   | Surface.ProjectGroup _ selected _, Surface.Region =>
-      Appearance.style_properties env (Appearance.navigation_style selected 2 0)
+      Appearance.style_properties env (Appearance.navigation_style selected 0 0)
   | Surface.ProjectGroup _ _ _, Surface.Activate _ => single_line env
   | Surface.ProjectChooser _, Surface.Activate _ => compact_control env ++
       [("padding-inline","0"); ("padding-block",pixels env 4); ("gap",pixels env 4)]

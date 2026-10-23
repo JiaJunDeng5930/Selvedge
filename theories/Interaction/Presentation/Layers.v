@@ -223,11 +223,11 @@ Definition layer_view snapshot s capacity layer :=
   |State.BoardFiltersPanel=>board_filters snapshot s parent
   |State.ArchivedCardsPanel=>map(Collections.card_node snapshot s parent parent)(value_or[](Projection.archived_cards snapshot))
   |State.Confirmation command caption destination=>
-   [dialog_header parent [title parent caption];dialog_actions parent
+   [dialog_header parent [title parent caption;
+     declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)];dialog_actions parent
     [declared parent Roles.DestructiveButton(Control "confirm" "Confirm"Destructive Input.Confirm
       (if State.layer_pending layer then Unavailable "This action is pending"else
-       domain_availability(Selvedge.Interaction.Session.Authoring.confirmation_availability snapshot s command)));
-     declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)]]
+       domain_availability(Selvedge.Interaction.Session.Authoring.confirmation_availability snapshot s command)))]]
   |_=>[]end in
   let content:=match State.layer_panel layer with
   |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel WorkOverview|State.NavigationPanel TasksDrawer

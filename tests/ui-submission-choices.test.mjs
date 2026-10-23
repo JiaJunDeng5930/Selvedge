@@ -37,8 +37,8 @@ test('the ordinary Task model picker omits the hidden ChatGPT auto-review model'
 
   await page.reload();
   await page.getByRole('navigation', { name: 'Global navigation', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Model', exact: true }).click();
-  const profileNames = await page.getByRole('radio').evaluateAll(options =>
+  await page.getByRole('button', { name: /^Model:/ }).click();
+  const profileNames = await page.getByRole('menuitemradio').evaluateAll(options =>
     options.map(option => option.getAttribute('aria-label')));
   assert.ok(profileNames.includes('image-fixture'),
     'The ordinary Task picker should still offer a visible ChatGPT model');

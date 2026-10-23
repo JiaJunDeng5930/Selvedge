@@ -1,7 +1,7 @@
 /* Product roles, typography, spacing and paint are supplied by the extracted model. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; inline-size: 100%; min-block-size: 100%; }
-body { color: var(--color-token-text-primary); background: var(--app-color-background-surface); }
+body { font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif); color: var(--color-token-text-primary); background: var(--app-color-background-surface-under); }
 #surface { inline-size: 100%; block-size: 100dvh; overflow: hidden; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { appearance: none; cursor: pointer; }

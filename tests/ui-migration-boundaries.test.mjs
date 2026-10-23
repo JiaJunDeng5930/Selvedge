@@ -33,7 +33,7 @@ test('a submitted Task survives directory preparation while newer writing and na
     await route.fulfill({ response });
   });
   await openProjectTask(fixture, 'Captured submission Project', workspace);
-  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  await page.locator('button[data-logical-key="composer/workspace"]').click();
   await page.getByRole('button', { name: 'Use as primary', exact: true }).click();
   await page.keyboard.press('Escape');
   const draft = page.getByRole('textbox', { name: 'Task', exact: true });

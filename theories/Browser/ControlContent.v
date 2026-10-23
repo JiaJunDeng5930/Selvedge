@@ -249,20 +249,20 @@ Definition project_header {A} describe env key project selected expanded
     (native_selected (project_disclosure describe project) children native) in
   let title := flat_map (fun entry =>
     map (replace_content [("data-navigation-slot","title")]
-      [("flex","1 1 0%");("min-inline-size","0");("padding-inline","0");
+      [("flex","1 1 auto");("min-inline-size","0");("padding-inline","0");
        ("text-align","start");("white-space","nowrap")]
-      [span (private_key (fst entry) "caption") (single_line_attributes (snd entry))
-        (("flex","1 1 auto")::single_line_properties) (snd entry)]) (native_for (fst entry) native))
+      [span (private_key (fst entry) "caption") [("title",snd entry)]
+        [("flex","1 1 auto");("min-inline-size","0");("white-space","nowrap");
+         ("overflow","hidden");("text-overflow","ellipsis")] (snd entry)]) (native_for (fst entry) native))
     (flat_map project_titles children) in
   let auxiliary := map (add_properties target_style)
     (native_selected (project_auxiliary describe) children native) in
   let menu_open := existsb (has_selected (open_menu describe)) children in
   box (private_key key "project-header") "div"
-    [("data-native-responsive-row",private_key key "project-header");
-     ("data-navigation-owner",key);("data-navigation-active",flag (selected || menu_open));
+    [("data-navigation-owner",key);("data-navigation-active",flag (selected || menu_open));
      ("data-navigation-selected",flag selected);("data-navigation-feedback",flag menu_open)]
     (Appearance.navigation_feedback_properties selected ++
-    Layout.row_properties Layout.Vertical ++
+    Layout.row_properties Layout.Horizontal ++
     [
      ("min-block-size",Typography.px target);("min-inline-size","0");
      ("gap",Typography.px (navigation_following env))])
@@ -304,14 +304,14 @@ Definition lane_content {A} describe env key label stage count
       [box (private_key key "lane-empty") "p" [("data-board-empty","true")]
         (text_style Typography.Regular) [DOM.Text "暂无任务"]] else []) ++ cards)].
 
-Definition collection_children env key (children : list DOM.node) :=
+Definition collection_children (env : Layout.environment) key (children : list DOM.node) :=
   match children with
   | [] => []
   | header :: [] => [header]
   | header :: members => [header;
       box (private_key key "navigation-members") "div" [("data-navigation-members",key)]
       [("display","flex");("flex-direction","column");("min-inline-size","0");
-       ("gap",Typography.px (Layout.member_gap (Layout.hierarchy_for env true)))] members]
+       ("gap","0")] members]
   end.
 Definition role_content env key (role : Roles.role) (native : list DOM.node)
     : option (list DOM.node) :=
@@ -333,7 +333,7 @@ Definition node_properties {A} env (activity:bool) (role : Roles.role) (meaning 
   | Roles.WorkChoiceRow => [("display","flex");("flex-direction","row");
       ("flex-wrap","nowrap");("gap",pixels env 12);("inline-size","100%")]
   | Roles.NavigationCollection => [("display","flex");("flex-direction","column");
-      ("gap",Typography.px (Layout.heading_gap (Layout.hierarchy_for env true)))]
+      ("gap",match meaning with S.TaskChildren _=>"0"|_=>Typography.px (Layout.heading_gap (Layout.hierarchy_for env true))end)]
   | Roles.NavigationSection => [("display","flex");("flex-direction","column");("gap","0")]
   | _ => [] end) ++
   match meaning with

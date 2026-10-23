@@ -110,7 +110,7 @@ Definition foreground value :=
   end.
 Definition background value state :=
   match value with
-  | CanvasPaint => token "--app-color-background-surface"
+  | CanvasPaint => token "--app-color-background-surface-under"
   | NavigationPaint => token "--color-token-side-bar-background"
   | ContentPaint | FieldPaint => token "--color-token-main-surface-primary"
   | FloatingPaint => token "--color-token-dropdown-background"

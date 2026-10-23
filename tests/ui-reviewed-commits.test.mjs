@@ -18,7 +18,7 @@ test('new Task permissions remain reachable with ordinary pointer clicks', async
     await t.test(`${viewport.width} by ${viewport.height}`, async t => {
       const { page } = await browserFixture(t);
       await page.setViewportSize(viewport);
-      await page.getByRole('button', { name: 'Permissions', exact: true }).click();
+      await page.getByRole('button', { name: /^Permissions:/ }).click();
       const permissions = page.getByRole('dialog', { name: 'Permissions', exact: true });
       await permissions.getByRole('button', { name: 'Custom permissions…', exact: true }).click();
       for (const name of ['Execution policy', 'Filesystem access', 'Network access']) {
@@ -26,7 +26,7 @@ test('new Task permissions remain reachable with ordinary pointer clicks', async
       }
       await permissions.getByRole('button', { name: 'Back', exact: true }).click();
       for (const name of ['Ask for approval', 'Automatic review', 'Unrestricted']) {
-        await permissions.getByRole('radio', { name, exact: true }).click({ trial: true });
+        await permissions.getByRole('menuitemradio', { name, exact: true }).click({ trial: true });
       }
 
     });
@@ -69,9 +69,9 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
   assert.ok(catalog.result.profiles.some(profile => profile.name === 'codex-auto-review'),
     'The connected catalog must contain the dedicated profile before testing its exclusion');
   await page.reload();
-  await page.getByRole('button', { name: 'Model', exact: true }).click();
-  assert.equal(await page.getByRole('radio', { name: 'codex-auto-review', exact: true }).count(), 0);
-  await page.getByRole('radio', { name: 'image-fixture', exact: true }).click();
+  await page.getByRole('button', { name: /^Model:/ }).click();
+  assert.equal(await page.getByRole('menuitemradio', { name: 'codex-auto-review', exact: true }).count(), 0);
+  await page.getByRole('menuitemradio', { name: 'image-fixture', exact: true }).click();
   await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Run the ordinary reviewed task.');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
   const ordinary = await observed(() => requests.find(request => JSON.stringify(request.input).includes('Run the ordinary reviewed task.')),

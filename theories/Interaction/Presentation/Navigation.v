@@ -132,12 +132,11 @@ Definition work_overview snapshot s parent :=
    match works snapshot with
    |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
    |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
- [dialog_header parent [title parent "Works"];
+ [dialog_header parent [title parent "Works";
+   declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)];
   dialog_body parent [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup(work_choice_rows parent 0 entries)];
   dialog_actions parent
-   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork));
-    region parent "action-space" "" Roles.Section [];
-    declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)]].
+   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork))]].
 Definition global_menu s parent :=
  let current:=State.location(State.navigation_state s)in
  region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu
@@ -150,7 +149,7 @@ Definition compact_header snapshot s :=
  let navigation:=State.navigation_state s in
  let work_label:=match State.active_work navigation with
  |None=>"All Tasks"|Some id=>match find_work id snapshot with Some work=>work_name work|None=>"Work unavailable"end end in
- region "/workspace" "compact-header" "" Roles.CompactHeader
+ region "/workspace" "compact-header" "Workspace navigation" Roles.CompactHeader
   [declared "/compact-header" Roles.Button (secondary "global" "Global navigation"(Input.OpenNavigation GlobalMenu(part "/compact-header" "global")));
    declared "/compact-header"(Roles.CompactWorkScope work_label (N.of_nat(S(List.length(value_or[](works snapshot))))))(secondary "works"(work_label++", Work overview, "++show_natural(N.of_nat(S(List.length(value_or[](works snapshot)))))++" works")(Input.OpenNavigation WorkOverview(part "/compact-header" "works")));
    declared "/compact-header" Roles.Button(secondary "tasks" (if SessionNavigation.expanded_for false s then "Back to conversation"else"Open Task list")(Input.NavigationExpanded(negb(SessionNavigation.expanded_for false s))))].

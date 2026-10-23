@@ -6,14 +6,14 @@ From Selvedge.Interaction.Submission Require Fields.
 (** Native control intent is derived once from the actual action at publication.
     It carries the original control grammar; it is not another action registry. *)
 Inductive purpose :=
-| MessageSubmission | NamedAction | CreateItem | EditItem | ProjectTaskCreation
+| MessageSubmission | NamedAction | CreateItem | EditItem | ForkTask | CompactTask | ProjectTaskCreation
 | WorkCreation
 | OpenCardDetails (card : N)
 | ProjectDisclosure (project : N)
 | NavigateTo (symbol : string)
 | MoreActions (expanded : bool)
 | OpenPanel (symbol : string) (menu expanded : bool)
-| ApplicationSettings (expanded : bool) | GlobalDestinations
+| ApplicationSettings (expanded : bool) | GlobalDestinations (expanded : bool)
 | ChooseValue (expanded : bool) | WorkspacePicker (expanded : bool)
 | SelectedOption (checked : bool)
 | BoardFilterChoice (category : BoardFilter.category) (value : string)
@@ -24,7 +24,7 @@ Inductive purpose :=
 | CopyCode (state : CodeBlock.copy_state) | WrapCode (enabled : bool)
 | ShowActivity (expanded : bool) | Latest | ToggleNavigation (expanded : bool)
 | ResetDefaults | RemoveValue | RetryTransfer | PreviewFile | DownloadFile
-| Connect (connecting : bool).
+| Connect (connecting : bool) (failure : option string).
 
 Definition toggle_widget (field:Fields.field)(observation:Fields.observed) :=
  match field with Fields.NetworkAccess|Fields.AssistedCapture=>true

@@ -141,8 +141,8 @@ test('keyboard users can read unavailable action reasons, choice context and col
     'An unavailable action must keep its explanation reachable by keyboard');
   assert.match(await accessibleDescription(start), /A task input needs text or an image/);
   assert.equal(await page.getByText('A task input needs text or an image', { exact: true }).first().isVisible(), true);
-  await page.getByRole('button', { name: 'Permissions', exact: true }).click();
-  const automatic = page.getByRole('radio', { name: 'Automatic review', exact: true });
+  await page.getByRole('button', { name: /^Permissions:/ }).click();
+  const automatic = page.getByRole('menuitemradio', { name: 'Automatic review', exact: true });
   await automatic.focus();
   assert.match(await accessibleDescription(automatic), /echo/,
     'The reviewer context of a permission choice belongs to its accessible description');

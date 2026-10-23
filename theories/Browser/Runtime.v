@@ -298,9 +298,9 @@ Definition code_document env physical_view state :=
  (DOM.Element (Observation.physical_target physical_view (DocumentPublication.target_key who DocumentPublication.Toolbar)) "div"
  [("role","toolbar");("aria-label","Code actions")] (NativeAppearance.role_properties env Roles.Toolbar) [] (JObject[])
  (map(fun control=>DOM.Element (Observation.physical_target physical_view (String.append(CodeSource.key who)(match control with CodeBlock.CopyControl=>"/copy"|CodeBlock.WrapControl=>"/wrap" end))) "button"
- (([("type","button");("aria-label",CodeBlock.control_label view control)]++
+ (([("type","button");("aria-label",CodeBlock.control_label view control);("title",CodeBlock.control_label view control)]++
  (match control with CodeBlock.WrapControl=>[("aria-pressed",Document.flag(CodeBlock.presented_wrap view))]
- |CodeBlock.CopyControl=>match CodeBlock.presented_copy view with CodeBlock.Pending _=>[("data-interactive-motion","spin")]|_=>[]end end))++Document.disabled(CodeBlock.control_enabled view control))
+ |CodeBlock.CopyControl=>Document.purpose_attributes(ControlPurpose.CopyCode(CodeBlock.presented_copy view))end))++Document.disabled(CodeBlock.control_enabled view control))
  (NativeAppearance.role_properties env (match control with
   |CodeBlock.CopyControl=>match CodeBlock.presented_copy view with
     |CodeBlock.Feedback _ false=>Roles.DestructiveButton|_=>Roles.Button end
