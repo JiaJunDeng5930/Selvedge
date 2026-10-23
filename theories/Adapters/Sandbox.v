@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import JsonObjects.
 From Selvedge.Adapters Require Import Common Observation Workspaces SandboxPolicy Seatbelt.
 Import ListNotations.
 Open Scope string_scope.
@@ -22,7 +23,7 @@ Definition plan_admission (source : json) :=
     end.
 Definition root_observation (root observation : json) :=
   next (admit (is_object observation && plain_fields_only ["root";"absolute"] observation && has observation "root" &&
-    is_bool (get observation "absolute") && equal observation (JObject [("root",root);("absolute",get observation "absolute")]))
+    is_bool (get observation "absolute") && JsonObjects.equivalent observation (JObject [("root",root);("absolute",get observation "absolute")]))
     "Workspace path observation does not match its source") (root_admit observation).
 Fixpoint roots_observed (roots observations : list json) :=
   match roots,observations with
@@ -39,7 +40,7 @@ Definition workspace_selected (source : json) :=
     else admit (equal (get workspace "primary_root") (get selection "root")) "Workspace primary observation does not match its selection" in
   let selected := Workspaces.workspace_selected (JObject [("roots",get workspace "roots");("primary",get workspace "primary_root")]) in
   next primary (next selected (next
-    (admit (equal (get selected "value") workspace) "Workspace observation does not match its selected value")
+    (admit (JsonObjects.equivalent (get selected "value") workspace) "Workspace observation does not match its selected value")
     (Workspaces.workspace_bound source))).
 Definition workspace_roots (source : json) :=
   let workspace := get source "workspace" in let committed := get (get source "plan") "workspace" in
@@ -91,7 +92,7 @@ Fixpoint numbered_bindings (descriptor : N) (entries : list json) :=
 Definition expected_bindings (source : json) := JArray (numbered_bindings 4 (items (bindings (launch_context source)))).
 Definition linux_launch (source : json) :=
   let context := launch_context source in let expected := expected_bindings source in
-  next (admit (equal (get source "bindings") expected) "Sandbox descriptor observations do not match their admitted bindings")
+  next (admit (JsonObjects.equivalent (get source "bindings") expected) "Sandbox descriptor observations do not match their admitted bindings")
     (success (JObject [("prefix",linux_prefix (set context "bindings" expected));("cwd",get context "cwd")])).
 Fixpoint ancestor_rows (rows roots : list json) :=
   match rows,roots with [] ,[] => true | row::rest,_::tail => is_array row && paths_valid (items row) && ancestor_rows rest tail | _,_ => false end.

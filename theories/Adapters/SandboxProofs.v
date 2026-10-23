@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import JsonProofs.
+From Selvedge.Foundation Require Import JsonProofs JsonObjectsProofs.
 From Selvedge.Adapters Require Import Common Observation Workspaces SandboxPolicy Seatbelt Sandbox.
 Import ListNotations.
 Open Scope string_scope.
@@ -17,6 +17,20 @@ Qed.
 Lemma successful_admission_means_its_condition : forall condition message,
   boolean_field (admit condition message) "ok" = true -> condition = true.
 Proof. intros [];cbn;intros;auto;discriminate. Qed.
+
+Theorem linux_sandbox_launch_preserves_binding_meaning : forall source result,
+  str (get source "options") "platform" = "linux" ->
+  sandbox_launch source = success result ->
+  same_json_meaning (get source "bindings") (expected_bindings source).
+Proof.
+  intros source result platform Accepted. unfold sandbox_launch in Accepted.
+  do 4 (apply successful_stage_runs_its_continuation in Accepted as [_ Accepted]).
+  rewrite platform in Accepted. change (linux_launch source = success result) in Accepted.
+  unfold linux_launch in Accepted.
+  apply successful_stage_runs_its_continuation in Accepted as [Bindings _].
+  apply successful_admission_means_its_condition in Bindings.
+  now apply equivalent_preserves_json_meaning.
+Qed.
 
 Definition supported_process_transport (source : json) : Prop :=
   has (get source "options") "processMode" = false \/

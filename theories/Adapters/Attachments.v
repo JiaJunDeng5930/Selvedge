@@ -48,8 +48,9 @@ Definition board_command (source : json) :=
   let command := get source "command" in
   let observe := is_object command && existsb (String.eqb (str command "op"))
     ["create_card";"update_card";"move_card";"archive_card";"restore_card";"delete_card";"run_card";"link_card";"regenerate_card_title";"pin_card"] in
+  (* DEFENSE: Explicit malformed attachment input must not bypass reference admission. *)
   success (JObject [("observe",JBool observe);("attachments",JBool
-    (observe && negb (is_null (get command "attachments")) && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).
+    (observe && has command "attachments" && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).
 Fixpoint reference_shapes (seen : list string) (references : list json) :=
   match references with [] => true | reference::rest =>
     plain_fields_only ["id";"name";"mime";"path";"bytes"] reference && is_text (get reference "id") &&
