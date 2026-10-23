@@ -22,6 +22,7 @@ const readings = new Map();
 const readingMeasurements = new Map();
 const readingPointers = new Map();
 const readingLayouts = new WeakMap();
+const restoredReadingOffsets = new WeakMap();
 const codeBlocks = new Map();
 const storagePolicy = interaction('interactive_storage_policy');
 const storage = new InteractiveSnapshotStorage({ ...storagePolicy,
@@ -332,12 +333,19 @@ const renderer = new Renderer(surface, {
       requestReadingAnchor(key, node, type === 'pointer' ? event.pointerId : undefined);
       acceptReading(key, node, browser('reading', { state, event: 'scroll' }));
     } else if (state.intent === 'history') {
+      // DEFENSE: restoring a bookmark emits scroll even when the browser clamps
+      // it before asynchronous Markdown mounts. That receipt is not a new user position.
+      if (restoredReadingOffsets.get(node) === node.scrollTop) return;
       requestReadingAnchor(key, node);
     }
   },
+  menuGeometry(bounds) {
+    return browser('menu_viewport_correction', Object.fromEntries(
+      ['left', 'top', 'width', 'height'].map(name => [name, new JsonNumber(String(bounds[name]))])));
+  },
   layout() {
     if (layoutFrame === null) layoutFrame = requestAnimationFrame(() => {
-      layoutFrame = null; reveal(); layoutReading();
+      layoutFrame = null; reveal(); renderer.confineMenus(); layoutReading();
     });
   },
   codeSource(source, ordinal, text, view) {
@@ -413,7 +421,10 @@ function acceptReading(key, node, decision, locationTarget) {
   const previous = readings.get(key)?.intent ?? 'follow';
   readings.set(key, decision.state);
   for (const effect of decision.effects) {
-    if (effect.type === 'leave_viewport') node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
+    if (effect.type === 'leave_viewport') {
+      restoredReadingOffsets.delete(node);
+      node.scrollTo({ top: node.scrollTop, left: node.scrollLeft, behavior: 'instant' });
+    }
     else if (effect.type === 'align_latest') node.scrollTo({ top: node.scrollHeight, behavior: effect.animate ? 'smooth' : 'instant' });
     else if (effect.type === 'reserve_composer') node.style.setProperty('scroll-padding-block-end', effect.clearance);
     else if (effect.type === 'cancel_anchor') retireReadingMeasurement(node);
@@ -424,7 +435,10 @@ function acceptReading(key, node, decision, locationTarget) {
     }
     else if (effect.type === 'preserve_anchor' && !currentReadingMeasurement(node)) {
       const target = renderer.target(effect.anchor.key);
-      if (target) node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - Number(effect.anchor.offset);
+      if (target) {
+        node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - Number(effect.anchor.offset);
+        restoredReadingOffsets.set(node, node.scrollTop);
+      }
     } else if (effect.type === 'measure_anchor') {
       if (currentReadingMeasurement(node)) requestReadingAnchor(key, node);
       else observeReadingAnchor(key, node, decision.state);

@@ -311,6 +311,13 @@ Definition code_call operation source := match
    ("overflow-wrap",if CodeBlock.wrap state then "anywhere" else "normal")]);("wrap",JBool(CodeBlock.wrap state))])
  |CodeBlock.Rejected name message,_,_=>failure name message
  |_,_,_=>invalid "Code presentation requires actual environment and view observations" end.
+Definition menu_viewport_correction_call source :=
+ let decimal name := match field name source with
+   |Some value=>Schema.decode_value Schema.KDecimal value|None=>None end in
+ match decimal "left",decimal "top",decimal "width",decimal "height" with
+ |Some x,Some y,Some width,Some height=>
+   success(JString(Layout.menu_viewport_correction x y width height))
+ |_,_,_,_=>invalid "Menu placement requires its observed rectangle" end.
 Definition call operation source := match operation with
  |"recovery"=>match natural_field "root_font_size_milli" source,binary_field "generation" source,string_field "reason" source with
  |Some root,Some generation,Some reason=>success(Document.recovery root generation reason)
@@ -321,7 +328,9 @@ Definition call operation source := match operation with
  |"publication"=>publication_call source|"snapshot"=>snapshot_call source
  |"measurement_failure"=>measurement_failure_call source
  |"focus_cycle"=>focus_call source|"resolve_target"=>resolve_target_call source
- |"reading_bind"=>reading_bind source|"reading"=>reading_call source|"font_specs"=>font_specs source|"environment"=>environment_call source
+ |"reading_bind"=>reading_bind source|"reading"=>reading_call source
+ |"menu_viewport_correction"=>menu_viewport_correction_call source
+ |"font_specs"=>font_specs source|"environment"=>environment_call source
  |"code_present"=>code_call "present" source
  |"code_key"=>match field "identity" source with Some encoded=>match CodeSource.decode_identity encoded with Some identity=>success(JString(CodeSource.key identity))|None=>invalid "Invalid code identity" end|None=>invalid "Code identity is required" end
  |"code_initial"=>code_call "initial" source|"code_step"=>code_call "step" source

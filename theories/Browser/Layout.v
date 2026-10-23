@@ -1,9 +1,20 @@
 From Stdlib Require Import String List Arith Bool.
+From Selvedge.Foundation Require Import Schema.
 From Selvedge.Browser Require Import Typography Enclosure.
 From Selvedge.Interaction.Presentation Require Import Composition.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+
+(** Native anchor positioning chooses below, then above. Its final painted box
+    still needs the viewport clamp when the trigger has moved off screen. *)
+Definition menu_axis_correction (viewport : string) (start size : Schema.decimal) :=
+  ("clamp(calc(var(--layer-clearance) - (" ++ Schema.spelling start ++ "px)), 0px, " ++
+  "calc(" ++ viewport ++ " - var(--layer-clearance) - (" ++ Schema.spelling start ++
+  "px) - (" ++ Schema.spelling size ++ "px)))")%string.
+Definition menu_viewport_correction (left top width height : Schema.decimal) :=
+  (menu_axis_correction "100dvw" left width ++ " " ++
+  menu_axis_correction "100dvh" top height)%string.
 
 (* Zero metrics are not font observations. The constructor stores their positive predecessors. *)
 Record metric := Metric { height_extra : nat; advance_extra : nat }.

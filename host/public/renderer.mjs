@@ -76,6 +76,14 @@ export class Renderer {
   modalRecord() {
     return this.modal?.matches(':modal') ? this.records.get(this.modal.dataset.key) : null;
   }
+  confineMenus() {
+    for (const menu of this.root.querySelectorAll('[data-native-layer="menu"]')) {
+      menu.style.removeProperty('translate');
+      if (!menu.getClientRects().length) continue;
+      const bounds = menu.getBoundingClientRect();
+      menu.style.translate = this.callbacks.menuGeometry(bounds);
+    }
+  }
   refreshAnchors() {
     for (const anchor of this.root.querySelectorAll('[data-native-anchor-owner]')) anchor.removeAttribute('data-native-anchor-owner');
     for (const positioned of this.root.querySelectorAll('[data-anchor]')) {
@@ -308,6 +316,7 @@ export class Renderer {
         top.open = false;
         top.showModal();
       }
+      this.confineMenus();
       // Moving a retained header into its native drawer must not discard its focused control.
       if (active?.isConnected && active !== this.root.ownerDocument.activeElement &&
           (!top || top.contains(active)) && !active.closest('[inert]') && !active.disabled) {

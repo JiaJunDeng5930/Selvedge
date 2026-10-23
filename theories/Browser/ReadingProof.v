@@ -39,6 +39,6 @@ Theorem anchor_observation_is_not_a_scroll_request : forall current point reduce
     (State (reading_intent current) (Some point), []).
 Proof. reflexivity. Qed.
 
-Theorem a_new_reader_occurrence_discards_old_anchor : forall previous observed current,
- previous <> observed -> bind_generation previous observed current = State FollowLatest None.
-Proof. intros. unfold bind_generation. apply N.eqb_neq in H. rewrite H. reflexivity. Qed.
+Theorem reader_occurrences_preserve_the_task_reading_position : forall previous observed current,
+ bind_generation previous observed current = current.
+Proof. reflexivity. Qed.
