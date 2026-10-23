@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson.
+From Selvedge.Foundation Require Import Json Numbers TextJson Schema.
 From Selvedge.Interaction Require Export Attachments Appearance.
 From Selvedge.Interaction Require Import Codec Identity Resource ModelSelection.
 From Selvedge.Interaction.Session Require Draft DraftCodec.
@@ -17,6 +17,27 @@ Definition decode_preview j := f <- bind(field "file" j) decode_attachment ;; t 
 Record directory_request := DirectoryRequest { directory_editor:editor; directory_path:string; directory_trigger:string }.
 Definition encode_directory d := JObject[("editor",encode_editor(directory_editor d));("path",JString(directory_path d));("trigger",JString(directory_trigger d))].
 Definition decode_directory j := e <- bind(field "editor" j) decode_editor ;; p <- string_field "path" j ;; t <- string_field "trigger" j ;; Some(DirectoryRequest e p t).
+Definition directory_entry_schema := [Schema.Field "name" Schema.KText;Schema.Field "path" Schema.KText].
+Definition directory_catalog_schema := [Schema.Field "ok" Schema.KBool;Schema.Field "path" Schema.KText;
+ Schema.Field "parent" Schema.KJson;Schema.Field "entries" (Schema.KArray Schema.KJson);
+ Schema.Field "truncated" Schema.KBool].
+Definition valid_directory_entry value := match Schema.decode directory_entry_schema value with
+ |Some _=>negb(String.eqb(text "name" value)"")&&Json.starts_with "/"(text "path" value)
+ |None=>false end.
+Definition decode_directory_catalog value : option json :=
+ match Schema.decode directory_catalog_schema value with
+ |None=>None
+ |Some _=>if flag "ok" value && Json.starts_with "/"(text "path" value) &&
+   (match field "parent" value with Some JNull=>true
+    |Some(JString path)=>Json.starts_with "/" path|_=>false end) &&
+   forallb valid_directory_entry(items "entries" value)
+   then Some value else None end.
+Definition directory_response value : sum string json :=
+ match decode_directory_catalog value with
+ |Some catalog=>inr catalog
+ |None=>match Schema.decode [Schema.Field "ok" Schema.KBool;Schema.Field "error" Schema.KText] value with
+   |Some _=>if negb(flag "ok" value)then inl(text "error" value)else inl "Invalid folder listing"
+   |None=>inl "Invalid folder listing" end end.
 Inductive preparation_intent := PreviewContext | CommitPrepared.
 Record preparation := Preparation { preparation_draft:Draft.draft; preparation_generation:N;
  preparation_layer:N; preparation_trigger:string; preparation_intent_of:preparation_intent;
@@ -139,7 +160,7 @@ Inductive service_input :=
 | DirectoryListed(ticket:N)(outcome:sum string json) | ChooseDirectory | CloseDirectory.
 Inductive service_effect :=
 | AssessCommand(ticket:N)(request:CommandAssessment.request)
-| Authenticate(ticket:N) | Reconnect(ticket:N)(milliseconds:N)
+| Authenticate(ticket:N) | Reconnect(ticket:N)(milliseconds:N) | InvalidateSource
 | SaveAppearance(value:appearance) | Upload(ticket:N)(request:upload_request) | AbortUpload(ticket:N)
 | FetchPreview(ticket:N)(file:attachment) | ReleasePreview(url:string) | DownloadFile(file:attachment)
 | ObserveDirectories(ticket:N)(workspace:json)(owner:editor) | ObserveWorkspaceGit(ticket:N)(primary:string)(owner:editor)
@@ -215,7 +236,7 @@ Definition service_step input s :=
       |None => keep (with_storage_problem (Some "无法恢复本地模型偏好：存储内容无效。") s) end
   | StorageProblem message => keep (with_storage_problem (Some message) s)
   | DismissStorageProblem => keep (with_storage_problem None s)
-  | OpenSettings=>effects(with_settings_return(Some "nav/settings")s)[Focus "settings"]
+  | OpenSettings=>effects(with_settings_return(Some "nav/settings")s)[]
   | CloseSettings=>effects(with_settings_return None s)(match settings_return s with Some trigger=>[Focus(settings_focus_target trigger)]|None=>[]end)
   | Connect=>match connection s with ConnectionLoading _|ConnectionReady _=>keep s|_=>connect s end
   | Authenticated t r=>auth_result t r s
@@ -223,7 +244,7 @@ Definition service_step input s :=
       let ended:=end_connection error s in
       let observation:=if revoked then ConnectionRevoked t error else ConnectionFailed t error in
       effects(with_connection observation(service_state ended))
-        (service_effects ended++[Reconnect t 1000])else keep s
+        (service_effects ended++(if revoked then [InvalidateSource] else [])++[Reconnect t 1000])else keep s
   | RetryConnection t=>match connection s with
       |ConnectionFailed u _|ConnectionRevoked u _=>if N.eqb t u then connect s else keep s
       |_=>keep s end
@@ -257,12 +278,13 @@ Definition decode_services j :=
   a<-bind(string_field "appearance" j)decode_appearance;;n<-natural_field "next" j;;
   u<-list_field(decode_resource decode_upload decode_attachment)"uploads" j;;
   p<-bind(field "preview" j)(decode_resource decode_preview as_string);;
-  d<-bind(field "directory" j)(decode_resource decode_directory (fun j=>Some j));;
+  d<-bind(field "directory" j)(decode_resource decode_directory decode_directory_catalog);;
   l<-string_field "directory_location" j;;pref<-bind(field "model_preference" j)(fun value=>match value with JNull=>Some None|_=>option_map (@Some (string*string))(decode_preference value)end);;problem<-bind(field "storage_problem" j)(fun value=>match value with JNull=>Some None|JString message=>Some(Some message)|_=>None end);;ps<-list_field(decode_resource decode_preparation decode_directory_observation) "preparations" j;;git<-bind(field "workspace_git" j)(decode_resource decode_git_request as_bool);;assessments<-list_field(decode_resource CommandAssessment.decode_request CommandAssessment.decode_observation)"command_assessments" j;;Some(Services c o a n u p d l pref problem ps git assessments).
 Definition encode_effect e :=
   let effect kind fields:=JObject(("type",JString kind)::fields)in
   match e with
   | AssessCommand t request=>effect "assess_command"[("ticket",number t);("request",CommandAssessment.encode_request request)]
+  | InvalidateSource=>effect "invalidate_source"[]
   | Authenticate t=>effect "authenticate"[("ticket",number t)]
   | Reconnect t delay=>effect "schedule_reconnect"[("ticket",number t);("milliseconds",number delay)]
   | SaveAppearance a=>effect "save_appearance"[("value",JString(appearance_name a))]
@@ -278,6 +300,9 @@ Definition encode_effect e :=
   | Focus t=>effect "focus"[("key",JString t)]end.
 Definition decode_outcome {A} (decode:json->option A) (j:json) : option(sum string A):=
   ok<-bool_field "ok" j;;if ok then v<-bind(field "value" j)decode;;Some(inr v)else e<-string_field "error" j;;Some(inl e).
+Definition decode_directory_outcome value :=
+ outcome<-decode_outcome(fun value=>Some value)value;;
+ Some(match outcome with inl reason=>inl reason|inr catalog=>directory_response catalog end).
 Definition service_input_decoders : list (string * (json -> option service_input)) := [
   ("command_assessed", fun j => t<-natural_field "ticket" j;;outcome<-decode_outcome CommandAssessment.decode_observation j;;Some(CommandAssessed t outcome));
   ("retry_assessment", fun j => option_map RetryAssessment(bind(field "editor" j)decode_editor));
@@ -304,7 +329,7 @@ Definition service_input_decoders : list (string * (json -> option service_input
   ("write_directory", fun j => v<-string_field "value" j;;Some(WriteDirectoryLocation v));
   ("visit_directory", fun j => p<-string_field "path" j;;Some(VisitDirectory p));
   ("go_directory", fun j => Some GoDirectory);
-  ("directory_listed", fun j => t<-natural_field "ticket" j;;r<-decode_outcome(fun v=>match v with JObject _=>Some v|_=>None end)j;;Some(DirectoryListed t r));
+  ("directory_listed", fun j => t<-natural_field "ticket" j;;r<-decode_directory_outcome j;;Some(DirectoryListed t r));
   ("choose_directory", fun j => Some ChooseDirectory);
   ("close_directory", fun j => Some CloseDirectory)
 ].

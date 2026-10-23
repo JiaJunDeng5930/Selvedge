@@ -14,6 +14,10 @@ Module M := Selvedge.Interaction.Presentation.Model.
 Module IP := Selvedge.Interaction.Interactive.Presentation.
 Definition scene := S.node Types.input.
 Definition text key value : scene := S.Node key "interactive-markdown/text" "" R.Content (S.Fact value) [].
+Definition diagnostic_node key path reason : scene :=
+ if String.prefix "@feedback/" path || String.eqb path "@storage" then
+  S.Node key "interactive-markdown/status" reason R.Content (S.InformationText Information.Status) []
+ else S.Node key "interactive-markdown/diagnostic" "交互内容错误" R.Alert (S.Fact(path+++": "+++reason)) [].
 Definition region key children : scene := S.Node key "interactive-markdown/region" "" R.Content S.Region children.
 Definition button key label action (active:bool) : scene :=
  S.Node key "interactive-markdown/control" label R.Button
@@ -54,7 +58,7 @@ Theorem unformatted_number_preserves_its_text source :
 Proof. reflexivity. Qed.
 Definition feedback_text path b := match State.feedback_at path b with
  |Some (FeedbackEntry _ (Waiting _ _ _))|Some (FeedbackEntry _ (CopyingDefinition _))=>"Pending"
- |Some (FeedbackEntry _ (Answered _ _ message))=>message|None=>"" end.
+ |_=>"" end.
 Definition field_scene identity event_id p binding local (active:bool) : scene :=
  let tag:=p.(description).(component_tag) in
  let display:=if String.eqb tag "slider"||String.eqb tag "checkbox"||String.eqb tag "select"
@@ -63,7 +67,10 @@ Definition field_scene identity event_id p binding local (active:bool) : scene :
    (if active then Some (fun value=>Some (ValueChanged event_id value)) else None) in
  S.Node (Types.event_key event_id+++"/@input") "interactive-markdown/edit" (property_text "label" p)
   R.Field (S.InteractiveEdit identity event_id.(path) editor)
-  (match local.(validation) with Some reason=>[text (Types.event_key event_id+++"/@invalid") reason]|None=>[] end).
+  (match local.(validation) with
+   |Some reason=>[S.Node (Types.event_key event_id+++"/@input/validation")
+     "interactive-markdown/validation" reason R.Alert (S.InformationText Information.Status) []]
+   |None=>[] end).
 Definition table_columns children := fold_right (fun node rest=>match node with
  |Mounted _ p _ _=>if match p.(description).(component_role) with Column=>true|_=>false end then p::rest else rest
  |_=>rest end) [] children.
@@ -187,10 +194,10 @@ Fixpoint grid_rows fuel event_id p index columns nodes : list scene := match fue
    grid_rows fuel event_id p (S index) columns (skipn columns nodes) end.
 Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:list expanded) budget : list scene*nat :=
  match fuel with
- |O=>([text "interactive-limit" "Render node limit"],budget)
+ |O=>([diagnostic_node "interactive-limit" "ui" "Render node limit"],budget)
  |S k=>let result:=fold_left (fun result node=>let '(reversed,budget):=result in
    match node with
-   |Message key reason=>(text key reason::reversed,budget)
+   |Message key reason=>(diagnostic_node key key reason::reversed,budget)
    |Mounted event_id p binding children=>
     let key:=Types.event_key event_id in
     let '(rendered,budget):=render_nodes k identity b prepared children budget in
@@ -201,8 +208,9 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
      |Field,FieldLink id active=>match find_local id b.(locals) with
        |Some local=>[field_scene identity event_id p binding local active]|None=>[text (key+++"/@missing") "Field state no longer exists"] end
      |Action,ActionLink action availability=>
-       [button (key+++"/@button") (property_text "label" p) (ActionClicked event_id) (match availability with Enabled=>true|_=>false end);
-        text (key+++"/@feedback") (feedback_text event_id.(path) b)]
+       button (key+++"/@button") (property_text "label" p) (ActionClicked event_id) (match availability with Enabled=>true|_=>false end)::
+        (let notice:=feedback_text event_id.(path) b in if String.eqb notice ""then[]else
+         [diagnostic_node (key+++"/@feedback") ("@feedback/"+++event_id.(path)) notice])
      |TextLeaf,_=>[text (key+++"/@text") (property_text "label" p)]
      |MarkdownLeaf,_=>[S.Node (key+++"/@markdown") "interactive-markdown/markdown" "" R.Content (S.EmbeddedMarkdown (property_text "value" p)) []]
      |MetricLeaf,_=>[text (key+++"/@value") (metric p)]
@@ -236,17 +244,31 @@ Fixpoint expansion_cost (fuel : nat) (nodes : list expanded) : nat :=
       | Message _ _ => S cost
       | Mounted _ p _ children => presentation_cost p children + expansion_cost remaining children + cost end) 0 nodes
   end.
+Definition feedback_diagnostics b :list diagnostic:=
+ flat_map(fun feedback=>match feedback.(feedback_transaction)with
+  |Answered _ _ message=>if String.eqb message ""then[]else
+    [Diagnostic(if String.eqb feedback.(feedback_path) "@storage"then "@storage"
+       else "@feedback/"+++feedback.(feedback_path))message false]
+  |_=>[]end)b.(feedbacks).
+Definition content_diagnostics b prepared:=
+ feedback_diagnostics b++
+ (match b.(syntax).(syntax_error)with Some reason=>[Diagnostic "ui" reason true]|None=>[]end)++
+ prepared.(diagnostics)++
+ (match b.(storage_notice)with Some reason=>[Diagnostic "@storage" reason false]|None=>[]end).
+Definition diagnostic_nodes identity issues:=
+ map(fun indexed=>let '(index,issue):=indexed in
+  diagnostic_node(CodeSource.key identity+++"/@diagnostic/"+++show_natural(N.of_nat index))
+    issue.(diagnostic_path)issue.(diagnostic_message))
+  (combine(seq 0(List.length issues))issues).
 Definition admitted_content identity b prepared nodes budget :=
-  if Nat.leb (expansion_cost 64 nodes + List.length prepared.(diagnostics)) Bounds.expanded_components
-  then fst (render_nodes 64 identity b prepared nodes budget)
-  else [text (CodeSource.key identity+++"/@presentation-limit") "交互界面展开超过 4096 个节点；局部输入已保留，请查看源码。"].
+  let issues:=content_diagnostics b prepared in
+  if Nat.leb (expansion_cost 64 nodes + List.length issues) Bounds.expanded_components
+  then fst (render_nodes 64 identity b prepared nodes budget)++diagnostic_nodes identity issues
+  else [diagnostic_node (CodeSource.key identity+++"/@presentation-limit") "ui" "交互界面展开超过 4096 个节点；局部输入已保留，请查看源码。"].
 Definition content identity b prepared nodes budget : list scene :=
  let key:=CodeSource.key identity in
  admitted_content identity b prepared nodes budget++
- map (fun reason=>text (key+++"/@diagnostic/"+++reason) reason) prepared.(diagnostics)++
- (match b.(syntax).(syntax_error) with Some reason=>[text (key+++"/@syntax") reason]|None=>[] end)++
  (match b.(block_ending) with Interrupted=>[text (key+++"/@interrupted") "生成未完成（仅保留在本次浏览器会话）"]|_=>[] end)++
- (match b.(storage_notice) with Some reason=>[text (key+++"/@storage") reason]|None=>[] end)++
  [S.Node (key+++"/@source-controls") "interactive-markdown/source-controls" "" R.Toolbar S.Region
   [button (key+++"/@disclose") (if source_open b then "收起源码" else "展开源码") (SourceDisclosure b.(block_owner)) true]].
 Definition fence identity b prepared nodes budget : scene :=

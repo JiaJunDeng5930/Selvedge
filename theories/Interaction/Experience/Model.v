@@ -34,10 +34,21 @@ Definition root_object e := match e with
 | NewTask None => TaskDraft | Message task => TaskObject task
 | Project id => ProjectObject id | TaskGraph id _ => GraphObject id
 | _ => EditorObject e end.
-Definition subject_object {e} (s : subject e) := match subject_declaration s with
+Definition field_object e field := match field with
 | WorkspacePrimary | WorkspaceDirectories | TaskEnvironment => WorkspaceObject e
 | ModelProfile | ReasoningEffort | SandboxMode | NetworkAccess | ApprovalPolicy | ApprovalReviewer => ExecutionObject e
-| _ => root_object e end.
+| _ => match e,field with
+  | Message task,MessageText | Message task,DeliveryIntent => MessageDraftObject task
+  | Project id,_ => ProjectObject id | TaskGraph id _,_ => GraphObject id
+  | _,_ => EditorObject e end end.
+Definition subject_object {e} (s : subject e) := field_object e (subject_declaration s).
+Definition object_eq_dec : forall left right:object,{left=right}+{left<>right}.
+Proof. decide equality;try apply Identity.editor_eq_dec;try apply N.eq_dec;decide equality;apply N.eq_dec. Defined.
+Definition group_owner e fields := match fields with
+| [] => root_object e
+| first::rest => let owner:=field_object e first in
+  if forallb (fun field=>if object_eq_dec (field_object e field) owner then true else false) rest
+  then owner else root_object e end.
 
 Inductive property_kind := ProjectProperty | WorkspaceProperty | PermissionsProperty | ModelProperty | DeliveryProperty.
 Inductive property_state := Selected | Absent | Invalid | UnavailableObservation.

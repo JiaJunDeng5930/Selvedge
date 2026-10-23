@@ -40,15 +40,27 @@ Definition publication_state source : option Publication.state :=
  |Some generation,Some phase,Some namespace,Some sequence=>
  match phase with "awaiting"=>Some(Publication.State generation Publication.AwaitingDocument namespace sequence)
  |"prepared"=>Some(Publication.State generation Publication.Prepared namespace sequence)
- |"published"=>Some(Publication.State generation Publication.Published namespace sequence)|_=>None end
+ |"published"=>Some(Publication.State generation Publication.Published namespace sequence)
+ |"awaiting_presentation"=>Some(Publication.State generation Publication.AwaitingPresentation namespace sequence)
+ |"prepared_presentation"=>Some(Publication.State generation Publication.PreparedPresentation namespace sequence)
+ |"recovery"=>match string_field "reason" source with Some reason=>Some(Publication.State generation(Publication.Recovering reason)namespace sequence)|None=>None end
+ |_=>None end
  |_,_,_,_=>None end.
 Definition publication_json state := JObject [
  ("generation",binary_json(Publication.generation state));
- ("phase",JString(match Publication.current_phase state with Publication.AwaitingDocument=>"awaiting"|Publication.Prepared=>"prepared"|Publication.Published=>"published" end));
+ ("phase",JString(match Publication.current_phase state with Publication.AwaitingDocument=>"awaiting"|Publication.Prepared=>"prepared"|Publication.Published=>"published"|Publication.AwaitingPresentation=>"awaiting_presentation"|Publication.PreparedPresentation=>"prepared_presentation"|Publication.Recovering _=>"recovery" end));
+ ("reason",match Publication.recovery_reason state with Some reason=>JString reason|None=>JNull end);
  ("namespace",JString(Publication.namespace state));("sequence",binary_json(Publication.sequence state))].
 Definition publication_call source :=
  match publication_state source,string_field "event" source with
  |Some state,Some "advance"=>success(publication_json(Publication.advance state))
+ |Some state,Some "present"=>success(publication_json(Publication.present state))
+ |Some state,Some "semantic_pending"=>success(JBool(Publication.semantic_pending state))
+ |Some state,Some "invalidate"=>success(publication_json(Publication.invalidate state))
+ |Some state,Some "failure"=>match string_field "reason" source with
+ |Some reason=>success(publication_json(Publication.failed reason state))|None=>invalid "Recovery requires its failure reason" end
+ |Some state,Some "retry"=>success(publication_json(Publication.retry state))
+ |Some state,Some "recovery"=>success(match Publication.recovery_reason state with Some reason=>JString reason|None=>JNull end)
  |Some state,Some "ready"=>success(JBool(Publication.fresh state))
  |Some state,Some "document"=>match binary_field "receipt_generation" source with
  Some n=>success(publication_json(Publication.document_ready n state))|None=>invalid "Document receipt requires its generation" end
@@ -56,13 +68,23 @@ Definition publication_call source :=
  Some n=>success(publication_json(Publication.publish n state))|None=>invalid "Publication receipt requires its generation" end
  |Some state,Some "admit"=>match binary_field "receipt_generation" source with
  Some n=>success(JBool(Publication.admit n state))|None=>invalid "Input requires its publication generation" end
- |Some state,Some "refresh"=>match string_field "source_namespace" source,binary_field "source_sequence" source with
- Some ns,Some seq=>success(JBool(Publication.refresh_needed ns seq (bool_value "sources_fresh" source) state))
- |_,_=>invalid "Commit notice requires namespace and sequence" end
+ |Some state,Some "refresh"=>match field "connection" source with
+ |Some raw=>match Services.decode_connection raw with
+ |Some connection=>success(JBool(Publication.refresh_needed (string_field "source_namespace" source)
+   (binary_field "source_sequence" source) (bool_value "sources_fresh" source) connection state))
+ |None=>invalid "Commit notice requires its current connection" end
+ |None=>invalid "Commit notice requires its current connection" end
+ |Some state,Some "completion"=>match string_field "expected_namespace" source,string_field "incoming_namespace" source with
+ |Some expected,Some incoming=>success(JBool(Publication.admit_completion expected incoming state))
+ |_,_=>success(JBool false)end
  |_,_=>invalid "Publication requires a valid state and event" end.
-Definition snapshot_receipt origin accepted source :=
+Definition snapshot_receipt origin accepted authenticated source :=
  success(JObject[("accepted",JBool accepted);
-   ("sources_fresh",JBool(Publication.snapshot_freshness origin accepted
+   ("authenticated",JBool authenticated);
+   ("install_world",JBool(match publication_state source,string_field "incoming_namespace" source,binary_field "incoming_sequence" source with
+     |Some current,Some incoming,Some seq=>accepted&&Publication.install_snapshot incoming seq current
+     |_,_,_=>false end));
+   ("sources_fresh",JBool(Publication.snapshot_freshness origin authenticated
      (bool_value "sources_fresh" source))) ]).
 Definition snapshot_call source :=
  match publication_state source,string_field "expected_namespace" source,
@@ -73,10 +95,11 @@ Definition snapshot_call source :=
    (match field "connection" source with
     |Some value=>Services.decode_connection value|None=>None end) with
  |Some ticket,Some connection=>snapshot_receipt Publication.Authentication
-   (Publication.admit_authenticated_snapshot ticket connection expected incoming seq state) source
+   (Publication.admit_authenticated_snapshot ticket connection expected incoming seq state)
+   (Publication.admit_authentication ticket connection expected incoming state) source
  |_,_=>invalid "Authenticated snapshot requires its current connection and request ticket" end
  else snapshot_receipt Publication.ExistingSession
-   (Publication.admit_snapshot Publication.ExistingSession expected incoming seq state) source
+   (Publication.admit_snapshot Publication.ExistingSession expected incoming seq state) false source
  |_,_,_,_=>invalid "Snapshot requires request scope and source cursor" end.
 Definition measurement_failure_call source :=
  match binary_field "measured_generation" source,binary_field "current_generation" source,
@@ -230,11 +253,15 @@ Definition focus_plan source := match array_field "previous" source,array_field 
 Definition row_direction_name direction := match direction with
  |Layout.Horizontal=>"row"|Layout.Vertical=>"column" end.
 Definition responsive_row_layout available row : option (list (string * json)) :=
- match field "full_preferred" row,field "compact_preferred" row with
+ match field "full_preferred" row,field "compact_minimum" row with
  |None,None=>match natural_field "minimum" row with
-   |Some minimum=>Some[("direction",JString(row_direction_name(Layout.row_flow available minimum)))]
+   |Some minimum=>match field "nested_compact_minimum" row with
+    |None=>Some[("direction",JString(row_direction_name(Layout.row_flow available minimum)))]
+    |Some _=>match natural_field "nested_compact_minimum" row with
+     |Some compact=>Some[("direction",JString(row_direction_name(Layout.row_flow available (Nat.min minimum compact))))]
+     |None=>None end end
    |None=>None end
- |Some _,Some _=>match natural_field "full_preferred" row,natural_field "compact_preferred" row with
+ |Some _,Some _=>match natural_field "full_preferred" row,natural_field "compact_minimum" row with
    |Some full,Some compact=>let choice:=ControlContent.choose_supporting available full compact in
      Some[("direction",JString(row_direction_name(ControlContent.supporting_direction choice)));
        ("supporting_form",JString(ControlContent.form_name(ControlContent.supporting_representation choice)))]
@@ -259,7 +286,10 @@ Definition code_document env physical_view state :=
  (([("type","button");("aria-label",CodeBlock.control_label view control)]++
  (match control with CodeBlock.WrapControl=>[("aria-pressed",Document.flag(CodeBlock.presented_wrap view))]
  |CodeBlock.CopyControl=>match CodeBlock.presented_copy view with CodeBlock.Pending _=>[("data-interactive-motion","spin")]|_=>[]end end))++Document.disabled(CodeBlock.control_enabled view control))
- (NativeAppearance.role_properties env Roles.Button)
+ (NativeAppearance.role_properties env (match control with
+  |CodeBlock.CopyControl=>match CodeBlock.presented_copy view with
+    |CodeBlock.Feedback _ false=>Roles.DestructiveButton|_=>Roles.Button end
+  |_=>Roles.Button end))
  [DOM.Binding "click" "activate" (DOM.CodeTarget(CodeBlock.encode_input(CodeBlock.control_input control)))]
  (JObject[]) (Document.glyph(match control with CodeBlock.WrapControl=>"wrap-lines"|CodeBlock.CopyControl=>
  match CodeBlock.presented_copy view with CodeBlock.Idle=>"copy-sheets"|CodeBlock.Pending _=>"spinner"|CodeBlock.Feedback _ true=>"check"|CodeBlock.Feedback _ false=>"warning"end end)))CodeBlock.controls))

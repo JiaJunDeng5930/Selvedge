@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Kernel Require Workspace.
 From Selvedge.Interaction Require Import Codec Resource Services CommandAssessment Identity.
 From Selvedge.Interaction.Session Require Draft State.
 From Selvedge.Interaction.Submission Require Parameters Values.
@@ -42,6 +43,7 @@ Theorem available_assignment_is_editable snapshot state e(assignment:assignment 
  Parameters.editable e(subject_declaration(assignment_subject assignment))=true.
 Proof.
  unfold assignment_available.
+ destruct(reviewer_assignment_reason snapshot(Draft.contents(State.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment)eqn:Shape;try discriminate.
  unfold assignment_shape_available in Shape. apply Bool.andb_true_iff in Shape.
  exact(fun _=>proj1 Shape).
@@ -57,6 +59,7 @@ Theorem available_live_assignment_has_current_authority snapshot state e(assignm
     (Draft.revision(State.current_draft state e))command=Available.
 Proof.
  intros Live. unfold assignment_available.
+ destruct(reviewer_assignment_reason snapshot(Draft.contents(State.current_draft state e))assignment);try discriminate.
  destruct(assignment_shape_available snapshot state assignment);try discriminate.
  rewrite Live. destruct(Values.candidate_command snapshot(State.now state)(State.current_draft state e)assignment)
   as[command|]eqn:Command;try discriminate.
@@ -82,12 +85,17 @@ Proof. reflexivity. Qed.
 (** The complete draft assessment retains every independently observed cause;
     presentation may choose attention without deleting the other causes. *)
 Theorem blocked_draft_preserves_all_requirements snapshot state e first rest:
- Services.connected(State.service_state state)=true ->
  draft_requirements snapshot state e=first::rest ->
- assessment_obstructions(assessment_outcome(observe_assessment snapshot state e))=first::rest.
+ exists restrictions,assessment_obstructions(assessment_outcome(observe_assessment snapshot state e))=
+  ((first::rest)++restrictions)%list.
 Proof.
- intros Connected Requirements. unfold observe_assessment.
- rewrite Connected,Requirements. reflexivity.
+ intros Requirements. unfold observe_assessment,preliminary_assessment. rewrite Requirements.
+ destruct(negb(Services.connected(State.service_state state)));cbn[assessment_outcome];
+ try(eexists;reflexivity).
+ destruct(Services.blocks e(State.service_state state));cbn[assessment_outcome];try(eexists;reflexivity).
+ destruct(negb(Session.Observation.worktree_submission_allowed snapshot state(State.current_draft state e)));cbn[assessment_outcome];
+ try(eexists;reflexivity).
+ exists[]. rewrite app_nil_r. reflexivity.
 Qed.
 
 Theorem attention_is_an_actual_nonpassive_cause e(outcome:assessment_result e)cause:
@@ -95,7 +103,7 @@ Theorem attention_is_an_actual_nonpassive_cause e(outcome:assessment_result e)ca
  In cause(assessment_obstructions outcome) /\
  obstruction_code cause<>"empty_message" /\ obstruction_code cause<>"pending".
 Proof.
- unfold attention_obstruction. intros Found.
+ unfold attention_obstruction,passive_obstruction. intros Found.
  apply find_some in Found as[Member Active]. split;[exact Member|].
  apply Bool.negb_true_iff in Active. apply Bool.orb_false_iff in Active as[Empty Pending].
  apply String.eqb_neq in Empty. apply String.eqb_neq in Pending. auto.
@@ -116,3 +124,30 @@ Theorem unavailable_model_retains_saved_profile_and_effort snapshot e(subject:su
  UnavailableInformation(String.append "Missing model "
   (String.append key(String.append " · Reasoning: " effort))).
 Proof. intros Missing. unfold information_of. rewrite Missing. reflexivity. Qed.
+
+Theorem message_text_belongs_to_the_message_draft task (subject:Model.subject(Identity.Message task)):
+ Model.subject_declaration subject=Fields.MessageText ->
+ Model.subject_object subject=Model.MessageDraftObject task.
+Proof. intro Field. unfold Model.subject_object. rewrite Field. reflexivity. Qed.
+
+Theorem message_delivery_belongs_to_the_message_draft task (subject:Model.subject(Identity.Message task)):
+ Model.subject_declaration subject=Fields.DeliveryIntent ->
+ Model.subject_object subject=Model.MessageDraftObject task.
+Proof. intro Field. unfold Model.subject_object. rewrite Field. reflexivity. Qed.
+
+Theorem choosing_primary_preserves_admitted_workspace workspace primary :
+ Selvedge.Kernel.Workspace.valid_workspace workspace=true ->
+ Selvedge.Kernel.Workspace.valid_workspace(Values.choose_primary workspace primary)=true.
+Proof.
+ intros Valid. unfold Values.choose_primary.
+ destruct primary as[path|];[|exact Valid].
+ destruct(existsb(String.eqb path)(Selvedge.Kernel.Domain.workspace_roots workspace))eqn:Member;[|exact Valid].
+ unfold Selvedge.Kernel.Workspace.valid_workspace in *.
+ apply Bool.andb_true_iff in Valid as[Roots Previous].
+ apply Bool.andb_true_iff. split;[exact Roots|exact Member].
+Qed.
+
+Theorem existing_graph_draft_keeps_owner graph declaration parsed left_work right_work revision feedback entry :
+ Draft.owner(Draft.Draft revision(Draft.TaskGraphBody(Some graph)declaration parsed left_work)feedback entry)=
+ Draft.owner(Draft.Draft revision(Draft.TaskGraphBody(Some graph)declaration parsed right_work)feedback entry).
+Proof. reflexivity. Qed.

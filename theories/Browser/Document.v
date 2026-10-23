@@ -49,7 +49,7 @@ Definition control_attributes {A} (focusable help:bool) (action:Model.control A)
    [("data-help",description)] else []).
 Definition checkbox_target (env : Layout.environment) key (field:DOM.node) :=
  let target:=Typography.px Layout.base_motor_minimum in
- DOM.Element (String.append key "/checkbox-target") "span" [("data-control-target","checkbox")]
+ DOM.Element (String.append key "/checkbox-target") "label" [("data-control-target","checkbox")]
  [("display","grid");("place-items","center");("inline-size",target);("min-inline-size",target);
   ("block-size",target);("min-block-size",target);("flex","none");("cursor","pointer")]
  [] empty [field].
@@ -129,8 +129,8 @@ Definition editor {A} env key label generation owner field (value:Model.edit_con
  | Fields.Multiline | Fields.StructuredText=>DOM.Element key "textarea"
  (attrs ++ [("value",text);("data-field-entry","multiline")])
  (styles ++ [("field-sizing","content")] ++
- (match field with Fields.MessageText=>[("min-block-size",Typography.px (Nat.max (Layout.input_minimum_height(Layout.parameters env))
-   (Layout.input_line_height (Layout.parameters env) * Layout.writing_lines)))]|_=>[]end) ++
+ (match field with Fields.MessageText=>[("min-block-size",Typography.px
+   (Layout.input_line_height (Layout.parameters env) * Layout.writing_lines))]|_=>[]end) ++
  [("max-block-size",Typography.px (Layout.input_line_height (Layout.parameters env) *
    (Layout.input_maximum_height (Layout.parameters env) / Layout.input_line_height (Layout.parameters env))))]) events metadata []
  | Fields.PositiveInteger=>DOM.Element key "input"
@@ -182,7 +182,8 @@ Definition interactive_editor {A} env key label generation (component:option IP.
 Definition label_field env activity key label (beside:bool) (field:DOM.node) :=
  DOM.Element (String.append key "/field-wrapper") (if beside then "label"else"div") []
  (Layout.member_properties env activity false ++[("display","flex");
- ("flex-direction",if beside then "row"else"column")]) [] empty
+ ("flex-direction",if beside then "row"else"column");
+ ("inline-size",if beside then "100%"else"fit-content");("max-inline-size","100%")]) [] empty
  [DOM.Element (String.append key "/field-label") "span" []
  (NativeAppearance.information_properties env activity Information.FieldLabel) [] empty [DOM.Text label];field].
 Definition graphic_tone color := ("var(--color-token-" ++ match color with
@@ -220,11 +221,17 @@ Definition glyph name := if String.eqb name "spinner" then
  [("inline-size","16px");("block-size","16px");("flex","none")] [] empty (artwork name)] else artwork name.
 Module C := ControlPurpose.
 Inductive area := PageArea|ComposerArea|ToolbarArea|DialogArea|MenuArea|NavigationArea
- |TouchNavigationArea|BoardLaneArea|CardArea|CollectionArea|CodeArea.
+ |TouchNavigationArea|BoardLaneArea|BoardViewArea|CardArea|CollectionArea|CodeArea|ChoiceGroupArea.
 Definition area_for {A} inherited role (meaning:S.meaning A) := match meaning with
  |S.BoardLane _ _=>BoardLaneArea|S.WorkspaceCollection _ _=>CollectionArea|S.CodeFacts _=>CodeArea
- |_=>match role with Roles.Composer=>ComposerArea|Roles.Toolbar=>ToolbarArea
- |Roles.Dialog|Roles.DialogActions=>DialogArea|Roles.Menu=>MenuArea
+ |S.ActionUnit _ _=>ComposerArea
+ |S.ChoiceGroup|S.DecisionGroup _ _=>ChoiceGroupArea
+ |S.BoardGroup S.ViewChoices=>BoardViewArea
+ |S.BoardGroup S.SecondaryActions|S.BoardGroup S.PrimaryAction=>ToolbarArea
+ |_=>match role with Roles.Composer|Roles.ComposerActions=>ComposerArea
+ |Roles.Heading=>ToolbarArea|Roles.CodeBlock=>CodeArea|Roles.Field=>CollectionArea
+ |Roles.Toolbar=>match inherited with ComposerArea=>ComposerArea|_=>ToolbarArea end
+ |Roles.Dialog|Roles.DialogActions|Roles.Details=>DialogArea|Roles.Menu=>MenuArea
  |Roles.GlobalNavigation _|Roles.Navigation=>NavigationArea
  |Roles.CompactHeader|Roles.CompactNavigationMenu|Roles.CompactNavigationEntry _=>TouchNavigationArea
  |Roles.Card=>CardArea|_=>inherited end end.
@@ -295,6 +302,7 @@ Definition control_geometry_properties env (activity : bool) role area purpose i
    ("padding-inline",Typography.px (scale (Enclosure.inline_inset edges)));
    ("padding-block",Typography.px (scale (Enclosure.block_inset edges)));
    ("gap",Typography.px (scale (control_gap value)));
+   ("align-items",if activity && choice then "flex-start"else"center");
    ("justify-content",if icon then "center" else "flex-start");
    ("--control-icon-size",Typography.px (scale 16))] ++
   if icon then
@@ -317,7 +325,8 @@ Definition meaning_geometry {A} (describe : A -> C.purpose) env activity role ar
   | _, S.Activate action | _, S.SettingEntry _ _ action | _, S.ActionCommit _ _ action
   | _, S.PanelToggle _ action | _, S.SkillSuggestion _ action => properties action false false
   | _, S.SupportingControl _ _ _ action => properties action false true
-  | _, S.Choice _ _ _ action => properties action true false
+  | _, S.Choice _ _ _ action => properties action
+      (match area with BoardViewArea=>false|_=>true end) false
   | _, _ => [] end.
 Definition purpose_attributes purpose := match purpose with
  |C.MoreActions expanded|C.OpenPanel _ _ expanded|C.ChooseValue expanded
@@ -339,7 +348,10 @@ Definition face_children purpose area role label children :=
  match role with
  |Roles.WorkTab _=>text
  |Roles.WorkOverviewButton count=>artwork "columns"++[DOM.Text(text_number count)]
- |Roles.CompactWorkScope title count=>text++[DOM.Text(text_number count)]
+ |Roles.CompactWorkScope title count=>
+   [DOM.Element "" "span" (ControlContent.single_line_attributes title)
+     (ControlContent.single_line_properties++[("flex","1 1 0%")]) [] empty [DOM.Text title];
+    DOM.Element "" "span" [] [("flex","none")] [] empty [DOM.Text(text_number count)]]
  |Roles.GlobalNavigationEntry _ compact=>if compact then icon else icon++text
  |Roles.CompactNavigationEntry _=>icon++text
  |_=>match purpose with
@@ -348,6 +360,17 @@ Definition face_children purpose area role label children :=
  |C.SelectedOption checked=>text++if checked then artwork "check"else[]
  |C.NavigateTo _=>icon++match role with Roles.GlobalNavigationEntry _ true=>[]|_=>text end
  |_=>if icon_only purpose area then icon else icon++text end end.
+Definition choice_content env (activity : bool) key (selected : bool) (leading content : list DOM.node) :=
+ let scale amount:=if activity then Typography.scaled(Layout.root_font_size_milli env)amount else amount in
+ leading ++
+ [DOM.Element (key++"/choice-text")%string "span" []
+   [("display","flex");("flex-direction","column");("gap",Typography.px(scale 2));
+    ("flex","1 1 0%");("min-inline-size","0");("text-align","start")] [] empty content;
+  DOM.Element (key++"/choice-mark")%string "span" [("aria-hidden","true")]
+   [("display","flex");("align-items","center");("justify-content","center");
+    ("inline-size",Typography.px(scale 20));("block-size",Typography.px(scale 20));
+    ("--control-icon-size",Typography.px(scale 16));("flex","none")]
+   [] empty (if selected then glyph "check" else [])].
 Fixpoint commit_key {A} (value:S.node A) : option string :=
  match S.node_meaning value with S.ActionCommit _ _ _=>Some (S.node_key value)
  | _=>(fix search (nodes:list(S.node A)):=match nodes with []=>None|head::tail=>
@@ -356,7 +379,7 @@ Definition component_context {A} (current:option IP.component) (meaning:S.meanin
  match meaning with S.InteractiveNode value=>Some value|_=>current end.
 Definition source_context {A} (current:S.meaning A) (meaning:S.meaning A) :=
  match meaning with
- | S.ActivityRow _ | S.ActivityGroup _ _ _ _ | S.LayerRegion _ => meaning
+ | S.ActivityRow _ | S.ActivityGroup _ _ _ _ | S.LayerRegion _ | S.WorkOverviewRegion _ => meaning
  | S.Region | S.InformationText _ => current
  | _ => match current with S.ActivityRow S.SupportingRow => current | _ => meaning end end.
 Definition available_placements {A} (values:list(S.placement A)) :=
@@ -377,27 +400,55 @@ Definition task_status_symbol status (working:bool) :=
  if String.eqb status "active"then if working then "play-triangle"else"idle-circle"
  else if String.eqb status "frozen"then"pause-bars"
  else if String.eqb status "stopped"then"stop-square"else"archive-box".
-Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : DOM.node :=
- let key:=S.node_key value in let label:=S.node_label value in
- let meaning:=S.node_meaning value in let role:=S.node_role value in
- let current_area:=area_for inherited_area role meaning in
- let children:=map (compile_node describe env generation current_area
- (match meaning with S.ActivityGroup _ _ _ _=>true|_=>activity end)
- (source_context source meaning) (match meaning with S.PageContext current=>current|_=>view end) (component_context component meaning)) (S.node_children value) in
- let children:=match ControlContent.container_content describe glyph env key label role meaning (S.node_children value) children with Some content=>content|None=>children end in
- let supporting:=match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end in
- let attrs:=common key (S.semantic_key value) label role ++
- NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
- (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
- (if supporting then ControlContent.support_row_attributes key else []) in
- let styles:=NativeAppearance.role_properties_at env activity role ++
- (match meaning with S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
- |Model.AnchoredMenu=>[("position","fixed");("inset","auto");("position-area","bottom span-right");
- ("position-try-fallbacks","flip-block, flip-inline, flip-block flip-inline");
- ("position-try-order","most-block-size");("margin","0") ]
+Definition native_field_stretches {A} (meaning:S.meaning A) :=
+ match meaning with
+ | S.Edit _ subject control =>
+   negb (ControlPurpose.toggle_widget (UX.subject_declaration subject)
+     (Model.editing_observation control))
+ | S.InteractiveEdit _ _ control =>
+   match IP.editing_shape control with Local.Boolean=>false|_=>true end
+ | S.HistorySearchQuery _ _ _ | S.HistorySearchScope _ _ _ _
+ | S.SearchChoices _ _ | S.BoardSearch _ _ | S.BoardProfile _ _ _ _ _
+ | S.ReceiveFile _ _ _ | S.EnterDirectory _ _ _ _ => true
+ | _ => false end.
+Definition native_field_width {A} (activity:bool) (meaning:S.meaning A) :=
+ if negb activity && native_field_stretches meaning then
+   [("inline-size","100%");("min-inline-size","0");("align-self","stretch")]
+ else [].
+(* Content alignment belongs to the container. Intrinsic controls retain their
+   own width when that container stretches its other children. *)
+Definition native_node_dimensions {A} role current_area (meaning:S.meaning A) :=
+ let intrinsic := match meaning with
+ | S.Activate _ | S.ActionCommit _ _ _ | S.PanelToggle _ _
+ | S.SupportingControl _ _ _ _ | S.SkillSuggestion _ _
+ | S.InformationText _ | S.Fact _ | S.ReadOnly _ => true
+ | S.Choice _ _ _ _ => match current_area with BoardViewArea=>true|_=>false end
+ | _ => match role with Roles.UserMessage=>true|_=>false end end in
+ [("inline-size",if intrinsic then "fit-content"else"100%");("block-size","fit-content")] ++
+ match role with Roles.UserMessage=>[("align-self","flex-end")]|_=>[]end.
+Definition node_styles {A} (describe:A->C.purpose) env activity (source:S.meaning A) role
+    (meaning:S.meaning A) current_area (supporting responsive:bool) :=
+let styles:=NativeAppearance.role_properties_at env activity role ++
+ native_node_dimensions role current_area meaning ++
+ (match meaning with S.LayerRegion behavior|S.WorkOverviewRegion behavior|S.ActivityGroup _ _ _ behavior=>match Model.layer_presentation behavior with
+ |Model.AnchoredMenu=>[("position","fixed");("inset","auto");
+  ("--layer-clearance",Typography.px(Layout.layer_clearance env));
+  ("--layer-gap",Typography.px(Layout.layer_unit env));
+  ("position-area","bottom span-right");("position-try-fallbacks","flip-block, --native-menu-confined");
+  ("position-try-order","normal");("align-self","start");("justify-self","start");
+  ("top","calc(var(--layer-gap) - var(--layer-clearance))");
+  ("left","calc(0px - var(--layer-clearance))");
+  ("margin",Typography.px(Layout.layer_clearance env));("block-size","fit-content")]
  |Model.TrailingDetails=>if Model.layer_beside behavior then [("inline-size",Typography.px(Layout.details_width(Layout.parameters env)));("flex","none")] else []
  |Model.ModalDialog=>[]end|_=>[]end) ++ SemanticAppearance.meaning_properties env activity meaning ++
  meaning_geometry describe env activity role current_area meaning ++ SemanticAppearance.source_properties env source meaning ++
+ (match meaning,current_area with
+  |S.Choice _ selected _ _,BoardViewArea=>
+    NativeAppearance.style_properties env (NativeAppearance.button_style(NativeAppearance.ChoicePaint selected)) ++
+    [("min-inline-size",Typography.px Layout.base_motor_minimum);("justify-content","center")]
+  |S.Choice _ true _ _,MenuArea=>[]
+  |S.Choice _ true _ _,_=>[("--control-rest-background","transparent")]
+  |_,_=>[]end) ++
  (match role with
  |Roles.WorkTabs=>[("display","flex");("flex-direction","row");("align-items","center");("min-block-size",Typography.px(Layout.toolbar_height(Layout.parameters env)));("flex","none");("overflow","hidden")]
  |Roles.WorkTabGroup=>[("display","flex");("flex-direction","row");("flex","1");("min-inline-size","0");("overflow-x","auto")]
@@ -408,20 +459,30 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |Roles.GlobalNavigation compact=>[("inline-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)(if compact then 48 else 84)));("flex","none")]|Roles.Navigation=>[("inline-size",Typography.px(Layout.navigation_width(Layout.parameters env)));("flex","none")]|Roles.Main=>[("flex","1");("min-inline-size","0")]|_=>[] end) ++
  (match meaning with S.SummaryList=>[("list-style","none");("padding","0");("margin","0")]|S.InteractiveNode c=>InteractiveAppearance.component_properties env c
  |S.InteractivePlacement p=>InteractiveAppearance.placement_properties env p|_=>[] end) ++
+ native_field_width activity meaning ++
  ControlContent.node_properties env role meaning ++
- (if supporting then ControlContent.support_row_properties else []) in
+ (match role,current_area with
+  |Roles.Toolbar,ComposerArea=>[("align-self","flex-start");("gap",Typography.px Layout.composer_clearance)]
+  |Roles.ComposerActions,_=>[("inline-size","100%")]
+  |_,_=>[]end) ++
+ (if supporting then ControlContent.support_row_properties
+  else if responsive then Layout.row_properties Layout.Vertical ++
+    [("inline-size","100%");("min-inline-size","0")] else []) in
  let styles:=match meaning with
- |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>
+ |S.LayerRegion behavior|S.WorkOverviewRegion behavior|S.ActivityGroup _ _ _ behavior=>
    if Model.modal_layer behavior then
-    let clearance:=Layout.clearance env in
+    let clearance:=match meaning with S.WorkOverviewRegion _=>Layout.work_overview_clearance|_=>Layout.layer_clearance env end in
     let viewport_width:=Nat.sub(Layout.viewport_width env)(2*clearance) in
-    let maximum_width:=Nat.min(Typography.scaled(Layout.root_font_size_milli env)640)viewport_width in
+    let reading_width:=match meaning with S.ActivityGroup _ _ _ _=>
+      SemanticAppearance.surface_maximum_width env|S.WorkOverviewRegion _=>
+      2*Layout.reading_maximum_width(Layout.parameters env)|_=>Layout.dialog_reading_width env end in
+    let maximum_width:=Nat.min reading_width viewport_width in
     let maximum_height:=Nat.sub(Layout.viewport_height env)(2*clearance) in
     match Model.layer_presentation behavior with
     |Model.AnchoredMenu=>
      (* The position area is the available side of the trigger; constrain a tall
         menu to that area so every action remains reachable by scrolling. *)
-     set_style "max-block-size" "100%"
+     set_style "max-block-size" (Typography.px maximum_height)
       (set_style "max-inline-size" (Typography.px maximum_width)
        (set_style "overflow" "auto" styles))
     |_=>set_style "max-block-size" (Typography.px maximum_height)
@@ -429,6 +490,34 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
        (set_style "overflow" "hidden" styles)) end
    else styles
  |_=>styles end in
+ let styles:=match meaning with S.WorkOverviewRegion _=>
+   set_style "inline-size" (Typography.px(Layout.work_overview_width env))
+    (set_style "block-size" (Typography.px(Layout.work_overview_height env)) styles)
+ |_=>styles end in
+ styles ++ match role with Roles.Alert=>
+   match meaning with S.InformationText _=>NativeAppearance.alert_color_properties
+   |_=>NativeAppearance.alert_properties env end
+ |_=>[]end.
+
+Definition compile_element {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) (children:list DOM.node) : DOM.node :=
+ let key:=S.node_key value in let label:=S.node_label value in
+ let meaning:=S.node_meaning value in let role:=S.node_role value in
+ let current_area:=area_for inherited_area role meaning in
+ let authored_children:=children in
+ let children:=match ControlContent.container_content describe glyph env key label role meaning (S.node_children value) children with Some content=>content|None=>children end in
+ let supporting:=match role with Roles.Toolbar=>ControlContent.support_row(S.node_children value)|_=>false end in
+ let responsive:=SemanticAppearance.responsive_row activity source role meaning in
+ let attrs:=common key (S.semantic_key value) label role ++
+ (match source,meaning with
+  |S.PageRegion Composition.ConversationTitle _,S.InformationText _
+  |S.WorkChoice _ _ _,S.InformationText _=>ControlContent.single_line_attributes label
+  |_,S.InformationText Information.NavigationCaption=>ControlContent.single_line_attributes label
+  |_,_=>[]end) ++
+ NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
+ (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
+ (if supporting then ControlContent.support_row_attributes key
+  else if responsive then [("data-native-responsive-row",key);("data-native-row-direction","column")] else []) in
+ let styles:=node_styles describe env activity source role meaning current_area supporting responsive in
  let element tag extra events metadata content:=DOM.Element key tag (attrs++extra) styles events metadata content in
  let button (submit:bool) action extra:=
  let purpose:=describe(Model.control_input action)in
@@ -460,14 +549,24 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  (match children with []=>[DOM.Text(Model.control_label action)]|_=>children end);
  DOM.Element(key++"/status-slot")%string "span"[("data-navigation-slot","status");("role","img");("aria-label",caption);("title",caption)]
  [("display","flex");("align-items","center");("justify-content","center");("inline-size","16px");("block-size","16px");("flex","none")][]empty(glyph(task_status_symbol status working))]
- |_,_=>face_children purpose current_area role(Model.control_label action)children end end) ++
+ |_,_=>match meaning with
+   |S.Choice _ selected _ _=>match current_area with
+    |BoardViewArea=>face_children purpose current_area role(Model.control_label action)authored_children
+    |_=>choice_content env activity key selected
+      (match purpose with C.BoardFilterChoice category value=>
+        match ControlContent.board_filter_glyph category value with Some name=>glyph name|None=>[]end|_=>[]end)
+      (match authored_children with []=>[DOM.Text(Model.control_label action)]|_=>authored_children end)end
+   |S.WorkChoice _ selected _=>choice_content env activity key selected []
+      (match authored_children with []=>[DOM.Text(Model.control_label action)]|_=>authored_children end)
+   |_=>face_children purpose current_area role(Model.control_label action)children end end end) ++
  (if help then [DOM.Element (String.append key "/help") "span"
    [("id",String.append key "/help");("class","visually-hidden")] [] [] empty
    [DOM.Text description]] else []))in
  match meaning with
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
- |S.ReadOnly text|S.Fact text=>element "span" [] [] empty [DOM.Text text]
+ |S.ReadOnly text|S.Fact text=>element "span"
+ (match role with Roles.Alert=>[("role","alert")]|_=>[]end) [] empty [DOM.Text text]
  |S.ActionFeedback _ _ message=>element "p"
  (match role with Roles.Alert=>[("role","alert");("aria-live","assertive")]|_=>[("role","status")]end)
  [] empty [DOM.Text message]
@@ -503,7 +602,8 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |S.ActionCommit _ _ action=>button true action []
  |S.WorkChoice _ selected action=>button false action [("aria-pressed",flag selected)]
  |S.Choice kind selected description action=>button false action
- ([("role",match kind with S.SingleChoice=>"radio"|S.MultipleChoice=>"checkbox" end);("aria-checked",flag selected)] ++
+ ((match current_area with BoardViewArea=>[("aria-pressed",flag selected)]
+   |_=>[("role",match kind with S.SingleChoice=>"radio"|S.MultipleChoice=>"checkbox" end);("aria-checked",flag selected)]end) ++
  let described:=descriptions(S.node_children value)in if String.eqb described ""then[]else[("aria-describedby",described)])
  |S.PanelToggle expanded action=>button false action [("aria-expanded",flag expanded)]
  |S.Edit owner subject value=>
@@ -523,7 +623,10 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  match IP.editing_validation value with None=>[]|Some message=>
  [DOM.Element (String.append key "/validation") "output" [("id",String.append key "/validation");("role","status")]
  [("color",NativeAppearance.token "--interactive-tone-danger")] [] empty [DOM.Text message]]end)
- |S.HistorySearchQuery query _=>element "input" [("type","search");("value",query);("placeholder",label)] [event key generation "input" "value" Gesture.Change] empty []
+ |S.HistorySearchQuery query _ confirm=>element "input" [("type","search");("value",query);("placeholder",label)]
+ ([event key generation "input" "value" Gesture.Change] ++
+  if Model.available(Model.control_availability confirm)
+  then [event key generation "keydown" "confirm" Gesture.Press] else []) empty []
  |S.HistorySearchScope project selected values _=>element "select" [("value",match selected with None=>""|Some n=>text_number n end)]
  [event key generation "change" "value" Gesture.Change] empty (choices (match selected with None=>""|Some n=>text_number n end) values)
  |S.BoardSearch selection _=>element "input" [("type","search");("value",BoardFilter.filter_query selection);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
@@ -537,10 +640,10 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  [event key generation "change" "value" Gesture.SelectBoardProfile] empty (choices selected values)
  |S.ActionUnit _ _=>element "form" [("novalidate","novalidate")]
  (match commit_key value with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
- |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>
+ |S.LayerRegion behavior|S.WorkOverviewRegion behavior|S.ActivityGroup _ _ _ behavior=>
  element (if Model.modal_layer behavior then "dialog" else "aside")
  ([("role",if Model.modal_layer behavior then "dialog" else "complementary");("aria-modal",flag (Model.modal_layer behavior))] ++
- match Model.layer_presentation behavior with Model.AnchoredMenu=>[("data-anchor",Model.layer_anchor behavior)]|_=>[]end)
+ match Model.layer_presentation behavior with Model.AnchoredMenu=>[("data-anchor",Model.layer_anchor behavior);("data-native-layer","menu")]|_=>[]end)
  [event key generation "cancel" "dismiss" Gesture.Dismiss] (layer_metadata key behavior) children
  |S.Graphic plot=>DOM.Element key "svg" (attrs++[("viewBox",("0 0 "++text_number (Npos (Graphics.width plot))++" "++text_number (Npos (Graphics.height plot)))%string);("role","img");
  ("width",text_number(Npos(Graphics.width plot)));("height",text_number(Npos(Graphics.height plot)))])
@@ -557,6 +660,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  [("data-reading-root","true");("data-task-id",text_number(Identity.task_view_task task_view));("data-reader-generation",text_number reader_generation)] [] empty children
  |S.PageBody page=>DOM.Element key (role_tag role) attrs (styles++Layout.page_properties env page) [] empty children
  |S.PageRegion region position=>element (role_tag role) [("data-page-region",Composition.region_name region)] [] empty children
+ |S.BoardGroup grouping=>element "div" (ControlContent.board_group_attributes grouping) [] empty children
  |S.MovableCard face destinations=>
  let offered:=available_placements destinations in
  DOM.Element key "select" (attrs++[("value","")]++disabled(match offered with []=>false|_=>true end))
@@ -603,8 +707,8 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
    (Audit.detail(Audit.face_source face)) true (JObject [])])audit else [])
  |S.SummaryList=>element "ul" [("role","list")]
  [] empty (map(fun child=>DOM.Element "" "li" [] [] [] empty [child])children)
- |S.SkillSuggestions field active=>DOM.Element key "div"
- (attrs++[("role","listbox");("data-anchor",field)])
+ |S.SkillSuggestions field expanded active=>DOM.Element key "div"
+ (attrs++[("role","listbox");("data-anchor",field)]++if expanded then[]else[("hidden","")])
  (styles++[("position","fixed");("position-try-fallbacks","flip-block");
  ("left","anchor(left, 16px)");("bottom","anchor(top, 96px)");("margin-bottom","6px");
  ("inline-size","anchor-size(width, min(32rem, calc(100vw - 32px)))");
@@ -632,7 +736,7 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
  |S.TaskChildren task=>element "div"[("role","group");("data-task-parent",text_number task)][]empty children
- |S.BoardGroup _|S.ActivityRow _|S.WorkspaceCollection _ _|S.WorkspaceMember _ _ _
+ |S.ActivityRow _|S.WorkspaceCollection _ _|S.WorkspaceMember _ _ _
  |S.ActionExplanation _ _|S.ObjectGroup _|S.Region|S.ProjectChooser _|S.DirectoryRow _ _
  |S.ContextSummary _=>element (role_tag role) [] [] empty children
  |S.CardContent face=>
@@ -661,13 +765,22 @@ Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area 
  (Layout.row_properties Layout.Horizontal++[("gap","12px")])[]empty
  (optional "owner"(Model.card_owner face)++optional "updated"(Model.card_updated face))])
  end.
+Fixpoint compile_node {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) : DOM.node :=
+ compile_element describe env generation inherited_area activity source view component value
+  (map (compile_node describe env generation
+    (area_for inherited_area (S.node_role value) (S.node_meaning value))
+    (match S.node_meaning value with S.ActivityGroup _ _ _ _=>true|_=>activity end)
+    (source_context source (S.node_meaning value))
+    (match S.node_meaning value with S.PageContext current=>current|_=>view end)
+    (component_context component (S.node_meaning value))) (S.node_children value)).
 Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  let current_view:=match S.node_meaning value with S.PageContext current=>current|_=>view end in
  let children:=flat_map (target_updates current_view) (S.node_children value) in
  match S.node_meaning value with
- |S.SkillSuggestions field active=>DOM.UpdateTarget field
- [("role","combobox");("aria-autocomplete","list");("aria-expanded","true");
- ("aria-controls",S.node_key value);("aria-activedescendant",match active with Some key=>key|None=>""end)] []::children
+ |S.SkillSuggestions field expanded active=>DOM.UpdateTarget field
+ [("aria-autocomplete","list");("aria-haspopup","listbox");
+ ("aria-controls",if expanded then S.node_key value else "");
+ ("aria-activedescendant",if expanded then match active with Some key=>key|None=>""end else "")] []::children
  |S.InteractiveRegion policy=>
  DOM.UpdateTarget (Observation.physical_target current_view (DocumentPublication.target_key (DocumentPublication.fence_identity policy) DocumentPublication.Source))
  [] (DocumentPublication.source_properties policy)::
@@ -677,7 +790,7 @@ Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  |_=>children end.
 Definition surface_scopes {A}(values:list(S.node A)) : list Focus.scope :=
  flat_map(fun node=>match S.node_meaning node with
- |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>
+ |S.LayerRegion behavior|S.WorkOverviewRegion behavior|S.ActivityGroup _ _ _ behavior=>
  if Model.modal_layer behavior then [Focus.Temporary (S.node_key node)
  (Model.layer_initial_attention behavior) (Model.layer_return_attention behavior)
  (Model.layer_fallback_attention behavior) (Some(Model.layer_occurrence behavior))]else[]
@@ -686,7 +799,7 @@ Definition is_global {A}(value:S.node A) := match S.node_role value with Roles.G
 Definition is_navigation {A}(value:S.node A) := match S.node_role value with Roles.Navigation=>true|_=>false end.
 Definition is_header {A}(value:S.node A) := match S.node_role value with Roles.WorkTabs|Roles.CompactHeader=>true|_=>false end.
 Definition beside_layer {A}(value:S.node A) := match S.node_meaning value with
- |S.LayerRegion behavior|S.ActivityGroup _ _ _ behavior=>negb(Model.modal_layer behavior)|_=>false end.
+ |S.LayerRegion behavior|S.WorkOverviewRegion behavior|S.ActivityGroup _ _ _ behavior=>negb(Model.modal_layer behavior)|_=>false end.
 Definition compile {A} (describe:A->C.purpose) env generation (surface:S.surface A) : json :=
  let all:=S.base surface ++ S.overlays surface in
  let compile:=compile_node describe env generation PageArea false S.Region None None in

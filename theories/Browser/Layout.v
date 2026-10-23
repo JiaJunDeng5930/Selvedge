@@ -64,6 +64,17 @@ Definition motor_minimum env := Nat.max base_motor_minimum
   (Typography.scaled (root_font_size_milli env) base_motor_minimum).
 Definition writing_lines := 2%nat.
 Definition clearance env := Typography.scaled (root_font_size_milli env) 12.
+Definition composer_clearance := 12%nat.
+Definition layer_unit env := Nat.max 1 (Nat.div (input_line_height (parameters env)) 4).
+Definition layer_clearance env := 2 * layer_unit env.
+Definition dialog_reading_width env :=
+  Nat.min (reading_maximum_width (parameters env)) (24 * input_line_height (parameters env)).
+Definition work_overview_clearance := 8%nat.
+Definition work_overview_width env := Nat.min (2 * reading_maximum_width (parameters env))
+  (viewport_width env - 2 * work_overview_clearance).
+Definition work_overview_height env := Nat.min (viewport_height env * 94 / 100)
+  (viewport_height env - 2 * work_overview_clearance).
+
 Record hierarchy := Hierarchy {
   hierarchy_member_gap : nat; hierarchy_heading_extra : nat;
   hierarchy_group_extra : nat; hierarchy_nesting_extra : nat
@@ -124,7 +135,10 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.ConversationTitle => [("flex","1 1 auto"); ("overflow","hidden"); ("white-space","nowrap")]
   | Composition.TaskActions => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
       ("align-items","center"); ("gap",Typography.px (Enclosure.separation Enclosure.InlineControls)); ("flex","none")]
-  | Composition.TimelineContent => [("flex","1 1 auto"); ("min-block-size","0"); ("overflow-y","auto")]
+  | Composition.BoardControls => [("display","flex"); ("flex-direction","row");
+      ("gap",Typography.px (Enclosure.separation Enclosure.ComposerControls))]
+  | Composition.TimelineContent => [("display","flex"); ("flex-direction","column");
+      ("flex","1 1 auto"); ("min-block-size","0"); ("overflow","hidden")]
   | Composition.ComposerInput => [("inline-size","100%"); ("max-inline-size",Typography.px (reading_maximum_width p));
       ("align-self","center")]
   | Composition.CreationIntroduction => [("text-align","center")]

@@ -64,7 +64,7 @@ Theorem unavailable_action_renders_an_unavailable_native_button {A} (describe : 
      (Surface.Node key semantic label Roles.Button (Surface.Activate action) children)).
 Proof.
  intro Unavailable.
- cbn [Document.compile_node Document.area_for unavailable_native_button].
+ cbn [Document.compile_node Document.compile_element Document.area_for unavailable_native_button].
  split; [reflexivity|].
  unfold Document.control_attributes; rewrite !Unavailable.
  cbn [Document.disabled Surface.node_role Surface.node_meaning Document.area_for].

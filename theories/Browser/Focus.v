@@ -69,6 +69,7 @@ Definition request previous current eligible : option(string*string) :=
  let before:=top previous in let after:=top current in
  if transition before after eligible then
  let returning:=match after with Document=>true|_=>existsb(same_scope after)previous end in
- if returning && changed before after then Some(restore before,fallback before)
+ if returning && changed before after then Some(restore before,
+   match after with Document=>fallback before|_=>initial after end)
  else Some(retained_scope_target before after eligible,fallback after)
  else None.

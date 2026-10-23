@@ -16,3 +16,7 @@ Theorem unavailable_commit_cannot_dispatch {A e} assessment (value:control A) re
  control_availability value=Unavailable reason ->
  resolve_meaning(ActionCommit e assessment value)Press input=None.
 Proof. apply unavailable_control_cannot_press. Qed.
+
+Theorem history_keyword_confirmation_uses_the_actual_search_control {A} query receive (confirm:control A) payload :
+ resolve_meaning(HistorySearchQuery query receive confirm)Press payload=press_control confirm.
+Proof. reflexivity. Qed.

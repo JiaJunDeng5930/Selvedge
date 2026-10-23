@@ -1,9 +1,9 @@
-From Stdlib Require Import Bool NArith.
+From Stdlib Require Import String Bool NArith.
 From Selvedge.Browser Require Import Publication.
 
 Theorem semantic_change_invalidates_old_element : forall current requested,
   admit requested (advance current) = false.
-Proof. intros; unfold admit, advance; simpl; apply andb_false_r. Qed.
+Proof. intros; unfold admit, advance; destruct(current_phase current); simpl; apply andb_false_r. Qed.
 Theorem unpublished_document_is_not_ready : forall generation namespace sequence,
   fresh (State generation Prepared namespace sequence) = false.
 Proof. reflexivity. Qed.
@@ -23,7 +23,7 @@ Theorem superseded_authentication_cannot_install_its_snapshot : forall
   admit_authenticated_snapshot ticket connection expected incoming incoming_sequence current = false.
 Proof.
   intros ticket connection expected incoming incoming_sequence current Stale.
-  unfold admit_authenticated_snapshot. rewrite Stale, andb_false_r. reflexivity.
+  unfold admit_authenticated_snapshot, admit_authentication. rewrite Stale, andb_false_r. reflexivity.
 Qed.
 Theorem inactive_connection_cannot_install_an_authenticated_snapshot : forall
   ticket connection expected incoming incoming_sequence current,
@@ -31,7 +31,7 @@ Theorem inactive_connection_cannot_install_an_authenticated_snapshot : forall
   admit_authenticated_snapshot ticket connection expected incoming incoming_sequence current = false.
 Proof.
   intros ticket connection expected incoming incoming_sequence current Inactive.
-  unfold admit_authenticated_snapshot. rewrite Inactive. reflexivity.
+  unfold admit_authenticated_snapshot, admit_authentication. rewrite Inactive. reflexivity.
 Qed.
 
 Theorem an_admission_refresh_does_not_restore_connection_freshness : forall accepted,
@@ -40,9 +40,43 @@ Proof. intro accepted; destruct accepted; reflexivity. Qed.
 Theorem an_admission_refresh_retains_connection_observation : forall accepted previous,
   snapshot_freshness ExistingSession accepted previous = previous.
 Proof. intros accepted previous; destruct accepted; reflexivity. Qed.
-Theorem accepted_authentication_restores_fresh_sources : forall previous,
+Theorem owned_authentication_restores_fresh_sources : forall previous,
   snapshot_freshness Authentication true previous = true.
 Proof. reflexivity. Qed.
-Theorem rejected_snapshots_retain_source_freshness : forall origin previous,
+Theorem unauthenticated_observations_retain_source_freshness : forall origin previous,
   snapshot_freshness origin false previous = previous.
 Proof. reflexivity. Qed.
+
+Theorem invalid_namespace_cannot_install_a_snapshot : forall origin expected incoming seq current,
+ Origin.valid_namespace incoming=false -> admit_snapshot origin expected incoming seq current=false.
+Proof. intros. unfold admit_snapshot. now rewrite H. Qed.
+Theorem foreign_completion_cannot_settle_a_request : forall expected incoming current,
+ String.eqb incoming(namespace current)=false -> admit_completion expected incoming current=false.
+Proof. intros. unfold admit_completion. rewrite H. apply andb_false_r. Qed.
+Theorem invalid_commit_sequence_refreshes : forall ns fresh connection current,
+ refresh_needed ns None fresh connection current=true.
+Proof. intros. destruct ns; reflexivity. Qed.
+Theorem recovery_survives_source_replacement : forall reason current,
+ recovery_reason(invalidate(failed reason current))=Some reason.
+Proof. reflexivity. Qed.
+Theorem observation_cannot_dismiss_recovery : forall reason current,
+ recovery_reason(advance(failed reason current))=Some reason.
+Proof. reflexivity. Qed.
+Theorem retry_reopens_document_preparation : forall current,
+ current_phase(retry current)=AwaitingDocument /\ recovery_reason(retry current)=None.
+Proof. split; reflexivity. Qed.
+
+Theorem equal_cursor_keeps_the_installed_world : forall current,
+ install_snapshot(namespace current)(sequence current)current=false.
+Proof. intro; unfold install_snapshot; now rewrite String.eqb_refl,N.ltb_irrefl. Qed.
+
+Theorem presentation_preserves_semantic_pending : forall current,
+ semantic_pending(present current)=semantic_pending current.
+Proof. intro; destruct current as [generation phase namespace sequence]; destruct phase; reflexivity. Qed.
+Theorem unpublished_semantic_change_survives_presentation : forall current,
+ semantic_pending(present(advance current))=true.
+Proof. intro; destruct current as [generation phase namespace sequence]; destruct phase; reflexivity. Qed.
+Theorem prepared_presentation_preserves_semantic_freshness : forall generation namespace sequence,
+ semantic_pending(State generation PreparedPresentation namespace sequence)=false /\
+ admit generation(State generation PreparedPresentation namespace sequence)=true.
+Proof. intros; split; [reflexivity|unfold admit; simpl; now rewrite N.eqb_refl]. Qed.

@@ -33,8 +33,8 @@ Definition decode_input request snapshot current raw:=match string_field "op" ra
 Definition feedback_update (error:option json) (visible acknowledge:bool) :=
  if visible || acknowledge then match error with
  |Some _=>"replace"|None=>"clear" end else "keep".
-Definition decision_packet current effects error handled visible_error acknowledge:=JObject[("state",SC.encode_state current);
- ("effects",JArray effects);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
+Definition decision_packet current effects error handled visible_error acknowledge (semantic_change:bool):=JObject[("state",SC.encode_state current);
+ ("effects",JArray effects);("publication_event",JString(if semantic_change then "advance"else"present"));("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled)].
 Definition refresh request snapshot decision:=match environment request with
 |Some env=>match surface snapshot(SA.result_state decision)env with
@@ -60,10 +60,10 @@ Definition call operation request:json:=
  else if String.eqb operation "step"then match field "input" request with
   |None=>Json.failure "InvalidInput" "An input observation is required."
   |Some raw=>match decode_input request snapshot current raw with
-   |None=>Json.success(decision_packet current [] None false false false)
+   |None=>Json.success(decision_packet current [] None false false false false)
    |Some input=>match string_field "namespace" request with
     |None=>Json.failure "InvalidNamespace" "The runtime namespace is required."
-    |Some namespace=>let decision:=refresh request snapshot(SR.step namespace snapshot(flag "display_lagged" request)input current)in
-     Json.success(decision_packet(SA.result_state decision)(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input))end end end
+    |Some namespace=>let decision:=refresh request snapshot(SR.step namespace snapshot(flag "semantic_lagged" request)input current)in
+     Json.success(decision_packet(SA.result_state decision)(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input)(Input.semantic_change input))end end end
  else Json.failure "UnknownOperation" operation
  |_,_=>Json.failure "InvalidState" "The typed application state and admitted world observation are required."end.

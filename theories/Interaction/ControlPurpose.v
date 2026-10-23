@@ -55,8 +55,8 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.ActivityAssignment _ _ _=>P.SelectedOption false
 |Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
 |Input.ClosePanel|Input.CloseSide=>P.Dismiss
-|Input.NavigationExpanded expanded=>P.ToggleNavigation expanded
-|Input.TaskListVisible visible=>P.ToggleNavigation visible
+|Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)
+|Input.TaskListVisible _=>P.ToggleNavigation(State.desktop_task_list_visible(State.navigation_state state))
 |Input.ToggleProjectGroup project=>P.ProjectDisclosure project
 |Input.FollowLatest _=>P.Latest|Input.ResetTitlePrompts=>P.ResetDefaults
 |Input.RemoveAttachment _ _|Input.ActivityWorkspaceChange _ (Input.RemoveDirectory _)=>P.RemoveValue

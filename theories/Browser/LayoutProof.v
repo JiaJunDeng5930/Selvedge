@@ -15,6 +15,14 @@ Theorem every_page_preserves_section_separation env page :
     (page_properties env page).
 Proof. unfold page_properties. apply in_or_app; left; simpl; tauto. Qed.
 
+Theorem work_overview_preserves_its_reading_span_and_viewport_edges env :
+  work_overview_width env <= 2 * reading_maximum_width (parameters env) /\
+  work_overview_width env <= viewport_width env - 2 * work_overview_clearance /\
+  work_overview_height env <= viewport_height env * 94 / 100 /\
+  work_overview_height env <= viewport_height env - 2 * work_overview_clearance.
+Proof. unfold work_overview_width, work_overview_height.
+  repeat split; apply Nat.le_min_l || apply Nat.le_min_r. Qed.
+
 (* Keep comparison proofs abstract: reducing unary font-scaled bounds bloats checking. *)
 Local Opaque Nat.leb.
 
@@ -95,3 +103,16 @@ Proof.
   intros Small. unfold row_flow. destruct (Nat.leb minimum available) eqn:Fits; [|reflexivity].
   apply Nat.leb_le in Fits. lia.
 Qed.
+
+Theorem conversation_body_allocates_a_bounded_reading_port env :
+  In ("display","flex") (region_properties env Composition.TimelineContent Composition.BodyPosition) /\
+  In ("min-block-size","0") (region_properties env Composition.TimelineContent Composition.BodyPosition) /\
+  In ("overflow","hidden") (region_properties env Composition.TimelineContent Composition.BodyPosition).
+Proof. simpl. tauto. Qed.
+
+Theorem layer_clearance_remains_positive env : 0 < layer_clearance env.
+Proof. unfold layer_clearance, layer_unit. pose proof (Nat.le_max_l 1 (input_line_height (parameters env) / 4)). lia. Qed.
+
+Theorem dialog_reading_span_is_bounded env :
+  dialog_reading_width env <= reading_maximum_width (parameters env).
+Proof. apply Nat.le_min_l. Qed.

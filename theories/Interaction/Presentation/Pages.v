@@ -116,6 +116,13 @@ Definition discarded_unfinished_notice s task parent:=
   [information key "discarded-unfinished-count" Information.Description
     ("已有 "++show_natural count++" 条未完成回复因会话容量限制被移除。");
    declared key Roles.Button(secondary "clear-discarded-unfinished" "清除此提示"(Input.ClearDiscarded task))]].
+Definition task_details_control s task parent :=
+ let expanded:=existsb(fun layer=>match State.layer_panel layer with
+  |State.InformationPanel(State.TaskDetails actual)=>N.eqb task actual|_=>false end)
+  (State.layers(State.navigation_state s))in
+ Node(part parent "details")"details" "Task details"Roles.Button
+  (PanelToggle expanded(secondary "details" "Task details"
+    (Input.OpenInformation(State.TaskDetails task)(part parent "details"))))[].
 Definition task_contents snapshot s view parent task :=
  let id:=task_id task in
  let observation:=task_observation task in
@@ -125,7 +132,7 @@ Definition task_contents snapshot s view parent task :=
  ([page_region parent Composition.ConversationHeader Composition.HeadingPosition
    [page_region parent Composition.ConversationTitle Composition.HeadingPosition(title parent(task_title task)::worktree_feedback snapshot id parent);
   page_region parent Composition.TaskActions Composition.HeadingPosition
-   (List.app [declared parent Roles.Button(secondary "details" "Task details"(Input.OpenInformation(State.TaskDetails id)(part parent "details")));
+   (List.app [task_details_control s id parent;
     Collections.more parent(TaskActions id)](task_side_controls snapshot s id parent))];
   page_region parent Composition.TimelineContent Composition.BodyPosition
    (discarded_unfinished_notice s id parent ++
@@ -159,15 +166,16 @@ Definition history_hit parent hit :=
      read_only key "after" "下一条"(text "after" hit)]]end|_,_=>[]end.
 Definition history_page snapshot s parent :=
  let search:=State.history_search(State.authoring_state s)in
+ let submit:=observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
  let project_choices:=Fields.ChoiceValue "" "全部"::map(fun p=>Fields.ChoiceValue(show_natural(project_id p))(project_name p))(value_or[](projects snapshot))in
  let work_choices:=Fields.ChoiceValue "" "全部"::map(fun w=>Fields.ChoiceValue(show_natural(work_id w))(work_name w))(value_or[](works snapshot))in
  [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "搜索对话"];
   page_region parent Composition.CollectionActions Composition.HeadingPosition
    [Node(part parent "history/query")"history-query" "关键词"Roles.Field
-     (HistorySearchQuery(State.keyword search)(fun value=>option_map Input.WriteHistoryQuery(as_string value)))[];
+     (HistorySearchQuery(State.keyword search)(fun value=>option_map Input.WriteHistoryQuery(as_string value))submit)[];
     history_scope true(State.project_filter search)project_choices parent;
     history_scope false(State.work_filter search)work_choices parent;
-    declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "history/submit" "搜索"(Input.SubmitHistorySearch 0)))];
+    declared parent Roles.Button submit];
   page_region parent Composition.ProjectEntries Composition.BodyPosition
    (match State.search_result search with
    |None=>[read_only parent "prompt" "搜索说明" "输入关键词，选择项目或 Work，然后搜索对话。"]
@@ -175,7 +183,7 @@ Definition history_page snapshot s parent :=
     |Some result=>(flat_map(history_hit parent)(Selvedge.Interaction.Codec.items "hits" result)++
       match natural_field "next_after" result with
       |Some after=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "history/more" "更多结果"(Input.SubmitHistorySearch after)))]|None=>[]end)%list
-    |None=>[read_only parent "search-error" "Search failed"(text "message" reply)]end end)].
+    |None=>[read_only parent "search-error" "Search failed"(Selvedge.Interaction.Codec.diagnostic_message(Selvedge.Interaction.Codec.command_failure(inr reply)))]end end)].
 Definition shared_page snapshot s work parent :=
  match find_work work snapshot with
  |None=>missing parent "This Work no longer exists"

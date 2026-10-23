@@ -16,13 +16,10 @@ function unmount(node) {
   }
   node.remove();
 }
-function focusVisible(node) {
+function focusAvailable(node) {
   if (!node?.isConnected || node.disabled || node.closest('[inert],[hidden]')
     || !node.getClientRects().length || getComputedStyle(node).visibility === 'hidden') return false;
-  const bounds = node.getBoundingClientRect();
-  const viewport = node.ownerDocument.defaultView;
-  return bounds.left >= 0 && bounds.top >= 0
-    && bounds.right <= viewport.innerWidth && bounds.bottom <= viewport.innerHeight;
+  return true;
 }
 function reconcile(parent, children) {
   const retained = new Set(children);
@@ -68,8 +65,7 @@ export class Renderer {
   resolveTarget(key, { modal = true, fallback } = {}) {
     const scope = modal && this.modalRecord()?.node || this.root;
     const preferredView = this.root.ownerDocument.activeElement?.closest('[data-view]')?.dataset.view ?? '';
-    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(node =>
-      !node.closest('[inert],[hidden]') && !node.disabled && node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden');
+    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(focusAvailable);
     if (scope.dataset?.key) nodes.unshift(scope);
     const resolved = this.callbacks.resolveTarget({ target: key, view: preferredView, ...(fallback === undefined ? {} : { fallback }),
       candidates: nodes.map(node => ({ key: node.dataset.key,
@@ -84,6 +80,7 @@ export class Renderer {
     for (const anchor of this.root.querySelectorAll('[data-native-anchor-owner]')) anchor.removeAttribute('data-native-anchor-owner');
     for (const positioned of this.root.querySelectorAll('[data-anchor]')) {
       const anchor = this.resolveTarget(positioned.dataset.anchor, { modal: false });
+      positioned.dataset.anchorAvailable = String(Boolean(anchor?.isConnected));
       // DEFENSE: resizing can remove a trigger's responsive branch while its activity remains open.
       if (!anchor?.isConnected) {
         positioned.style.removeProperty('position-anchor');
@@ -130,7 +127,7 @@ export class Renderer {
         const enabled = value !== 'false';
         node[name] = enabled;
         if (enabled) node.setAttribute(name, ''); else node.removeAttribute(name);
-      } else if (node.getAttribute(name) !== value) node.setAttribute(name, value);
+      } else if (record.attributes.get(name) !== value && node.getAttribute(name) !== value) node.setAttribute(name, value);
     }
     const styleSource = stringifyJson(styles);
     // Rebuild from an empty declaration list so CSS shorthand and logical properties keep source order.
@@ -182,7 +179,12 @@ export class Renderer {
       this.callbacks.reading?.('pointer', event, record.key, node);
     });
     for (const type of ['paste', 'drop', 'cut']) node.addEventListener(type, () => this.fieldSession(record, 'input_started'));
-    node.addEventListener('focusin', event => this.callbacks.focus?.(event, record.key, node));
+    // SVG focus listeners make decorative glyphs implicit Tab stops in Chromium.
+    // Caret/refocus observations only belong to native HTML fields.
+    if (node.namespaceURI !== svgNamespace) {
+      node.addEventListener('focusin', event => this.callbacks.focus?.(event, record.key, node));
+      node.addEventListener('focusout', event => this.callbacks.blur?.(event, record.key, node));
+    }
     node.addEventListener('wheel', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('touchmove', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('scroll', event => this.callbacks.reading?.('anchor', event, record.key, node), { passive: true });
@@ -333,13 +335,13 @@ export class Renderer {
     for (const record of this.records.values()) if (record.metadata.code)
       this.callbacks.codePublication?.(record.metadata.code);
     if (!this.isolated) {
-      const eligible = focusVisible(active) && (!this.modal || this.modal.contains(active));
+      const eligible = focusAvailable(active) && (!this.modal || this.modal.contains(active));
       const focus = this.callbacks.focusPlan?.({ previous: previousScope, current: this.focusScope, eligible });
       if (focus) {
         const target = this.resolveTarget(focus.target, { fallback: focus.fallback });
         const container = this.modalRecord()?.node;
         const recoveringContainer = target === container && focus.target === container?.dataset.key;
-        const canFocusContainer = target?.matches('dialog') && target.hasAttribute('tabindex') && focusVisible(target);
+        const canFocusContainer = target?.matches('dialog') && target.hasAttribute('tabindex') && focusAvailable(target);
         if (target && (!recoveringContainer || canFocusContainer)) target.focus({ preventScroll: true });
       }
     }

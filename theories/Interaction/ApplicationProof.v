@@ -44,8 +44,11 @@ Theorem live_setting_selection_preserves_the_message_draft snapshot owner assign
  SS.drafts(SS.authoring_state(Authoring.result_state(Authoring.apply_field snapshot owner assignment state)))=
  SS.drafts(SS.authoring_state state).
 Proof.
- intros Existing Available Live. unfold Authoring.apply_field. destruct(SS.pending_editor owner state);[reflexivity|]. unfold Authoring.ensure_draft. rewrite Existing.
- rewrite Available. rewrite Live.
+ intros Existing Available Live. unfold Authoring.apply_field.
+ rewrite Live. cbn [andb].
+ destruct(SS.pending_editor owner state);[reflexivity|].
+ unfold Authoring.ensure_draft. rewrite Existing,Available.
+ repeat rewrite Live.
  destruct(Values.candidate_command snapshot(SS.now state)(SS.current_draft state owner)assignment)as [command|];simpl;auto.
  destruct(Authoring.canonical_ready snapshot state
   (EO.candidate_owner(Activity.assignment_subject assignment)

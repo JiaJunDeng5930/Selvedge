@@ -75,8 +75,19 @@ Definition field_node snapshot s e parent field :=
    |Fields.FileCollection=>ServiceControls.files e identity s
    |_=>Node identity(Parameters.name field)(Parameters.label field)Roles.Field(Edit e subject(field_control snapshot s subject))[]end)
  end.
+Definition obstruction_nodes {e} parent(cause:UX.obstruction e):list(node Input.input):=
+ let key:=part parent("repair/"++UX.obstruction_code cause)in
+ ([Node key "property-repair"(UX.obstruction_message cause)Roles.Alert(ReadOnly(UX.obstruction_message cause))[]]++
+ if String.eqb(UX.obstruction_code cause)"workspace_observation_failed"then
+ [declared key Roles.Button(secondary "retry" "Retry"(Input.RetryWorkspace e(part key "retry")))]else[])%list.
 Definition field_nodes snapshot s e parent fields :=
- fold_right(fun field rest=>match field_node snapshot s e parent field with Some node=>node::rest|None=>rest end)[]fields.
+ fold_right(fun field rest=>match field_node snapshot s e parent field with
+ |Some node=>node::((match Observe.attention_obstruction(UX.assessment_outcome(Observe.observe_assessment snapshot s e))with
+  |Some cause=>match UX.obstruction_target cause with
+   |UX.RepairField subject=>if Parameters.field_eq_dec(UX.subject_declaration subject)field
+     then obstruction_nodes parent cause else[]|UX.RepairEditor=>[]end
+  |None=>[]end)++rest)%list
+ |None=>rest end)[]fields.
 Definition property_button (snapshot:json) (s:Session.state) e parent (property:UX.property e) :=
  let identity:="composer/"++match UX.property_kind_of property with
  |UX.ProjectProperty=>"project"|UX.WorkspaceProperty=>"workspace"|UX.PermissionsProperty=>"permissions"
@@ -84,26 +95,18 @@ Definition property_button (snapshot:json) (s:Session.state) e parent (property:
  Composer.supporting_control parent(Observe.property_support(Observe.action_unit_for s e)property)property
   (secondary identity(UX.property_label property)(Input.OpenActivity e(Activity.PropertyActivity(UX.property_kind_of property))(part parent identity))).
 Definition property_controls snapshot s e parent properties :=
- map(property_button snapshot s e parent)
+ flat_map(fun property=>property_button snapshot s e parent property::
+  match Observe.property_obstruction property(UX.assessment_outcome(Observe.observe_assessment snapshot s e))with
+  |Some cause=>obstruction_nodes parent cause|None=>[]end)
  (filter(fun property=>Observe.support_visible(Observe.property_support(Observe.action_unit_for s e)property))properties).
 Definition composer_tools snapshot s e parent :=
  let selected property:=match UX.property_kind_of property with
  |UX.ModelProperty|UX.PermissionsProperty|UX.DeliveryProperty=>true|_=>false end in
  property_controls snapshot s e parent(filter selected(Observe.observe_properties snapshot s e)).
-Definition assessment_nodes {e} parent (assessment:UX.assessment e) :=
- let obstruction_node obstruction:=
-  let name:=UX.obstruction_code obstruction in
-  region parent("obstruction/"++name)"Action unavailable"Roles.Section
-   (read_only parent("reason/"++name)""(UX.obstruction_message obstruction)::
-    match UX.obstruction_target obstruction with
-    |UX.RepairEditor=>[]|UX.RepairField subject=>[declared parent Roles.Button
-      (secondary("repair/"++UX.subject_name subject)("Review "++Parameters.label(UX.subject_declaration subject))
-       (Input.RepairSubject e(UX.action_revision(UX.assessment_identity assessment))(UX.subject_name subject)(part parent("repair/"++UX.subject_name subject))))]end)in
+Definition assessment_nodes {e} parent (assessment:UX.assessment e):node Input.input :=
  Node(part parent "assessment")"assessment" ""Roles.Content(ActionExplanation e assessment)
-  (match UX.assessment_outcome assessment with
-  |UX.PreparationReady=>[]
-  |UX.DirectoryObservationRequired _=>[read_only parent "directory-observation" "" "Working directories must be checked before this action can run"]
-  |UX.PreparationBlocked first rest=>map obstruction_node(first::rest)end).
+  (match Observe.action_obstruction(UX.assessment_outcome assessment)with
+  |Some cause=>[read_only parent "reason" ""(UX.obstruction_message cause)]|None=>[]end).
 Definition skill_option_key parent skill:=part parent("skill/"++SkillMention.skill_path skill).
 Definition skill_nodes snapshot s e parent :=
  let view:=Selvedge.Interaction.Session.Authoring.skill_view snapshot s e in
@@ -127,8 +130,9 @@ Definition skill_nodes snapshot s e parent :=
     |Some reason=>"Could not load skills: "++reason
     |None=>if Selvedge.Interaction.Session.Authoring.skill_loading view||Selvedge.Interaction.Session.Authoring.skill_unrequested view then "Loading skills…"else"No matching skills"end)]end in
  [Node(part parent "skill-completion")"skill-completion" "Skills"Roles.Menu
-   (SkillSuggestions(part parent "message")active)(List.app entries empty)]
- |_=>[]end.
+   (SkillSuggestions(part parent "message")true active)(List.app entries empty)]
+ |_=>[Node(part parent "skill-completion")"skill-completion" "Skills"Roles.Menu
+   (SkillSuggestions(part parent "message")false None)[]]end.
 Definition composer_view snapshot s e parent :=
  match UX.admit_subject e "message"with
  |None=>None
@@ -161,9 +165,11 @@ Definition editor_sections e :=match e with
 |Compact _=>[("Compaction",[Fields.CompactionSummary])]
 |TaskGraph _ _=>[("Task graph",[Fields.TaskGraphDeclaration])]
 |TitlePrompts=>[("标题生成",[Fields.TaskTitlePrompt;Fields.AgentTitlePrompt])]end.
+Definition field_section snapshot s e parent name fields:=
+ Node(part parent name)name name Roles.Section(ObjectGroup(UX.group_owner e fields))
+  (group_title(part parent name)name::field_nodes snapshot s e parent fields).
 Definition section_nodes snapshot s e parent :=map(fun '(name,fields)=>
- region parent name name Roles.Section
-  (group_title(part parent name)name::field_nodes snapshot s e parent fields))(editor_sections e).
+ field_section snapshot s e parent name fields)(editor_sections e).
 Definition title_prompt_controls e parent (pending:bool):list(node Input.input):=match e with
 |TitlePrompts=>
  [read_only parent "title-prompts/help" "说明"

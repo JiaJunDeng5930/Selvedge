@@ -33,9 +33,34 @@ Definition source_project source project:=match source,project with
 Definition body_profile value:=match value with
 |Draft.NewTaskBody _ profile _ _ _ _
 |Draft.AgentBody _ _ _ profile _ _ _ _=>Some profile|_=>None end.
-Definition choose_reviewer snapshot value:=key<-body_profile value;;model<-ModelSelection.observed_profile snapshot key;;
- let reviewer:=ModelCapabilities.default_reviewer model(Observation.catalog snapshot)in
- if ModelCapabilities.valid_reviewer_profile reviewer then Some(Selvedge.Kernel.Domain.profile_key reviewer)else None.
+Definition configured_reviewer snapshot key:=
+ reviewer<-ModelSelection.observed_profile snapshot key;;
+ if ModelCapabilities.valid_reviewer_profile reviewer then Some key else None.
+Definition body_configuration value:=match value with
+ |Draft.NewTaskBody _ _ _ configuration _ _|Draft.AgentBody _ _ _ _ _ _ configuration _
+ |Draft.ForkBody _ _ _ configuration=>Some configuration|_=>None end.
+Definition policy_reviewer snapshot policy:=match policy with
+ |Domain.ReviewWith reviewer=>configured_reviewer snapshot(Domain.profile_key reviewer)|_=>None end.
+Definition default_reviewer snapshot:=
+ option_map Domain.profile_key(find ModelCapabilities.valid_reviewer_profile(Observation.catalog snapshot)).
+Definition choose_policy_reviewer snapshot policy:=match policy_reviewer snapshot policy with
+ |Some key=>Some key|None=>default_reviewer snapshot end.
+Definition current_reviewer snapshot value:=
+ match body_configuration value with
+ |Some configuration=>match Context.approval_override configuration with
+  |Some(Context.AutomaticReview key)=>configured_reviewer snapshot key
+  |Some _=>None
+  |None=>settings<-Observation.origin_settings(Context.context_origin configuration)snapshot;;
+    policy_reviewer snapshot(Domain.settings_approval settings)end
+ |None=>match value with Draft.MessageBody task _ _=>
+   settings<-Observation.task_settings task snapshot;;policy_reviewer snapshot(Domain.settings_approval settings)
+  |_=>None end end.
+Definition choose_reviewer snapshot value:=match current_reviewer snapshot value with
+ |Some key=>Some key|None=>default_reviewer snapshot end.
+Definition choose_primary workspace primary := match primary with
+ |Some path=>if existsb(String.eqb path)(Domain.workspace_roots workspace)
+   then Domain.Workspace(Domain.workspace_roots workspace)(Some path)else workspace
+ |None=>workspace end.
 Definition modify_context snapshot body configuration field incoming :option Context.configuration:=
  match field with
  |Fields.ContextOrigin=>project<-Identity.decode_id incoming;;Some(with_context_origin(source_project(Context.context_origin configuration)project)configuration)
@@ -44,7 +69,7 @@ Definition modify_context snapshot body configuration field incoming :option Con
     let primary:=match Selvedge.Kernel.Domain.workspace_primary workspace with Some path=>if existsb(String.eqb path)roots then Some path else hd_error roots|None=>hd_error roots end in
     Some(with_context_workspace(Some(Selvedge.Kernel.Domain.Workspace roots primary))configuration)|_=>None end
  |Fields.WorkspacePrimary=>primary<-DraftCodec.decode_option_text incoming;;workspace<-current_workspace snapshot configuration;;
-   Some(with_context_workspace(Some(Selvedge.Kernel.Domain.Workspace(Selvedge.Kernel.Domain.workspace_roots workspace)primary))configuration)
+   Some(with_context_workspace(Some(choose_primary workspace primary))configuration)
  |Fields.SandboxMode=>match incoming with JNull=>Some(with_context_sandbox None configuration)
    |JString mode=>sandbox<-current_sandbox snapshot configuration;;access<-match mode with "read-only"=>Some Selvedge.Kernel.Domain.ReadOnly|"workspace-write"=>Some Selvedge.Kernel.Domain.WorkspaceWrite|_=>None end;;
    Some(with_context_sandbox(Some(Selvedge.Kernel.Domain.Sandbox access(Selvedge.Kernel.Domain.sandbox_network sandbox)))configuration)|_=>None end
@@ -87,7 +112,7 @@ Definition update_body snapshot (body:Draft.body) (field:Fields.field) (incoming
    |Fields.WorkspaceDirectories,Draft.ProjectBody project name workspace worktree=>roots<-match incoming with JArray values=>traverse as_string values|_=>None end;;
      let primary:=match Selvedge.Kernel.Domain.workspace_primary workspace with Some path=>if existsb(String.eqb path)roots then Some path else hd_error roots|None=>hd_error roots end in
      Some(Draft.ProjectBody project name(Selvedge.Kernel.Domain.Workspace roots primary)worktree)
-   |Fields.WorkspacePrimary,Draft.ProjectBody project name workspace worktree=>primary<-DraftCodec.decode_option_text incoming;;Some(Draft.ProjectBody project name(Selvedge.Kernel.Domain.Workspace(Selvedge.Kernel.Domain.workspace_roots workspace)primary)worktree)
+   |Fields.WorkspacePrimary,Draft.ProjectBody project name workspace worktree=>primary<-DraftCodec.decode_option_text incoming;;Some(Draft.ProjectBody project name(choose_primary workspace primary)worktree)
    |_,Draft.CardBody card revision value assist profile keep=>match field with
      |Fields.AssistedCapture=>enabled<-as_bool incoming;;Some(Draft.CardBody card revision value enabled profile keep)
      |Fields.AssistanceProfile=>profile<-as_string incoming;;Some(Draft.CardBody card revision value assist profile keep)
@@ -113,7 +138,13 @@ Definition live_command snapshot task field incoming :option (Schema.command_val
  |Fields.SandboxMode=>Some(replace "sandbox"(JObject[("mode",incoming)])source)
  |Fields.NetworkAccess=>Some(replace "sandbox"(JObject[("network_access",incoming)])source)
  |Fields.ApprovalReviewer=>key<-as_string incoming;;Some(replace "approval"(JObject[("mode",JString "approval-for-me");("reviewer_profile",JString key)])source)
- |Fields.ApprovalPolicy=>mode<-as_string incoming;;Some(replace "approval"(JObject[("mode",JString mode)])source)
+ |Fields.ApprovalPolicy=>mode<-as_string incoming;;
+   approval<-if String.eqb mode "approval-for-me"then
+     settings<-Observation.task_settings task snapshot;;
+     reviewer<-choose_policy_reviewer snapshot(Domain.settings_approval settings);;
+     Some(JObject[("mode",JString mode);("reviewer_profile",JString reviewer)])
+    else Some(JObject[("mode",JString mode)]);;
+   Some(replace "approval" approval source)
  |_=>None end;;Schema.decode_command Selvedge.Kernel.Commands.command_specs updated.
 Definition candidate_command snapshot now current {e}(assignment:Activity.assignment e):option(Schema.command_value Selvedge.Kernel.Commands.command_specs):=
  let subject:=Activity.assignment_subject assignment in

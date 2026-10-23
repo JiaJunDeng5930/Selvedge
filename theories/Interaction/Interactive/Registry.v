@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith ZArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
-From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Syntax Local Sources Vocabulary.
+From Selvedge.Interaction.Interactive Require Import Bounds Decimal Expression Syntax Local Sources Vocabulary Types.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope nat_scope.
@@ -19,19 +19,19 @@ Definition lexical_id attrs:=match literal_text "id"attrs with Good id=>if valid
 Definition literal_bind tag attrs:=match component tag with
  |Some spec=>match spec.(component_role)with Field=>match literal_text "bind"attrs with Good _=>true|_=>false end|_=>true end
  |None=>true end.
-Fixpoint structural_scan(fuel:nat)(scope:string)(seen:list string)(nodes:list element):list element*list string*option string:=
+Fixpoint structural_scan(fuel:nat)(scope:string)(seen:list string)(nodes:list element):list element*list string*option diagnostic:=
  match fuel,nodes with
  | _,[]=>([],seen,None)
- | O,_=>([],seen,Some "Component structure budget")
+ | O,_=>([],seen,Some(Diagnostic scope "Component structure budget" true))
  | S k,(Element tag attrs children closed)::rest=>
-   if declaration tag then([],seen,Some "Declarations are only allowed directly inside ui")else
-   if negb(literal_bind tag attrs)then([],seen,Some "Input bind must be a literal root state id")else
+   if declaration tag then([],seen,Some(Diagnostic (scope++"/"++tag) "Declarations are only allowed directly inside ui" true))else
+   if negb(literal_bind tag attrs)then([],seen,Some(Diagnostic (scope++"/"++tag) "Input bind must be a literal root state id" true))else
    let template:=String.eqb tag "node-template"in
    let id:=if template then Some ""else lexical_id attrs in
    match id with
-   | None=>([],seen,Some "Component id must be a literal valid identifier")
+   | None=>([],seen,Some(Diagnostic (scope++"/"++tag) "Component id must be a literal valid identifier" true))
    | Some id=>let key:=scope++"/"++id in
-     if negb template&&existsb(String.eqb key)seen then([],seen,Some "Duplicate component id in lexical scope")else
+     if negb template&&existsb(String.eqb key)seen then([],seen,Some(Diagnostic key "Duplicate component id in lexical scope" true))else
      let seen:=if template then seen else key::seen in
      let child_scope:=if template||String.eqb tag "each"||String.eqb tag "graph-view"then scope++"/template/"++id else scope in
      let '(children,seen,error):=structural_scan k child_scope seen children in
@@ -42,11 +42,12 @@ Fixpoint structural_scan(fuel:nat)(scope:string)(seen:list string)(nodes:list el
 Record dataset:=Dataset{dataset_id:string;columns:list string;row_keys:list string;rows:list json}.
 Record prepared:=Prepared{
  prepared_locals:list local;bindings:list(string*outcome json);requests:list request;
- sources:list(string*json);datasets:list dataset;visual:list element;diagnostics:list string;
+ sources:list(string*json);datasets:list dataset;visual:list element;diagnostics:list diagnostic;
  remaining:nat;layout_started:bool;fatal:bool;declared:list string;component_names:list string }.
 Definition start(previous:list local):prepared:=Prepared [] [] [] [] [] [] [] Bounds.evaluation_steps false false [] [].
-Definition with_diagnostic reason stop p:=Prepared p.(prepared_locals)p.(bindings)p.(requests)p.(sources)p.(datasets)p.(visual)
- (List.app p.(diagnostics)[reason])p.(remaining)p.(layout_started)stop p.(declared)p.(component_names).
+Definition with_diagnostic_at path reason stop p:=Prepared p.(prepared_locals)p.(bindings)p.(requests)p.(sources)p.(datasets)p.(visual)
+ (List.app p.(diagnostics)[Diagnostic path reason stop])p.(remaining)p.(layout_started)(p.(fatal)||stop) p.(declared)p.(component_names).
+Definition with_diagnostic:=with_diagnostic_at "ui".
 Definition with_budget budget p:=Prepared p.(prepared_locals)p.(bindings)p.(requests)p.(sources)p.(datasets)p.(visual)p.(diagnostics)
  budget p.(layout_started)p.(fatal)p.(declared)p.(component_names).
 Definition declare_binding id value p:=Prepared p.(prepared_locals)(binding_set id value p.(bindings))p.(requests)p.(sources)p.(datasets)
@@ -90,29 +91,30 @@ Definition dataset_row attrs p:outcome prepared:=
  (map(fun ds=>if String.eqb id ds.(dataset_id)then next else ds)p.(datasets))p.(visual)p.(diagnostics)remaining p.(layout_started)p.(fatal)p.(declared)p.(component_names))
  else Error "Invalid or duplicate dataset row".
 Definition declare_one previous old_sources environment tag attrs p:=
- if negb(attrs_known tag attrs) then with_diagnostic "Unknown declaration attribute"true p else
- if negb(forallb(fun a=>if String.eqb tag "derive"&&String.eqb a.(attribute_name)"value"then true else is_literal 33 a.(attribute_value))attrs)then with_diagnostic "Declaration attributes must be literal"true p else
- if String.eqb tag "row"then match dataset_row attrs p with Good p=>p|Error e=>with_diagnostic e false p end else
- if Bounds.declarations<=?List.length p.(declared)then with_diagnostic "Declaration count limit"true p else
- if p.(layout_started)then with_diagnostic "Declarations must precede visual children"true p else
+ let path:=match lexical_id attrs with Some id=>id|None=>tag end in
+ if negb(attrs_known tag attrs) then with_diagnostic_at path "Unknown declaration attribute"true p else
+ if negb(forallb(fun a=>if String.eqb tag "derive"&&String.eqb a.(attribute_name)"value"then true else is_literal 33 a.(attribute_value))attrs)then with_diagnostic_at path "Declaration attributes must be literal"true p else
+ if String.eqb tag "row"then match dataset_row attrs p with Good p=>p|Error e=>with_diagnostic_at path e false p end else
+ if Bounds.declarations<=?List.length p.(declared)then with_diagnostic_at path "Declaration count limit"true p else
+ if p.(layout_started)then with_diagnostic_at path "Declarations must precede visual children"true p else
  match lexical_id attrs with
- | None=>with_diagnostic "Declaration requires a valid literal id"true p
- | Some id=>if negb(valid_binding id)then with_diagnostic "Declaration id must be an expression identifier"true p else
- if existsb(String.eqb id)p.(declared)then with_diagnostic "Duplicate declaration id"true p else
+ | None=>with_diagnostic_at path "Declaration requires a valid literal id"true p
+ | Some id=>if negb(valid_binding id)then with_diagnostic_at path "Declaration id must be an expression identifier"true p else
+ if existsb(String.eqb id)p.(declared)then with_diagnostic_at path "Duplicate declaration id"true p else
  if String.eqb tag "state"then match Local.from_attributes attrs with
-   | Good l=>add_local(Local.reuse previous l)p|Error e=>with_diagnostic e true p end
+   | Good l=>add_local(Local.reuse previous l)p|Error e=>with_diagnostic_at path e true p end
  else if String.eqb tag "derive"then
    match attr "value"attrs with
-   | None=>with_diagnostic "derive requires value"true p
+   | None=>with_diagnostic_at path "derive requires value"true p
    | Some a=>let '(value,remaining_budget):=evaluate p.(remaining)p.(bindings)a.(attribute_value)in
      let p:=declare_binding id value(with_budget remaining_budget p)in
-     match value with Good _=>p|Error e=>with_diagnostic("derive "++id++": "++e)false p end end
+     match value with Good _=>p|Error e=>with_diagnostic_at id e false p end end
  else if String.eqb tag "source"then match parse_source id attrs with
    | Good req=>let previous:=match lookup id old_sources with Some v=>v|None=>JNull end in
       add_source req(Sources.refresh req environment previous)p
-   | Error e=>with_diagnostic e true p end
- else if String.eqb tag "dataset"then match parse_dataset id attrs with Good ds=>add_dataset ds p|Error e=>with_diagnostic e true p end
- else with_diagnostic "Unknown declaration"true p end.
+   | Error e=>with_diagnostic_at path e true p end
+ else if String.eqb tag "dataset"then match parse_dataset id attrs with Good ds=>add_dataset ds p|Error e=>with_diagnostic_at path e true p end
+ else with_diagnostic_at path "Unknown declaration"true p end.
 Fixpoint prepare_children fuel previous old_sources environment children p:=
  match fuel,children with
  | _,[]=>p|O,_=>with_diagnostic "Definition work budget"true p
@@ -125,7 +127,7 @@ Fixpoint prepare_children fuel previous old_sources environment children p:=
      let '(nodes,names,error):=structural_scan 4096 ""p.(component_names)[Element tag attrs children closed]in
      let p:=Prepared p.(prepared_locals)p.(bindings)p.(requests)p.(sources)p.(datasets)(List.app p.(visual)nodes)p.(diagnostics)
        p.(remaining)true p.(fatal)p.(declared)names in
-     match error with Some e=>with_diagnostic e true p|None=>prepare_children k previous old_sources environment rest p end
+     match error with Some e=>with_diagnostic_at e.(diagnostic_path)e.(diagnostic_message)e.(diagnostic_fatal)p|None=>prepare_children k previous old_sources environment rest p end
  end.
 Definition prepare syntax previous old_sources environment:=
  match Syntax.roots syntax with

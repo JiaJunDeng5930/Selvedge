@@ -43,21 +43,42 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     return [...surface.querySelectorAll('[data-native-responsive-row]')].map(row => {
       const rowStyle = getComputedStyle(row);
       const available = row.clientWidth - Number.parseFloat(rowStyle.paddingLeft) - Number.parseFloat(rowStyle.paddingRight);
-      const children = [...row.children];
+      const children = [...row.children].filter(child => getComputedStyle(child).display !== 'none');
       const gap = Number.parseFloat(rowStyle.columnGap) * Math.max(0, children.length - 1);
-      const preferred = size => {
+      const nestedSupporting = [...row.querySelectorAll('[data-native-supporting-row]')];
+      const preferred = (size, nestedForm) => {
+        const forms = nestedSupporting.map(node => node.getAttribute('data-supporting-form'));
+        if (nestedForm) nestedSupporting.forEach(node => node.setAttribute('data-supporting-form', nestedForm));
+        const minima = size === 'min-content'
+          ? children.flatMap(child => [...child.querySelectorAll('[data-native-minimum-inline], [data-native-compact-minimum-inline]')])
+            .filter(node => node.hasAttribute('data-native-minimum-inline') ||
+              node.closest('[data-supporting-form]')?.dataset.supportingForm === 'compact') : [];
+        const previous = minima.map(node => node.style.cssText);
         let width = gap;
-        for (const child of children) {
-          const original = child.style.cssText;
-          try {
-            Object.assign(child.style, { flex: 'none', inlineSize: size, maxInlineSize: 'none' });
-            width += child.getBoundingClientRect().width;
-          } finally { child.style.cssText = original; }
+        try {
+          // Single-line captions declare a shrinkable measured-advance floor;
+          // their unbroken DOM text is still needed for the preferred width.
+          minima.forEach(node => Object.assign(node.style, { flex: 'none',
+            inlineSize: node.dataset.nativeMinimumInline ?? node.dataset.nativeCompactMinimumInline,
+            maxInlineSize: node.dataset.nativeMinimumInline ?? node.dataset.nativeCompactMinimumInline }));
+          for (const child of children) {
+            const original = child.style.cssText;
+            try {
+              Object.assign(child.style, { flex: 'none', inlineSize: size, maxInlineSize: 'none' });
+              width += child.getBoundingClientRect().width;
+            } finally { child.style.cssText = original; }
+          }
+        } finally {
+          minima.forEach((node, index) => { node.style.cssText = previous[index]; });
+          if (nestedForm) nestedSupporting.forEach((node, index) => node.setAttribute('data-supporting-form', forms[index]));
         }
         return Math.ceil(width);
       };
       const observation = { key: row.dataset.nativeResponsiveRow,
         available: Math.max(0, Math.floor(available)), minimum: preferred('min-content') };
+      // A parent row observes the declared compact child form as well. The
+      // extracted layout chooses the form after assigning the residual slot.
+      if (nestedSupporting.length) observation.nested_compact_minimum = preferred('min-content', 'compact');
       if (row.hasAttribute('data-native-supporting-row')) {
         const original = row.getAttribute('data-supporting-form');
         // Observe both declared forms on the actual controls, preserving the
@@ -67,6 +88,7 @@ export function createPhysicalMeasurer({ surface, onChange }) {
           observation.full_preferred = preferred('max-content');
           row.setAttribute('data-supporting-form', 'compact');
           observation.compact_preferred = preferred('max-content');
+          observation.compact_minimum = preferred('min-content');
         } finally { row.setAttribute('data-supporting-form', original); }
       }
       return observation;

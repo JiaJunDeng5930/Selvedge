@@ -156,8 +156,8 @@ Definition compact_header snapshot s :=
  |None=>"All Tasks"|Some id=>match find_work id snapshot with Some work=>work_name work|None=>"Work unavailable"end end in
  region "/workspace" "compact-header" "" Roles.CompactHeader
   [declared "/compact-header" Roles.Button (secondary "global" "Global navigation"(Input.OpenNavigation GlobalMenu(part "/compact-header" "global")));
-   declared "/compact-header"(Roles.CompactWorkScope work_label (N.of_nat(S(List.length(value_or[](works snapshot))))))(secondary "works"work_label(Input.OpenNavigation WorkOverview(part "/compact-header" "works")));
-   declared "/compact-header" Roles.Button(secondary "tasks" "Open Task list"(Input.NavigationExpanded(negb(SessionNavigation.expanded_for false s))))].
+   declared "/compact-header"(Roles.CompactWorkScope work_label (N.of_nat(S(List.length(value_or[](works snapshot))))))(secondary "works"(work_label++", Work overview, "++show_natural(N.of_nat(S(List.length(value_or[](works snapshot)))))++" works")(Input.OpenNavigation WorkOverview(part "/compact-header" "works")));
+   declared "/compact-header" Roles.Button(secondary "tasks" (if SessionNavigation.expanded_for false s then "Back to conversation"else"Open Task list")(Input.NavigationExpanded(negb(SessionNavigation.expanded_for false s))))].
 Definition navigation_base snapshot s capacity :=
  let expanded:=SessionNavigation.expanded_for(navigation_beside_content capacity)s in
  if navigation_beside_content capacity then

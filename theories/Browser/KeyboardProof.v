@@ -39,3 +39,20 @@ Proof.
   apply andb_true_iff in H as [plain enter].
   apply String.eqb_eq in enter. auto.
 Qed.
+
+Theorem disabled_control_does_not_submit : forall observed multiline pending,
+ submit(normalize observed multiline false pending)=false.
+Proof. intros; unfold normalize; simpl; now rewrite andb_false_r. Qed.
+Theorem non_enter_key_preserves_native_default : forall observed multiline enabled pending,
+ String.eqb(key observed) "Enter"=false ->
+ normalize observed multiline enabled pending=Decide false false.
+Proof. intros; unfold normalize,confirmation; rewrite H; reflexivity. Qed.
+Theorem shifted_enter_preserves_native_newline : forall ime alt modified multiline enabled pending,
+ normalize(Observe "Enter" false ime true alt modified)multiline enabled pending=Decide false false.
+Proof. intros; destruct ime; reflexivity. Qed.
+Theorem alt_enter_preserves_native_newline : forall ime modified multiline enabled pending,
+ normalize(Observe "Enter" false ime false true modified)multiline enabled pending=Decide false false.
+Proof. intros; destruct ime; reflexivity. Qed.
+Theorem enabled_multiline_enter_submits : forall modified,
+ normalize(Observe "Enter" false false false false modified)true true false=Decide true true.
+Proof. reflexivity. Qed.

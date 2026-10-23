@@ -26,6 +26,11 @@ Definition pixels env n := Typography.px (scaled env n).
 Definition inline_properties : list (string * string) :=
   [("display","inline-flex");("flex-direction","row");("align-items","baseline");
    ("font","inherit");("line-height","inherit");("white-space","nowrap")].
+Definition single_line_attributes text :=
+  [("title",text);("data-native-minimum-inline","1ch")].
+Definition single_line_properties : list (string * string) :=
+  [("display","block");("min-inline-size","1ch");("overflow","hidden");
+   ("text-overflow","ellipsis");("white-space","nowrap")].
 
 Inductive supporting_form := FullSupporting | CompactSupporting.
 Record supporting_layout := SupportingLayout {
@@ -34,10 +39,17 @@ Record supporting_layout := SupportingLayout {
 }.
 Definition form_name value := match value with
   FullSupporting => "full" | CompactSupporting => "compact" end.
-Definition choose_supporting available full_preferred compact_preferred :=
+Definition board_group_attributes grouping :=
+  let '(name,label):=match grouping with
+  |S.ViewChoices=>("view-choices","看板视图")|S.SearchArea=>("search","任务搜索")
+  |S.WorkStatus=>("work-status","当前工作状态")
+  |S.SecondaryActions=>("secondary-actions","看板筛选和设置")
+  |S.PrimaryAction=>("primary-action","主要操作")end in
+  [("data-board-group",name);("aria-label",label)].
+Definition choose_supporting available full_preferred compact_minimum :=
   if Nat.leb full_preferred available
   then SupportingLayout FullSupporting Layout.Horizontal
-  else SupportingLayout CompactSupporting (Layout.row_flow available compact_preferred).
+  else SupportingLayout CompactSupporting (Layout.row_flow available compact_minimum).
 
 Definition support_row {A} (children : list (S.node A)) :=
   existsb (fun child => match S.node_meaning child with
@@ -48,7 +60,7 @@ Definition support_row_attributes key :=
 (* The slot receives its parent's residual width independently of text demand.
    Measuring its full form must not resize the available-width denominator. *)
 Definition support_row_properties : list (string * string) :=
-  [("display","flex");("flex-direction","row");("flex-wrap","nowrap");
+  [("display","flex");("flex-direction","row");("flex-wrap","nowrap");("align-items","stretch");
    ("flex","1 1 0%");("min-inline-size","0");("justify-content","flex-start")].
 
 Definition property_icon {e} (property : UX.property e) :=
@@ -105,7 +117,8 @@ Definition summary_member {A e} (property : UX.property e) (child : S.node A)
   match S.node_meaning child with
   | S.InformationText Information.FieldValue =>
       [span key [("data-summary-role","principal");
-        ("data-summary-subject",summary_subject property false)]
+        ("data-summary-subject",summary_subject property false);
+        ("title",text);("data-native-compact-minimum-inline","1ch")]
         inline_properties text]
   | S.InformationText Information.Description =>
       [span key [("data-summary-role","secondary");
@@ -121,13 +134,17 @@ Definition setting_member {A e} (property : UX.property e) (child : S.node A)
   let subject := UX.subject_name (UX.property_subject property) in
   match S.node_meaning child with
   | S.InformationText Information.FieldLabel =>
-      [span key [("data-setting-role","label");("data-setting-subject",subject)]
+      [span key [("data-setting-role","label");("data-setting-subject",subject);
+         ("title",S.node_label child);("data-native-minimum-inline","1ch")]
        (inline_properties ++ [("flex","1 1 0%");("min-inline-size","0");
+         ("display","block");("min-inline-size","1ch");
          ("text-align","start");("overflow","hidden");("text-overflow","ellipsis")])
        (S.node_label child)]
   | S.InformationText Information.FieldValue =>
-      [span key [("data-setting-role","value");("data-setting-subject",subject)]
-       (inline_properties ++ [("flex","none");("color",Appearance.secondary_text);
+      [span key [("data-setting-role","value");("data-setting-subject",subject);
+         ("title",S.node_label child);("data-native-minimum-inline","1ch")]
+       (inline_properties ++ [("display","block");("flex","0 1 auto");("min-inline-size","1ch");
+         ("overflow","hidden");("text-overflow","ellipsis");("color",Appearance.secondary_text);
          ("text-align","end")]) (S.node_label child)]
   | _ => []
   end.
@@ -139,7 +156,7 @@ Definition face_content {A} env key (artwork : string -> list DOM.node)
   | S.SupportingControl _ _ property _ =>
       Some ((match property_icon property with Some icon => artwork icon | None => [] end) ++
         [box (private_key key "property-value") "span" [("data-property-summary","true")]
-         (inline_properties ++ [("gap",pixels env 3)])
+         (inline_properties ++ [("gap",pixels env 3);("min-inline-size","max-content");("flex","1 1 auto")])
          (flat_map (summary_member property) children)] ++ artwork "chevron-down")
   | _ => None
   end.
@@ -323,7 +340,7 @@ Definition node_properties {A} env (role : Roles.role) (meaning : S.meaning A)
   | S.WorkChoice _ _ _ => [("flex","1 1 0%");("min-inline-size","0");
       ("min-block-size",pixels env 120);("white-space","nowrap")]
   | S.SettingEntry _ _ _ => [("inline-size","100%");("text-align","start")]
-  | S.SupportingControl _ _ _ _ => [("flex","none");("white-space","nowrap");
+  | S.SupportingControl _ _ _ _ => [("flex","0 1 auto");("white-space","nowrap");
       ("justify-content","flex-start");("gap",pixels env 6)]
   | _ => [] end.
 

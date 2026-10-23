@@ -90,7 +90,7 @@ Definition card_node snapshot s board_parent parent value :=match natural_field 
    [Node(part key "movement")"movement" "Move task"Roles.Content(MovableCard face(card_destinations snapshot s board_parent value))[];
     declared key Roles.Button(secondary "open"("打开 "++text "title" value)(Input.OpenInformation(State.CardDetails id)(part key "open")));
     more key(CardActions id)]end end.
-Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Section(BoardGroup grouping)children.
+Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
 Definition board_toolbar snapshot s parent :=
  let selection:=State.board_selection s in
  [board_group parent "view-choices" ViewChoices
@@ -164,7 +164,7 @@ Definition graph_node snapshot s parent value :=match natural_field "graph_id" v
 |Some id=>let key:=part parent("graph/"++show_natural id)in
  region parent("graph/"++show_natural id)(text "name" value)Roles.Card
   ([group_title key(text "name" value);
-    declared key Roles.Button(secondary "edit" "Edit task graph"(Input.OpenEditor(TaskGraph(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
+    declared key Roles.Button(secondary "edit" "Edit task graph"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
     more key(GraphActions id)]++
    [region key "nodes" "Tasks"Roles.Section
     (flat_map(fun entry=>match natural_field "task_id" entry with
@@ -179,5 +179,5 @@ Definition graph_node snapshot s parent value :=match natural_field "graph_id" v
 Definition graphs_page snapshot s parent :=
  [page_region parent Composition.CollectionTitle Composition.HeadingPosition[title parent "Task graphs"];
   page_region parent Composition.CollectionActions Composition.HeadingPosition
-   [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(TaskGraph None(State.active_work(State.navigation_state s)))(part parent "graph/new")))];
+   [declared parent Roles.PrimaryButton(primary "graph/new" "New task graph"(Input.OpenEditor(graph_editor None(State.active_work(State.navigation_state s)))(part parent "graph/new")))];
   page_region parent Composition.TaskGraphEntries Composition.BodyPosition(map(graph_node snapshot s parent)(scoped_graphs(State.active_work(State.navigation_state s))snapshot))].

@@ -32,7 +32,9 @@ Inductive input :=
 | RetryWorkspace(owner:editor)(trigger:string) | DirectoriesCompleted(ticket:N)(outcome:sum string json)
 | Submit(owner:editor)(trigger:string) | RemoveAttachment(owner:editor)(id:string)
 | Command(command:State.public_command)
-| Completed(ticket:N)(outcome:sum string json) | ServiceInput(input:service_input) | SpeechInput(input:speech_input)
+| Completed(ticket:N)(outcome:sum string json) | CompletionUnknown(ticket:N)(reason:string)
+| NativeFailed(reason:string)
+| ServiceInput(input:service_input) | SpeechInput(input:speech_input)
 | TogglePropertySource(owner:editor)(occurrence:N)
 | InspectSource(owner:editor)(request:activity_request)(trigger:string)
 | ClosePanel | OpenInformation(kind:State.information_panel)(trigger:string) | Confirm
@@ -50,16 +52,22 @@ Inductive input :=
 | ClockObserved(now:N) | EnvironmentObserved | Snapshot | Stream(message:json) | CodeObserved(observation:json)
 | Interactive(input:Types.input) | AppearanceRestored(theme:appearance)
 | LoadSkills(owner:editor)(explicit:bool) | SkillsLoaded(ticket:N)(outcome:sum string json)
-| SkillSelected(owner:editor)(path:string) | SkillSelection(owner:editor)(caret:N)(composing:bool)
-| SkillRefocus(owner:editor)(caret:N)(composing:bool)
+| SkillSelected(owner:editor)(path:string) | SkillSelection(owner:editor)(start finish:N)(composing:bool)
+| SkillRefocus(owner:editor)(start finish:N)(composing:bool)
 | SkillMove(owner:editor)(offset:Z) | SkillDismiss(owner:editor).
+
+(* Geometry, motion and reading observations change presentation, without
+   making already published product content semantically stale. *)
+Definition semantic_change incoming := match incoming with
+ |EnvironmentObserved|ReadTimeline _ _ _|FollowLatest _=>false
+ |_=>true end.
 
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,
    selection, layout, and IO observations can also be delivered without intent. *)
 Definition acknowledges_feedback (incoming:input) := match incoming with
-|Completed _ _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
+|Completed _ _|CompletionUnknown _ _|NativeFailed _|DirectoriesCompleted _ _|ClockObserved _|EnvironmentObserved
 |Snapshot|Stream _|CodeObserved _|AppearanceRestored _|SkillsLoaded _ _
-|ActivityFocus _ _ _|SkillSelection _ _ _|SkillRefocus _ _ _|ReadTimeline _ _ _=>false
+|ActivityFocus _ _ _|SkillSelection _ _ _ _|SkillRefocus _ _ _ _|ReadTimeline _ _ _=>false
 |LoadSkills _ explicit=>explicit
 |ServiceInput service=>match service with
  |Services.CommandAssessed _ _|Services.RestoreModelPreference _
@@ -90,9 +98,9 @@ Definition assign_activity {e} occurrence (subject:Model.subject e) incoming : o
 Definition selection_input {e} (subject:Model.subject e) incoming : option input :=
  caret<-natural_field "start" incoming;;
  finish<-natural_field "end" incoming;;composing<-bool_field "composing" incoming;;
- if N.eqb caret finish then
- Some(match bool_field "refocus" incoming with Some true=>SkillRefocus e caret composing|_=>SkillSelection e caret composing end)
- else Some(SkillDismiss e).
+ if match bool_field "blur" incoming with Some true=>true|_=>false end then Some(SkillDismiss e)
+ else Some(match bool_field "refocus" incoming with
+  |Some true=>SkillRefocus e caret finish composing|_=>SkillSelection e caret finish composing end).
 
 Definition attach_files owner incoming:option input:=
  files<-match incoming with JArray files=>traverse Attachments.decode_file files|value=>option_map(fun value=>[value])(Attachments.decode_file value)end;;

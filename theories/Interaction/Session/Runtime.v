@@ -41,7 +41,7 @@ Definition forget_pending ticket state:=
 Definition promote_language_admission pending editor owner path language_ticket state:=
  let authoring:=SS.authoring_state state in
  let awaiting:=map(fun current=>if N.eqb(SS.ticket pending)(SS.ticket current)then
-  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)else current)
+  SS.Pending(SS.ticket current)(SS.accepted_command current)(SS.LanguageSubmission editor owner path language_ticket)(SS.outcome_unknown current)else current)
   (SS.awaiting authoring)in
  Authoring.changed(SS.with_authoring(set SS.awaiting(fun _=>awaiting)authoring)state)
   [Authoring.emit "command"[("ticket",number(SS.ticket pending));("command",Schema.encode_command(SS.accepted_command pending))]].
@@ -248,6 +248,9 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
  else Authoring.adopt_navigation snapshot(Navigation.open_activity snapshot owner(Activity.SubjectActivity field)trigger state)
  else Authoring.keep state
 |Input.Completed ticket outcome=>complete namespace snapshot lagged ticket outcome state
+|Input.CompletionUnknown ticket reason=>Authoring.keep(SS.with_authoring
+ (set SS.awaiting(map(SS.unknown_outcome ticket reason))(SS.authoring_state state))state)
+|Input.NativeFailed reason=>Authoring.alert_diagnostic state(JString reason)
 |Input.Snapshot|Input.EnvironmentObserved=>Authoring.keep state
 |Input.Stream source=>match Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace source with
  |Some event=>let '(streams,_) :=Streams.step Streams.browser_configuration event(SS.stream_state state)in Authoring.keep(SS.with_streams streams state)
@@ -278,19 +281,18 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 Definition retire_namespace namespace state:=
  if String.eqb namespace(DocumentState.retention_namespace(SS.document_retention state))then Authoring.keep state else
  let previous:=SS.service_state state in
- let services:=Services.Services(Services.connection previous)None(Services.theme previous)(Services.next_ticket previous)
+ let services:=Services.Services(Services.connection previous)(Services.settings_return previous)(Services.theme previous)(Services.next_ticket previous)
    [] Resource.Dormant Resource.Dormant ""(Services.model_preference previous)(Services.storage_problem previous)
    [] Resource.Dormant []in
  let stopped:=Speech.speech_step Speech.Cancel(SS.speech_state state)in
  let speech:=Speech.Speech(Speech.connections(Speech.speech_state stopped))(Speech.selected(Speech.speech_state stopped))
    (Speech.next(Speech.speech_state stopped))Speech.Idle "" ""in
- let generation:=N.succ(fold_right(fun reader current=>N.max(SS.reader_generation reader)current)
-   (SS.generation(SS.navigation_state state))(SS.readers state))in
- let fresh:=SS.with_navigation(set SS.generation(fun _=>generation)(SS.navigation_state SS.initial))
-  (SS.with_authoring(set SS.next(fun _=>SS.next(SS.authoring_state state))(SS.authoring_state SS.initial))
-  (SS.with_services services(SS.with_speech speech(SS.with_now(SS.now state)
-  (SS.with_next_layer(N.succ(SS.next_layer state))
-  (SS.with_retention(DocumentState.Retention namespace(DocumentState.retention_next_epoch(SS.document_retention state))[][])SS.initial))))))in
+ let authoring:=set SS.awaiting(fun _=>[])
+   (set SS.drafts(map(Draft.with_feedback Draft.Editing))(SS.authoring_state state))in
+ let fresh:=SS.with_authoring authoring
+  (SS.with_services services(SS.with_speech speech(SS.with_streams[]
+  (SS.with_interactive_state IS.initial
+  (SS.with_retention(DocumentState.Retention namespace(DocumentState.retention_next_epoch(SS.document_retention state))[][])state)))))in
  let aborts:=fold_right(fun resource effects=>match resource with Resource.Loading ticket _=>Services.AbortUpload ticket::effects|_=>effects end)[](Services.uploads previous)in
  Authoring.changed fresh(map Services.encode_effect(aborts++Services.release_preview previous)++map Speech.encode_effect(Speech.speech_effects stopped)).
 Definition step namespace snapshot lagged input state:=

@@ -5,9 +5,10 @@
 vocabulary; product actions and labels remain in the interaction module. DOM nodes
 carry plain JSON records, never a compiler's internal constructor layout.
 
-`Native` owns key normalization, reading intent, publication generations, focus
-cycling, and width allocation. `NativeProof` and `DocumentProof` are checked
-separately and are absent from the executable import closure. Their statements
+`Keyboard`, `Reading`, `Publication`, `Focus` and `Layout` own key normalization,
+reading intent, publication generations, focus cycling and responsive allocation.
+Their proof modules and `DocumentProof` are checked separately and are absent from
+the executable import closure. Their statements
 refer to the functions called by `Runtime`, rather than a second reference
 implementation. Native events must belong to the current DOM generation. A separate published
 prefix generation advances only after the real Markdown and canonical fence
@@ -41,7 +42,7 @@ header and task tree, while a higher activity retains the foreground scope.
 Native modal dialogs supply background inertness, cancellation and focus isolation.
 
 Physical view occurrences scope DOM identities and ID references. They retain the
-same logical editor, document and source authority. `Native.resolve_target` first
+same logical editor, document and source authority. `Focus.resolve_target` first
 honors a physical key, then chooses an observed logical alias in the active view.
 Scene-declared focus aliases also keep responsive return targets available.
 Anchored menus refer to their actual trigger and use native CSS anchor positioning.

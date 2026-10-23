@@ -25,7 +25,7 @@ Proof. reflexivity. Qed.
 
 Theorem supporting_role_survives_nested_content {A} (value : Surface.meaning A) :
   match value with
-  | Surface.ActivityRow _ | Surface.ActivityGroup _ _ _ _ | Surface.LayerRegion _ => True
+  | Surface.ActivityRow _ | Surface.ActivityGroup _ _ _ _ | Surface.LayerRegion _ | Surface.WorkOverviewRegion _ => True
   | _ => source_context (Surface.ActivityRow Surface.SupportingRow) value =
       Surface.ActivityRow Surface.SupportingRow end.
 Proof. destruct value; exact I || reflexivity. Qed.
@@ -71,3 +71,28 @@ Theorem active_preview_removes_original_code_frame : forall A env_view key seman
    (Surface.Node key semantic label role
      (Surface.InteractiveRegion(DocumentPublication.FencePolicy identity false true)) children)).
 Proof. intros; simpl; right; left; reflexivity. Qed.
+
+Theorem every_action_retains_motor_extent env activity role area purpose icon choice supporting :
+  exists width height,
+    32 <= width /\ 32 <= height /\
+    In ("min-inline-size",Typography.px width)
+      (control_geometry_properties env activity role area purpose icon choice supporting) /\
+    In ("min-block-size",Typography.px height)
+      (control_geometry_properties env activity role area purpose icon choice supporting).
+Proof.
+  unfold control_geometry_properties.
+  set (motor := if activity then Layout.motor_minimum env else Layout.base_motor_minimum).
+  assert (Motor : 32 <= motor).
+  { unfold motor. destruct activity; [unfold Layout.motor_minimum; apply Nat.le_max_l|reflexivity]. }
+  exists motor, (Nat.max (if navigation_target env role area then 44 else motor)
+    (if activity then Nat.max motor
+      (target_height (geometry_for purpose area icon choice supporting))
+     else (if activity then match target_height (geometry_for purpose area icon choice supporting) with
+       | 0 => 0 | S _ => Typography.scaled (Layout.root_font_size_milli env)
+         (target_height (geometry_for purpose area icon choice supporting)) end
+       else target_height (geometry_for purpose area icon choice supporting)))).
+  split; [exact Motor|]. split.
+  - eapply Nat.le_trans; [|apply Nat.le_max_l].
+    destruct (navigation_target env role area); [lia|exact Motor].
+  - split; apply in_or_app; left; simpl; auto.
+Qed.

@@ -187,7 +187,7 @@ Definition role_style (role : Roles.role) :=
   | Roles.UserMessage => enclosure_fields InsetPaint "transparent" 0 16 false Trailing BlockFlow ContentFlow Enclosure.UserMessage 0 0 70 false false
   | Roles.AssistantMessage => fields EmbeddedPaint "transparent" 0 0 false Leading BlockFlow ContentFlow 0 0 0 0 100 false false
   | Roles.Composer => enclosure_fields ContentPaint (token "--color-token-border-default") 1 16 true Stretch ColumnFlow ContentFlow Enclosure.Composer 4 0 100 false false
-  | Roles.ComposerActions => fields EmbeddedPaint "transparent" 0 0 false Stretch SplitRowFlow ContentFlow 0 0 4 32 100 false false
+  | Roles.ComposerActions => fields EmbeddedPaint "transparent" 0 0 false Trailing SplitRowFlow ContentFlow 0 0 Layout.composer_clearance 32 100 false false
   | Roles.DialogActions => partition_fields Enclosure.Footer RowFlow ContentFlow (Enclosure.separation Enclosure.DialogActions)
   | Roles.DialogHeader => partition_fields Enclosure.Header ColumnFlow ContentFlow 0
   | Roles.DialogBody => partition_fields Enclosure.Body ColumnFlow ScrollFlow (Enclosure.separation Enclosure.DialogSections)
@@ -213,15 +213,15 @@ Definition flow_properties value : list (string * string) :=
   match value with
   | BlockFlow => [("display","block")]
   | ColumnFlow => [("display","flex"); ("flex-direction","column")]
-  | RowFlow => [("display","flex"); ("flex-direction","row"); ("align-items","center")]
-  | SplitRowFlow => [("display","flex"); ("flex-direction","row"); ("align-items","center"); ("justify-content","space-between")]
+  | RowFlow => [("display","flex"); ("flex-direction","row")]
+  | SplitRowFlow => [("display","flex"); ("flex-direction","row"); ("justify-content","space-between")]
   end.
 Definition alignment_properties value : list (string * string) :=
   match value with
-  | Leading => [("align-self","flex-start")]
-  | Centered => [("align-self","center"); ("text-align","center")]
-  | Trailing => [("align-self","flex-end")]
-  | Stretch => [("align-self","stretch")]
+  | Leading => [("align-items","flex-start"); ("text-align","start")]
+  | Centered => [("align-items","center"); ("text-align","center")]
+  | Trailing => [("align-items","flex-end"); ("text-align","end")]
+  | Stretch => [("align-items","stretch"); ("text-align","start")]
   end.
 Definition overflow_properties value : list (string * string) :=
   match value with
@@ -281,10 +281,13 @@ Definition role_typography env role : list (string * string) :=
   | Roles.Button | Roles.PrimaryButton | Roles.DestructiveButton | Roles.SelectedButton => set Typography.Body Typography.Medium
   | Roles.Alert => set Typography.Body Typography.Regular
   | _ => [] end.
-Definition role_properties env role := style_properties env (role_style role) ++ role_typography env role ++
+Definition alert_color_properties :=
+  [("color",token "--color-text-danger");("overflow-wrap","anywhere")].
+Definition alert_properties env := role_typography env Roles.Alert ++ alert_color_properties.
+Definition role_properties env role := style_properties env (role_style role) ++
+  (match role with Roles.Alert=>alert_properties env|_=>role_typography env role end) ++
   match role with
   | Roles.Activity => [("color",secondary_text)]
-  | Roles.Alert => [("color",token "--color-text-danger"); ("overflow-wrap","anywhere")]
   | Roles.Toolbar => [("justify-content","flex-start")]
   | Roles.GlobalNavigation _ =>
       [("padding-inline",Typography.px (Typography.scaled (Layout.root_font_size_milli env) 4));
@@ -292,7 +295,7 @@ Definition role_properties env role := style_properties env (role_style role) ++
        ("gap",Typography.px (Typography.scaled (Layout.root_font_size_milli env) 4))]
   | Roles.DialogHeader => [("flex","none"); ("min-inline-size","0")]
   | Roles.DialogBody => [("flex","1 1 auto"); ("min-inline-size","0")]
-  | Roles.DialogActions => [("flex","none"); ("justify-content","flex-end")]
+  | Roles.DialogActions => [("flex","none"); ("justify-content","flex-start")]
   | Roles.WorkTab _ => [("--control-disabled-opacity","0.5")]
   | Roles.Button | Roles.PrimaryButton | Roles.DestructiveButton | Roles.SelectedButton =>
       [("justify-content","center"); ("min-inline-size",Typography.px Layout.base_motor_minimum)]
@@ -364,6 +367,7 @@ Definition root_properties env : list (string * string) :=
   Typography.properties (Layout.root_font_size_milli env) Typography.Body Typography.Regular ++
   [("color",primary_text); ("background",background CanvasPaint Rest);
    ("--layout-clearance",Typography.px (Layout.clearance env));
+   ("--control-help-delay","300ms");
    ("--native-focus-ring",token "--color-token-focus-border");
    ("--native-focus-width","2px"); ("--native-focus-offset","-4px")] ++
   rich_properties env Typography.Body Typography.Regular.

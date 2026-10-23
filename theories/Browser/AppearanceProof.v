@@ -65,3 +65,31 @@ Theorem published_markdown_spacing_uses_actual_parent_size env parent :
   rich_list_indent (markdown_policy env parent PublishedMarkdown) =
     2 * Typography.size (Layout.root_font_size_milli env) parent.
 Proof. split; reflexivity. Qed.
+
+Theorem composer_footer_preserves_group_clearance env :
+  In ("gap",Typography.px 12) (role_properties env Roles.ComposerActions) /\
+  In ("align-items","flex-end") (role_properties env Roles.ComposerActions).
+Proof.
+  unfold role_properties, style_properties. cbn [role_style fields].
+  repeat rewrite in_app_iff. simpl. tauto.
+Qed.
+
+Theorem composer_rows_require_whole_group_measurement {A} activity (source : Surface.meaning A) :
+  SemanticAppearance.responsive_row activity source Roles.ComposerActions Surface.Region = true /\
+  SemanticAppearance.responsive_row activity source Roles.Toolbar Surface.Region = true.
+Proof. destruct source; split; reflexivity. Qed.
+
+Theorem navigation_caption_preserves_single_line {A} env activity :
+  In ("white-space","nowrap")
+    (SemanticAppearance.meaning_properties env activity
+      (@Surface.InformationText A Selvedge.Interaction.Presentation.Information.NavigationCaption)).
+Proof. unfold SemanticAppearance.meaning_properties. repeat rewrite in_app_iff. simpl. tauto. Qed.
+
+Theorem conversation_passes_its_available_height_to_the_reading_port {A} env activity view :
+  In ("flex","1 1 auto")
+    (SemanticAppearance.meaning_properties env activity (@Surface.PageContext A view)) /\
+  In ("min-block-size","0")
+    (SemanticAppearance.meaning_properties env activity (@Surface.PageContext A view)) /\
+  In ("overflow","hidden")
+    (SemanticAppearance.meaning_properties env activity (@Surface.PageContext A view)).
+Proof. unfold SemanticAppearance.meaning_properties. repeat rewrite in_app_iff. simpl. tauto. Qed.

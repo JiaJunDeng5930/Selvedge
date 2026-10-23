@@ -23,6 +23,9 @@ Inductive editor :=
 | Compact (task : N) | TaskGraph (id work : option N)
 | WorkName (work : N) | TitlePrompts.
 
+(* Existing graphs keep their editor when the surrounding Work selection changes. *)
+Definition graph_editor id work := TaskGraph id (match id with Some _=>None|None=>work end).
+
 Definition editor_task (e:editor) : option N := match e with
  |Message task|Fork task|Compact task=>Some task|_=>None end.
 Definition task_observation_fields e fields := match editor_task e with
@@ -51,7 +54,7 @@ Definition decode_editor (j : json) : option editor :=
   | Some "agent", Some i, Some None => Some (Agent i)
   | Some "fork", Some (Some t), Some None => Some (Fork t)
   | Some "compact", Some (Some t), Some None => Some (Compact t)
-  | Some "graph", Some i, Some w => Some (TaskGraph i w)
+  | Some "graph", Some i, Some w => Some (graph_editor i w)
   | Some "work", Some (Some w), Some None => Some (WorkName w)
   | Some "title_prompts", Some None, Some None => Some TitlePrompts
   | _,_,_ => None

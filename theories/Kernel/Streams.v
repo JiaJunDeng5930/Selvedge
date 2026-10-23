@@ -71,7 +71,7 @@ Definition cumulative (streams : state) (task ticket operation : N) : option liv
 Definition value (source : json) (key : string) := match field key source with Some value => value | None => JNull end.
 Definition integer (source : json) : option N := match source with
   | JNumber text => match parse_natural text with
-    | Some value => if (value <=? 9007199254740991) && String.eqb text (show_natural value) then Some value else None
+    | Some value => if String.eqb text (show_natural value) then Some value else None
     | None => None end
   | _ => None end.
 Definition decode_key (source : json) := match integer (value source "task_id"),integer (value source "ticket") with

@@ -39,11 +39,11 @@ Theorem sealed_empty_definition_is_fatal : forall (syntax:Syntax.syntax) previou
  Syntax.roots syntax=[] -> Syntax.sealed syntax=true ->
  let prepared:=Registry.prepare syntax previous old_sources environment in
  prepared.(Registry.fatal)=true /\
- prepared.(Registry.diagnostics)=["The document ended without a ui root"].
+ prepared.(Registry.diagnostics)=[Types.Diagnostic "ui" "The document ended without a ui root" true].
 Proof.
  intros syntax previous old_sources environment no_root sealed.
  unfold Registry.prepare. rewrite no_root,sealed.
- unfold Registry.with_diagnostic,Registry.start. simpl. auto.
+ unfold Registry.with_diagnostic,Registry.with_diagnostic_at,Registry.start. simpl. auto.
 Qed.
 
 Theorem unsealed_empty_definition_waits : forall (syntax:Syntax.syntax) previous old_sources environment,

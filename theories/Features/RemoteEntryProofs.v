@@ -20,6 +20,9 @@ Theorem actual_stop_preserves_workspace_and_stops_task : forall task phase opera
    (put_task 0 (with_lifecycle (Stopped phase operations) task) value) [].
 Proof.
  intros task phase operations value Tasks Running Allowed.
+ assert (Executable : Worktree.execution_allowed 0 value = true).
+ { unfold Worktree.control_allowed in Allowed.
+   apply andb_true_iff in Allowed; exact (proj1 Allowed). }
  cbn [Packet.execute_domain Packet.query Selvedge.Kernel.Queries.answer
    Selvedge.Features.Runtime.query Selvedge.Features.Runtime.or_else
    Selvedge.Features.Work.query Selvedge.Features.Board.query
@@ -27,7 +30,8 @@ Proof.
    Selvedge.Features.Chatgpt.query Selvedge.Features.TitleRuntime.query
    Selvedge.Features.Runtime.guard_command Worktree.guard_command].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command.
- cbn [G.stop_task_id]. rewrite Allowed. cbn [Selvedge.Features.Runtime.or_else].
+ cbn [G.stop_task_id]. unfold Worktree.execution_guard.
+ rewrite Executable, Allowed. cbn [Selvedge.Features.Runtime.or_else].
  cbn [Selvedge.Features.Runtime.command Selvedge.Features.Runtime.or_else
    Selvedge.Features.Work.command Selvedge.Features.Board.command
    Selvedge.Features.TaskGraph.command Worktree.command

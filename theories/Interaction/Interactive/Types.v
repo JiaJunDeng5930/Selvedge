@@ -4,6 +4,7 @@ From Selvedge.Interaction Require Import Codec.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Record diagnostic:=Diagnostic{diagnostic_path:string;diagnostic_message:string;diagnostic_fatal:bool}.
 Record owner:=Owner{owner_key:string;epoch:N}.
 Definition same_owner a b:=String.eqb a.(owner_key)b.(owner_key)&&N.eqb a.(epoch)b.(epoch).
 Record event:=Event{event_owner:owner;path:string;occurrence:N}.

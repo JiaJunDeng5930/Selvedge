@@ -179,3 +179,10 @@ Definition replacement (value : skill) (suffix : string) : string :=
     | EmptyString => " "
     | String char _ => if whitespace char then "" else " "
     end.
+
+Record insertion := Insertion { insertion_text : string; insertion_caret : nat }.
+Definition insert (source : string) (found : trigger) (value : skill) : insertion :=
+  let prefix := substring 0 (trigger_start found) source in
+  let suffix := substring (trigger_end found) (String.length source) source in
+  let inserted := replacement value suffix in
+  Insertion (prefix ++ inserted ++ suffix) (trigger_start found + String.length inserted).

@@ -81,7 +81,7 @@ Definition declarations snapshot clock subject :=match subject_value snapshot su
  |AgentActions id=>[local "edit" "Edit agent"(Editor(Agent(Some id)))] ++
     match natural_field "revision" value with Some revision=>singleton(native "delete" "Delete agent"None
      (G.Cmd_delete_board_agent(G.Build_delete_board_agent id revision)))|None=>[]end
- |GraphActions id=>[local "edit" "Edit task graph"(Editor(TaskGraph(Some id)None))] ++
+ |GraphActions id=>[local "edit" "Edit task graph"(Editor(graph_editor(Some id)None))] ++
     singleton(native "delete" "Delete task graph"(Some("Delete task graph",Graphs))(G.Cmd_delete_task_graph(G.Build_delete_task_graph id)))
  end end.
 Definition occurrence s := match State.layers(State.navigation_state s)with

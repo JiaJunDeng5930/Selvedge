@@ -19,12 +19,14 @@ Definition candidate_node {e} (pending:bool) occurrence parent (decision:UX.deci
  let key:=part parent("candidate/"++TextJson.render_json(Schema.encode_value(UX.subject_kind(UX.decision_subject decision))(UX.alternative_value alternative)))in
  let action:=Control label label Secondary
   (Input.ActivityAssignment occurrence e(Act.Assignment(UX.decision_subject decision)(UX.alternative_value alternative)))
-  (if pending then Unavailable "This action is pending"else domain_availability(UX.alternative_availability alternative))in
+  (if pending && Parameters.live_configuration e(UX.subject_declaration(UX.decision_subject decision))
+   then Unavailable "This action is pending"else domain_availability(UX.alternative_availability alternative))in
  Node(part key "row")"choice-row" ""Roles.Section(ActivityRow ChoiceRow)
  [Node key "alternative"label Roles.Button
   (Choice SingleChoice(UX.alternative_selected alternative)(UX.alternative_explanation alternative)action)
-  (information key "label" Information.OptionLabel label::
-   information key "description" Information.Description(UX.alternative_explanation alternative)::
+  ([information key "label" Information.OptionLabel label]++
+   (if String.eqb label(UX.alternative_explanation alternative)then[]else
+    [information key "description" Information.Description(UX.alternative_explanation alternative)])++
    map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
     (UX.readable_text(UX.summary_observation consequence)))(UX.alternative_consequences alternative))].
 Definition decision_node {e} pending occurrence parent query (decision:UX.decision e) :=
@@ -100,11 +102,27 @@ Definition dependency_summary snapshot s {e} occurrence parent(subject:UX.subjec
 Definition required_expression {e} parent(expression:Observation.subject_expression e):list(node Input.input):=
  match Observation.expression_kind_of expression with
  |Observation.SelectedSubject _|Observation.OwnedParameter _|Observation.PermissionConsequence _=>[]
+ |Observation.OriginalIdentity=>match Observation.expression_information expression with
+   |UX.PresentInformation first _=>
+    [Node(part parent "original-project")"original-project" ""Roles.Section(ActivityRow SupportingRow)
+      [read_only parent "original-project/value" "Original project"(UX.readable_text(UX.summary_observation first))]]
+   |_=>[]end
  |_=>let subject:=Observation.expression_subject expression in
   let key:=part parent("fact/"++UX.subject_name subject)in
   [Node key "required-information" ""Roles.Section(ActivityRow SupportingRow)
     [read_only key "observation"(Parameters.label(UX.subject_declaration subject))
       (information_value(Observation.expression_information expression))]]end.
+Definition inherited_permission_controls s e parent :=
+ match Selvedge.Interaction.Session.Observation.draft_context(State.current_draft s e)with
+ |None=>[]|Some configuration=>
+  flat_map(fun (setting:Fields.field*string*bool)=>let '(field,label,overridden):=setting in if overridden then
+   match UX.admit_subject e(Parameters.name field)with
+   |Some subject=>match Input.assign_subject subject JNull with
+     |Some input=>[declared parent Roles.Button(secondary("default/"++Parameters.name field)("Use defaults for "++label)input)]
+     |None=>[]end
+   |None=>[]end else[])
+   [(Fields.SandboxMode,"filesystem and network access",match Context.sandbox_override configuration with Some _=>true|None=>false end);
+    (Fields.ApprovalPolicy,"approval policy",match Context.approval_override configuration with Some _=>true|None=>false end)]end.
 Fixpoint relation_nodes {e} snapshot s occurrence parent query request
  (activity:Act.activity e)(view:Act.view e)(relation:Act.relation e):list(node Input.input):=
  let children:=match relation with Act.RootDecision _ children=>
@@ -130,27 +148,31 @@ Fixpoint relation_nodes {e} snapshot s occurrence parent query request
    let key:=part parent("supporting/"++UX.subject_name(UX.property_subject property))in
    match view with
    |Act.InspectionView None=>[Node key "supporting-value" ""Roles.Section(ActivityRow SupportingRow)
-     [read_only key "scope" "Scope"(editor_key e);
-      declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]]
+     ([read_only key "scope" "Scope"(editor_key e);
+      declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
+      match UX.property_kind_of property with
+      |UX.PermissionsProperty=>inherited_permission_controls s e key|_=>[]end)]
    |Act.CompoundView=>[Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)(Composer.property_information key property)]
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>[workspace_nodes s occurrence(part parent "workspace")members]
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
    let assessment:=UX.Assessment(UX.action_identity_of action)outcome in
    [Node(part parent "commit")"commit" "Actions"Roles.Section(ActionUnit e action)
-     [Editors.assessment_nodes parent assessment;
-      Node(part parent "submit")"submit"(Editors.submit_label e)Roles.PrimaryButton
-       (ActionCommit e assessment(Control "submit"(Editors.submit_label e)Primary(Input.Submit e(part parent "submit"))
-        (Editors.unit_availability action assessment)))[];
-      declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]]
+     ([Editors.assessment_nodes parent assessment]++
+      Composer.action_feedback parent action(Editors.draft_feedback(State.current_draft s e))++
+      [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
+       [dialog_actions parent
+        [declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel);
+         Node(part parent "submit")"submit"(Editors.submit_label e)Roles.PrimaryButton
+          (ActionCommit e assessment(Control "submit"(Editors.submit_label e)Primary(Input.Submit e(part parent "submit"))
+           (Editors.unit_availability action assessment)))[]]]])]
  |_,_=>children end.
 Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=
  match activity with
  |Act.EditingActivity _ _ _=>
   fold_right(fun '(name,fields) rest=>
    let fields:=filter(fun field=>match field with Fields.WorkspaceDirectories|Fields.WorkspacePrimary=>false|_=>true end)fields in
-   match fields with []=>rest|_=>region parent name name Roles.Section
-    (group_title(part parent name)name::Editors.field_nodes snapshot s e parent fields)::rest end)[]
+   match fields with []=>rest|_=>Editors.field_section snapshot s e parent name fields::rest end)[]
    (Editors.editor_sections e)
  |_=>[]end.
 Definition current_layer s occurrence:=find(fun layer=>N.eqb occurrence(State.layer_occurrence layer))(State.layers(State.navigation_state s)).
@@ -198,6 +220,9 @@ Definition project_menu snapshot s e occurrence parent behavior:=
  Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
   [dialog_header parent [title parent "Choose project"];dialog_body parent content].
 Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
+Definition navigation_header parent caption (action:Input.input):node Input.input:=
+ Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
+  [declared parent Roles.Button(secondary "back" "Back"action);title parent caption].
 Definition activity_view snapshot s e request occurrence source_expanded parent behavior :=
  if workspace_request request && match e with Identity.Project _=>false|_=>true end
  then workspace_menu snapshot s e occurrence parent behavior else
@@ -215,8 +240,7 @@ Definition activity_view snapshot s e request occurrence source_expanded parent 
   let completion:=Observation.completion_for activity view in
   let header:=match completion with
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
-      [Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)
-       [declared parent Roles.Button(secondary "back" "Back"(Input.ActivityComplete occurrence));title parent caption]]
+      [navigation_header parent caption(Input.ActivityComplete occurrence)]
     |_=>[title parent caption]end in
   let body:=((if Observation.search_required activity view then
      [Node(part parent "search")"search" "Search models"Roles.Field

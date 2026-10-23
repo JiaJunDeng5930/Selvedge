@@ -80,13 +80,14 @@ Proof.
 Qed.
 
 (* An announcement closes the provider call's immediate obligation. The
-   underlying external operation may remain live during independent inference. *)
+   underlying external operation may remain live during independent inference;
+   queued input is promoted before that turn observes and captures context. *)
 Theorem announced_operations_allow_an_independent_model_turn : forall execute id task value operations,
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations task)].
+ decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (Tasks.promote task))].
 Proof.
  intros execute id task value operations Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.

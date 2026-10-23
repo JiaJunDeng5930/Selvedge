@@ -93,6 +93,9 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
       frames.write(decoder.decode(received.value, { stream: true }));
     }
   } catch (error) {
+    // DEFENSE: a read can reject after an accepted snapshot has replaced this
+    // subscription's namespace; its failure does not describe the new source.
+    if (!subscribed()) return;
     flushStreams();
     throw error;
   } finally {

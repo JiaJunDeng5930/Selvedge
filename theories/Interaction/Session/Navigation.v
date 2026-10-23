@@ -76,7 +76,10 @@ Definition visit snapshot destination state :=
  let navigation:=after_visit(set State.location(fun _=>destination)
    (set State.layers(fun _=>[])navigation))in
  let state:=State.with_navigation navigation state in
- let state:=match destination with Conversation task=>new_visit task state|_=>state end in
+ let state:=match destination with
+ |Conversation task=>new_visit task state
+ |HistorySearch=>State.with_authoring(set State.history_search(fun _=>State.Search "" None None None None)(State.authoring_state state))state
+ |_=>state end in
  let draft_effects:=match destination with
  |Conversation task=>[EnsureDraft(Message task);EnsureDraft(NewTask(State.active_work navigation))]
  |Start=>[EnsureDraft(NewTask(State.active_work navigation))]|_=>[]end in
@@ -188,7 +191,7 @@ Definition select_work snapshot work state :=
  let navigation:=State.navigation_state state in
  let overview:=overview_open state in
  if same_work work(State.active_work navigation)then
- let state:=State.with_navigation(set State.generation N.succ navigation)state in
+ let state:=State.with_navigation(after_visit navigation)state in
  if overview then let closed:=close_panel state in
  changed(result_state closed)(work_focus work(result_state closed))else keep state
  else let destination:=visited work navigation in
@@ -275,7 +278,12 @@ Definition step snapshot input state:option result:=match input with
  |Input.OpenEditor owner trigger=>Some(edit_object snapshot owner trigger state)
  |Input.OpenBoard kind trigger=>Some(open_panel(match kind with State.BoardSettings=>State.BoardSettingsPanel|State.BoardFilters=>State.BoardFiltersPanel|State.ArchivedCards=>State.ArchivedCardsPanel end)trigger state)
  |Input.OpenActivity owner request trigger=>Some(open_activity snapshot owner request trigger state)
- |Input.OpenInformation kind trigger=>Some(open_panel(State.InformationPanel kind)trigger state)
+ |Input.OpenInformation kind trigger=>Some(match kind,State.layers(State.navigation_state state)with
+   |State.TaskDetails task,layer::_=>match State.layer_panel layer with
+     |State.InformationPanel(State.TaskDetails actual)=>if N.eqb task actual then close_panel state
+       else open_panel(State.InformationPanel kind)trigger state
+     |_=>open_panel(State.InformationPanel kind)trigger state end
+   |_,_=>open_panel(State.InformationPanel kind)trigger state end)
  |Input.InspectSource owner request trigger=>Some(open_panel(State.InformationPanel(State.PropertySource owner request))trigger state)
  |Input.TogglePropertySource owner occurrence=>Some(match State.layers(State.navigation_state state)with
  |layer::_=>request_view occurrence owner(negb(State.layer_source_expanded layer))None None state|[]=>keep state end)

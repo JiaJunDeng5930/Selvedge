@@ -56,7 +56,12 @@ Inductive pending_purpose := DraftSubmission (snapshot : draft) (navigation_gene
 | SearchSubmission(query:string)(project work:option N)(search_ticket:N)
 | LanguageAdmission (task revision : N) (text : string) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N)
 | LanguageSubmission (editor : Identity.editor) (owner : Selvedge.Interaction.Interactive.Types.owner) (path : string) (ticket : N).
-Record pending := Pending { ticket : N; accepted_command : public_command; purpose : pending_purpose }.
+Record pending := Pending { ticket : N; accepted_command : public_command; purpose : pending_purpose;
+  outcome_unknown : option string }.
+Definition unknown_outcome requested reason current :=
+ if N.eqb requested (ticket current) then
+  Pending (ticket current) (accepted_command current) (purpose current) (Some reason)
+ else current.
 Record search := Search {
   keyword : string;
   project_filter : option N;

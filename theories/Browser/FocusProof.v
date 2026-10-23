@@ -39,9 +39,22 @@ Theorem closing_child_restores_owner : forall parent child
   [Temporary parent parent_initial parent_restore parent_fallback parent_occurrence;
    Temporary child child_initial child_restore child_fallback child_occurrence]
   [Temporary parent parent_initial parent_restore parent_fallback parent_occurrence]
-  eligible = Some(child_restore,child_fallback).
+  eligible = Some(child_restore,parent_initial).
 Proof.
  intros. unfold request,top,transition,changed,invalid_retained,same_scope.
  simpl. rewrite H,String.eqb_refl. simpl.
  destruct parent_occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
 Qed.
+
+Theorem exact_focus_target_precedes_aliases requested preferred candidates found:
+ find(fun candidate=>String.eqb requested(target_key candidate))candidates=Some found ->
+ resolve requested preferred candidates=Some(target_key found).
+Proof. intro Found; unfold resolve; now rewrite Found. Qed.
+Theorem existing_return_target_precedes_fallback requested fallback preferred candidates key:
+ resolve requested preferred candidates=Some key ->
+ resolve_return requested fallback preferred candidates=Some key.
+Proof. intro Found; unfold resolve_return; now rewrite Found. Qed.
+Theorem missing_return_target_uses_declared_fallback requested fallback preferred candidates:
+ resolve requested preferred candidates=None ->
+ resolve_return requested fallback preferred candidates=resolve fallback preferred candidates.
+Proof. intro Missing; unfold resolve_return; now rewrite Missing. Qed.

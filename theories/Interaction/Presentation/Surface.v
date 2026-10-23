@@ -45,6 +45,7 @@ Inductive meaning (Action : Type) :=
 | SupportingControl (owner : editor) (support : UX.support owner) (property : UX.property owner) (action : control Action)
 | InformationText (role : Information.text_role)
 | LayerRegion (behavior : layer_behavior Action)
+| WorkOverviewRegion (behavior : layer_behavior Action)
 | DirectoryBrowserLocation (value : string)
 | PanelToggle (expanded : bool) (action : control Action)
 | CardContent (face : card_face)
@@ -61,7 +62,7 @@ Inductive meaning (Action : Type) :=
 | WorkChoice (work : option N) (selected : bool) (action : control Action)
 | DirectoryRow (path : string) (primary : bool)
 | ContextSummary (owner : editor)
-| SkillSuggestions (field_key : string) (active_option : option string)
+| SkillSuggestions (field_key : string) (expanded : bool) (active_option : option string)
 | SkillSuggestion (selected : bool) (action : control Action)
 | ChoiceGroup
 | Choice (kind : choice_kind) (selected : bool) (description : string) (action : control Action)
@@ -85,7 +86,7 @@ Inductive meaning (Action : Type) :=
 | Activate (action : control Action)
 | Edit (owner : editor) (subject : UX.subject owner) (value : edit_control Action)
 | InteractiveEdit (owner : CodeSource.identity) (member : string) (value : Components.editor Action)
-| HistorySearchQuery (query : string) (receive : json -> option Action)
+| HistorySearchQuery (query : string) (receive : json -> option Action) (confirm : control Action)
 | HistorySearchScope (project : bool) (selected : option N) (choices : list Fields.choice_value) (receive : json -> option Action)
 | BoardSearch (selection : BoardFilter.filter) (receive : json -> option Action)
 | SearchChoices (query : string) (receive : json -> option Action)
@@ -109,6 +110,7 @@ Arguments ObjectGroup {Action}.
 Arguments SupportingControl {Action}.
 Arguments InformationText {Action}.
 Arguments LayerRegion {Action}.
+Arguments WorkOverviewRegion {Action}.
 Arguments DirectoryBrowserLocation {Action}.
 Arguments PanelToggle {Action}.
 Arguments CardContent {Action}.
@@ -185,7 +187,7 @@ Arguments surface_appearance {Action}.
 
 Definition layer_region {A} (content : meaning A) :=
   match content with
-  | ActivityGroup _ _ _ behavior | LayerRegion behavior => Some behavior
+  | ActivityGroup _ _ _ behavior | LayerRegion behavior | WorkOverviewRegion behavior => Some behavior
   | _ => None
   end.
 
@@ -228,8 +230,9 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
         | Some receive => receive value | None => None
         end
       else None
+  | Gesture.Press, HistorySearchQuery _ _ confirm => press_control confirm
   | Gesture.Search, SearchChoices _ receive
-  | Gesture.Change, HistorySearchQuery _ receive
+  | Gesture.Change, HistorySearchQuery _ receive _
   | Gesture.Change, HistorySearchScope _ _ _ receive
   | Gesture.Search, BoardSearch _ receive => receive value
   | Gesture.Attach, ReceiveFile _ true receive => receive value
@@ -237,7 +240,8 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | Gesture.ConfirmDirectory, EnterDirectory _ _ _ confirm => confirm
   | Gesture.SelectBoardProfile, BoardProfile _ _ _ true receive => receive value
   | Gesture.Dismiss, ActivityGroup _ _ _ behavior
-  | Gesture.Dismiss, LayerRegion behavior => dismiss_layer behavior value
+  | Gesture.Dismiss, LayerRegion behavior
+  | Gesture.Dismiss, WorkOverviewRegion behavior => dismiss_layer behavior value
   | Gesture.Place, MovableCard _ destinations =>
       match as_string value with
       | None => None
@@ -327,6 +331,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | SupportingControl owner support property action => SupportingControl owner support property (map_control f action)
   | InformationText role => InformationText role
   | LayerRegion behavior => LayerRegion (map_layer_behavior f behavior)
+  | WorkOverviewRegion behavior => WorkOverviewRegion(map_layer_behavior f behavior)
   | DirectoryBrowserLocation value => DirectoryBrowserLocation value
   | PanelToggle expanded action => PanelToggle expanded (map_control f action)
   | CardContent face => CardContent face
@@ -343,7 +348,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | WorkChoice work selected action => WorkChoice work selected (map_control f action)
   | DirectoryRow path primary => DirectoryRow path primary
   | ContextSummary owner => ContextSummary owner
-  | SkillSuggestions field active => SkillSuggestions field active
+  | SkillSuggestions field expanded active => SkillSuggestions field expanded active
   | SkillSuggestion selected action => SkillSuggestion selected (map_control f action)
   | ChoiceGroup => ChoiceGroup
   | Choice kind selected description action => Choice kind selected description (map_control f action)
@@ -367,7 +372,7 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | Activate action => Activate (map_control f action)
   | Edit owner subject value => Edit owner subject (map_edit_control f value)
   | InteractiveEdit owner member value => InteractiveEdit owner member (Components.map_editor f value)
-  | HistorySearchQuery query receive => HistorySearchQuery query (map_receiver f receive)
+  | HistorySearchQuery query receive confirm => HistorySearchQuery query (map_receiver f receive)(map_control f confirm)
   | HistorySearchScope project selected choices receive => HistorySearchScope project selected choices (map_receiver f receive)
   | BoardSearch selection receive => BoardSearch selection (map_receiver f receive)
   | SearchChoices query receive => SearchChoices query (map_receiver f receive)
@@ -407,7 +412,7 @@ Definition edit_actions {A e}(subject:UX.subject e)(value:edit_control A):list A
 Definition meaning_actions {A}(content:meaning A):list A:=match content with
 |SettingEntry _ _ action|ActionCommit _ _ action|SupportingControl _ _ _ action
 |PanelToggle _ action|WorkChoice _ _ action|SkillSuggestion _ action|Choice _ _ _ action|Activate action=>[control_input action]
-|ActivityGroup _ _ _ behavior|LayerRegion behavior=>[layer_dismissal behavior]
+|ActivityGroup _ _ _ behavior|LayerRegion behavior|WorkOverviewRegion behavior=>[layer_dismissal behavior]
 |MovableCard _ destinations=>map(fun placement=>control_input(placement_control placement))destinations
 |Graphic drawing=>fold_right(fun primitive rest=>match primitive with
   |Graphics.Hitbox _ _ _ _ _ _ action=>action::rest|_=>rest end)[](Graphics.primitives drawing)

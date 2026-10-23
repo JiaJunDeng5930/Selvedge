@@ -4,20 +4,20 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks NativeTools
 Import ListNotations.
 Open Scope string_scope.
 
-(* This is the real model-item admission gate, before FunctionCall history and
-   before-hook work are constructed. Numeric and structural contracts are
-   discharged by the shared argument interpreter, not a second model checker. *)
-Theorem invalid_native_arguments_cannot_enter_model_items :
- forall invocation rest allowed task ids parts definition parameters program,
- find_tool (call_name invocation) (contract_tools (task_contract task)) = Some definition ->
+(* Before hooks can repair initial or intermediate object arguments. Only their
+   final value reaches this gate: an invalid native invocation records an error
+   without executing its command or allocating a child. *)
+Theorem invalid_native_arguments_cannot_pass_final_dispatch_gate :
+ forall execute id invocation remaining task value definition parameters program,
  tool_origin definition = NativeToolSource parameters program ->
  NativeTools.arguments_valid definition invocation = false ->
- Callbacks.permitted_items (CallItem invocation :: rest) allowed task ids parts = false.
+ Scheduler.before_hook_step execute id definition invocation [] remaining task value =
+ Scheduler.call_failure id invocation "Arguments do not satisfy the tool's frozen schema" remaining task value.
 Proof.
- intros invocation rest allowed task ids parts definition parameters program Found Native Invalid.
- cbn [Callbacks.permitted_items]. rewrite Found.
+ intros execute id invocation remaining task value definition parameters program Native Invalid.
+ unfold Scheduler.before_hook_step, Scheduler.execute_checked_call.
  unfold Callbacks.model_call_arguments_valid; rewrite Native, Invalid.
- repeat rewrite andb_false_r. reflexivity.
+ rewrite andb_false_r. reflexivity.
 Qed.
 
 (* A successful native fork has a real positive result. The command executor is

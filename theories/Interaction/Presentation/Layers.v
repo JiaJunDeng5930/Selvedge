@@ -64,8 +64,8 @@ Definition context_facts {A} snapshot task parent:list(node A) :=match SessionOb
     |None=>[]end) in
  List.app project_facts (List.app directory_facts
  [
-  read_only parent "filesystem" "Filesystem access"(match Domain.sandbox_access sandbox with Domain.ReadOnly=>"Read only"|Domain.WorkspaceWrite=>"Workspace write"end);
-  read_only parent "network" "Network access"(if Domain.sandbox_network sandbox then "Network enabled"else"Network disabled");
+  read_only parent "filesystem" "Filesystem access"(Observation.filesystem_summary sandbox(Domain.settings_approval settings));
+  read_only parent "network" "Network access"(Observation.network_summary sandbox(Domain.settings_approval settings));
   read_only parent "approval" "Approval policy"(match Domain.settings_approval settings with
    |Domain.FullAccess=>"Unrestricted"|Domain.AskForApproval=>"Ask"
    |Domain.ReviewWith reviewer=>"Automatic review: "++Observation.profile_label reviewer end);
@@ -157,8 +157,11 @@ Definition anchor s layer:=match State.layer_panel layer,layers_after(State.laye
 Definition behavior s capacity layer :=
  let kind:=panel_kind capacity(State.layer_panel layer)in
  let beside:=match kind with TrailingDetails=>details_beside_timeline capacity|_=>false end in
+ let dismissal:=match State.layer_panel layer with
+  |State.InformationPanel(State.TaskDetails _)|State.SideConversationPanel _=>false
+  |_=>negb beside end in
  LayerBehavior kind beside(State.layer_occurrence layer)(State.layer_initial_attention layer)
-  (State.layer_trigger layer)"/main"(anchor s layer) Input.ClosePanel(negb beside)(negb beside).
+  (State.layer_trigger layer)"/main"(anchor s layer) Input.ClosePanel dismissal dismissal.
 Definition information_panel snapshot s kind parent :=match kind with
 |State.TaskDetails task=>task_details snapshot s task parent
 |State.TaskContext task=>context_facts snapshot task parent
@@ -166,7 +169,8 @@ Definition information_panel snapshot s kind parent :=match kind with
 |State.PropertySource e request=>match Observation.property_for_request snapshot s e request with
  |None=>[read_only parent "unavailable" "Source" "The original settings observation is unavailable"]
  |Some property=>
-  [read_only parent "owner" "Settings"(UX.property_label property);
+  [Activities.navigation_header parent "Configuration source" Input.ClosePanel;
+   read_only parent "owner" "Settings"(UX.property_label property);
    read_only parent "configuration-source" "Source"(Observation.property_source_description snapshot s property)]end end.
 Definition side_content snapshot s task parent :=
  let return_control:=match ObjectActions.return_action snapshot s task with
@@ -215,4 +219,4 @@ Definition layer_view snapshot s capacity layer :=
   |State.Confirmation _ _ _=>content
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   Node(part parent "layer") "layer" ""(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
-   (LayerRegion behavior)content end.
+   (match State.layer_panel layer with State.NavigationPanel WorkOverview=>WorkOverviewRegion behavior|_=>LayerRegion behavior end)content end.
