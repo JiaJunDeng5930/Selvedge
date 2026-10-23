@@ -775,7 +775,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  DOM.Element key "select" (attrs++[("value","")]++disabled(match offered with []=>false|_=>true end))
  (styles++NativeAppearance.role_properties env Roles.Field++native_field_properties "")
  [event key generation "change" "value" Gesture.Place] empty
- (DOM.Element "" "option" [("value","");("selected","selected");("disabled","disabled")] [] [] empty [DOM.Text "Move to…"]::
+ (DOM.Element "" "option" [("value","");("selected","selected")] [] [] empty [DOM.Text "Move to…"]::
  map(fun destination=>DOM.Element "" "option" [("value",S.placement_target destination)] [] [] empty
  [DOM.Text(Model.control_label(S.placement_control destination))])offered)
  |S.InteractiveNode c=>
