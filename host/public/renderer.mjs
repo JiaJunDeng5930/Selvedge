@@ -248,7 +248,7 @@ export class Renderer {
         if (!record.markdown || !value.value.startsWith(record.text)) {
           record.markdown?.dispose(); record.markdownTargets.clear(); record.node.replaceChildren();
           const current = () => this.records.get(key) === record;
-          record.markdown = new Markdown(record.node, { onChange: () => { if (current()) this.callbacks.layout?.(); },
+          record.markdown = new Markdown(record.node, { smooth: false, onChange: () => { if (current()) this.callbacks.layout?.(); },
             ...(record.metadata.source === undefined ? {} : {
               codeIdentity: ordinal => this.callbacks.codeIdentity?.(record.metadata.source, ordinal),
               codeTargets: identity => this.callbacks.codeTargets?.(identity, record.metadata.view ?? null),

@@ -245,7 +245,7 @@ Record fence_observation:=FenceObservation {
  observation_key:string;observation_origin:output_origin;observation_viewer:N;observation_namespace:string;
  observation_prefix:string;observation_code:string;observation_ordinal:N;observation_epoch:N;observation_revision:N;observation_closed:bool }.
 
-Definition decode_observation observation:option fence_observation:=
+Definition decode_fence_observation observation:option fence_observation:=
  document_key<-string_field "document_key" observation;;
  origin<-bind(field "origin" observation)decode_origin;;
  viewing<-bind(field "origin" observation)(natural_field "viewing_task");;
@@ -255,9 +255,11 @@ Definition decode_observation observation:option fence_observation:=
  info_complete<-bool_field "info_complete" observation;;
  ordinal<-natural_field "ordinal" observation;;epoch<-natural_field "epoch" observation;;
  revision<-natural_field "revision" observation;;closed<-bool_field "closed" observation;;
- if OutputClassification.interactive_markdown_fence_observation observation then
-  Some(FenceObservation document_key origin viewing namespace prefix source ordinal epoch revision closed)
- else None.
+ Some(FenceObservation document_key origin viewing namespace prefix source ordinal epoch revision closed).
+
+Definition decode_observation observation:option fence_observation:=
+ if OutputClassification.interactive_markdown_fence_observation observation
+ then decode_fence_observation observation else None.
 
 Definition fence_extends observation fence:=
  if N.eqb(observation_ordinal observation)(fence_ordinal fence)then
@@ -294,6 +296,22 @@ Definition observe_document context raw r : option (Types.input * retention) :=
    let ending:=if String.eqb (observation_prefix observation) (markdown doc) then document_ending stamp else Types.Open in
    Some (Types.SourceChanged owner (observation_code observation) (observation_closed observation) ending (document_external context doc),next)
  else None.
+Inductive observation_admission :=
+ | MalformedObservation
+ | IrrelevantObservation
+ | AdmittedObservation (incoming:Types.input) (retained:retention).
+
+(** DEFENSE: physical Markdown reports include ordinary fences and callbacks
+    whose document has since been replaced. A well-formed report without a
+    current document owner must not change the product or its publication. *)
+Definition admit_observation context raw retained :=
+ match decode_fence_observation raw with
+ | None=>MalformedObservation
+ | Some _=>match observe_document context raw retained with
+   |None=>IrrelevantObservation
+   |Some(incoming,next)=>AdmittedObservation incoming next end
+ end.
+
 Definition environment_with_revocation observation lagged revoked := JObject [
  ("world",context_world observation);("namespace",JString (context_namespace observation));
  ("connected",JBool (context_connected observation));("display_lagged",JBool lagged);

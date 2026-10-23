@@ -257,9 +257,10 @@ Definition core namespace snapshot lagged input state:Authoring.result:=match in
 |Input.Stream source=>match Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace source with
  |Some event=>let '(streams,_) :=Streams.step Streams.browser_configuration event(SS.stream_state state)in Authoring.keep(SS.with_streams streams state)
  |None=>Authoring.fail state "The stream observation is not valid."end
-|Input.CodeObserved source=>match Documents.observe_document(context namespace snapshot state)source(SS.document_retention state)with
- |Some(input,retained)=>apply_language namespace snapshot lagged input(SS.with_retention retained state)
- |None=>Authoring.fail state "The document observation does not belong to the current output."end
+|Input.CodeObserved source=>match Documents.admit_observation(context namespace snapshot state)source(SS.document_retention state)with
+ |Documents.AdmittedObservation input retained=>apply_language namespace snapshot lagged input(SS.with_retention retained state)
+ |Documents.IrrelevantObservation=>Authoring.keep state
+ |Documents.MalformedObservation=>Authoring.fail state "The document observation does not belong to the current output."end
 |Input.Interactive input=>if native_language namespace snapshot state input then apply_language namespace snapshot lagged input state
  else Authoring.fail state "The interactive input is not accepted from this source."
 |Input.RetainedOutput identity toggle=>Authoring.keep(SS.with_retention

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
-From Selvedge.Interaction Require Import Codec Identity Input InputCodecs ControlPurpose.
+From Selvedge.Interaction Require Import Codec Identity Input InputCodecs ControlPurpose Documents.
 From Selvedge.Interaction.Session Require State Codec Runtime Authoring.
 From Selvedge.Interaction.Presentation Require Gesture Surface Model View.
 From Selvedge.Interaction.Interactive Require Language.
@@ -42,13 +42,26 @@ Definition native_step namespace snapshot lagged input raw current :=
 Definition feedback_update (error:option json) (visible acknowledge:bool) :=
  if visible || acknowledge then match error with
  |Some _=>"replace"|None=>"clear" end else "keep".
-Definition decision_packet current effects error handled visible_error acknowledge (semantic_change:bool):=JObject[("state",SC.encode_state current);
- ("effects",JArray effects);("publication_event",JString(if semantic_change then "advance"else"present"));("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
+Definition decision_packet current effects error handled visible_error acknowledge (publication_event:string):=JObject[("state",SC.encode_state current);
+ ("effects",JArray effects);("publication_event",JString publication_event);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled)].
 Definition refresh request snapshot decision:=match environment request with
 |Some env=>match surface snapshot(SA.result_state decision)env with
  |Some actual=>SA.append decision(SA.refresh snapshot(S.current_actions actual)(SA.result_state decision))
  |None=>decision end|None=>decision end.
+Definition run_input request snapshot namespace input raw current:=
+ let decision:=refresh request snapshot(native_step namespace snapshot(flag "semantic_lagged" request)input raw current)in
+ (decision,if Input.semantic_change input then "advance"else"present").
+
+Definition input_decision request snapshot namespace input raw current:=
+ match input with
+ |Input.CodeObserved source=>match Documents.admit_observation
+   (SR.context namespace snapshot current)source(Session.document_retention current)with
+  |Documents.MalformedObservation=>(SA.fail current "The document observation does not belong to the current output.","keep")
+  |Documents.IrrelevantObservation=>(SA.keep current,"keep")
+  |Documents.AdmittedObservation _ _=>run_input request snapshot namespace input raw current end
+ |_=>run_input request snapshot namespace input raw current end.
+
 Definition initialized := SC.encode_state Session.initial.
 Definition call operation request:json:=
  if String.eqb operation "initial"then Json.success initialized else
@@ -69,10 +82,10 @@ Definition call operation request:json:=
  else if String.eqb operation "step"then match field "input" request with
   |None=>Json.failure "InvalidInput" "An input observation is required."
   |Some raw=>match decode_input request snapshot current raw with
-   |None=>Json.success(decision_packet current [] None false false false false)
+   |None=>Json.success(decision_packet current [] None false false false "keep")
    |Some input=>match string_field "namespace" request with
     |None=>Json.failure "InvalidNamespace" "The runtime namespace is required."
-    |Some namespace=>let decision:=refresh request snapshot(native_step namespace snapshot(flag "semantic_lagged" request)input raw current)in
-     Json.success(decision_packet(SA.result_state decision)(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input)(Input.semantic_change input))end end end
+    |Some namespace=>let '(decision,publication):=input_decision request snapshot namespace input raw current in
+     Json.success(decision_packet(SA.result_state decision)(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input)publication)end end end
  else Json.failure "UnknownOperation" operation
  |_,_=>Json.failure "InvalidState" "The typed application state and admitted world observation are required."end.

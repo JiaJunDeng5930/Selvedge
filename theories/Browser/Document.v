@@ -46,7 +46,7 @@ Definition help_describedby key (help:bool) (attributes:list(string*string)) :=
 Definition control_attributes {A} (focusable help:bool) (action:Model.control A) :=
  let available:=Model.available(Model.control_availability action) in
  [("aria-label",Model.control_label action)] ++
- (if available then [] else if focusable then [("aria-disabled","true")] else disabled false) ++
+ (if available then [] else if focusable then [("aria-disabled","true");("tabindex","-1")] else disabled false) ++
  (if help then let description:=control_help action in
    [("data-help",description)] else []).
 Definition artwork name := match NativeAppearance.find_symbol name with None=>[]|Some symbol=>
@@ -734,7 +734,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  [event key generation "change" "value" Gesture.Change] empty (choices (match selected with None=>""|Some n=>text_number n end) values)
  |S.BoardSearch selection _=>element "input" [("type","search");("value",BoardFilter.filter_query selection);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
  |S.SearchChoices query _=>element "input" [("type","search");("value",query);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
- |S.ReceiveFile _ enabled _=>element "input" ([("type","file");("multiple","multiple")]++disabled enabled)
+ |S.ReceiveFile _ enabled _=>element "input" ([("type","file")]++disabled enabled)
  [event key generation "change" "files" Gesture.Attach] empty []
  |S.EnterDirectory _ text _ confirm=>element "input" [("type","text");("value",text)]
  ([event key generation "input" "value" Gesture.Directory] ++match confirm with Some _=>[event key generation "keydown" "confirm" Gesture.ConfirmDirectory]|None=>[] end) empty []

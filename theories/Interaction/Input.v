@@ -56,10 +56,10 @@ Inductive input :=
 | SkillRefocus(owner:editor)(start finish:N)(composing:bool)
 | SkillMove(owner:editor)(offset:Z) | SkillDismiss(owner:editor).
 
-(* Geometry, motion and reading observations change presentation, without
+(* Geometry, motion, parser and reading observations change presentation, without
    making already published product content semantically stale. *)
 Definition semantic_change incoming := match incoming with
- |EnvironmentObserved|ReadTimeline _ _ _|FollowLatest _=>false
+ |EnvironmentObserved|CodeObserved _|ReadTimeline _ _ _|FollowLatest _=>false
  |_=>true end.
 
 (* Only semantic user actions acknowledge a displayed command receipt. Focus,

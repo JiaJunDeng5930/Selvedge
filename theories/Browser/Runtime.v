@@ -54,6 +54,7 @@ Definition publication_json state := JObject [
 Definition publication_call source :=
  match publication_state source,string_field "event" source with
  |Some state,Some "advance"=>success(publication_json(Publication.advance state))
+ |Some state,Some "keep"=>success(publication_json state)
  |Some state,Some "present"=>success(publication_json(Publication.present state))
  |Some state,Some "semantic_pending"=>success(JBool(Publication.semantic_pending state))
  |Some state,Some "invalidate"=>success(publication_json(Publication.invalidate state))

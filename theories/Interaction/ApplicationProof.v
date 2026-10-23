@@ -6,9 +6,20 @@ From Selvedge.Interaction.Experience Require Activity Model Observation.
 From Selvedge.Interaction.Submission Require Parameters.
 From Selvedge.Browser Require Layout.
 Import ListNotations.
+Open Scope string_scope.
 Module EO:=Selvedge.Interaction.Experience.Observation.
 Module EM:=Selvedge.Interaction.Experience.Model.
 Module SS:=Selvedge.Interaction.Session.State.
+
+(** A parser callback without a current document owner cannot drive either
+    product preparation or a new publication generation. *)
+Theorem irrelevant_document_observation_is_idle request snapshot namespace source raw state:
+ Documents.admit_observation
+   (Selvedge.Interaction.Session.Runtime.context namespace snapshot state)
+   source(SS.document_retention state)=Documents.IrrelevantObservation ->
+ Application.input_decision request snapshot namespace (Input.CodeObserved source)raw state=
+ (Authoring.keep state,"keep").
+Proof. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
 
 (** A world refresh can follow ordinary command admission while the stream is
     disconnected. Only the separately correlated authentication receipt owns
