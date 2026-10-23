@@ -60,7 +60,7 @@ async function fixture(t, respond, { policy = false } = {}) {
   return { directory, upstream, request, command, successful, idle, hooks };
 }
 
-test('model native admission rejects invalid arguments before hooks and preserves real fork returns', { timeout: 30000 }, async t => {
+test('model native admission rejects final invalid arguments after hooks and preserves real fork returns', { timeout: 30000 }, async t => {
   let service;
   let frozenTools;
   let step = 0;
@@ -125,8 +125,8 @@ test('model native admission rejects invalid arguments before hooks and preserve
     const page = await service.idle(created.result.task_id);
     assert.ok(page.result.messages.some(message => message.role === 'error'),
       'Rejected model arguments are reported through public task history');
-    assert.equal((await service.hooks()).some(event => event.call.id === call.id), false,
-      'Invalid initial native arguments must not invoke the policy extension');
+    assert.equal((await service.hooks()).some(event => event.call.id === call.id), true,
+      'Object arguments pass through the frozen policy chain before final admission');
     const tasks = (await service.successful({ op: 'list' })).result.tasks;
     assert.equal(tasks.length, index + 1, 'Rejected native calls must not allocate children');
     assert.ok(tasks.every(task => task.parent === null));
@@ -143,7 +143,7 @@ test('model native admission rejects invalid arguments before hooks and preserve
     assert.deepEqual(service.upstream.failures, []);
   }
   assert.deepEqual([...branches].sort(), [0, 1, 2]);
-  assert.deepEqual((await service.hooks()).map(event => event.call.id), ['primitive-omitted', 'fork-two']);
+  assert.deepEqual((await service.hooks()).map(event => event.call.id), [...invalidCalls.map(call => call.id), 'primitive-omitted', 'fork-two']);
 });
 
 test('authenticated assessment is read-only and shares trusted preparation and command admission', { timeout: 30000 }, async t => {

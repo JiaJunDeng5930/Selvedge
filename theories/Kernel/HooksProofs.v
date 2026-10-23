@@ -180,3 +180,27 @@ Proof.
  intros id identity ticket outcome value Missing.
  unfold HookCallbacks.after_completed; rewrite Missing; reflexivity.
 Qed.
+
+Theorem a_before_rewrite_preserves_call_identity_and_the_remaining_chain :
+ forall id ticket plugin invocation pending remaining arguments value task,
+ find_task id value = Some task ->
+ task_activity task = CheckingHook ticket plugin invocation pending remaining ->
+ HookCallbacks.hook_completed id ticket (HookRewrite arguments) value =
+ acknowledged (put_task id
+  (with_activity
+   (ReadyForHooks (Call (call_id invocation) (call_name invocation) (JObject arguments)) pending remaining)
+   (append_history [HookReceipt id invocation plugin (Inputs.hook_json (HookRewrite arguments))] task)) value).
+Proof.
+ intros id ticket plugin invocation pending remaining arguments value task Found Checking.
+ unfold HookCallbacks.hook_completed; rewrite Found, Checking, N.eqb_refl; reflexivity.
+Qed.
+
+Theorem final_invalid_arguments_never_dispatch :
+ forall execute id tool invocation remaining task value,
+ Callbacks.model_call_arguments_valid tool invocation = false ->
+ decision_effects (Scheduler.before_hook_step execute id tool invocation [] remaining task value) = [].
+Proof.
+ intros execute id tool invocation remaining task value Invalid.
+ unfold Scheduler.before_hook_step, Scheduler.execute_checked_call.
+ rewrite Invalid, andb_false_r; reflexivity.
+Qed.

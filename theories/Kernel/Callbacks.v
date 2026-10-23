@@ -29,7 +29,7 @@ Fixpoint permitted_items (items : list model_item) (allowed : list string) (task
    negb (existsb (String.eqb (call_id invocation)) ids) && negb (call_known (call_id invocation) (task_history task)) &&
    existsb (String.eqb (call_name invocation)) allowed &&
    (match find_tool (call_name invocation) (contract_tools (task_contract task)) with
-   | None => false | Some tool => model_call_arguments_valid tool invocation end) &&
+   | None => false | Some _ => match call_arguments invocation with JObject _ => true | _ => false end end) &&
    permitted_items rest allowed task (call_id invocation :: ids) parts
  end.
 Definition item_messages (owner ticket : N) (mode : output_mode) (items : list model_item) :=

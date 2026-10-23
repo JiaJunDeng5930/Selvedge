@@ -15,12 +15,9 @@ Definition hook_completed (id ticket : N) (outcome : hook_outcome) (value : worl
      | HookAllow => acknowledged (put_task id (with_activity (ReadyForHooks invocation pending remaining) task) value)
      | HookRewrite arguments =>
        let rewritten := Call (call_id invocation) (call_name invocation) (JObject arguments) in
-       match find_tool (call_name rewritten) (contract_tools (task_contract task)) with
-       | Some tool => if model_call_arguments_valid tool rewritten then
-         acknowledged (put_task id (with_activity (ReadyForHooks rewritten pending remaining) task) value)
-         else call_failure id invocation "A plugin rewrite does not satisfy the frozen tool schema" remaining task value
-       | None => call_failure id invocation "The tool is unavailable in the frozen task contract" remaining task value
-       end
+       (* Later hooks may complete a partial rewrite. The frozen schema is
+          checked after the entire before chain, immediately before dispatch. *)
+       acknowledged (put_task id (with_activity (ReadyForHooks rewritten pending remaining) task) value)
      | HookDeny reason => call_error id invocation "hook_denied" reason remaining task value
      | HookFailure reason => call_error id invocation "hook_failed" reason remaining task value
      end
