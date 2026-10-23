@@ -78,7 +78,7 @@ Definition extra_valid p children:=required_label_valid p&&
  match p.(description).(component_role)with
  |MetricLeaf=>match property "value"p with Some v=>scalar v|None=>false end
  |Layout=>if String.eqb p.(description).(component_tag)"grid"then
-   match property "columns"p with Some v=>match as_small 4 v with Some n=>0<?n|None=>false end|_=>false end else true
+   match property "columns"p with Some v=>match as_small Bounds.grid_columns v with Some n=>0<?n|None=>false end|_=>false end else true
  |Repeat=>collection_valid(property_text "key"p)(property_array "items"p)
  |Table=>collection_valid(property_text "row-key"p)(property_array "rows"p)&&
    (0<?List.length children)&&(List.length children<=?Bounds.table_columns)&&forallb(fun e=>match e with Element "column"_ []_=>true|_=>false end)children

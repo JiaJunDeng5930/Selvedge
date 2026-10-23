@@ -21,6 +21,7 @@ Definition evaluation_steps:nat:=100000.
 Definition raw_scalars:nat:=16384.
 Definition snapshot_scalars:nat:=262144.
 Definition table_columns:nat:=16.
+Definition grid_columns:nat:=4.
 Definition table_page:nat:=100.
 Definition table_max_page_index:nat:=Nat.div (Nat.pred collection_items) table_page.
 Definition last_table_page_index (row_count:nat):nat:=

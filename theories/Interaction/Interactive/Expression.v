@@ -235,19 +235,22 @@ Fixpoint group_whole s : string :=
  String c (if (negb(String.eqb r ""))&&Nat.eqb(String.length r mod 3)0 then ","++group_whole r else group_whole r)end.
 Definition formatted d style : outcome string :=
  let n:=Decimal.units d in
- if String.eqb style "number" || String.eqb style "percent" then
-   let n:=if String.eqb style "percent" then (n*100)%Z else n in
+ match Builtins.decode_format style with
+ |Some selected=>match selected with
+ |Builtins.DecimalFormat|Builtins.PercentFormat=>
+   let percent:=match selected with Builtins.PercentFormat=>true|_=>false end in
+   let n:=if percent then (n*100)%Z else n in
    let s:=Decimal.render(Z.abs n)in
    match Decimal.split_dot s with
    | Some(w,f)=>Good((if Z.ltb n 0 then "-"else "")++group_whole w++
-       (match f with Some s=>"."++s|_=>""end)++(if String.eqb style "percent"then "%"else ""))
+       (match f with Some s=>"."++s|_=>""end)++(if percent then "%"else ""))
    | None=>Error "Invalid decimal format"end
- else if String.eqb style "currency:USD" || String.eqb style "currency:CNY" then
+ |Builtins.UsdFormat|Builtins.CnyFormat=>
    cents <-? from_option "Invalid currency"(Decimal.rounded_division(Z.abs n)10000);;
    let fraction:=show_integer(Z.rem cents 100)in
-   Good((if Z.ltb n 0 then "-"else "")++(if String.eqb style "currency:USD"then "$"else "¥")++
-    group_whole(show_integer(Z.quot cents 100))++"."++Decimal.zeros(2-String.length fraction)++fraction)
- else Error "Unknown number format".
+   Good((if Z.ltb n 0 then "-"else "")++(match selected with Builtins.UsdFormat=>"$"|_=>"¥"end)++
+    group_whole(show_integer(Z.quot cents 100))++"."++Decimal.zeros(2-String.length fraction)++fraction)end
+ |None=>Error "Unknown number format"end.
 Definition valid_field_path path:=
  forallb(fun part=>negb(String.eqb part ""))(path_parts path).
 Definition records_only xs:=forallb(fun value=>match value with JObject _=>true|_=>false end)xs.
@@ -274,9 +277,11 @@ Definition builtin_body (kind:Builtins.builtin) args : metered json :=
  |Builtins.Filter,[JArray xs;JString path;wanted]=>if valid_field_path path&&records_only xs&&scalar wanted then
    xs <-! filter_metered path wanted xs;;met_return(JArray xs)else met_fail "filter requires records, field path and scalar comparison"
  |Builtins.Sort,[JArray xs;JString path;JString direction]=>
-   if valid_field_path path&&records_only xs&&(String.eqb direction "asc"||String.eqb direction "desc")then
-   xs <-! sort_metered path(String.eqb direction "desc")xs;;met_return(JArray xs)
-   else met_fail "sort requires records, field path and asc or desc direction"
+   match Builtins.decode_sort direction with
+   |Some order=>if valid_field_path path&&records_only xs then
+     xs <-! sort_metered path(match order with Builtins.Descending=>true|_=>false end)xs;;met_return(JArray xs)
+     else met_fail "sort requires records, field path and asc or desc direction"
+   |None=>met_fail "sort requires records, field path and asc or desc direction"end
  |Builtins.Take,[JArray xs;n]=>n <-! met_lift(from_option "take count must be 0..4096"(as_small Bounds.collection_items n));;met_return(JArray(firstn n xs))
  |Builtins.Text,[JNull]=>met_return(JString "")
  |Builtins.Text,[JString s]=>met_return(JString s)
