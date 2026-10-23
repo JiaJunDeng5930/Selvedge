@@ -43,6 +43,7 @@ Definition feedback_update (error:option json) (visible acknowledge:bool) :=
  if visible || acknowledge then match error with
  |Some _=>"replace"|None=>"clear" end else "keep".
 Definition decision_packet current effects error handled visible_error acknowledge (publication_event:string):=JObject[("state",SC.encode_state current);
+ ("file_handles",JArray(map JString(Selvedge.Interaction.Services.retained_file_handles(Session.service_state current))));
  ("effects",JArray effects);("publication_event",JString publication_event);("error",match error with None=>JNull|Some diagnostic=>diagnostic end);
  ("visible_error",JBool visible_error);("feedback_update",JString(feedback_update error visible_error acknowledge));("handled",JBool handled)].
 Definition refresh request snapshot decision:=match environment request with

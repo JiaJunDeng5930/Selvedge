@@ -147,6 +147,8 @@ function dispatch(input) {
   }
   const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), semantic_lagged: publicationEvent('semantic_pending') });
   state = decision.state;
+  const retainedFiles = new Set(decision.file_handles);
+  for (const handle of files.keys()) if (!retainedFiles.has(handle)) files.delete(handle);
   if (decision.feedback_update !== 'keep') {
     const error = decision.error;
     const message = typeof error === 'string' ? error : error && typeof error === 'object'
@@ -708,7 +710,7 @@ async function execute(effect) {
       await settled('uploaded', effect.ticket, async () => {
         const body = await request(`/api/board/attachments?name=${encodeURIComponent(file.name)}`,
           { method: 'POST', body: file, signal: controller.signal });
-        files.delete(effect.file.handle); return body.result;
+        return body.result;
       });
       transfers.delete(ticketKey(effect.ticket)); return;
     }

@@ -94,6 +94,9 @@ Record services := Services {
   command_assessments:list(resource CommandAssessment.request CommandAssessment.observation) }.
 Definition initial := Services ConnectionDormant None SystemAppearance 0 [] Dormant Dormant "" None None [] Dormant [].
 Definition connected s := match connection s with ConnectionReady _ => true | _ => false end.
+Definition retained_file_handles s := flat_map(fun resource=>match resource with
+ |Loading _ request|Failed _ request _=>[file_handle(upload_file request)]
+ |_=>[]end)(uploads s).
 Definition settings_focus_target trigger :=
   if String.eqb trigger "nav/settings" || String.eqb trigger "global-navigation-toggle"
   then "settings-return" else trigger.
