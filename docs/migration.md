@@ -27,10 +27,10 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
   be objects; the server owns full schema validation. Native and extension tools
   retain their respective local admission rules.
 
-- Raw HTTP command admission and provider function arguments use the extracted
-  domain parser and reject duplicate object members. Stdio JSON-RPC retains its
-  existing parsed-object protocol boundary; this is not a claim that every
-  transport rejects duplicate members before parsing.
+- Raw HTTP command admission rejects duplicate object members in the extracted
+  domain parser. Provider function arguments retain member occurrences until
+  their tool's admission checks; native and extension schemas reject duplicates.
+  Stdio JSON-RPC retains its existing parsed-object protocol boundary.
 - Retry calculations compare exact decimal delays with their limits before
   rounding admitted waits upward to integral milliseconds. Fractional
   nonnegative `Retry-After` delays remain supported without retrying early. HTTP dates accept the IMF-fixdate,
