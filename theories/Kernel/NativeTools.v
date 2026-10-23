@@ -31,6 +31,20 @@ Definition settings_arguments := map (fun field =>
 Definition settings_schema := Arguments.schema_fields settings_arguments.
 Definition public_settings_schema := Json.set_field "type"
  (JArray [JString "object"; JString "null"]) settings_schema.
+Definition nullable_structure (fields : list (string * json)) :=
+ [("anyOf",JArray [JObject fields; JObject [("type",JString "null")]])].
+Definition public_content_argument (argument : argument_spec) :=
+ match argument_type_of argument with
+ | Scalar (KOptional KJson) =>
+   if String.eqb (argument_name argument) "message" then
+    Arguments.with_structure (nullable_structure ContentDeclarations.content_schema) argument
+   else argument
+ | Scalar (KOptional (KArray KJson)) =>
+   if String.eqb (argument_name argument) "images" then
+    Arguments.with_structure (nullable_structure ContentDeclarations.images_schema) argument
+   else argument
+ | _ => argument
+ end.
 Definition attachment_item_schema := SchemaJson.object_fields
   (map (fun name => (name,JObject (SchemaJson.kind_schema KText))) ["id";"name";"mime";"path";"bytes"])
   ["id"].
@@ -66,7 +80,7 @@ Definition connection_field_refinements (name : string) :=
   | None => [] end.
 Definition command_field_refinements (name : string) :=
   ("settings",public_settings_schema) ::
-  (  if String.eqb name "create_card" || String.eqb name "update_card" then
+  (if String.eqb name "create_card" || String.eqb name "update_card" then
     [("attachments",attachment_array_schema)] else
   if String.eqb name "configure_title_settings" then
     [("task_prompt",title_prompt_schema);("agent_prompt",title_prompt_schema)] else
@@ -75,7 +89,7 @@ Definition command_field_refinements (name : string) :=
   if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else connection_field_refinements name).
 Definition command_schema (specification : command_spec) :=
   let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
-    (Commands.command_arguments specification) in
+    (map public_content_argument (Commands.command_arguments specification)) in
   JObject (SchemaJson.object_fields
     (map (fun argument => (Arguments.argument_name argument,
       Arguments.argument_json argument)) declaration)
