@@ -1,6 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers.
-From Selvedge.Kernel Require Import Images.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction Require Import Codec Identity Appearance Input Resource Services Speech Attachments.
 From Selvedge.Interaction.Session Require Draft State Authoring.
@@ -51,10 +50,8 @@ Definition speech_controls snapshot s e revision parent (speech:Speech.speech) :
 Definition attachment_node e parent (file:Domain.attachment) :=
  let id:=Domain.attachment_id file in
  let key:=part parent("attachment/"++id)in
- let image:=Selvedge.Kernel.Domain.ImageAsset id(Domain.attachment_mime file)(Domain.attachment_bytes file)
-  Selvedge.Kernel.Domain.ImageAuto in
  region parent("attachment/"++id)(Domain.attachment_name file)Roles.Card
- ((if Images.valid_image_asset(Images.image_json image)then
+ ((if String.prefix "image/" (Domain.attachment_mime file)then
     [Node(part key "image")"image-preview"(Domain.attachment_name file)Roles.Content
       (Image("/api/board/attachments/"++id)(Domain.attachment_name file))[]]
    else [])++
@@ -65,13 +62,15 @@ Definition attachment_node e parent (file:Domain.attachment) :=
 Definition draft_files d :=match Draft.contents d with
 |Draft.NewTaskBody message _ _ _ _ _|Draft.MessageBody _ message _=>Draft.text_images message
 |Draft.CardBody _ _ card _ _ _=>Domain.draft_attachments card|_=>[]end.
-Definition upload_node parent (upload:resource Services.upload_request Domain.attachment) :=match upload with
+Definition upload_node (connected:bool) parent (upload:resource Services.upload_request Domain.attachment) :=match upload with
 |Resource.Loading ticket request=>Some(region parent("upload/"++show_natural ticket)"Uploading"Roles.Activity
  [read_only parent("upload/"++show_natural ticket++"/name")"Uploading"(file_name(Services.upload_file request));
   declared parent Roles.Button(secondary("cancel-upload/"++show_natural ticket)"Cancel upload"(Input.ServiceInput(Services.CancelUpload ticket)))])
 |Resource.Failed ticket request reason=>Some(region parent("upload/"++show_natural ticket)"Upload failed"Roles.Alert
  [read_only parent("upload-error/"++show_natural ticket)"Upload failed"reason;
-  declared parent Roles.Button(secondary("retry-upload/"++show_natural ticket)"Retry upload"(Input.ServiceInput(Services.RetryUpload ticket)))])
+  declared parent Roles.Button(Control("retry-upload/"++show_natural ticket)"Retry upload" Secondary
+    (Input.ServiceInput(Services.RetryUpload ticket))(if connected then Available else Unavailable "Reconnect to retry the upload"));
+  declared parent Roles.Button(secondary("remove-upload/"++show_natural ticket)"Remove failed upload"(Input.ServiceInput(Services.CancelUpload ticket)))])
 |_=>None end.
 Definition files e parent s :=
  let services:=State.service_state s in
@@ -80,7 +79,7 @@ Definition files e parent s :=
  region parent "attachments" "Attachments" Roles.Section
  (Node(part parent "attach")"attach" "Attach files"Roles.Field(ReceiveFile e connected receive)[]::
   (map(attachment_node e parent)(draft_files(State.current_draft s e))++
-   fold_right(fun upload rest=>match Services.upload_owner upload,upload_node parent upload with
+   fold_right(fun upload rest=>match Services.upload_owner upload,upload_node connected parent upload with
     |Some owner,Some node=>if same_editor e owner then node::rest else rest|_,_=>rest end)[](Services.uploads services)))%list.
 Definition settings s :=
  match Services.settings_return(State.service_state s)with
@@ -155,7 +154,8 @@ Definition preview_view s :=match Services.preview(State.service_state s)with
   let body:=match resource with
     |Resource.Loading _ _=>[read_only parent "loading" "Preview" "Loading preview…"]
     |Resource.Failed _ _ reason=>[read_only parent "failure" "Preview failed"reason]
-    |Resource.Loaded _ _ url=>[Node(part parent "image")"preview-image" ""Roles.Content(Image url(asset_name(Services.preview_file request)))[]]
+    |Resource.Loaded _ _ url=>if String.prefix "image/"(asset_mime(Services.preview_file request))then
+      [Node(part parent "image")"preview-image" ""Roles.Content(Image url(asset_name(Services.preview_file request)))[]]else []
     |_=>[]end in
   [Node parent "file-preview"(asset_name(Services.preview_file request))Roles.Dialog
    (LayerRegion(LayerBehavior ModalDialog false ticket parent(Services.preview_trigger request)"/main"(Services.preview_trigger request)

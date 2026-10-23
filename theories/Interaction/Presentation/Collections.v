@@ -157,7 +157,7 @@ Definition graph_receipt_nodes {A} parent graph:list(node A):=map(fun '(ordinal,
  read_only parent(String.append "receipt/"(show_natural(N.of_nat ordinal)))"Last delivery result"
   (String.concat ""["Task #";match natural_field "source" receipt with Some source=>show_natural source|None=>"Unavailable"end;
    " → Task #";match natural_field "target" receipt with Some target=>show_natural target|None=>"Unavailable"end;
-   " (";text "rule" receipt;"): ";match field "reply" receipt with Some reply=>TextJson.render_json reply|None=>"Unavailable reply"end]))
+   " (";text "rule" receipt;"): ";match field "reply" receipt with Some(JString value)=>value|Some reply=>TextJson.render_json reply|None=>"Unavailable reply"end]))
  (combine(seq 0(List.length(Selvedge.Interaction.Codec.items "receipts" graph)))(Selvedge.Interaction.Codec.items "receipts" graph)).
 Definition graph_node snapshot s parent value :=match natural_field "graph_id" value with
 |None=>read_only parent "unavailable" "Task graph" "Task graph observation unavailable"

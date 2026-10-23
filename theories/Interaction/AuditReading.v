@@ -97,7 +97,7 @@ Definition retained_part {A} (action:actions A) context retained interactive sta
         (action.(reading_retained) identity true)] else [])
      [control (identity++"/dismiss-unfinished") "关闭未完成回复" (action.(reading_retained) identity false)]))]
  (if visible then [S.Node identity "generated-output" "Interrupted output" R.AssistantMessage (reading source (document_source stamp) retained)
-   (if document_archived stamp then [] else attachments action.(reading_interactive) context retained interactive source)] else []).
+   (attachments action.(reading_interactive) context retained interactive source)] else []).
 Definition timeline {A} (action:actions A) context retained interactive view disclosures : list (S.node A) :=
  let task:=Identity.task_view_task view in
  let messages:=match DocumentState.find_task task (context_world context) with Some value=>items "history" value|None=>[] end in

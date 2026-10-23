@@ -93,7 +93,8 @@ Definition worktree_observation snapshot task:=DocumentState.find_world "worktre
 Definition worktree_feedback {A} snapshot task parent:list(node A):=match worktree_observation snapshot task with
 |None=>[]|Some value=>match text "status" value with
  |"creating"|"creating_archived"|"archiving"=>[information parent "worktree/status" Information.Status(worktree_status(text "status" value))]
- |"create_failed"|"archive_failed"=>[read_only parent "worktree/error" "Workspace"(String.concat ": "[worktree_status(text "status" value);text "message" value])]
+ |"create_failed"|"archive_failed"=>[region parent "worktree/error" "Workspace" Roles.Alert
+   [read_only (part parent "worktree/error") "message" "Workspace"(String.concat ": "[worktree_status(text "status" value);text "message" value])]]
  |_=>[]end end.
 Definition worktree_details snapshot s task parent:=match worktree_observation snapshot task with
 |None=>[]|Some value=>List.app
@@ -163,9 +164,10 @@ Definition history_hit parent hit :=
  |Some task,Some index=>match natural_field "id" task with
   |None=>[]|Some id=>let key:=part parent("hit/"++show_natural id++"/"++show_natural index)in
    [region key "result" "Search result"Roles.Card
-    [declared key Roles.Button(secondary "open"(text "title" task++" · 消息 #"++show_natural(N.succ index))(Input.OpenHistoryMessage id index));
-     read_only key "before" "上一条"(text "before" hit);read_only key "snippet" "命中消息"(text "snippet" hit);
-     read_only key "after" "下一条"(text "after" hit)]]end|_,_=>[]end.
+    ([declared key Roles.Button(secondary "open"(text "title" task++" · 消息 #"++show_natural(N.succ index))(Input.OpenHistoryMessage id index))]++
+     (if String.eqb(text "before" hit)""then[]else[read_only key "before" "上一条"(text "before" hit)])++
+     [read_only key "snippet" "命中消息"(text "snippet" hit)]++
+     (if String.eqb(text "after" hit)""then[]else[read_only key "after" "下一条"(text "after" hit)]))]end|_,_=>[]end.
 Definition history_page snapshot s parent :=
  let search:=State.history_search(State.authoring_state s)in
  let submit:=observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "history/submit" "搜索"(Input.SubmitHistorySearch 0))in
@@ -182,7 +184,12 @@ Definition history_page snapshot s parent :=
    (match State.search_result search with
    |None=>[read_only parent "prompt" "搜索说明" "输入关键词，选择项目或 Work，然后搜索对话。"]
    |Some reply=>match field "result" reply with
-    |Some result=>(flat_map(history_hit parent)(Selvedge.Interaction.Codec.items "hits" result)++
+    |Some result=>(
+      (match Selvedge.Interaction.Codec.items "hits" result with []=>[read_only parent "history-empty" "搜索结果" "没有找到匹配的消息。"]
+       |hits=>flat_map(history_hit parent)hits end)++
+      (match natural_field "after" result with Some after=>if N.eqb after 0 then[]else
+        [declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))
+          (secondary "history/previous" "上一页"(Input.SubmitHistorySearch(N.sub after 20))))]|None=>[]end)++
       match natural_field "next_after" result with
       |Some after=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "history/more" "更多结果"(Input.SubmitHistorySearch after)))]|None=>[]end)%list
     |None=>[read_only parent "search-error" "Search failed"(Selvedge.Interaction.Codec.diagnostic_message(Selvedge.Interaction.Codec.command_failure(inr reply)))]end end)].
@@ -192,7 +199,8 @@ Definition shared_page snapshot s work parent :=
  |Some work=>[page_region parent Composition.SharedTitle Composition.HeadingPosition
     [title parent "共享 UI";read_only parent "work-name" "Work"(work_name work)];
    page_region parent Composition.SharedContent Composition.BodyPosition
-    (AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s))]end.
+    (let contents:=AuditReading.shared_ui Input.Interactive(document_context snapshot s)(State.document_retention s)(State.interactive_state s)in
+     match contents with []=>[read_only parent "shared-empty" "共享 UI 尚未创建" "请让智能体创建共享 UI。"]|_=>contents end)]end.
 Definition page_contents snapshot s parent :=match State.location(State.navigation_state s)with
 |Start=>creation_page snapshot s parent
 |Conversation task=>conversation_page snapshot s(PrimaryTask task)parent
