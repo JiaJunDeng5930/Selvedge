@@ -77,7 +77,8 @@ Definition plan_json (plan : workspace_plan) := JObject [("root_task",JBool plan
     ("resolve_project",JBool selection.(resolve_project))]) plan.(selections)))].
 Definition workspace_settings (source : json) :=
   let value := get source "value" in
-  let workspace_supplied := negb (is_null (get value "workspace")) in
+  (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
+  let workspace_supplied := has value "workspace" in
   (* DEFENSE: Non-null guidance snapshots supplied by a client must not acquire service authority. *)
   type_admit (is_null (get value "guidance"))
     (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&

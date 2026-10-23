@@ -9,6 +9,16 @@ Theorem clients_cannot_supply_committed_guidance : forall source,
   workspace_settings source = type_error "Root guidance is observed by the service, not supplied by a client".
 Proof. intros source H;unfold workspace_settings,type_admit;rewrite H;reflexivity. Qed.
 
+Theorem supplied_workspace_prevents_project_resolution : forall source,
+  has (get source "value") "workspace" = true ->
+  is_null (get (get source "value") "guidance") = true ->
+  workspace_settings source = success (JObject [
+    ("project_id", JNull); ("observe_workspace", JBool true)]).
+Proof.
+  intros source supplied guidance. unfold workspace_settings,type_admit.
+  rewrite supplied,guidance. cbn [negb]. rewrite andb_false_r. reflexivity.
+Qed.
+
 Theorem changed_committed_roots_prevent_execution : forall source,
   equal (get (get source "workspace") "roots")
     (get (get (get source "plan") "workspace") "roots") = false ->
