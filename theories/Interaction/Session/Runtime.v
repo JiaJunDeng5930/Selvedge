@@ -190,6 +190,7 @@ Definition menu_action snapshot subject key occurrence state:=
   |_=>Authoring.keep state end else Authoring.keep state
  |[]=>Authoring.keep state end.
 Definition board_step snapshot input state:option Authoring.result:=match input with
+|Input.BoardClear=>Some(Authoring.keep(SS.with_board BoardFilter.empty state))
 |Input.BoardQuery query=>Some(Authoring.keep(SS.with_board(BoardFilter.set_query query(SS.board_selection state))state))
 |Input.BoardTab tab=>Some(Authoring.keep(SS.with_board(BoardFilter.set_tab tab(SS.board_selection state))state))
 |Input.BoardToggle category value=>Some(Authoring.keep(SS.with_board(BoardFilter.toggle category value(SS.board_selection state))state))

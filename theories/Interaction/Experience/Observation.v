@@ -287,7 +287,12 @@ Definition recognition_information snapshot {e}(subject:Model.subject e)(value:F
 Definition observe_property snapshot state e kind:option(property e):=
  subject<-Model.admit_subject e(Parameters.name(property_field kind));;
  let members:=subjects_for e(property_members_fields kind)in
- let information:=recognition_information snapshot subject(observe_subject snapshot state subject)in
+ let observed:=observe_subject snapshot state subject in
+ let information:=recognition_information snapshot subject observed in
+ let information:=match kind,information,permission_observation snapshot observed with
+ |PermissionsProperty,PresentInformation principal _,Some(sandbox,approval)=>
+   PresentInformation principal(Some(SummaryValue subject(TextValue(String.concat " · "(map snd(permission_effects sandbox approval))))))
+ |_,_,_=>information end in
  let property:=Property kind subject members information ""in
  Some(Property kind subject members information(property_help_text snapshot state property)).
 Open Scope list_scope.
@@ -571,6 +576,11 @@ Definition alternative_explanation snapshot field (choice:Fields.choice_value) :
  match field with
  |Fields.ModelProfile|Fields.ApprovalReviewer=>match ModelSelection.observed_profile snapshot(Fields.choice_value_of choice)with
    |Some profile=>Selvedge.Kernel.Domain.profile_provider profile|None=>""end
+ |Fields.SandboxMode=>match Fields.choice_value_of choice with
+   |"workspace-write"=>"Allow edits in the working directories."
+   |"read-only"=>"Read files without modifying them."|_=>""end
+ |Fields.NetworkAccess=>match Fields.choice_value_of choice with
+   |"true"=>"Allow network access."|"false"=>"Keep network access off."|_=>""end
  |Fields.ApprovalPolicy=>match Fields.choice_value_of choice with
    |"ask-for-approval"=>"Bash 请求扩大访问范围时，由你批准一次"
    |"approval-for-me"=>"Review approvals with a configured model"
@@ -752,7 +762,7 @@ Definition relation_exposure {e}(activity:activity e)(view:Activity.view e)(rela
  |CollectionMembers _|AssessedAction _ _=>match view with CompoundView=>CompoundContent|_=>HiddenRelation end end.
 Definition search_required {e}(activity:activity e)(view:Activity.view e):bool:=
  match activity,view,property_kind_of(activity_property activity)with
- |ComparisonActivity _ _ catalog,PrincipalView,ModelProperty=>Nat.ltb 8(List.length catalog)
+ |ComparisonActivity _ _ _,PrincipalView,ModelProperty=>true
  |_,_,_=>false end.
 Definition support_field context field:=match context with
  |Creation=>match field with
@@ -887,10 +897,20 @@ Definition information_status snapshot state {e}(activity:activity e)(subject:su
  |_=>observed end.
 Definition information_visible {e}(view:Activity.view e)(subject:subject e)(status:information e):bool:=
  match status with NotApplicable _=>requested_subject view subject|_=>true end.
+Fixpoint inspection_subject_covered {e}(activity:activity e)(view:Activity.view e)
+ (subject:subject e)(value:relation e):bool:=
+ let shown:=match relation_exposure activity view value with DependencySummary|ParameterControl=>true|_=>false end in
+ match value with
+ |RootDecision decision children=>(shown&&same_subject subject(decision_subject decision))||
+   existsb(inspection_subject_covered activity view subject)children
+ |DependentDecision _ _ decision=>shown&&same_subject subject(decision_subject decision)
+ |FieldSpecification _ parameter _=>shown&&same_subject subject parameter
+ |_=>false end.
 Definition information_expressions snapshot state {e}(activity:activity e)(view:Activity.view e)(property:property e):list(subject_expression e):=
  let coverage:=coverage_for activity view property in
  fold_right(fun subject rest=>let status:=information_status snapshot state activity subject in
-   if information_visible view subject status then SubjectExpression subject(expression_kind_for property coverage subject)status::rest else rest)
+   let covered:=match view with InspectionView None=>existsb(inspection_subject_covered activity view subject)(activity_relations activity)|_=>false end in
+   if information_visible view subject status&&negb covered then SubjectExpression subject(expression_kind_for property coverage subject)status::rest else rest)
   [](property_subjects property).
 
 Definition property_for_request snapshot state e request:option(property e):=

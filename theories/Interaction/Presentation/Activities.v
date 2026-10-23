@@ -44,14 +44,20 @@ Definition alternative_search_key {e}(subject:UX.subject e)(value:denote(UX.subj
  |_,_=>TextJson.render_json encoded end.
 Definition decision_node {e} pending occurrence parent query (decision:UX.decision e) :=
  let identity:=part parent(UX.subject_name(UX.decision_subject decision))in
+ let full:=UX.decision_alternatives decision in
+ let visible:=filter(fun alternative=>
+   BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
+    (BoardFilter.lower_text(UX.alternative_label alternative++" "++
+      alternative_search_key(UX.decision_subject decision)(UX.alternative_value alternative))))full in
+ let status:=match full,visible with
+ |[],_=>[read_only identity "candidates/empty" "Choices" "No choices have been configured"]
+ |_,[]=>[read_only identity "candidates/no-match" "Search" "No choices match this search"]
+ |_,_=>if existsb(fun alternative=>match UX.alternative_availability alternative with
+    UX.Available=>true|_=>false end)visible then[]else
+    [read_only identity "candidates/unavailable" "Choices" "No available choices"]end in
  Node identity "decision"(UX.decision_question decision)Roles.Section(DecisionGroup e decision)
- (Node(part identity "heading-row")"object-heading" ""Roles.Section(ActivityRow ObjectHeading)
-   [group_title identity(UX.decision_question decision)]::map(candidate_node pending occurrence identity decision)
-   (filter(fun alternative=>UX.alternative_selected alternative||
-    BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
-     (BoardFilter.lower_text(UX.alternative_label alternative++" "++
-       alternative_search_key(UX.decision_subject decision)(UX.alternative_value alternative))))
-    (UX.decision_alternatives decision))).
+ ([Node(part identity "heading-row")"object-heading" ""Roles.Section(ActivityRow ObjectHeading)
+   [group_title identity(UX.decision_question decision)]]++status++map(candidate_node pending occurrence identity decision)visible).
 Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in
  let roots:=Domain.workspace_roots workspace in
@@ -122,7 +128,7 @@ Definition required_expression {e} parent(expression:Observation.subject_express
    |_=>[]end
  |_=>let subject:=Observation.expression_subject expression in
   let key:=part parent("fact/"++UX.subject_name subject)in
-  [Node key "required-information" ""Roles.Section(ActivityRow SupportingRow)
+  [Node key "required-information" ""(match Observation.expression_information expression with UX.RequiredAbsence _=>Roles.Alert|_=>Roles.Section end)(ActivityRow SupportingRow)
     [read_only key "observation"(Parameters.label(UX.subject_declaration subject))
       (information_value(Observation.expression_information expression))]]end.
 Definition inherited_permission_controls s e parent :=
@@ -161,11 +167,13 @@ Fixpoint relation_nodes {e} snapshot s occurrence parent query request
    let key:=part parent("supporting/"++UX.subject_name(UX.property_subject property))in
    match view with
    |Act.InspectionView None=>[Node key "supporting-value" ""Roles.Section(ActivityRow SupportingRow)
-     ([read_only key "scope" "Scope"(editor_key e);
+     ([read_only key "scope" "Scope"(match e with Identity.Project _=>"Applies to future tasks; existing working directories and explicit overrides are unchanged"|_=>editor_key e end);
       declared key Roles.Button(secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]++
       match UX.property_kind_of property with
       |UX.PermissionsProperty=>inherited_permission_controls s e key|_=>[]end)]
-   |Act.CompoundView=>[Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)(Composer.property_information key property)]
+   |Act.CompoundView=>[Node key "supporting-value" ""Roles.Section(ActivityRow InspectionRow)
+     (Composer.property_information key property++[declared key Roles.Button
+       (secondary "source/open" "Configuration source…"(Input.InspectSource e request(part key "source/open")))]) ]
    |_=>[]end
  |Observation.CompoundContent,Act.CollectionMembers members=>[workspace_nodes s occurrence(part parent "workspace")members]
  |Observation.CompoundContent,Act.AssessedAction action outcome=>
@@ -231,7 +239,9 @@ Definition project_menu snapshot s e occurrence parent behavior:=
      String.concat " "(Domain.workspace_roots(Projection.project_workspace project));
      value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project))])))projects)end end in
  Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
-  [dialog_header parent [title parent "Choose project"];dialog_body parent content].
+  [dialog_header parent [title parent "Choose project"];dialog_body parent
+    (content++[declared parent Roles.Button(secondary "project/new" "New project"
+      (Input.OpenEditor(Identity.Project None)(part parent "project/new")))])].
 Definition project_request request:=match request with Act.PropertyActivity UX.ProjectProperty=>true|_=>false end.
 Definition navigation_header parent caption (action:Input.input):node Input.input:=
  Node(part parent "navigation")"navigation" ""Roles.Toolbar(ActivityRow NavigationRow)

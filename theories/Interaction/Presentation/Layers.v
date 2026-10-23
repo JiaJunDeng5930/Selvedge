@@ -140,7 +140,8 @@ Definition filter_choices snapshot category :=match category with
 Definition filter_title category :=match category with
 |BoardFilter.Status=>"状态"|BoardFilter.Priority=>"优先级"|BoardFilter.Date=>"更新时间"
 |BoardFilter.Assignee=>"负责人"|BoardFilter.Creator=>"创建人"|BoardFilter.Project=>"项目"|BoardFilter.Label=>"标签"end.
-Definition board_filters snapshot s parent :=map(fun category=>let name:=BoardFilter.category_name category in
+Definition board_filters snapshot s parent :=
+ declared parent Roles.Button(secondary "filters/clear" "Clear filters" Input.BoardClear)::map(fun category=>let name:=BoardFilter.category_name category in
  region parent("filter/"++name)(filter_title category)Roles.Section
   (group_title(part parent("filter/"++name))(filter_title category)::map(fun '(value,label)=>
    Node(part parent("filter/"++name++"/"++value))"filter-option"label Roles.Button

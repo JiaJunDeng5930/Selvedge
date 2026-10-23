@@ -83,8 +83,9 @@ test('Project task creation preserves explicitly empty workspaces through the br
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('dialog');
   await details.getByText('No working directory', { exact: true }).waitFor();
-  assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 0,
-    'An empty workspace does not render an empty primary directory');
+  assert.equal(await details.getByText('Primary directory', { exact: true }).count(), 1,
+    'Task details retain the independent primary directory fact when it is absent');
+  assert.equal(await details.locator('[data-logical-key="primary"] [data-logical-key="value"]').innerText(), '—');
 });
 
 test('ordered image content and the active composer survive responsive navigation', async t => {
