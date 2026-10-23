@@ -91,7 +91,12 @@ Fixpoint content_text (parts : content) := match parts with
  | ImagePart _ :: rest => String.append "
 [Image]
 " (content_text rest) end.
-Record call := Call { call_id : string; call_name : string; call_arguments : json }.
+Inductive call_attempt := InitialAttempt | RecoveryAttempt.
+(* A fork copies accepted calls, but never duplicates external execution rights. *)
+Record call := Call { call_id : string; call_name : string; call_arguments : json;
+ call_origin : call_attempt }.
+Definition recovery_call (value : call) :=
+ Call (call_id value) (call_name value) (call_arguments value) RecoveryAttempt.
 Inductive model_item := TextItem (part : N) (text : string)
  | CallItem (invocation : call) | ContextItem (part : N) (value : json).
 Inductive speaker := UserSpeaker | AssistantSpeaker.
@@ -147,13 +152,13 @@ Inductive activity :=
 | ReadyForHooks (invocation : call) (pending : list json) (calls : list call)
 | CheckingHook (ticket : N) (plugin : json) (invocation : call) (remaining : list json) (calls : list call).
 
-(** Archived tasks cannot carry an outstanding model request or operations.
-    Stopping discards inference while retaining accepted tool settlements. *)
+(** Archival revokes prior work. The archive command's own synchronous result
+    can subsequently acquire result-processing operations, but no inference. *)
 Inductive lifecycle :=
 | Running (phase : activity) (operations : list operation)
 | Frozen (phase : activity) (operations : list operation)
 | Stopped (phase : activity) (operations : list operation)
-| Archived.
+| Archived (operations : list operation).
 Record task := Task {
   task_contract : contract;
   task_current_profile : profile;
@@ -184,16 +189,18 @@ Definition empty_environment := Environment [] [] 4 64 JNull [] default_instruct
 Definition task_status (value : task) : string :=
   match task_lifecycle value with
   | Running _ _ => "active" | Frozen _ _ => "frozen"
-  | Stopped _ _ => "stopped" | Archived => "archived"
+  | Stopped _ _ => "stopped" | Archived _ => "archived"
   end.
+Definition task_archived (value : task) :=
+ match task_lifecycle value with Archived _ => true | _ => false end.
 Definition task_activity (value : task) :=
   match task_lifecycle value with
   | Running phase _ | Frozen phase _ | Stopped phase _ => phase
-  | Archived => Idle
+  | Archived _ => Idle
   end.
 Definition task_operations (value : task) :=
   match task_lifecycle value with
-  | Running _ ops | Frozen _ ops | Stopped _ ops => ops | Archived => [] end.
+  | Running _ ops | Frozen _ ops | Stopped _ ops | Archived ops => ops end.
 Definition with_lifecycle (state : lifecycle) (value : task) := set task_lifecycle (fun _ => state) value.
 Definition with_history (history : list message) (value : task) := set task_history (fun _ => history) value.
 Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cursor (fun _ => cursor) value.
@@ -213,14 +220,14 @@ Definition with_activity (phase : activity) (value : task) :=
   | Running _ ops => with_lifecycle (Running phase ops) value
   | Frozen _ ops => with_lifecycle (Frozen phase ops) value
   | Stopped _ ops => with_lifecycle (Stopped phase ops) value
-  | Archived => value
+  | Archived _ => value
   end.
 Definition with_operations (ops : list operation) (value : task) :=
   match task_lifecycle value with
   | Running phase _ => with_lifecycle (Running phase ops) value
   | Frozen phase _ => with_lifecycle (Frozen phase ops) value
   | Stopped phase _ => with_lifecycle (Stopped phase ops) value
-  | Archived => value
+  | Archived _ => with_lifecycle (Archived ops) value
   end.
 Definition activity_busy (phase : activity) :=
   match phase with Idle => false | _ => true end.

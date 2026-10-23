@@ -86,3 +86,11 @@ Definition parse_user_content (source : json) : option content :=
 Definition valid_image_asset (source : json) := match parse_asset source with Some _ => true | None => false end.
 Definition valid_image_part (source : json) := match parse_content_part source with Some (ImagePart _) => true | _ => false end.
 Definition valid_reference (source : json) := match parse_image source with Some _ => true | None => false end.
+
+Definition only_images (parts : content) :=
+ filter (fun part => match part with ImagePart _ => true | _ => false end) parts.
+Definition result_images (source : json) :=
+ match field "content" source with
+ | Some (JArray parts) => flat_map (fun part => match parse_content_part part with
+   | Some (ImagePart image) => [ImagePart image] | _ => [] end) parts
+ | _ => [] end.

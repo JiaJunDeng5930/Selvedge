@@ -121,7 +121,7 @@ Definition hook_step (owner : N) (identity : string) (chain : list json)
      if same_call invocation expected && same_reference first plugin then
      match text_default "decision" outcome "" with
      | "allow" => HookWaiting invocation rest
-     | "rewrite" => HookWaiting (Call (call_id invocation) (call_name invocation) (value_or_null "arguments" outcome)) rest
+     | "rewrite" => HookWaiting (Call (call_id invocation) (call_name invocation) (value_or_null "arguments" outcome) (call_origin invocation)) rest
      | _ => HookRefused end else HookRefused
    | _ => HookRefused end else progress
  | _ => progress end.
@@ -282,9 +282,9 @@ Definition tree_owner_valid (entry : F.worktree) (state : world) :=
  match find_task (F.worktree_task entry) state with
  | None => false | Some task =>
    match F.worktree_phase entry,task_lifecycle task with
-   | F.TreeCreating false,Frozen _ [] | F.TreeCreating true,Archived => true
-   | F.TreeCreateFailed _ _,Stopped Idle [] | F.TreeCreateFailed _ _,Archived => true
-   | F.TreeArchiving _ _,Archived | F.TreeArchiveFailed _ _ _,Archived | F.TreeArchived _ _,Archived => true
+   | F.TreeCreating false,Frozen _ [] | F.TreeCreating true,Archived _ => true
+   | F.TreeCreateFailed _ _,Stopped Idle [] | F.TreeCreateFailed _ _,Archived _ => true
+   | F.TreeArchiving _ _,Archived _ | F.TreeArchiveFailed _ _ _,Archived _ | F.TreeArchived _ _,Archived _ => true
    | F.TreeReady _ _,_ => true | _,_ => false end
  end.
 Definition worktrees_valid (state : world) :=

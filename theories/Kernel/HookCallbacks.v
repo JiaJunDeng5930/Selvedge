@@ -14,7 +14,7 @@ Definition hook_completed (id ticket : N) (outcome : hook_outcome) (value : worl
      match outcome with
      | HookAllow => acknowledged (put_task id (with_activity (ReadyForHooks invocation pending remaining) task) value)
      | HookRewrite arguments =>
-       let rewritten := Call (call_id invocation) (call_name invocation) (JObject arguments) in
+       let rewritten := Call (call_id invocation) (call_name invocation) (JObject arguments) (call_origin invocation) in
        (* Later hooks may complete a partial rewrite. The frozen schema is
           checked after the entire before chain, immediately before dispatch. *)
        acknowledged (put_task id (with_activity (ReadyForHooks rewritten pending remaining) task) value)

@@ -188,7 +188,7 @@ Theorem a_before_rewrite_preserves_call_identity_and_the_remaining_chain :
  HookCallbacks.hook_completed id ticket (HookRewrite arguments) value =
  acknowledged (put_task id
   (with_activity
-   (ReadyForHooks (Call (call_id invocation) (call_name invocation) (JObject arguments)) pending remaining)
+   (ReadyForHooks (Call (call_id invocation) (call_name invocation) (JObject arguments) (call_origin invocation)) pending remaining)
    (append_history [HookReceipt id invocation plugin (Inputs.hook_json (HookRewrite arguments))] task)) value).
 Proof.
  intros id ticket plugin invocation pending remaining arguments value task Found Checking.
@@ -201,6 +201,6 @@ Theorem final_invalid_arguments_never_dispatch :
  decision_effects (Scheduler.before_hook_step execute id tool invocation [] remaining task value) = [].
 Proof.
  intros execute id tool invocation remaining task value Invalid.
- unfold Scheduler.before_hook_step, Scheduler.execute_checked_call.
- rewrite Invalid, andb_false_r; reflexivity.
+ unfold Scheduler.before_hook_step, Scheduler.execute_checked_call, Scheduler.call_admission.
+ rewrite Invalid. destruct (Capabilities.available (environment_tools (world_environment value)) tool); reflexivity.
 Qed.

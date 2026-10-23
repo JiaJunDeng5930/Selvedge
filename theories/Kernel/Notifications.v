@@ -27,7 +27,7 @@ Definition authorized_call (identity : string) (history : list message) :=
  | FunctionCall invocation => if String.eqb identity (call_id invocation) then call_json invocation else previous
  | HookReceipt _ invocation _ outcome =>
    if String.eqb identity (call_id invocation) then match string_field "decision" outcome with
-   | Some "rewrite" => call_json (Call identity (call_name invocation) (value_or_null "arguments" outcome))
+   | Some "rewrite" => call_json (Call identity (call_name invocation) (value_or_null "arguments" outcome) (call_origin invocation))
    | Some "allow" => call_json invocation | _ => JNull end else previous
  | _ => previous end) history JNull.
 Definition settled (id : N) (value : task) (cursor : N) (identity : string) (result : json) (error : bool)

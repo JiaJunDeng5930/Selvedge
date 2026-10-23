@@ -16,8 +16,6 @@ Definition call_result (invocation : call) (result : json) (error : bool) (remai
 Definition call_error (id : N) (invocation : call) (code reason : string) (remaining : list call) (task : task) (value : world) :=
  acknowledged (put_task id (with_activity (PendingCalls remaining)
   (append_history [FunctionOutput (call_id invocation) (State.failure code reason) true] task)) value).
-Definition call_failure (id : N) (invocation : call) (reason : string) (remaining : list call) (task : task) (value : world) :=
- call_error id invocation "tool_rejected" reason remaining task value.
 Definition operation_notice (value : operation) := JObject [
  ("status",JString (match operation_stage value with AwaitingApproval _ _ => "awaiting_approval"
   | Granted _ => "approved_waiting_to_run" | _ => "running" end));
@@ -74,7 +72,7 @@ Definition start_external (id : N) (tool : tool) (invocation : call) (remaining 
  accept (JObject [("accepted",JBool true)])
   (put_task id (append_operation operation remaining task) allocated)
   [ExecuteTool id ticket ticket tool invocation settings DefaultAccess]
- else call_failure id invocation "The task's live operation limit has been reached" remaining task value.
+ else call_error id invocation "operation_limit" "This task has reached its in-flight operation limit; wait for results or cancel an operation" remaining task value.
 Definition external_tool (tool : tool) :=
  match tool_origin tool with NativeToolSource _ _ => false | ExtensionToolSource _ _ _ | McpToolSource _ _ _ => true end.
 Fixpoint keyword_parts (text : string) (current : string) (terms : list string) :=
@@ -96,11 +94,12 @@ Definition discover (task : task) (arguments : json) :=
   ("missing",JArray (map JString (filter (fun name => negb (existsb (fun tool => String.eqb name (tool_name tool)) tools)) names)));
   ("total_matches",number (N.of_nat (List.length matches)));
   ("has_more",JBool (negb exact && N.ltb (offset+limit)%N (N.of_nat (List.length matches))))].
-Definition fork_receipts (start : N) (invocation : call) (value : world) :=
+Definition fork_receipts (start : N) (invocation : call) (remaining : list call) (value : world) :=
  with_tasks (indexed (fun id task => if N.leb start id then
-  with_lifecycle (Running WantsModel [])
-   (append_history [ForkReceipt id invocation (N.succ (id-start)%N)]
-    (with_history (filter (History.without_inherited_result (call_id invocation)) (task_history task)) task))
+  with_lifecycle (Running (match remaining with [] => WantsModel
+    | _ => PendingCalls (map Domain.recovery_call remaining) end) [])
+   (with_history (History.fork_receipt_history (ForkReceipt id invocation (N.succ (id-start)%N))
+     (task_history task)) task)
   else task) 0 (world_tasks value)) value.
 Definition internal_result_available (task : task) :=
  match Callbacks.after_plugins task with
@@ -114,29 +113,31 @@ Definition internal_result (id : N) (invocation : call) (remaining : list call)
  | _ =>
    let '(ticket, value) := allocate_ticket value in
    let operation := Operation ticket invocation false (Executing ticket) in
-   match task_lifecycle task with
-   | Archived =>
-     (* DEFENSE: archive_task can archive its own caller before returning;
-        its raw result survives, but archival revoked callback authority. *)
-     acknowledged (put_task id (append_history
-      [ToolReceipt id ticket invocation result error;
-       History.operation_result operation (State.failure "after_hook_interrupted"
-        "The caller archived itself; its execution receipt is retained, but no result callback can run") true] task) value)
-   | _ => Callbacks.tool_completed id ticket result error
+   Callbacks.tool_completed id ticket result error
      (put_task id (append_operation operation remaining task) value)
-   end
  end.
+Definition call_admission (tool : tool) (invocation : call) (value : world) :=
+ if negb (Capabilities.available (environment_tools (world_environment value)) tool) then
+   Some ("tool_unavailable", "The task's frozen tool route is unavailable")
+ else if negb (model_call_arguments_valid tool invocation) then
+   Some ("invalid_arguments", "Tool arguments do not satisfy its frozen schema")
+ else None.
+Definition retry_safe (tool : tool) := match tool_origin tool with
+ | NativeToolSource _ program => match field "kind" program with
+   | Some (JString "Command") | Some (JString "Discover") => true | _ => false end
+ | _ => false end.
 Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (invocation : call)
  (remaining : list call) (task : task) (value : world) :=
- if Capabilities.available (environment_tools (world_environment value)) tool && model_call_arguments_valid tool invocation then
- match NativeTools.command id invocation with
+ match call_admission tool invocation value with
+ | Some (code,reason) => call_error id invocation code reason remaining task value
+ | None => match NativeTools.command id invocation with
  | Some command =>
    if internal_result_available task then
    (* The native action owns this invocation now. A self-archive may cancel
       remaining calls, but must not also close this executing call as pending. *)
    let started := put_task id (with_activity (PendingCalls remaining) task) value in
    let result := execute command (Some id) started in
-   let updated := if String.eqb (call_name invocation) "fork_task" then fork_receipts (next_task value) invocation (decision_world result)
+   let updated := if String.eqb (call_name invocation) "fork_task" then fork_receipts (next_task value) invocation remaining (decision_world result)
      else decision_world result in
    let result_value := if String.eqb (call_name invocation) "fork_task" && bool_default "ok" (decision_reply result) false
      then number 0 else decision_reply result in
@@ -147,15 +148,14 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
      Decision (decision_world settled) (decision_reply result)
        (decision_effects result ++ decision_effects settled)
    | None => result end
-   else call_failure id invocation "The task's live operation limit has been reached" remaining task value
+   else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
  | None =>
    if String.eqb (call_name invocation) "discover_tools" then
     if internal_result_available task then
      internal_result id invocation remaining (State.success (discover task (call_arguments invocation))) false task value
-    else call_failure id invocation "The task's live operation limit has been reached" remaining task value
+    else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
    else start_external id tool invocation remaining task value
- end
- else call_failure id invocation "Arguments do not satisfy the tool's frozen schema" remaining task value.
+ end end.
 Definition before_hook_step (execute : executor) (id : N) (tool : tool) (invocation : call)
  (pending : list json) (remaining : list call) (task : task) (value : world) :=
  match pending with
@@ -172,8 +172,11 @@ Definition before_hook_step (execute : executor) (id : N) (tool : tool) (invocat
  end.
 Definition start_call (execute : executor) (id : N) (invocation : call) (remaining : list call) (task : task) (value : world) :=
  match find_tool (call_name invocation) (contract_tools (task_contract task)) with
- | None => call_failure id invocation "The tool is unavailable in the task's frozen contract" remaining task value
- | Some tool => before_hook_step execute id tool invocation (before_plugins task) remaining task value
+ | None => call_error id invocation "unknown_tool" "The call does not name a tool in the task contract" remaining task value
+ | Some tool => if match call_origin invocation with InitialAttempt => true | RecoveryAttempt => retry_safe tool end then
+     before_hook_step execute id tool invocation (before_plugins task) remaining task value
+     else call_error id invocation "outcome_unknown"
+       "The effect may already have happened; automatic repetition is forbidden" remaining task value
  end.
 Definition emit_model (id : N) (model : profile) (task : task) (value : world) :=
  let '(ticket, allocated) := allocate_ticket value in
@@ -202,13 +205,13 @@ Definition granted_operation (id : N) (operation : operation) (task : task) (val
    accept (JObject [("accepted",JBool true)])
     (put_task id (Tasks.wake_after_result (with_operations (replace_operation running (task_operations task)) task)) allocated)
     [ExecuteTool id ticket (operation_id operation) tool (operation_call operation) (task_current_settings task) ElevatedAccess]
-   else acknowledged (put_task id (settle_operation operation (State.failure "approval_expired" "The tool capability changed before the one-operation grant could be used") true task) value)
- | Granted _, None => acknowledged (put_task id (settle_operation operation (State.failure "unknown_tool" "The granted tool is not in the frozen task contract") true task) value)
+   else acknowledged (put_task id (Callbacks.begin_result id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true task) value)
+ | Granted _, None => acknowledged (put_task id (Callbacks.begin_result id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true task) value)
  | _,_ => acknowledged value
  end.
 Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pending : list json) (remaining : list call) (task : task) (value : world) :=
  match find_tool (call_name invocation) (contract_tools (task_contract task)) with
- | None => call_failure id invocation "The tool is unavailable in the task's frozen contract" remaining task value
+ | None => call_error id invocation "unknown_tool" "The call does not name a tool in the task contract" remaining task value
  | Some tool => before_hook_step execute id tool invocation pending remaining task value
  end.
 Definition after_hooks_step (id : N) (operation : operation) (task : task) (value : world) :=
@@ -258,7 +261,8 @@ Definition task_step (execute : executor) (id : N) (task : task) (value : world)
      | ReadyForHooks invocation pending remaining => Some (ready_hooks execute id invocation pending remaining task value)
      | PendingCalls [] | WantsModel | ReadyForModel => Some (acknowledged (put_task id (with_activity Idle (Tasks.promote task)) value))
      | _ => None end end
- | Frozen _ _ | Archived => None
+ | Frozen _ operations | Archived operations => match ready_settlement operations with
+   | Some operation => Some (operation_step id operation task value) | None => None end
  end.
 Fixpoint find_step (execute : executor) (permitted : N -> world -> bool) (id : N) (tasks : list task) (value : world) : option decision :=
  match tasks with [] => None | task :: rest =>
@@ -274,7 +278,8 @@ Definition task_has_work (value : task) :=
     | Idle => negb (Nat.eqb (List.length (task_queued value)) 0) | _ => false end end
  | Stopped phase operations => match ready_settlement operations with Some _ => true | None =>
    match phase with WantsModel | ReadyForModel | ReadyForHooks _ _ _ | PendingCalls _ => true | _ => false end end
- | Frozen _ _ | Archived => false end.
+ | Frozen _ operations | Archived operations =>
+   match ready_settlement operations with Some _ => true | None => false end end.
 Fixpoint schedule (fuel : nat) (execute : executor) (permitted : N -> world -> bool) (value : world) (effects : list effect) : world * list effect :=
  let value := SideContext.reconcile value in
  match fuel with

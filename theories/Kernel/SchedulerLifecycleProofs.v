@@ -4,12 +4,13 @@ From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler.
 Import ListNotations.
 Open Scope string_scope.
 
-(* Freeze suspends scheduling, not the receipt of already-issued callbacks. *)
-Theorem frozen_tasks_do_not_take_scheduler_steps :
+(* Freeze suspends new work while accepted result processing can finish. *)
+Theorem frozen_tasks_without_ready_results_do_not_take_scheduler_steps :
  forall execute id task phase operations value,
  task_lifecycle task = Frozen phase operations ->
+ Scheduler.ready_settlement operations = None ->
  Scheduler.task_step execute id task value = None.
-Proof. intros; unfold Scheduler.task_step; rewrite H; reflexivity. Qed.
+Proof. intros; unfold Scheduler.task_step; rewrite H, H0; reflexivity. Qed.
 
 (* Stop settles the current turn without issuing another inference request. *)
 Theorem stopped_inference_requests_settle_without_effects :

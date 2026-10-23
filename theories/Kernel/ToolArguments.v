@@ -52,7 +52,7 @@ Definition tool_constraints (tool : native_tool) (source : json) :=
   | WriteProcess => paired_dimensions source &&
     match string_field "input" source with None => true | Some input => Utf8.well_formed input end
   | ReadImage => match string_field "path" source with
-      Some path => Utf8.nonblank path && Utf8.well_formed path && Utf8.no_nul path | None => false end
+      Some path => negb (String.eqb path "") && Utf8.well_formed path && Utf8.no_nul path | None => false end
   end.
 Definition valid_arguments (tool : native_tool) (source : json) :=
   Arguments.valid (argument_specs tool) source && tool_constraints tool source.

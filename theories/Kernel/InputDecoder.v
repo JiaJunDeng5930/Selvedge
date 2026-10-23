@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8 Numbers.
+From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
 From Selvedge.Kernel Require Import Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
@@ -137,3 +137,46 @@ Definition decode (source : json) : option input :=
  | _ => None end.
 Definition owns_kind (source : json) :=
  match string_field "kind" source with Some kind => existsb (fun decoder => String.eqb kind (decoder_name decoder)) decoders | None => false end.
+
+Open Scope string_scope.
+Definition schema_diagnostic (label : string) (declaration : schema) (source : json) :=
+ match source with
+ | JObject members =>
+   match find (fun member => negb (existsb (fun field => String.eqb (fst member) (field_name field)) declaration)) members with
+   | Some (name,_) => "Unknown field '" ++ name ++ "' in " ++ label
+   | None =>
+     (* Explain failure with the same field decoder used for admission. *)
+     match find (fun field => match Schema.decode [field]
+       (JObject (filter (fun member => String.eqb (fst member) (field_name field)) members)) with
+       | None => true | Some _ => false end) declaration with
+     | Some field => (if has_field (field_name field) source then "Invalid field '" else "Missing field '") ++
+       field_name field ++ "' in " ++ label ++ "; expected " ++
+       TextJson.render_json (JObject (SchemaJson.kind_schema (field_kind field)))
+     | None => "Invalid values in " ++ label
+     end
+   end
+ | _ => "Expected an object for " ++ label
+ end.
+Definition command_diagnostic (source : json) :=
+ match string_field "op" source with
+ | Some name => match find (fun declaration => String.eqb name (command_name declaration)) Selvedge.Kernel.Commands.command_specs with
+   | Some declaration => schema_diagnostic ("command '" ++ name ++ "'")
+       (Field "op" (KEnum name []) :: command_fields declaration) source
+   | None => "Unknown command '" ++ name ++ "'; use describe for the executable vocabulary"
+   end
+ | None => "Missing or invalid command 'op'; use describe for the executable vocabulary"
+ end.
+Definition diagnostic (source : json) :=
+ match string_field "kind" source with
+ | Some kind => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
+   | Some decoder =>
+     let payload := match source with JObject members => JObject (remove_field "kind" members) | other => other end in
+     match Schema.decode (decoder_fields decoder) payload with
+     | None => schema_diagnostic ("input '" ++ kind ++ "'") (decoder_fields decoder) payload
+     | Some _ => if String.eqb kind "command" then command_diagnostic (value_or_null "command" payload)
+       else "Invalid domain values in input '" ++ kind ++ "'"
+     end
+   | None => "Unknown protocol input '" ++ kind ++ "'"
+   end
+ | None => "Missing or invalid protocol 'kind'"
+ end.

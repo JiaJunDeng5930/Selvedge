@@ -20,7 +20,7 @@ Theorem a_new_transcript_changes_only_the_task_history :
    | SpeechTranscript owner actual_session actual_item _ _ _ =>
      N.eqb owner id && String.eqb session actual_session && String.eqb item actual_item
    | _ => false end) (task_history task) = None ->
- task_lifecycle task <> Archived ->
+ task_archived task = false ->
  let result := CommandExecution.speech_transcript id session item speaker completion text value in
  decision_world result = put_task id
    (set task_history (fun _ => task_history task ++
@@ -29,7 +29,8 @@ Theorem a_new_transcript_changes_only_the_task_history :
 Proof.
  intros id session item speaker completion text value task Found Session Item Text Unicode Fresh Live.
  unfold CommandExecution.speech_transcript; rewrite Found, Session, Item, Text, Unicode, Fresh.
- destruct (task_lifecycle task) eqn:Lifecycle; try contradiction;
+ unfold task_archived in Live.
+ destruct (task_lifecycle task) eqn:Lifecycle; try discriminate;
  split; reflexivity.
 Qed.
 

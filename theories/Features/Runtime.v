@@ -30,6 +30,7 @@ Definition after_transition (before:world) (result:decision) :decision :=
  (Board.after_transition before (TaskGraph.after_transition before (Worktree.after_transition before result)))).
 Definition recover (value:world) :world :=
  TitleRuntime.recover (Compaction.recover (Chatgpt.recover (Board.recover (Worktree.recover value)))).
+Definition reconfigure := Compaction.recover.
 Definition schedules (command:Selvedge.Generated.Commands.command) :bool := match command with
  | Selvedge.Generated.Commands.Cmd_configure_title_settings _ | Selvedge.Generated.Commands.Cmd_read_title_settings _
  | Selvedge.Generated.Commands.Cmd_remote_enable _ | Selvedge.Generated.Commands.Cmd_remote_disable _ | Selvedge.Generated.Commands.Cmd_remote_grant _

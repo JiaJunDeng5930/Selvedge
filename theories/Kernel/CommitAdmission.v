@@ -108,7 +108,7 @@ Definition same_lifecycle (left right : D.lifecycle) :=
  | D.Running lp lo, D.Running rp ro
  | D.Frozen lp lo, D.Frozen rp ro
  | D.Stopped lp lo, D.Stopped rp ro => same_activity lp rp && same_operations lo ro
- | D.Archived, D.Archived => true
+ | D.Archived _, D.Archived _ => true
  | _, _ => false
  end.
 Definition same_contract (left right : D.contract) :=
@@ -172,7 +172,7 @@ Definition worktree_contract_update (owner : N) (before after : F.state)
  match D.task_lifecycle old,
   D.settings_resource (D.contract_settings (D.task_contract old)),
   D.settings_resource (D.task_current_settings old) with
- | D.Archived,_,_ => false
+ | D.Archived _,_,_ => false
  | _,Some resource,Some selected =>
    N.eqb resource selected &&
    match worktree_entry resource after with
@@ -202,7 +202,7 @@ Definition execution_configuration_target (command : G.command) (owner : N) :=
  end.
 Definition task_is_configurable (old : D.task) :=
  negb (D.task_busy old) && Nat.eqb (List.length (D.task_queued old)) 0 &&
- match D.task_lifecycle old with D.Archived => false | _ => true end.
+ match D.task_lifecycle old with D.Archived _ => false | _ => true end.
 Definition remote_execution_configuration_authorizes (raw_source : Json.json) (owner : N) (before : K.world) :=
  match string_field "kind" raw_source, Remote.parse_request true raw_source,
    field "intent" raw_source, field "command" raw_source with
@@ -248,9 +248,9 @@ Definition archived_suffix_valid (owner : N) (old next : D.task) :=
    (skipn (List.length (D.task_history old)) (D.task_history next)).
 Definition same_archived_task (owner : N) (old next : D.task) :=
  match D.task_lifecycle old with
- | D.Archived =>
+ | D.Archived _ =>
    match D.task_lifecycle next with
-   | D.Archived => ContextSelection.history_extends (D.task_history old) (D.task_history next) &&
+   | D.Archived _ => ContextSelection.history_extends (D.task_history old) (D.task_history next) &&
        archived_suffix_valid owner old next &&
        same_content_lists (D.task_queued old) (D.task_queued next)
    | _ => false
@@ -424,7 +424,7 @@ Definition task_is_running (value : D.task) :=
 Definition task_allows_settlement (value : D.task) :=
  match D.task_lifecycle value with
  | D.Running _ _ | D.Stopped _ _ => true
- | D.Frozen _ _ | D.Archived => false
+ | D.Frozen _ _ | D.Archived _ => false
  end.
 Definition operation_at (operation : N) (value : D.task) :=
  find (fun entry => N.eqb operation (D.operation_id entry)) (D.task_operations value).
@@ -458,10 +458,10 @@ Definition model_profile_matches (owner : N) (model : D.profile) (snapshot : D.t
  match D.profile_policy requested with
  | D.FixedReasoning => same_profile model requested
  | D.AdaptivePolicy policy =>
-   match Reasoning.history_lease owner (D.task_history snapshot) with
-   | Reasoning.Lease effort _ =>
+   match History.history_lease owner (D.task_history snapshot) with
+   | History.Lease effort _ =>
      Reasoning.allowed policy effort && same_profile model (Codec.with_reasoning effort requested)
-   | Reasoning.NoLease => false
+   | History.NoLease => false
    end
  end.
 Definition model_effect_valid (owner ticket : N) (model : D.profile) (snapshot : D.task) (after : K.world) :=
@@ -538,8 +538,10 @@ Definition hook_effect_valid (owner ticket : N) (plugin : Json.json) (tool : D.t
  end.
 Definition after_effect_valid (owner ticket operation_id : N) (plugin : Json.json) (call : D.call)
  (value : Json.json) (error : bool) (after : K.world) :=
+ (* Result-processing authority belongs to the retained operation and ticket.
+    Interrupt/archive remove old rights; freezing alone does not revoke them. *)
  match K.find_task owner after with
- | Some task => task_allows_settlement task &&
+ | Some task =>
    match operation_at operation_id task with
    | Some operation => same_call call (D.operation_call operation) &&
      match D.operation_stage operation with
@@ -701,7 +703,7 @@ Definition task_cancellation_authorized (owner : N) (after : K.world) :=
  match K.find_task owner after with
  | Some task => match D.task_lifecycle task with
    | D.Stopped D.Idle _ => true
-   | D.Archived => true
+   | D.Archived _ => true
    | _ => false end
  | None => false end.
 Definition pending_worktree (owner : N) (after : K.world) :=
@@ -818,7 +820,7 @@ Fixpoint explicitly_cancelled (effects : list K.effect) (owner ticket : N) :=
  end.
 Definition archived_after (owner : N) (after : K.world) :=
  match K.find_task owner after with
- | Some task => match D.task_lifecycle task with D.Archived => true | _ => false end
+ | Some task => match D.task_lifecycle task with D.Archived _ => true | _ => false end
  | None => false
  end.
 Definition after_ticket_pending (owner operation ticket : N) (after : K.world) :=

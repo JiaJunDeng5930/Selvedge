@@ -96,16 +96,17 @@ Qed.
 
 Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,
  Selvedge.Kernel.State.find_task target value=Some task ->
- Selvedge.Kernel.Domain.task_lifecycle task<>Selvedge.Kernel.Domain.Archived ->
+ Selvedge.Kernel.Domain.task_archived task=false ->
  Tasks.control_command target Tasks.Interrupt value=
    Selvedge.Kernel.State.accept (JObject [("task_id"%string,number target)])
      (Selvedge.Kernel.State.put_task target (Tasks.control_task Tasks.Interrupt task) value)
      [Selvedge.Kernel.State.CancelTask target].
 Proof.
  intros target task value found not_archived.
+ unfold Selvedge.Kernel.Domain.task_archived in not_archived.
  unfold Tasks.control_command. rewrite found.
  unfold Tasks.control_target, Tasks.control_transition.
- destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl in *; try contradiction; reflexivity.
+ destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl in *; try discriminate; reflexivity.
 Qed.
 
 Lemma interrupt_preserves_task_authority : forall task,
@@ -132,7 +133,7 @@ Theorem archive_busy_card_retains_task_authority : forall id revision observed v
  F.card_task card=Some target ->
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_lifecycle task<>Selvedge.Kernel.Domain.Archived ->
+ Selvedge.Kernel.Domain.task_archived task=false ->
  let archived:=Board.archive_card id revision observed true value in
  exists updated,
    Board.lookup id (decision_world archived)=Some updated /\
@@ -190,7 +191,7 @@ Theorem archive_busy_archived_task_retains_task : forall id revision observed va
  F.card_task card=Some target ->
  Selvedge.Kernel.State.find_task target value=Some task ->
  Selvedge.Kernel.Domain.task_busy task=true ->
- Selvedge.Kernel.Domain.task_lifecycle task=Selvedge.Kernel.Domain.Archived ->
+ Selvedge.Kernel.Domain.task_lifecycle task=(Selvedge.Kernel.Domain.Archived []) ->
  let archived:=Board.archive_card id revision observed true value in
  exists updated,
    Board.lookup id (decision_world archived)=Some updated /\

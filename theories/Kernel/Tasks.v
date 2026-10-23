@@ -127,7 +127,7 @@ Definition queue (contents : content) (value : task) :=
  with_queued (task_queued value ++ [contents]) value.
 Definition receive (contents : content) (value : task) :=
  match task_lifecycle value with
- | Archived => value
+ | Archived _ => value
  | Frozen _ _ => queue contents value
  | Running Idle [] | Running (PendingCalls []) [] | Stopped Idle [] | Stopped (PendingCalls []) [] =>
    with_lifecycle (Running WantsModel []) (with_queued []
@@ -139,7 +139,7 @@ Definition send (id : N) (contents : content) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some task => match task_lifecycle task with
-   | Archived => reject "task_archived" "Archived tasks cannot accept input" value
+   | Archived _ => reject "task_archived" "Archived tasks cannot accept input" value
    | _ => if content_nonempty contents then
       accept (JObject [("task_id", number id)]) (put_task id (receive contents task) value) []
      else reject "invalid_message" input_required_message value
@@ -159,9 +159,9 @@ Definition control_transition (command : control) (current : lifecycle) : option
  | Freeze, Running phase operations => Some (Frozen phase operations)
  | Unfreeze, Frozen phase operations => Some (Running phase operations)
  | Stop, Running phase operations => Some (Stopped phase operations)
- | Interrupt, Archived | Archive, Archived => None
+ | Interrupt, Archived _ | Archive, Archived _ => None
  | Interrupt, _ => Some (Stopped Idle [])
- | Archive, _ => Some Archived
+ | Archive, _ => Some (Archived [])
  | _,_ => None end.
 Definition control_target (command : control) (value : task) := control_transition command (task_lifecycle value).
 Definition control_name (value : control) := match value with Freeze => "freeze" | Unfreeze => "unfreeze"
@@ -174,7 +174,8 @@ Definition control_task (command : control) (task : task) :=
  | None => task
  | Some target => with_lifecycle target
    (match command with
-    | Interrupt | Archive => append_history (History.interrupted_phase (task_activity task) ++ unknown_operations (task_operations task)) task
+    | Interrupt => append_history (unknown_operations (task_operations task) ++ History.interrupted_phase (task_activity task)) task
+    | Archive => append_history (History.interrupted_phase (task_activity task) ++ unknown_operations (task_operations task)) task
     | _ => task end)
  end.
 Definition control_effects (id : N) (command : control) (task : task) :=
@@ -195,7 +196,7 @@ Definition steer (id : N) (contents : content) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some task => match task_lifecycle task with
-   | Archived => reject "task_archived" "Archived tasks cannot accept input" value
+   | Archived _ => reject "task_archived" "Archived tasks cannot accept input" value
    | current => if content_nonempty contents then
      let lifecycle := match current with Frozen _ operations => Frozen WantsModel operations
        | _ => Running WantsModel (task_operations task) end in
@@ -282,7 +283,8 @@ Definition selected_context_history (settings : task_settings) (parent : task) (
  (history ++ [SettingsMessage settings (profile_key (task_current_profile parent))
    (profile_reasoning (task_current_profile parent))])%list.
 Definition fork_child_history (owner parent_id : N) (parent : task) (settings : task_settings) (side : bool) :=
- let inherited := selected_context_history settings parent (History.snapshot_history parent_id parent) in
+ let inherited := selected_context_history settings parent
+   (if side then History.snapshot_history parent_id parent else History.snapshot_operations parent_id parent) in
  (* Keep birth guidance in provider history, outside the side return cursor. *)
  if side then inherited ++ [SideConversationBirth owner parent_id
    (N.succ (N.of_nat (List.length inherited)))] else inherited.
@@ -309,6 +311,14 @@ Fixpoint fork_children (count : nat) (id : N) (parent : task) (messages : list c
    fork_children count id parent (tl messages) settings
       (append_task (fork_child owner id parent message settings false) value)
  end.
+Definition same_approval (left right : approval_policy) :=
+ match left, right with
+ | FullAccess, FullAccess | AskForApproval, AskForApproval => true
+ | ReviewWith reviewer_left, ReviewWith reviewer_right => Domain.same_profile reviewer_left reviewer_right
+ | _, _ => false end.
+
+(* Resetting effort uses the captured definition, even after the catalog changes.
+   An omitted effort still retains the task's current selection. *)
 Definition fork_with_caller (invoked : bool) (id count : N) (messages : list content) (settings : option json) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value
@@ -325,14 +335,23 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
       let settings := selected in
       let '(ticket, allocated) := allocate_ticket value in
       let invocation := Call ("manual-fork-" ++ number_text ticket) "fork_task"
-        (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) in
-      let parent := if invoked then task else append_history [FunctionCall invocation] task in
+        (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt in
+      let parent := if invoked then task else
+        let previous := task_current_settings task in
+        let selected_parent := if Json.equal (settings_json settings) (settings_json previous) &&
+          Json.equal (settings_guidance settings) (settings_guidance previous) &&
+          Bool.eqb (settings_worktree settings) (settings_worktree previous) &&
+          same_approval (settings_approval settings) (settings_approval previous) then task else
+          with_history (selected_context_history settings task (task_history task))
+            (with_execution (task_current_profile task) settings task) in
+        append_history [FunctionCall invocation] selected_parent in
       let children := fork_children (N.to_nat count) id parent messages settings
         (if invoked then value else allocated) in
       let children := if invoked then children else
         with_tasks (Numbers.indexed (fun child task =>
           if N.leb (next_task value) child then with_activity WantsModel
-           (append_history [ForkReceipt child invocation (N.succ (child-next_task value)%N)] task)
+           (with_history (History.fork_receipt_history
+             (ForkReceipt child invocation (N.succ (child-next_task value)%N)) (task_history task)) task)
           else if N.eqb child id then with_activity WantsModel (append_history [ForkReceipt id invocation 0] parent)
           else task) 0 (world_tasks children)) children in
       accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children []
@@ -352,14 +371,6 @@ Definition open_side (id : N) (contents : content) (value : world) :=
  end.
 (* The wire approval DTO names its reviewer. An explicit selection can replace
    the frozen profile behind that same key, so wire equality is insufficient. *)
-Definition same_approval (left right : approval_policy) :=
- match left, right with
- | FullAccess, FullAccess | AskForApproval, AskForApproval => true
- | ReviewWith reviewer_left, ReviewWith reviewer_right => Domain.same_profile reviewer_left reviewer_right
- | _, _ => false end.
-
-(* Resetting effort uses the captured definition, even after the catalog changes.
-   An omitted effort still retains the task's current selection. *)
 Definition execution_reasoning (effort : option string) (current : profile) :=
  match effort with
  | Some "default" => match parse_profile (profile_metadata current) with
@@ -373,7 +384,8 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
  match find_task id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some task =>
-   if quiescent task && negb (String.eqb (task_status task) "archived") then
+   if quiescent task && negb (String.eqb (task_status task) "archived") &&
+    (match History.history_lease id (task_history task) with History.NoLease => true | _ => false end) then
    let current := task_current_settings task in
    let model := match name with
     | None => Some (task_current_profile task)
@@ -406,7 +418,7 @@ Definition configure_execution_with (normalize : task_settings -> task_settings)
        end
      end
    end
-   else reject "task_busy" "Execution settings require a quiescent unarchived task" value
+   else reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value
  end.
 
 Definition configure_execution := configure_execution_with (fun settings=>settings).

@@ -6,11 +6,11 @@ Import ListNotations.
 Theorem nonzero_process_exit_invalidates_the_reasoning_lease :
  forall owner history identity result code,
  natural_field "exit_code"%string result = Some code -> (0 <? code)%N = true ->
- Reasoning.history_lease owner (history ++ [FunctionOutput identity result false]) = Reasoning.NoLease.
+ History.history_lease owner (history ++ [FunctionOutput identity result false]) = History.NoLease.
 Proof.
  intros owner history identity result code Exit Failed.
- unfold Reasoning.history_lease. rewrite fold_left_app. cbn.
- unfold Reasoning.failed_result. rewrite Exit, Failed. reflexivity.
+ unfold History.history_lease. rewrite fold_left_app. cbn.
+ unfold History.failed_result. rewrite Exit, Failed. reflexivity.
 Qed.
 
 Theorem a_supported_evaluator_choice_continues_the_running_task :
@@ -99,9 +99,9 @@ Proof.
 Qed.
 
 Theorem task_settings_do_not_revoke_a_reasoning_lease : forall owner history settings profile effort,
- Reasoning.history_lease owner (history ++ [SettingsMessage settings profile effort]) =
- Reasoning.history_lease owner history.
-Proof. intros; unfold Reasoning.history_lease; rewrite fold_left_app; reflexivity. Qed.
+ History.history_lease owner (history ++ [SettingsMessage settings profile effort]) =
+ History.history_lease owner history.
+Proof. intros; unfold History.history_lease; rewrite fold_left_app; reflexivity. Qed.
 
 Theorem a_before_hook_receipt_breaks_the_trailing_configuration_frame :
  forall history owner invocation plugin outcome,
@@ -115,7 +115,7 @@ Proof. intros id task value Fixed; unfold Scheduler.ready_model, Reasoning.next;
 
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,
  profile_policy (task_current_profile task) = AdaptivePolicy policy ->
- Reasoning.history_lease id (task_history task) = Reasoning.NoLease ->
+ History.history_lease id (task_history task) = History.NoLease ->
  decision_effects (Scheduler.ready_model id task value) =
  [RequestReasoning id (world_next_ticket value) (task_current_profile task) task].
 Proof.

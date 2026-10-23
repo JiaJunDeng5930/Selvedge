@@ -24,6 +24,6 @@ Fixpoint latest_failure_events (history:list message) := match history with
 Definition latest_failure (task:task) := latest_failure_events (rev (task_history task)).
 Definition activity (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_enrichment card with
  | Selvedge.Features.Domain.Enriching _ _ _=>"generating" | Selvedge.Features.Domain.EnrichmentFailed _=>"draft_failed" | _=>match linked_task card value with
- | Some task=>match task_lifecycle task with Archived=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"
+ | Some task=>match task_lifecycle task with Archived _=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"
  | Running (EvaluatingReasoning _ _) _=>"evaluating" | _=>if existsb (fun operation=>match operation_stage operation with AwaitingApproval _ _=>true | _=>false end) (task_operations task) then "awaiting_approval" else if busy_task task then "working" else if latest_failure task then "failed" else "completed" end
  | None=>if Selvedge.Features.Domain.board_automatic (registry value) && runnable card value && (match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true | _=>false end) then "queued" else "not_started" end end.

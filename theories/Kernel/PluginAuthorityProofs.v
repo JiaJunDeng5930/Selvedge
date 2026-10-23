@@ -6,16 +6,16 @@ Open Scope string_scope.
 
 (* MCP's advertised schema is opaque to the extension interpreter. The server
    is responsible for validating its own dialect before executing the request. *)
-Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote id fields,
+Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote id fields attempt,
  Callbacks.model_call_arguments_valid
    (Tool name description (McpToolSource schema server remote))
-   (Call id name (JObject fields)) = true.
+   (Call id name (JObject fields) attempt) = true.
 Proof. reflexivity. Qed.
 
-Theorem extension_arguments_use_the_declared_fragment : forall name description schema reference remote id arguments,
+Theorem extension_arguments_use_the_declared_fragment : forall name description schema reference remote id arguments attempt,
  Callbacks.model_call_arguments_valid
    (Tool name description (ExtensionToolSource schema reference remote))
-   (Call id name arguments) = JsonSchema.valid schema arguments.
+   (Call id name arguments attempt) = JsonSchema.valid schema arguments.
 Proof. reflexivity. Qed.
 
 (* The normal admission premises do not assume an emitted effect. This positive
@@ -36,7 +36,7 @@ Theorem admitted_mcp_calls_dispatch : forall execute id name description schema 
 Proof.
  intros execute id name description schema server remote invocation remaining task value advertised
    Available [fields Arguments] NoNative NoDiscover NoBash Room.
- unfold Scheduler.execute_checked_call. rewrite Available.
+ unfold Scheduler.execute_checked_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
  rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
  unfold Scheduler.start_external. rewrite Room, NoBash.
@@ -81,9 +81,10 @@ Proof.
  intros execute id invocation remaining task value plugin pending Frozen Emitted.
  unfold Scheduler.start_call in Emitted.
  destruct (Tasks.find_tool (call_name invocation) (contract_tools (task_contract task))) as [tool|]; [|contradiction].
- rewrite Frozen in Emitted; unfold Scheduler.before_hook_step in Emitted.
- destruct (Capabilities.hook_available Capabilities.BeforeTool plugin (environment_plugins (world_environment value))) eqn:Available; [|contradiction].
- apply current_hook_owner in Available; exact Available.
+ destruct (call_origin invocation); [|destruct (Scheduler.retry_safe tool)]; try contradiction.
+ all: rewrite Frozen in Emitted; unfold Scheduler.before_hook_step in Emitted.
+ all: destruct (Capabilities.hook_available Capabilities.BeforeTool plugin (environment_plugins (world_environment value))) eqn:Available; [|contradiction].
+ all: apply current_hook_owner in Available; exact Available.
 Qed.
 
 Theorem actual_after_hook_requires_a_current_hook_owner : forall id operation task value plugin pending result error,

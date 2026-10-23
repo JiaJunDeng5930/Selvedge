@@ -99,7 +99,7 @@ Definition speech_transcript (id : N) (session item : string) (speaker : Domain.
    | Some message => if Json.equal (message_json id message) (message_json id (SpeechTranscript id session item speaker completion text))
      then accept (result true) value [] else reject "speech_conflict" "A transcript identity already has different committed content" value
    | None => match task_lifecycle task with
-     | Archived => reject "task_archived" "Archived tasks cannot accept new speech transcripts" value
+     | Archived _ => reject "task_archived" "Archived tasks cannot accept new speech transcripts" value
      | _ => accept (result false) (put_task id (append_history [SpeechTranscript id session item speaker completion text] task) value) [] end
    end
    else reject "invalid_arguments" "Final transcripts require stable identities and nonempty Unicode text" value
@@ -128,7 +128,7 @@ Definition return_side (id : N) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The side conversation does not exist" value
  | Some side => match task_lifecycle side with
-   | Archived => reject "task_archived" "Returning side conversation content requires non-archived source and parent tasks" value
+   | Archived _ => reject "task_archived" "Returning side conversation content requires non-archived source and parent tasks" value
    | _ => match task_side_parent side with
    | None => reject "not_side_conversation" "The task has no side conversation parent" value
    | Some parent =>
@@ -145,7 +145,7 @@ Definition return_side (id : N) (value : world) :=
 ```json
 " (String.append (TextJson.render_json transcript) "
 ```") in
-     let images := flat_map (fun message => match message with UserMessage parts => filter (fun part => match part with ImagePart _ => true | _ => false end) parts | _ => [] end) messages in
+     let images := flat_map History.message_images messages in
      let result := Tasks.send parent (TextPart text :: images) value in
      if bool_default "ok" (decision_reply result) false then
        Decision (put_task id (with_side_cursor through side) (decision_world result))

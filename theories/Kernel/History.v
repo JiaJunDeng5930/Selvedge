@@ -1,9 +1,23 @@
-From Stdlib Require Import String List NArith.
+From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State ContextTypes.
+From Selvedge.Kernel Require Import Numbers Domain Codec State ContextTypes Images Conversation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+
+Definition failed_result (error : bool) (value : json) :=
+ error || match natural_field "exit_code" value with Some code => N.ltb 0 code | None => false end.
+Inductive lease := NoLease | Lease (effort : string) (remaining : N).
+Definition lease_step (owner : N) (previous : lease) (message : message) :=
+ match message with
+ | ReasoningRecord actual effort remaining _ => if N.eqb owner actual then Lease effort remaining else NoLease
+ | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
+ | FailureMessage _ | ContextReplacement _ => NoLease
+ | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
+   if failed_result error value then NoLease else previous
+ | ModelContext _ value => if String.eqb (text_default "type" (provider_value value) "") "compaction" then NoLease else previous
+ | _ => previous end.
+Definition history_lease (owner : N) (history : list message) := fold_left (lease_step owner) history NoLease.
 
 Definition operation_result (operation : operation) (result : json) (error : bool) : message :=
  if operation_announced operation
@@ -38,10 +52,12 @@ Definition pending_invocations (phase : activity) := match phase with
  | PendingCalls calls => calls
  | ReadyForHooks invocation _ remaining | CheckingHook _ _ invocation _ remaining => invocation :: remaining
  | _ => [] end.
-Definition snapshot_history (parent : N) (value : task) :=
+Definition snapshot_operations (parent : N) (value : task) :=
  close_operations "inherited_operation_not_owned"
   ("This operation belongs to parent task " ++ number_text parent ++
-   "; its execution was not copied. Read that task for its eventual result.") value ++
+   "; its execution was not copied. Read that task for its eventual result.") value.
+Definition snapshot_history (parent : N) (value : task) :=
+ snapshot_operations parent value ++
  map (inherited_call parent) (pending_invocations (task_activity value)).
 Definition parent_context (change : context_change) :=
  let key := match change with Introduce value => snapshot_key value | Amend key _ _ _ | Remove key _ => key end in
@@ -56,8 +72,20 @@ Definition without_inherited_result (identity : string) (value : message) :=
  | FunctionOutput actual _ _ => negb (String.eqb identity actual)
  | _ => true end.
 
+Definition message_images (value : message) := match value with
+ | UserMessage parts => Images.only_images parts
+ | FunctionOutput _ result _ | OperationResult _ _ result _ => Images.result_images result
+ | _ => [] end.
+
+Definition fork_receipt_history (receipt : message) (history : list message) :=
+ match rev history with
+ | UserMessage contents :: rest => rev rest ++ [receipt; UserMessage contents]
+ | _ => history ++ [receipt] end.
+
 Definition cancelled_call (value : call) := FunctionOutput (call_id value)
- (failure "cancelled_before_execution" "This tool was cancelled before dispatch") true.
+ (match call_origin value with
+ | InitialAttempt => failure "cancelled_before_execution" "This tool was cancelled before dispatch"
+ | RecoveryAttempt => failure "outcome_unknown" "This tool may already have run; cancellation does not undo it" end) true.
 Definition interrupted_phase (phase : activity) := match phase with
  | PendingCalls calls | ReadyForHooks _ _ calls => map cancelled_call (pending_invocations phase)
  | CheckingHook _ _ invocation _ remaining =>

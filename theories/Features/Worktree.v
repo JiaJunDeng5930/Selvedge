@@ -10,7 +10,7 @@ Definition lookup (id:N) (value:world) := find (fun tree=>N.eqb id (Selvedge.Fea
 Definition store (tree:Selvedge.Features.Domain.worktree) (value:world) := Selvedge.Kernel.State.with_features
  (Selvedge.Features.State.with_worktrees (tree::filter (fun previous=>negb (N.eqb (Selvedge.Features.Domain.worktree_task tree) (Selvedge.Features.Domain.worktree_task previous))) (Selvedge.Features.Domain.feature_worktrees (world_features value))) (world_features value)) value.
 Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
-Definition archived (task:task) := match task_lifecycle task with Archived=>true | _=>false end.
+Definition archived (task:task) := match task_lifecycle task with Archived _=>true | _=>false end.
 Definition inside (root path:string) := String.eqb root path || String.prefix (String.append root "/") path.
 Definition any_inside (root:string) (roots:list string) := existsb (inside root) roots.
 Definition task_uses_root (root:string) (task:task) :=
@@ -211,7 +211,7 @@ Definition complete_binding (owner id : N) (space : workspace) (guidance : json)
 Definition complete_bindings (owner : N) (space : workspace) (guidance : json) (value : world) :=
  Selvedge.Kernel.State.with_tasks
   (indexed (fun id task => complete_binding owner id space guidance task) 0 (world_tasks value)) value.
-Definition failed_task (message:string) (task:task) := with_lifecycle (if archived task then Archived else Stopped Idle []) (append_history [FailureMessage message] task).
+Definition failed_task (message:string) (task:task) := with_lifecycle (if archived task then task_lifecycle task else Stopped Idle []) (append_history [FailureMessage message] task).
 Definition created_valid (root:string) (space:workspace) (guidance:json) (task:task) :=
  Workspace.valid_path root && Workspace.valid_workspace space && Workspace.valid_path (primary space) && inside root (primary space) &&
  match Json.equal (workspace_json space) (workspace_json (selected_workspace (primary space) (settings_workspace (task_current_settings task)))) with

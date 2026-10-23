@@ -22,7 +22,7 @@ function userTexts(page) {
     message.content.filter(part => part.type === 'text').map(part => part.text));
 }
 
-test('task graphs route ordinary replies, exclude selvedge-ui and retain rejected empty deliveries', { timeout: 30000 }, async t => {
+test('task graphs route nonempty assistant replies in every output mode', { timeout: 30000 }, async t => {
   const directory = await home(t);
   const apiKey = `SELVEDGE_TASK_GRAPH_ROUTING_${randomBytes(8).toString('hex')}`;
   process.env[apiKey] = 'loopback-task-graph-fixture';
@@ -118,8 +118,9 @@ test('task graphs route ordinary replies, exclude selvedge-ui and retain rejecte
   assert.ok(assistantTexts(uiTurn).at(-1).includes('<ui id="graphRouteUi">'),
     'The provider fixture returned the actual selvedge-ui fenced reply');
   responseDelivery = await command({ op: 'read', task_id: responseTarget.task_id });
-  assert.equal(userTexts(responseDelivery).length, 1,
-    'A selvedge-ui assistant reply is not delivered as ordinary text');
+  assert.equal(userTexts(responseDelivery).length, 2,
+    'A nonempty selvedge-ui assistant reply is delivered to the graph target');
+  assert.ok(userTexts(responseDelivery).some(text => text.includes('<ui id="graphRouteUi">')));
 
   const graphBeforeEmpty = await command({ op: 'read_task_graph', graph_id: graph.graph_id });
   const previousReceipts = graphBeforeEmpty.receipts;
@@ -129,19 +130,12 @@ test('task graphs route ordinary replies, exclude selvedge-ui and retain rejecte
     () => upstream.requests.length > responseRequestsBeforeEmpty);
   responseDelivery = await command({ op: 'read', task_id: responseTarget.task_id });
   const deliveredUsersAfterEmpty = userTexts(responseDelivery);
-  assert.equal(deliveredUsersAfterEmpty.length, 1,
-    'The empty assistant reply is rejected by the same public send contract');
+  assert.equal(deliveredUsersAfterEmpty.length, 2,
+    'An empty assistant reply does not create a graph delivery');
   const graphAfterEmpty = await command({ op: 'read_task_graph', graph_id: graph.graph_id });
   const newReceipts = graphAfterEmpty.receipts.filter(receipt =>
     !previousReceipts.some(previous => JSON.stringify(previous) === JSON.stringify(receipt)));
-  const emptyReceipt = newReceipts.find(receipt =>
-    receipt.source === responseSource.task_id
-      && receipt.rule === 'responses-output'
-      && receipt.target === responseTarget.task_id);
-  assert.ok(emptyReceipt, `The rejected empty handoff must remain visible as a graph receipt: ${JSON.stringify(newReceipts)}`);
-  assert.equal(emptyReceipt.reply.ok, false);
-  assert.equal(emptyReceipt.reply.error.code, emptySendBaseline.body.error.code,
-    'Graph delivery reports the same failure category as public send of an empty message');
+  assert.deepEqual(newReceipts, [], 'Filtering an empty reply creates no delivery receipt');
 
   assert.equal(upstream.requests.length, 3, 'Responses fixture traffic stays bounded to the three requested turns');
   assert.deepEqual(upstream.failures, []);

@@ -44,7 +44,7 @@ Local Lemma recovery_lifecycle_projection : forall owner task,
    | Running _ _ => Running ready []
    | Frozen _ _ => Frozen ready []
    | Stopped _ _ => Stopped ready []
-   | Archived => Archived
+   | Archived _ => (Archived [])
    end.
 Proof.
  intros owner task.

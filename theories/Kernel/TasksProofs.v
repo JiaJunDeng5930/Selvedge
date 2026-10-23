@@ -28,21 +28,21 @@ Proof.
  unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r. reflexivity.
 Qed.
 
-Theorem archived_control_is_terminal : forall task,
- task_lifecycle task = Archived ->
+Theorem archived_control_is_terminal : forall task operations,
+ task_lifecycle task = Archived operations ->
  Tasks.control_task Tasks.Archive task = task.
 Proof.
- intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] H.
+ intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] operations H.
  cbn in H. subst lifecycle. reflexivity.
 Qed.
 
-Theorem archived_send_rejects_without_changing_world : forall id contents value task,
+Theorem archived_send_rejects_without_changing_world : forall id contents value task operations,
  find_task id value = Some task ->
- task_lifecycle task = Archived ->
+ task_lifecycle task = Archived operations ->
  Tasks.send id contents value =
    reject "task_archived" "Archived tasks cannot accept input" value.
 Proof.
- intros id contents value task Hfind Harchived.
+ intros id contents value task operations Hfind Harchived.
  unfold Tasks.send. rewrite Hfind, Harchived. reflexivity.
 Qed.
 
@@ -62,41 +62,12 @@ Theorem interrupt_task_is_idempotent : forall task,
  Tasks.control_task Tasks.Interrupt (Tasks.control_task Tasks.Interrupt task) =
  Tasks.control_task Tasks.Interrupt task.
 Proof.
- intros task.
- assert (Hstopped : forall value,
-   task_lifecycle value <> Archived ->
-   task_lifecycle (Tasks.control_task Tasks.Interrupt value) = Stopped Idle []).
- { intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] Hactive.
-   destruct lifecycle as [phase operations | phase operations | phase operations |];
-     cbn [Tasks.control_task Tasks.control_target Tasks.control_transition
-       Tasks.unknown_operations Domain.task_lifecycle Domain.task_activity Domain.task_operations
-       Domain.with_lifecycle Domain.append_history Domain.with_history History.interrupted_phase];
-     try reflexivity; contradiction. }
- assert (Hfixed : forall value,
-   task_lifecycle value = Stopped Idle [] ->
-   Tasks.control_task Tasks.Interrupt value = value).
- { intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] Hstate.
-   cbn in Hstate. subst lifecycle.
-   unfold Tasks.control_task, Tasks.control_target, Tasks.control_transition.
-   unfold Tasks.unknown_operations, Domain.with_lifecycle, Domain.append_history,
-     Domain.with_history, History.interrupted_phase.
-   cbn [Domain.task_lifecycle Domain.task_activity Domain.task_operations].
-   rewrite app_nil_r. reflexivity. }
- assert (Harchived : forall value,
-   task_lifecycle value = Archived ->
-   Tasks.control_task Tasks.Interrupt value = value).
- { intros [contract profile settings lifecycle history queued lineage side_parent side_cursor model_cursor] Hstate.
-   cbn in Hstate. subst lifecycle.
-   unfold Tasks.control_task, Tasks.control_target, Tasks.control_transition,
-     Domain.task_lifecycle. reflexivity. }
- destruct (task_lifecycle task) as [phase operations | phase operations | phase operations |] eqn:Hstate.
- - rewrite (Hfixed (Tasks.control_task Tasks.Interrupt task)
-     (Hstopped task ltac:(rewrite Hstate; discriminate))). reflexivity.
- - rewrite (Hfixed (Tasks.control_task Tasks.Interrupt task)
-     (Hstopped task ltac:(rewrite Hstate; discriminate))). reflexivity.
- - rewrite (Hfixed (Tasks.control_task Tasks.Interrupt task)
-     (Hstopped task ltac:(rewrite Hstate; discriminate))). reflexivity.
- - rewrite (Harchived task Hstate). apply Harchived. exact Hstate.
+ intros [contract profile settings lifecycle history queued lineage parent cursor].
+ destruct lifecycle;
+ unfold Tasks.control_task, Tasks.control_target, Tasks.control_transition, Tasks.unknown_operations,
+   with_lifecycle, append_history, with_history;
+ cbn [task_lifecycle task_activity task_operations History.interrupted_phase];
+ try rewrite app_nil_r; reflexivity.
 Qed.
 
 Theorem fork_child_inherits_parent_authority_bounds : forall owner parent_id parent contents settings side,
@@ -156,13 +127,13 @@ Qed.
 Lemma fork_child_history_keeps_snapshot_prefix : forall owner parent_id parent settings side,
  exists suffix,
    Tasks.fork_child_history owner parent_id parent settings side =
-     History.snapshot_history parent_id parent ++ suffix.
+     (if side then History.snapshot_history parent_id parent else History.snapshot_operations parent_id parent) ++ suffix.
 Proof.
  intros owner parent_id parent settings side.
  unfold Tasks.fork_child_history.
  destruct (selected_context_history_extends_prefix settings parent
-   (History.snapshot_history parent_id parent)) as [suffix Hprefix].
- rewrite Hprefix. destruct side.
+   (if side then History.snapshot_history parent_id parent else History.snapshot_operations parent_id parent)) as [suffix Hprefix].
+ rewrite Hprefix. destruct side; simpl.
  - exists (suffix ++ [SideConversationBirth owner parent_id
      (N.succ (N.of_nat (List.length (History.snapshot_history parent_id parent ++ suffix))))]).
    rewrite <- app_assoc. reflexivity.
@@ -172,7 +143,7 @@ Qed.
 Theorem fork_child_inherits_parent_snapshot : forall owner parent_id parent contents settings side,
  exists suffix,
    task_history (Tasks.fork_child owner parent_id parent contents settings side) =
-     History.snapshot_history parent_id parent ++ suffix.
+     (if side then History.snapshot_history parent_id parent else History.snapshot_operations parent_id parent) ++ suffix.
 Proof.
  intros owner parent_id parent contents settings side.
  destruct (fork_child_history_keeps_snapshot_prefix owner parent_id parent settings side)

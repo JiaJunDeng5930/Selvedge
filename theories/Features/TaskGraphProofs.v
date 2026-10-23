@@ -269,22 +269,22 @@ Proof.
  now apply every_declared_handoff_is_delivered.
 Qed.
 
-(** A newly accepted plain assistant reply is observable by the real reaction
+(** A newly accepted nonempty assistant reply is observable by the real reaction
     hook. The freshness premise is about the stored origin identity; graph
     installation and repeated transition hooks cannot replay old history. *)
-Theorem fresh_plain_reply_is_observed : forall before source task origin text,
+Theorem fresh_reply_is_observed : forall before source task origin text,
  K.find_task source before=Some task ->
- origin_producer origin=source -> origin_mode origin=PlainOutput ->
+ origin_producer origin=source -> String.eqb text ""=false ->
  TaskGraph.seen_origin origin task=false ->
  TaskGraph.new_outputs before source (append_history [AssistantMessage origin text] task)=[text].
 Proof.
- intros before source task origin text found producer plain unseen.
+ intros before source task origin text found producer nonempty unseen.
  unfold TaskGraph.new_outputs. rewrite found.
  assert (history : task_history (append_history [AssistantMessage origin text] task)=
    task_history task++[AssistantMessage origin text]) by (destruct task; reflexivity).
  rewrite history.
  rewrite skipn_app,skipn_all,Nat.sub_diag. cbn.
- rewrite producer,plain,unseen,N.eqb_refl. reflexivity.
+ rewrite producer,nonempty,unseen,N.eqb_refl. reflexivity.
 Qed.
 
 Definition observed_provider_reply (text : string) : json := JObject [
@@ -307,14 +307,14 @@ Theorem nonassistant_provider_context_is_not_a_graph_output : forall origin cont
  TaskGraph.assistant_output (ModelContext origin content)=None.
 Proof. intros; cbn [TaskGraph.assistant_output]; now rewrite H. Qed.
 
-Theorem fresh_plain_provider_reply_is_observed : forall before source task origin text,
+Theorem fresh_provider_reply_is_observed : forall before source task origin text,
  K.find_task source before=Some task ->
- origin_producer origin=source -> origin_mode origin=PlainOutput ->
+ origin_producer origin=source -> String.eqb text ""=false ->
  TaskGraph.seen_origin origin task=false ->
  TaskGraph.new_outputs before source
    (append_history [ModelContext origin (observed_provider_reply text)] task)=[text].
 Proof.
- intros before source task origin text found producer plain unseen.
+ intros before source task origin text found producer nonempty unseen.
  unfold TaskGraph.new_outputs. rewrite found.
  assert (history : task_history (append_history [ModelContext origin (observed_provider_reply text)] task)=
    task_history task++[ModelContext origin (observed_provider_reply text)]) by (destruct task; reflexivity).
@@ -322,27 +322,32 @@ Proof.
  rewrite skipn_app,skipn_all,Nat.sub_diag. cbn.
  unfold TaskGraph.assistant_output.
  cbn [Conversation.provider_assistant_message Conversation.provider_text].
- rewrite producer,plain,unseen,N.eqb_refl,string_append_empty. reflexivity.
+ rewrite producer,unseen,N.eqb_refl,string_append_empty,nonempty. reflexivity.
 Qed.
 
-Theorem fresh_plain_empty_provider_reply_is_observed : forall before source task origin,
+Theorem fresh_empty_provider_reply_is_ignored : forall before source task origin,
  K.find_task source before=Some task ->
- origin_producer origin=source -> origin_mode origin=PlainOutput ->
- TaskGraph.seen_origin origin task=false ->
  TaskGraph.new_outputs before source
-   (append_history [ModelContext origin provider_reply_with_empty_output_text] task)=[""].
-Proof. intros; exact (fresh_plain_provider_reply_is_observed before source task origin "" H H0 H1 H2). Qed.
+   (append_history [ModelContext origin provider_reply_with_empty_output_text] task)=[].
+Proof.
+ intros before source task origin Found.
+ unfold TaskGraph.new_outputs. rewrite Found.
+ assert (History : task_history (append_history [ModelContext origin provider_reply_with_empty_output_text] task)=
+   task_history task++[ModelContext origin provider_reply_with_empty_output_text]) by (destruct task; reflexivity).
+ rewrite History,skipn_app,skipn_all,Nat.sub_diag. cbn.
+ destruct (N.eqb source (origin_producer origin)); reflexivity.
+Qed.
 
 Theorem observed_provider_text_is_routed_through_the_plain_output_path :
  forall before source task ticket part text,
- K.find_task source before=Some task ->
+ K.find_task source before=Some task -> String.eqb text ""=false ->
  TaskGraph.seen_origin (OutputOrigin source ticket part PlainOutput) task=false ->
  TaskGraph.new_outputs before source
    (append_history
      (Callbacks.item_messages source ticket InteractiveOutput
        [ContextItem part (observed_provider_reply text)]) task)=[text].
 Proof.
- intros before source task ticket part text Found Fresh.
+ intros before source task ticket part text Found Nonempty Fresh.
  assert (Message : Callbacks.item_messages source ticket InteractiveOutput
    [ContextItem part (observed_provider_reply text)] =
    [ModelContext (OutputOrigin source ticket part PlainOutput) (observed_provider_reply text)]).
@@ -355,7 +360,7 @@ Proof.
    rewrite Assistant, Observations. reflexivity.
  }
  rewrite Message.
- eapply fresh_plain_provider_reply_is_observed; try assumption; reflexivity.
+ eapply fresh_provider_reply_is_observed; try assumption; reflexivity.
 Qed.
 
 Lemma recording_receipt_preserves_tasks : forall graph receipt value,

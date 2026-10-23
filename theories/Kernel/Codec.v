@@ -243,7 +243,7 @@ Definition call_json (value : call) := JObject [
 Definition parse_call (value : json) : option call :=
  match string_field "id" value, string_field "name" value, field "arguments" value with
  | Some id, Some name, Some (JObject arguments) =>
-   if nonempty id && nonempty name then Some (Call id name (JObject arguments)) else None
+   if nonempty id && nonempty name then Some (Call id name (JObject arguments) InitialAttempt) else None
  | _,_,_ => None end.
 Definition content_json (value : content) := JArray (map Images.content_part_json value).
 Definition parse_model_item (value : json) : option model_item :=
@@ -255,7 +255,7 @@ Definition parse_model_item (value : json) : option model_item :=
  | Some "call" => match Schema.decode [Field "type" (KEnum "call" []);Field "id" KText;Field "name" KText;Field "arguments" KJson] value with
    | Some values => let identity := head (tail values) in let name := head (tail (tail values)) in
      match head (tail (tail (tail values))) with
-     | JObject arguments => if nonempty identity && nonempty name then Some (CallItem (Call identity name (JObject arguments))) else None
+     | JObject arguments => if nonempty identity && nonempty name then Some (CallItem (Call identity name (JObject arguments) InitialAttempt)) else None
      | _ => None end
    | None => None end
  | Some "context" => match Schema.decode [Field "type" (KEnum "context" []);Field "part" KNatural;Field "value" KJson] value with

@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks ReasoningView ReasoningProtocol Context ContextUpdates.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -11,19 +11,6 @@ Definition observe_context (id : N) (task : task) (value : world) :=
  accept (JObject [("accepted",JBool true)])
   (put_task id (capture ticket task) allocated) [ObserveContext id ticket task].
 
-Definition failed_result (error : bool) (value : json) :=
- error || match natural_field "exit_code" value with Some code => N.ltb 0 code | None => false end.
-Inductive lease := NoLease | Lease (effort : string) (remaining : N).
-Definition lease_step (owner : N) (previous : lease) (message : message) :=
- match message with
- | ReasoningRecord actual effort remaining _ => if N.eqb owner actual then Lease effort remaining else NoLease
- | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
- | FailureMessage _ | ContextReplacement _ => NoLease
- | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
-   if failed_result error value then NoLease else previous
- | ModelContext _ value => if String.eqb (text_default "type" (provider_value value) "") "compaction" then NoLease else previous
- | _ => previous end.
-Definition history_lease (owner : N) (history : list message) := fold_left (lease_step owner) history NoLease.
 Definition allowed (policy : adaptive_reasoning) (effort : string) := existsb (String.eqb effort) (reasoning_efforts policy).
 Inductive plan := Fixed (model : profile) | Reuse (model : profile) (remaining : N) | Evaluate.
 Definition next (owner : N) (task : task) :=

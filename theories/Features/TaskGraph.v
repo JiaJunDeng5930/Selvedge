@@ -146,7 +146,7 @@ Definition new_outputs (before:world) (id:N) (task:task) :=
  if existsb (fun message=>match message with FunctionCall _=>true | _=>false end) added then [] else
  fold_right (fun message rest=>match assistant_output message with
  | Some (origin,text)=>if N.eqb id (origin_producer origin) &&
- (match origin_mode origin with PlainOutput=>true | _=>false end) &&
+ negb (String.eqb text "") &&
  negb (match Selvedge.Kernel.State.find_task id before with Some previous=>seen_origin origin previous | None=>false end) then text::rest else rest
  | None=>rest end) [] added.
 Record delivery := Delivery { delivery_graph:N;delivery_rule:string;delivery_target:N;delivery_text:string }.

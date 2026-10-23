@@ -35,7 +35,7 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (calle
 Definition assess (source : json) (value : world) : json :=
  let candidate := match Selvedge.Generated.Commands.decode (value_or_null "command" source) with
  | Some command => decision_reply (execute_domain command None value)
- | None => State.failure "invalid_input" "Malformed input for the declared protocol"
+ | None => State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source))
  end in
  let admitted := bool_default "ok" candidate false in
  JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
@@ -47,7 +47,8 @@ Definition execute_command (command : Selvedge.Generated.Commands.command) (call
 Definition core_transition (source : input) (value : world) :=
  match source with
  | UserCommand command => execute_command command None value
- | Configure environment => accept (JObject [("configured",JBool true)]) (with_environment environment value) []
+ | Configure environment => accept (JObject [("configured",JBool true)])
+   (Selvedge.Features.Runtime.reconfigure (with_environment environment value)) []
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_transition value
    (Callbacks.context_completed id ticket observations diagnostic value)
  | ModelCompleted id ticket ModelContextLimit => Selvedge.Features.Runtime.after_transition value (Selvedge.Features.Runtime.model_context_limit id ticket value)
@@ -68,7 +69,7 @@ Definition transition (source : json) (value : world) : bool * bool * option inp
      (true,command_schedules command result,Some (UserCommand command),result) end
  | Some input => (true,match input with Configure _ => false | _ => true end,Some input,core_transition input value)
  | None => if InputDecoder.owns_kind source then
-     (false,false,None,reject "invalid_input" "Malformed input for the declared protocol" value)
+     (false,false,None,reject "invalid_input" (InputDecoder.diagnostic source) value)
    else match Selvedge.Features.Runtime.completion execute_domain source value with
      | Some (durable,schedules,result) => (durable,schedules,None,if schedules then Selvedge.Features.Runtime.after_transition value result else result)
      | None => (false,false,None,reject "invalid_input" "Unknown input kind or malformed domain callback" value)

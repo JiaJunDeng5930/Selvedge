@@ -18,7 +18,7 @@ Definition live_request (value : world) (effects : list effect) (request : effec
  match request_coordinate request with
  | Some (id,ticket) => match find_task id value with
    | Some task => match task_lifecycle task with
-     | Archived => false | _ => negb (cancelled effects id ticket) end
+     | Archived _ => false | _ => negb (cancelled effects id ticket) end
    | None => false end
  | None => match request with
    | CheckResult id ticket operation _ _ _ _ => match find_task id value with

@@ -26,7 +26,7 @@ Definition configured_target (task : task) (value : Selvedge.Features.Compaction
 Definition enabled_target (task : task) (value : Selvedge.Features.CompactionTypes.state) :=
  if policy_enabled (maintenance_policy value) then configured_target task value else None.
 Definition running (task : task) := match task_lifecycle task with Running _ _ => true | _ => false end.
-Definition alive (task : task) := match task_lifecycle task with Archived => false | _ => true end.
+Definition alive (task : task) := match task_lifecycle task with Archived _ => false | _ => true end.
 Definition idle (task : task) := match task_activity task, task_operations task with Idle, [] => true | _, _ => false end.
 Definition capture_task (task : task) (value : Selvedge.Kernel.State.world) := Capture (task_history task) (task_current_profile task)
  (task_current_settings task) (Capabilities.task_tools task) (Capabilities.callable task (Selvedge.Kernel.State.world_environment value)).
@@ -336,11 +336,10 @@ Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N) (resul
    match task_activity previous, task_activity task, task_lifecycle task with
    | ObservingContext _ _, ReadyForModel, Running _ _ =>
      let task := with_activity Idle task in
-     (* Only the core callback reports whether its actual observation admission
-        succeeded; failure text is not an authorization signal. *)
-     combine result (match bool_field "observations_accepted" (value_or_null "result" (Selvedge.Kernel.State.decision_reply result)) with
-     | Some true => begin_scope id (capture_task task value) (Some Manual) (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value)
-     | _ => cancel id task (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value) end)
+     (* Observation failures retain prior bindings and accepted updates. The
+        explicit summary still measures that resulting history. *)
+     combine result (begin_scope id (capture_task task value) (Some Manual)
+       (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value))
    | ObservingContext _ _, WantsModel, Frozen _ _
    | ObservingContext _ _, WantsModel, Stopped _ _ =>
      let task := Tasks.promote (with_activity Idle (append_history
