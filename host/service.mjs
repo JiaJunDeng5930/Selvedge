@@ -640,6 +640,9 @@ export class Service extends EventEmitter {
   }
 
   async #observeCommandWorkspace(command) {
+    const plan = workspaceCommandPlan(command);
+    // DEFENSE: A stale task command needs domain rejection, not an unrelated workspace lookup failure.
+    if (plan.selections.length === 0 && !plan.worktree) return structuredClone(command);
     // Cloud tasks inherit a fixed workspace. Core admits or rejects their options;
     // local repository observations cannot establish facts about that environment.
     if (command.task_id !== undefined && (await this.#worktree(command.task_id))?.backend === 'tencent_cvm') {
@@ -659,7 +662,7 @@ export class Service extends EventEmitter {
         return result.reply.ok ? result.reply.result.workspace : undefined;
       },
     });
-    if (workspaceCommandPlan(command).worktree) {
+    if (plan.worktree) {
       if (!observed.settings?.workspace) {
         observed = await observeWorkspaceCommand({ ...observed,
           settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
