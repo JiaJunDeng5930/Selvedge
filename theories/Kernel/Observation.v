@@ -94,10 +94,19 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
   JObject [("operation_id",number ticket);("ticket",number ticket);("mode",JString (output_mode_name mode));("callable",JArray (map JString callable))]
  | _ => JNull end)])
  | value => value end.
-Definition project_json (id : N) (value : project) := JObject [
+Definition project_fields (id : N) (value : project) := [
  ("id", number id); ("project_id", number id); ("name", JString (project_name value));
  ("workspace", workspace_json (project_workspace value)); ("guidance", Domain.project_guidance value);
  ("create_worktree", JBool (project_worktree value))].
+Definition project_json (id : N) (value : project) := JObject (project_fields id value).
+Definition project_task_count (id : N) (tasks : list task) :=
+ N.of_nat (List.length (filter (fun task => match settings_project (task_current_settings task) with
+ | Some selected => N.eqb selected id | None => false end) tasks)).
+Definition project_summary_json (tasks : list task) (id : N) (value : project) :=
+ JObject (project_fields id value ++ [
+ ("root_count", number (N.of_nat (List.length (workspace_roots (project_workspace value)))));
+ ("primary_root", optional_string (workspace_primary (project_workspace value)));
+ ("task_count", number (project_task_count id tasks))]).
 Definition work_json := @Selvedge.Features.Observation.work_json.
 Definition stage_name := @Selvedge.Features.Observation.stage_name.
 Definition priority_name := @Selvedge.Features.Observation.priority_name.
@@ -110,8 +119,8 @@ Definition board_json := @Selvedge.Features.Observation.board_json.
 Definition rights_json := @Selvedge.Features.Observation.rights_json.
 Definition grant_json := @Selvedge.Features.Observation.grant_json.
 Definition remote_json := @Selvedge.Features.Observation.remote_json.
-Definition projects_json (projects : list project) :=
- map (fun entry => project_json (fst entry) (snd entry)) (Workspace.ordered_projects projects).
+Definition projects_json (projects : list project) (tasks : list task) :=
+ map (fun entry => project_summary_json tasks (fst entry) (snd entry)) (Workspace.ordered_projects projects).
 Definition worktree_json := @Selvedge.Features.Observation.worktree_json.
 Definition graph_message_json := @Selvedge.Features.Observation.graph_message_json.
 Definition graph_action_json := @Selvedge.Features.Observation.graph_action_json.
@@ -138,7 +147,7 @@ Definition world_json (value : world) :=
  ("tasks", JArray (indexed (fun id task => task_snapshot_in_world id task value) 0 (world_tasks value)));
  ("profiles", JArray (map profile_json (environment_profiles (world_environment value))));
  ("tools", JArray (map tool_json (environment_tools (world_environment value))));
- ("projects", JArray (projects_json (world_projects value)));
+ ("projects", JArray (projects_json (world_projects value) (world_tasks value)));
  ("works", JArray (indexed work_json 0 (Selvedge.Features.Domain.feature_works features)));
  ("graphs", JArray (present_values(fun id graph=>graph_snapshot id graph features)(Selvedge.Features.Domain.feature_graphs features)));
  ("board", Selvedge.Features.Observation.board_json_in_world value);

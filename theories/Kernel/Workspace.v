@@ -23,12 +23,21 @@ Definition root_within (root bound : string) :=
  String.eqb bound "/" || String.eqb root bound || String.prefix (String.append bound "/") root.
 Definition workspace_bound (child parent : workspace) :=
  forallb (fun root => existsb (root_within root) (workspace_roots parent)) (workspace_roots child).
+(* Display metadata does not change the independent reviewer's execution
+   configuration, and cannot widen or revoke a delegation by itself. *)
+Definition same_reviewer_profile (left right : profile) :=
+ String.eqb (profile_key left) (profile_key right) &&
+ String.eqb (profile_provider left) (profile_provider right) &&
+ String.eqb (profile_model left) (profile_model right) &&
+ String.eqb (profile_reasoning left) (profile_reasoning right) &&
+ Json.equal (Json.JArray (map Json.JString (profile_reasoning_options left)))
+   (Json.JArray (map Json.JString (profile_reasoning_options right))).
 Definition approval_bound (child parent : approval_policy) :=
  match parent, child with
  | FullAccess,_ => true
  | AskForApproval, AskForApproval => true
  | ReviewWith _, AskForApproval => true
- | ReviewWith parent, ReviewWith child => Domain.same_profile child parent
+ | ReviewWith parent, ReviewWith child => same_reviewer_profile child parent
  | _,_ => false end.
 Definition same_resource (first second : option N) :=
  match first,second with None,None=>true | Some owner,Some other=>N.eqb owner other | _,_=>false end.

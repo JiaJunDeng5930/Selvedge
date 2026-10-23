@@ -94,6 +94,11 @@ Definition parse_approval (model : profile) (catalog : list profile) (value : js
 Definition select_optional {A : Type} (parse : json -> option A)
  (key : string) (source : json) (fallback : A) :=
  match field key source with None | Some JNull => Some fallback | Some value => parse value end.
+(* Task settings distinguish an omitted override from an explicitly supplied
+   invalid value. Nullable command DTO fields use select_optional instead. *)
+Definition select_override {A : Type} (parse : json -> option A)
+ (key : string) (source : json) (fallback : A) :=
+ match field key source with None => Some fallback | Some value => parse value end.
 Definition task_settings_schema := [Field "workspace" (KOptional KJson); Field "sandbox" (KOptional KJson);
  Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson)].
 Definition valid_guidance (value : json) := match value with JNull => true | _ =>
@@ -116,9 +121,9 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
  | JNull => Some fallback
  | JObject fields =>
    if valid_guidance (value_or_null "guidance" value) then
-   match select_optional parse_workspace "workspace" value (settings_workspace fallback),
-         select_optional (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" value (settings_sandbox fallback),
-         select_optional (parse_approval model catalog) "approval" value (settings_approval fallback) with
+   match select_override parse_workspace "workspace" value (settings_workspace fallback),
+         select_override (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" value (settings_sandbox fallback),
+         select_override (parse_approval model catalog) "approval" value (settings_approval fallback) with
    | Some workspace, Some sandbox, Some approval =>
      let project := match field "project_id" value with
        | None => settings_project fallback | Some JNull => None

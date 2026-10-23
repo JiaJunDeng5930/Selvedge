@@ -37,7 +37,7 @@ Definition read_project (id : N) (value : world) :=
    else State.success (project_json id project)
  | None => State.failure "project_not_found" "The project does not exist" end.
 Definition projects_json (value : world) :=
- Observation.projects_json (world_projects value).
+ Observation.projects_json (world_projects value) (world_tasks value).
 Definition answer (command : Selvedge.Generated.Commands.command) (value : world) : option json :=
  match command with
  | Selvedge.Generated.Commands.Cmd_describe _ => Some (State.success describe)

@@ -5,6 +5,18 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
+Theorem full_access_dispatch_is_unrestricted : forall id tool invocation remaining task value,
+ settings_approval (task_current_settings task) = FullAccess ->
+ N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
+ decision_effects (Scheduler.start_external id tool invocation remaining task value) =
+ [ExecuteTool id (world_next_ticket value) (world_next_ticket value) tool invocation
+   (task_current_settings task) ElevatedAccess].
+Proof.
+ intros id tool invocation remaining task value Full Room.
+ unfold Scheduler.start_external; rewrite Room; cbn.
+ now rewrite Full.
+Qed.
+
 Lemma unobserved_roots_fail_native_admission : forall options selected caller value root,
  In root (workspace_roots (settings_workspace selected)) ->
  ~ In root (Tasks.observed_creation_roots caller value) ->

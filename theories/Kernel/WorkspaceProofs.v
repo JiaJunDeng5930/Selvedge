@@ -151,5 +151,29 @@ Proof.
 Qed.
 
 Theorem query_and_snapshot_use_the_same_project_order : forall value,
- Queries.projects_json value = Observation.projects_json (world_projects value).
+ Queries.projects_json value = Observation.projects_json (world_projects value) (world_tasks value).
+Proof. reflexivity. Qed.
+
+Theorem project_query_reports_current_bindings : forall value id project,
+ In (id, project) (Workspace.ordered_projects (world_projects value)) ->
+ exists summary, In summary (Queries.projects_json value) /\
+ field "task_count" summary = Some (number (N.of_nat (List.length
+  (filter (fun task => match settings_project (task_current_settings task) with
+   | Some selected => N.eqb selected id | None => false end) (world_tasks value))))) /\
+ field "root_count" summary = Some (number (N.of_nat
+  (List.length (workspace_roots (project_workspace project))))) /\
+ field "primary_root" summary = Some (optional_string (workspace_primary (project_workspace project))).
+Proof.
+ intros value id project Present.
+ exists (Observation.project_summary_json (world_tasks value) id project); split.
+ - unfold Queries.projects_json, Observation.projects_json.
+   apply in_map_iff; exists (id,project); split; [reflexivity|exact Present].
+ - repeat split; reflexivity.
+Qed.
+
+Theorem reviewer_delegation_ignores_display_metadata : forall child parent child_metadata parent_metadata,
+ Workspace.approval_bound
+  (ReviewWith (set profile_metadata (fun _ => child_metadata) child))
+  (ReviewWith (set profile_metadata (fun _ => parent_metadata) parent)) =
+ Workspace.approval_bound (ReviewWith child) (ReviewWith parent).
 Proof. reflexivity. Qed.

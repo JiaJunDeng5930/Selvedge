@@ -47,8 +47,11 @@ Definition start_external (id : N) (tool : tool) (invocation : call) (remaining 
  if N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit then
  let '(ticket, allocated) := allocate_ticket value in
  let settings := task_current_settings task in
- let elevated := String.eqb (call_name invocation) "bash" &&
-   String.eqb (text_default "sandbox_permissions" (call_arguments invocation) "use_default") "require_escalated" in
+ let elevated := match settings_approval settings with
+ | FullAccess => true
+ | _ => String.eqb (call_name invocation) "bash" &&
+   String.eqb (text_default "sandbox_permissions" (call_arguments invocation) "use_default") "require_escalated"
+ end in
  if elevated then
  match settings_approval settings with
  | AskForApproval =>

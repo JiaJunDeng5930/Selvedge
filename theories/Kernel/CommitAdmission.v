@@ -502,8 +502,10 @@ Definition tool_effect_valid (owner ticket operation_id : N) (tool : D.tool) (ca
      match D.operation_stage operation, access with
      | D.Executing expected, K.DefaultAccess => N.eqb expected ticket
      | D.Elevated expected reviewer, K.ElevatedAccess =>
-       N.eqb expected ticket && WorldInvariant.approval_corresponds owner task operation reviewer &&
-       WorldInvariant.review_right task operation reviewer
+       N.eqb expected ticket && match D.settings_approval (D.task_current_settings task) with
+       | D.FullAccess => true
+       | _ => WorldInvariant.approval_corresponds owner task operation reviewer &&
+         WorldInvariant.review_right task operation reviewer end
      | _, _ => false end
    | None => false end
  | None => false
