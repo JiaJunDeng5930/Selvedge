@@ -249,11 +249,15 @@ Fixpoint decode_scopes values := match values with []=>Some[]|value::rest=>
 Definition focus_observation name source := match field name source with
  |Some JNull=>Some None|Some(JString key)=>Some(Some key)|_=>None end.
 Definition focus_plan source := match array_field "previous" source,array_field "current" source,bool_field "eligible" source,
- focus_observation "focused_before" source,focus_observation "focused_after" source with
- |Some previous,Some current,Some eligible,Some focused_before,Some focused_after=>match decode_scopes previous,decode_scopes current with
- |Some previous,Some current=>success(match Focus.observed_request previous current eligible focused_before focused_after with
+ focus_observation "focused_before" source,focus_observation "focused_after" source,
+ bool_field "focused_visible" source,bool_field "root_visible" source,bool_field "root_eligible" source with
+ |Some previous,Some current,Some eligible,Some focused_before,Some focused_after,
+  Some focused_visible,Some root_visible,Some root_eligible=>match decode_scopes previous,decode_scopes current with
+ |Some previous,Some current=>success(match Focus.physical_request previous current eligible focused_before focused_after
+   focused_visible root_visible root_eligible with
  Some(target,fallback)=>JObject[("target",JString target);("fallback",JString fallback)]|None=>JNull end)
- |_,_=>invalid "Invalid focus scopes" end|_,_,_,_,_=>invalid "Focus transition requires scope stacks, eligibility and both focus observations" end.
+ |_,_=>invalid "Invalid focus scopes" end
+ |_,_,_,_,_,_,_,_=>invalid "Focus transition requires scope stacks, eligibility, focus and visibility observations" end.
 Definition row_direction_name direction := match direction with
  |Layout.Horizontal=>"row"|Layout.Vertical=>"column" end.
 Definition responsive_row_layout available row : option (list (string * json)) :=

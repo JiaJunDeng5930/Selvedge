@@ -1,5 +1,9 @@
 // The extracted model marks the native targets whose layout should keep them exposed.
 // Scrolling alone does not change this signature or move keyboard focus.
+export function revealAndFocus(node) {
+  node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+  node.focus({ preventScroll: true });
+}
 export function createLayoutRevealer(root) {
   let previous = new Map();
   const coordinate = value => Math.round(value * 100) / 100;

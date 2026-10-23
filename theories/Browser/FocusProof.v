@@ -90,3 +90,17 @@ Proof.
  simpl. rewrite String.eqb_refl. destruct occurrence; simpl; rewrite ?N.eqb_refl; simpl;
  now rewrite ?String.eqb_refl,H.
 Qed.
+
+Theorem hidden_temporary_child_recovers_to_a_visible_root : forall previous identity initial restore fallback occurrence eligible before focused,
+ physical_request previous [Temporary identity initial restore fallback occurrence] eligible before (Some focused)
+   false true true = Some(identity,identity).
+Proof. reflexivity. Qed.
+Theorem visible_temporary_focus_keeps_its_scope_policy : forall previous identity initial restore fallback occurrence eligible before after root_visible root_eligible,
+ physical_request previous [Temporary identity initial restore fallback occurrence] eligible before after
+   true root_visible root_eligible =
+ observed_request previous [Temporary identity initial restore fallback occurrence] eligible before after.
+Proof. intros; destruct after; reflexivity. Qed.
+Theorem document_focus_keeps_its_scope_policy : forall previous eligible before after focused_visible root_visible root_eligible,
+ physical_request previous [Document] eligible before after focused_visible root_visible root_eligible =
+ observed_request previous [Document] eligible before after.
+Proof. reflexivity. Qed.

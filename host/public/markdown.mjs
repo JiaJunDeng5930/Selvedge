@@ -99,10 +99,10 @@ export class PacedText {
   }
 }
 
-export function safeHref(value) {
+export function safeHref(value, base) {
   let observation = { parsed: false };
   try {
-    const url = new URL(value);
+    const url = new URL(value, base);
     observation = { parsed: true, href: url.href, scheme: url.protocol,
       username: url.username, password: url.password, hash: url.hash };
   } catch (error) {

@@ -21,7 +21,7 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     const box = surface.getBoundingClientRect();
     return {
       width: Math.floor(box.width), height: Math.floor(box.height),
-      root_font_size_milli: Math.round(Number.parseFloat(getComputedStyle(document.documentElement).fontSize) * 1000),
+      root_font_size_milli: Math.ceil(Number.parseFloat(getComputedStyle(document.documentElement).fontSize) * 1000),
     };
   }
   function refresh() {

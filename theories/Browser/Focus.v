@@ -87,3 +87,15 @@ Definition observed_request previous current eligible focused_before focused_aft
   |Document,Some key,None=>Some(key,key)
   |_,_,_=>None end
  end.
+
+(** Layout may leave a retained child outside the viewport. The active, visible
+    temporary root remains a reachable focus target without replacing the scope. *)
+Definition physical_request previous current eligible focused_before focused_after
+  focused_visible root_visible root_eligible :=
+ match top current,focused_after with
+ |Temporary identity _ _ _ _,Some _=>
+   if negb focused_visible && root_visible && root_eligible
+   then Some(identity,identity)
+   else observed_request previous current eligible focused_before focused_after
+ |_,_=>observed_request previous current eligible focused_before focused_after
+ end.

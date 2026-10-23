@@ -1,12 +1,12 @@
 import { boundary } from './model-boundary.mjs';
 import { browser, interaction } from './browser-model-boundary.mjs';
 import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
-import { Renderer } from './renderer.mjs';
+import { Renderer, filesFromEvent } from './renderer.mjs';
 import { editorKeyboard, applyByteSelection } from './keyboard.mjs';
 import { observeConnection } from './connection.mjs';
 import { AudioRuntime } from './audio.mjs';
 import { InteractiveSnapshotStorage } from './interactive-storage.mjs';
-import { createLayoutRevealer } from './layout-reveal.mjs';
+import { createLayoutRevealer, revealAndFocus } from './layout-reveal.mjs';
 import { PresentationMotion } from './presentation-motion.mjs';
 import { safeHref } from './markdown.mjs';
 import { createPhysicalMeasurer } from './physical-measurement.mjs';
@@ -273,8 +273,10 @@ const renderer = new Renderer(surface, {
       refreshPhysical().then(render).catch(fatal); return;
     }
     if (!admitted(generation)) return;
-    if (binding.kind === 'files') registerFiles(binding.action,
-      Array.from(event.clipboardData?.files ?? event.dataTransfer?.files ?? node.files ?? []));
+    if (binding.kind === 'files') {
+      registerFiles(binding.action, filesFromEvent(event, node));
+      if (node.type === 'file') node.value = '';
+    }
     else if (binding.kind === 'value') dispatch({ ...binding.action, value: node.value,
       raw: node.value, selection: observedSelection(node, event.isComposing || renderer.composing.has(node)) });
     else if (binding.kind === 'values') dispatch({ ...binding.action, value: Array.from(node.selectedOptions, option => option.value) });
@@ -777,7 +779,7 @@ async function execute(effect) {
       const generation = publication.generation;
       const target = () => renderer.resolveTarget(effect.key, { fallback: effect.fallback });
       if (!target()) await renderer.whenCaughtUp();
-      if (admitted(generation)) target()?.focus({ preventScroll: true });
+      if (admitted(generation)) { const node = target(); if (node) revealAndFocus(node); }
       return;
     }
     case 'follow_latest': {
@@ -820,7 +822,16 @@ async function execute(effect) {
     }
     case 'interactive_save': storage.save(effect.storage_key, effect.payload, (ok, message) =>
       emit({ type: 'interactive', input: { type: 'storage', owner: effect.owner, revision: effect.revision, ok, message } })); return;
-    case 'interactive_remove': storage.remove(effect.storage_key); return;
+    case 'interactive_remove': {
+      try { storage.remove(effect.storage_key); }
+      catch (error) {
+        // DEFENSE: Browser storage permissions can reject removal of an invalid saved entry.
+        if (error.name !== 'SecurityError') throw error;
+        emit({ type: 'interactive', input: { type: 'storage', owner: effect.owner,
+          revision: effect.revision, ok: false, message: error.message } });
+      }
+      return;
+    }
     case 'interactive_clipboard': {
       let ok = true, message = '';
       try { await navigator.clipboard.writeText(effect.text); }
@@ -832,7 +843,7 @@ async function execute(effect) {
         path: effect.path, ticket: effect.ticket, ok, message } }); return;
     }
     case 'interactive_open_url': {
-      const url = safeHref(effect.url);
+      const url = safeHref(effect.url, document.baseURI);
       if (url !== null) window.open(url, '_blank', 'noopener,noreferrer');
       emit({ type: 'interactive', input: { type: 'feedback', owner: effect.owner,
         path: effect.path, ticket: effect.ticket, ok: url !== null, message: url === null ? 'Navigation URL is not allowed' : '' } }); return;

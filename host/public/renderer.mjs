@@ -2,6 +2,7 @@ import { Markdown } from './markdown.mjs';
 import { MarkdownFenceObserver } from './markdown-fences.mjs';
 import { stringifyJson } from './json-tokens.mjs';
 import { keyObservation } from './keyboard.mjs';
+import { revealAndFocus } from './layout-reveal.mjs';
 
 const booleanProperties = new Set(['disabled', 'checked', 'indeterminate', 'selected', 'multiple', 'required', 'hidden', 'inert', 'readOnly', 'autofocus', 'open']);
 const svgTags = new Set(['svg', 'path', 'line', 'polyline', 'rect', 'circle', 'text', 'g']);
@@ -16,10 +17,49 @@ function unmount(node) {
   }
   node.remove();
 }
+export function filesFromEvent(event, node) {
+  const transfer = event.clipboardData ?? event.dataTransfer;
+  const files = Array.from(transfer?.files ?? node?.files ?? []);
+  return files.length || !transfer ? files : Array.from(transfer.items ?? [])
+    .flatMap(item => item.kind === 'file' ? [item.getAsFile()].filter(Boolean) : []);
+}
+function replaceNativeValue(node, value) {
+  const start = node.selectionStart, end = node.selectionEnd, direction = node.selectionDirection;
+  node.value = value;
+  if (start !== null && start !== undefined) node.setSelectionRange(start, end, direction);
+}
 function focusAvailable(node) {
   if (!node?.isConnected || node.disabled || node.closest('[inert],[hidden]')
     || !node.getClientRects().length || getComputedStyle(node).visibility === 'hidden') return false;
   return true;
+}
+// Clipping needs positive exposure; focus bounds must also fit the viewport.
+function focusVisible(node) {
+  if (!node?.isConnected) return false;
+  const bounds = node.getBoundingClientRect();
+  const view = node.ownerDocument.defaultView;
+  const hasArea = box => box.right > box.left && box.bottom > box.top;
+  let painted = hasArea(bounds);
+  if (node.checkVisibility) painted &&= node.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
+  const intersection = { left: Math.max(0, bounds.left), top: Math.max(0, bounds.top),
+    right: Math.min(view.innerWidth, bounds.right), bottom: Math.min(view.innerHeight, bounds.bottom) };
+  for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor);
+    if (ancestor.hidden || style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility)
+      || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) painted = false;
+    if (ancestor === node) continue;
+    const box = ancestor.getBoundingClientRect();
+    if (style.overflowX !== 'visible') {
+      intersection.left = Math.max(intersection.left, box.left + ancestor.clientLeft);
+      intersection.right = Math.min(intersection.right, box.left + ancestor.clientLeft + ancestor.clientWidth);
+    }
+    if (style.overflowY !== 'visible') {
+      intersection.top = Math.max(intersection.top, box.top + ancestor.clientTop);
+      intersection.bottom = Math.min(intersection.bottom, box.top + ancestor.clientTop + ancestor.clientHeight);
+    }
+  }
+  return painted && hasArea(intersection) && bounds.left >= 0 && bounds.top >= 0
+    && bounds.right <= view.innerWidth && bounds.bottom <= view.innerHeight;
 }
 function reconcile(parent, children) {
   const retained = new Set(children);
@@ -111,7 +151,7 @@ export class Renderer {
     if (!record.fieldSession) decision = this.callbacks.fieldSession({ identity, value: record.attributes.get('value') });
     else decision = this.callbacks.fieldSession({ state: record.fieldSession, event, ...(value === undefined ? {} : { value }) });
     record.fieldSession = decision.state;
-    if (decision.replace && record.node.value !== decision.state.canonical) record.node.value = decision.state.canonical;
+    if (decision.replace && record.node.value !== decision.state.canonical) replaceNativeValue(record.node, decision.state.canonical);
     return decision;
   }
   properties(record, properties, styles) {
@@ -130,7 +170,8 @@ export class Renderer {
     }
     for (const [name, value] of next) {
       if (name === 'value' && 'value' in node) {
-        if (this.isolated && node.value !== value) node.value = value;
+        if (node.localName === 'option') node.setAttribute(name, value);
+        else if (this.isolated && node.value !== value) node.value = value;
       } else if (booleanProperties.has(name)) {
         const enabled = value !== 'false';
         node[name] = enabled;
@@ -196,7 +237,6 @@ export class Renderer {
     node.addEventListener('wheel', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('touchmove', event => this.callbacks.reading?.('scroll', event, record.key, node), { passive: true });
     node.addEventListener('scroll', event => this.callbacks.reading?.('anchor', event, record.key, node), { passive: true });
-    const transferredFiles = event => Array.from((event.clipboardData ?? event.dataTransfer)?.files ?? []);
     // A pasted file targets the editor; its form's ReceiveFile control owns admission.
     const fileReceivers = () => {
       const candidates = node.form
@@ -207,7 +247,7 @@ export class Renderer {
     };
     for (const type of ['paste', 'drop']) node.addEventListener(type, event => {
       const receivers = fileReceivers();
-      if (transferredFiles(event).length && receivers.length) {
+      if (filesFromEvent(event).length && receivers.length) {
         event.preventDefault();
         for (const receiver of receivers)
           for (const binding of receiver.events.filter(binding => binding.kind === 'files'))
@@ -346,17 +386,33 @@ export class Renderer {
     for (const record of this.records.values()) if (record.metadata.code)
       this.callbacks.codePublication?.(record.metadata.code);
     if (!this.isolated) {
-      const focusedAfter = this.root.ownerDocument.activeElement;
-      const eligible = focusAvailable(focusedAfter) && this.root.contains(focusedAfter) &&
-        (!this.modal || this.modal.contains(focusedAfter));
-      const focus = this.callbacks.focusPlan?.({ previous: previousScope, current: this.focusScope, eligible,
-        focused_before: focusedBefore, focused_after: observedFocus(focusedAfter) });
-      if (focus) {
+      const observeFocus = previous => {
+        const focusedAfter = this.root.ownerDocument.activeElement;
+        const eligible = focusAvailable(focusedAfter) && this.root.contains(focusedAfter) &&
+          (!this.modal || this.modal.contains(focusedAfter));
+        const scope = this.focusScope.at(-1);
+        const scopeRoot = scope?.type === 'temporary' ? this.resolveTarget(scope.identity) : null;
+        const rootEligible = focusAvailable(scopeRoot) && scopeRoot.matches('dialog[tabindex],button,input,select,textarea,a[href],[tabindex]');
+        return this.callbacks.focusPlan?.({ previous, current: this.focusScope, eligible,
+          focused_before: focusedBefore, focused_after: observedFocus(focusedAfter),
+          focused_visible: focusVisible(focusedAfter), root_visible: focusVisible(scopeRoot), root_eligible: rootEligible });
+      };
+      const focusTarget = focus => {
         const target = this.resolveTarget(focus.target, { fallback: focus.fallback });
         const container = this.modalRecord()?.node;
         const recoveringContainer = target === container && focus.target === container?.dataset.key;
         const canFocusContainer = target?.matches('dialog') && target.hasAttribute('tabindex') && focusAvailable(target);
-        if (target && (!recoveringContainer || canFocusContainer)) target.focus({ preventScroll: true });
+        if (target && (!recoveringContainer || canFocusContainer)) revealAndFocus(target);
+      };
+      const focus = observeFocus(previousScope);
+      if (focus) {
+        focusTarget(focus);
+        // A requested focus can expose a different clipped child. Observe the
+        // completed native focus before applying the scope's physical recovery.
+        if (this.focusScope.at(-1)?.type === 'temporary') {
+          const recovery = observeFocus(this.focusScope);
+          if (recovery) focusTarget(recovery);
+        }
       }
     }
     if (document.title) this.root.ownerDocument.title = document.title;

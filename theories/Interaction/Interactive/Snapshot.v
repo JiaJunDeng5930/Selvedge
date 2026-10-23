@@ -85,5 +85,5 @@ Definition restore b prepared environment definition callback_revision value :=
      (* DEFENSE: Browser storage can contain a corrupt or obsolete entry. Admit
         the complete entry before applying any value, then remove invalid data. *)
      | None=>(State.with_notice (Some "本地保存的状态无效，已忽略并移除。") b,
-       [RemoveSnapshot b.(block_owner) (storage_key b)]) end end
+       [RemoveSnapshot b.(block_owner) (storage_key b) b.(revision)]) end end
    end else (b,[]).
