@@ -56,7 +56,7 @@ Definition speech_step input s :=
       let chosen:=match selected s with Some id=>if existsb(fun c=>String.eqb id(connection_id c)&&available c)cs then Some id else first|None=>first end in
       keep(Speech cs chosen(next s)(current s)""(live_text s))
   |CapabilitiesFailed e=>keep(with_notice e s)
-  |Select id=>if free s && existsb(fun c=>String.eqb id(connection_id c)&&(asr c||voice c))(connections s)then keep(Speech(connections s)(Some id)(next s)(current s)(notice s)(live_text s))else keep s
+  |Select id=>if free s && existsb(fun c=>String.eqb id(connection_id c)&&(asr c||voice c))(connections s)then keep(Speech(connections s)(Some id)(next s)(current s)""(live_text s))else keep s
   |BeginDictation e rev=>begin_dictation e rev s
   |Captured t start finish=>match current s with Acquiring u e rev=>if N.eqb t u then keep(with_activity(Recording t(Target e rev start finish))s)else keep s|_=>keep s end
   |FinishDictation=>match current s,eligible false s with Recording t capture,Some c=>result(with_activity(Transcribing t capture)s)[Transcribe t(connection_id c)]|_,_=>keep s end
@@ -64,7 +64,7 @@ Definition speech_step input s :=
   |InsertTranscript=>match current s with Retained capture text=>SpeechResult s[](Some(capture,text))|_=>keep s end
   |DismissTranscript=>match current s with Retained _ _=>keep(with_activity Idle s)|_=>keep s end
   |BeginVoice task=>begin_voice task s
-  |BeginNewVoice origin revision generation command=>if free s then match eligible true s with Some _=>let t:=next s in result(with_next(N.succ t)(with_activity(CreatingTask t origin revision generation)s))[CreateTask t command]|None=>keep s end else keep s
+  |BeginNewVoice origin revision generation command=>if free s then match eligible true s with Some _=>let t:=next s in result(with_next(N.succ t)(with_activity(CreatingTask t origin revision generation)(with_notice "" s)))[CreateTask t command]|None=>keep s end else keep s
   |TaskCreated t task=>match current s with CreatingTask u _ _ _=>if N.eqb t u then
     match eligible true s with Some connection=>result(with_activity(ConnectingVoice t task)(with_notice "" s))[ConnectVoice t(connection_id connection)task]|None=>keep s end
     else keep s|_=>keep s end

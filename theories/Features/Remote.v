@@ -76,7 +76,9 @@ Definition required_rights command : option Selvedge.Features.Domain.rights := m
  | Selvedge.Generated.Commands.Cmd_list_cards _ | Selvedge.Generated.Commands.Cmd_read_card _ | Selvedge.Generated.Commands.Cmd_list_board_agents _
  | Selvedge.Generated.Commands.Cmd_list_task_graphs _ | Selvedge.Generated.Commands.Cmd_read_task_graph _ => Some read_rights
  | Selvedge.Generated.Commands.Cmd_create p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.create_settings p)) false)
- | Selvedge.Generated.Commands.Cmd_fork p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.fork_settings p)) false)
+ | Selvedge.Generated.Commands.Cmd_fork p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.fork_settings p) ||
+     match Selvedge.Generated.Commands.fork_settings_origin p with
+     |Some origin=>String.eqb(proj1_sig origin)"environment"|None=>false end) false)
  | Selvedge.Generated.Commands.Cmd_create_idle p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.create_idle_settings p) ||
      match Selvedge.Generated.Commands.create_idle_create_worktree p with Some enabled=>enabled | None=>false end) false)
  | Selvedge.Generated.Commands.Cmd_create_workspace_task _ | Selvedge.Generated.Commands.Cmd_create_worktree_task _ | Selvedge.Generated.Commands.Cmd_create_task_graph _ | Selvedge.Generated.Commands.Cmd_update_task_graph _

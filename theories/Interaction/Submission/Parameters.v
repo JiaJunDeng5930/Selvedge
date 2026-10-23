@@ -1,5 +1,5 @@
 From Stdlib Require Import String Ascii List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require WorkspaceBackend Codec.
 From Selvedge.Features Require Observation.
 From Selvedge.Features Require Domain.
@@ -12,6 +12,11 @@ Open Scope list_scope.
 Definition context_fields := [ContextOrigin; WorkspacePrimary; WorkspaceDirectories;
   SandboxMode; NetworkAccess; ApprovalPolicy; ApprovalReviewer].
 Definition model_fields := [ModelProfile; ReasoningEffort].
+Definition origin_choice source := match source with
+|Context.EnvironmentDefaults=>"environment"
+|Context.ProjectDefaults project=>String.append "project/" (show_natural project)
+|Context.ParentTask _=>"parent"
+|Context.ProjectForParent _ project=>String.append "parent-project/" (show_natural project) end.
 Definition fields e := match e with
 | Identity.NewTask _ => [MessageText; TaskEnvironment] ++ model_fields ++ context_fields
 | Identity.Message _ => [MessageText; DeliveryIntent]
@@ -80,8 +85,8 @@ Definition kind e field := match field with
 | CreateWorktree | ContinueCapture | AssistedCapture => KBool
 | TaskEnvironment => KEnum "current" managed_workspace_names
 | WorkspaceDirectories => inherited_kind e (KArray KText)
-| WorkspacePrimary | ContextOrigin => match field with
-  | ContextOrigin => KOptional KNatural | _ => KOptional KText end
+| ContextOrigin => KText
+| WorkspacePrimary => KOptional KText
 | SandboxMode => inherited_kind e (KEnum "workspace-write" ["read-only"])
 | NetworkAccess => inherited_kind e KBool
 | ApprovalPolicy => inherited_kind e (KEnum "ask-for-approval" ["full-access"; "approval-for-me"])
@@ -101,7 +106,7 @@ Definition find_field e key := find (fun field => String.eqb key (name field)) (
 Definition context_native (field:Fields.field) (source:Context.origin) (project:option N)
     (workspace:Context.workspace_value) (sandbox:Context.sandbox_value) (approval:Context.approval_value) :=
   match field with
-  | ContextOrigin => Identity.optional_id project
+  | ContextOrigin => JString(origin_choice source)
   | WorkspaceDirectories => match workspace with
       | Context.InheritedWorkspace _ => JNull
       | Context.EnteredWorkspace value => JArray (map JString (Selvedge.Kernel.Domain.workspace_roots value)) end
@@ -126,7 +131,8 @@ Definition context_native (field:Fields.field) (source:Context.origin) (project:
         | _,Context.AutomaticReview _ => JString "approval-for-me" end end
   | _ => JNull end.
 Definition committed_native field (settings:Selvedge.Kernel.Domain.task_settings):json:=match field with
-|ContextOrigin=>Identity.optional_id(Selvedge.Kernel.Domain.settings_project settings)
+|ContextOrigin=>JString(origin_choice(match Selvedge.Kernel.Domain.settings_project settings with
+ |Some project=>Context.ProjectDefaults project|None=>Context.EnvironmentDefaults end))
 |WorkspaceDirectories=>JArray(map JString(Selvedge.Kernel.Domain.workspace_roots(Selvedge.Kernel.Domain.settings_workspace settings)))
 |WorkspacePrimary=>match Selvedge.Kernel.Domain.workspace_primary(Selvedge.Kernel.Domain.settings_workspace settings)with None=>JNull|Some path=>JString path end
 |SandboxMode=>JString(match Selvedge.Kernel.Domain.sandbox_access(Selvedge.Kernel.Domain.settings_sandbox settings)with Selvedge.Kernel.Domain.ReadOnly=>"read-only"|_=>"workspace-write"end)
@@ -140,7 +146,7 @@ Definition native_value (field:Fields.field) (value:Fields.observed) : json :=
  match value with
  | ToggleValue enabled => JBool enabled | TextValue text => JString text
  | CountValue count => number count | TextsValue values => match field with
-   | CardLabels => JString(String.concat ", " values)
+   | CardLabels => JString(String.concat (String (ascii_of_nat 10) EmptyString) values)
    | ForkMessages => JString(String.concat (String (ascii_of_nat 10) EmptyString) values)
    | _ => JArray(map JString values)end
  | WorkspaceValue workspace => match field with
@@ -156,7 +162,9 @@ Definition native_value (field:Fields.field) (value:Fields.observed) : json :=
  | StageValue stage => JString (Domain.stage_name stage)
  | PriorityValue priority => JString (Domain.priority_name priority)
  | OwnerValue owner => JString (Domain.owner_name owner)
- | ProjectValue project => Identity.optional_id project
+ | ProjectValue project => match field with
+   |ContextOrigin=>JString(origin_choice(match project with Some id=>Context.ProjectDefaults id|None=>Context.EnvironmentDefaults end))
+   |_=>Identity.optional_id project end
  | AttachmentsValue files => JArray (map Selvedge.Features.Observation.attachment_json files)
  | AssistanceValue enabled profile => match field with AssistedCapture=>JBool enabled|_=>JString profile end
  | OptionalTextValue text => match text with Some value=>JString value|None=>JNull end
@@ -166,14 +174,14 @@ Definition space character := Nat.eqb(nat_of_ascii character)32 || Nat.eqb(nat_o
 Fixpoint trim_start text := match text with EmptyString=>text|String character rest=>if space character then trim_start rest else text end.
 Fixpoint trim_end text := match text with EmptyString=>text|String character rest=>let tail:=trim_end rest in if space character && String.eqb tail "" then "" else String character tail end.
 Definition trim text := trim_end(trim_start text).
-Fixpoint split_text (comma:bool) text :list string := match text with
+Fixpoint split_text text :list string := match text with
 |EmptyString=>[""]
-|String character rest=>let tail:=split_text comma rest in
- if Nat.eqb(nat_of_ascii character)10 || (comma && Nat.eqb(nat_of_ascii character)44)
- then ""::tail else match tail with []=>[String character ""]|head::tail=>String character head::tail end end.
+|String character rest=>let tail:=split_text rest in
+ if Nat.eqb(nat_of_ascii character)10 then ""::tail
+ else match tail with []=>[String character ""]|head::tail=>String character head::tail end end.
 Definition edit_value field incoming := match field,incoming with
-|CardLabels,JString text=>JArray(map JString(filter(fun value=>negb(String.eqb value ""))(map trim(split_text true text))))
-|ForkMessages,JString text=>JArray(map JString(split_text false text))
+|CardLabels,JString text=>JArray(if String.eqb text ""then []else map JString(split_text text))
+|ForkMessages,JString text=>JArray(map JString(split_text text))
 |_,value=>value end.
 Definition native_input (description:Schema.kind)(incoming:json):json:=match description,incoming with
 |KNatural,JString text=>JNumber text

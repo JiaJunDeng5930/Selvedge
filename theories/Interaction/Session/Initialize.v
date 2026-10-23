@@ -9,15 +9,15 @@ Import ListNotations.
 Open Scope string_scope.
 Definition initial_model snapshot services := match Services.model_preference services with
 |Some preference=>if ModelSelection.valid_preference snapshot preference then Some preference else
- option_map(fun profile=>(Selvedge.Kernel.Domain.profile_key profile,"default"))(hd_error(Observation.catalog snapshot))
-|None=>option_map(fun profile=>(Selvedge.Kernel.Domain.profile_key profile,"default"))(hd_error(Observation.catalog snapshot))end.
+ option_map(fun profile=>(Selvedge.Kernel.Domain.profile_key profile,"default"))(ModelSelection.initial_profile(Observation.catalog snapshot))
+|None=>option_map(fun profile=>(Selvedge.Kernel.Domain.profile_key profile,"default"))(ModelSelection.initial_profile(Observation.catalog snapshot))end.
 Definition board_object collection id snapshot:=board<-field "board" snapshot;;DocumentState.find_world collection "id" id board.
 Definition materialize_body snapshot services e :option Draft.body:=match e with
 |Identity.NewTask work=>model<-initial_model snapshot services;;Some(Draft.NewTaskBody Draft.empty_text(fst model)(snd model)Context.initial Draft.CurrentWorkspace work)
 |Identity.Message task=>match DocumentState.find_task task snapshot with Some _=>Some(Draft.MessageBody task Draft.empty_text Fields.Send)|None=>None end
 |Identity.Project None=>Some(Draft.new_body e)
 |Identity.Project(Some id)=>project<-Observation.project_by_id id snapshot;;name<-string_field "name" project;;workspace<-bind(field "workspace" project)Codec.parse_workspace;;worktree<-bool_field "create_worktree" project;;Some(Draft.ProjectBody(Some id)name workspace worktree)
-|Identity.Card None=>model<-initial_model snapshot services;;Some(Draft.CardBody None 0 (Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Todo Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])false(fst model)false)
+|Identity.Card None=>Some(Draft.CardBody None 0 (Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Todo Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [])false "" false)
 |Identity.Card(Some id)=>card<-board_object "cards" id snapshot;;revision<-natural_field "revision" card;;project<-bind(string_field "project" card)Selvedge.Features.BoardParameters.optional_project;;value<-DraftCodec.decode_card(replace "project"(optional_id project)card);;Some(Draft.CardBody(Some id)revision value false "" false)
 |Identity.Agent None=>model<-initial_model snapshot services;;Some(Draft.AgentBody None 0 ""(fst model)(snd model)""Context.initial 1)
 |Identity.Agent(Some id)=>agent<-board_object "agents" id snapshot;;revision<-natural_field "revision" agent;;name<-string_field "name" agent;;profile<-string_field "profile" agent;;reasoning<-string_field "reasoning" agent;;instructions<-string_field "instructions" agent;;count<-natural_field "concurrency" agent;;configuration<-bind(field "settings" agent)DraftCodec.configuration_of_settings;;Some(Draft.AgentBody(Some id)revision name profile reasoning instructions configuration count)

@@ -54,20 +54,20 @@ Qed.
 (* Native fork runs while its caller's model calls are pending. Unlike creation,
    it delegates an already resolved selection and does not observe directories. *)
 Theorem a_full_access_native_fork_accepts_any_resolved_child_settings :
- forall id count messages options value task selected remaining,
+ forall origin id count messages options value task selected remaining,
  find_task id value = Some task ->
  task_lifecycle task = Running (PendingCalls remaining) [] ->
  TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) = true ->
  TaskConstraints.fork_messages_valid count (List.length messages) = true ->
  Tasks.ancestors_fit (id :: task_lineage task) count value = true ->
- Tasks.resolve_settings (task_current_profile task) options (task_current_settings task) value = Some selected ->
+ Tasks.resolve_settings (task_current_profile task) options (Tasks.fork_settings_base origin task value) value = Some selected ->
  Tasks.no_resource_observation options = true ->
  settings_approval (task_current_settings task) = FullAccess ->
- bool_default "ok" (decision_reply (Tasks.fork_with_caller true id count messages options value)) false = true /\
- decision_world (Tasks.fork_with_caller true id count messages options value) =
+ bool_default "ok" (decision_reply (Tasks.fork_with_caller true origin id count messages options value)) false = true /\
+ decision_world (Tasks.fork_with_caller true origin id count messages options value) =
    Tasks.fork_children (N.to_nat count) id task messages selected value.
 Proof.
- intros id count messages options value task selected remaining
+ intros origin id count messages options value task selected remaining
    Found Pending Count Messages Capacity Resolved Observed Full.
  unfold Tasks.fork_with_caller,Tasks.fork_parent_ready; rewrite Found.
  unfold task_status; rewrite Pending, orb_true_r.

@@ -13,7 +13,7 @@ Definition profile_label (value:Selvedge.Kernel.Domain.profile):string:=
  match string_field "name"(Selvedge.Kernel.Domain.profile_metadata value)with
  |Some name=>name|None=>Selvedge.Kernel.Domain.profile_provider value++" / "++Selvedge.Kernel.Domain.profile_model value end.
 Definition selectable_profiles (profiles:list Selvedge.Kernel.Domain.profile):list Selvedge.Kernel.Domain.profile:=
- filter(fun profile=>negb(Selvedge.Kernel.ModelCapabilities.is_codex_auto_review profile))profiles.
+ filter ModelSelection.selectable_profile profiles.
 Definition observe_subject snapshot state {e}(subject:Model.subject e):Fields.observed:=
  Session.Observation.observe_field_in_state snapshot state(State.current_draft state e)(subject_declaration subject).
 Definition profile_for_subject snapshot {e}(subject:Model.subject e) key:=match e with
@@ -31,16 +31,28 @@ Definition retain_observed_choice snapshot {e}(subject:Model.subject e)(profiles
  match current_frozen_choice snapshot subject with
  |Some current=>if existsb(fun profile=>String.eqb(Selvedge.Kernel.Domain.profile_key current)(Selvedge.Kernel.Domain.profile_key profile))profiles then profiles else current::profiles
  |None=>profiles end.
+Definition context_origin_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
+ let body:=Draft.contents(State.current_draft state e)in
+ let parent:=match e with Identity.Fork _=>[Fields.ChoiceValue "parent" "Parent task"]|_=>[]end in
+ let inherited_project:=match Values.body_configuration body with
+ |Some configuration=>match Context.context_origin configuration with
+  |Context.ProjectForParent _ project=>[Fields.ChoiceValue(String.append "parent-project/" (show_natural project))"Project defaults"]
+  |_=>[]end|None=>[]end in
+ Fields.ChoiceValue "environment" "Environment defaults"::parent++inherited_project++
+ fold_right(fun project rest=>match natural_field "id" project,string_field "name" project with
+ |Some id,Some name=>Fields.ChoiceValue(String.append "project/" (show_natural id))name::rest
+ |_,_=>rest end)[](items "projects" snapshot).
 Definition explicit_choices snapshot state {e}(subject:Model.subject e):list Fields.choice_value:=
  let profiles:=Session.Observation.catalog snapshot in
  let models:=map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
    (selectable_profiles(retain_observed_choice snapshot subject profiles))in
  match subject_declaration subject with
- |Fields.ContextOrigin=>project_choices snapshot "No project"
+ |Fields.ContextOrigin=>context_origin_choices snapshot state subject
  |Fields.CardProject=>project_choices snapshot "No project"
- |Fields.ModelProfile|Fields.AssistanceProfile=>models
+ |Fields.ModelProfile=>models
+ |Fields.AssistanceProfile=>Fields.ChoiceValue "" "Use board default model"::models
  |Fields.ApprovalReviewer=>map(fun profile=>Fields.ChoiceValue(Selvedge.Kernel.Domain.profile_key profile)(profile_label profile))
-   (retain_observed_choice snapshot subject(filter Selvedge.Kernel.ModelCapabilities.valid_reviewer_profile profiles))
+   (retain_observed_choice snapshot subject(Values.reviewer_profiles snapshot(Draft.contents(State.current_draft state e))))
  |Fields.ReasoningEffort=>let value:=observe_subject snapshot state subject in
    match value with Fields.ModelValue profile _=>map(fun effort=>Fields.ChoiceValue effort
       (if String.eqb effort "default"then "Configured default"else effort))(match profile_for_subject snapshot subject profile with Some selected=>ModelSelection.reasoning_values_for selected|None=>[]end)|_=>[]end

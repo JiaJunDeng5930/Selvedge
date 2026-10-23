@@ -55,7 +55,8 @@ Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node 
    settings)
  | None=>None end end.
 Definition node_key (node:Selvedge.Features.Domain.graph_node) := match node with Selvedge.Features.Domain.ExistingNode key _|Selvedge.Features.Domain.SpawnNode key _ _ _ _=>key end.
-Definition unique (keys:list string) := forallb nonempty keys && Schema.unique_names keys.
+Definition identifier_nonempty (key:string) := negb (String.eqb key "").
+Definition unique (keys:list string) := forallb identifier_nonempty keys && Schema.unique_names keys.
 Fixpoint message_depth (depth:nat) (message:Selvedge.Features.Domain.graph_message) :bool :=
  match depth with O=>false | S remaining=>match message with
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>true
@@ -64,7 +65,7 @@ Fixpoint message_depth (depth:nat) (message:Selvedge.Features.Domain.graph_messa
 Definition valid_message (message:Selvedge.Features.Domain.graph_message) :=
  message_depth maximum_message_depth message && Nat.leb (message_size message) maximum_message_nodes.
 Definition valid_declaration (name:string) (nodes:list Selvedge.Features.Domain.graph_node) (rules:list Selvedge.Features.Domain.graph_rule) :=
- let keys:=map node_key nodes in nonempty name && Utf8.well_formed name && Nat.leb (List.length nodes) 32 && Nat.leb (List.length rules) 32 && unique keys && unique (map Selvedge.Features.Domain.rule_key rules) &&
+ let keys:=map node_key nodes in identifier_nonempty name && Utf8.well_formed name && Nat.leb (List.length nodes) 32 && Nat.leb (List.length rules) 32 && unique keys && unique (map Selvedge.Features.Domain.rule_key rules) &&
  forallb (fun rule=>existsb (String.eqb (Selvedge.Features.Domain.rule_source rule)) keys &&
  Nat.leb (List.length (Selvedge.Features.Domain.rule_actions rule)) maximum_rule_actions &&
  forallb (fun action=>existsb (String.eqb (Selvedge.Features.Domain.action_target action)) keys &&

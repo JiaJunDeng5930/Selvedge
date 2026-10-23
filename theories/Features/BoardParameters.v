@@ -15,7 +15,7 @@ Definition owner (name:string) :option Selvedge.Features.Domain.owner :=
  if nonempty key && limited name 1024 then Some (Selvedge.Features.Domain.ProfileOwner key) else None
  else if String.prefix "agent/" name then option_map Selvedge.Features.Domain.AgentOwner (text_id (String.substring 6 (String.length name) name)) else None.
 Definition optional_project (text:string) :option (option N) := if String.eqb text "" then Some None else option_map (@Some N) (text_id text).
-Definition attachment_schema := [Field "id" KText;Field "name" KText;Field "mime" (KOptional KText);Field "path" KText;Field "bytes" (KOptional KText)].
+Definition attachment_schema := [Field "id" KText;Field "name" KText;OmittableField "mime" KText;Field "path" KText;OmittableField "bytes" KText].
 Definition attachment (source:json) :option Selvedge.Features.Domain.attachment :=
  match Schema.decode attachment_schema source with
  | None=>None | Some values=>

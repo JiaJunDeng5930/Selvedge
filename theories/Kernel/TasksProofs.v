@@ -16,11 +16,11 @@ Proof.
  intros _. eauto.
 Qed.
 
-Theorem actual_fork_rejects_observed_ancestor_capacity invoked id count messages requested value parent:
+Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count messages requested value parent:
  find_task id value=Some parent ->
  TaskConstraints.fork_capacities_valid count
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
- Tasks.fork_with_caller invoked id count messages requested value=
+ Tasks.fork_with_caller invoked origin id count messages requested value=
  reject "fork_unavailable"
   "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value.
 Proof.
@@ -154,20 +154,20 @@ Proof.
  - exists suffix. rewrite app_nil_r. reflexivity.
 Qed.
 
-Theorem invoked_fork_rejects_unpermitted_settings : forall id count messages requested value parent selected,
+Theorem invoked_fork_rejects_unpermitted_settings : forall origin id count messages requested value parent selected,
  find_task id value = Some parent ->
  (Tasks.fork_parent_ready true parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count value) = true ->
  Tasks.resolve_settings (task_current_profile parent) requested
-   (task_current_settings parent) value = Some selected ->
+   (Tasks.fork_settings_base origin parent value) value = Some selected ->
  Workspace.may_delegate selected (task_current_settings parent) = false ->
- Tasks.fork_with_caller true id count messages requested value =
+ Tasks.fork_with_caller true origin id count messages requested value =
    reject "settings_forbidden"
      "Task tools cannot expand the caller's workspace, sandbox or approval authority" value.
 Proof.
- intros id count messages requested value parent selected Hfind Heligible Hresolved Hdelegate.
+ intros origin id count messages requested value parent selected Hfind Heligible Hresolved Hdelegate.
  unfold Tasks.fork_with_caller. rewrite Hfind, Heligible, Hresolved.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.

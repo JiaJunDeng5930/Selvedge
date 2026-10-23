@@ -338,8 +338,12 @@ Definition observe_manual (before : Selvedge.Kernel.State.world) (id : N) (resul
      let task := with_activity Idle task in
      (* Observation failures retain prior bindings and accepted updates. The
         explicit summary still measures that resulting history. *)
-     combine result (begin_scope id (capture_task task value) (Some Manual)
-       (current_entry id (registry value)) (Selvedge.Kernel.State.put_task id task value))
+     let value := Selvedge.Kernel.State.put_task id task value in
+     let entry := with_measurement Unmeasured (with_job (Resuming (capture_task task value) Manual)
+       (current_entry id (registry value))) in
+     let waiting := commit id entry value [] in
+     combine result (match synchronize id task (Selvedge.Kernel.State.decision_world waiting) with
+       | Some resumed => resumed | None => waiting end)
    | ObservingContext _ _, WantsModel, Frozen _ _
    | ObservingContext _ _, WantsModel, Stopped _ _ =>
      let task := Tasks.promote (with_activity Idle (append_history
@@ -395,14 +399,16 @@ Definition command (command : Selvedge.Generated.Commands.command) (_caller : op
    match Selvedge.Kernel.State.find_task id value with
    | None => Selvedge.Kernel.State.reject "task_not_found" "The task does not exist" value
    | Some task => if negb (alive task) then Selvedge.Kernel.State.reject "task_archived" "An archived task cannot be changed" value
-     else if idle task then match Selvedge.Generated.Commands.compact_summary payload with
-       | None => if running task then manual id task value else Selvedge.Kernel.State.reject "task_busy" "Model compaction requires an active idle task" value
-       | Some summary => if negb (String.eqb summary "") &&
+     else match Selvedge.Generated.Commands.compact_summary payload with
+       | None => match task_activity task with
+         | Idle => if running task then manual id task value else Selvedge.Kernel.State.reject "task_busy" "Model compaction requires an active idle task" value
+         | _ => Selvedge.Kernel.State.reject "task_busy" "Model compaction requires an active idle task" value end
+       | Some summary => if idle task then if negb (String.eqb summary "") &&
          (N.of_nat (String.length summary) <=? Compaction.summary_limit_bytes) &&
          ContextSelection.settled_calls (task_history task) (task_history task)
          then supplied id task summary value
-         else Selvedge.Kernel.State.reject "invalid_summary" "A checkpoint requires a nonempty bounded summary and settled tool calls" value end
-     else Selvedge.Kernel.State.reject "task_busy" "Compaction requires an idle task without in-flight operations" value end)
+         else Selvedge.Kernel.State.reject "invalid_summary" "A checkpoint requires a nonempty bounded summary and settled tool calls" value
+         else Selvedge.Kernel.State.reject "task_busy" "Compaction requires an idle task without in-flight operations" value end end)
  | _ => None end.
 Definition owns_kind (kind : string) := match Selvedge.Features.CompactionCodec.completion_decoder kind with Some _ => true | None => false end.
 Definition completion (source : json) (value : Selvedge.Kernel.State.world) : option (bool * bool * Selvedge.Kernel.State.decision) :=

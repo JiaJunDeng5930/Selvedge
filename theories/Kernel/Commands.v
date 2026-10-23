@@ -11,9 +11,9 @@ Definition task_identity := [req "task_id" KNatural].
 Definition content_fields := [opt "message" KJson; opt "images" (KArray KJson)].
 Definition creation_fields := [req "profile" KText; opt "reasoning" KText] ++
   content_fields ++ [opt "settings" KJson].
-Definition card_metadata := [opt "title" KText; opt "description" KText;
-  opt "status" KText; opt "priority" KText; opt "assignee" KText;
-  opt "project" KText; opt "labels" (KArray KText); opt "attachments" (KArray KJson)].
+Definition card_metadata := [OmittableField "title" KText; OmittableField "description" KText;
+  OmittableField "status" KText; OmittableField "priority" KText; OmittableField "assignee" KText;
+  OmittableField "project" KText; OmittableField "labels" (KArray KText); OmittableField "attachments" (KArray KJson)].
 Definition card_identity := [req "card_id" KNatural; req "revision" KNatural; opt "observed_at" KText].
 Definition graph_fields := [req "name" KText; req "nodes" (KArray KJson); req "rules" (KArray KJson)].
 Definition connection_project := [req "connection_id" KNatural; req "project_id" KNatural].
@@ -33,7 +33,7 @@ Definition command_specs : list command_spec := [
   Command "stop" task_identity;
   Command "interrupt" task_identity;
   Command "archive" task_identity;
-  Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson]);
+  Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson; opt "settings_origin" (KEnum "parent" ["environment"])]);
   Command "open_side_conversation" (task_identity ++ content_fields);
   Command "return_side_conversation" task_identity;
   Command "compact" (task_identity ++ [opt "summary" KText]);
@@ -50,10 +50,7 @@ Definition command_specs : list command_spec := [
   Command "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]);
   Command "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]);
   Command "create_card" (opt "observed_at" KText :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]);
-  (* Nullable metadata resets a card only when supplied; nullable title/description are unchanged. *)
-  Command "update_card" (card_identity ++ map (fun field =>
-    if String.eqb (field_name field) "title" || String.eqb (field_name field) "description"
-    then field else OmittableField (field_name field) (field_kind field)) card_metadata);
+  Command "update_card" (card_identity ++ card_metadata);
   Command "move_card" (card_identity ++ [opt "status" KText; opt "before_card" KText]);
   Command "archive_card" card_identity;
   Command "restore_card" card_identity;
@@ -110,6 +107,8 @@ Definition command_field_description (command field : string) :=
     "Task identifier; omitted to target the calling task." else
   if String.eqb field "task_id" then "Task identifier returned by a task command." else
   if String.eqb field "child_count" then "Number of child tasks to create, at least one and bounded by the configured fork limit." else
+  if String.eqb command "fork" && String.eqb field "settings_origin" then
+    "Base child execution settings on parent (default) or environment before applying settings overrides." else
   if String.eqb command "fork" && String.eqb field "messages" then
     "Omit initial input or supply exactly one content value per child." else
   if String.eqb field "workspace" then

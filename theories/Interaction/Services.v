@@ -269,7 +269,10 @@ Definition service_step input s :=
   | WriteDirectoryLocation v=>keep(with_directory(directory s)v s)
   | VisitDirectory path=>match directory s with Loading _ r|Loaded _ r _|Failed _ r _=>begin_directory(directory_editor r)path(directory_trigger r)s|Dormant=>keep s end
   | GoDirectory=>match directory s with Loading _ r|Loaded _ r _|Failed _ r _=>begin_directory(directory_editor r)(directory_location s)(directory_trigger r)s|Dormant=>keep s end
-  | DirectoryListed t r=>keep(with_directory(settle t r(directory s))(directory_location s)s)
+  | DirectoryListed t r=>let ready:=settle t r(directory s)in
+    let location:=match directory s,ready with
+    |Loading _ _,Loaded _ _ catalog=>text "path" catalog
+    |_,_=>directory_location s end in keep(with_directory ready location s)
   | ChooseDirectory=>match directory s with Loaded _ r catalog=>effects(with_directory Dormant "" s)[DirectoryChosen(directory_editor r)(text "path" catalog);Focus(directory_trigger r)]|_=>keep s end
   | CloseDirectory=>effects(with_directory Dormant "" s)(match directory s with Loading _ r|Loaded _ r _|Failed _ r _=>[Focus(directory_trigger r)]|Dormant=>[]end)
   end.

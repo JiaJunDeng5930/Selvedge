@@ -26,13 +26,19 @@ Definition current_workspace snapshot configuration:=match Context.workspace_ove
 |Some value=>Some value|None=>option_map Selvedge.Kernel.Domain.settings_workspace(Observation.origin_settings(Context.context_origin configuration)snapshot)end.
 Definition current_sandbox snapshot configuration:=match Context.sandbox_override configuration with
 |Some value=>Some value|None=>option_map Selvedge.Kernel.Domain.settings_sandbox(Observation.origin_settings(Context.context_origin configuration)snapshot)end.
-Definition source_project source project:=match source,project with
-|Context.ParentTask task,None|Context.ProjectForParent task _,None=>Context.ParentTask task
-|Context.ParentTask task,Some project|Context.ProjectForParent task _,Some project=>Context.ProjectForParent task project
-|_,None=>Context.EnvironmentDefaults|_,Some project=>Context.ProjectDefaults project end.
-Definition body_profile value:=match value with
-|Draft.NewTaskBody _ profile _ _ _ _
-|Draft.AgentBody _ _ _ profile _ _ _ _=>Some profile|_=>None end.
+Definition context_origin_choice body text :option Context.origin:=
+ if String.eqb text "environment"then Some Context.EnvironmentDefaults else
+ if String.eqb text "parent"then match body with
+ |Draft.ForkBody task _ _ _=>Some(Context.ParentTask task)|_=>None end else
+ if String.prefix "project/"text then
+ option_map Context.ProjectDefaults(parse_natural(String.substring 8(String.length text)text))else
+ if String.prefix "parent-project/"text then match body with
+ |Draft.ForkBody task _ _ _=>option_map(Context.ProjectForParent task)
+   (parse_natural(String.substring 15(String.length text)text))|_=>None end else None.
+Definition body_model snapshot value:=match value with
+|Draft.NewTaskBody _ profile _ _ _ _|Draft.AgentBody _ _ _ profile _ _ _ _=>ModelSelection.observed_profile snapshot profile
+|Draft.ForkBody task _ _ _|Draft.MessageBody task _ _=>Observation.task_profile task snapshot
+|_=>None end.
 Definition configured_reviewer snapshot key:=
  reviewer<-ModelSelection.observed_profile snapshot key;;
  if ModelCapabilities.valid_reviewer_profile reviewer then Some key else None.
@@ -41,10 +47,21 @@ Definition body_configuration value:=match value with
  |Draft.ForkBody _ _ _ configuration=>Some configuration|_=>None end.
 Definition policy_reviewer snapshot policy:=match policy with
  |Domain.ReviewWith reviewer=>configured_reviewer snapshot(Domain.profile_key reviewer)|_=>None end.
-Definition default_reviewer snapshot:=
- option_map Domain.profile_key(find ModelCapabilities.valid_reviewer_profile(Observation.catalog snapshot)).
-Definition choose_policy_reviewer snapshot policy:=match policy_reviewer snapshot policy with
- |Some key=>Some key|None=>default_reviewer snapshot end.
+Definition default_reviewer snapshot model:=
+ let catalog:=Observation.catalog snapshot in
+ let preferred:=match model with
+ |Some model=>configured_reviewer snapshot(Domain.profile_key(ModelCapabilities.default_reviewer model catalog))
+ |None=>None end in
+ match preferred with Some key=>Some key
+ |None=>option_map Domain.profile_key(find ModelCapabilities.valid_reviewer_profile catalog)end.
+Definition reviewer_profiles snapshot body:=
+ let profiles:=filter ModelCapabilities.valid_reviewer_profile(Observation.catalog snapshot)in
+ match default_reviewer snapshot(body_model snapshot body)with
+ |Some key=>match find(fun profile=>String.eqb key(Domain.profile_key profile))profiles with
+  |Some preferred=>preferred::filter(fun profile=>negb(String.eqb key(Domain.profile_key profile)))profiles
+  |None=>profiles end|None=>profiles end.
+Definition choose_policy_reviewer snapshot task policy:=match policy_reviewer snapshot policy with
+ |Some key=>Some key|None=>default_reviewer snapshot(Observation.task_profile task snapshot)end.
 Definition current_reviewer snapshot value:=
  match body_configuration value with
  |Some configuration=>match Context.approval_override configuration with
@@ -56,14 +73,14 @@ Definition current_reviewer snapshot value:=
    settings<-Observation.task_settings task snapshot;;policy_reviewer snapshot(Domain.settings_approval settings)
   |_=>None end end.
 Definition choose_reviewer snapshot value:=match current_reviewer snapshot value with
- |Some key=>Some key|None=>default_reviewer snapshot end.
+ |Some key=>Some key|None=>default_reviewer snapshot(body_model snapshot value)end.
 Definition choose_primary workspace primary := match primary with
  |Some path=>if existsb(String.eqb path)(Domain.workspace_roots workspace)
    then Domain.Workspace(Domain.workspace_roots workspace)(Some path)else workspace
  |None=>workspace end.
 Definition modify_context snapshot body configuration field incoming :option Context.configuration:=
  match field with
- |Fields.ContextOrigin=>project<-Identity.decode_id incoming;;Some(with_context_origin(source_project(Context.context_origin configuration)project)configuration)
+ |Fields.ContextOrigin=>text<-as_string incoming;;source<-context_origin_choice body text;;Some(with_context_origin source configuration)
  |Fields.WorkspaceDirectories=>match incoming with JNull=>Some(with_context_workspace None configuration)
    |JArray values=>roots<-traverse as_string values;;workspace<-current_workspace snapshot configuration;;
     let primary:=match Selvedge.Kernel.Domain.workspace_primary workspace with Some path=>if existsb(String.eqb path)roots then Some path else hd_error roots|None=>hd_error roots end in
@@ -141,7 +158,7 @@ Definition live_command snapshot task field incoming :option (Schema.command_val
  |Fields.ApprovalPolicy=>mode<-as_string incoming;;
    approval<-if String.eqb mode "approval-for-me"then
      settings<-Observation.task_settings task snapshot;;
-     reviewer<-choose_policy_reviewer snapshot(Domain.settings_approval settings);;
+     reviewer<-choose_policy_reviewer snapshot task(Domain.settings_approval settings);;
      Some(JObject[("mode",JString mode);("reviewer_profile",JString reviewer)])
     else Some(JObject[("mode",JString mode)]);;
    Some(replace "approval" approval source)

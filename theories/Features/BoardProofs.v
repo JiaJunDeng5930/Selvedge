@@ -276,7 +276,7 @@ Lemma idle_regeneration_uses_drafting_policy : forall id value card profile now 
  Board.lookup id value=Some card ->
  Board.clock observed=Some now -> Board.mutable card value=true ->
  Board.regenerate id (F.card_revision card) observed profile value=
-   Board.request_text id card profile true value.
+   Board.request_text id (Board.revised (F.card_contents card) now card) profile true value.
 Proof.
  intros id value card profile now observed found clock idle.
  unfold Board.regenerate,Board.at_clock. rewrite clock.
@@ -294,7 +294,7 @@ Theorem admitted_regeneration_emits_frozen_request : forall id revision value ca
    (environment_profiles (world_environment value))=Some selected ->
  TitleRuntime.ordinary selected=true ->
  decision_effects (Board.regenerate id revision observed profile_name value)=
- [SuggestCard id (world_next_ticket value) (F.card_revision card) selected
+ [SuggestCard id (world_next_ticket value) (N.succ (F.card_revision card)) selected
    (Titles.board_prompt (F.title_task_prompt (F.feature_title_settings (world_features value)))
      (F.draft_title (F.card_contents card)) (F.draft_description (F.card_contents card)) true)
    (F.card_contents card) true].

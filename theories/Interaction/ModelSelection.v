@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec Tasks.
+From Selvedge.Kernel Require Import Domain Codec Tasks ModelCapabilities.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -12,6 +12,9 @@ Definition permitted_profile value effort:=match Tasks.selected_reasoning(Some e
 Definition permitted world key effort :=match observed_profile world key with
 |Some value=>permitted_profile value effort|None=>false end.
 Definition valid_preference world value := permitted world (fst value) (snd value).
+Definition selectable_profile value := negb (ModelCapabilities.is_codex_auto_review value).
+Definition initial_profile profiles := find (fun profile =>
+ selectable_profile profile && permitted_profile profile "default") profiles.
 Definition selected_effort world key previous :=
   if permitted world key previous then previous else "default".
 Definition preference_json (value : string * string) :=

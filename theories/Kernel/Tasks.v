@@ -317,9 +317,13 @@ Definition same_approval (left right : approval_policy) :=
  | ReviewWith reviewer_left, ReviewWith reviewer_right => Domain.same_profile reviewer_left reviewer_right
  | _, _ => false end.
 
+Inductive fork_settings_origin := ParentSettings | EnvironmentSettings.
+Definition fork_settings_base origin (parent:task) (value:world) := match origin with
+|ParentSettings=>task_current_settings parent
+|EnvironmentSettings=>creation_defaults(world_environment value)end.
 (* Resetting effort uses the captured definition, even after the catalog changes.
    An omitted effort still retains the task's current selection. *)
-Definition fork_with_caller (invoked : bool) (id count : N) (messages : list content) (settings : option json) (value : world) :=
+Definition fork_with_caller (invoked : bool) (origin:fork_settings_origin) (id count : N) (messages : list content) (settings : option json) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value
  | Some task =>
@@ -327,7 +331,7 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
     TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) &&
     TaskConstraints.fork_messages_valid count (List.length messages) &&
     ancestors_fit (id :: task_lineage task) count value then
-    match resolve_settings (task_current_profile task) settings (task_current_settings task) value with
+    match resolve_settings (task_current_profile task) settings (fork_settings_base origin task value) value with
     | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
     | Some selected =>
       if invoked && negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) then
@@ -358,7 +362,7 @@ Definition fork_with_caller (invoked : bool) (id count : N) (messages : list con
     end
    else reject "fork_unavailable" "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value
  end.
-Definition fork := fork_with_caller false.
+Definition fork := fork_with_caller false ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value

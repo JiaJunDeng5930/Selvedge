@@ -2,11 +2,11 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Features Require BoardFilter.
-From Selvedge.Interaction Require Import Codec Identity Input.
+From Selvedge.Interaction Require Import Codec Identity Input Context.
 From Selvedge.Interaction Require Services.
 From Selvedge.Interaction.Experience Require Model Activity Observation.
-From Selvedge.Interaction.Session Require State.
-From Selvedge.Interaction.Submission Require Parameters.
+From Selvedge.Interaction.Session Require State Draft.
+From Selvedge.Interaction.Submission Require Parameters Values.
 From Selvedge.Interaction.Presentation Require Import Surface Model Construction Composer Editors Projection.
 From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
@@ -212,10 +212,22 @@ Definition workspace_menu snapshot s e occurrence parent behavior:=
    [declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)])%list.
 Definition workspace_request request:=match request with
 |Act.WorkspaceActivity|Act.PropertyActivity UX.WorkspaceProperty=>true|_=>false end.
-Definition project_choice snapshot s {e} occurrence parent(subject:UX.subject e)id label description:=
- let encoded:=match id with None=>""|Some id=>show_natural id end in
- let key:=part parent(String.append "project/"(match id with None=>"none"|Some id=>show_natural id end))in
- match Observation.alternative_from_choice snapshot s subject(Fields.ChoiceValue encoded label)with
+Definition project_choice_details snapshot s {e}(subject:UX.subject e)(choice:Fields.choice_value):string*string:=
+ match Values.context_origin_choice(Draft.contents(State.current_draft s e))(Fields.choice_value_of choice)with
+ |Some(Context.ProjectDefaults id)|Some(Context.ProjectForParent _ id)=>
+  match Projection.projects snapshot with
+  |Some projects=>match find(fun project=>N.eqb id(Projection.project_id project))projects with
+   |Some project=>(value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project)),
+     String.concat " "(Domain.workspace_roots(Projection.project_workspace project)))
+   |None=>("Project information is unavailable","")end
+  |None=>("Project observations unavailable","")end
+ |Some(Context.ParentTask _)=>("Use parent task defaults","")
+ |Some Context.EnvironmentDefaults=>("Use environment defaults","")
+ |None=>("","")end.
+Definition project_choice snapshot s {e} occurrence parent(subject:UX.subject e)(choice:Fields.choice_value)description:=
+ let label:=Fields.choice_label choice in
+ let key:=part parent("project/"++Fields.choice_value_of choice)in
+ match Observation.alternative_from_choice snapshot s subject choice with
  |None=>read_only key "unavailable"label "Project selection is unavailable"
  |Some alternative=>Node key "project-choice"label Roles.Button
   (Choice SingleChoice(UX.alternative_selected alternative)description
@@ -229,15 +241,13 @@ Definition project_menu snapshot s e occurrence parent behavior:=
  |Some property=>let subject:=UX.property_subject property in
   Node(part parent "search")"search" "Search projects"Roles.Field
    (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]::
-  project_choice snapshot s occurrence parent subject None "No project" "Use environment defaults"::
-  match Projection.projects snapshot with
-  |None=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]
-  |Some projects=>map(fun project=>project_choice snapshot s occurrence parent subject(Some(Projection.project_id project))
-    (Projection.project_name project)(value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project))))
-   (filter(fun project=>BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
-    (BoardFilter.lower_text(String.concat " "[Projection.project_name project;
-     String.concat " "(Domain.workspace_roots(Projection.project_workspace project));
-     value_or "No primary directory"(Domain.workspace_primary(Projection.project_workspace project))])))projects)end end in
+  (map(fun choice=>project_choice snapshot s occurrence parent subject choice(fst(project_choice_details snapshot s subject choice)))
+   (filter(fun choice=>negb(String.prefix "project/"(Fields.choice_value_of choice))||
+    (let details:=project_choice_details snapshot s subject choice in
+    BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
+      (BoardFilter.lower_text(String.concat " "[Fields.choice_label choice;fst details;snd details]))))
+    (Observation.context_origin_choices snapshot s subject))++
+  (match Projection.projects snapshot with None=>[read_only parent "unavailable" "Projects" "Project observations unavailable"]|Some _=>[]end))%list end in
  Node parent "project-selection" "Choose project"Roles.Dialog(LayerRegion behavior)
   [dialog_header parent [title parent "Choose project"];dialog_body parent
     (content++[declared parent Roles.Button(secondary "project/new" "New project"

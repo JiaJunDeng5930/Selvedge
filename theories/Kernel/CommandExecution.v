@@ -168,7 +168,9 @@ Definition execute (command : Selvedge.Generated.Commands.command) (caller : opt
  | Selvedge.Generated.Commands.Cmd_archive request => Some (control_command (Selvedge.Generated.Commands.archive_task_id request) Archive value)
  | Selvedge.Generated.Commands.Cmd_cancel_operation request => Some (cancel_operation (Selvedge.Generated.Commands.cancel_operation_task_id request) (Selvedge.Generated.Commands.cancel_operation_operation_id request) value)
  | Selvedge.Generated.Commands.Cmd_fork request => Some (match traverse Images.parse_content (match Selvedge.Generated.Commands.fork_messages request with Some values => values | None => [] end) with
-   | Some messages => Tasks.fork_with_caller (match caller with Some id => N.eqb id (Selvedge.Generated.Commands.fork_task_id request) | None => false end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
+   | Some messages => Tasks.fork_with_caller (match caller with Some id => N.eqb id (Selvedge.Generated.Commands.fork_task_id request) | None => false end) (match Selvedge.Generated.Commands.fork_settings_origin request with
+     |Some source=>if String.eqb (proj1_sig source) "environment" then Tasks.EnvironmentSettings else Tasks.ParentSettings
+     |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
    | None => reject "invalid_message" "Child messages contain invalid content parts" value end)
  | Selvedge.Generated.Commands.Cmd_open_side_conversation request => Some (with_content (Selvedge.Generated.Commands.open_side_conversation_message request) (Selvedge.Generated.Commands.open_side_conversation_images request)
    (fun contents => Tasks.open_side (Selvedge.Generated.Commands.open_side_conversation_task_id request) contents value) value)

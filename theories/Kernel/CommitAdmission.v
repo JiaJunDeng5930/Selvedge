@@ -198,6 +198,7 @@ Definition worktree_contract_update (owner : N) (before after : F.state)
 Definition execution_configuration_target (command : G.command) (owner : N) :=
  match command with
  | G.Cmd_configure_task_execution payload => N.eqb owner (G.configure_task_execution_task_id payload)
+ | G.Cmd_fork payload => N.eqb owner (G.fork_task_id payload)
  | _ => false
  end.
 Definition task_is_configurable (old : D.task) :=

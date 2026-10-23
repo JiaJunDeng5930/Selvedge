@@ -207,7 +207,7 @@ Definition begin_task snapshot project state:=
  let owner:=Identity.NewTask(SS.active_work(SS.navigation_state state))in
  let state:=Authoring.ensure_draft snapshot owner state in
  let draft:=SS.current_draft state owner in
- let origin:=match project with None=>JNull|Some project=>number project end in
+ let origin:=JString(match project with None=>"environment"|Some project=>String.append "project/" (show_natural project)end)in
  match Values.update_body snapshot(Draft.contents draft)Fields.ContextOrigin origin with
  |None=>Authoring.fail state "The task context is not available."
  |Some body=>let state:=SS.save_draft(Draft.with_body body draft)state in

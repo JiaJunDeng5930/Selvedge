@@ -31,9 +31,12 @@ Definition ensure_draft snapshot owner state:=match Draft.find_draft owner(SS.dr
 Definition reopen_draft snapshot owner state:=
  match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
  |Some previous=>match Draft.draft_feedback previous with
-  |Draft.Accepted _ _=>match Initialize.materialize snapshot(SS.service_state state)owner with
-   |Some fresh=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))(Draft.contents fresh)Draft.Editing "")state
-   |None=>state end
+  |Draft.Accepted _ _=>match owner with
+   |Identity.NewTask _=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))
+     (Draft.contents previous)Draft.Editing(Draft.directory_entry previous))state
+   |_=>match Initialize.materialize snapshot(SS.service_state state)owner with
+    |Some fresh=>SS.save_draft(Draft.Draft(N.succ(Draft.revision previous))(Draft.contents fresh)Draft.Editing "")state
+    |None=>state end end
   |_=>state end
  |None=>match Initialize.materialize snapshot(SS.service_state state)owner with
    |Some fresh=>let fresh:=match owner with
@@ -319,6 +322,11 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
  let reply:=value_or JNull(completion_value outcome)in
  let state:=if current then
    let state:=SS.save_draft(clear_accepted reply captured)state in
+   (* Completing global creation releases its manual selection so later
+      remembered execution choices can become the next creation default. *)
+   let state:=match Draft.owner captured with
+    |Identity.NewTask None=>SS.with_authoring(set SS.draft_model_manual(fun _=>false)(SS.authoring_state state))state
+    |_=>state end in
    match Draft.contents captured with
    |Draft.NewTaskBody _ _ _ _ _ _|Draft.MessageBody _ _ _=>
      refresh_skill_catalog(Draft.owner captured)(set_mention(Draft.owner captured)SkillMention.Inactive state)
@@ -367,8 +375,11 @@ Definition complete snapshot (executed:SS.public_command) purpose outcome state:
    else keep state|[]=>keep state end end))
 |SS.DirectSubmission=>Some(if completion_success outcome then keep state else alert_diagnostic state(completion_error outcome))
 |SS.ProjectPreference captured command generation layer trigger=>Some(if completion_success outcome then
- issue command(SS.DraftSubmission captured generation layer trigger)state
- else complete_draft snapshot captured generation layer trigger outcome state)
+  if SO.worktree_submission_allowed snapshot state captured then
+    issue command(SS.DraftSubmission captured generation layer trigger)state
+  else complete_draft snapshot captured generation layer trigger
+    (inl "Check the selected working directory again before creating its Git worktree.")state
+  else complete_draft snapshot captured generation layer trigger outcome state)
 |_=>None end.
 Definition apply_field snapshot (owner:editor) (assignment:Activity.assignment owner) state:=
  if Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment)) && SS.pending_editor owner state
@@ -472,7 +483,21 @@ Definition workspace_git_completed snapshot input previous state:=
     |inr true=>state|_=>unavailable_local_workspace snapshot owner path state end
    else state
  |_,_=>state end.
+Definition directory_editor_ready owner state:=
+ match Draft.find_draft owner(SS.drafts(SS.authoring_state state))with
+ |Some _=>negb(SS.pending_editor owner state)&&Parameters.editable owner Fields.WorkspaceDirectories&&
+   existsb(fun field=>if Parameters.field_eq_dec field Fields.WorkspaceDirectories then true else false)(Parameters.fields owner)
+ |None=>false end.
+Definition directory_input_allowed input state:=match input with
+ |Services.OpenDirectory owner _ _=>directory_editor_ready owner state
+ |Services.VisitDirectory _|Services.GoDirectory|Services.DirectoryListed _ _|Services.ChooseDirectory|Services.WriteDirectoryLocation _=>
+  match Services.directory(SS.service_state state)with
+  |Resource.Loading _ request|Resource.Loaded _ request _|Resource.Failed _ request _=>directory_editor_ready(Services.directory_editor request)state
+  |Resource.Dormant=>false end
+ |_=>true end.
 Definition service_step snapshot input state:=
+ (* DEFENSE: A directory dialog can outlive a submission that makes its editor busy. *)
+ if directory_input_allowed input state then
  let state:=match input with
  |Services.OpenSettings=>let navigation:=SS.navigation_state state in
    let state:=match SS.layers navigation with
@@ -482,14 +507,28 @@ Definition service_step snapshot input state:=
    SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
  |Services.CloseSettings=>SS.with_navigation(set SS.generation N.succ(SS.navigation_state state))state
  |_=>state end in
+ let previous_connection:=Services.connection(SS.service_state state)in
  let decision:=Services.service_step(admitted_upload input state)(SS.service_state state)in
  let state:=workspace_git_completed snapshot input state
    (SS.with_services(Services.service_state decision)state)in
  let state:=match Services.attached decision with Some(owner,file)=>attached snapshot owner file state|None=>state end in
+ (* DEFENSE: Stale connection receipts emit neither authentication nor owned
+    reconnect effects and must not retire the current microphone session. *)
+ let signal:=match input with
+ |Services.Authenticated _ (inr _)=>match previous_connection,Services.connection(Services.service_state decision)with
+  |Services.ConnectionLoading _,Services.ConnectionReady _=>Some Speech.Refresh|_,_=>None end
+ |_=>if existsb(fun effect=>match input,effect with
+    |_,Services.Authenticate _=>true
+    |Services.Disconnected _ _ _,Services.Reconnect _ _=>true
+    |_,_=>false end)(Services.service_effects decision)then Some Speech.Cancel else None end in
+ let initial:=match signal with
+ |Some input=>let speech:=Speech.speech_step input(SS.speech_state state)in
+   changed(SS.with_speech(Speech.speech_state speech)state)(map Speech.encode_effect(Speech.speech_effects speech))
+ |None=>keep state end in
  fold_left(fun result effect=>match effect with
  |Services.DirectoryChosen owner path=>append result(change_workspace snapshot owner(Input.AddDirectory path)(result_state result))
  |_=>append result(changed(result_state result)[Services.encode_effect effect])end)
- (Services.service_effects decision)(keep state).
+ (Services.service_effects decision)initial else keep state.
 Definition directories_completed (snapshot:json) ticket outcome state:=
  let services:=SS.service_state state in
  match find(fun resource=>match resource with Resource.Loading actual _=>N.eqb ticket actual|_=>false end)(Services.preparations services)with
@@ -544,7 +583,8 @@ Definition step snapshot input state:option result:=match input with
    |[]=>keep state end
    else fail state "Complete the required setting before closing this activity."|None=>keep state end)
 |Input.Submit owner trigger=>Some(submit snapshot owner trigger state)
-|Input.RetryWorkspace owner trigger=>let draft:=SS.current_draft state owner in
+|Input.RetryWorkspace owner trigger=>let draft:=Draft.with_feedback Draft.Editing(SS.current_draft state owner)in
+ let state:=SS.save_draft draft state in
  let services:=Services.with_preparations(filter(fun resource=>negb(Services.replaceable_preparation owner resource))(Services.preparations(SS.service_state state)))(SS.service_state state)in
  Some(capture_workspace snapshot draft trigger(SS.with_services services state))
 |Input.DirectoriesCompleted ticket outcome=>Some(directories_completed snapshot ticket outcome state)

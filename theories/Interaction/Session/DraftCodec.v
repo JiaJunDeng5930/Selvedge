@@ -46,7 +46,7 @@ Definition valid_origin_for_editor (e : Identity.editor) (source : Context.origi
  |Identity.Fork task=>match source with
    |Context.ParentTask parent=>N.eqb task parent
    |Context.ProjectForParent parent _=>N.eqb task parent
-   |_=>false end
+   |Context.EnvironmentDefaults|Context.ProjectDefaults _=>true end
  |_=>true end.
 Definition decode_editor_configuration e value := configuration<-decode_configuration value;;
  if valid_origin_for_editor e (Context.context_origin configuration) then Some configuration else None.
