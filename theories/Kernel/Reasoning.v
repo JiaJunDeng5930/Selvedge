@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks ReasoningView ReasoningProtocol.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks ReasoningView ReasoningProtocol Context ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -82,3 +82,14 @@ Definition sampling (model : profile) (requested : profile) :=
   | AdaptivePolicy policy => match reasoning_transport_mode policy with ConfigurationUpdates => reasoning_baseline policy | RequestEffort => effective end
   | FixedReasoning => effective end))].
 Definition evaluator_history (_ : N) (task : task) := ReasoningView.history (task_history task).
+
+(* Evaluators see the same committed project snapshot as the requested turn.
+   Looking up a mutable Project here would change an already captured request. *)
+Definition evaluator_project_context (task : task) :=
+ match workspace_primary (settings_workspace (task_current_settings task)) with
+ | None => JNull
+ | Some root => match ContextUpdates.find_snapshot
+     (ContextKey Context.project_guidance [("workspace",root)])
+     (ContextUpdates.bindings (task_history task)) with
+   | Some snapshot => Context.snapshot_json snapshot | None => JNull end
+ end.

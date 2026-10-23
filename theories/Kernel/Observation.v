@@ -169,6 +169,7 @@ Definition effect_json (state : world) (value : effect) : json :=
  | RequestReasoning id ticket model task => JObject [
    ("kind", JString "reasoning"); ("task_id", number id); ("ticket", number ticket);
    ("model", model_json model); ("history", JArray (Reasoning.evaluator_history id task));
+   ("project_context", Reasoning.evaluator_project_context task);
    ("history_preview", JBool true); ("history_preview_bytes", number (N.of_nat ReasoningView.maximum_bytes))]
  | ExecuteTool id ticket operation tool call settings access => JObject [
    ("kind", JString "tool"); ("task_id", number id); ("ticket", number ticket);

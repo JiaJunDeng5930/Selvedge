@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema Arguments Numbers.
 From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
+From Selvedge.Kernel Require Import ChatgptArguments ChatgptProtocol.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import TaskGraphDeclarations.
@@ -25,6 +26,22 @@ Definition permission_names := ["read";"control";"configure";"approve"].
 Definition permissions_schema := SchemaJson.object_fields
   (map (fun name => (name,JObject (SchemaJson.kind_schema KBool))) permission_names)
   permission_names.
+Definition connection_grants_schema :=
+  let grants := Arguments.refine_fields
+    [("connection_id",ChatgptArguments.identity_schema);
+     ("project_ids",[("type",JString "array");("items",JObject ChatgptArguments.identity_schema)]);
+     ("sandbox",SchemaJson.schema_fields Codec.sandbox_schema)]
+    (map Arguments.from_field ChatgptArguments.grant_declaration) in
+  [("type",JString "array");("items",Arguments.json_schema grants)].
+Definition connection_field_refinements (name : string) :=
+  if String.eqb name "configure_chatgpt_connections" then [("connections",connection_grants_schema)]
+  else match find (fun route => String.eqb name (ChatgptProtocol.native_name route)) ChatgptProtocol.routes with
+  | Some route => map (fun field => (field,ChatgptArguments.identity_schema))
+      ["connection_id";"project_id";"operation_id"] ++
+      match route with
+      | ChatgptProtocol.Execute => [("arguments",match ChatgptArguments.args_schema with JObject fields => fields | _ => [] end)]
+      | _ => [] end
+  | None => [] end.
 Definition command_field_refinements (name : string) :=
   if String.eqb name "create_card" || String.eqb name "update_card" then
     [("attachments",attachment_array_schema)] else
@@ -32,7 +49,7 @@ Definition command_field_refinements (name : string) :=
     [("task_prompt",title_prompt_schema);("agent_prompt",title_prompt_schema)] else
   if String.eqb name "remote_grant" then
     [("controller_id",controller_id_schema);("permissions",permissions_schema)] else
-  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else [].
+  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else connection_field_refinements name.
 Definition command_schema (specification : command_spec) :=
   let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
     (Commands.command_arguments specification) in

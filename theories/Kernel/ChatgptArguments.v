@@ -6,6 +6,9 @@ Open Scope N_scope.
 Open Scope list_scope.
 
 Definition identity_maximum : N := 4294967295.
+Definition identity_schema := kind_schema KNatural ++ [("maximum",JNumber (show_natural identity_maximum))].
+Definition grant_declaration : schema := [Field "connection_id" KNatural;
+  Field "project_ids" (KArray KNatural);Field "sandbox" KJson].
 Definition default_timeout_ms : N := 120000.
 Definition default_max_output_length : N := 4096.
 Definition argument_declaration : schema := [Field "command" KText;Field "timeout_ms" KNatural;Field "max_output_length" KNatural].

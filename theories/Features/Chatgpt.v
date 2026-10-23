@@ -62,7 +62,7 @@ Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N
    (jobs (Selvedge.Generated.Commands.chatgpt_operations_connection_id p) (Selvedge.Generated.Commands.chatgpt_operations_project_id p) value))
  | _=>None end.
 
-Definition grant_schema := [Field "connection_id" KNatural;Field "project_ids" (KArray KNatural);Field "sandbox" KJson].
+Definition grant_schema := ChatgptArguments.grant_declaration.
 Definition parse_grant source := match Schema.decode grant_schema source,natural_field "connection_id" source,
  array_field "project_ids" source,field "sandbox" source with
  | Some _,Some id,Some projects,Some sandbox=>match Schema.decode_list natural projects,parse_sandbox sandbox with
