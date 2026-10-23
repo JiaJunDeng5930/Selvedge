@@ -29,6 +29,19 @@ Definition candidate_node {e} (pending:bool) occurrence parent (decision:UX.deci
     [information key "description" Information.Description(UX.alternative_explanation alternative)])++
    map(fun consequence=>information key("consequence/"++UX.subject_name(UX.summary_subject consequence))Information.Description
     (UX.readable_text(UX.summary_observation consequence)))(UX.alternative_consequences alternative))].
+Definition alternative_search_key {e}(subject:UX.subject e)(value:denote(UX.subject_kind subject)) :=
+ let encoded:=Schema.encode_value(UX.subject_kind subject)value in
+ match UX.subject_declaration subject,encoded with
+ |Fields.ModelProfile,JString key=>"model/"++key
+ |Fields.ReasoningEffort,JString effort=>"effort/"++effort
+ |Fields.SandboxMode,JString mode=>"filesystem/"++mode
+ |Fields.NetworkAccess,JBool enabled=>if enabled then "network/enabled"else"network/disabled"
+ |Fields.ApprovalReviewer,JString key=>"approval/automatic/"++key
+ |Fields.ApprovalPolicy,JString "ask-for-approval"=>"strategy/ask"
+ |Fields.ApprovalPolicy,JString "full-access"=>"strategy/full-access"
+ |Fields.ApprovalPolicy,JString "approval-for-me"=>"strategy/automatic-review"
+ |Fields.WorkspacePrimary,JString path=>"directory/"++path
+ |_,_=>TextJson.render_json encoded end.
 Definition decision_node {e} pending occurrence parent query (decision:UX.decision e) :=
  let identity:=part parent(UX.subject_name(UX.decision_subject decision))in
  Node identity "decision"(UX.decision_question decision)Roles.Section(DecisionGroup e decision)
@@ -36,8 +49,8 @@ Definition decision_node {e} pending occurrence parent query (decision:UX.decisi
    [group_title identity(UX.decision_question decision)]::map(candidate_node pending occurrence identity decision)
    (filter(fun alternative=>UX.alternative_selected alternative||
     BoardFilter.contains(BoardFilter.lower_text(BoardFilter.trim query))
-     (BoardFilter.lower_text(UX.alternative_label alternative++" "++TextJson.render_json
-       (Schema.encode_value(UX.subject_kind(UX.decision_subject decision))(UX.alternative_value alternative)))))
+     (BoardFilter.lower_text(UX.alternative_label alternative++" "++
+       alternative_search_key(UX.decision_subject decision)(UX.alternative_value alternative))))
     (UX.decision_alternatives decision))).
 Definition workspace_nodes {e} s occurrence parent (members:UX.collection e) :=
  let workspace:=UX.collection_workspace members in

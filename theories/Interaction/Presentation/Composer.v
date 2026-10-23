@@ -7,6 +7,9 @@ From Selvedge.Interaction.Presentation Require Roles Information.
 Import ListNotations.
 Open Scope string_scope.
 Module Experience := Selvedge.Interaction.Experience.Model.
+Definition commit_role {e}(unit:Experience.action_unit e)(feedback:option string) :=
+ if Experience.action_pending unit then Roles.PrimaryButton else
+ match feedback with Some _=>Roles.DestructiveButton|None=>Roles.PrimaryButton end.
 
 Definition property_information {A e} parent (property : Experience.property e) : list (node A) :=
   let principal := information parent "value" Information.FieldValue (Experience.principal_information property) in
@@ -42,6 +45,6 @@ Definition composer {A e} parent (unit : Experience.action_unit e)
     ([Node (part parent "message") "message" (match e with NewTask _ => "Task" | _ => "Message" end) Roles.Field (Edit e subject editing) []] ++ body_controls ++
      [Node (part parent "actions") "composer/actions" "Actions" Roles.ComposerActions Region
         [Node (part parent "tools") "composer/tools" "Supporting controls" Roles.Toolbar Region tools;
-         Node (part parent "submit") "composer/submit" (control_label submit) Roles.PrimaryButton
+         Node (part parent "submit") "composer/submit" (control_label submit) (commit_role unit feedback)
            (ActionCommit e assessment submit) []]] ++
      action_feedback parent unit feedback)%list.

@@ -23,7 +23,7 @@ Theorem submitted_history_search_uses_shared_bounded_query state after:
  Navigation.generated(Commands.Cmd_search_history(Commands.Build_search_history
   (State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)))
   (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)
-  (Navigation.set_search(set State.search_latest(fun _=>Some ticket)search)state).
+  (Navigation.set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket))state).
 Proof. intro Location. unfold Navigation.submit_search. rewrite Location. reflexivity. Qed.
 
 Lemma reader_for_task state task :

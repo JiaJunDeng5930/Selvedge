@@ -219,4 +219,4 @@ Definition layer_view snapshot s capacity layer :=
   |State.Confirmation _ _ _=>content
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
   Node(part parent "layer") "layer" ""(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
-   (match State.layer_panel layer with State.NavigationPanel WorkOverview=>WorkOverviewRegion behavior|_=>LayerRegion behavior end)content end.
+   (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.

@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Workspace.
 From Selvedge.Interaction Require Import Codec Resource Services CommandAssessment Identity.
@@ -7,6 +7,45 @@ From Selvedge.Interaction.Submission Require Parameters Values.
 From Selvedge.Interaction.Experience Require Import Model Activity Observation.
 Import ListNotations.
 Open Scope string_scope.
+
+Lemma directory_segment_separator prefix suffix previous segment:
+ Model.directory_basename_from(prefix++"/"++suffix)previous segment=
+ Model.directory_basename_from suffix(Model.directory_basename_from prefix previous segment)"".
+Proof.
+ revert previous segment. induction prefix as[|character rest IH];intros previous segment.
+ - reflexivity.
+ - cbn [String.append Model.directory_basename_from].
+   destruct(Ascii.eqb character "/"%char);apply IH.
+Qed.
+
+Local Lemma directory_text_append_assoc first second third:
+ (first++second)++third=first++(second++third).
+Proof. induction first;simpl;congruence. Qed.
+
+Lemma directory_named_segment suffix previous segment:
+ List.Forall(fun character=>Ascii.eqb character "/"%char=false)(String.list_ascii_of_string suffix) ->
+ suffix<>"" ->
+ Model.directory_basename_from suffix previous segment=segment++suffix.
+Proof.
+ revert previous segment. induction suffix as[|character rest IH];intros previous segment Free Nonempty.
+ - contradiction.
+ - inversion Free as[|? ? NotSlash Rest];subst.
+   cbn [Model.directory_basename_from]. rewrite NotSlash.
+   destruct rest as[|next tail].
+   + cbn [Model.directory_basename_from].
+     destruct segment;simpl;reflexivity.
+   + rewrite IH;[rewrite directory_text_append_assoc;reflexivity|exact Rest|discriminate].
+Qed.
+
+Theorem workspace_caption_uses_the_final_named_segment paths inherited prefix suffix:
+ List.Forall(fun character=>Ascii.eqb character "/"%char=false)(String.list_ascii_of_string suffix) ->
+ suffix<>"" ->
+ Model.readable_text(Model.WorkspaceValue paths(Some(prefix++"/"++suffix))inherited)=suffix.
+Proof.
+ intros Free Nonempty.
+ change(Model.directory_basename_from(prefix++"/"++suffix)(prefix++"/"++suffix)""=suffix).
+ rewrite directory_segment_separator,directory_named_segment;[reflexivity|exact Free|exact Nonempty].
+Qed.
 
 (** A live candidate can be available only with the assessment issued for this
     action and current world.  Command comparison deliberately ignores the
@@ -120,10 +159,21 @@ Qed.
 
 Theorem unavailable_model_retains_saved_profile_and_effort snapshot e(subject:subject e)key effort:
  profile_for_subject snapshot subject key=None ->
- information_of snapshot subject(Fields.ModelValue key effort)=
- UnavailableInformation(String.append "Missing model "
-  (String.append key(String.append " · Reasoning: " effort))).
-Proof. intros Missing. unfold information_of. rewrite Missing. reflexivity. Qed.
+ recognition_information snapshot subject(Fields.ModelValue key effort)=
+ PresentInformation(SummaryValue subject(Model.TextValue("Missing model "++key)))
+   (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort)).
+Proof. intros Missing. unfold recognition_information. rewrite Missing. reflexivity. Qed.
+
+Theorem a_field_diagnostic_is_not_masked_by_an_unrelated_first_cause
+ e(subject:subject e)(first:obstruction e)rest:
+ obstruction_matches_subject subject first=false ->
+ field_obstruction subject(PreparationBlocked first rest)=
+ option_map obstruction_message(find(fun cause=>negb(passive_obstruction cause)&&
+   obstruction_matches_subject subject cause)rest).
+Proof.
+ intros Unrelated. unfold field_obstruction,assessment_obstructions.
+ cbn [find]. rewrite Unrelated,Bool.andb_false_r. reflexivity.
+Qed.
 
 Theorem message_text_belongs_to_the_message_draft task (subject:Model.subject(Identity.Message task)):
  Model.subject_declaration subject=Fields.MessageText ->

@@ -148,6 +148,8 @@ Theorem successful_chart_has_a_bounded_nontrivial_plot properties drawing :
 Proof.
   intros Admitted.
   unfold P.chart in Admitted.
+  destruct(negb(E.valid_field_path(X.property_text "x" properties)&&
+    E.valid_field_path(X.property_text "y" properties)))eqn:Paths;try discriminate.
   cbn [E.bind] in Admitted.
   destruct (Src.traverse
     (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))

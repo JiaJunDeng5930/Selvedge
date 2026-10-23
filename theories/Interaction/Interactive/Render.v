@@ -74,11 +74,8 @@ Definition field_scene identity event_id p binding local (active:bool) : scene :
 Definition table_columns children := fold_right (fun node rest=>match node with
  |Mounted _ p _ _=>if match p.(description).(component_role) with Column=>true|_=>false end then p::rest else rest
  |_=>rest end) [] children.
-Definition find_column id columns := find (fun p=>String.eqb (property_text "id" p) id) columns.
-Definition table_order rows columns path b budget := match State.view_at path false b with
- |TableView (Some column) descending _=>match find_column column columns with
-   |Some p=>Expression.sort_metered (property_text "field" p) descending rows budget
-   |None=>(Error "Saved sort column is currently hidden",budget) end
+Definition table_order rows path b budget := match State.view_at path false b with
+ |TableView (Some field) descending _=>Expression.sort_metered field descending rows budget
  |_ =>(Good rows,budget) end.
 Definition table_page path b := match State.view_at path false b with TableView _ _ page=>page|_=>0 end.
 Definition cell_value p row :=
@@ -88,7 +85,7 @@ Definition table_column event_id b (sortable active:bool) p : IP.table_column Ty
  IP.TableColumn id (property_text "label" p)
   (if sortable then Some (ViewChanged event_id (SortColumn id)) else None) active
   (match State.view_at event_id.(path) false b with
-   |TableView (Some current) descending _=>if String.eqb current id then Some descending else None|_=>None end).
+   |TableView (Some current) descending _=>if String.eqb current(property_text "field" p)then Some descending else None|_=>None end).
 Definition render_table event_id p b children active ordered : list scene :=
  let key:=Types.event_key event_id in let columns:=table_columns children in
  match ordered with
@@ -98,7 +95,8 @@ Definition render_table event_id p b children active ordered : list scene :=
  [S.Node (key+++"/@table") "interactive-markdown/table" (property_text "label" p) R.Content
    (S.InteractiveTable (IP.DataTable (property_text "label" p)
      (map (table_column event_id b (property_bool false "sortable" p) active) columns)
-     (map (fun row=>map (fun column=>cell_value column row) columns) visible))) []]++
+     (map (fun row=>IP.TableRow(TextJson.render_json(get_path(property_text "row-key" p)row))
+       (map (fun column=>cell_value column row) columns)) visible))) []]++
  (if Nat.eqb (List.length visible) 0 then [text (key+++"/@empty") "暂无数据"] else [])++
  [toolbar event_id "pages"
   [button (key+++"/@previous") "上一页" (ViewChanged event_id (Page (Nat.pred page))) (active&&Nat.ltb 0 page);
@@ -202,7 +200,7 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
     let key:=Types.event_key event_id in
     let '(rendered,budget):=render_nodes k identity b prepared children budget in
     let '(ordered,budget):=match p.(description).(component_role) with
-     |Table=>table_order (property_array "rows" p) (table_columns children) event_id.(path) b budget
+     |Table=>table_order (property_array "rows" p) event_id.(path) b budget
      |_ =>(Good [],budget) end in
     let content:=match p.(description).(component_role),binding with
      |Field,FieldLink id active=>match find_local id b.(locals) with

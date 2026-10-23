@@ -91,7 +91,7 @@ Definition clicked event_id b environment := match event_node b environment even
  | _=>(b,[],false)end.
 Definition decimal_clamp low high value := Decimal.checked (Z.max low (Z.min high (Decimal.units value))).
 Definition zoom_step:=Decimal.parse "0.25".
-Definition view_update command props previous : option view_state :=
+Definition view_update descriptor command props previous : option view_state :=
  match props.(description).(component_role),previous with
  | Graph,GraphView zoom x y fit selected=>
    let zoom_value value:=clamped <- decimal_clamp (Z.quot Decimal.scale 4) (2*Decimal.scale) value;;Some(GraphView clamped x y false selected)in
@@ -106,8 +106,11 @@ Definition view_update command props previous : option view_state :=
      then Some(GraphView zoom x y fit id)else None
    | _=>None end
  | Table,TableView column descending page=>match command with
-   | SortColumn id=>if property_bool false "sortable" props then
-     Some(TableView(Some id)(match column with Some active=>if String.eqb active id then negb descending else false|None=>false end)0)else None
+   | SortColumn id=>match descriptor with TableDescriptor columns=>
+     selected<-find(fun column=>String.eqb id(fst column))columns;;
+     if property_bool false "sortable" props then
+     Some(TableView(Some(snd selected))(match column with Some active=>if String.eqb active(snd selected)then negb descending else false|None=>false end)0)else None
+     |_=>None end
    | Page next=>let count:=List.length(property_array "rows"props)in
      Some(TableView column descending (Nat.min next (Bounds.last_table_page_index count)))
    | _=>None end
@@ -117,10 +120,7 @@ Definition view_changed event_id command b environment : block*list effect*bool 
  | Some(Mounted _ props (Passive true) _) =>
    match Paths.describe (prepared b environment) event_id.(path) with
    | Some descriptor=>
-     let allowed:=match descriptor,command with
-       | TableDescriptor columns,SortColumn id=>existsb(String.eqb id)columns
-       | _,_=>true end in
-     if allowed then match view_update command props(State.view_at event_id.(path)
+     match view_update descriptor command props(State.view_at event_id.(path)
        (match descriptor with GraphDescriptor=>true|_=>false end)b)with
      | Some value=>match command,property "select"props with
        | SelectNode id,Some(JString local_id)=>match Local.find_local local_id b.(locals)with
@@ -129,7 +129,7 @@ Definition view_changed event_id command b environment : block*list effect*bool 
            |None=>(b,[],false)end
          |None=>(b,[],false)end
        |_,_=>(mark_edit(State.set_view event_id.(path)value b),[],true)end
-     | None=>(b,[],false)end else(b,[],false)
+     | None=>(b,[],false)end
    | None=>(b,[],false)end
  | _=>(b,[],false)end.
 Definition settle_feedback path ticket ok message b :=

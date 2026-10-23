@@ -34,7 +34,8 @@ Definition activity_expanded owner request state:=match State.layers(State.navig
 Definition describe snapshot state input:P.purpose:=match input with
 |Input.Submit owner _=>editor_purpose owner
 |Input.NewCard _ _=>P.CreateItem
-|Input.CreateWork=>P.WorkCreation|Input.BeginTask _=>P.ProjectTaskCreation
+|Input.CreateWork=>P.WorkCreation
+|Input.BeginTask None=>P.CreateItem|Input.BeginTask(Some _)=>P.ProjectTaskCreation
 |Input.OpenEditor owner _=>editor_purpose owner
 |Input.Navigate route=>P.NavigateTo(route_symbol route)
 |Input.OpenObjectActions subject _=>P.MoreActions(match State.layers(State.navigation_state state)with
@@ -49,12 +50,17 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
 |Input.OpenInformation(SS.CardDetails card) _=>P.OpenCardDetails card
+|Input.OpenInformation(SS.TaskDetails task) _=>P.OpenPanel "inspector" false
+ (match State.layers(State.navigation_state state)with
+  |layer::_=>match State.layer_panel layer with
+    |State.InformationPanel(State.TaskDetails actual)=>N.eqb task actual|_=>false end
+  |[]=>false end)
 |Input.OpenInformation _ _=>P.OpenPanel "inspector" false false
 |Input.OpenActivity owner request _=>match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker(activity_expanded owner request state)
  |_=>P.ChooseValue(activity_expanded owner request state)end
 |Input.ActivityAssignment _ _ _=>P.SelectedOption false
 |Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
-|Input.ClosePanel|Input.CloseSide=>P.Dismiss
+|Input.ClosePanel=>P.NamedAction|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)
 |Input.TaskListVisible _=>P.ToggleNavigation(State.desktop_task_list_visible(State.navigation_state state))
 |Input.ToggleProjectGroup project=>P.ProjectDisclosure project
@@ -64,7 +70,7 @@ Definition describe snapshot state input:P.purpose:=match input with
 |Input.ServiceInput input=>match input with
  |Services.Connect|Services.RetryConnection _=>P.Connect(match Services.connection(State.service_state state)with Services.ConnectionLoading _=>true|_=>false end)
  |Services.OpenSettings=>P.ApplicationSettings(Services.settings_open(State.service_state state))
- |Services.CloseSettings|Services.CloseDirectory|Services.ClosePreview=>P.Dismiss
+ |Services.CloseSettings|Services.CloseDirectory|Services.ClosePreview=>P.NamedAction
  |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer
  |Services.CancelUpload _=>P.AbortOperation|Services.OpenPreview _ _=>P.PreviewFile|Services.Download _=>P.DownloadFile
  |Services.OpenDirectory _ _ _=>P.OpenPanel "folder"false false|_=>P.NamedAction end

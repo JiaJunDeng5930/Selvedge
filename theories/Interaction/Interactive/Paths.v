@@ -36,9 +36,10 @@ Fixpoint segments fuel text : option (list segment) :=
    end
  end.
 Definition parse_path path := tail <- drop_prefix "ui" path;;segments 128 tail.
-Inductive descriptor := GraphDescriptor | TableDescriptor (columns:list string).
-Definition column_ids nodes := fold_right (fun node rest => match node with
- | Element "column" attrs _ _ => match Registry.lexical_id attrs with Some id=>id::rest|None=>rest end
+Inductive descriptor := GraphDescriptor | TableDescriptor (columns:list(string*string)).
+Definition column_fields nodes := fold_right (fun node rest => match node with
+ | Element "column" attrs _ _ => match Registry.lexical_id attrs,Registry.literal_text "field" attrs with
+   |Some id,Good field=>(id,field)::rest|_,_=>rest end
  | _=>rest end) [] nodes.
 Fixpoint locate fuel nodes parts : option descriptor :=
  match fuel,nodes with
@@ -48,7 +49,7 @@ Fixpoint locate fuel nodes parts : option descriptor :=
    | Component id::tail,Some actual => if String.eqb id actual then
      match Vocabulary.component tag with None=>None|Some spec=>
        match tail,spec.(component_role)with
-       | [],Table=>Some(TableDescriptor(column_ids children))
+       | [],Table=>Some(TableDescriptor(column_fields children))
        | [],Graph=>Some GraphDescriptor
        | Item _::tail,Repeat=>locate rest children tail
        | Item _::tail,Graph=>match children with
@@ -66,7 +67,7 @@ Definition describe prepared path := parts <- parse_path path;;locate 4096 prepa
 Definition accepts description value := match description,value with
  | GraphDescriptor,GraphView _ _ _ _ _ => true
  | TableDescriptor columns,TableView column _ _ => match column with
-   | None=>true|Some id=>existsb(String.eqb id)columns end
+   | None=>true|Some field=>existsb(fun column=>String.eqb field(snd column))columns end
  | _,_=>false end.
 Definition declared prepared entry := match describe prepared (fst entry) with
  | Some description=>accepts description (snd entry)|None=>false end.

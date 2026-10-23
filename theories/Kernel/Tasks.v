@@ -233,9 +233,10 @@ Definition ancestor_capacity (value:world)(ancestor:N):option(N*N):=
 Definition ancestors_fit (parents : list N) (count : N) (value : world) :=
  TaskConstraints.fork_capacities_valid count(map(ancestor_capacity value)parents).
 Definition fork_parent_ready (invoked:bool)(task:task) :=
- (quiescent task || (invoked && match task_lifecycle task with
-  |Running(PendingCalls _)[]|Running(ReadyForHooks _ _ _)[]=>true|_=>false end)) &&
- negb(String.eqb(task_status task)"archived").
+ match task_lifecycle task with
+ |Running phase queued=>quiescent task || (invoked && match phase,queued with
+   |PendingCalls _,[]|ReadyForHooks _ _ _,[]=>true|_,_=>false end)
+ |_=>false end.
 Definition context_selected (selected : workspace) (key : context_key) :=
  match definition_scope (key_definition key) with
  | Global => true

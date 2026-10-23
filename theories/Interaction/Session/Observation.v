@@ -52,9 +52,21 @@ Definition origin_settings source snapshot := match source with
 |Context.ProjectDefaults project=>base<-environment_settings snapshot;;project_settings project base snapshot
 |Context.ParentTask task=>task_settings task snapshot
 |Context.ProjectForParent task project=>base<-task_settings task snapshot;;project_settings project base snapshot end.
+Definition unavailable_origin_reason source snapshot :=
+ let unavailable:="The selected context is no longer available." in
+ let missing_project project:=match project_by_id project snapshot with
+   |None=>"The selected project does not exist"|Some _=>unavailable end in
+ match source with
+ |Context.EnvironmentDefaults=>unavailable
+ |Context.ProjectDefaults project=>missing_project project
+ |Context.ParentTask task=>match DocumentState.find_task task snapshot with
+   |None=>"The parent task no longer exists"|Some _=>unavailable end
+ |Context.ProjectForParent task project=>match DocumentState.find_task task snapshot with
+   |None=>"The parent task no longer exists"|Some _=>missing_project project end
+ end.
 Definition context_preview snapshot (configuration:Context.configuration) : Context.preview :=
  match origin_settings (Context.context_origin configuration) snapshot with
- |None=>Context.ContextUnavailable "The selected context is no longer available."
+ |None=>Context.ContextUnavailable(unavailable_origin_reason(Context.context_origin configuration)snapshot)
  |Some settings=>Context.ProspectiveContext (Context.context_origin configuration)
    (Selvedge.Kernel.Domain.settings_project settings)
    (match Context.workspace_override configuration with
@@ -157,6 +169,16 @@ Definition workspace_for snapshot draft:=match Draft.explicit_workspace draft wi
 |Some workspace=>Some workspace|None=>match draft_context draft with
  |Some configuration=>option_map Selvedge.Kernel.Domain.settings_workspace(origin_settings(Context.context_origin configuration)snapshot)
  |None=>match Draft.owner draft with Identity.Message task=>option_map Selvedge.Kernel.Domain.settings_workspace(task_settings task snapshot)|_=>None end end end.
+Definition workspace_for_edit snapshot draft : string + Selvedge.Kernel.Domain.workspace :=
+ match draft_context draft with
+ |Some configuration=>match context_preview snapshot configuration with
+   |Context.ContextUnavailable reason=>inl reason
+   |Context.ProspectiveContext _ _ workspace _ _ _=>inr(match workspace with
+     |Context.InheritedWorkspace value|Context.EnteredWorkspace value=>value end)
+   end
+ |None=>match workspace_for snapshot draft with
+   |Some workspace=>inr workspace|None=>inl "The working directories have not been observed." end
+ end.
 Definition worktree_observation snapshot state (draft:Draft.draft):option(resource(editor*string)bool):=
  let observation:=Services.workspace_git(State.service_state state)in
  match bind(workspace_for snapshot draft)Selvedge.Kernel.Domain.workspace_primary,resource_request observation with

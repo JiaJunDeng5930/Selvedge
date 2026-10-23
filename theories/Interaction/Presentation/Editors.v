@@ -189,4 +189,5 @@ Definition editor_view snapshot s e parent :=
   Node parent "editor"(editor_title e)Roles.Section(ActionUnit e unit)
    (dialog_body parent body::
     [dialog_actions parent
-      [Node(part parent "submit")"submit"(control_label submit)Roles.PrimaryButton(ActionCommit e assessment submit)[]]])].
+      [Node(part parent "submit")"submit"(control_label submit)
+        (Composer.commit_role unit(draft_feedback(Session.current_draft s e)))(ActionCommit e assessment submit)[]]])].

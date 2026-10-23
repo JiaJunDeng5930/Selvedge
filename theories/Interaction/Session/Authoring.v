@@ -398,9 +398,9 @@ Definition change_workspace snapshot owner change state:=
   |Some configuration=>let configuration:=Values.with_context_workspace None configuration in
     keep(SS.save_draft(Draft.with_body(Values.with_configuration configuration(Draft.contents draft))draft)state)
   |None=>fail state "The committed workspace cannot be inherited again."end
- |change=>match SO.workspace_for snapshot draft with
-  |None=>fail state "The working directories have not been observed."
-  |Some workspace=>let roots:=Selvedge.Kernel.Domain.workspace_roots workspace in
+ |change=>match SO.workspace_for_edit snapshot draft with
+  |inl reason=>fail state reason
+  |inr workspace=>let roots:=Selvedge.Kernel.Domain.workspace_roots workspace in
    let incoming:=match change with
     |Input.AddDirectory path=>JArray(map JString(if existsb(String.eqb path)roots then roots else roots++[path]))
     |Input.RemoveDirectory path=>JArray(map JString(filter(fun root=>negb(String.eqb path root))roots))

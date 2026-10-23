@@ -24,12 +24,8 @@ Definition global_navigation compact s :=
  let current:=State.location(State.navigation_state s) in
  region "/workspace" "global-navigation" "Global navigation" (Roles.GlobalNavigation compact)
   (List.app(map(destination_node compact current "/global-navigation")destinations)
-   (List.app
     [declared "/global-navigation" (Roles.GlobalNavigationEntry false compact)
-     (secondary "settings/open" "Settings" (Input.ServiceInput Services.OpenSettings))]
-    (if compact || State.desktop_task_list_visible(State.navigation_state s) then [] else
-     [declared "/global-navigation" (Roles.GlobalNavigationEntry false compact)
-       (secondary "tasks/expand" "Expand Task sidebar" (Input.TaskListVisible true))]))).
+     (secondary "settings/open" "Settings" (Input.ServiceInput Services.OpenSettings))]).
 Definition work_tab active (work:option N) label :=
  declared "/work-tabs" (Roles.WorkTab(same_id active work))
   (secondary (Identity.work_key work) label(Input.SelectWork work)).
@@ -162,12 +158,14 @@ Definition navigation_base snapshot s capacity :=
  let expanded:=SessionNavigation.expanded_for(navigation_beside_content capacity)s in
  if navigation_beside_content capacity then
   List.app [global_navigation false s;work_tabs snapshot s]
-    (if expanded then [desktop_task_navigation snapshot s true] else [])
+    (if expanded then [desktop_task_navigation snapshot s true] else
+      [declared "/navigation" Roles.Button
+       (secondary "toggle" "Expand Task sidebar" (Input.TaskListVisible true))])
  else if expanded then[]else[compact_header snapshot s].
 Definition navigation_layers snapshot s capacity :=
  if navigation_beside_content capacity || negb(SessionNavigation.expanded_for false s)then[]else
  [Node "/navigation/modal" "task-navigation" "Task tree" Roles.Dialog
-  (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
+  (NavigationRegion TasksDrawer(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
     "/navigation"(part "/compact-header" "tasks")"/main"(part "/compact-header" "tasks") (Input.NavigationExpanded false) true true))
   [dialog_header "/navigation/modal" [compact_header snapshot s];
    dialog_body "/navigation/modal" [task_navigation snapshot s true]]].

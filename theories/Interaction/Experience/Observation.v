@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema TextJson.
 From Selvedge.Kernel Require Domain Codec ModelCapabilities WorkspaceBackend Tasks Workspace TaskConstraints.
-From Selvedge.Features Require Domain BoardParameters Board Work Titles.
+From Selvedge.Features Require Domain BoardParameters Board Work Titles TaskGraph.
 From Selvedge.Interaction Require Import Codec Identity Context Resource Services CommandAssessment DocumentState ModelSelection.
 From Selvedge.Interaction.Session Require Draft State Observation Initialize.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
@@ -89,7 +89,7 @@ Definition sandbox_label sandbox:=match Selvedge.Kernel.Domain.sandbox_access sa
 |Selvedge.Kernel.Domain.ReadOnly=>"Read only"|Selvedge.Kernel.Domain.WorkspaceWrite=>"Workspace write"end.
 Definition network_label sandbox:=if Selvedge.Kernel.Domain.sandbox_network sandbox then "Network allowed"else "Network restricted".
 Definition approval_caption approval:=match approval with
-|Selvedge.Kernel.Domain.FullAccess=>"Unrestricted"|Selvedge.Kernel.Domain.AskForApproval=>"Ask for approval"
+|Selvedge.Kernel.Domain.FullAccess=>"Full access"|Selvedge.Kernel.Domain.AskForApproval=>"Ask"
 |Selvedge.Kernel.Domain.ReviewWith _=>"Automatic review"end.
 Definition resolve_approval snapshot value:=match value with
 |Context.InheritedApproval approval=>Some approval
@@ -138,20 +138,19 @@ Definition context_information snapshot {e}(subject:Model.subject e) project wor
      (match project_revision snapshot id with
       |Some revision=>Some(SummaryValue subject(Model.TextValue("Revision: "++revision)))
       |None=>None end)
-   |None=>UnavailableInformation "The selected project is no longer available."end end
+   |None=>RequiredAbsence "Choose an available project"end end
  |Fields.WorkspaceDirectories|Fields.WorkspacePrimary=>workspace_information subject workspace inherited
  |Fields.SandboxMode=>present(NamedChoice(sandbox_label sandbox)(network_label sandbox))
  |Fields.NetworkAccess=>present(Model.TextValue(network_label sandbox))
  |Fields.ApprovalReviewer=>match approval with
   |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>present(NamedChoice(profile_label reviewer)"Reviewing model")
   |Some _=>NotApplicable "A reviewing model is used only for automatic review."
-  |None=>RequiredAbsence(match unavailable_reviewer with
-    |Some key=>"Automatic review unavailable: "++key
-    |None=>"Select an available reviewing model."end)end
+  |None=>RequiredAbsence "Choose an available reviewing model"end
  |Fields.ApprovalPolicy=>match approval with
-  |None=>InvalidInformation(match unavailable_reviewer with
-    |Some key=>"Automatic review unavailable: "++key
-    |None=>"The selected reviewing model is not available for automatic review."end)
+  |None=>match unavailable_reviewer with
+    |Some _=>PresentInformation(SummaryValue subject(Model.TextValue "Automatic review"))
+      (related_summary(e:=e)Fields.SandboxMode(Model.TextValue(sandbox_label sandbox)))
+    |None=>InvalidInformation "The selected reviewing model is not available for automatic review."end
   |Some policy=>PresentInformation(SummaryValue subject(Model.TextValue(approval_caption policy)))
    (match policy with
    |Selvedge.Kernel.Domain.FullAccess=>None
@@ -162,15 +161,17 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  match value with
  |Fields.TextValue text=>if String.eqb text ""then OptionalAbsence else present(Model.TextValue text)
  |Fields.ModelValue key effort=>match profile_for_subject snapshot subject key with
-  |None=>UnavailableInformation(String.append "Missing model "
-    (String.append key(String.append " · Reasoning: " effort)))
+  |None=>match subject_declaration subject with
+    |Fields.ModelProfile=>RequiredAbsence "Choose a configured model"
+    |_=>UnavailableInformation "Choose a configured model before inspecting its parameters"end
   |Some profile=>if ModelSelection.permitted_profile profile effort then
     match subject_declaration subject with
     |Fields.ReasoningEffort=>present(Model.TextValue effort)
     |_=>PresentInformation(SummaryValue subject(NamedChoice(profile_label profile)"Model"))
       (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort))end
-    else InvalidInformation(String.append "Reasoning effort "
-      (String.append effort(String.append " is not available for model " key)))end
+    else match subject_declaration subject with
+      |Fields.ReasoningEffort=>RequiredAbsence "Choose an allowed reasoning effort"
+      |_=>present(NamedChoice(profile_label profile)"Model")end end
  |Fields.WorkspaceValue workspace=>workspace_information subject workspace false
  |Fields.ContextValue(Context.ContextUnavailable reason)_=>UnavailableInformation reason
  |Fields.ContextValue(Context.ProspectiveContext _ project workspace sandbox approval _)_=>
@@ -183,7 +184,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
    (Selvedge.Kernel.Domain.settings_sandbox settings)(Some(Selvedge.Kernel.Domain.settings_approval settings))None
  |Fields.DeliveryValue intent=>present(NamedChoice(match intent with Fields.Send=>"Send"|Fields.Steer=>"Steer"end)"")
  |Fields.ProjectValue None=>OptionalAbsence
- |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>UnavailableInformation "The selected project is no longer available."end
+ |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with Some name=>present(NamedReference id name)|None=>RequiredAbsence "Choose an available project"end
  |Fields.ToggleValue value=>present(Model.TextValue(if value then "Yes"else "No"))
  |Fields.CountValue count=>present(Model.TextValue(show_natural count))
  |Fields.TextsValue values=>present(Model.TextValue(String.concat ", " values))
@@ -260,13 +261,33 @@ Definition property_help_text snapshot state {e}(property:property e):string:=
     |None=>value end)
  |PermissionsProperty=>let effects:=match permission_observation snapshot(observe_subject snapshot state(property_subject property))with
    |Some(sandbox,approval)=>String.concat " · "(map snd(permission_effects sandbox approval))
-   |None=>value++detail end in
+   |None=>value++detail++match observe_subject snapshot state(property_subject property)with
+     |Fields.ContextValue(Context.ProspectiveContext _ _ _ _ approval _)_=>
+       match unavailable_reviewer_key snapshot approval with
+       |Some key=>" · Automatic review unavailable: "++key|None=>""end
+     |_=>""end end in
    "Permissions: "++value++" · "++effects++String(Ascii.ascii_of_nat 10)source
  |_=>property_label property++": "++value++detail end.
+Definition recognition_information snapshot {e}(subject:Model.subject e)(value:Fields.observed):information e:=
+ let missing_project id:=PresentInformation
+   (SummaryValue subject(Model.TextValue("Missing project "++show_natural id)))None in
+ match value with
+ |Fields.ModelValue key effort=>PresentInformation
+   (SummaryValue subject(Model.TextValue(match profile_for_subject snapshot subject key with
+    |Some profile=>profile_label profile|None=>"Missing model "++key end)))
+   (related_summary(e:=e)Fields.ReasoningEffort(Model.TextValue effort))
+ |Fields.ProjectValue(Some id)=>match Session.Observation.project_name id snapshot with
+   |None=>missing_project id|Some _=>information_of snapshot subject value end
+ |Fields.ContextValue(Context.ProspectiveContext _ (Some id) _ _ _ _)_=>
+   match subject_declaration subject with Fields.ContextOrigin=>
+    match Session.Observation.project_name id snapshot with
+    |None=>missing_project id|Some _=>information_of snapshot subject value end
+   |_=>information_of snapshot subject value end
+ |_=>information_of snapshot subject value end.
 Definition observe_property snapshot state e kind:option(property e):=
  subject<-Model.admit_subject e(Parameters.name(property_field kind));;
  let members:=subjects_for e(property_members_fields kind)in
- let information:=information_of snapshot subject(observe_subject snapshot state subject)in
+ let information:=recognition_information snapshot subject(observe_subject snapshot state subject)in
  let property:=Property kind subject members information ""in
  Some(Property kind subject members information(property_help_text snapshot state property)).
 Open Scope list_scope.
@@ -316,9 +337,9 @@ Definition failed_requirement e (valid:bool) field code reason:list(obstruction 
  if valid then []else [requirement_obstruction e field code reason].
 Definition model_requirements snapshot e profile effort:list(obstruction e):=
  match ModelSelection.observed_profile snapshot profile with
- |None=>[requirement_obstruction e(Some Fields.ModelProfile)"model_not_found" Tasks.profile_required_message]
+ |None=>[requirement_obstruction e(Some Fields.ModelProfile)"model_not_found" "Choose a configured model"]
  |Some value=>failed_requirement e(ModelSelection.permitted_profile value effort)
-   (Some Fields.ReasoningEffort)"invalid_reasoning" Tasks.invalid_reasoning_message end.
+   (Some Fields.ReasoningEffort)"invalid_reasoning" "Choose an allowed reasoning effort" end.
 Definition text_has_content value:=Tasks.content_nonempty
  (Domain.TextPart(Draft.text_value value)::map(fun image=>Domain.ImagePart
   (Domain.ImageAsset(Selvedge.Features.Domain.attachment_id image)
@@ -364,7 +385,12 @@ Definition body_requirements snapshot e (body:Draft.body):list(obstruction e):=
  |Draft.ForkBody task count messages _=>fork_requirements snapshot e task count messages
  |Draft.TaskGraphBody _ _ parsed _=>failed_requirement e
    (match parsed with None=>false|Some _=>match Command.command_json None body with Some value=>
-     match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with Some _=>true|None=>false end|None=>false end end)
+     match Schema.decode_command Selvedge.Kernel.Commands.command_specs value with
+     |Some _=>match string_field "name" value,array_field "nodes" value,array_field "rules" value with
+       |Some name,Some nodes,Some rules=>match traverse TaskGraph.parse_node nodes,traverse TaskGraph.parse_rule rules with
+         |Some nodes,Some rules=>TaskGraph.valid_declaration name nodes rules|_,_=>false end
+       |_,_,_=>false end
+     |None=>false end|None=>false end end)
    (Some Fields.TaskGraphDeclaration)"invalid_task_graph_declaration" "Enter a valid task graph declaration."
  |Draft.TitlePromptsBody _ task agent=>
    failed_requirement e(Titles.valid_instructions task)(Some Fields.TaskTitlePrompt)"invalid_task_title_prompt" "请输入非空提示词，最多 4096 UTF-8 字节"++
@@ -826,9 +852,8 @@ Definition expression_kind_for {e}(property:property e)(coverage:coverage e)(sub
 Definition obstruction_matches_subject {e}(subject:subject e)(obstruction:obstruction e):bool:=
  match obstruction_target obstruction with RepairField target=>same_subject target subject|RepairEditor=>false end.
 Definition field_obstruction {e}(subject:subject e)(outcome:assessment_result e):option string:=
- match attention_obstruction outcome with
- |Some obstruction=>if obstruction_matches_subject subject obstruction then Some(obstruction_message obstruction)else None
- |None=>None end.
+ option_map obstruction_message(find(fun obstruction=>negb(passive_obstruction obstruction)&&
+   obstruction_matches_subject subject obstruction)(assessment_obstructions outcome)).
 Definition property_obstruction {e}(property:property e)(outcome:assessment_result e):option(obstruction e):=
  match attention_obstruction outcome with
  |Some cause=>match obstruction_target cause with

@@ -7,6 +7,15 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
+Theorem actual_fork_parent_is_running invoked parent:
+ Tasks.fork_parent_ready invoked parent=true ->
+ exists phase queued,task_lifecycle parent=Running phase queued.
+Proof.
+ unfold Tasks.fork_parent_ready.
+ destruct(task_lifecycle parent)eqn:Lifecycle;try discriminate.
+ intros _. eauto.
+Qed.
+
 Theorem actual_fork_rejects_observed_ancestor_capacity invoked id count messages requested value parent:
  find_task id value=Some parent ->
  TaskConstraints.fork_capacities_valid count
@@ -176,11 +185,7 @@ Qed.
 
 Theorem invoked_fork_rejects_unpermitted_settings : forall id count messages requested value parent selected,
  find_task id value = Some parent ->
- ((Tasks.quiescent parent ||
-    (true && match task_lifecycle parent with
-     | Running (PendingCalls _) [] | Running (ReadyForHooks _ _ _) [] => true
-     | _ => false end)) &&
-   negb (String.eqb (task_status parent) "archived") &&
+ (Tasks.fork_parent_ready true parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count value) = true ->
@@ -192,7 +197,7 @@ Theorem invoked_fork_rejects_unpermitted_settings : forall id count messages req
      "Task tools cannot expand the caller's workspace, sandbox or approval authority" value.
 Proof.
  intros id count messages requested value parent selected Hfind Heligible Hresolved Hdelegate.
- unfold Tasks.fork_with_caller,Tasks.fork_parent_ready. rewrite Hfind, Heligible, Hresolved.
+ unfold Tasks.fork_with_caller. rewrite Hfind, Heligible, Hresolved.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 

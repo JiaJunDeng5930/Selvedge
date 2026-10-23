@@ -53,9 +53,13 @@ Arguments column_heading {Action}.
 Arguments column_sort {Action}.
 Arguments column_enabled {Action}.
 Arguments column_order {Action}.
+Record table_row := TableRow {
+ row_identity:string;
+ row_values:list string
+}.
 Record table (Action:Type) := DataTable {
  table_caption:string; table_columns:list(table_column Action);
- table_rows:list(list string)
+ table_rows:list table_row
 }.
 Arguments DataTable {Action}.
 Arguments table_caption {Action}.

@@ -28,7 +28,9 @@ Definition creation_page snapshot s parent :=
  [page_region parent Composition.CreationIntroduction Composition.BodyPosition
    [information parent "creation/title" Information.IntroductionTitle(creation_heading snapshot s e)];
   page_region parent Composition.ComposerInput Composition.BodyPosition
-   ((match properties with []=>[]|_=>[region parent "creation-context" "Task context"Roles.Toolbar
+   ((match properties with []=>[]|_=>[Node(part parent(part "region" "creation-context"))
+     "creation-context" "Task context" Roles.Toolbar
+     (PageRegion Composition.CreationContext Composition.BodyPosition)
      (Editors.property_controls snapshot s e parent properties)]end)++
     match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)%list].
 Definition approval_availability value:=match ObjectActions.action_status value with

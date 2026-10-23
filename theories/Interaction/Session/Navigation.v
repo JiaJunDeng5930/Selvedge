@@ -240,7 +240,7 @@ Definition edit_search query project work state:=match State.location(State.navi
 Definition submit_search after state:=match State.location(State.navigation_state state)with
  |HistorySearch=>let search:=State.history_search(State.authoring_state state)in
  let ticket:=State.next(State.authoring_state state)in
- let state:=set_search(set State.search_latest(fun _=>Some ticket)search)state in
+ let state:=set_search(State.Search(State.keyword search)(State.project_filter search)(State.work_filter search)None(Some ticket))state in
  generated(Commands.Cmd_search_history(Commands.Build_search_history(State.keyword search)(State.project_filter search)(State.work_filter search)(Some after)(Some 20%N)))
  (State.SearchSubmission(State.keyword search)(State.project_filter search)(State.work_filter search)ticket)state
  |_=>keep state end.

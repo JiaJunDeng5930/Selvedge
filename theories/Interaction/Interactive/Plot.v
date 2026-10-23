@@ -57,6 +57,8 @@ Fixpoint bar_path (width:nat) (points:list(string*string)) :string :=
 Definition bar_width (count:nat) := Nat.min 20 (Nat.max 1 (Nat.div 320 (Nat.max 1 count))).
 Definition chart_rows p:=firstn Bounds.chart_points(property_array "data"p).
 Definition chart p : outcome(plot input):=
+ if negb(valid_field_path(property_text "x" p)&&valid_field_path(property_text "y" p))
+ then Error "Chart x and y require nonempty field paths" else
  points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
  x_domain <-? magnitude (fun p=>match p.(x_number) with Some x=>Decimal.units x|None=>0 end) points;;
  y_domain <-? magnitude (fun p=>Decimal.units p.(y_number)) points;;

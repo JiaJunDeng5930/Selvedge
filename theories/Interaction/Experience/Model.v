@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Domain.
 From Selvedge.Interaction Require Import Identity.
@@ -56,12 +56,23 @@ Inductive readable_value := TextValue (text : string)
 | NamedReference (identity : N) (name : string)
 | WorkspaceValue (paths : list string) (primary : option string) (inherited : bool)
 | NamedChoice (name explanation : string).
+Fixpoint directory_basename_from (path : string) (previous segment : string)
+  {struct path} : string :=
+  match path with
+  | EmptyString => if String.eqb segment "" then previous else segment
+  | String character rest =>
+    if Ascii.eqb character "/"%char then
+      directory_basename_from rest
+        (if String.eqb segment "" then previous else segment) ""
+    else directory_basename_from rest previous (segment ++ String character "")
+  end.
+(** A workspace caption uses its last nonempty segment; a root path keeps its
+    original spelling when it has no named segment. *)
+Definition directory_basename path := directory_basename_from path path "".
 Definition readable_text value := match value with
 | TextValue text => text | NamedReference _ name => name | NamedChoice name _ => name
-| WorkspaceValue _ (Some primary) _ => primary
-| WorkspaceValue [] None true => "Inherited workspace"
-| WorkspaceValue [] None false => "No workspace directories"
-| WorkspaceValue paths None _ => String.concat ", " paths end.
+| WorkspaceValue _ (Some primary) _ => directory_basename primary
+| WorkspaceValue _ None _ => "No directory" end.
 Record summary_value (e : editor) := SummaryValue {
   summary_subject : subject e;
   summary_observation : readable_value

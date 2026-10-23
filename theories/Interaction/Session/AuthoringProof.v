@@ -5,6 +5,21 @@ From Selvedge.Interaction.Session Require Draft State Authoring Observation.
 From Selvedge.Interaction.Submission Require Command.
 Module SS:=Selvedge.Interaction.Session.State.
 
+Theorem unavailable_context_rejects_directory_edits snapshot owner change state configuration reason:
+ Selvedge.Interaction.Submission.Parameters.editable owner
+   Selvedge.Interaction.Submission.Fields.WorkspaceDirectories=true ->
+ change<>Selvedge.Interaction.Input.InheritWorkspace ->
+ Observation.draft_context(SS.current_draft state owner)=Some configuration ->
+ Observation.context_preview snapshot configuration=
+   Selvedge.Interaction.Context.ContextUnavailable reason ->
+ Authoring.change_workspace snapshot owner change state=Authoring.fail state reason.
+Proof.
+ intros Editable Edit Configuration Preview.
+ unfold Authoring.change_workspace. rewrite Editable.
+ destruct change;try contradiction;
+ unfold Observation.workspace_for_edit;rewrite Configuration,Preview;reflexivity.
+Qed.
+
 Theorem completed_directory_observation_retains_the_captured_request
  snapshot ticket raw state request workspace guidance:
  find(fun resource=>match resource with Resource.Loading actual _=>N.eqb ticket actual|_=>false end)
