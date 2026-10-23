@@ -73,9 +73,9 @@ Definition member_width_properties env : list (string * string) :=
   [("max-inline-size",Typography.px (Layout.activity_primary_advance (Layout.parameters env) * 44))].
 Definition field_width_properties env : list (string * string) :=
   let advance := Layout.activity_primary_advance (Layout.parameters env) in
-  [("min-inline-size",Typography.px (advance * 32));
-   ("max-inline-size",Typography.px (advance * 64));
-   ("field-sizing","content");("inline-size","fit-content");("align-self","flex-start")].
+  [("inline-size",Typography.px (advance * 32));
+   ("min-inline-size","0");("max-inline-size","100%");
+   ("field-sizing","content");("align-self","flex-start")].
 Definition supporting_properties env :=
   Typography.properties (Layout.root_font_size_milli env) Typography.ActivitySupport Typography.Regular ++
   [("color",Appearance.secondary_text)].

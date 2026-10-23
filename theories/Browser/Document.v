@@ -227,7 +227,7 @@ Definition label_field env activity key label (beside:bool) (field:DOM.node) :=
  DOM.Element (String.append key "/field-wrapper") (if beside then "label"else"div") []
  (Layout.member_properties env activity false ++[("display","flex");
  ("flex-direction",if beside then "row"else"column");
- ("inline-size",if beside then "100%"else"fit-content");("max-inline-size","100%")]) [] empty
+ ("inline-size","100%");("max-inline-size","100%")]) [] empty
  [DOM.Element (String.append key "/field-label") "span" []
  (NativeAppearance.information_properties env activity Information.FieldLabel) [] empty [DOM.Text label];field].
 Definition graphic_tone color := ("var(--color-token-" ++ match color with
