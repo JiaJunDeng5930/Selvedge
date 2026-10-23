@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec OutputClassification.
+From Selvedge.Kernel Require Import Domain Codec.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -10,21 +10,8 @@ Definition provider_assistant (value : json) :=
  match string_field "role" (provider_value value) with Some "assistant" => true | _ => false end.
 Definition provider_assistant_message (value : json) :=
  String.eqb (text_default "type" (provider_value value) "") "message" && provider_assistant value.
-Definition provider_markdown_fences (value : json) : option (list json) :=
- match string_field "type" value, array_field "markdown_fences" value with
- | Some "provider_receipt", Some fences => Some fences
- | _,_ => None
- end.
-Definition has_interactive_markdown_fence (fences : list json) :=
- existsb OutputClassification.interactive_markdown_fence_observation fences.
 Definition context_output_mode (value : json) (mode : output_mode) :=
- if provider_assistant_message value then
-   match provider_markdown_fences value with
-   | Some fences => if has_interactive_markdown_fence fences
-       then mode else PlainOutput
-   | None => mode
-   end
- else PlainOutput.
+  if provider_assistant_message value then mode else PlainOutput.
 Definition provider_part_text (value : json) :=
  match string_field "type" value with
  | Some "output_text" | Some "summary_text" => text_default "text" value ""

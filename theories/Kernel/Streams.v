@@ -58,10 +58,7 @@ Definition step (limits : configuration) (notice : event) (streams : state) : st
   | Snapshot key index text => update false limits key index text streams
   | Restore restored =>
     if limits.(restore_enabled) then
-      let restored := normalized_state restored in
-      (* DEFENSE: A reconnect can carry an unbounded host stream; restoration must obey the browser's existing text/part limits. *)
-      if negb limits.(bounded) || forallb (fun entry => parts_within_budget entry.(stream_parts)) restored
-      then (restored,true) else (streams,false)
+      (normalized_state restored,true)
     else (streams,false)
   | Ignore => (streams,false)
   end.

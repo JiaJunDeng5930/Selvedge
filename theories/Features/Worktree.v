@@ -182,8 +182,8 @@ Definition command (command:Selvedge.Generated.Commands.command) (caller:option 
    (fun contents=>create (Selvedge.Generated.Commands.create_worktree_task_profile p) (Selvedge.Generated.Commands.create_worktree_task_reasoning p) contents (Selvedge.Generated.Commands.create_worktree_task_settings p) caller true value) value)
  | Selvedge.Generated.Commands.Cmd_create_work_task p=>Some (Work.create_owned (Selvedge.Generated.Commands.create_work_task_work_id p)
    (fun current=>CommandExecution.with_content (Selvedge.Generated.Commands.create_work_task_message p) (Selvedge.Generated.Commands.create_work_task_images p)
-   (fun contents=>create (Selvedge.Generated.Commands.create_work_task_profile p) (Selvedge.Generated.Commands.create_work_task_reasoning p) contents (Selvedge.Generated.Commands.create_work_task_settings p) caller
-   (match Selvedge.Generated.Commands.create_work_task_create_worktree p with Some enabled=>enabled | None=>false end) current) current) value)
+   (fun contents=>create_selected (Selvedge.Generated.Commands.create_work_task_profile p) (Selvedge.Generated.Commands.create_work_task_reasoning p) contents (Selvedge.Generated.Commands.create_work_task_settings p) false caller
+   (Selvedge.Generated.Commands.create_work_task_create_worktree p) current) current) value)
  | Selvedge.Generated.Commands.Cmd_retry_worktree_archive p=>Some (retry (Selvedge.Generated.Commands.retry_worktree_archive_task_id p) value)
  | _=>None end.
 Definition selected_workspace (target:string) (space:workspace) := match workspace_primary space with

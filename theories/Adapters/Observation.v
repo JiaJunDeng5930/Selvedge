@@ -83,7 +83,7 @@ Definition optional_text (value : json) := negb (defined value) || nonempty valu
 Definition optional_strings (value : json) := negb (defined value) || observed_strings value.
 Definition environment (value : json) :=
   negb (defined value) || (kind value "object" && forallb (fun entry =>
-    variable (get entry "key") && kind (get entry "value") "string") (items (get value "fields"))).
+    kind (get entry "key") "string" && kind (get entry "value") "string") (items (get value "fields"))).
 Definition same_units (left right : json) :=
   kind left "string" && kind right "string" &&
     let a := items (get left "units") in let b := items (get right "units") in

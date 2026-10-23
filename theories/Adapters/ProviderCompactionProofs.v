@@ -67,20 +67,22 @@ Proof.
    + right;rewrite Lencrypted;apply orb_true_l.
 Qed.
 
-Theorem public_chatgpt_image_estimate_excludes_encrypted_continuations : forall source,
+Theorem public_chatgpt_image_requests_use_the_complete_request_estimate : forall source,
   is_object (get source "request") = true ->
   str (get source "profile") "provider" = "chatgpt" ->
-  encrypted_content_present (classify_content (get source "request")) = false ->
   0 < image_count (classify_content (get source "request")) ->
-  str (get (Api.call "backend.compaction_measurement_plan" source) "value") "tokenizer" =
-    "codex_image_estimate".
+  Api.call "backend.compaction_measurement_plan" source =
+    success (JObject [("action",JString "local"); ("scope",get source "scope");
+      ("input_tokens",number (N.of_nat (String.length (TextJson.render_json (get source "request"))) +
+        1844 * image_count (classify_content (get source "request"))));
+      ("tokenizer",JString "codex_image_estimate")]).
 Proof.
- intros source request_object chatgpt no_encrypted images.
- change (str (get (measurement_plan source) "value") "tokenizer" = "codex_image_estimate");
- unfold measurement_plan;rewrite request_object,chatgpt.
+ intros source request_object chatgpt images.
+ change (Api.call "backend.compaction_measurement_plan" source) with (measurement_plan source).
+ unfold measurement_plan; rewrite request_object,chatgpt.
  assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
-   by (apply N.ltb_lt;exact images).
- rewrite has_images,no_encrypted;reflexivity.
+   by (apply N.ltb_lt; exact images).
+ rewrite has_images; reflexivity.
 Qed.
 Theorem complete_request_classification_is_consistent : forall value,
   content_consistent (classify_content value).
@@ -117,21 +119,4 @@ Proof.
  intros source encrypted;apply public_opaque_requests_never_use_textual_fallback.
  destruct (complete_request_encrypted_continuation_is_opaque (get source "request")) as [absent|opaque];
    [rewrite encrypted in absent;discriminate|exact opaque].
-Qed.
-
-Theorem public_encrypted_chatgpt_image_requests_are_metered : forall source,
-  is_object (get source "request") = true ->
-  str (get source "profile") "provider" = "chatgpt" ->
-  encrypted_content_present (classify_content (get source "request")) = true ->
-  0 < image_count (classify_content (get source "request")) ->
-  N.leb (num source "bytes") 33554432 = true ->
-  Api.call "backend.compaction_measurement_plan" source =
-    success (JObject [("action",JString "remote")]).
-Proof.
- intros source request_object chatgpt encrypted images within_frame.
- change (measurement_plan source = success (JObject [("action",JString "remote")]));
- unfold measurement_plan;rewrite request_object,chatgpt.
- assert (has_images : N.ltb 0 (image_count (classify_content (get source "request"))) = true)
-   by (apply N.ltb_lt;exact images).
- rewrite has_images,encrypted,within_frame;reflexivity.
 Qed.

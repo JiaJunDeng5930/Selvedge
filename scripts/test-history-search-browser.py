@@ -102,8 +102,9 @@ def main():
                     expect(page.get_by_role('button', name=other, exact=True).filter(visible=True)).to_have_count(0)
                 page.screenshot(path=str(screenshots / 'search-results.png'), full_page=False)
                 result.click()
-                anchor = page.locator('[data-reading-anchor="task/' + str(target['task_id']) +
-                                      '/history/' + str(target['message_index']) + '"]').filter(visible=True)
+                anchor = page.locator('[data-reading-root][data-task-id="' + str(target['task_id']) +
+                                      '"] [data-reading-anchor][data-logical-key="message/' +
+                                      str(target['message_index']) + '"]').filter(visible=True)
                 expect(anchor).to_contain_text(marker)
                 expect(anchor).to_be_in_viewport(ratio=.25)
                 page.screenshot(path=str(screenshots / 'original-message.png'), full_page=False)

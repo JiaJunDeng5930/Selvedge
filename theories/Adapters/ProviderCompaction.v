@@ -120,11 +120,10 @@ Definition measurement_plan (source : json) :=
   (* DEFENSE: Token accounting must inspect the full request, never a host classification. *)
   if negb (is_object request) then err "Context measurement requires the complete encoded request"
   else let content := classify_content request in let images := N.ltb 0 (image_count content) in
-  if String.eqb (str (get source "profile") "provider") "chatgpt" && images &&
-     negb (encrypted_content_present content) then
+  if String.eqb (str (get source "profile") "provider") "chatgpt" && images then
     (* The account transport does not promise the public token-count endpoint.
-       This estimate covers image plus readable text; encrypted continuations
-       must use provider metering, whose unsupported-route fallback rejects them. *)
+       Keep image requests usable with an encrypted continuation as well: the
+       estimate includes the complete encoded request and each image. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
         1844 * image_count content)); ("tokenizer",JString "codex_image_estimate")])

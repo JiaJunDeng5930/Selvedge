@@ -338,10 +338,10 @@ Proof.
  destruct (N.eqb source (origin_producer origin)); reflexivity.
 Qed.
 
-Theorem observed_provider_text_is_routed_through_the_plain_output_path :
+Theorem observed_provider_text_retains_its_requested_mode_and_is_routed :
  forall before source task ticket part text,
  K.find_task source before=Some task -> String.eqb text ""=false ->
- TaskGraph.seen_origin (OutputOrigin source ticket part PlainOutput) task=false ->
+ TaskGraph.seen_origin (OutputOrigin source ticket part InteractiveOutput) task=false ->
  TaskGraph.new_outputs before source
    (append_history
      (Callbacks.item_messages source ticket InteractiveOutput
@@ -350,14 +350,12 @@ Proof.
  intros before source task ticket part text Found Nonempty Fresh.
  assert (Message : Callbacks.item_messages source ticket InteractiveOutput
    [ContextItem part (observed_provider_reply text)] =
-   [ModelContext (OutputOrigin source ticket part PlainOutput) (observed_provider_reply text)]).
+   [ModelContext (OutputOrigin source ticket part InteractiveOutput) (observed_provider_reply text)]).
  { unfold Callbacks.item_messages; cbn [List.map].
    unfold Conversation.context_output_mode.
    assert (Assistant : Conversation.provider_assistant_message (observed_provider_reply text)=true)
      by (cbn [Conversation.provider_assistant_message Conversation.provider_value Conversation.provider_assistant]; reflexivity).
-   assert (Observations : Conversation.provider_markdown_fences (observed_provider_reply text)=Some [])
-     by reflexivity.
-   rewrite Assistant, Observations. reflexivity.
+   rewrite Assistant. reflexivity.
  }
  rewrite Message.
  eapply fresh_provider_reply_is_observed; try assumption; reflexivity.

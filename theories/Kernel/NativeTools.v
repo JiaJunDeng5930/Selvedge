@@ -42,6 +42,9 @@ Definition public_content_argument (argument : argument_spec) :=
  | Scalar (KOptional (KArray KJson)) =>
    if String.eqb (argument_name argument) "images" then
     Arguments.with_structure (nullable_structure ContentDeclarations.images_schema) argument
+   else if String.eqb (argument_name argument) "messages" then
+    Arguments.with_structure (nullable_structure
+      [("type",JString "array");("items",JObject ContentDeclarations.content_schema)]) argument
    else argument
  | _ => argument
  end.
@@ -76,8 +79,15 @@ Definition connection_field_refinements (name : string) :=
       | ChatgptProtocol.Execute => [("arguments",match ChatgptArguments.args_schema with JObject fields => fields | _ => [] end)]
       | _ => [] end
   | None => [] end.
+Definition project_field_refinements (name : string) :=
+  if String.eqb name "create_project" || String.eqb name "update_project" then
+    [("workspace",if String.eqb name "create_project"
+      then SchemaJson.schema_fields Workspace.workspace_schema
+      else nullable_structure (SchemaJson.schema_fields Workspace.workspace_schema));
+     ("guidance",nullable_structure (SchemaJson.schema_fields Codec.guidance_schema))]
+  else [].
 Definition command_field_refinements (name : string) :=
-  ("settings",public_settings_schema) ::
+  (("settings",public_settings_schema) :: project_field_refinements name) ++
   (if String.eqb name "create_card" || String.eqb name "update_card" then
     [("attachments",attachment_array_schema)] else
   if String.eqb name "configure_title_settings" then
@@ -116,7 +126,7 @@ Definition bindings := [
   CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
   CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
   CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Results include a zero-based message_index; use read_task with after=message_index to read the original message.";
- CommandBinding "read_task" "read" None "Read a bounded page of a task's original history.";
+ CommandBinding "read_task" "read" None "Read a task's identity, lifecycle, available controls and a bounded page of its original history.";
  CommandBinding "read_current_task" "read" (Some "task_id") "Read this task's identity, lifecycle and Work ownership.";
   CommandBinding "send_message_to_task" "send" None "Commit a user message to another task, or queue it while that task is busy or frozen.";
  CommandBinding "archive_task" "archive" None "Permanently archive a task and cancel its work.";

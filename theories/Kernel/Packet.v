@@ -51,7 +51,6 @@ Definition core_transition (source : input) (value : world) :=
    (Selvedge.Features.Runtime.reconfigure (with_environment environment value)) []
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_transition value
    (Callbacks.context_completed id ticket observations diagnostic value)
- | ModelCompleted id ticket ModelContextLimit => Selvedge.Features.Runtime.after_transition value (Selvedge.Features.Runtime.model_context_limit id ticket value)
  | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
  | ReasoningCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.reasoning_completed id ticket outcome value)
  | ToolCompleted id ticket result error => Selvedge.Features.Runtime.after_transition value (Callbacks.tool_completed id ticket result error value)

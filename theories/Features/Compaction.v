@@ -413,18 +413,6 @@ Definition completion (source : json) (value : Selvedge.Kernel.State.world) : op
      | None => (true,true,acknowledged false value [])
      | Some result => (true,true,result) end end) else None
  | None => None end.
-Definition model_context_limit (id ticket : N) (value : Selvedge.Kernel.State.world) :=
- match Selvedge.Kernel.State.find_task id value with
- | Some task => match task_lifecycle task with
-   | Running (AskingModel expected _ _) _ => if N.eqb ticket expected then
-     let task := with_activity ReadyForModel task in
-     let entry := current_entry id (registry value) in
-     let scope := match entry_measurement entry with Measured _ scope _ _ | Oversized _ scope _ => scope | _ => "" end in
-     force_portable id task scope entry (Selvedge.Kernel.State.put_task id task value)
-     else acknowledged false value []
-   | _ => acknowledged false value [] end
- | None => acknowledged false value [] end.
-
 Definition prepare_model_effects (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  map (fun effect => match effect with
  | Selvedge.Kernel.State.RequestModel id ticket model task fallback_scope fallback_reserve =>

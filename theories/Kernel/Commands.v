@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Arguments.
+From Selvedge.Foundation Require Import Json Schema Arguments JsonSchema.
 From Selvedge.Kernel Require Import WorkspaceBackend Pagination.
 Import ListNotations.
 Open Scope string_scope.
@@ -109,25 +109,43 @@ Definition command_field_description (command field : string) :=
   if String.eqb field "task_id" && String.eqb command "cancel_operation" then
     "Task identifier; omitted to target the calling task." else
   if String.eqb field "task_id" then "Task identifier returned by a task command." else
-  if String.eqb field "child_count" then "Number of child tasks to create, bounded by the configured fork limit." else
+  if String.eqb field "child_count" then "Number of child tasks to create, at least one and bounded by the configured fork limit." else
+  if String.eqb command "fork" && String.eqb field "messages" then
+    "Omit initial input or supply exactly one content value per child." else
+  if String.eqb field "workspace" then
+    "Canonical absolute workspace roots, at most 32; primary_root must belong to roots and defaults to the first root." else
+  if String.eqb field "guidance" then
+    "Primary-workspace guidance snapshot containing workspace, path, revision and instructions." else
+  if String.eqb field "create_worktree" then
+    if String.eqb command "create_project" then
+      "Create a Git worktree for new tasks by default; defaults to false." else
+    if String.eqb command "update_project" then
+      "Create a Git worktree for new tasks by default; omitted retains the current project default." else
+      "Create a Git worktree for this task; omitted uses the selected project's default."
+  else
+  if String.eqb field "session_id" then "Stable upstream speech session identity." else
+  if String.eqb field "item_id" then "Stable upstream speech item identity within the session; reuse it when replaying the same transcript." else
+  if String.eqb field "delegation_id" then "Stable upstream delegation identity within the session; repeating it does not deliver the input again." else
   if String.eqb command "search_history" && String.eqb field "query" then
-    "Literal keyword or phrase to search committed user and assistant messages." else
+    "Literal keyword or phrase to search committed user and assistant messages; 1..240 Unicode scalar values after trimming." else
   if String.eqb command "search_history" && String.eqb field "project_id" then
     "Restrict results to this project." else
   if String.eqb command "search_history" && String.eqb field "work_id" then
     "Restrict results to this Work." else
   if String.eqb command "read" && String.eqb field "after" then
-    "Zero-based offset into the task's retained message history." else
+    "Zero-based offset into the task's retained message history; defaults to 0." else
   if String.eqb command "search_history" && String.eqb field "after" then
-    "Zero-based offset into matching search results." else
+    "Zero-based offset into matching search results; defaults to 0." else
   if String.eqb command "read" && String.eqb field "limit" then
-    "Maximum messages to return." else
+    "Maximum messages to return, from 1 to 100; defaults to 100." else
   if String.eqb command "search_history" && String.eqb field "limit" then
-    "Maximum results to return." else "".
+    "Maximum results to return, from 1 to 50; defaults to 20." else "".
 
 Definition command_argument (command : string) (field : field_spec) :=
   let argument := Arguments.with_description
     (command_field_description command (field_name field)) (Arguments.from_field field) in
+  if String.eqb command "fork" && String.eqb (field_name field) "child_count" then
+    Arguments.with_bounds (1%N, JsonSchema.maximum_natural) argument else
   if String.eqb command "read" && String.eqb (field_name field) "limit" then
     Arguments.with_bounds (1%N, Pagination.history_limit) argument else
   if String.eqb command "search_history" && String.eqb (field_name field) "limit" then

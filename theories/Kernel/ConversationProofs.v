@@ -17,18 +17,17 @@ Proof.
  - apply String.eqb_eq in Kind; contradiction.
  - reflexivity.
 Qed.
-Theorem assistant_messages_without_fence_observations_inherit_the_frozen_output_mode :
+Theorem assistant_messages_inherit_the_frozen_output_mode :
  forall owner ticket part mode value,
  string_field "role" (Conversation.provider_value value) = Some "assistant" ->
  text_default "type" (Conversation.provider_value value) "" = "message" ->
- Conversation.provider_markdown_fences value = None ->
  Callbacks.item_messages owner ticket mode [ContextItem part value] =
  [ModelContext (OutputOrigin owner ticket part mode) value].
 Proof.
- intros owner ticket part mode value Assistant Message NoObservations.
+ intros owner ticket part mode value Assistant Message.
  unfold Callbacks.item_messages; cbn [List.map].
  unfold Conversation.context_output_mode, Conversation.provider_assistant_message, Conversation.provider_assistant.
- rewrite Assistant, Message, String.eqb_refl, NoObservations. reflexivity.
+ rewrite Assistant, Message, String.eqb_refl. reflexivity.
 Qed.
 
 Local Lemma changing_activity_preserves_history : forall phase task,
@@ -251,14 +250,13 @@ Theorem actual_assistant_context_retains_its_native_data_and_frozen_mode :
  task_lifecycle task = Running (AskingModel ticket allowed mode) operations ->
  string_field "role" (Conversation.provider_value content) = Some "assistant" ->
  text_default "type" (Conversation.provider_value content) "" = "message" ->
- Conversation.provider_markdown_fences content = None ->
  exists updated,
  decision_world (Callbacks.model_completed id ticket (ModelSuccess [ContextItem part content]) value) = put_task id updated value /\
  exists suffix,
  task_history updated = task_history task ++
    ModelContext (OutputOrigin id ticket part mode) content :: suffix.
 Proof.
- intros id ticket allowed mode part content task value operations Found Pending Assistant Message NoObservations.
+ intros id ticket allowed mode part content task value operations Found Pending Assistant Message.
  assert (Admitted : Callbacks.permitted_items [ContextItem part content] allowed task [] [] = true).
  { destruct content; cbn [provider_value value_or_null string_field field text_default] in Assistant, Message;
      try discriminate; reflexivity. }
@@ -266,8 +264,8 @@ Proof.
    id ticket allowed mode [ContextItem part content] task value operations Found Pending Admitted)
    as [updated [Committed [suffix History]]].
  exists updated; split; [exact Committed|]. exists suffix.
- rewrite History, (assistant_messages_without_fence_observations_inherit_the_frozen_output_mode
-   id ticket part mode content Assistant Message NoObservations); reflexivity.
+ rewrite History, (assistant_messages_inherit_the_frozen_output_mode
+   id ticket part mode content Assistant Message); reflexivity.
 Qed.
 
 (** Role metadata on provider reasoning or compaction does not turn diagnostic

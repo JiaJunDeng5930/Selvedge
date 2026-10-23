@@ -38,7 +38,6 @@ Definition schedules (command:Selvedge.Generated.Commands.command) :bool := matc
 Definition can_schedule_task (id:N) (value:world) :=
  Worktree.execution_ready id value && Compaction.can_schedule_task id value.
 Definition finish (result:decision) := Selvedge.Features.Compaction.attach (Board.finish result).
-Definition model_context_limit (id ticket:N) (value:world) :decision := Compaction.model_context_limit id ticket value.
 
 Definition guard_command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :=
  or_else (Worktree.guard_command command caller value) (fun _=>match command with

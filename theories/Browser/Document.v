@@ -119,8 +119,9 @@ Definition physical_markdown env tier kind wrapper_key markdown_key text complet
 Definition selection_json (value:option(N*N*bool)) := match value with
  | None=>JNull | Some (start,stop,backward)=>JObject [("start",JNumber (text_number start));
  ("end",JNumber (text_number stop));("direction",JString (if backward then "backward" else "forward"))] end.
-Definition choices selected values := map (fun value => DOM.Element
- ("option/" ++ Fields.choice_value_of value)%string "option"
+(* The renderer retains option nodes globally; each select owns its choices. *)
+Definition choices parent selected values := map (fun value => DOM.Element
+ (Identity.key_part parent ("option/" ++ Fields.choice_value_of value)) "option"
  ([("value",Fields.choice_value_of value)] ++
  if String.eqb selected (Fields.choice_value_of value) then [("selected","selected")] else [])
  [] [] empty [DOM.Text (Fields.choice_label value)]) values.
@@ -155,6 +156,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  (match field with
  |Fields.MessageText=>[("placeholder","Ask anything, or describe a task")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
+ |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
  |_=>[]end) ++ disabled enabled in
  if ControlPurpose.toggle_widget field(Model.editing_observation value) then
  let checked:=Parameters.native_checked field(Model.editing_observation value)in
@@ -168,7 +170,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
  else match Model.editing_entry value with
  | Fields.Choice=>DOM.Element key "select" (attrs ++ [("value",text)]) styles
  (match Model.editing_input value with None=>[]|Some _=>[event key generation "change" "value" Gesture.Change] end)
- metadata (choices text (Model.editing_choices value))
+ metadata (choices key text (Model.editing_choices value))
  | Fields.Multiline | Fields.StructuredText=>DOM.Element key "textarea"
  (attrs ++ [("value",text);("data-field-entry","multiline")])
  (styles ++ [("field-sizing","content")] ++
@@ -669,8 +671,11 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  match meaning with
  |S.InformationText info=>element (text_tag info) ([("tabindex","-1")] ++
    match info with Information.Status=>[("role","status")]|_=>[]end) [] empty [DOM.Text label]
- |S.ReadOnly text|S.Fact text=>element "span"
+ |S.ReadOnly text=>element "span"
  (match role with Roles.Alert=>[("role","alert")]|_=>[]end) [] empty [DOM.Text text]
+ |S.Fact text=>element "span"
+ (match role with Roles.Alert=>[("role","alert")]|_=>[]end) [] empty
+ [DOM.Text(if String.eqb text ""then "—"else text)]
  |S.ActionFeedback _ _ message=>element "p"
  (match role with Roles.Alert=>[("role","alert");("aria-live","assertive")]|_=>[("role","status")]end)
  [] empty [DOM.Text message]
@@ -732,7 +737,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
   if Model.available(Model.control_availability confirm)
   then [event key generation "keydown" "confirm" Gesture.Press] else []) empty []
  |S.HistorySearchScope project selected values _=>element "select" [("value",match selected with None=>""|Some n=>text_number n end)]
- [event key generation "change" "value" Gesture.Change] empty (choices (match selected with None=>""|Some n=>text_number n end) values)
+ [event key generation "change" "value" Gesture.Change] empty (choices key (match selected with None=>""|Some n=>text_number n end) values)
  |S.BoardSearch selection _=>element "input" [("type","search");("value",BoardFilter.filter_query selection);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
  |S.SearchChoices query _=>element "input" [("type","search");("value",query);("placeholder",label)] [event key generation "input" "value" Gesture.Search] empty []
  |S.ReceiveFile _ enabled _=>element "input" ([("type","file")]++disabled enabled)
@@ -741,7 +746,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ([event key generation "input" "value" Gesture.Directory] ++match confirm with Some _=>[event key generation "keydown" "confirm" Gesture.ConfirmDirectory]|None=>[] end) empty []
  |S.BoardProfile automatic selected values enabled _=>element "select"
  ([("value",selected);("data-automatic",flag automatic)]++disabled enabled)
- [event key generation "change" "value" Gesture.SelectBoardProfile] empty (choices selected values)
+ [event key generation "change" "value" Gesture.SelectBoardProfile] empty (choices key selected values)
  |S.ActionUnit _ _=>element "form" [("novalidate","novalidate")]
  (match commit_key value with Some key=>[event key generation "submit" "submit" Gesture.Press]|None=>[] end) empty children
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>
@@ -770,7 +775,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  DOM.Element key "select" (attrs++[("value","")]++disabled(match offered with []=>false|_=>true end))
  (styles++NativeAppearance.role_properties env Roles.Field++native_field_properties "")
  [event key generation "change" "value" Gesture.Place] empty
- (DOM.Element "" "option" [("value","");("selected","selected")] [] [] empty [DOM.Text "Move to…"]::
+ (DOM.Element "" "option" [("value","");("selected","selected");("disabled","disabled")] [] [] empty [DOM.Text "Move to…"]::
  map(fun destination=>DOM.Element "" "option" [("value",S.placement_target destination)] [] [] empty
  [DOM.Text(Model.control_label(S.placement_control destination))])offered)
  |S.InteractiveNode c=>
@@ -843,7 +848,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (map snd(filter(fun pair=>negb(nested pair))paired)++map snd(filter nested paired))
  |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
- |S.TaskChildren task=>element "div"[("role","group");("data-task-parent",text_number task)][]empty children
+ |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task)][]empty children
  |S.ActivityRow _|S.WorkspaceCollection _ _|S.WorkspaceMember _ _ _
  |S.ActionExplanation _ _|S.ObjectGroup _|S.Region|S.ProjectChooser _|S.DirectoryRow _ _
  |S.ContextSummary _=>element (role_tag role) [] [] empty children

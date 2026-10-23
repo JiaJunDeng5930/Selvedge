@@ -174,7 +174,7 @@ Definition body_stage (body : bool) (source : json) :=
 Definition audio_limits := JObject [("allowed",JBool true);("max_bytes",number Audio.asr_max_bytes);
   ("timeout_ms",number Audio.request_timeout_ms);("connect_timeout_ms",number Audio.connect_timeout_ms);
   ("session_max_ms",number Audio.session_max_ms)].
-Definition audio_reject (message : string) := JObject [("allowed",JBool false);("error",JString message)].
+Definition audio_reject (message : string) := JObject [("allowed",JBool false);("message",JString message)].
 Definition audio_admission (source : json) :=
   let kind := str source "kind" in
   if String.eqb kind "create" then

@@ -91,10 +91,6 @@ Proof.
  Some (true,true,A.acknowledged false value [])).
  rewrite completion_wire_is_admitted, stale_result_does_not_change_the_component by assumption. reflexivity.
 Qed.
-Theorem a_stale_context_limit_cannot_restart_the_task : forall id ticket expected callable mode operations task value,
- K.find_task id value = Some task -> task_lifecycle task = Running (AskingModel expected callable mode) operations ->
- N.eqb ticket expected = false -> A.model_context_limit id ticket value = A.acknowledged false value [].
-Proof. intros. unfold A.model_context_limit. now rewrite H,H0,H1. Qed.
 Definition clock_input (now : N) := JObject [("kind",JString "compaction_clock");("now",number now)].
 Theorem clock_observation_uses_monotone_time : forall now value,
  A.completion (clock_input now) value = Some (true,true,

@@ -108,8 +108,9 @@ Definition parse_workspace_binding (source : json) : option (option N) :=
  | _ => None end.
 Definition task_settings_schema := [Field "workspace" (KOptional KJson); Field "sandbox" (KOptional KJson);
  Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson); Field "workspace_binding" (KOptional KJson)].
+Definition guidance_schema := [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText].
 Definition valid_guidance (value : json) := match value with JNull => true | _ =>
- match Schema.decode [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText] value with
+ match Schema.decode guidance_schema value with
  | None => false | Some _ =>
  let root := text_default "workspace" value "" in
  let path := text_default "path" value "" in
@@ -196,7 +197,7 @@ Definition profile_options (source : json) : option (list string * string) :=
      | Some (first :: rest) =>
        let values := nodup String.string_dec (first :: rest) in
        if forallb (fun effort => nonempty effort && negb (String.eqb effort "auto")) values then
-       let requested := text_default "default" source "medium" in
+       let requested := text_default "default" source first in
        Some (values, if existsb (String.eqb requested) values then requested else first)
        else None
      | _ => None end
