@@ -30,6 +30,15 @@ Definition element snapshot current environment generation raw:=
 Definition decode_input request snapshot current raw:=match string_field "op" raw with
 |Some "element"=>env<-environment request;;generation<-natural_field "generation" request;;element snapshot current env generation raw
 |_=>InputCodecs.decode_runtime raw end.
+
+(** A native text edit observes its selection even when its byte offset has not
+    moved. Process that observation after accepting the text, so replacement at
+    the same caret cannot leave the skill query tied to the previous contents. *)
+Definition native_step namespace snapshot lagged input raw current :=
+ let decision:=SR.step namespace snapshot lagged input current in
+ match SA.result_error decision,Input.native_selection input raw with
+ |None,Some selection=>SA.append decision(SR.step namespace snapshot lagged selection(SA.result_state decision))
+ |_,_=>decision end.
 Definition feedback_update (error:option json) (visible acknowledge:bool) :=
  if visible || acknowledge then match error with
  |Some _=>"replace"|None=>"clear" end else "keep".
@@ -63,7 +72,7 @@ Definition call operation request:json:=
    |None=>Json.success(decision_packet current [] None false false false false)
    |Some input=>match string_field "namespace" request with
     |None=>Json.failure "InvalidNamespace" "The runtime namespace is required."
-    |Some namespace=>let decision:=refresh request snapshot(SR.step namespace snapshot(flag "semantic_lagged" request)input current)in
+    |Some namespace=>let decision:=refresh request snapshot(native_step namespace snapshot(flag "semantic_lagged" request)input raw current)in
      Json.success(decision_packet(SA.result_state decision)(SA.result_effects decision)(SA.result_error decision)true(SA.result_visible_error decision)(Input.acknowledges_feedback input)(Input.semantic_change input))end end end
  else Json.failure "UnknownOperation" operation
  |_,_=>Json.failure "InvalidState" "The typed application state and admitted world observation are required."end.

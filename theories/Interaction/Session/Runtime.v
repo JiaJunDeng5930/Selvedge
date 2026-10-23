@@ -147,12 +147,14 @@ Definition apply_language namespace snapshot lagged input state:=
  fold_left(fun result effect=>Authoring.append result(interpret_language namespace snapshot lagged effect(Authoring.result_state result)))
  (IS.effects decision)(Authoring.keep(SS.with_interactive_state(IS.next_state decision)state)).
 Definition synchronize namespace snapshot lagged state:=
+ let skills:=Authoring.synchronize_skills snapshot state in
+ let state:=Authoring.result_state skills in
  let ctx:=context namespace snapshot state in
  let retained:=Documents.synchronize_documents ctx lagged(SS.document_retention state)in
  let state:=SS.with_retention retained state in
  let definition:=Documents.shared_definition(context namespace snapshot state)retained in
  let initial:=match definition with Some input=>apply_language namespace snapshot lagged input state|None=>Authoring.keep state end in
- Authoring.append initial(apply_language namespace snapshot lagged IT.EnvironmentChanged(Authoring.result_state initial)).
+ Authoring.append skills(Authoring.append initial(apply_language namespace snapshot lagged IT.EnvironmentChanged(Authoring.result_state initial))).
 Definition complete namespace snapshot lagged ticket outcome state:=
  match find(fun pending=>N.eqb ticket(SS.ticket pending))(SS.awaiting(SS.authoring_state state))with
  |None=>Authoring.keep state

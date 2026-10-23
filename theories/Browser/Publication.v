@@ -10,10 +10,12 @@ Record state := State {
   generation : N; current_phase : phase; namespace : string; sequence : N
 }.
 Definition initial namespace sequence := State 0 AwaitingDocument namespace sequence.
-Definition fresh value := match current_phase value with Published => true | _ => false end.
+Definition fresh value := match current_phase value with
+ |Published|AwaitingPresentation|PreparedPresentation=>true|_=>false end.
 Definition admit requested value :=
   N.eqb requested (generation value) &&
-  match current_phase value with Prepared | PreparedPresentation | Published => true | _ => false end.
+  match current_phase value with
+  |Prepared|AwaitingPresentation|PreparedPresentation|Published=>true|_=>false end.
 Definition semantic_pending value := match current_phase value with
  |Published|AwaitingPresentation|PreparedPresentation=>false|_=>true end.
 Definition advance value :=

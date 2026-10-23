@@ -245,11 +245,14 @@ Definition decode_scope source := match string_field "type" source with
  |_,_,_,_,_=>None end|_=>None end.
 Fixpoint decode_scopes values := match values with []=>Some[]|value::rest=>
  match decode_scope value,decode_scopes rest with Some value,Some rest=>Some(value::rest)|_,_=>None end end.
-Definition focus_plan source := match array_field "previous" source,array_field "current" source,bool_field "eligible" source with
- |Some previous,Some current,Some eligible=>match decode_scopes previous,decode_scopes current with
- |Some previous,Some current=>success(match Focus.request previous current eligible with
+Definition focus_observation name source := match field name source with
+ |Some JNull=>Some None|Some(JString key)=>Some(Some key)|_=>None end.
+Definition focus_plan source := match array_field "previous" source,array_field "current" source,bool_field "eligible" source,
+ focus_observation "focused_before" source,focus_observation "focused_after" source with
+ |Some previous,Some current,Some eligible,Some focused_before,Some focused_after=>match decode_scopes previous,decode_scopes current with
+ |Some previous,Some current=>success(match Focus.observed_request previous current eligible focused_before focused_after with
  Some(target,fallback)=>JObject[("target",JString target);("fallback",JString fallback)]|None=>JNull end)
- |_,_=>invalid "Invalid focus scopes" end|_,_,_=>invalid "Focus transition requires both scope stacks and observed eligibility" end.
+ |_,_=>invalid "Invalid focus scopes" end|_,_,_,_,_=>invalid "Focus transition requires scope stacks, eligibility and both focus observations" end.
 Definition row_direction_name direction := match direction with
  |Layout.Horizontal=>"row"|Layout.Vertical=>"column" end.
 Definition responsive_row_layout available row : option (list (string * json)) :=
@@ -303,7 +306,8 @@ Definition code_call operation source := match
  |CodeBlock.Executed state effects,Some env,Some view=>success(JObject[("state",CodeBlock.encode_state state);
  ("effects",JArray(map CodeBlock.encode_effect effects));("document",code_document env view state);
  ("targets",code_targets(CodeBlock.identity state)view);
- ("body_styles",DOM.properties_json [("white-space",if CodeBlock.wrap state then "pre-wrap" else "pre")]);("wrap",JBool(CodeBlock.wrap state))])
+ ("body_styles",DOM.properties_json [("white-space",if CodeBlock.wrap state then "pre-wrap" else "pre");
+   ("overflow-wrap",if CodeBlock.wrap state then "anywhere" else "normal")]);("wrap",JBool(CodeBlock.wrap state))])
  |CodeBlock.Rejected name message,_,_=>failure name message
  |_,_,_=>invalid "Code presentation requires actual environment and view observations" end.
 Definition call operation source := match operation with

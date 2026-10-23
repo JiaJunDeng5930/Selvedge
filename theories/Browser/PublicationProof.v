@@ -80,3 +80,8 @@ Theorem prepared_presentation_preserves_semantic_freshness : forall generation n
  semantic_pending(State generation PreparedPresentation namespace sequence)=false /\
  admit generation(State generation PreparedPresentation namespace sequence)=true.
 Proof. intros; split; [reflexivity|unfold admit; simpl; now rewrite N.eqb_refl]. Qed.
+
+Theorem remeasurement_preserves_display_readiness_and_admission : forall generation namespace sequence,
+ fresh(State generation AwaitingPresentation namespace sequence)=true /\
+ admit generation(State generation AwaitingPresentation namespace sequence)=true.
+Proof. intros; split; [reflexivity|unfold admit; simpl; now rewrite N.eqb_refl]. Qed.

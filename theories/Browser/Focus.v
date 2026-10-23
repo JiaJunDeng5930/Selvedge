@@ -60,10 +60,6 @@ Definition same_scope left right := match left,right with
  |Document,Document=>true
  |Temporary a _ _ _ x,Temporary b _ _ _ y=>String.eqb a b && same_occurrence x y
  |_,_=>false end.
-Definition retained_scope_target before current eligible := match current with
- |Temporary identity _ _ _ _=>
-   if same_scope before current && negb eligible then identity else initial current
- |Document=>initial current end.
 Definition top scopes := match rev scopes with current::_=>current|[]=>Document end.
 Definition request previous current eligible : option(string*string) :=
  let before:=top previous in let after:=top current in
@@ -71,5 +67,23 @@ Definition request previous current eligible : option(string*string) :=
  let returning:=match after with Document=>true|_=>existsb(same_scope after)previous end in
  if returning && changed before after then Some(restore before,
    match after with Document=>fallback before|_=>initial after end)
- else Some(retained_scope_target before after eligible,fallback after)
+ else Some(initial after,fallback after)
  else None.
+
+(** A loading activity initially focuses its root. When its input arrives, only
+    that root may hand focus on; a user's intervening choice keeps ownership. *)
+Definition root_handoff previous current focused := match previous,current,focused with
+ |Temporary identity old_initial _ _ _,Temporary _ new_initial _ _ _,Some key=>
+  same_scope previous current && String.eqb old_initial identity &&
+  String.eqb key old_initial && negb(String.eqb old_initial new_initial)
+ |_,_,_=>false end.
+
+Definition observed_request previous current eligible focused_before focused_after :=
+ match request previous current eligible with
+ |Some target=>Some target
+ |None=>let before:=top previous in let after:=top current in
+  if root_handoff before after focused_after then Some(initial after,fallback after)
+  else match after,focused_before,focused_after with
+  |Document,Some key,None=>Some(key,key)
+  |_,_,_=>None end
+ end.

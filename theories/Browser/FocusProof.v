@@ -16,12 +16,12 @@ Proof.
   rewrite String.eqb_refl; destruct occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
 Qed.
 
-Theorem retained_ineligible_activity_focuses_its_container : forall identity initial restore_target fallback_target occurrence,
+Theorem retained_ineligible_activity_focuses_its_initial_target : forall identity initial restore_target fallback_target occurrence,
  request [Temporary identity initial restore_target fallback_target occurrence]
-   [Temporary identity initial restore_target fallback_target occurrence] false = Some(identity,fallback_target).
+   [Temporary identity initial restore_target fallback_target occurrence] false = Some(initial,fallback_target).
 Proof.
  intros. unfold request,top,transition,invalid_retained,changed,same_scope,
-   same_occurrence,retained_scope_target,fallback.
+   same_occurrence,fallback.
  simpl. rewrite String.eqb_refl. destruct occurrence; simpl; rewrite ?N.eqb_refl; reflexivity.
 Qed.
 
@@ -58,3 +58,35 @@ Theorem missing_return_target_uses_declared_fallback requested fallback preferre
  resolve requested preferred candidates=None ->
  resolve_return requested fallback preferred candidates=resolve fallback preferred candidates.
 Proof. intro Missing; unfold resolve_return; now rewrite Missing. Qed.
+
+Theorem published_document_recovers_its_lost_target : forall key,
+ observed_request [Document] [Document] false (Some key) None = Some(key,key).
+Proof. reflexivity. Qed.
+Theorem published_document_keeps_an_observed_target : forall eligible before after,
+ observed_request [Document] [Document] eligible before (Some after) = None.
+Proof. intros; destruct before; reflexivity. Qed.
+Theorem publication_does_not_invent_previous_focus : forall eligible,
+ observed_request [Document] [Document] eligible None None = None.
+Proof. reflexivity. Qed.
+
+Theorem retained_loading_root_hands_focus_to_its_input : forall identity target restore fallback occurrence before,
+ String.eqb identity target = false ->
+ observed_request [Temporary identity identity restore fallback occurrence]
+   [Temporary identity target restore fallback occurrence] true before (Some identity) = Some(target,fallback).
+Proof.
+ intros. unfold observed_request,request,top,transition,changed,invalid_retained,
+   root_handoff,same_scope,same_occurrence,initial,Focus.fallback.
+ simpl. rewrite String.eqb_refl. destruct occurrence; simpl; rewrite ?N.eqb_refl; simpl;
+ now rewrite ?String.eqb_refl,H.
+Qed.
+
+Theorem retained_loading_root_respects_a_users_focus : forall identity target restore fallback occurrence before focused,
+ String.eqb focused identity = false ->
+ observed_request [Temporary identity identity restore fallback occurrence]
+   [Temporary identity target restore fallback occurrence] true before (Some focused) = None.
+Proof.
+ intros. unfold observed_request,request,top,transition,changed,invalid_retained,
+   root_handoff,same_scope,same_occurrence.
+ simpl. rewrite String.eqb_refl. destruct occurrence; simpl; rewrite ?N.eqb_refl; simpl;
+ now rewrite ?String.eqb_refl,H.
+Qed.

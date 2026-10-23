@@ -102,6 +102,16 @@ Definition selection_input {e} (subject:Model.subject e) incoming : option input
  else Some(match bool_field "refocus" incoming with
   |Some true=>SkillRefocus e caret finish composing|_=>SkillSelection e caret finish composing end).
 
+Definition assignment_selection {e} (assignment:Activity.assignment e) raw : option input :=
+ match assignment with Activity.Assignment subject _=>
+ match Model.subject_declaration subject with Fields.MessageText=>
+  observed<-field "selection" raw;;selection_input subject observed
+ |_=>None end end.
+Definition native_selection incoming raw := match incoming with
+ |ApplyAssignment _ assignment=>assignment_selection assignment raw
+ |ActivityAssignment _ _ assignment=>assignment_selection assignment raw
+ |_=>None end.
+
 Definition attach_files owner incoming:option input:=
  files<-match incoming with JArray files=>traverse Attachments.decode_file files|value=>option_map(fun value=>[value])(Attachments.decode_file value)end;;
  Some(AttachFiles owner files).

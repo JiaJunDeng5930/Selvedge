@@ -238,7 +238,7 @@ Definition service_step input s :=
   | DismissStorageProblem => keep (with_storage_problem None s)
   | OpenSettings=>effects(with_settings_return(Some "nav/settings")s)[]
   | CloseSettings=>effects(with_settings_return None s)(match settings_return s with Some trigger=>[Focus(settings_focus_target trigger)]|None=>[]end)
-  | Connect=>match connection s with ConnectionLoading _|ConnectionReady _=>keep s|_=>connect s end
+  | Connect=>connect s
   | Authenticated t r=>auth_result t r s
   | Disconnected t error revoked=>if connection_active(connection s)&&connection_ticket_matches t(connection s)then
       let ended:=end_connection error s in

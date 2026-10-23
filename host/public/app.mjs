@@ -209,7 +209,9 @@ async function refreshPhysical() {
         const failure = browser('measurement_failure', { measured_generation: observedGeneration,
           current_generation: publication.generation, reason: error.message });
         if (failure === null) { measureAgain = true; continue; }
-        throw error;
+        // Apply the admitted failure before another promise can publish a newer generation.
+        fatal(error);
+        return;
       }
       const receipt = browser('environment', { observations, requested_root_font_size_milli: requestedRootFontSize,
         measured_generation: observedGeneration, current_generation: publication.generation,

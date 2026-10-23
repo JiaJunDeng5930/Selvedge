@@ -202,11 +202,24 @@ Definition skill_request_current snapshot state owner request:=
  |Some workspace=>Json.equal(Selvedge.Kernel.Codec.workspace_json workspace)(Selvedge.Kernel.Codec.workspace_json(SS.skill_workspace request))|None=>false end.
 Definition skill_resource snapshot state owner:=find(fun resource=>match resource_request resource with
 |Some request=>skill_request_current snapshot state owner request|None=>false end)(SS.skill_catalogs(SS.authoring_state state)).
+Definition same_skill_workspace first second:=match first,second with
+ |None,None=>true|Some first,Some second=>Json.equal(Selvedge.Kernel.Codec.workspace_json first)(Selvedge.Kernel.Codec.workspace_json second)
+ |_,_=>false end.
+Definition workspace_mention previous current mention:=match current with
+ |None=>SkillMention.Inactive
+ |Some _=>if same_skill_workspace previous current then mention else
+   match mention with SkillMention.Suggesting trigger _=>SkillMention.Suggesting trigger 0|_=>mention end end.
+Definition skill_workspace_for owner state:=
+ match find(fun resource=>match resource_request resource with
+ |Some request=>same_editor owner(SS.skill_editor request)|None=>false end)(SS.skill_catalogs(SS.authoring_state state))with
+ |Some resource=>option_map SS.skill_workspace(resource_request resource)|None=>None end.
+Definition current_mention snapshot state owner:=workspace_mention(skill_workspace_for owner state)
+ (SO.workspace_for snapshot(SS.current_draft state owner))(mention_for owner state).
 Record skill_view_data:=SkillView{skill_mention:SkillMention.mention_state;skill_items:list SkillMention.skill;
  skill_loading:bool;skill_error:option string;skill_unrequested:bool}.
 Definition skill_view snapshot state owner:=
  let resource:=skill_resource snapshot state owner in
- SkillView(mention_for owner state)(match resource with Some(Resource.Loaded _ _ values)=>values|_=>[]end)
+ SkillView(current_mention snapshot state owner)(match resource with Some(Resource.Loaded _ _ values)=>values|_=>[]end)
  (match resource with Some(Resource.Loading _ _)=>true|_=>false end)
  (match resource with Some(Resource.Failed _ _ reason)=>Some reason|_=>match SO.workspace_for snapshot(SS.current_draft state owner)with Some _=>None|None=>Some "The selected workspace is not available."end end)
  (match resource with None|Some Resource.Dormant=>true|_=>false end).
@@ -219,10 +232,12 @@ Definition load_skills snapshot owner (explicit:bool) state:=
  let draft:=SS.current_draft state owner in
  match draft_text draft,SO.workspace_for snapshot draft with
  |Some text,Some workspace=>
+ let state:=set_mention owner(current_mention snapshot state owner)state in
  let state:=if explicit then match mention_for owner state with
   |SkillMention.Suggesting _ _=>state
   |_=>refresh_skill_catalog owner(set_mention owner(SkillMention.Suggesting(SkillMention.Trigger(String.length(Draft.text_value text))(String.length(Draft.text_value text))"")0)state)end else state in
- match skill_resource snapshot state owner with Some(Resource.Loading _ _)|Some(Resource.Loaded _ _ _)=>keep state
+ match skill_resource snapshot state owner with
+ |Some(Resource.Loading _ _)|Some(Resource.Loaded _ _ _)|Some(Resource.Failed _ _ _)=>keep state
  |_=>let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
   let request:=SS.SkillRequest owner workspace in
   let authoring:=set SS.next(fun _=>N.succ ticket)(set SS.skill_catalogs
@@ -230,7 +245,29 @@ Definition load_skills snapshot owner (explicit:bool) state:=
     |Some request=>negb(same_editor owner(SS.skill_editor request))|None=>true end)resources)authoring)in
   changed(SS.with_authoring authoring state)
   [emit "skill_catalog"(Identity.task_observation_fields owner[("ticket",number ticket);("editor",encode_editor owner);("workspace",Selvedge.Kernel.Codec.workspace_json workspace)])]end
- |_,_=>fail state "A message and an observed workspace are required for skills."end.
+ |Some _,None=>keep(refresh_skill_catalog owner(set_mention owner SkillMention.Inactive state))
+ |None,_=>fail state "A message is required for skills."end.
+
+Definition append first second:=Result(result_state second)(result_effects first++result_effects second)
+ (match result_error second with Some error=>Some error|None=>result_error first end)
+ (result_visible_error first||result_visible_error second).
+
+(** Catalog requests already own their observed workspace. Reuse that context
+    to reset the highlight and refresh suggestions when the workspace changes. *)
+Definition synchronize_skills snapshot state:=fold_left(fun result entry=>
+ let state:=result_state result in let owner:=fst entry in
+ let previous:=skill_workspace_for owner state in
+ let current:=SO.workspace_for snapshot(SS.current_draft state owner)in
+ let mention:=workspace_mention previous current(mention_for owner state)in
+ append result(match current with
+ |None=>let state:=refresh_skill_catalog owner state in
+   keep(match mention_for owner state with SkillMention.Inactive=>state|_=>set_mention owner SkillMention.Inactive state end)
+ |Some _=>if same_skill_workspace previous current then keep state else
+   match mention with
+   |SkillMention.Suggesting _ _=>load_skills snapshot owner false
+     (refresh_skill_catalog owner(set_mention owner mention state))
+   |_=>keep(match previous with Some _=>refresh_skill_catalog owner state|None=>state end)end
+ end)) (SS.mentions(SS.authoring_state state))(keep state).
 Definition splice start finish insert text:=String.append(String.substring 0 start text)(String.append insert(String.substring finish(String.length text)text)).
 Definition message_focus state owner:=match owner with
 |Identity.Message task=>match find(fun view=>N.eqb task(Identity.task_view_task view))(Navigation.visible_task_views state)with
@@ -246,9 +283,6 @@ Definition choose_skill snapshot owner path state:=
     [focus(message_focus state owner);emit "selection_bytes"[("key",JString(message_focus state owner));("start",number(N.of_nat(SkillMention.insertion_caret inserted)));("end",number(N.of_nat(SkillMention.insertion_caret inserted)))]]
   |None=>fail state "This object does not contain a message."end
  |_,_,_=>fail state "The skill suggestion is no longer current."end.
-Definition append first second:=Result(result_state second)(result_effects first++result_effects second)
- (match result_error second with Some error=>Some error|None=>result_error first end)
- (result_visible_error first||result_visible_error second).
 Definition adopt_navigation snapshot decision:=
  fold_left(fun result effect=>let state:=result_state result in
  append result(match effect with
@@ -524,7 +558,7 @@ Definition step snapshot input state:option result:=match input with
 |Input.SkillsLoaded ticket outcome=>Some(skills_loaded ticket outcome state)
 |Input.SkillSelected owner path=>Some(choose_skill snapshot owner path state)
 |Input.SkillRefocus owner caret finish composing=>Some(match draft_text(SS.current_draft state owner)with
- |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(mention_for owner state)in
+ |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(current_mention snapshot state owner)in
   let state:=set_mention owner mention state in
   match mention with SkillMention.Suggesting trigger _=>
    let state:=set_mention owner(SkillMention.Suggesting trigger 0)state in
@@ -532,8 +566,8 @@ Definition step snapshot input state:option result:=match input with
   |_=>keep state end
  |None=>keep state end)
 |Input.SkillSelection owner caret finish composing=>Some(match draft_text(SS.current_draft state owner)with
- |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(mention_for owner state)in
-  let previously_open:=match mention_for owner state with SkillMention.Suggesting _ _=>true|_=>false end in
+ |Some text=>let mention:=SkillMention.observe_mention(Draft.text_value text)(N.to_nat caret)(N.to_nat finish)composing(current_mention snapshot state owner)in
+  let previously_open:=match current_mention snapshot state owner with SkillMention.Suggesting _ _=>true|_=>false end in
   let state:=set_mention owner mention state in match mention with SkillMention.Suggesting _ _=>
    load_skills snapshot owner false(if previously_open then state else refresh_skill_catalog owner state)
   |_=>keep state end

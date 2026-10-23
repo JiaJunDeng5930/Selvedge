@@ -20,6 +20,15 @@ Proof.
  unfold Observation.workspace_for_edit;rewrite Configuration,Preview;reflexivity.
 Qed.
 
+Theorem unavailable_workspace_closes_skill_mentions previous mention:
+ Authoring.workspace_mention previous None mention=Selvedge.Interaction.SkillMention.Inactive.
+Proof. reflexivity. Qed.
+Theorem changed_workspace_resets_the_skill_highlight previous workspace trigger selected:
+ Authoring.same_skill_workspace previous(Some workspace)=false ->
+ Authoring.workspace_mention previous(Some workspace)(Selvedge.Interaction.SkillMention.Suggesting trigger selected)=
+ Selvedge.Interaction.SkillMention.Suggesting trigger 0.
+Proof. intro Changed; unfold Authoring.workspace_mention; now rewrite Changed. Qed.
+
 Theorem completed_directory_observation_retains_the_captured_request
  snapshot ticket raw state request workspace guidance:
  find(fun resource=>match resource with Resource.Loading actual _=>N.eqb ticket actual|_=>false end)

@@ -88,7 +88,7 @@ Definition settings s :=
  |Some trigger=>let parent:="/settings"in
   [Node parent "settings" "Settings"Roles.Dialog
    (LayerRegion(LayerBehavior ModalDialog false(State.generation(State.navigation_state s))
-     (part parent(String.append "appearance/"(Appearance.appearance_name(Services.theme(State.service_state s)))))
+     (part parent "connect")
      (Services.settings_focus_target trigger) "/main"trigger(Input.ServiceInput Services.CloseSettings) true true))
    [dialog_header parent [title parent "Settings";
      declared parent Roles.Button(secondary "close" "Close settings"(Input.ServiceInput Services.CloseSettings))];
@@ -99,7 +99,8 @@ Definition settings s :=
           (Choice SingleChoice(String.eqb(Appearance.appearance_name theme)(Appearance.appearance_name(Services.theme(State.service_state s))))""
            (secondary("appearance/"++Appearance.appearance_name theme)label(Input.ServiceInput(Services.ChooseAppearance theme))))[])
          [Appearance.SystemAppearance;Appearance.LightAppearance;Appearance.DarkAppearance]);
-      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")))]]]
+      declared parent Roles.Button(secondary "title-prompts" "标题生成设置"(Input.OpenEditor TitlePrompts(part parent "title-prompts")))];
+    dialog_actions parent[declared parent Roles.Button(secondary "connect" "Connect"(Input.ServiceInput Services.Connect))]]]
   end.
 
 Theorem settings_preserves_return_attention s trigger :
@@ -120,7 +121,8 @@ Definition directory_view s :=
   |Some ticket,Some request=>let parent:="/directory-browser"in
    let content:=match resource with
     |Resource.Loading _ _=>[read_only parent "loading" "Working directories" "Loading directories…"]
-    |Resource.Failed _ _ reason=>[read_only parent "failure" "Directory listing failed"reason]
+    |Resource.Failed _ _ reason=>[read_only parent "failure" "Directory listing failed"reason;
+      declared parent Roles.Button(secondary "retry" "Retry"(Input.ServiceInput Services.GoDirectory))]
     |Resource.Loaded _ _ catalog=>(
       (match string_field "parent" catalog with None=>[]|Some path=>[declared parent Roles.Button(secondary "parent" "Parent directory"(Input.ServiceInput(Services.VisitDirectory path)))]end)++
       map(fun entry=>declared parent Roles.Button(secondary("directory/"++text "path" entry)(text "name" entry)
@@ -128,17 +130,23 @@ Definition directory_view s :=
       (if flag "truncated" catalog then[read_only parent "truncated" "Directories" "The directory listing is truncated"]else[]))%list
     |_=>[]end in
    [Node parent "directory-browser" "Choose directory"Roles.Dialog
-    (LayerRegion(LayerBehavior ModalDialog false ticket(part parent "location")(Services.directory_trigger request)"/main"(Services.directory_trigger request)
+    (LayerRegion(LayerBehavior ModalDialog false ticket
+     (match resource with Resource.Loaded _ _ _=>part parent "location"|_=>parent end)
+     (Services.directory_trigger request)"/main"(Services.directory_trigger request)
      (Input.ServiceInput Services.CloseDirectory)true true))
     [dialog_header parent [title parent "Choose directory"];
-     dialog_body parent
-      (Node(part parent "location")"directory-location" "Directory"Roles.Field
+     dialog_body parent(match resource with
+      |Resource.Loaded _ _ _=>
+       Node(part parent "location")"directory-location" "Directory"Roles.Field
         (EnterDirectory(Services.directory_editor request)(Services.directory_location services)
          (fun value=>option_map(fun path=>Input.ServiceInput(Services.WriteDirectoryLocation path))(as_string value))
-         (Some(Input.ServiceInput Services.GoDirectory)))[]::content);
+         (Some(Input.ServiceInput Services.GoDirectory)))[]::
+       declared parent Roles.Button(secondary "go" "Go"(Input.ServiceInput Services.GoDirectory))::content
+      |_=>content end);
      dialog_actions parent
-      [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory));
-       declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))]]]
+      (List.app(match resource with Resource.Loaded _ _ _=>
+       [declared parent Roles.PrimaryButton(secondary "choose" "Use this directory"(Input.ServiceInput Services.ChooseDirectory))]|_=>[]end)
+       [declared parent Roles.Button(secondary "cancel" "Cancel"(Input.ServiceInput Services.CloseDirectory))])]]
   |_,_=>[]end end.
 Definition preview_view s :=match Services.preview(State.service_state s)with
 |Resource.Dormant=>[]
@@ -150,10 +158,13 @@ Definition preview_view s :=match Services.preview(State.service_state s)with
     |Resource.Loaded _ _ url=>[Node(part parent "image")"preview-image" ""Roles.Content(Image url(asset_name(Services.preview_file request)))[]]
     |_=>[]end in
   [Node parent "file-preview"(asset_name(Services.preview_file request))Roles.Dialog
-   (LayerRegion(LayerBehavior ModalDialog false ticket(part parent "close")(Services.preview_trigger request)"/main"(Services.preview_trigger request)
+   (LayerRegion(LayerBehavior ModalDialog false ticket parent(Services.preview_trigger request)"/main"(Services.preview_trigger request)
     (Input.ServiceInput Services.ClosePreview)true true))
    [dialog_header parent [title parent(asset_name(Services.preview_file request));
      declared parent Roles.Button(secondary "close" "Close preview"(Input.ServiceInput Services.ClosePreview))];
-    dialog_body parent body]]
+    dialog_body parent body;
+    dialog_actions parent[declared parent Roles.Button
+      (Control "download" "Download" Secondary(Input.ServiceInput(Services.Download(Services.preview_file request)))
+       (match resource with Resource.Loaded _ _ _=>Available|_=>Unavailable "The preview is not ready"end))]]]
  |_,_=>[]end end.
 Definition dialogs s :=(settings s++directory_view s++preview_view s)%list.

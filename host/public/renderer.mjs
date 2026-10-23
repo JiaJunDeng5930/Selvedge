@@ -212,6 +212,8 @@ export class Renderer {
   }
   render(document, generation = 0) {
     const active = this.root.ownerDocument.activeElement;
+    const observedFocus = node => this.root.contains(node) ? node?.closest('[data-key]')?.dataset.key ?? null : null;
+    const focusedBefore = observedFocus(active);
     this.document = document;
     const previousScope = this.focusScope;
     this.focusScope = document.focus_scope;
@@ -335,8 +337,11 @@ export class Renderer {
     for (const record of this.records.values()) if (record.metadata.code)
       this.callbacks.codePublication?.(record.metadata.code);
     if (!this.isolated) {
-      const eligible = focusAvailable(active) && (!this.modal || this.modal.contains(active));
-      const focus = this.callbacks.focusPlan?.({ previous: previousScope, current: this.focusScope, eligible });
+      const focusedAfter = this.root.ownerDocument.activeElement;
+      const eligible = focusAvailable(focusedAfter) && this.root.contains(focusedAfter) &&
+        (!this.modal || this.modal.contains(focusedAfter));
+      const focus = this.callbacks.focusPlan?.({ previous: previousScope, current: this.focusScope, eligible,
+        focused_before: focusedBefore, focused_after: observedFocus(focusedAfter) });
       if (focus) {
         const target = this.resolveTarget(focus.target, { fallback: focus.fallback });
         const container = this.modalRecord()?.node;
