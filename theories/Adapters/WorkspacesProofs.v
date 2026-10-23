@@ -12,7 +12,7 @@ Proof. intros source H;unfold workspace_settings,type_admit;rewrite H;reflexivit
 Theorem supplied_workspace_prevents_project_resolution : forall source,
   has (get source "value") "workspace" = true ->
   is_null (get (get source "value") "guidance") = true ->
-  has (get source "value") "workspace_binding" = false ->
+  is_null (get (get source "value") "workspace_binding") = true ->
   workspace_settings source = success (JObject [
     ("project_id", JNull); ("observe_workspace", JBool true)]).
 Proof.
@@ -42,7 +42,7 @@ Proof.
 Qed.
 
 Theorem clients_cannot_supply_workspace_resource_observations : forall source,
-  has (get source "value") "workspace_binding" = true ->
+  is_null (get (get source "value") "workspace_binding") = false ->
   workspace_settings source = type_error "Root guidance and workspace resources are observed by the service, not supplied by a client".
 Proof.
  intros source H. unfold workspace_settings,type_admit. rewrite H.

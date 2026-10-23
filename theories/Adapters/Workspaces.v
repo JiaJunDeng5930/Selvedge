@@ -79,8 +79,8 @@ Definition workspace_settings (source : json) :=
   let value := get source "value" in
   (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
   let workspace_supplied := has value "workspace" in
-  (* DEFENSE: Non-null guidance snapshots supplied by a client must not acquire service authority. *)
-  type_admit (is_null (get value "guidance") && negb (has value "workspace_binding"))
+  (* DEFENSE: Non-null guidance or workspace bindings supplied by a client must not acquire service authority. *)
+  type_admit (is_null (get value "guidance") && is_null (get value "workspace_binding"))
     (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&
       bound (get value "project_id") 0 9007199254740991 then get value "project_id" else JNull);
       ("observe_workspace",JBool workspace_supplied)]) "Root guidance and workspace resources are observed by the service, not supplied by a client".
