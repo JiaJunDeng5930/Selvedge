@@ -22,7 +22,7 @@ Theorem successful_setup_commits_queued_input_before_request_capture :
 Proof.
  intros space guidance [contract profile settings lifecycle history queued lineage parent side_cursor model_cursor]
    operations Waiting; cbn in Waiting; subst lifecycle.
- destruct queued as [|first rest]; unfold Worktree.completed_task;
+ destruct queued as [|first rest]; unfold Worktree.completed_task, Worktree.install_workspace;
  cbn [task_contract task_current_profile task_current_settings task_lifecycle
   task_history task_queued task_lineage task_side_parent task_side_cursor task_model_cursor
   Selvedge.Kernel.Tasks.promote];
@@ -132,7 +132,8 @@ Proof.
  intros tree value task root space guidance message found valid live.
  unfold Worktree.created. rewrite found. cbn. rewrite valid, live. cbn.
  unfold find_task. rewrite WorktreeProofs.store_preserves_tasks. fold find_task.
- eapply LifecycleProofs.find_put_task. exact found.
+ eapply LifecycleProofs.find_put_task.
+ eapply WorktreeProofs.completing_bindings_preserves_the_owner; exact found.
 Qed.
 
 (** The accepted callback is constrained through Worktree.completion itself.

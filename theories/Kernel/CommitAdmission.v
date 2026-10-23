@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json JsonObjects Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Codec ContextSelection
- Dispatch Notifications Inputs Workspace WorkspaceBackend WorldInvariant CompactionPlan Reasoning.
+ Dispatch Notifications Inputs Workspace WorkspaceBackend WorldInvariant CompactionPlan Reasoning SideContext.
 From Selvedge.Features Require Import Domain State Observation Titles
  CompactionTypes Compaction Worktree TitleRuntime Remote.
 Import ListNotations.
@@ -154,27 +154,46 @@ Definition worktree_initialization (owner : N) (before after : F.state) :=
    end
  | _, _ => false
  end.
+Definition setup_history_matches (old expected next : D.task) :=
+ match D.task_side_parent old with
+ | None => same_history (D.task_history expected) (D.task_history next)
+ | Some parent =>
+   ContextSelection.history_extends (D.task_history expected) (D.task_history next) &&
+   forallb (fun entry => match entry with
+    | D.ContextObservation change =>
+      let key := match change with ContextTypes.Introduce snapshot => ContextTypes.snapshot_key snapshot
+       | ContextTypes.Amend key _ _ _ | ContextTypes.Remove key _ => key end in
+      ContextUpdates.same_key key (SideContext.parent_key parent)
+    | _ => false end)
+    (skipn (List.length (D.task_history expected)) (D.task_history next))
+ end.
 Definition worktree_contract_update (owner : N) (before after : F.state)
  (old next : D.task) :=
- match D.task_lifecycle old with
- | D.Frozen _ _ => match worktree_entry owner after with
+ match D.task_lifecycle old,
+  D.settings_resource (D.contract_settings (D.task_contract old)),
+  D.settings_resource (D.task_current_settings old) with
+ | D.Archived,_,_ => false
+ | _,Some resource,Some selected =>
+   N.eqb resource selected &&
+   match worktree_entry resource after with
    | Some tree => match F.worktree_phase tree with
      | F.TreeReady _ primary =>
        let chosen := D.task_current_settings next in
        let space := D.settings_workspace chosen in
        let guidance := D.settings_guidance chosen in
-       worktree_initialization owner before after &&
+       worktree_initialization resource before after &&
        String.eqb (Worktree.primary space) primary &&
        Json.equal (Codec.workspace_json space)
          (Codec.workspace_json (Worktree.selected_workspace primary
            (D.settings_workspace (D.task_current_settings old)))) &&
-       let expected := Worktree.completed_task space guidance old in
+       let expected := if N.eqb owner resource then Worktree.completed_task space guidance old
+         else Worktree.install_workspace (D.task_lifecycle old) space guidance old in
        same_task_except_history (D.with_lifecycle (D.task_lifecycle expected) next) expected &&
-       same_history (D.task_history expected) (D.task_history next) &&
+       setup_history_matches old expected next &&
        worktree_completion_lifecycle expected next
      | _ => false end
    | None => false end
- | _ => false
+ | _,_,_ => false
  end.
 Definition execution_configuration_target (command : G.command) (owner : N) :=
  match command with

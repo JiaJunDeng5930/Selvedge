@@ -1,4 +1,4 @@
-From Stdlib Require Import String List Bool NArith.
+From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs.
@@ -69,6 +69,40 @@ Qed.
 Lemma store_preserves_tasks : forall tree value,
  world_tasks (Worktree.store tree value) = world_tasks value.
 Proof. intros tree [sequence tasks ticket environment projects features]; destruct features; reflexivity. Qed.
+Lemma registry_at_numbered_map : forall (A B : Type) (f : N -> A -> B) values offset index previous,
+ registry_at index values = Some previous ->
+ registry_at index (Numbers.indexed f offset values) = Some (f (offset+index)%N previous).
+Proof.
+ intros A B f values; induction values as [|first rest IH]; intros offset index previous Found;
+ cbn [registry_at Numbers.indexed] in Found |- *; [discriminate|].
+ destruct (N.eqb index 0) eqn:Zero.
+ - apply N.eqb_eq in Zero; subst index; inversion Found; subst previous.
+   now rewrite N.add_0_r.
+ - rewrite (IH (N.succ offset) (N.pred index) previous Found).
+   f_equal; f_equal; apply N.eqb_neq in Zero; lia.
+Qed.
+Lemma completing_bindings_preserves_the_owner : forall owner space guidance value task,
+ find_task owner value = Some task ->
+ find_task owner (Worktree.complete_bindings owner space guidance value) = Some task.
+Proof.
+ intros owner space guidance value task Found.
+ unfold Worktree.complete_bindings, with_tasks, find_task; cbv [set]; cbn [world_tasks].
+ rewrite (registry_at_numbered_map _ _ _ _ 0 owner task Found).
+ rewrite N.add_0_l. unfold Worktree.complete_binding. rewrite N.eqb_refl; reflexivity.
+Qed.
+Theorem setup_initializes_every_live_binding : forall owner id space guidance value task,
+ find_task id value = Some task -> id <> owner -> Worktree.archived task = false ->
+ settings_resource (contract_settings (task_contract task)) = Some owner ->
+ find_task id (Worktree.complete_bindings owner space guidance value) =
+ Some (Worktree.install_workspace (task_lifecycle task) space guidance task).
+Proof.
+ intros owner id space guidance value task Found Other Live Bound.
+ unfold Worktree.complete_bindings, with_tasks, find_task; cbv [set]; cbn [world_tasks].
+ rewrite (registry_at_numbered_map _ _ _ _ 0 id task Found).
+ rewrite N.add_0_l. unfold Worktree.complete_binding.
+ assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
+ rewrite Different, Live, Bound. unfold Workspace.same_resource. rewrite N.eqb_refl; reflexivity.
+Qed.
 (** A host success must name its primary directory and carry guidance from that
     directory. Malformed observations never turn a pending setup into failure. *)
 Theorem created_completion_requires_explicit_primary : forall source value id observed,
@@ -180,14 +214,14 @@ Lemma completed_task_contract_settings : forall space guidance task,
           (Selvedge.Kernel.Domain.task_contract task)))) guidance
    (Selvedge.Kernel.Domain.contract_settings (Selvedge.Kernel.Domain.task_contract task)).
 Proof.
- intros space guidance task. unfold Worktree.completed_task.
+ intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
  rewrite promote_preserves_contract_settings. reflexivity.
 Qed.
 Lemma completed_task_current_settings : forall space guidance task,
  Selvedge.Kernel.Domain.task_current_settings (Worktree.completed_task space guidance task) =
  Worktree.selected_settings space guidance (Selvedge.Kernel.Domain.task_current_settings task).
 Proof.
- intros space guidance task. unfold Worktree.completed_task.
+ intros space guidance task. unfold Worktree.completed_task, Worktree.install_workspace.
  rewrite promote_preserves_current_settings. reflexivity.
 Qed.
 (** Result validation rolls back the complete decision when a workspace is held. *)
@@ -376,4 +410,34 @@ Proof.
  change (Runtime.can_schedule_task owner staged = false).
  unfold Runtime.can_schedule_task, Worktree.execution_ready.
  rewrite bound. reflexivity.
+Qed.
+
+Theorem a_frozen_borrower_stays_frozen_during_setup :
+ forall phase operations space guidance task,
+ task_lifecycle task = Frozen phase operations ->
+ task_lifecycle (Worktree.install_workspace (task_lifecycle task) space guidance task) = Frozen phase operations /\
+ task_queued (Worktree.install_workspace (task_lifecycle task) space guidance task) = task_queued task.
+Proof.
+ intros phase operations space guidance [contract profile settings lifecycle history queued lineage parent cursor consumed] Frozen;
+ cbn in Frozen; subst lifecycle; split; reflexivity.
+Qed.
+
+Theorem a_live_pending_binding_holds_its_owner : forall owner id value task tree archived,
+ Worktree.lookup owner value = Some tree ->
+ F.worktree_phase tree = F.TreeCreating archived ->
+ In (id,task) (Numbers.indexed (fun id task => (id,task)) 0 (world_tasks value)) ->
+ id <> owner -> Worktree.archived task = false ->
+ settings_resource (contract_settings (task_contract task)) = Some owner ->
+ Worktree.archive_allowed owner value = false.
+Proof.
+ intros owner id value task tree archived Found Pending Member Other Live Bound.
+ unfold Worktree.archive_allowed; rewrite Found.
+ unfold F.worktree_root; rewrite Pending.
+ apply Bool.not_true_is_false; intro Available.
+ unfold Worktree.bound_tasks_unused in Available.
+ apply forallb_forall with (x:=(id,task)) in Available; [|exact Member].
+ cbn in Available.
+ assert (Different : N.eqb owner id = false) by (apply N.eqb_neq; congruence).
+ rewrite Different, Live, Bound in Available; unfold Workspace.same_resource in Available.
+ rewrite N.eqb_refl in Available; discriminate.
 Qed.

@@ -179,7 +179,7 @@ Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute 
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
  Scheduler.task_step execute id task value =
- Some (Reasoning.observe_context id (Scheduler.publish_operations task) value).
+ Some (Reasoning.observe_context id (Scheduler.publish_operations (Tasks.promote task)) value).
 Proof.
  intros execute id task value operations RunningTask NoOperation.
  unfold Scheduler.task_step; rewrite RunningTask, NoOperation; reflexivity.

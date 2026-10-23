@@ -34,8 +34,17 @@ Definition root_unused (owner:N) (root:string) (value:world) :=
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value)))
  | None=>forallb (fun pair=>negb (job_uses_root root (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) end.
+Definition bound_tasks_unused (owner : N) (value : world) :=
+ forallb (fun entry => N.eqb owner (fst entry) || archived (snd entry) ||
+  negb (Workspace.same_resource (settings_resource (contract_settings (task_contract (snd entry)))) (Some owner)))
+  (indexed (fun id task => (id,task)) 0 (world_tasks value)).
 Definition archive_allowed (id:N) (value:world) := match lookup id value with
- | Some tree=>match Selvedge.Features.Domain.worktree_root tree with Some root=>root_unused id root value | None=>true end | None=>true end.
+ | Some tree=>match Selvedge.Features.Domain.worktree_root tree with
+   | Some root=>root_unused id root value
+   | None=>match Selvedge.Features.Domain.worktree_phase tree with
+     | Selvedge.Features.Domain.TreeCreating _=>bound_tasks_unused id value
+     | _=>true end end
+ | None=>true end.
 Definition pending (tree:Selvedge.Features.Domain.worktree) := match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreating _|Selvedge.Features.Domain.TreeArchiving _ _=>true | _=>false end.
 Definition execution_allowed (id:N) (value:world) := match WorkspaceBinding.for_task id value with Some tree=>match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreateFailed _ _=>false | _=>true end | None=>true end.
 Definition execution_ready (id:N) (value:world) := match WorkspaceBinding.for_task id value with
@@ -156,15 +165,27 @@ Definition selected_workspace (target:string) (space:workspace) := match workspa
  | None=>space | Some source=>Workspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) end.
 Definition selected_settings (space:workspace) (guidance:json) (settings:task_settings) := Settings space (settings_project settings)
  (settings_sandbox settings) (settings_approval settings) guidance (settings_worktree settings) (settings_resource settings).
-Definition completed_task (space:workspace) (guidance:json) (task:task) :=
+Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:json) (task:task) :=
  let old:=task_contract task in
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
  let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
- let phase:=match task_lifecycle task with Frozen activity operations=>Running activity operations | other=>other end in
  Tasks.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task)).
+Definition completed_task (space : workspace) (guidance : json) (task : task) :=
+ install_workspace (match task_lifecycle task with Frozen activity operations=>Running activity operations
+  | other=>other end) space guidance task.
+(* A side or native child can inherit the pending environment before its
+   physical root exists. Setup selects that root for every live binding before
+   the scheduler captures any of their first model requests. *)
+Definition complete_binding (owner id : N) (space : workspace) (guidance : json) (task : task) :=
+ if N.eqb owner id || archived task then task else
+ if Workspace.same_resource (settings_resource (contract_settings (task_contract task))) (Some owner)
+ then install_workspace (task_lifecycle task) space guidance task else task.
+Definition complete_bindings (owner : N) (space : workspace) (guidance : json) (value : world) :=
+ Selvedge.Kernel.State.with_tasks
+  (indexed (fun id task => complete_binding owner id space guidance task) 0 (world_tasks value)) value.
 Definition failed_task (message:string) (task:task) := with_lifecycle (if archived task then Archived else Stopped Idle []) (append_history [FailureMessage message] task).
 Definition created_valid (root:string) (space:workspace) (guidance:json) (task:task) :=
  Workspace.valid_path root && Workspace.valid_workspace space && Workspace.valid_path (primary space) && inside root (primary space) &&
@@ -177,7 +198,8 @@ Definition created (tree:Selvedge.Features.Domain.worktree) (ok:bool) (root:opti
  if success then match root,space with Some root,Some space=>
  let ready:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeReady root (primary space)) tree in
  if archived task then archive_tree ready (store ready value)
- else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store ready (Selvedge.Kernel.State.put_task id (completed_task space guidance task) value)) []
+ else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store ready (Selvedge.Kernel.State.put_task id (completed_task space guidance task)
+   (complete_bindings id space guidance value))) []
  | _,_=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
  else let reason:=if ok then "Worktree creation returned an invalid workspace or guidance" else message in
  let failed:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreateFailed root reason) tree in
