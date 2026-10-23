@@ -132,7 +132,8 @@ Proof.
  { unfold append_history; rewrite app_nil_r; destruct task; reflexivity. }
  change (task_lifecycle (Callbacks.settle_model (append_history [] task)) = Running WantsModel operations).
  rewrite NoOutput. unfold Callbacks.settle_model; rewrite Unseen.
- unfold with_activity; rewrite Phase; reflexivity.
+ destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
+ cbn in Phase; subst lifecycle; destruct queued; reflexivity.
 Qed.
 
 (** These certificates concern the catalog consumed by the actual native

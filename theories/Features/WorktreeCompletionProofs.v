@@ -6,6 +6,30 @@ From Selvedge.Features Require Import Domain Worktree WorktreeProofs WorkspaceBi
 Import ListNotations.
 Open Scope string_scope.
 Module F := Selvedge.Features.Domain.
+
+(* Preparation freezes a task before its first request. Every request accepted
+   into that queue must join the history captured immediately after setup. *)
+Theorem successful_setup_commits_queued_input_before_request_capture :
+ forall space guidance task operations,
+ task_lifecycle task = Frozen WantsModel operations ->
+ let completed := Worktree.completed_task space guidance task in
+ task_queued completed = [] /\
+ task_history completed =
+  (task_history task ++
+   [SettingsMessage (Worktree.selected_settings space guidance (task_current_settings task))
+     (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))] ++
+   map UserMessage (task_queued task))%list.
+Proof.
+ intros space guidance [contract profile settings lifecycle history queued lineage parent side_cursor model_cursor]
+   operations Waiting; cbn in Waiting; subst lifecycle.
+ destruct queued as [|first rest]; unfold Worktree.completed_task;
+ cbn [task_contract task_current_profile task_current_settings task_lifecycle
+  task_history task_queued task_lineage task_side_parent task_side_cursor task_model_cursor
+  Selvedge.Kernel.Tasks.promote];
+ unfold with_lifecycle, with_queued, append_history, with_history; cbv [set]; cbn;
+ split; try reflexivity; now rewrite <- app_assoc.
+Qed.
+
 Ltac finish_accepted_creation entered found pending :=
  match type of entered with
  | context [negb ?valid] =>

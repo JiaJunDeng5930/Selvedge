@@ -225,30 +225,70 @@ Definition cloud_options_allowed (id : N) (settings : option json) (value : worl
  negb (WorkspaceBinding.cloud_task id value) || match settings with
  | None=>true | Some settings=>Json.equal (value_or_null "workspace" settings) JNull &&
   Json.equal (value_or_null "project_id" settings) JNull end.
+Definition failed_execution (value : world) := Selvedge.Kernel.State.reject "worktree_creation_failed"
+ "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace." value.
+Definition execution_guard (id : N) (value : world) : option decision :=
+ if execution_allowed id value then None else Some (failed_execution value).
 Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision :=
  match command with
+ | Selvedge.Generated.Commands.Cmd_send p=>
+   execution_guard (Selvedge.Generated.Commands.send_task_id p) value
+ | Selvedge.Generated.Commands.Cmd_steer p=>
+   execution_guard (Selvedge.Generated.Commands.steer_task_id p) value
+ | Selvedge.Generated.Commands.Cmd_open_side_conversation p=>
+   execution_guard (Selvedge.Generated.Commands.open_side_conversation_task_id p) value
+ | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>
+   let id:=Selvedge.Generated.Commands.configure_task_execution_task_id p in
+   match execution_guard id value with
+   | Some refused=>Some refused
+   | None=>match lookup id value with
+     | Some tree=>if pending tree then Some (Selvedge.Kernel.State.reject "worktree_pending"
+       "Wait for worktree creation or archive the task before changing its execution" value) else None
+     | None=>None end end
+ | Selvedge.Generated.Commands.Cmd_accept_speech_delegation p=>
+   let id:=Selvedge.Generated.Commands.accept_speech_delegation_task_id p in
+   if execution_allowed id value then None else
+   (* An already committed delegation remains an idempotent read after setup
+      failure; a new delegation must obey the same execution gate as send. *)
+   let replay:=CommandExecution.speech_delegation id
+     (Selvedge.Generated.Commands.accept_speech_delegation_session_id p)
+     (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id p)
+     (proj1_sig (Selvedge.Generated.Commands.accept_speech_delegation_mode p))
+     (Selvedge.Generated.Commands.accept_speech_delegation_message p) value in
+   if bool_default "replayed" (value_or_null "result" (decision_reply replay)) false
+     then Some replay else Some (failed_execution value)
  | Selvedge.Generated.Commands.Cmd_return_side_conversation p=>
    match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.return_side_conversation_task_id p) value with
    | Some side=>match task_side_parent side with
      | Some parent=>
        (* DEFENSE: A side can be opened while its parent's workspace is creating;
           a later setup failure must not consume that side's return cursor. *)
-       if execution_allowed parent value then None else
-       Some (Selvedge.Kernel.State.reject "worktree_creation_failed"
-         "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace." value)
+       if execution_allowed parent value
+         then execution_guard (Selvedge.Generated.Commands.return_side_conversation_task_id p) value
+         else Some (failed_execution value)
      | None=>None end
    | None=>None end
  | Selvedge.Generated.Commands.Cmd_fork p=>
    if cloud_options_allowed (Selvedge.Generated.Commands.fork_task_id p) (Selvedge.Generated.Commands.fork_settings p) value then
      if execution_allowed (Selvedge.Generated.Commands.fork_task_id p) value then None
-     else Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value)
+     else Some (failed_execution value)
    else Some (Selvedge.Kernel.State.reject "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment" value)
  | _=>
  let request:=match command with
  | Selvedge.Generated.Commands.Cmd_freeze p=>Some (Selvedge.Generated.Commands.freeze_task_id p,Tasks.Freeze) | Selvedge.Generated.Commands.Cmd_unfreeze p=>Some (Selvedge.Generated.Commands.unfreeze_task_id p,Tasks.Unfreeze)
  | Selvedge.Generated.Commands.Cmd_stop p=>Some (Selvedge.Generated.Commands.stop_task_id p,Tasks.Stop) | Selvedge.Generated.Commands.Cmd_interrupt p=>Some (Selvedge.Generated.Commands.interrupt_task_id p,Tasks.Interrupt)
  | Selvedge.Generated.Commands.Cmd_archive p=>Some (Selvedge.Generated.Commands.archive_task_id p,Tasks.Archive) | _=>None end in
- match request with Some (id,action)=>if control_allowed action id value then None else Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value) | None=>None end end.
+ match request with Some (id,action)=>
+   match action with
+   | Tasks.Archive=>if control_allowed action id value then None else
+     Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value)
+   | _=>match execution_guard id value with
+     | Some refused=>Some refused
+     | None=>if control_allowed action id value then None else
+       Some (Selvedge.Kernel.State.reject "worktree_pending"
+         "Wait for worktree creation or archive the task before changing its execution" value)
+     end end
+ | None=>None end end.
 Definition guard_result (before:world) (result:decision) :=
  if forallb (fun pair=>match Selvedge.Kernel.State.find_task (fst pair) before with
  | Some old=>if Json.equal (workspace_json (settings_workspace (task_current_settings old))) (workspace_json (settings_workspace (task_current_settings (snd pair)))) then true else workspace_available (settings_workspace (task_current_settings (snd pair))) before

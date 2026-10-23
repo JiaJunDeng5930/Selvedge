@@ -63,3 +63,71 @@ Proof.
  eapply rejected_command_preserves_tasks_at_packet; [exact decoded|].
  eapply failed_parent_preserves_side_return; eassumption.
 Qed.
+
+Theorem failed_setup_refuses_new_input_at_packet : forall source payload value,
+ InputDecoder.decode source = Some (UserCommand (Cmd_send payload)) ->
+ Worktree.execution_allowed (send_task_id payload) value = false ->
+ world_tasks (fst (Packet.packet source value)) = world_tasks value.
+Proof.
+ intros source payload value Decoded Failed.
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded|].
+ unfold Packet.execute_domain, Packet.query.
+ cbn [Queries.answer Selvedge.Features.Runtime.query].
+ unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
+ rewrite Failed; reflexivity.
+Qed.
+
+Theorem failed_setup_refuses_steering_at_packet : forall source payload value,
+ InputDecoder.decode source = Some (UserCommand (Cmd_steer payload)) ->
+ Worktree.execution_allowed (steer_task_id payload) value = false ->
+ world_tasks (fst (Packet.packet source value)) = world_tasks value.
+Proof.
+ intros source payload value Decoded Failed.
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded|].
+ unfold Packet.execute_domain, Packet.query.
+ cbn [Queries.answer Selvedge.Features.Runtime.query].
+ unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
+ rewrite Failed; reflexivity.
+Qed.
+
+Theorem failed_setup_refuses_side_creation_at_packet : forall source payload value,
+ InputDecoder.decode source = Some (UserCommand (Cmd_open_side_conversation payload)) ->
+ Worktree.execution_allowed (open_side_conversation_task_id payload) value = false ->
+ world_tasks (fst (Packet.packet source value)) = world_tasks value.
+Proof.
+ intros source payload value Decoded Failed.
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded|].
+ unfold Packet.execute_domain, Packet.query.
+ cbn [Queries.answer Selvedge.Features.Runtime.query].
+ unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
+ rewrite Failed; reflexivity.
+Qed.
+
+Theorem failed_setup_refuses_execution_changes_at_packet : forall source payload value,
+ InputDecoder.decode source = Some (UserCommand (Cmd_configure_task_execution payload)) ->
+ Worktree.execution_allowed (configure_task_execution_task_id payload) value = false ->
+ world_tasks (fst (Packet.packet source value)) = world_tasks value.
+Proof.
+ intros source payload value Decoded Failed.
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded|].
+ unfold Packet.execute_domain, Packet.query.
+ cbn [Queries.answer Selvedge.Features.Runtime.query].
+ unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
+ rewrite Failed; reflexivity.
+Qed.
+
+Theorem pending_setup_refuses_execution_changes_at_packet : forall source payload value tree,
+ InputDecoder.decode source = Some (UserCommand (Cmd_configure_task_execution payload)) ->
+ Worktree.lookup (configure_task_execution_task_id payload) value = Some tree ->
+ Worktree.pending tree = true ->
+ world_tasks (fst (Packet.packet source value)) = world_tasks value.
+Proof.
+ intros source payload value tree Decoded Found Pending.
+ destruct (Worktree.execution_allowed (configure_task_execution_task_id payload) value) eqn:Available.
+ - eapply rejected_command_preserves_tasks_at_packet; [exact Decoded|].
+   unfold Packet.execute_domain, Packet.query.
+   cbn [Queries.answer Selvedge.Features.Runtime.query].
+   unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
+   rewrite Available, Found, Pending; reflexivity.
+ - eapply failed_setup_refuses_execution_changes_at_packet; eassumption.
+Qed.

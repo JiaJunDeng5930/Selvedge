@@ -194,7 +194,10 @@ Definition steer (id : N) (contents : content) (value : world) :=
    end end.
 Definition promote (task : task) :=
  match task_lifecycle task, task_queued task with
- | Running Idle operations, first :: rest | Running (PendingCalls []) operations, first :: rest =>
+ (* WantsModel is still before request capture. Input queued while workspace
+    preparation froze the task belongs to that first request after setup. *)
+ | Running Idle operations, first :: rest | Running (PendingCalls []) operations, first :: rest
+ | Running WantsModel operations, first :: rest =>
    with_lifecycle (Running WantsModel operations)
     (with_queued [] (append_history (map UserMessage (first :: rest)) task))
  | Stopped Idle operations, first :: rest | Stopped (PendingCalls []) operations, first :: rest =>
