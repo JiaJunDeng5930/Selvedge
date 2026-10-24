@@ -31,7 +31,9 @@ Definition context_origin_choice body text :option Context.origin:=
  if String.eqb text "parent"then match body with
  |Draft.ForkBody task _ _ _=>Some(Context.ParentTask task)|_=>None end else
  if String.prefix "project/"text then
- option_map Context.ProjectDefaults(parse_natural(String.substring 8(String.length text)text))else
+ option_map (fun project=>match body with
+ |Draft.ForkBody task _ _ _=>Context.ProjectForParent task project
+ |_=>Context.ProjectDefaults project end)(parse_natural(String.substring 8(String.length text)text))else
  if String.prefix "parent-project/"text then match body with
  |Draft.ForkBody task _ _ _=>option_map(Context.ProjectForParent task)
    (parse_natural(String.substring 15(String.length text)text))|_=>None end else None.

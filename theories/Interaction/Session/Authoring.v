@@ -71,14 +71,14 @@ Definition issue command purpose state:=
  if SS.pending_command command state then fail state "This command is already pending."else
  let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
  let authoring:=set SS.next(fun _=>N.succ ticket)
- (set SS.awaiting(fun pending=>SS.Pending ticket command purpose None::pending)authoring)in
+ (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose None])authoring)in
  changed(SS.with_authoring authoring state)
  [emit "command"[("ticket",number ticket);("command",Schema.encode_command command)]].
 Definition reserve command purpose state:=
  if SS.pending_command command state then fail state "This command is already pending."else
  let authoring:=SS.authoring_state state in let ticket:=SS.next authoring in
  let authoring:=set SS.next(fun _=>N.succ ticket)
-  (set SS.awaiting(fun pending=>SS.Pending ticket command purpose None::pending)authoring)in
+  (set SS.awaiting(fun pending=>pending++[SS.Pending ticket command purpose None])authoring)in
  keep(SS.with_authoring authoring state).
 Definition adopt_service decision state:=
  changed(SS.with_services(Services.service_state decision)state)
@@ -120,6 +120,7 @@ Definition command_owner snapshot state command:=match ObjectActions.descriptor_
 |Some(subject,action)=>ObjectActions.action_owner subject action
 |None=>CommandAssessment.DirectOwner(CommandAssessment.command_identity command)end.
 Definition command_availability snapshot state command:EM.availability:=
+ if SS.pending_command command state then EM.Unavailable "This command is already pending." else
  EO.admission snapshot state(command_owner snapshot state command)(ObjectActions.assessment_revision state)command.
 Definition submission_obstruction snapshot draft state:option string:=
  if negb(Services.connected(SS.service_state state))then Some "Connect to continue."else
@@ -330,7 +331,7 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
     |_=>state end in
    match Draft.contents captured with
    |Draft.NewTaskBody _ _ _ _ _ _|Draft.MessageBody _ _ _=>
-     refresh_skill_catalog(Draft.owner captured)(set_mention(Draft.owner captured)SkillMention.Inactive state)
+     set_mention(Draft.owner captured)SkillMention.Inactive state
    |_=>state end
   else state in
  let foreground:=N.eqb navigation(SS.generation(SS.navigation_state state))&&N.eqb layer(SS.next_layer state)in
@@ -348,7 +349,13 @@ Definition complete_draft snapshot captured navigation layer trigger outcome sta
    |top::_=>match SS.layer_panel top with SS.EditorPanel owner|SS.PropertyPanel owner _=>if same_editor owner(Draft.owner captured)then adopt_navigation snapshot(Navigation.close_panel state)else keep state|_=>keep state end
    |[]=>keep state end end else keep state
  else let diagnostic:=completion_error outcome in
- let state:=if current then SS.save_draft(Draft.with_feedback(Draft.Rejected(Draft.revision captured)diagnostic)captured)state else state in
+ let feedback:=if String.eqb (Selvedge.Interaction.Codec.text "code" diagnostic) "command_not_submitted" then
+   match Draft.contents captured with
+   |Draft.NewTaskBody _ _ _ _ _ _|Draft.ProjectBody _ _ _ _|Draft.AgentBody _ _ _ _ _ _ _ _|Draft.ForkBody _ _ _ _=>
+      Draft.WorkspaceRejected(Draft.revision captured)(Selvedge.Interaction.Codec.diagnostic_message diagnostic)
+   |_=>Draft.Rejected(Draft.revision captured)diagnostic end
+   else Draft.Rejected(Draft.revision captured)diagnostic in
+ let state:=if current then SS.save_draft(Draft.with_feedback feedback captured)state else state in
  fail_diagnostic state diagnostic.
 Definition complete snapshot (executed:SS.public_command) purpose outcome state:=match purpose with
 |SS.DraftSubmission captured navigation layer trigger=>Some(complete_draft snapshot captured navigation layer trigger outcome state)
@@ -746,7 +753,10 @@ Definition confirmation_availability snapshot state command:EM.availability:=
  if SS.pending_command command state then EM.Unavailable "This command is already pending."else
  if Services.connected(SS.service_state state)then command_availability snapshot state command
  else EM.Unavailable "Connect to continue.".
+Definition placement_pending input state := match input with
+ |Input.CardPlaced card _ _ _ _=>SS.pending_placement card state|_=>false end.
 Definition input_availability snapshot state input:EM.availability:=
+ if placement_pending input state then EM.Unavailable "This task movement is pending." else
  match input_command snapshot state input with
  |Some command=>match input with
   |Input.Confirm=>confirmation_availability snapshot state command

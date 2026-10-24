@@ -65,7 +65,7 @@ Definition field_scene identity event_id p binding local (active:bool) : scene :
    then Local.canonical local else JString local.(Local.raw) in
  let editor:=IP.Editor (IP.Component event_id p binding) local.(Local.local_shape) local.(Local.validation) display (Some local.(Local.raw)) active
    (if active then Some (fun value=>Some (ValueChanged event_id value)) else None) in
- S.Node (Types.event_key event_id+++"/@input") "interactive-markdown/edit" (property_text "label" p)
+ S.Node (Types.event_key event_id+++"/@input") (Types.event_key event_id) (property_text "label" p)
   R.Field (S.InteractiveEdit identity event_id.(path) editor)
   (match local.(validation) with
    |Some reason=>[S.Node (Types.event_key event_id+++"/@input/validation")
@@ -207,7 +207,9 @@ Fixpoint render_nodes (fuel:nat) identity (b:block) (prepared:prepared) (nodes:l
      |Field,FieldLink id active=>match find_local id b.(locals) with
        |Some local=>[field_scene identity event_id p binding local active]|None=>[text (key+++"/@missing") "Field state no longer exists"] end
      |Action,ActionLink action availability=>
-       button (key+++"/@button") (property_text "label" p) (ActionClicked event_id) (match availability with Enabled=>true|_=>false end)::
+       S.Node (key+++"/@button") key (property_text "label" p) R.Button
+        (S.Activate(M.Control (key+++"/@button") (property_text "label" p) M.Secondary (ActionClicked event_id)
+          (match availability with Enabled=>M.Available|Busy _=>M.Busy "This action is pending"|Disabled=>M.Unavailable "Control is not available" end))) []::
         (let notice:=feedback_text event_id.(path) b in if String.eqb notice ""then[]else
          [diagnostic_node (key+++"/@feedback") ("@feedback/"+++event_id.(path)) notice])
      |TextLeaf,_=>[text (key+++"/@text") (property_text "label" p)]

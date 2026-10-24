@@ -41,9 +41,12 @@ Definition finish (visible:owner->bool) b environment (persist:bool) output :=
    then[ParseMore b.(block_owner)]else[]in
  (b,output++parse++load++save).
 Definition event_node b environment event_id :=
+ (* DEFENSE: expanding the new tree may allocate a component never mounted in
+    the owning document. Only an existing occurrence can receive native input. *)
+ if mounted_at event_id.(path) event_id.(occurrence) b.(mounts) then
  let p:=prepared b environment in
  let '(nodes,_):=Expand.expand b p environment in
- Expand.find_event 8192 event_id nodes.
+ Expand.find_event 8192 event_id nodes else None.
 Definition replace_action path occurrence action b :=
  let '(ticket,b):=State.take_ticket b in
  (ticket,State.set_feedback path (Waiting ticket occurrence action) b).

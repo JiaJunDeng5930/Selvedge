@@ -32,4 +32,4 @@ Definition read_only {A} parent name label value : node A :=
 Definition title {A} parent label := information (A:=A) parent "heading" Information.SurfaceTitle label.
 Definition group_title {A} parent label := information (A:=A) parent "heading" Information.GroupTitle label.
 Definition availability_reason (value : availability) := match value with
-| Unavailable reason => Some reason | _ => None end.
+| Unavailable reason | Busy reason => Some reason | _ => None end.

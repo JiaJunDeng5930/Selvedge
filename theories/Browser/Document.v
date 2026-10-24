@@ -156,7 +156,7 @@ Definition editor {A} env (activity:bool) key label generation owner field (valu
    Fields.MessageText,Some _=>true|_,_=>false end))] in
  let attrs:=attributes ++ [("aria-label",label)] ++
  (match field with
- |Fields.MessageText=>[("placeholder","Ask anything, or describe a task")]
+ |Fields.MessageText=>[("placeholder","Ask anything, or describe a task");("data-focus-alias","composer-message")]
  |Fields.CardLabels=>[("placeholder","每行一个标签")]
  |Fields.CardTitle|Fields.CardDescription=>[("placeholder",label)]
  |_=>[]end) ++ disabled enabled in
@@ -603,6 +603,12 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
    |_=>NativeAppearance.alert_properties env end
  |_,_=>[]end.
 
+(** A reader can move between a side window and the main conversation. Its
+    message identity remains the source's identity, independent of that view. *)
+Definition reading_identity {A}(value:S.node A) := match S.node_meaning value with
+ |S.PublishedText document=>CodeSource.source_key(DocumentPublication.published_code_source document)
+ |S.RichText source _=>CodeSource.source_key source
+ |_=>S.semantic_key value end.
 Definition compile_element {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) (children:list DOM.node) : DOM.node :=
  let key:=S.node_key value in let label:=S.node_label value in
  let meaning:=S.node_meaning value in let role:=S.node_role value in
@@ -623,7 +629,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
   |_,S.InformationText Information.NavigationCaption=>ControlContent.single_line_attributes label
   |_,_=>[]end) ++
  NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
- (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true")]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
+ (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true");("data-reading-identity",reading_identity value)]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
  (if supporting then ControlContent.support_row_attributes key
   else if responsive then [("data-native-responsive-row",key);("data-native-row-direction","column")] else []) in
  let styles:=node_styles describe env activity source role meaning current_area supporting responsive in
@@ -941,7 +947,7 @@ Fixpoint target_updates {A} view (value:S.node A) : list DOM.target_update :=
  (DocumentPublication.frame_properties policy)::children
  |_=>children end.
 Definition surface_scopes {A}(values:list(S.node A)) : list Focus.scope :=
- flat_map(fun node=>match S.node_meaning node with
+ Focus.Document::flat_map(fun node=>match S.node_meaning node with
  |S.LayerRegion behavior|S.NavigationRegion _ behavior|S.ActivityGroup _ _ _ behavior=>
  if Model.modal_layer behavior then [Focus.Temporary (S.node_key node)
  (Model.layer_initial_attention behavior) (Model.layer_return_attention behavior)

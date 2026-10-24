@@ -102,6 +102,11 @@ Definition pending_editor owner state:=existsb(fun pending=>match purpose pendin
 |LanguageSubmission editor _ _ _=>same_editor owner editor
 |_=>false end)(awaiting(authoring_state state)).
 Definition pending_command command state:=existsb(fun pending=>CommandAssessment.same_command command(accepted_command pending))(awaiting(authoring_state state)).
+Definition pending_placement card state:=existsb(fun pending=>
+ let raw:=Schema.encode_command(accepted_command pending)in
+ String.eqb (Codec.text "op" raw) "move_card" &&
+ match Codec.natural_field "card_id" raw with Some current=>N.eqb card current|None=>false end)
+ (awaiting(authoring_state state)).
 Definition initial := State
   (Navigation Start None [] AutomaticNavigation true 0 [])
   (Authoring [] 0 [] (Search "" None None None None) [] [] false)

@@ -13,7 +13,7 @@ Module G := Selvedge.Generated.Commands.
 
 Inductive operation := NativeCommand(command:State.public_command)
 | Destination(target:route) | Editor(owner:editor) | SideConversation(task:N).
-Inductive status := Available | Awaiting | Unavailable(reason:string) | AssessmentFailed(reason:string).
+Inductive status := Available | Awaiting | InFlight | Unavailable(reason:string) | AssessmentFailed(reason:string).
 Record action := Action {
  action_key:string; action_label:string; action_operation:operation;
  action_confirmation:option(string*route); action_status:status
@@ -92,7 +92,7 @@ Definition assessment_for subject value s := find(Services.owned_assessment(acti
  (Services.command_assessments(State.service_state s)).
 Definition availability snapshot s subject value :=match command value with
 |None=>Available
-|Some command=>if negb(Services.connected(State.service_state s))then Unavailable "Connect to continue"else
+|Some command=>if State.pending_command command s then InFlight else if negb(Services.connected(State.service_state s))then Unavailable "Connect to continue"else
  match natural_field "sequence" snapshot,assessment_for subject value s with
  |Some sequence,Some(Loaded _ request observation)=>
    if CommandAssessment.matches(action_owner subject value)(assessment_revision s)sequence command request &&

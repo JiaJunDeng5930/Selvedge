@@ -46,6 +46,6 @@ Definition step input reduced_motion current : state * list effect :=
       then (State ReadHistory None, [LeaveViewport]) else (current, [])
   end.
 
-(** The host stores this state under the task-view key. A new visit changes
+(** The host stores this state under the task identity. A new visit changes
     observation authority, but does not discard that task's reading position. *)
 Definition bind_generation (_previous _observed : N) (current : state) := current.

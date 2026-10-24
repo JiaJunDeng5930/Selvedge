@@ -32,16 +32,20 @@ const reveal = createLayoutRevealer(surface);
 const motion = new PresentationMotion(surface);
 let state = interaction('initial');
 let world = null;
-let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0 };
+let publication = { generation: 0, phase: 'awaiting', namespace: '', sequence: 0, displayed_generation: null };
 let environment = null;
 let measuring = null;
 let measureAgain = false;
+let renderAfterMeasurement = false;
 let connection = null;
 let disposed = false;
 let clockRefresh = null;
 let sourceFresh = false;
 let layoutFrame = null;
 let pendingHistoryLocation = null;
+let focusRequest = 0;
+let pendingFocus = null;
+let suspendedFocus = null;
 const ticketKey = value => stringifyJson(value);
 const integral = value => BigInt(value instanceof JsonNumber ? value.source : value);
 
@@ -49,14 +53,16 @@ function taskObservation(effect, fields) {
   return effect.task_id === undefined ? fields : { ...fields, task_id: effect.task_id };
 }
 
+const requestScope = () => ({ namespace: publication.namespace, sequence: publication.sequence, ticket: state.services.connection.ticket });
+const ownsRequestFailure = scope => publicationEvent('request_failure', { expected_namespace: scope.namespace,
+  expected_sequence: scope.sequence, ticket: scope.ticket, connection: state.services.connection });
 const authorizationRevoked = error => error.status === 401 || error.status === 403;
 function observeRequestFailure(error, scope) {
-  if (authorizationRevoked(error) && scope.ticket !== undefined && publicationEvent('completion', {
-    expected_namespace: scope.namespace, incoming_namespace: publication.namespace }))
+  if (authorizationRevoked(error) && ownsRequestFailure(scope))
     dispatch({ type: 'disconnected', ticket: scope.ticket, error: error.message, revoked: true });
 }
 async function request(url, options = {}, binary = false) {
-  const scope = { namespace: publication.namespace, ticket: state.services.connection.ticket };
+  const scope = requestScope();
   let response;
   try {
     response = await fetch(url, { ...options, credentials: 'same-origin' });
@@ -77,6 +83,7 @@ async function request(url, options = {}, binary = false) {
     // DEFENSE: A denial can be truncated or contain invalid JSON; its HTTP status
     // still revokes the source that owned this request, never a later source.
     if (response) error.status ??= response.status;
+    error.requestScope = scope;
     observeRequestFailure(error, scope);
     throw error;
   }
@@ -111,6 +118,7 @@ function snapshot(body, expected = publication.namespace, authenticating = false
     ...(authenticating ? { authentication_ticket: authenticationTicket, connection: state.services.connection } : {}) });
   sourceFresh = receipt.sources_fresh;
   if (!receipt.accepted) return receipt.authenticated;
+  if (!receipt.install_world) return true;
   if (receipt.install_world) {
     if (body.namespace !== publication.namespace) retireDocumentViews();
     world = body.program;
@@ -123,7 +131,7 @@ function retireDocumentViews() {
   for (const entry of codeBlocks.values()) for (const physical of entry.views.values()) physical.renderer?.dispose();
   codeBlocks.clear(); readings.clear(); files.clear(); renderer.reset();
   for (const node of readingMeasurements.keys()) retireReadingMeasurement(node);
-  pendingHistoryLocation = null;
+  pendingHistoryLocation = null; pendingFocus = null; suspendedFocus = null; focusRequest++;
   for (const controller of assessments.values()) controller.abort();
   assessments.clear();
   for (const resource of resources) URL.revokeObjectURL(resource);
@@ -133,20 +141,33 @@ function fatal(error) {
   publication = publicationEvent('failure', { reason: error.message });
   render();
 }
+function synchronizeNativeAuthority() {
+  const inert = !publicationEvent('ready');
+  if (inert && !surface.inert) {
+    const node = document.activeElement;
+    suspendedFocus = surface.contains(node) ? { node, attempt: focusRequest } : null;
+  }
+  surface.inert = inert;
+  // Native modal dialogs escape ancestor inertness; apply the same receipt to
+  // those real DOM roots as well as to the ordinary document tree.
+  for (const dialog of surface.querySelectorAll('dialog')) dialog.inert = inert;
+  if (!inert && suspendedFocus) {
+    const retained = suspendedFocus; suspendedFocus = null;
+    // Toggling native inertness can blur an unchanged editor. Preserve that
+    // physical focus unless another focus request or replacement superseded it.
+    if (retained.attempt === focusRequest && retained.node.isConnected &&
+        !retained.node.matches(':disabled,[aria-disabled="true"]') &&
+        document.activeElement === document.body) retained.node.focus({ preventScroll: true });
+  }
+}
 function renderRecovery(reason) {
+  surface.inert = false;
   renderer.render(browser('recovery', { root_font_size_milli: physical.viewport().root_font_size_milli,
     generation: publication.generation, reason }), publication.generation);
 }
 function dispatch(input) {
   if (disposed) return;
-  if (input.type !== 'clock_observed') {
-    const clock = interaction('step', { state, input: { type: 'clock_observed', now: BigInt(Math.floor(Date.now() / 1000)) },
-      world, environment, generation: publication.generation, namespace: publication.namespace,
-      semantic_lagged: publicationEvent('semantic_pending') });
-    state = clock.state;
-    for (const effect of clock.effects) execute(effect).catch(fatal);
-  }
-  const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), semantic_lagged: publicationEvent('semantic_pending') });
+  const decision = interaction('step', { state, input, world, environment, generation: publication.generation, namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
   state = decision.state;
   const retainedFiles = new Set(decision.file_handles);
   for (const handle of files.keys()) if (!retainedFiles.has(handle)) files.delete(handle);
@@ -163,9 +184,20 @@ function dispatch(input) {
     announcements.setAttribute('aria-live', visible ? 'assertive' : 'polite');
   }
   publication = publicationEvent(decision.publication_event);
-  render();
+  if (decision.publication_event !== 'keep') render();
   for (const effect of decision.effects) execute(effect).catch(fatal);
   return decision.handled;
+}
+function retryFocus() {
+  const pending = pendingFocus;
+  if (!pending) return;
+  // DEFENSE: a native focus request can outlive another focus or its journal.
+  if (pending.attempt !== focusRequest || pending.namespace !== publication.namespace) { pendingFocus = null; return; }
+  if (document.visibilityState !== 'visible' || publicationEvent('pending') || !admitted(renderer.generation)) return;
+  const target = renderer.resolveTarget(pending.effect.key, { fallback: pending.effect.fallback, recoverMissing: true });
+  if (!target) return;
+  pendingFocus = null;
+  revealAndFocus(target);
 }
 function refreshClock() {
   // DEFENSE: Background tabs can still run throttled intervals, and their hidden UI should refresh when visible again.
@@ -177,20 +209,32 @@ function render() {
   const recovery = publicationEvent('recovery');
   if (recovery !== null) { renderRecovery(recovery); return; }
   if (!environment) return;
+  surface.dataset.displayPending = String(publicationEvent('pending'));
+  if (measuring && renderer.document) {
+    renderAfterMeasurement = true; measureAgain = true; return;
+  }
   const plan = interaction('observe', { state, world, environment, generation: publication.generation,
-    namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), semantic_lagged: publicationEvent('semantic_pending') });
+    namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)), displayed_generation: publication.displayed_generation, semantic_lagged: publicationEvent('semantic_pending') });
+  surface.dataset.displayPending = String(publicationEvent('pending'));
+  if (plan.measurement_pending && renderer.document && !renderer.document.measurement_pending) {
+    refreshPhysical().catch(fatal); return;
+  }
   renderer.render(plan, publication.generation);
-  surface.dataset.displayPending = String(!publicationEvent('ready'));
   surface.dataset.sourcesFresh = String(sourceFresh);
   physical.refresh();
   if (!plan.measurement_pending) {
     publication = publicationEvent('document', { receipt_generation: publication.generation });
+    synchronizeNativeAuthority();
     const generation = publication.generation;
     renderer.whenCaughtUp().then(caughtUp => {
       if (!caughtUp || disposed) return;
-      const lagged = !publicationEvent('ready');
       publication = publicationEvent('publish', { receipt_generation: generation });
-      if (lagged && publicationEvent('ready')) render();
+      // The receipt changes input authority, not the compiled state/world/environment.
+      // Keep the same DOM and finish the native work that was waiting for publication.
+      surface.dataset.displayPending = String(publicationEvent('pending'));
+      synchronizeNativeAuthority();
+      if (publicationEvent('ready')) renderer.refreshNativeTargets();
+      retryHistoryLocation(); retryFocus();
     }).catch(fatal);
   }
   reveal(); motion.refresh(); layoutReading(); retryHistoryLocation();
@@ -233,7 +277,10 @@ async function refreshPhysical() {
       if (changed) dispatch({ type: 'environment_observed' });
     } while (measureAgain && !disposed);
   })();
-  try { await measuring; } finally { measuring = null; }
+  try { await measuring; } finally {
+    measuring = null;
+    if (renderAfterMeasurement && !disposed) { renderAfterMeasurement = false; render(); }
+  }
 }
 function observedSelection(node, composing = false) {
   const encode = value => new TextEncoder().encode(value).length;
@@ -252,12 +299,19 @@ const renderer = new Renderer(surface, {
   focusPlan(source) { return browser('focus_plan', source); },
   keyboard(source) { return browser('key', source); },
   focus(event, key, node) {
+    focusRequest++;
     if (event.target !== node || typeof node.selectionStart !== 'number') return;
     const record = renderer.records.get(key);
     const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
     if (!binding || !record.metadata.selection_enabled || !admitted(record.generation)) return;
     dispatch({ ...binding.action, gesture: 'selection',
       value: { ...observedSelection(node, renderer.composing.has(node)), refocus: true } });
+  },
+  composition(event, key, node) {
+    const record = renderer.records.get(key);
+    const binding = record?.events.find(binding => binding.kind === 'value' && binding.action.op === 'element');
+    if (binding && record.metadata.selection_enabled && admitted(record.generation))
+      dispatch({ ...binding.action, gesture: 'selection', value: observedSelection(node, true) });
   },
   blur(event, key, node) {
     if (event.target !== node || typeof node.selectionStart !== 'number') return;
@@ -294,7 +348,7 @@ const renderer = new Renderer(surface, {
     if (record.metadata.key_input && keyboard.unmodified) {
       const input = { op: 'element', key, gesture: 'key', generation: record.generation, value: { key: event.key } };
       if (interaction('accepts_element', { state, input, world, environment, generation: publication.generation,
-          namespace: publication.namespace, now: BigInt(Math.floor(Date.now() / 1000)) })) {
+          namespace: publication.namespace, displayed_generation: publication.displayed_generation, now: BigInt(Math.floor(Date.now() / 1000)) })) {
         event.preventDefault(); dispatch(input); return;
       }
     }
@@ -302,12 +356,12 @@ const renderer = new Renderer(surface, {
     if (form && (node.tagName === 'TEXTAREA' || node.tagName === 'INPUT')) {
       const submitter = form.querySelector('button[type="submit"],input[type="submit"]');
       editorKeyboard(event, observation => browser('editor_key', { ...observation,
-        scope: renderer.focusScope, composer_binding: record.metadata.composer_binding === true, multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled, pending: false }), () => form.requestSubmit(), composing);
+        scope: renderer.focusScope, within_scope: !!renderer.modal?.contains(form), composer_binding: record.metadata.composer_binding === true, multiline: node.tagName === 'TEXTAREA', enabled: !node.disabled && !submitter?.disabled && submitter?.getAttribute('aria-disabled') !== 'true', pending: submitter?.getAttribute('aria-busy') === 'true' }), () => form.requestSubmit(), composing);
     }
     const dialog = node.closest('dialog[open],[aria-modal="true"]');
     if (dialog && event.key === 'Tab') {
       const targets = Array.from(dialog.querySelectorAll('button,a[href],input,textarea,select,[tabindex]')).filter(target =>
-        target.tabIndex >= 0 && !target.matches(':disabled') && !target.closest('[inert],[hidden]') &&
+        target.tabIndex >= 0 && !target.matches(':disabled,[aria-disabled="true"]') && !target.closest('[inert],[hidden]') &&
         target.getClientRects().length && getComputedStyle(target).visibility !== 'hidden');
       const keys = targets.map((_, index) => String(index));
       const next = browser('focus_cycle', { current: String(targets.indexOf(event.target)), targets: keys, backward: event.shiftKey });
@@ -413,15 +467,16 @@ function codeStep(entry, input) {
   renderCode(entry, browser('code_step', { state: entry.state, input, environment, view: entry.views.values().next().value.view }));
 }
 
+const readingKey = node => node.dataset.taskId;
 function readingState(key, node) {
   const bound = browser('reading_bind', { generation: new JsonNumber(node.dataset.readerGeneration),
-    state: readings.get(key) ?? null });
-  readings.set(key, bound);
+    state: readings.get(readingKey(node)) ?? null });
+  readings.set(readingKey(node), bound);
   return bound;
 }
 function acceptReading(key, node, decision, locationTarget) {
-  const previous = readings.get(key)?.intent ?? 'follow';
-  readings.set(key, decision.state);
+  const previous = readings.get(readingKey(node))?.intent ?? 'follow';
+  readings.set(readingKey(node), decision.state);
   for (const effect of decision.effects) {
     if (effect.type === 'leave_viewport') {
       restoredReadingOffsets.delete(node);
@@ -436,7 +491,8 @@ function acceptReading(key, node, decision, locationTarget) {
       observeReadingAnchor(key, node, decision.state);
     }
     else if (effect.type === 'preserve_anchor' && !currentReadingMeasurement(node)) {
-      const target = renderer.target(effect.anchor.key);
+      const target = Array.from(node.querySelectorAll('[data-reading-identity]')).find(
+        candidate => candidate.dataset.readingIdentity === effect.anchor.key);
       if (target) {
         node.scrollTop += target.getBoundingClientRect().top - node.getBoundingClientRect().top - Number(effect.anchor.offset);
         restoredReadingOffsets.set(node, node.scrollTop);
@@ -456,8 +512,8 @@ function observeReadingAnchor(key, node, state) {
     const bounds = target.getBoundingClientRect();
     return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
   });
-  if (anchor) readings.set(key, browser('reading', { state, event: 'anchor', anchor: {
-    key: anchor.dataset.key, offset: String(anchor.getBoundingClientRect().top - viewport.top) } }).state);
+  if (anchor) readings.set(readingKey(node), browser('reading', { state, event: 'anchor', anchor: {
+    key: anchor.dataset.readingIdentity, offset: String(anchor.getBoundingClientRect().top - viewport.top) } }).state);
 }
 function retireReadingMeasurement(node) {
   const pending = readingMeasurements.get(node);
@@ -602,11 +658,11 @@ async function authenticate(effect) {
     while (!disposed && connection === controller && !controller.signal.aborted) await observeConnection({
       request: (url, signal) => request(url, { signal }),
       fetchEvents: (url, signal) => fetch(url, { signal, credentials: 'same-origin' }),
-      signal: controller.signal,
+      signal: controller.signal, ownership: requestScope,
       sequence: () => publication.sequence instanceof JsonNumber ? publication.sequence.source : publication.sequence,
       snapshot(body) {
         if (!snapshot(body, publication.namespace, true, effect.ticket))
-          throw new Error('The authentication snapshot is not admitted for this browser source.');
+          throw Object.assign(new Error('The authentication snapshot is not admitted for this browser source.'), { status: 403, requestScope: requestScope() });
       },
       ready() {
         if (ready) return;
@@ -623,6 +679,8 @@ async function authenticate(effect) {
   } catch (error) {
     // DEFENSE: Superseded fetches report AbortError after a newer connection owns the browser.
     if (controller.signal.aborted || connection !== controller) return;
+    // DEFENSE: a state read or SSE open may fail after a command installed a newer cursor.
+    if (error.requestScope && !ownsRequestFailure(error.requestScope)) return;
     sourceFresh = false;
     const revoked = authorizationRevoked(error);
     dispatch(ready || revoked ? { type: 'disconnected', ticket: effect.ticket, error: error.message, revoked }
@@ -632,6 +690,14 @@ async function authenticate(effect) {
 // The semantic surface declares every admissible destination; native drag only
 // supplies the observed target to that element's Place gesture.
 let draggedCard = null;
+surface.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  for (const node of surface.querySelectorAll('[data-help]:hover,[data-help]:focus-visible')) node.setAttribute('data-help-dismissed', '');
+});
+for (const name of ['pointerout', 'focusout']) surface.addEventListener(name, event => {
+  const node = event.target.closest?.('[data-help-dismissed]');
+  if (node && !node.contains(event.relatedTarget)) node.removeAttribute('data-help-dismissed');
+});
 surface.addEventListener('dragstart', event => {
   const node = event.target.closest?.('[data-card-id][draggable="true"]');
   const record = node && renderer.records.get(node.dataset.key);
@@ -776,10 +842,8 @@ async function execute(effect) {
       return;
     }
     case 'focus': {
-      const generation = publication.generation;
-      const target = () => renderer.resolveTarget(effect.key, { fallback: effect.fallback });
-      if (!target()) await renderer.whenCaughtUp();
-      if (admitted(generation)) { const node = target(); if (node) revealAndFocus(node); }
+      pendingFocus = { effect, namespace: publication.namespace, attempt: ++focusRequest };
+      retryFocus();
       return;
     }
     case 'follow_latest': {
@@ -885,7 +949,8 @@ window.addEventListener('pagehide', () => {
 window.addEventListener('focus', () => audio.focus());
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => refreshPhysical().catch(fatal));
 clockRefresh = setInterval(refreshClock, 60_000);
-document.addEventListener('visibilitychange', refreshClock);
+document.addEventListener('visibilitychange', () => { refreshClock(); retryFocus(); });
+refreshClock();
 await refreshPhysical().catch(fatal);
 try {
   const restoredAppearance = localStorage.getItem('selvedge-appearance');

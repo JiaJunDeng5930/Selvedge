@@ -71,3 +71,17 @@ Theorem a_pending_command_is_not_executed_twice command purpose state:
  SS.pending_command command state=true ->
  Authoring.result_effects(Authoring.issue command purpose state)=nil.
 Proof. intro Pending. unfold Authoring.issue. rewrite Pending. reflexivity. Qed.
+
+(** A rejected raw component event cannot trigger synchronization, IO or a new
+    publication generation before its identity has been admitted. *)
+Theorem rejected_interactive_input_is_idle request snapshot namespace language raw state :
+ Selvedge.Interaction.Session.Runtime.native_language namespace snapshot state language=false ->
+ Application.input_decision request snapshot namespace (Input.Interactive language)raw state=
+ (Authoring.keep state,"keep").
+Proof. intro Rejected; unfold Application.input_decision; rewrite Rejected; reflexivity. Qed.
+
+Theorem repeated_native_selection_keeps_its_publication input current updated :
+ Json.equal(Selvedge.Interaction.Session.Codec.encode_state current)(Selvedge.Interaction.Session.Codec.encode_state updated)=true ->
+ input<>Input.Snapshot -> input<>Input.EnvironmentObserved ->
+ Application.input_publication input current updated="keep".
+Proof. intros Equal NoSnapshot NoEnvironment; unfold Application.input_publication; destruct input; try contradiction; now rewrite Equal. Qed.

@@ -2,56 +2,48 @@ From Stdlib Require Import String Bool NArith.
 From Selvedge.Interaction Require Import Services Origin.
 Open Scope string_scope.
 
-(** A single generation and a phase replace three independently writable
-    generation counters. A prepared document always belongs to that generation. *)
+(** Requested work and the document actually published have different identities.
+    A pending measurement retains the previous document and its input authority;
+    a newly prepared DOM has no authority until its renderer receipt arrives. *)
 Inductive phase := AwaitingDocument | Prepared | Published
  | AwaitingPresentation | PreparedPresentation | Recovering (reason : string).
 Record state := State {
-  generation : N; current_phase : phase; namespace : string; sequence : N
+ generation : N; current_phase : phase; namespace : string; sequence : N;
+ displayed_generation : option N
 }.
-Definition initial namespace sequence := State 0 AwaitingDocument namespace sequence.
-Definition fresh value := match current_phase value with
- |Published|AwaitingPresentation|PreparedPresentation=>true|_=>false end.
-Definition admit requested value :=
-  N.eqb requested (generation value) &&
-  match current_phase value with
-  |Prepared|AwaitingPresentation|PreparedPresentation|Published=>true|_=>false end.
+Definition initial namespace sequence := State 0 AwaitingDocument namespace sequence None.
+Definition fresh value := match displayed_generation value with Some _=>true|None=>false end.
+Definition admit requested value := match displayed_generation value with
+ |Some displayed=>N.eqb requested displayed|None=>false end.
 Definition semantic_pending value := match current_phase value with
  |Published|AwaitingPresentation|PreparedPresentation=>false|_=>true end.
 Definition advance value :=
-  State (N.succ (generation value))
-    (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end)
-    (namespace value) (sequence value).
+ State (N.succ(generation value))
+   (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end)
+   (namespace value)(sequence value)(displayed_generation value).
 Definition present value := State (N.succ(generation value))
  (match current_phase value with Recovering reason=>Recovering reason
   |_=>if semantic_pending value then AwaitingDocument else AwaitingPresentation end)
- (namespace value) (sequence value).
-Definition failed reason value := State (generation value) (Recovering reason) (namespace value) (sequence value).
-Definition retry value := State (N.succ(generation value)) AwaitingDocument (namespace value) (sequence value).
+ (namespace value)(sequence value)(displayed_generation value).
+Definition failed reason value := State(generation value)(Recovering reason)(namespace value)(sequence value)None.
+Definition retry value := State(N.succ(generation value))AwaitingDocument(namespace value)(sequence value)None.
 Definition recovery_reason value := match current_phase value with Recovering reason=>Some reason|_=>None end.
-(* DEFENSE: DOM work and its completion promises can finish after a newer
-   semantic update. Only the currently requested generation may be prepared. *)
+(* DEFENSE: DOM work and its completion promises can finish after a newer request.
+   Replacing the document retires the prior native basis; preparation is not publication. *)
 Definition document_ready requested value :=
-  if N.eqb requested (generation value)
-  then match current_phase value with
-    | AwaitingDocument => State (generation value) Prepared (namespace value) (sequence value)
-    | AwaitingPresentation => State (generation value) PreparedPresentation (namespace value) (sequence value)
-    | _ => value
-    end
-  else value.
-(* DEFENSE: a renderer promise can settle after a newer update or before that
-   update has a document. Such a receipt must not publish the newer generation. *)
+ if N.eqb requested(generation value)then match current_phase value with
+ |AwaitingDocument=>State(generation value)Prepared(namespace value)(sequence value)None
+ |AwaitingPresentation=>State(generation value)PreparedPresentation(namespace value)(sequence value)None
+ |_=>value end else value.
+(* DEFENSE: A renderer receipt can settle after another request replaced its DOM. *)
 Definition publish requested value :=
-  if N.eqb requested (generation value) then
-    match current_phase value with
-    | Prepared | PreparedPresentation => State (generation value) Published (namespace value) (sequence value)
-    | _ => value
-    end
-  else value.
+ if N.eqb requested(generation value)then match current_phase value with
+ |Prepared|PreparedPresentation=>State(generation value)Published(namespace value)(sequence value)(Some requested)
+ |_=>value end else value.
 Definition observe namespace sequence value :=
-  State (generation value) (current_phase value) namespace sequence.
-Definition invalidate value := State (generation value)
-  (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end) "" 0.
+ State(generation value)(current_phase value)namespace sequence(displayed_generation value).
+Definition invalidate value := State(generation value)
+ (match current_phase value with Recovering reason=>Recovering reason|_=>AwaitingDocument end) "" 0 None.
 Definition refresh_needed source_namespace source_sequence sources_fresh connection value :=
   match source_namespace,source_sequence with
   |Some ns,Some seq => negb (Origin.valid_namespace (namespace value) &&
@@ -87,3 +79,10 @@ Definition snapshot_freshness (origin : snapshot_origin) (authenticated previous
   if authenticated then match origin with
     | Authentication => true | ExistingSession => previous end
   else previous.
+
+(** A failure belongs to the request's source cursor and connection. A command
+    may install a newer snapshot while an older state read or SSE open waits. *)
+Definition admit_request_failure expected expected_sequence ticket connection value :=
+  String.eqb expected (namespace value) && N.eqb expected_sequence (sequence value) &&
+  Services.connection_active connection && Services.connection_matches ticket connection.
+Definition pending value := match current_phase value with Published=>false|_=>true end.

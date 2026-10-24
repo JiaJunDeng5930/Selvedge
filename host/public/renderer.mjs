@@ -29,7 +29,7 @@ function replaceNativeValue(node, value) {
   if (start !== null && start !== undefined) node.setSelectionRange(start, end, direction);
 }
 function focusAvailable(node) {
-  if (!node?.isConnected || node.disabled || node.closest('[inert],[hidden]')
+  if (!node?.isConnected || node.disabled || node.matches('[aria-disabled="true"]') || node.closest('[inert],[hidden]')
     || !node.getClientRects().length || getComputedStyle(node).visibility === 'hidden') return false;
   return true;
 }
@@ -84,7 +84,10 @@ export class Renderer {
     this.modal = null;
     this.focusScope = [];
     this.disposed = false;
-    this.anchorFocus = () => queueMicrotask(() => this.refreshAnchors());
+    this.anchorFocus = event => {
+      if (event.type === 'focusin' && !this.applyingFocus) this.pendingFocus = null;
+      queueMicrotask(() => this.refreshAnchors());
+    };
     if (!isolated) {
       root.addEventListener('focusin', this.anchorFocus);
       root.addEventListener('focusout', this.anchorFocus);
@@ -102,15 +105,16 @@ export class Renderer {
     return key === '@document/root' ? this.root.ownerDocument.documentElement
       : this.targets.get(key) ?? this.records.get(key)?.node;
   }
-  resolveTarget(key, { modal = true, fallback } = {}) {
+  resolveTarget(key, { modal = true, fallback, recoverMissing = false } = {}) {
     const scope = modal && this.modalRecord()?.node || this.root;
     const preferredView = this.root.ownerDocument.activeElement?.closest('[data-view]')?.dataset.view ?? '';
-    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(focusAvailable);
-    if (scope.dataset?.key) nodes.unshift(scope);
-    const resolved = this.callbacks.resolveTarget({ target: key, view: preferredView, ...(fallback === undefined ? {} : { fallback }),
+    const nodes = Array.from(scope.querySelectorAll('[data-key]')).filter(node =>
+      focusAvailable(node) && node.matches('button,input,select,textarea,a[href],[tabindex]'));
+    if (scope.dataset?.key && focusAvailable(scope) && scope.hasAttribute('tabindex')) nodes.unshift(scope);
+    const resolved = this.callbacks.resolveTarget({ target: key, view: preferredView, recover_missing: recoverMissing, ...(fallback === undefined ? {} : { fallback }),
       candidates: nodes.map(node => ({ key: node.dataset.key,
         aliases: [node.dataset.logicalKey, node.dataset.focusAlias].filter(value => value !== undefined),
-        view: node.dataset.view ?? '' })) });
+        view: node.closest('[data-view]')?.dataset.view ?? '', sequential: node.tabIndex >= 0 })) });
     return resolved === null ? null : this.target(resolved);
   }
   modalRecord() {
@@ -213,7 +217,10 @@ export class Renderer {
     });
     node.addEventListener('submit', event => { event.preventDefault(); dispatch('submit', event); });
     node.addEventListener('cancel', event => { event.preventDefault(); dispatch('cancel', event); });
-    node.addEventListener('compositionstart', () => { this.composing.add(node); this.fieldSession(record, 'composition_started'); });
+    node.addEventListener('compositionstart', event => {
+      this.composing.add(node); this.fieldSession(record, 'composition_started');
+      this.callbacks.composition?.(event, record.key, node);
+    });
     node.addEventListener('compositionend', event => {
       this.composing.delete(node);
       if (this.fieldSession(record, 'composition_ended').deliver) dispatch('input', event);
@@ -247,23 +254,37 @@ export class Renderer {
       const candidates = node.form
         ? Array.from(this.records.values()).filter(candidate => candidate.node.form === node.form)
         : [record];
-      return candidates.filter(candidate => !candidate.node.disabled)
-        .flatMap(candidate => candidate.events.some(binding => binding.kind === 'files') ? [candidate] : []);
+      return candidates.flatMap(candidate => candidate.events.some(binding => binding.kind === 'files') ? [candidate] : []);
     };
     for (const type of ['paste', 'drop']) node.addEventListener(type, event => {
       const receivers = fileReceivers();
       if (filesFromEvent(event).length && receivers.length) {
         event.preventDefault();
-        for (const receiver of receivers)
+        for (const receiver of receivers.filter(receiver => !receiver.node.disabled && !receiver.node.matches('[aria-disabled="true"]')))
           for (const binding of receiver.events.filter(binding => binding.kind === 'files'))
             this.callbacks.event?.(binding, event, receiver.key, receiver.node, receiver.generation);
       }
     });
     node.addEventListener('dragover', event => {
-      if (fileReceivers().length) event.preventDefault();
+      if (fileReceivers().length && Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
     });
   }
+  refreshLinks() {
+    for (const record of this.records.values()) {
+      if (!record.markdown) continue;
+      const counts = new Map();
+      for (const link of record.node.querySelectorAll('a[href]')) {
+        const href = link.getAttribute('href');
+        const ordinal = counts.get(href) ?? 0;
+        counts.set(href, ordinal + 1);
+        const identity = stringifyJson(['native-link', record.key, href, ordinal]);
+        link.dataset.key = identity;
+        this.targets.set(identity, link);
+      }
+    }
+  }
   render(document, generation = 0) {
+    this.refreshLinks();
     const active = this.root.ownerDocument.activeElement;
     const observedFocus = node => this.root.contains(node) ? node?.closest('[data-key]')?.dataset.key ?? null : null;
     const focusedBefore = observedFocus(active);
@@ -301,7 +322,7 @@ export class Renderer {
         if (!record.markdown || !value.value.startsWith(record.text)) {
           record.markdown?.dispose(); record.markdownTargets.clear(); record.node.replaceChildren();
           const current = () => this.records.get(key) === record;
-          record.markdown = new Markdown(record.node, { smooth: false, onChange: () => { if (current()) this.callbacks.layout?.(); },
+          record.markdown = new Markdown(record.node, { smooth: false, onChange: () => { if (current()) { this.callbacks.layout?.(); this.refreshNativeTargets(); } },
             ...(record.metadata.source === undefined ? {} : {
               codeIdentity: ordinal => this.callbacks.codeIdentity?.(record.metadata.source, ordinal),
               codeTargets: identity => this.callbacks.codeTargets?.(identity, record.metadata.view ?? null),
@@ -346,6 +367,7 @@ export class Renderer {
     for (const [key, record] of this.records) {
       if (!used.has(key)) { record.markdown?.dispose(); record.fences?.dispose(); unmount(record.node); this.records.delete(key); }
     }
+    this.refreshLinks();
     if (!this.isolated) {
       // DOM order is the declared layer order; retained-record insertion order can differ after resizing.
       const dialogs = Array.from(this.root.querySelectorAll('dialog[aria-modal="true"]'));
@@ -407,9 +429,12 @@ export class Renderer {
         const container = this.modalRecord()?.node;
         const recoveringContainer = target === container && focus.target === container?.dataset.key;
         const canFocusContainer = target?.matches('dialog') && target.hasAttribute('tabindex') && focusAvailable(target);
-        if (target && (!recoveringContainer || canFocusContainer)) revealAndFocus(target);
+        if (!target || (recoveringContainer && !canFocusContainer)) { this.pendingFocus = focus; return; }
+        this.pendingFocus = null;
+        this.applyingFocus = true;
+        try { revealAndFocus(target); } finally { this.applyingFocus = false; }
       };
-      const focus = observeFocus(previousScope);
+      const focus = observeFocus(previousScope) ?? this.pendingFocus;
       if (focus) {
         focusTarget(focus);
         // A requested focus can expose a different clipped child. Observe the
@@ -440,7 +465,7 @@ export class Renderer {
   reset() {
     for (const record of this.records.values()) { record.markdown?.dispose(); record.fences?.dispose(); }
     reconcile(this.root, []); this.records.clear(); this.targets.clear(); this.modal = null;
-    this.document = null; this.focusScope = []; this.updatedTargets = new Set(); this.targetProperties = new WeakMap();
+    this.document = null; this.focusScope = []; this.pendingFocus = null; this.updatedTargets = new Set(); this.targetProperties = new WeakMap();
   }
   dispose() {
     this.root.removeEventListener('focusin', this.anchorFocus);

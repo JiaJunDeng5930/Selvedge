@@ -23,7 +23,7 @@ Definition restore current := match current with
   | Document => "page-heading" | Temporary _ _ target _ _ => target end.
 
 Record target_observation := ObserveTarget {
-  target_key : string; target_aliases : list string; target_view : string
+  target_key : string; target_aliases : list string; target_view : string; target_sequential : bool
 }.
 Definition resolve requested preferred_view candidates : option string :=
   match find (fun candidate => String.eqb requested (target_key candidate)) candidates with
@@ -45,6 +45,11 @@ Definition resolve_return requested fallback preferred_view candidates :=
   | Some key => Some key
   | None => resolve fallback preferred_view candidates
   end.
+Definition resolve_request requested fallback preferred_view candidates (recover_missing:bool) :=
+ let found:=match fallback with Some target=>resolve_return requested target preferred_view candidates
+ |None=>resolve requested preferred_view candidates end in
+ match found with Some key=>Some key|None=>if recover_missing then
+   option_map target_key(hd_error(filter target_sequential candidates))else None end.
 Definition cycle (backward : bool) (current : string) (targets : list string) : option string :=
   let ordered := if backward then rev targets else targets in
   let fix after remaining := match remaining with
@@ -62,13 +67,15 @@ Definition same_scope left right := match left,right with
  |_,_=>false end.
 Definition top scopes := match rev scopes with current::_=>current|[]=>Document end.
 Definition request previous current eligible : option(string*string) :=
- let before:=top previous in let after:=top current in
+ match previous,current with
+ |[],[Document]=>Some("composer-message","composer-message")
+ |_,_=>let before:=top previous in let after:=top current in
  if transition before after eligible then
  let returning:=match after with Document=>true|_=>existsb(same_scope after)previous end in
  if returning && changed before after then Some(restore before,
    match after with Document=>fallback before|_=>initial after end)
  else Some(initial after,fallback after)
- else None.
+ else None end.
 
 (** A loading activity initially focuses its root. When its input arrives, only
     that root may hand focus on; a user's intervening choice keeps ownership. *)

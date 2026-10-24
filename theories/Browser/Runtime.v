@@ -37,18 +37,22 @@ Definition native_key_in_scope (permitted:bool) (source : json) : json :=
   end.
 Definition publication_state source : option Publication.state :=
  match binary_field "generation" source, string_field "phase" source,
- string_field "namespace" source,binary_field "sequence" source with
- |Some generation,Some phase,Some namespace,Some sequence=>
- match phase with "awaiting"=>Some(Publication.State generation Publication.AwaitingDocument namespace sequence)
- |"prepared"=>Some(Publication.State generation Publication.Prepared namespace sequence)
- |"published"=>Some(Publication.State generation Publication.Published namespace sequence)
- |"awaiting_presentation"=>Some(Publication.State generation Publication.AwaitingPresentation namespace sequence)
- |"prepared_presentation"=>Some(Publication.State generation Publication.PreparedPresentation namespace sequence)
- |"recovery"=>match string_field "reason" source with Some reason=>Some(Publication.State generation(Publication.Recovering reason)namespace sequence)|None=>None end
+ string_field "namespace" source,binary_field "sequence" source,
+ (match field "displayed_generation" source with Some JNull=>Some None
+ |Some value=>option_map (@Some N)(match value with JNumber text=>parse_natural text|_=>None end)
+ |None=>None end) with
+ |Some generation,Some phase,Some namespace,Some sequence,Some displayed=>
+ match phase with "awaiting"=>Some(Publication.State generation Publication.AwaitingDocument namespace sequence displayed)
+ |"prepared"=>Some(Publication.State generation Publication.Prepared namespace sequence displayed)
+ |"published"=>Some(Publication.State generation Publication.Published namespace sequence displayed)
+ |"awaiting_presentation"=>Some(Publication.State generation Publication.AwaitingPresentation namespace sequence displayed)
+ |"prepared_presentation"=>Some(Publication.State generation Publication.PreparedPresentation namespace sequence displayed)
+ |"recovery"=>match string_field "reason" source with Some reason=>Some(Publication.State generation(Publication.Recovering reason)namespace sequence displayed)|None=>None end
  |_=>None end
- |_,_,_,_=>None end.
+ |_,_,_,_,_=>None end.
 Definition publication_json state := JObject [
  ("generation",binary_json(Publication.generation state));
+ ("displayed_generation",match Publication.displayed_generation state with Some generation=>binary_json generation|None=>JNull end);
  ("phase",JString(match Publication.current_phase state with Publication.AwaitingDocument=>"awaiting"|Publication.Prepared=>"prepared"|Publication.Published=>"published"|Publication.AwaitingPresentation=>"awaiting_presentation"|Publication.PreparedPresentation=>"prepared_presentation"|Publication.Recovering _=>"recovery" end));
  ("reason",match Publication.recovery_reason state with Some reason=>JString reason|None=>JNull end);
  ("namespace",JString(Publication.namespace state));("sequence",binary_json(Publication.sequence state))].
@@ -57,6 +61,13 @@ Definition publication_call source :=
  |Some state,Some "advance"=>success(publication_json(Publication.advance state))
  |Some state,Some "keep"=>success(publication_json state)
  |Some state,Some "present"=>success(publication_json(Publication.present state))
+ |Some state,Some "pending"=>success(JBool(Publication.pending state))
+ |Some state,Some "request_failure"=>match string_field "expected_namespace" source,
+ binary_field "expected_sequence" source,binary_field "ticket" source,field "connection" source with
+ |Some expected,Some seq,Some ticket,Some raw=>match Services.decode_connection raw with
+ |Some connection=>success(JBool(Publication.admit_request_failure expected seq ticket connection state))
+ |None=>invalid "Request failure requires its connection" end
+ |_,_,_,_=>success(JBool false)end
  |Some state,Some "semantic_pending"=>success(JBool(Publication.semantic_pending state))
  |Some state,Some "invalidate"=>success(publication_json(Publication.invalidate state))
  |Some state,Some "failure"=>match string_field "reason" source with
@@ -86,7 +97,7 @@ Definition snapshot_receipt origin accepted authenticated source :=
    ("install_world",JBool(match publication_state source,string_field "incoming_namespace" source,binary_field "incoming_sequence" source with
      |Some current,Some incoming,Some seq=>accepted&&Publication.install_snapshot incoming seq current
      |_,_,_=>false end));
-   ("sources_fresh",JBool(Publication.snapshot_freshness origin authenticated
+   ("sources_fresh",JBool(Publication.snapshot_freshness origin (authenticated && accepted)
      (bool_value "sources_fresh" source))) ]).
 Definition snapshot_call source :=
  match publication_state source,string_field "expected_namespace" source,
@@ -116,9 +127,9 @@ Fixpoint text_observations (values : list json) : option (list string) :=
   | JString value :: rest => option_map (cons value) (text_observations rest)
   | _ => None end.
 Definition target_observation (value : json) : option Focus.target_observation :=
-  match string_field "key" value, array_field "aliases" value, string_field "view" value with
-  | Some key, Some aliases, Some view => option_map (fun aliases => Focus.ObserveTarget key aliases view) (text_observations aliases)
-  | _, _, _ => None end.
+  match string_field "key" value, array_field "aliases" value, string_field "view" value, bool_field "sequential" value with
+  | Some key, Some aliases, Some view, Some sequential => option_map (fun aliases => Focus.ObserveTarget key aliases view sequential) (text_observations aliases)
+  | _, _, _, _ => None end.
 Fixpoint target_observations (values : list json) : option (list Focus.target_observation) :=
   match values with
   | [] => Some []
@@ -129,9 +140,7 @@ Definition resolve_target_call (source : json) : json :=
   match string_field "target" source, string_field "view" source, array_field "candidates" source with
   | Some target, Some view, Some candidates =>
       match target_observations candidates with
-      | Some candidates => success (match (match string_field "fallback" source with
-          | Some fallback => Focus.resolve_return target fallback view candidates
-          | None => Focus.resolve target view candidates end) with
+      | Some candidates => success (match Focus.resolve_request target (string_field "fallback" source) view candidates (bool_value "recover_missing" source) with
           | Some key => JString key | None => JNull end)
       | None => invalid "Physical target candidates require key, aliases and view" end
   | _, _, _ => invalid "Target resolution requires target, view and observed candidates" end.
@@ -250,7 +259,7 @@ Fixpoint decode_scopes values := match values with []=>Some[]|value::rest=>
  match decode_scope value,decode_scopes rest with Some value,Some rest=>Some(value::rest)|_,_=>None end end.
 Definition editor_key source := match array_field "scope"source with
  |Some values=>match decode_scopes values with
-  |Some scopes=>native_key_in_scope(Focus.permits_composer(Focus.top scopes))source
+  |Some scopes=>native_key_in_scope(Focus.permits_composer(Focus.top scopes) || bool_value "within_scope" source)source
   |None=>invalid "Invalid editor focus scopes"end
  |None=>invalid "Editor key requires the current focus scopes"end.
 Definition focus_observation name source := match field name source with

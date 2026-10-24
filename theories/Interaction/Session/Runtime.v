@@ -7,7 +7,7 @@ From Selvedge.Interaction Require Import Codec Identity Input Resource Services 
 From Selvedge.Interaction.Session Require Draft State Navigation Context Authoring Observation.
 From Selvedge.Interaction.Submission Require Fields Parameters Values Command.
 From Selvedge.Interaction.Experience Require Model Activity.
-From Selvedge.Interaction.Interactive Require Types State Runtime Language.
+From Selvedge.Interaction.Interactive Require Types State Expand Runtime Language.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
@@ -20,11 +20,21 @@ Module IS:=Selvedge.Interaction.Interactive.State.
 Module IT:=Selvedge.Interaction.Interactive.Types.
 Definition context namespace snapshot state:=CX.document_context namespace snapshot state.
 Definition visible namespace snapshot state owner:=Documents.visible_owner(context namespace snapshot state)owner(SS.document_retention state).
-Definition native_language namespace snapshot state input:=match input with
-|IT.ValueChanged identity _|IT.ActionClicked identity|IT.ViewChanged identity _=>visible namespace snapshot state(IT.event_owner identity)
-|IT.SourceDisclosure owner|IT.CopyDefinition owner=>visible namespace snapshot state owner
-|IT.Continue _|IT.Feedback _ _ _ _ _|IT.Restore _ _ _ _|IT.StorageResult _ _ _ _=>true
-|IT.SourceChanged _ _ _ _ _|IT.ExternalChanged _ _|IT.EnvironmentChanged|IT.Remove _=>false end.
+Definition native_language namespace snapshot state input:=
+ let ctx:=context namespace snapshot state in
+ let node identity:=match IS.find_block(IT.event_owner identity)(IS.blocks(SS.interactive_state state))with
+ |Some block=>Selvedge.Interaction.Interactive.Runtime.event_node block(Documents.environment ctx false)identity
+ |None=>None end in
+ match input with
+ |IT.ValueChanged identity _=>visible namespace snapshot state(IT.event_owner identity)&&
+    match node identity with Some(Expand.Mounted _ _ (Expand.FieldLink _ true) _)=>true|_=>false end
+ |IT.ActionClicked identity=>visible namespace snapshot state(IT.event_owner identity)&&
+    match node identity with Some(Expand.Mounted _ _ (Expand.ActionLink _ Expand.Enabled) _)=>true|_=>false end
+ |IT.ViewChanged identity _=>visible namespace snapshot state(IT.event_owner identity)&&
+    match node identity with Some(Expand.Mounted _ _ (Expand.Passive true) _)=>true|_=>false end
+ |IT.SourceDisclosure owner|IT.CopyDefinition owner=>visible namespace snapshot state owner
+ |IT.Continue _|IT.Feedback _ _ _ _ _|IT.Restore _ _ _ _|IT.StorageResult _ _ _ _=>true
+ |IT.SourceChanged _ _ _ _ _|IT.ExternalChanged _ _|IT.EnvironmentChanged|IT.Remove _=>false end.
 Definition callback_owner input:=match input with
  |IT.Continue owner|IT.Feedback owner _ _ _ _|IT.Restore owner _ _ _|IT.StorageResult owner _ _ _=>Some owner
  |_=>None end.
@@ -209,7 +219,7 @@ Definition board_step snapshot input state:option Authoring.result:=match input 
 |Input.BoardProfile _|Input.CardPlaced _ _ _ _ _|Input.CardField _ _ _ _=>
  Some(match Authoring.input_command snapshot state input with
  |None=>Authoring.fail state "The board action is not valid."
- |Some command=>match Authoring.command_availability snapshot state command with
+ |Some command=>match Authoring.input_availability snapshot state input with
   |EM.Available=>Authoring.issue command SS.DirectSubmission state
   |EM.Unavailable reason=>Authoring.fail state reason end end)
 |_=>None end.

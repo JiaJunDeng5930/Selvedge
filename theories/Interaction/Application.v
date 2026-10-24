@@ -28,7 +28,7 @@ Definition element snapshot current environment generation raw:=
  actual<-surface snapshot current environment;;
  S.resolve_element actual key gesture value else None.
 Definition decode_input request snapshot current raw:=match string_field "op" raw with
-|Some "element"=>env<-environment request;;generation<-natural_field "generation" request;;element snapshot current env generation raw
+|Some "element"=>env<-environment request;;generation<-natural_field "displayed_generation" request;;element snapshot current env generation raw
 |_=>InputCodecs.decode_runtime raw end.
 
 (** A native text edit observes its selection even when its byte offset has not
@@ -50,9 +50,15 @@ Definition refresh request snapshot decision:=match environment request with
 |Some env=>match surface snapshot(SA.result_state decision)env with
  |Some actual=>SA.append decision(SA.refresh snapshot(S.current_actions actual)(SA.result_state decision))
  |None=>decision end|None=>decision end.
+Definition input_publication input current updated :=
+ let changed:=if Input.semantic_change input then "advance" else "present" in
+ match input with
+ |Input.Snapshot|Input.EnvironmentObserved=>changed
+ |_=>if Json.equal(SC.encode_state current)(SC.encode_state updated)then "keep"else changed
+ end.
 Definition run_input request snapshot namespace input raw current:=
  let decision:=refresh request snapshot(native_step namespace snapshot(flag "semantic_lagged" request)input raw current)in
- (decision,if Input.semantic_change input then "advance"else"present").
+ (decision,input_publication input current(SA.result_state decision)).
 
 Definition input_decision request snapshot namespace input raw current:=
  match input with
@@ -61,6 +67,11 @@ Definition input_decision request snapshot namespace input raw current:=
   |Documents.MalformedObservation=>(SA.fail current "The document observation does not belong to the current output.","keep")
   |Documents.IrrelevantObservation=>(SA.keep current,"keep")
   |Documents.AdmittedObservation _ _=>run_input request snapshot namespace input raw current end
+ |Input.Interactive language=>
+   if SR.native_language namespace snapshot current language &&
+      negb (flag "semantic_lagged" request && Selvedge.Interaction.Interactive.Runtime.authored_input language &&
+        negb (match string_field "op" raw with Some "element"=>true|_=>false end))
+   then run_input request snapshot namespace input raw current else (SA.keep current,"keep")
  |_=>run_input request snapshot namespace input raw current end.
 
 Definition initialized := SC.encode_state Session.initial.
@@ -72,13 +83,14 @@ Definition call operation request:json:=
  |Some current,Some snapshot=>
  if String.eqb operation "observe"then
   match environment request,natural_field "generation" request with
-  |Some env,Some generation=>match surface snapshot current env with
+  |Some env,Some generation=>if Json.equal snapshot JNull then Json.success(Document.bootstrap env generation)else match surface snapshot current env with
    |None=>Json.success(Document.bootstrap env generation)
    |Some actual=>Json.success(Document.compile(CP.describe snapshot current)env generation actual)end
   |_,_=>Json.failure "InvalidEnvironment" "A current physical environment and publication generation are required."end
  else if String.eqb operation "accepts_element"then
   match field "input" request,environment request,natural_field "generation" request with
-  |Some raw,Some env,Some generation=>Json.success(JBool(match element snapshot current env generation raw with Some _=>true|None=>false end))
+  |Some raw,Some env,Some generation=>Json.success(JBool(match natural_field "displayed_generation" request with
+  |Some displayed=>match element snapshot current env displayed raw with Some _=>true|None=>false end|None=>false end))
   |_,_,_=>Json.success(JBool false)end
  else if String.eqb operation "step"then match field "input" request with
   |None=>Json.failure "InvalidInput" "An input observation is required."

@@ -70,7 +70,8 @@ Definition card_destinations snapshot s board_parent value :=
    let target:=match before with None=>part board_parent stage
     |Some id=>part(part board_parent stage)(String.append "card/"(show_natural id))end in
    Placement target(Control(String.append "move/" target)label Secondary action
-    (domain_availability(Authoring.input_availability snapshot s action)))in
+    (if State.pending_placement id s then Busy "This task movement is pending"else
+     domain_availability(Authoring.input_availability snapshot s action)))in
   List.app(map(fun stage=>entry(BoardDomain.stage_name stage)None(BoardDomain.stage_label stage))BoardDomain.stages)
    (List.app(flat_map(fun other=>match natural_field "card_id" other with
     |Some target=>if negb(N.eqb id target)&&negb(flag "archived" other)then

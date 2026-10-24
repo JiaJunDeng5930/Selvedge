@@ -16,7 +16,7 @@ Module UX := Selvedge.Interaction.Experience.Model.
 Module G := Selvedge.Generated.Commands.
 Module SessionObserve := Selvedge.Interaction.Session.Observation.
 Definition status_availability status :=match status with
-|ObjectActions.Available=>Available|ObjectActions.Awaiting=>Unavailable "Checking action availability"
+|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
 Definition menu_nodes snapshot s subject occurrence parent :=flat_map(fun action=>
  let key:=part parent(ObjectActions.action_key action)in

@@ -104,3 +104,7 @@ Theorem document_focus_keeps_its_scope_policy : forall previous eligible before 
  physical_request previous [Document] eligible before after focused_visible root_visible root_eligible =
  observed_request previous [Document] eligible before after.
 Proof. reflexivity. Qed.
+
+Theorem first_document_focuses_its_message_input eligible :
+ request [] [Document] eligible=Some("composer-message","composer-message").
+Proof. reflexivity. Qed.

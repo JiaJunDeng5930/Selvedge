@@ -1,11 +1,14 @@
 From Stdlib Require Import String Bool NArith.
 From Selvedge.Browser Require Import Publication.
 
-Theorem semantic_change_invalidates_old_element : forall current requested,
-  admit requested (advance current) = false.
-Proof. intros; unfold admit, advance; destruct(current_phase current); simpl; apply andb_false_r. Qed.
+Theorem retained_document_keeps_its_input_authority current requested :
+ admit requested(advance current)=admit requested current.
+Proof. unfold admit,advance; reflexivity. Qed.
 Theorem unpublished_document_is_not_ready : forall generation namespace sequence,
-  fresh (State generation Prepared namespace sequence) = false.
+ fresh(State generation Prepared namespace sequence None)=false.
+Proof. reflexivity. Qed.
+Theorem a_prepared_document_has_no_input_authority generation namespace sequence requested :
+ admit requested(State generation Prepared namespace sequence None)=false.
 Proof. reflexivity. Qed.
 Theorem publication_needs_current_prepared_document : forall current requested,
   current_phase current = AwaitingDocument -> publish requested current = current.
@@ -72,16 +75,27 @@ Proof. intro; unfold install_snapshot; now rewrite String.eqb_refl,N.ltb_irrefl.
 
 Theorem presentation_preserves_semantic_pending : forall current,
  semantic_pending(present current)=semantic_pending current.
-Proof. intro; destruct current as [generation phase namespace sequence]; destruct phase; reflexivity. Qed.
+Proof. intro; destruct current as [generation phase namespace sequence displayed]; destruct phase; reflexivity. Qed.
 Theorem unpublished_semantic_change_survives_presentation : forall current,
  semantic_pending(present(advance current))=true.
-Proof. intro; destruct current as [generation phase namespace sequence]; destruct phase; reflexivity. Qed.
-Theorem prepared_presentation_preserves_semantic_freshness : forall generation namespace sequence,
- semantic_pending(State generation PreparedPresentation namespace sequence)=false /\
- admit generation(State generation PreparedPresentation namespace sequence)=true.
-Proof. intros; split; [reflexivity|unfold admit; simpl; now rewrite N.eqb_refl]. Qed.
-
-Theorem remeasurement_preserves_display_readiness_and_admission : forall generation namespace sequence,
- fresh(State generation AwaitingPresentation namespace sequence)=true /\
- admit generation(State generation AwaitingPresentation namespace sequence)=true.
-Proof. intros; split; [reflexivity|unfold admit; simpl; now rewrite N.eqb_refl]. Qed.
+Proof. intro; destruct current as [generation phase namespace sequence displayed]; destruct phase; reflexivity. Qed.
+Theorem prepared_presentation_preserves_semantic_freshness generation namespace sequence :
+ semantic_pending(State generation PreparedPresentation namespace sequence None)=false /\
+ admit generation(State generation PreparedPresentation namespace sequence None)=false.
+Proof. split;reflexivity. Qed.
+Theorem remeasurement_preserves_display_readiness_and_admission generation displayed namespace sequence :
+ fresh(State generation AwaitingPresentation namespace sequence(Some displayed))=true /\
+ admit displayed(State generation AwaitingPresentation namespace sequence(Some displayed))=true.
+Proof. split;[reflexivity|apply N.eqb_refl]. Qed.
+Theorem renderer_receipt_establishes_the_displayed_identity generation namespace sequence requested :
+ requested=generation ->
+ displayed_generation(publish requested(State generation Prepared namespace sequence None))=Some requested.
+Proof. intro Same;subst;unfold publish;simpl;now rewrite N.eqb_refl. Qed.
+Theorem newer_cursor_rejects_an_older_request_failure expected seq ticket connection current :
+ N.eqb seq (sequence current)=false ->
+ admit_request_failure expected seq ticket connection current=false.
+Proof. intros Older; unfold admit_request_failure; rewrite Older,andb_false_r; reflexivity. Qed.
+Theorem superseded_connection_rejects_a_request_failure expected seq ticket connection current :
+ Services.connection_matches ticket connection=false ->
+ admit_request_failure expected seq ticket connection current=false.
+Proof. intros Stale; unfold admit_request_failure; rewrite Stale,andb_false_r; reflexivity. Qed.

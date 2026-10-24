@@ -18,6 +18,7 @@ Theorem available_native_has_current_admission snapshot state subject value acce
   CommandAssessment.observed_admission observation=CommandAssessment.Admitted.
 Proof.
  intros Command AvailableNow. unfold availability in AvailableNow. rewrite Command in AvailableNow.
+ destruct(State.pending_command accepted state)eqn:Pending;[discriminate|].
  destruct(Services.connected(State.service_state state))eqn:Connected;[|discriminate].
  destruct(natural_field "sequence" snapshot)as[sequence|]eqn:Sequence;[|discriminate].
  destruct(assessment_for subject value state)as[resource|]eqn:Resource;[|discriminate].

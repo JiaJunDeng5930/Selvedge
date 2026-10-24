@@ -34,7 +34,7 @@ Definition creation_page snapshot s parent :=
      (Editors.property_controls snapshot s e parent properties)]end)++
     match Editors.composer_view snapshot s e(editor_key e)with Some composer=>[composer]|None=>[]end)%list].
 Definition approval_availability value:=match ObjectActions.action_status value with
-|ObjectActions.Available=>Available|ObjectActions.Awaiting=>Unavailable "Checking action availability"
+|ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
 Definition approval_argument_label name := match name with
 | "command" => "Command" | "justification" => "Reason" | other => other end.

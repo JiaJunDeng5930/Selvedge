@@ -5,7 +5,7 @@ From Selvedge.Interaction.Session Require Draft.
 From Selvedge.Features Require Domain.
 From Selvedge.Interaction.Experience Require Model.
 
-Inductive availability := Available | NeedsDirectoryObservation | Unavailable (reason : string).
+Inductive availability := Available | NeedsDirectoryObservation | Unavailable (reason : string) | Busy (reason : string).
 Definition domain_availability(value:Selvedge.Interaction.Experience.Model.availability):availability:=match value with
 |Selvedge.Interaction.Experience.Model.Available=>Available
 |Selvedge.Interaction.Experience.Model.Unavailable reason=>Unavailable reason end.
@@ -25,7 +25,7 @@ Arguments control_prominence {Action}.
 Arguments control_input {Action}.
 Arguments control_availability {Action}.
 
-Definition available value := match value with Unavailable _ => false | _ => true end.
+Definition available value := match value with Unavailable _ | Busy _ => false | _ => true end.
 
 Definition map_control {A B} (f : A -> B) (value : control A) : control B :=
   Control (control_identity value) (control_label value) (control_prominence value)
