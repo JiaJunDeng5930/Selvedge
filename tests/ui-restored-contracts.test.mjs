@@ -8,7 +8,7 @@ async function selectTask(fixture, taskId) {
   const { task } = await fixture.command({ op: 'read', task_id: taskId });
   await fixture.page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
-  await fixture.page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
+  await fixture.page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   return task;
 }
 
@@ -35,7 +35,7 @@ test('conversation navigation releases desktop space and preserves the draft thr
   const { task_id } = await command({ op: 'create_idle', profile: 'demo' });
   const task = await selectTask(fixture, task_id);
   const main = page.getByRole('main');
-  const message = page.getByRole('textbox', { name: 'Message', exact: true });
+  const message = page.getByRole('combobox', { name: 'Message', exact: true });
   assert.equal(await message.getAttribute('placeholder'), 'Ask anything, or describe a task');
   const title = main.getByText(task.title, { exact: true }).first();
   const details = main.getByRole('button', { name: 'Task details', exact: true });

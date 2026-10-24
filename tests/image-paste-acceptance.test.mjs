@@ -27,7 +27,7 @@ test('pasted PNG is previewed, submitted alone and remains readable after servic
   await page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: /^Image fixture task/ }).click();
 
-  const composer = page.getByRole('textbox', { name: 'Message', exact: true });
+  const composer = page.getByRole('combobox', { name: 'Message', exact: true });
   const initialImageCount = await page.locator('main img').count();
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {
     origin: new URL(fixture.running.url).origin,

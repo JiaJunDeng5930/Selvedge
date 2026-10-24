@@ -56,7 +56,7 @@ test('Project task creation restores Project workspace inheritance through the b
   await workspace.getByRole('button', { name: 'Remove directory', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Use inherited Project workspace');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Use inherited Project workspace');
   const inherited = await submitTask(page);
   const inheritedTask = (await command({ op: 'read', task_id: inherited })).task;
   assert.equal(inheritedTask.settings.project_id, project_id);
@@ -73,13 +73,13 @@ test('Project task creation preserves explicitly empty workspaces through the br
   await workspace.getByRole('button', { name: 'Use inherited workspace', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await workspace.waitFor({ state: 'hidden' });
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Use explicitly no workspace roots');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Use explicitly no workspace roots');
   const empty = await submitTask(page);
   const emptyTask = (await command({ op: 'read', task_id: empty })).task;
   assert.equal(emptyTask.settings.project_id, project_id);
   assert.deepEqual(emptyTask.settings.workspace, { roots: [], primary_root: null },
     'Explicitly removing roots must not silently return to Project inheritance');
-  await page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('dialog');
   await details.getByText('No working directory', { exact: true }).waitFor();
@@ -118,7 +118,7 @@ test('ordered image content and the active composer survive responsive navigatio
   assert.deepEqual(order, ['Before image marker', 'image', 'Between images marker', 'image', 'After images marker'],
     'Images remain at their original content positions, including repeated references to the same asset');
 
-  const message = page.getByRole('textbox', { name: 'Message', exact: true });
+  const message = page.getByRole('combobox', { name: 'Message', exact: true });
   await message.fill('Keep this unsent draft while narrowing.');
   await message.focus();
   await page.setViewportSize({ width: 450, height: 900 });

@@ -51,7 +51,7 @@ async function selectTask(fixture, taskId) {
   const { task } = await fixture.command({ op: 'read', task_id: taskId });
   await fixture.page.getByRole('navigation', { name: 'Task tree', exact: true })
     .getByRole('button', { name: task.title, exact: true }).click();
-  await fixture.page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
+  await fixture.page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   return task;
 }
 
@@ -84,12 +84,12 @@ async function startWork(page) {
   await page.getByRole('button', { name: 'New Work', exact: true }).click();
   const { reply } = await (await response).json();
   assert.equal(reply.ok, true, JSON.stringify(reply));
-  await page.getByRole('textbox', { name: 'Task', exact: true }).waitFor();
+  await page.getByRole('combobox', { name: 'Task', exact: true }).waitFor();
   return reply.result;
 }
 
 async function sendSide(page, question) {
-  const message = page.getByRole('main').getByRole('textbox', { name: 'Message', exact: true });
+  const message = page.getByRole('main').getByRole('combobox', { name: 'Message', exact: true });
   await message.fill(`/side ${question}`);
   await message.press('Enter');
 }
@@ -105,7 +105,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await pending.started;
   await page.getByRole('button', { name: '新建对话', exact: true }).click();
   await pending.release();
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Create this independent Task after the newer conversation request.');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Create this independent Task after the newer conversation request.');
   const created = commandResponse(page, 'create');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
   const { reply } = await (await created).json();
@@ -130,7 +130,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await pending.started;
   await page.getByRole('button', { name: 'Collapse Task sidebar', exact: true }).click();
   await pending.release();
-  assert.equal(await page.getByRole('main').getByRole('textbox', { name: 'Message', exact: true }).isVisible(), true,
+  assert.equal(await page.getByRole('main').getByRole('combobox', { name: 'Message', exact: true }).isVisible(), true,
     'Collapsing navigation while creation is pending keeps the selected conversation');
   assert.equal(await page.getByRole('navigation', { name: 'Task tree', exact: true }).isVisible(), false);
   await page.getByRole('button', { name: 'Expand Task sidebar', exact: true }).click();
@@ -142,7 +142,7 @@ test('late Work creation cannot replace newer creation, navigation, or sidebar v
   await page.getByRole('button', { name: 'Open Task list', exact: true }).click();
   await page.getByRole('dialog', { name: 'Task tree', exact: true }).waitFor();
   await pending.release();
-  assert.equal(await page.getByRole('main').getByRole('textbox', { name: 'Message', exact: true }).isVisible(), true,
+  assert.equal(await page.getByRole('main').getByRole('combobox', { name: 'Message', exact: true }).isVisible(), true,
     'Opening the narrow Task list is newer navigation intent than a pending Work response');
   assert.equal(await page.getByRole('dialog', { name: 'Task tree', exact: true }).isVisible(), true);
   await page.keyboard.press('Escape');
@@ -173,9 +173,9 @@ test('late Side creation cannot reopen a side after newer navigation or Work cre
   await pending.started;
   const newer = await startWork(page);
   await pending.release();
-  assert.equal(await page.getByRole('textbox', { name: 'Task', exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: '关闭', exact: true }).count(), 0);
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('The newer Work still owns this editor.');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('The newer Work still owns this editor.');
   const receipt = commandResponse(page, 'create_work_task');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
   const { reply } = await (await receipt).json();
@@ -222,7 +222,7 @@ test('Work and Side creation failures display the exact server code and explanat
   diagnostic = await failure;
   assert.equal(diagnostic.code, 'task_not_found');
   await page.getByRole('alert').filter({ hasText: `${diagnostic.code}: ${diagnostic.message}` }).waitFor();
-  assert.equal(await page.getByRole('main').getByRole('textbox', { name: 'Message', exact: true }).isVisible(), true);
+  assert.equal(await page.getByRole('main').getByRole('combobox', { name: 'Message', exact: true }).isVisible(), true);
 });
 
 function gitResponse(page, primary) {
@@ -280,7 +280,7 @@ test('a real non-Git observation resets the local environment and an old Git rep
   await replaceWorkspace(page, source);
   await started.promise;
   await startWork(page);
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Retain the newer default-workspace draft.');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Retain the newer default-workspace draft.');
   const primary = await page.locator('button[data-logical-key="composer/workspace"]').innerText();
   assert.ok(primary.includes(root), primary);
   assert.ok(!primary.includes(source), primary);
@@ -288,7 +288,7 @@ test('a real non-Git observation resets the local environment and an old Git rep
   await completed.promise;
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   assert.equal(await environment.inputValue(), 'current');
-  assert.equal(await page.getByRole('textbox', { name: 'Task', exact: true }).inputValue(), 'Retain the newer default-workspace draft.');
+  assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Retain the newer default-workspace draft.');
   assert.equal(await page.locator('button[data-logical-key="composer/workspace"]').innerText(), primary);
   await environment.selectOption({ label: 'Local worktree' });
   assert.equal(await environment.inputValue(), 'current', 'The stale Git success must not authorize Local worktree for a non-Git draft');

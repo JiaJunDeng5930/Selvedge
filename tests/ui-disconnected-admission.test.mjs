@@ -42,7 +42,7 @@ test('a disconnected service keeps the editor Submit unavailable after fresh adm
   const { page, running } = fixture;
   const submit = page.getByRole('button', { name: 'Start task', exact: true });
   await submit.waitFor();
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Keep this draft while the service is disconnected.');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Keep this draft while the service is disconnected.');
   await page.getByRole('button', { name: 'Start task', exact: true, disabled: false }).waitFor();
 
   let commands = 0;

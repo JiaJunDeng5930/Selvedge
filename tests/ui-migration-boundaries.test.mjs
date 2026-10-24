@@ -36,7 +36,7 @@ test('a submitted Task survives directory preparation while newer writing and na
   await page.locator('button[data-logical-key="composer/workspace"]').click();
   await page.getByRole('button', { name: 'Use as primary', exact: true }).click();
   await page.keyboard.press('Escape');
-  const draft = page.getByRole('textbox', { name: 'Task', exact: true });
+  const draft = page.getByRole('combobox', { name: 'Task', exact: true });
   await draft.fill('Run exactly this captured submission.');
   const receipt = page.waitForResponse(response => response.url().endsWith('/api/browser/command')
     && response.request().method() === 'POST');
@@ -59,7 +59,7 @@ test('a submitted Task survives directory preparation while newer writing and na
   await page.getByRole('navigation', { name: 'Global navigation', exact: true })
     .getByRole('button', { name: '项目', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Captured submission Project', exact: true }).click();
-  assert.equal(await page.getByRole('textbox', { name: 'Task', exact: true }).inputValue(), 'Keep this later unsent draft.');
+  assert.equal(await page.getByRole('combobox', { name: 'Task', exact: true }).inputValue(), 'Keep this later unsent draft.');
 });
 
 test('supporting controls compact and stack when measured space shrinks, then recover their full information', async t => {
@@ -72,7 +72,7 @@ test('supporting controls compact and stack when measured space shrinks, then re
   const supporting = page.getByLabel('Supporting controls', { exact: true });
   const commit = page.getByRole('button', { name: 'Start task', exact: true });
   await supporting.waitFor();
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Measure the responsive controls.');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Measure the responsive controls.');
   await page.waitForFunction(() => [...document.querySelectorAll('button')]
     .some(node => node.getAttribute('aria-label') === 'Start task' && !node.disabled));
   const fullText = await supporting.innerText();

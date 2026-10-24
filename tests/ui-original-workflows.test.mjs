@@ -23,7 +23,7 @@ test('a Project task keeps its readable context and its primary and supporting a
   await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
   await page.getByText('Work on Harbour 海港', { exact: true }).waitFor();
 
-  const message = page.getByRole('textbox', { name: 'Task', exact: true });
+  const message = page.getByRole('combobox', { name: 'Task', exact: true });
   const commit = page.getByRole('button', { name: 'Start task', exact: true });
   const supporting = page.getByLabel('Supporting controls', { exact: true });
   await supporting.waitFor();
@@ -55,7 +55,7 @@ test('a Project task keeps its readable context and its primary and supporting a
   const { task } = await command({ op: 'read', task_id: reply.result.task_id });
   assert.equal(task.settings.project_id, project.project_id);
   assert.deepEqual(task.settings.workspace, { roots: [workspace], primary_root: workspace });
-  await page.getByRole('textbox', { name: 'Message', exact: true }).waitFor();
+  await page.getByRole('combobox', { name: 'Message', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Task details', exact: true }).click();
   const details = page.getByRole('dialog');
   await details.getByText('Harbour 海港', { exact: true }).waitFor();

@@ -72,7 +72,7 @@ test('ordinary Task and Board assistance choices exclude the auto-review-only pr
   await page.getByRole('button', { name: /^Model:/ }).click();
   assert.equal(await page.getByRole('menuitemradio', { name: 'codex-auto-review', exact: true }).count(), 0);
   await page.getByRole('menuitemradio', { name: 'image-fixture', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Task', exact: true }).fill('Run the ordinary reviewed task.');
+  await page.getByRole('combobox', { name: 'Task', exact: true }).fill('Run the ordinary reviewed task.');
   await page.getByRole('button', { name: 'Start task', exact: true }).click();
   const ordinary = await observed(() => requests.find(request => JSON.stringify(request.input).includes('Run the ordinary reviewed task.')),
     'The ordinary Task must reach the actual provider HTTP boundary');

@@ -19,7 +19,7 @@ test('a normal Task composer rejects a stored text file without making it a subm
   await page.getByRole('button', { name: 'Project details', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'New task', exact: true }).click();
 
-  const task = page.getByRole('textbox', { name: 'Task', exact: true });
+  const task = page.getByRole('combobox', { name: 'Task', exact: true });
   const start = page.getByRole('button', { name: 'Start task', exact: true });
   await task.waitFor();
   assert.equal(await start.isDisabled(), true, 'An empty Task starts as a passive draft');
