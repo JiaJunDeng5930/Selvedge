@@ -20,6 +20,7 @@ export function parseJson(text) {
 export function stringifyJson(value) {
   return JSON.stringify(value, (_key, item) => {
     if (typeof item === 'bigint') return JSON.rawJSON(item.toString());
+    if (Object.is(item, -0)) return JSON.rawJSON('-0');
     // DEFENSE: Native numerical observations such as resource usage can be non-finite; JSON must not silently turn them into null.
     if (typeof item === 'number' && !Number.isFinite(item)) throw new TypeError('Non-finite JSON number');
     return item;

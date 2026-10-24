@@ -41,7 +41,8 @@ Definition directory_guidance := ContextDefinition "directory_guidance"
  (text_fields ++ ValueField "path" (IdentityValue "path") false :: applicability_fields).
 Definition configured_skill := ContextDefinition "skill_information"
  "Use this name and description to decide whether the skill applies. Read the listed path through an ordinary tool before using the skill. Its body is not tracked context."
- Global (ConfigFiles "skills") [IdentityField "path" SourcePath true] skill_fields.
+ Global (ConfigFiles "skills")
+ [IdentityField "installation" HomeRoot true; IdentityField "path" SourcePath true] skill_fields.
 Definition home_skill := ContextDefinition "user_skill_information"
  "Use this name and description to decide whether the skill applies. Skills in a more specific applicable directory take priority over ancestors; explicitly configured skills are preferred when names conflict. Read the listed path through an ordinary tool before using the skill. Its body is not tracked context."
  Global (HomeSkills home_skills_policy)

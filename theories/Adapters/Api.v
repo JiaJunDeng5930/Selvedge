@@ -1,7 +1,7 @@
 From Stdlib Require Import String.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Context Domain Compaction Conversation ContextSelection.
-From Selvedge.Adapters Require Import Common Rpc Configuration Http Effects Audio AccountTransport BrowserAdapters Plugins Evaluator Accounts Web Backends.
+From Selvedge.Adapters Require Import Common Rpc Configuration Http Effects Audio AccountTransport BrowserAdapters BrowserObservations Plugins Evaluator Accounts Web Backends.
 Open Scope string_scope.
 
 Definition call (operation : string) (source : json) : json :=
@@ -14,6 +14,7 @@ Definition call (operation : string) (source : json) : json :=
     Compaction.legal_budget operation source
   else if starts operation "http." then Http.call operation source
   else if starts operation "effect." then Effects.call operation source
+  else if String.eqb operation "browser.observation" then BrowserObservations.call operation source
   else if starts operation "browser." then BrowserAdapters.call operation source
   else if starts operation "audio." then Audio.call
     AccountTransport.catalog_transport

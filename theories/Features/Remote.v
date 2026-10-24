@@ -1,11 +1,14 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects Schema TextJson Utf8.
-From Selvedge.Kernel Require Import Domain State Numbers Codec Configuration Scheduler.
+From Selvedge.Kernel Require Import Domain State Numbers Codec Configuration Scheduler Commands.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+Module F := Selvedge.Features.Domain.
+Module G := Selvedge.Generated.Commands.
+Module KCommands := Selvedge.Kernel.Commands.
 
 Definition registry value := Selvedge.Features.Domain.feature_remote (world_features value).
 Definition store replacement value := with_features (Selvedge.Features.State.with_remote replacement (world_features value)) value.
@@ -73,7 +76,9 @@ Definition required_rights command : option Selvedge.Features.Domain.rights := m
  | Selvedge.Generated.Commands.Cmd_list_cards _ | Selvedge.Generated.Commands.Cmd_read_card _ | Selvedge.Generated.Commands.Cmd_list_board_agents _
  | Selvedge.Generated.Commands.Cmd_list_task_graphs _ | Selvedge.Generated.Commands.Cmd_read_task_graph _ => Some read_rights
  | Selvedge.Generated.Commands.Cmd_create p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.create_settings p)) false)
- | Selvedge.Generated.Commands.Cmd_fork p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.fork_settings p)) false)
+ | Selvedge.Generated.Commands.Cmd_fork p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.fork_settings p) ||
+     match Selvedge.Generated.Commands.fork_settings_origin p with
+     |Some origin=>String.eqb(proj1_sig origin)"environment"|None=>false end) false)
  | Selvedge.Generated.Commands.Cmd_create_idle p => Some (Selvedge.Features.Domain.Rights false true (selected_settings (Selvedge.Generated.Commands.create_idle_settings p) ||
      match Selvedge.Generated.Commands.create_idle_create_worktree p with Some enabled=>enabled | None=>false end) false)
  | Selvedge.Generated.Commands.Cmd_create_workspace_task _ | Selvedge.Generated.Commands.Cmd_create_worktree_task _ | Selvedge.Generated.Commands.Cmd_create_task_graph _ | Selvedge.Generated.Commands.Cmd_update_task_graph _
@@ -99,6 +104,19 @@ Definition request_valid request := identifier_valid (controller request) && (0 
  identifier_valid (request_id request) && payload_valid (intent request).
 Definition key_matches request receipt := String.eqb (controller request) (Selvedge.Features.Domain.remote_controller receipt) &&
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
+Definition valid (value : F.remote) :=
+ (0 <? F.remote_next_epoch value) && Nat.leb (List.length (F.remote_grants value)) 64 &&
+ Schema.unique_names (map F.grant_controller (F.remote_grants value)) &&
+ forallb (fun grant => identifier_valid (F.grant_controller grant) &&
+   ((0 <? F.grant_epoch grant) && (F.grant_epoch grant <? F.remote_next_epoch value))) (F.remote_grants value) &&
+ Nat.leb (List.length (F.remote_receipts value)) 1024 &&
+ Schema.unique_names (map (fun receipt => TextJson.render_json (JArray [
+   JString (F.remote_controller receipt); number (F.remote_epoch receipt); JString (F.remote_request receipt)]))
+   (F.remote_receipts value)) &&
+ forallb (fun receipt => identifier_valid (F.remote_controller receipt) && identifier_valid (F.remote_request receipt) &&
+   payload_valid (F.remote_intent receipt) && payload_valid (F.remote_reply receipt) &&
+   match find_grant (F.remote_controller receipt) value with
+   | Some grant => N.eqb (F.remote_epoch receipt) (F.grant_epoch grant) | None => false end) (F.remote_receipts value).
 Definition check required controller epoch state :=
  if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
  else if negb (identifier_valid controller && (0 <? epoch)) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
@@ -141,6 +159,11 @@ Definition record_result request before result :=
  Decision (store (retain request (decision_reply committed) (registry before))
    (decision_world committed)) (decision_reply committed) (decision_effects committed)
  else reject "remote_reply_limit" "The command reply exceeds remote receipt retention limits; no command or effect was committed" before.
+Definition root_task_command (command : G.command) :=
+ KCommands.root_task_creation (G.encode command).
+Definition configuration_allowed (original : G.command) source := match field "configuration" source with
+ | None | Some JNull=>true
+ | Some _=>root_task_command original end.
 Definition prepared_world source value : option world := match field "configuration" source with
  | None | Some JNull=>Some value
  | Some configuration=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
@@ -149,12 +172,13 @@ Definition schedules command result := bool_default "ok" (decision_reply result)
 Definition execute_remote (execute:Scheduler.executor) source request original value : bool*bool*decision :=
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in
- match authorize_command true original request (registry value) with
+ (* Check even for queries, whose execution deliberately skips prepared worlds. *)
+ if configuration_allowed original source then match authorize_command true original request (registry value) with
  | Denied code reason=>denied code reason
  | Replay reply=>(negb query,false,Decision value reply [])
  | Admitted=>match field "command" source with
    | Some prepared=>match Selvedge.Generated.Commands.decode prepared with
-     | Some command=>
+     | Some command=>if configuration_allowed command source then
        (* DEFENSE: Host preparation adds workspace/image observations; it must not change the requested operation or increase its required rights. *)
        if String.eqb (command_name (Selvedge.Generated.Commands.declared_command original)) (command_name (Selvedge.Generated.Commands.declared_command command)) then
        match authorize_command true command request (registry value) with
@@ -167,12 +191,15 @@ Definition execute_remote (execute:Scheduler.executor) source request original v
            let result:=record_result request value result in (true,schedules command result,result)
          end end
        else denied "remote_intent_mismatch" "The prepared remote command must retain the original operation"
+       (* DEFENSE: Native callers can submit same-name task graphs whose prepared nodes no longer create the root task named by the intent. *)
+       else denied "invalid_input" "Remote environment observations are limited to task creation"
      | None=>denied "invalid_input" "The prepared remote command is malformed" end
    | None=>denied "invalid_input" "The prepared remote command is required" end
- end.
-Definition request_schema := [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural;
- Field "request_id" KText;Field "intent" KJson;Field "command" (KOptional KJson);Field "configuration" (KOptional KJson)].
-Definition parse_request source := match Schema.decode request_schema source,string_field "controller_id" source,
+ end else denied "invalid_input" "Remote environment observations are limited to task creation".
+Definition request_schema (prepared : bool) := List.app
+ [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
+ (if prepared then [Field "command" KJson;Field "configuration" KJson] else []).
+Definition parse_request (prepared : bool) source := match Schema.decode (request_schema prepared) source,string_field "controller_id" source,
  natural_field "grant_epoch" source,string_field "request_id" source,field "intent" source with
  | Some _,Some controller,Some epoch,Some id,Some intent=>Some (Request controller epoch id intent)
  | _,_,_,_,_=>None end.
@@ -183,7 +210,7 @@ Definition completion (execute:Scheduler.executor) source value : option (bool*b
    | Some _,Some controller,Some epoch=>probe_reply (check read_rights controller epoch (registry value)) value
    | _,_,_=>reject "invalid_input" "Malformed remote identity check" value end)
  else if String.eqb kind "remote_probe" || String.eqb kind "remote_command" then
-   Some (match parse_request source with
+   Some (match parse_request (String.eqb kind "remote_command") source with
    | None=>(false,false,reject "invalid_input" "Malformed remote request" value)
    | Some request=>match Selvedge.Generated.Commands.decode (intent request) with
      | None=>(false,false,reject "invalid_input" "Malformed original remote command" value)

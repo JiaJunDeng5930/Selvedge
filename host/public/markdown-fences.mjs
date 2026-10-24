@@ -1,5 +1,5 @@
-import * as smd from './vendor/streaming-markdown.mjs';
 import { PacedText } from './markdown.mjs';
+import { createMarkdownFenceParser } from './markdown-fence-observation.mjs';
 
 /** Observe the pinned Markdown parser; eligibility and DSL meaning belong to the extracted model. */
 export class MarkdownFenceObserver {
@@ -19,16 +19,13 @@ export class MarkdownFenceObserver {
     this.text = '';
     this.ending = 'open';
     const generation = ++this.generation;
-    const stack = [];
-    const fences = [];
-    let ordinal = 0n;
-    let prefix = '';
-    const report = () => {
+    const reported = new Map();
+    const parser = createMarkdownFenceParser((fences, prefix) => {
       if (this.disposed || generation !== this.generation) return;
       for (const fence of fences) {
         const signature = JSON.stringify([fence.info, fence.code, fence.closed, this.ending, this.ending !== 'open' && prefix === this.text]);
-        if (signature === fence.reported) continue;
-        fence.reported = signature;
+        if (signature === reported.get(fence.ordinal)) continue;
+        reported.set(fence.ordinal, signature);
         this.options.onFence?.({
           ordinal: fence.ordinal, kind: fence.kind, info: fence.info,
           infoComplete: true, code: fence.code, closed: fence.closed,
@@ -37,40 +34,10 @@ export class MarkdownFenceObserver {
         });
       }
       this.options.onChange?.();
-    };
-    const sink = {
-      data: null,
-      add_token: (_, type) => {
-        if (type === smd.DOCUMENT) return;
-        let fence = null;
-        if (type === smd.CODE_BLOCK || type === smd.CODE_FENCE) {
-          fence = { ordinal: ordinal++, kind: type === smd.CODE_FENCE ? 'fenced' : 'indented',
-            info: '', code: '', closed: false, reported: null };
-          fences.push(fence);
-        }
-        stack.push({ type, fence });
-      },
-      end_token: () => {
-        const entry = stack.pop();
-        if (entry.fence) entry.fence.closed = true;
-      },
-      add_text: (_, value) => {
-        const fence = stack.at(-1)?.fence;
-        if (fence) fence.code += value;
-      },
-      set_attr: (_, attr, value) => {
-        if (attr === smd.LANG && stack.at(-1)?.fence) stack.at(-1).fence.info = value;
-      },
-    };
-    const parser = smd.parser(sink);
+    });
     this.buffer = new PacedText(chunk => {
-      prefix += chunk;
-      smd.parser_write(parser, chunk);
-      report();
-    }, () => {
-      smd.parser_end(parser);
-      report();
-    }, { ...this.options, smooth: false });
+      parser.write(chunk);
+    }, () => parser.finish(), { ...this.options, smooth: false });
   }
   sync({ text, epoch, revision, ending }) {
     if (this.disposed) return;

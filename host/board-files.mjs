@@ -11,20 +11,15 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 function filename(value) { return boundary('effect.filename', { value }); }
 
 export function mediaType(bytes) {
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-  if (bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6))) return 'image/gif';
-  if (bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
-  // DEFENSE: Uploaded SVG/HTML and caller-supplied MIME types must not authorize active inline content.
-  return 'application/octet-stream';
+  return boundary('effect.attachment_media_type', { prefix: Array.from(bytes.subarray(0, 12)) });
 }
 
-async function vault(home) {
+async function vault(home, { create }) {
   const canonicalHome = await realpath(home);
   const directory = path.join(canonicalHome, 'board-attachments');
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  if (create) await mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await lstat(directory);
-  // DEFENSE: Replacing the attachment vault with a link must not redirect writes outside the service home.
+  // DEFENSE: Replacing the attachment vault with a link must not redirect attachment reads or writes outside the service home.
   if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
     throw new Error('The attachment vault must be a real directory inside the service home');
   }
@@ -46,7 +41,7 @@ async function regularFile(file, maximum) {
 
 export async function readBoardAttachment(home, id) {
   boundary('effect.attachment_id', { id });
-  const root = await vault(home);
+  const root = await vault(home, { create: false });
   const directory = path.join(root, id);
   const stat = await lstat(directory);
   // DEFENSE: A replaced attachment directory must not redirect reads outside its content-addressed vault.
@@ -72,7 +67,7 @@ export async function saveBoardAttachment(home, name, stream) {
   }
   const data = Buffer.concat(chunks, size);
   const id = hash(data);
-  const root = await vault(home);
+  const root = await vault(home, { create: true });
   const target = path.join(root, id);
   const pending = path.join(root, `.upload-${randomBytes(16).toString('hex')}`);
   await mkdir(pending, { mode: 0o700 });

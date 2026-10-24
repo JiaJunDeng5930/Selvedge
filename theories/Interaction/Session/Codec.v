@@ -1,0 +1,46 @@
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json Numbers Schema.
+From Selvedge.Kernel Require Import Commands Streams.
+From Selvedge.Features Require BoardFilter.
+From Selvedge.Interaction Require Import Codec Identity Services Speech Resource SkillMention DocumentState.
+From Selvedge.Interaction.Session Require Import Draft DraftCodec State.
+From Selvedge.Interaction.Session Require NavigationCodec.
+From Selvedge.Interaction.Interactive Require Codec.
+Import ListNotations.
+Open Scope string_scope.
+Module IC := Selvedge.Interaction.Interactive.Codec.
+Definition encode_purpose value:=match value with
+|DraftSubmission draft generation layer trigger=>JObject[("kind",JString "draft");("draft",encode_draft draft);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
+|ConfirmationSubmission generation occurrence=>JObject[("kind",JString "confirmation");("generation",number generation);("occurrence",number occurrence)]
+|LiveConfiguration draft occurrence remember=>JObject[("kind",JString "configuration");("draft",encode_draft draft);("occurrence",optional_id occurrence);("remember_model",JBool remember)]
+|ProjectPreference draft command generation layer trigger=>JObject[("kind",JString "project_preference");("draft",encode_draft draft);("command",encode_command command);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
+|DirectSubmission=>JObject[("kind",JString "direct")]
+|WorkCreation generation layer=>JObject[("kind",JString "work");("generation",number generation);("layer",number layer)]
+|SideCreation parent generation layer trigger=>JObject[("kind",JString "side");("parent",number parent);("generation",number generation);("layer",number layer);("trigger",JString trigger)]
+|SearchSubmission query project work submitted=>JObject[("kind",JString "search");("ticket",number submitted);("query",JString query);("project",optional_id project);("work",optional_id work)]
+|LanguageAdmission task revision text owner path ticket=>JObject[("kind",JString "language_admission");("task",number task);("revision",number revision);("text",JString text);("owner",Selvedge.Interaction.Interactive.Types.encode_owner owner);("path",JString path);("ticket",number ticket)]
+|LanguageSubmission editor owner path ticket=>JObject[("kind",JString "language");("editor",encode_editor editor);("owner",Selvedge.Interaction.Interactive.Types.encode_owner owner);("path",JString path);("ticket",number ticket)]end.
+Definition decode_purpose value:=match string_field "kind" value with
+|Some "draft"=>draft<-bind(field "draft" value)decode_draft;;generation<-natural_field "generation" value;;trigger<-string_field "trigger" value;;layer<-natural_field "layer" value;;Some(DraftSubmission draft generation layer trigger)
+|Some "confirmation"=>generation<-natural_field "generation" value;;occurrence<-natural_field "occurrence" value;;Some(ConfirmationSubmission generation occurrence)
+|Some "configuration"=>draft<-bind(field "draft" value)decode_draft;;occurrence<-bind(field "occurrence" value)decode_id;;remember<-bool_field "remember_model" value;;Some(LiveConfiguration draft occurrence remember)
+|Some "project_preference"=>draft<-bind(field "draft" value)decode_draft;;command<-bind(field "command" value)(decode_command command_specs);;generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;trigger<-string_field "trigger" value;;Some(ProjectPreference draft command generation layer trigger)
+|Some "direct"=>Some DirectSubmission
+|Some "work"=>generation<-natural_field "generation" value;;layer<-natural_field "layer" value;;Some(WorkCreation generation layer)
+|Some "side"=>parent<-natural_field "parent" value;;generation<-natural_field "generation" value;;trigger<-string_field "trigger" value;;layer<-natural_field "layer" value;;Some(SideCreation parent generation layer trigger)
+|Some "search"=>query<-string_field "query" value;;project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;submitted<-natural_field "ticket" value;;Some(SearchSubmission query project work submitted)
+|Some "language_admission"=>task<-natural_field "task" value;;revision<-natural_field "revision" value;;text<-string_field "text" value;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageAdmission task revision text owner path ticket)
+|Some "language"=>editor<-bind(field "editor" value)decode_editor;;owner<-bind(field "owner" value)Selvedge.Interaction.Interactive.Types.decode_owner;;path<-string_field "path" value;;ticket<-natural_field "ticket" value;;Some(LanguageSubmission editor owner path ticket)
+|_=>None end.
+Definition encode_pending value:=JObject[("ticket",number(ticket value));("command",encode_command(accepted_command value));("purpose",encode_purpose(purpose value));("outcome_unknown",DraftCodec.optional_value JString(outcome_unknown value))].
+Definition decode_pending value:=ticket<-natural_field "ticket" value;;command<-bind(field "command" value)(decode_command command_specs);;purpose<-bind(field "purpose" value)decode_purpose;;unknown<-bind(field "outcome_unknown" value)(DraftCodec.parse_optional as_string);;Some(Pending ticket command purpose unknown).
+Definition encode_search value:=JObject[("query",JString(keyword value));("project",optional_id(project_filter value));("work",optional_id(work_filter value));("result",DraftCodec.optional_value(fun x=>x)(search_result value));("latest",optional_id(search_latest value))].
+Definition decode_search value:=query<-string_field "query" value;;project<-bind(field "project" value)decode_id;;work<-bind(field "work" value)decode_id;;result<-bind(field "result" value)(DraftCodec.parse_optional(fun x=>Some x));;latest<-bind(field "latest" value)decode_id;;Some(Search query project work result latest).
+Definition encode_skill_request value:=JObject[("editor",encode_editor(skill_editor value));("workspace",Selvedge.Kernel.Codec.workspace_json(skill_workspace value))].
+Definition decode_skill_request value:=e<-bind(field "editor" value)decode_editor;;workspace<-bind(field "workspace" value)Selvedge.Kernel.Codec.parse_workspace;;Some(SkillRequest e workspace).
+Definition encode_mention_entry value:=JObject[("editor",encode_editor(fst value));("mention",SkillMention.encode_mention(snd value))].
+Definition decode_mention_entry value:=e<-bind(field "editor" value)decode_editor;;mention<-bind(field "mention" value)SkillMention.decode_mention;;Some(e,mention).
+Definition encode_authoring value:=JObject[("drafts",JArray(map encode_draft(drafts value)));("next",number(next value));("pending",JArray(map encode_pending(awaiting value)));("search",encode_search(history_search value));("skills",JArray(map(encode_resource encode_skill_request(fun skills=>JArray(map SkillMention.encode_skill skills)))(skill_catalogs value)));("mentions",JArray(map encode_mention_entry(mentions value)));("draft_model_manual",JBool(draft_model_manual value))].
+Definition decode_authoring value:=drafts<-list_field decode_draft "drafts" value;;next<-natural_field "next" value;;pending<-list_field decode_pending "pending" value;;search<-bind(field "search" value)decode_search;;skills<-list_field(decode_resource decode_skill_request(fun value=>values<-as_array value;;traverse SkillMention.decode_skill values))"skills" value;;mentions<-list_field decode_mention_entry "mentions" value;;manual<-bool_field "draft_model_manual" value;;Some(Authoring drafts next pending search skills mentions manual).
+Definition encode_state value:=JObject[("navigation",NavigationCodec.encode_navigation(navigation_state value));("authoring",encode_authoring(authoring_state value));("services",Services.encode_services(service_state value));("speech",Speech.encode_speech(speech_state value));("streams",Streams.state_json(stream_state value));("readers",JArray(map NavigationCodec.encode_reader(readers value)));("interactive",IC.encode_state(interactive_state value));("board",BoardFilter.encode(board_selection value));("documents",DocumentState.encode_retention(document_retention value));("collapsed_projects",JArray(map number(collapsed_projects value)));("now",optional_id(now value));("next_layer",number(next_layer value))].
+Definition decode_state value:=navigation<-bind(field "navigation" value)NavigationCodec.decode_navigation;;authoring<-bind(field "authoring" value)decode_authoring;;services<-bind(field "services" value)Services.decode_services;;speech<-bind(field "speech" value)Speech.decode_speech;;streams<-bind(field "streams" value)Streams.decode_state;;readers<-list_field NavigationCodec.decode_reader "readers" value;;interactive<-bind(field "interactive" value)IC.decode_state;;board<-bind(field "board" value)(fun raw=>Some(BoardFilter.decode raw));;documents<-bind(field "documents" value)DocumentState.decode_retention;;collapsed<-list_field natural "collapsed_projects" value;;now<-bind(field "now" value)decode_id;;next_layer<-natural_field "next_layer" value;;Some(State navigation authoring services speech streams readers interactive board documents collapsed now next_layer).

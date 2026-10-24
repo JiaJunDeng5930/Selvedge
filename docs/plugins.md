@@ -75,11 +75,22 @@ Extension schemas use the native decidable fragment: closed objects with explici
 `properties` and optional `required`; arrays with `items`; strings, Booleans,
 nulls and natural-number integers up to `2^32 - 1` with optional minimum/maximum.
 `title` and `description` are metadata. Objects may omit `additionalProperties`
-or set it to `false`; both are closed. Keywords such as `$ref`, `anyOf`, `enum`,
-open properties, negative integers and unrestricted numbers are rejected, not
-silently ignored. Definition checking and value checking each have a 256-step
-bound. MCP retains its own server-side schema contract; no claim is made that
+or set it to `false`; both are closed. Finite string `enum` values and bounded
+`anyOf` alternatives are supported. Keywords such as `$ref`, open properties,
+negative integers and unrestricted numbers are rejected, not
+silently ignored. Definition checking and value checking each limit recursive
+nesting to 256 levels; this is not a limit on the total number of sibling fields.
+MCP retains its own server-side schema contract; no claim is made that
 this extension fragment implements arbitrary JSON Schema.
+
+MCP `inputSchema` is retained as an object and passed unchanged to model tool
+discovery. Its dialect and keywords (including `number`, `$ref` and `anyOf`) do
+not pass through the extension interpreter. Model calls and hook rewrites must
+still supply an argument object; the MCP server validates that object against
+its advertised schema before execution, as required by the
+[MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+The kernel's local argument check therefore establishes the call envelope, not
+arbitrary MCP-schema satisfaction or the correctness of the external server.
 
 To execute an approved extension tool, the host sends `callTool` with its local
 `name`, final `arguments` and a `context` containing `task_id`, `operation_id` and
@@ -90,20 +101,25 @@ outcome may already have happened.
 
 ## One before-tool protocol
 
-Before source classification or argument validation, the kernel commits a tool authorization check
-effect and a task-local pending ticket. The host sends `beforeTool` with:
+A model call must first satisfy its frozen tool argument contract before it can
+enter task history or request authorization. The kernel then commits a tool
+authorization check effect and a task-local pending ticket. The host sends
+`beforeTool` with:
 
 ```json
 {
   "task_id": 0,
   "ticket": 7,
   "plugin": {"name": "audit", "revision": "example-1"},
-  "tool": {"name": "bash", "description": "...", "schema": {}, "source": "harness"},
+  "tool": {"name": "bash", "description": "...", "parameters": {},
+    "source": {"kind": "native", "program": {"kind": "Process"}}},
   "call": {"id": "call-1", "name": "bash", "arguments": {"command": "printf hello"}}
 }
 ```
 
-The `tool` above abbreviates a real complete tool definition. Allowed results are
+A model reply containing an invalid call is rejected before that call becomes a
+tool invocation. The `tool` above abbreviates the real complete definition; its
+`parameters` contains the advertised schema. Allowed results are
 exactly `{"decision":"allow"}`, `{"decision":"rewrite","arguments":{...}}`, or
 `{"decision":"deny","reason":"..."}`. A rewrite replaces the entire argument
 object. The host can report exceptions, malformed replies, unavailable revisions
@@ -163,8 +179,9 @@ The [kernel definitions](../theories/Kernel/) own result processing and completi
 
 Subscribe to native event kinds `task_created`, `task_changed`, `model_started`,
 `model_completed`, `tool_requested`, `tool_dispatched`, `tool_completed`,
-`hook_completed`, `recovered` and `configured`. These names derive from one native
-`EventKind` type and its checked wire round-trip. The host sends an `event` request:
+`hook_completed`, `recovered` and `configured`. Configuration admission checks
+subscriptions against the native `Limits.plugin_events` vocabulary. Notification
+producers use those event names as strings. The host sends an `event` request:
 
 ```json
 {

@@ -36,11 +36,18 @@ Definition agent_json (id : N) (value : Selvedge.Features.Domain.board_agent) :=
  ("name", JString (Selvedge.Features.Domain.agent_name value)); ("profile", JString (Selvedge.Features.Domain.agent_profile value));
  ("reasoning", JString (Selvedge.Features.Domain.agent_reasoning value)); ("instructions", JString (Selvedge.Features.Domain.agent_instructions value));
  ("settings", Selvedge.Features.Domain.agent_settings value); ("concurrency", number (Selvedge.Features.Domain.agent_concurrency value))].
+Definition agent_json_in_world (value:world) (id:N) (agent:Selvedge.Features.Domain.board_agent) :=
+ match agent_json id agent with JObject fields=>JObject (fields++[
+ ("active",number (BoardFacts.active_for (Selvedge.Features.Domain.AgentOwner id) value))]) | other=>other end.
 Definition present_values {A : Type} (f : N -> A -> json) (values : list (option A)) :=
  fold_right (fun value rest => match value with Some value => value :: rest | None => rest end) []
  (indexed (fun id value => option_map (f id) value) 0 values).
-Definition agents_json (value:Selvedge.Features.Domain.board) := fold_right (fun id rest=>match registry_at id (Selvedge.Features.Domain.board_agents value) with
- | Some (Some agent)=>agent_json id agent::rest | _=>rest end) [] (Selvedge.Features.Domain.board_agent_order value).
+Definition agents_json_with (observe:N->Selvedge.Features.Domain.board_agent->json) (value:Selvedge.Features.Domain.board) :=
+ fold_right (fun id rest=>match registry_at id (Selvedge.Features.Domain.board_agents value) with
+ | Some (Some agent)=>observe id agent::rest | _=>rest end) [] (Selvedge.Features.Domain.board_agent_order value).
+Definition agents_json := agents_json_with agent_json.
+Definition agents_json_in_world (value:world) :=
+ agents_json_with (agent_json_in_world value) (Selvedge.Features.Domain.feature_board (world_features value)).
 Definition board_json (value : Selvedge.Features.Domain.board) := JObject [
  ("cards", JArray (present_values card_json (Selvedge.Features.Domain.board_cards value)));
  ("agents", JArray (agents_json value));
@@ -86,10 +93,11 @@ Definition title_settings_json (value : Selvedge.Features.Domain.title_settings)
 
 Definition card_json_in_world (value:world) (id:N) (card:Selvedge.Features.Domain.card) := match card_json id card with JObject fields=>JObject (fields++[
  ("activity",JString (BoardFacts.activity card value));("capabilities",JObject [
- ("edit",JBool (BoardFacts.mutable card value && BoardFacts.unlinked card));("metadata",JBool (BoardFacts.mutable card value));("drag",JBool (BoardFacts.mutable card value));
+ ("edit",JBool (BoardFacts.mutable card value && BoardFacts.unlinked card));("metadata",JBool (BoardFacts.mutable card value));("regenerate",JBool (BoardFacts.mutable card value));("drag",JBool (BoardFacts.mutable card value));
  ("run",JBool (BoardFacts.runnable card value));("archive",JBool (negb (Selvedge.Features.Domain.card_archived card || BoardFacts.pending card)));("restore",JBool (Selvedge.Features.Domain.card_archived card));("delete",JBool (negb (BoardFacts.pending card || BoardFacts.busy card value)))])]) | other=>other end.
 Definition board_json_in_world (value:world) := let board:=world_features value in let b:=Selvedge.Features.Domain.feature_board board in
- match board_json b with JObject fields=>JObject (Json.set_field "cards" (JArray (present_values (card_json_in_world value) (Selvedge.Features.Domain.board_cards b))) fields) | other=>other end.
+ match board_json b with JObject fields=>JObject (Json.set_field "agents" (JArray (agents_json_in_world value))
+ (Json.set_field "cards" (JArray (present_values (card_json_in_world value) (Selvedge.Features.Domain.board_cards b))) fields)) | other=>other end.
 
 Fixpoint first_request (messages:list message) :string := match messages with
  | []=>"" | UserMessage contents::rest=>let text:=(Selvedge.Kernel.Domain.content_text contents) in if Utf8.nonblank text then text else first_request rest

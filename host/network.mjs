@@ -29,7 +29,7 @@ export async function requestJson(url, { method = 'POST', body, headers = {}, si
   let decoded;
   try { decoded = boundary('web.http_json', source); }
   catch (error) {
-    // DEFENSE: A successful HTTP response containing malformed JSON is a protocol failure; retain its parser diagnostic as the cause.
+    // DEFENSE: A successful HTTP response containing malformed JSON is a protocol failure with a SyntaxError cause.
     if (error.code === 'http_json_parse') {
       throw new Error(error.message, { cause: new SyntaxError('Invalid JSON response') });
     }

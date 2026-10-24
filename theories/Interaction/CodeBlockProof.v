@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Interaction Require Import CodeBlock.
+From Selvedge.Interaction Require Import Codec CodeBlock.
 Import ListNotations.
 
 Theorem copy_writes_the_observed_literal : forall state ticket text,
@@ -28,3 +28,18 @@ Qed.
 Theorem wrapping_does_not_change_copied_text : forall state,
   literal (fst (step ToggleWrap state)) = literal state.
 Proof. reflexivity. Qed.
+
+(** The native runtime consumes [execute], so the clipboard contract covers the
+    decoded public entry rather than a separate presentation-only operation. *)
+Theorem public_copy_writes_decoded_literal : forall request previous next output,
+ Codec.bind (Json.field "state"%string request) decode_state=Some previous ->
+ Codec.bind (Json.field "input"%string request) decode_input=Some Copy ->
+ execute "step"%string request=Executed next output ->
+ forall ticket value, In (Clipboard ticket value) output -> value=literal previous.
+Proof.
+ intros request previous next output Previous Event ExecutedEntry ticket value Sent.
+ unfold execute in ExecutedEntry. rewrite Previous,Event in ExecutedEntry.
+ destruct (step Copy previous) as [final effects] eqn:Reduced.
+ inversion ExecutedEntry;subst. eapply copy_writes_the_observed_literal.
+ rewrite Reduced. exact Sent.
+Qed.

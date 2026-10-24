@@ -40,14 +40,16 @@ Public task and tool content still leaves this computer for the chosen evaluator
 
 Sign in with the existing `bun host/cli.mjs login` command. When the account
 catalog advertises `gpt-6-astra`, discovery also materializes
-`chatgpt/<account-namespace>/gpt-6-astra-auto`. It keeps the same account and
+`chatgpt/<account-namespace>/gpt-6-astra/~auto`. It keeps the same account and
 underlying model. Its only selectable reasoning setting is `auto`; the ordinary
 Astra profile remains available independently.
 
 The preset is ordinary profile data using the
 account's advertised effort levels, its default baseline, evaluator name `jev`,
 and `configuration_update` transport. It does not configure or authenticate Jev.
-A manually configured profile under that auto key overrides the preset. Like
+A manually configured profile under that auto key overrides the preset. The
+`/~auto` suffix cannot be an advertised model slug, so a provider's independent
+`gpt-6-astra-auto` model remains selectable alongside the generated preset. Like
 other discovered account profiles, the generated preset is materialized from the
 authenticated catalog rather than written over the user's configuration file.
 No Codex CLI patch, model proxy or provider-specific scheduler is involved.

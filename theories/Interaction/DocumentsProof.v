@@ -1,94 +1,85 @@
 From Stdlib Require Import List String Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json Numbers Utf8.
-From Selvedge.Interaction Require Import Codec Identity Origin Services ApplicationState Documents.
+From Selvedge.Interaction Require Import Codec Identity Origin CodeSource DocumentState Documents.
 From Selvedge.Interaction.Interactive Require Import Types.
 From Selvedge.Interaction.Interactive Require Bounds.
 Import ListNotations.
 
-Theorem inherited_document_has_no_external_capability : forall namespace doc owner world s,
- find_document namespace owner world s=Some doc -> viewer doc<>producer(provenance doc) ->
- owning_task namespace owner world s=None.
+Theorem inherited_document_has_no_external_capability : forall context doc owner retained,
+ find_document context owner retained=Some doc -> viewer doc<>producer(provenance doc) ->
+ owning_task context owner retained=None.
 Proof.
- intros namespace doc owner world s Found Different. unfold owning_task;rewrite Found.
+ intros context doc owner retained Found Different. unfold owning_task;rewrite Found.
  assert (N.eqb(viewer doc)(producer(provenance doc))=false) by (apply N.eqb_neq;exact Different).
  rewrite H. destruct (interactive_origin(provenance doc)),(complete doc);reflexivity.
 Qed.
-Theorem empty_namespace_has_no_external_capability : forall owner world s,
- externally_allowed "" owner world s=false.
-Proof. reflexivity. Qed.
-
-Theorem generated_external_permission_requires_completed_producer : forall namespace doc s,
- document_external namespace doc s=true ->
- valid_namespace namespace=true /\ complete doc=true /\ connected(service_state s)=true /\
+Theorem empty_namespace_has_no_external_capability : forall context owner retained,
+ context_namespace context=""%string -> externally_allowed context owner retained=false.
+Proof. intros context owner retained Empty;unfold externally_allowed;rewrite Empty;reflexivity. Qed.
+Theorem generated_external_permission_requires_completed_producer : forall context doc,
+ document_external context doc=true ->
+ valid_namespace(context_namespace context)=true /\ complete doc=true /\ context_connected context=true /\
  viewer doc=producer(provenance doc) /\ mode(provenance doc)=InteractiveV1.
 Proof.
- intros namespace doc s Allowed. unfold document_external,external_allowed in Allowed.
+ intros context doc Allowed. unfold document_external,external_allowed in Allowed.
  repeat rewrite Bool.andb_true_iff in Allowed.
  destruct Allowed as [[Namespace Complete] [[[Connected _] Same] Mode]].
  apply N.eqb_eq in Same. destruct(mode(provenance doc))eqn:ModeValue;try discriminate.
  repeat split;auto.
 Qed.
-
-Theorem closed_fence_cannot_reopen_or_change : forall namespace observation doc stamp s previous,
- observation_valid namespace observation doc stamp s=true ->
+Theorem closed_fence_cannot_reopen_or_change : forall namespace observation doc stamp retained previous,
+ observation_valid namespace observation doc stamp retained=true ->
  In previous(document_observations stamp) ->
  observation_ordinal observation=fence_ordinal previous -> fence_closed previous=true ->
  observation_closed observation=true /\ observation_code observation=fence_code previous.
 Proof.
- intros namespace observation doc stamp s previous Accepted Member Ordinal Closed.
+ intros namespace observation doc stamp retained previous Accepted Member Ordinal Closed.
  unfold observation_valid in Accepted. apply andb_true_iff in Accepted as [_ Extends].
  apply forallb_forall with (x:=previous) in Extends;auto.
  unfold fence_extends in Extends. rewrite Ordinal,N.eqb_refl,Closed in Extends.
  simpl in Extends. apply andb_true_iff in Extends as [_ Extends].
  apply andb_true_iff in Extends as [ClosedNow Equal]. apply String.eqb_eq in Equal. auto.
 Qed.
-Theorem accepted_parser_prefix_never_regresses : forall namespace observation doc stamp s,
- observation_valid namespace observation doc stamp s=true ->
+Theorem accepted_parser_prefix_never_regresses : forall namespace observation doc stamp retained,
+ observation_valid namespace observation doc stamp retained=true ->
  (document_observed_prefix stamp <= document_observed_prefix(record_observation observation stamp))%nat.
 Proof.
- intros namespace observation doc stamp s Accepted.
+ intros namespace observation doc stamp retained Accepted.
  unfold observation_valid in Accepted. repeat rewrite andb_true_iff in Accepted.
  unfold record_observation,update_stamp;simpl.
  apply Nat.leb_le. tauto.
 Qed.
-
-Theorem accepted_observation_uses_registered_visible_document : forall namespace raw world s input next,
- observe_document namespace raw world s=Some(input,next) ->
+Theorem accepted_observation_uses_registered_visible_document : forall context raw retained input next,
+ observe_document context raw retained=Some(input,next) ->
  exists observation doc stamp,
- decode_observation raw=Some observation /\ In doc(visible_documents namespace world s) /\
- document_stamp namespace doc s=Some stamp /\ observation_valid namespace observation doc stamp s=true /\
- input=SourceChanged(Owner((key namespace doc++"/fence/"++show_natural(observation_ordinal observation))%string)(document_epoch stamp))
+ decode_observation raw=Some observation /\ In doc(visible_documents context retained) /\
+ document_stamp (context_namespace context) doc retained=Some stamp /\
+ observation_valid (context_namespace context) observation doc stamp retained=true /\
+ input=SourceChanged (Owner (CodeSource.owner_key(code_identity(context_namespace context)doc(observation_ordinal observation))) (document_epoch stamp))
   (observation_code observation)(observation_closed observation)
   (if String.eqb(observation_prefix observation)(markdown doc)then document_ending stamp else Open)
-  (document_external namespace doc s).
+  (document_external context doc).
 Proof.
- intros namespace raw world s input next Accepted. unfold observe_document in Accepted.
+ intros context raw retained input next Accepted. unfold observe_document in Accepted.
  destruct(decode_observation raw)as [observation|]eqn:Decoded;simpl in Accepted;try discriminate.
- destruct(find(fun doc=>String.eqb(observation_key observation)(key namespace doc))(visible_documents namespace world s))as [doc|]eqn:Found;simpl in Accepted;try discriminate.
- destruct(document_stamp namespace doc s)as [stamp|]eqn:Stamp;simpl in Accepted;try discriminate.
- destruct(observation_valid namespace observation doc stamp s)eqn:Valid;try discriminate.
+ destruct(find(fun doc=>String.eqb(observation_key observation)(key(context_namespace context)doc))(visible_documents context retained))as [doc|]eqn:Found;simpl in Accepted;try discriminate.
+ destruct(document_stamp(context_namespace context)doc retained)as [stamp|]eqn:Stamp;simpl in Accepted;try discriminate.
+ destruct(observation_valid(context_namespace context)observation doc stamp retained)eqn:Valid;try discriminate.
  inversion Accepted;subst. exists observation,doc,stamp. repeat split;auto.
  apply find_some in Found. tauto.
 Qed.
-Theorem accepted_external_source_is_completed_owned_output : forall namespace raw world s owner code closed ending next,
- observe_document namespace raw world s=Some(SourceChanged owner code closed ending true,next) ->
- exists doc,In doc(authoritative_documents namespace world s) /\ complete doc=true /\
- viewer doc=producer(provenance doc) /\ mode(provenance doc)=InteractiveV1 /\
- valid_namespace namespace=true /\ connected(service_state s)=true.
+Theorem accepted_external_source_is_completed_owned_output : forall context raw retained owner code closed ending next,
+ observe_document context raw retained=Some(SourceChanged owner code closed ending true,next) ->
+ exists doc,In doc(visible_documents context retained) /\ complete doc=true /\
+ viewer doc=producer(provenance doc) /\ mode(provenance doc)=InteractiveV1.
 Proof.
- intros namespace raw world s owner code closed ending next Accepted.
+ intros context raw retained owner code closed ending next Accepted.
  apply accepted_observation_uses_registered_visible_document in Accepted.
  destruct Accepted as [observation [doc [stamp [_ [Member [_ [_ Input]]]]]]].
  inversion Input.
- assert(document_external namespace doc s=true)as Allowed by congruence.
- pose proof(generated_external_permission_requires_completed_producer namespace doc s Allowed)as Permission.
- destruct Permission as [Namespace [Complete [Connected [Owned Mode]]]].
- exists doc. split.
- - unfold visible_documents in Member. apply in_app_iff in Member as [Current|Retained];[exact Current|].
-   apply in_map_iff in Retained as [retained [Same _]].
-   rewrite <-Same in Complete;discriminate.
- - tauto.
-
+ assert (document_external context doc=true) as Allowed by congruence.
+ apply generated_external_permission_requires_completed_producer in Allowed.
+ exists doc. tauto.
 Qed.
 
 Theorem continuous_document_preserves_epoch_and_observation : forall namespace doc s prior,
@@ -105,24 +96,16 @@ Theorem discontinuous_document_allocates_fresh_epoch : forall namespace doc s pr
  find(fun stamp=>String.eqb(key namespace doc)(document_identity stamp))(document_lifetimes s)=Some prior ->
  continuous_document prior doc=false ->
  exists stamp tail,document_lifetimes(remember_document namespace doc s)=stamp::tail /\
- document_epoch stamp=retention_next_epoch(document_retention s) /\
+ document_epoch stamp=retention_next_epoch(s) /\
  document_observed_prefix stamp=0%nat /\ document_observations stamp=[] /\
- retention_next_epoch(document_retention(remember_document namespace doc s))=N.succ(retention_next_epoch(document_retention s)).
+ retention_next_epoch(remember_document namespace doc s)=N.succ(retention_next_epoch(s)).
 Proof.
  intros namespace doc s prior Found Discontinuous. unfold remember_document;rewrite Found,Discontinuous.
  do 2 eexists. repeat split;reflexivity.
 Qed.
 Theorem namespace_switch_preserves_epoch_allocator : forall namespace world s,
- retention_next_epoch(document_retention(scoped_retention namespace world s))=retention_next_epoch(document_retention s).
-Proof. intros;unfold scoped_retention;destruct(String.eqb namespace(retention_namespace(document_retention s)));reflexivity. Qed.
-Theorem lifetime_registration_preserves_component_state : forall namespace doc s,
- interactive_state(remember_document namespace doc s)=interactive_state s.
-Proof.
- intros;unfold remember_document.
- destruct(find(fun stamp=>String.eqb(key namespace doc)(document_identity stamp))(document_lifetimes s))as [prior|];
- [destruct(continuous_document prior doc)|];reflexivity.
-Qed.
-
+ retention_next_epoch(scoped_retention namespace world s)=retention_next_epoch(s).
+Proof. intros;unfold scoped_retention;destruct(String.eqb namespace(retention_namespace(s)));reflexivity. Qed.
 Definition live_retained stamp:=same_ending(document_ending stamp)Interrupted&&negb(document_archived stamp).
 Definition live_count stamps:=List.length(filter live_retained stamps).
 Definition archived_bytes stamps:=fold_right(fun stamp total=>if document_archived stamp then Nat.add(Utf8.byte_length(document_source stamp))total else total)0%nat stamps.
@@ -273,13 +256,13 @@ Proof.
  intros stamp Archived. unfold live_retained;rewrite Archived,andb_false_r;reflexivity.
 Qed.
 
-Theorem synchronized_retention_respects_limits : forall namespace lagged world s,
- let stamps:=document_lifetimes(synchronize_documents namespace lagged world s)in
+Theorem synchronized_retention_respects_limits : forall context lagged s,
+ let stamps:=document_lifetimes(synchronize_documents context lagged s)in
  (live_count stamps<=Bounds.retained_per_session)%nat /\
  (forall task,(task_live_count task stamps<=Bounds.retained_per_task)%nat) /\
  (archived_bytes stamps<=Bounds.retained_source_bytes)%nat.
 Proof.
- intros namespace lagged world s. unfold synchronize_documents.
+ intros context lagged s. unfold synchronize_documents.
  cbn zeta.
  match goal with
  | |- context[trim_archives ?stamps 0%nat]=>
@@ -320,20 +303,20 @@ Theorem source_identity_is_derived : forall namespace viewer origin epoch source
 Proof. reflexivity. Qed.
 
 Theorem remember_epoch_allocator_never_decreases : forall namespace doc s,
- (retention_next_epoch(document_retention s)<=retention_next_epoch(document_retention(remember_document namespace doc s)))%N.
+ (retention_next_epoch(s)<=retention_next_epoch(remember_document namespace doc s))%N.
 Proof.
  intros;unfold remember_document.
  destruct(find(fun stamp=>String.eqb(key namespace doc)(document_identity stamp))(document_lifetimes s))as [prior|];
  [destruct(continuous_document prior doc)|];cbn;[apply N.le_refl|apply N.le_succ_diag_r|apply N.le_succ_diag_r].
 Qed.
 Lemma fold_remember_epoch_monotone : forall namespace docs s,
- (retention_next_epoch(document_retention s)<=retention_next_epoch(document_retention(fold_left(fun current doc=>remember_document namespace doc current)docs s)))%N.
+ (retention_next_epoch(s)<=retention_next_epoch(fold_left(fun current doc=>remember_document namespace doc current)docs s))%N.
 Proof.
  intros namespace docs;induction docs as [|doc rest IH];intros s;cbn;[apply N.le_refl|].
  eapply N.le_trans;[apply remember_epoch_allocator_never_decreases|apply IH].
 Qed.
 Theorem replacement_epoch_exceeds_decoded_owners : forall namespace doc s prior encoded,
- decode_retention encoded=Some(document_retention s) ->
+ decode_retention encoded=Some(s) ->
  find(fun stamp=>String.eqb(key namespace doc)(document_identity stamp))(document_lifetimes s)=Some prior ->
  continuous_document prior doc=false ->
  exists replacement tail,document_lifetimes(remember_document namespace doc s)=replacement::tail /\
@@ -344,17 +327,17 @@ Proof.
  exists replacement,tail;split;[exact Result|].
  intros old Member. rewrite Epoch. eapply decoded_retention_uses_fresh_allocator;[exact Decoded|exact Member].
 Qed.
-Theorem synchronized_epoch_allocator_never_decreases : forall namespace lagged world s,
- (retention_next_epoch(document_retention s)<=retention_next_epoch(document_retention(synchronize_documents namespace lagged world s)))%N.
+Theorem synchronized_epoch_allocator_never_decreases : forall context lagged s,
+ (retention_next_epoch(s)<=retention_next_epoch(synchronize_documents context lagged s))%N.
 Proof.
- intros namespace lagged world s. unfold synchronize_documents;cbn zeta.
+ intros context lagged s. unfold synchronize_documents;cbn zeta.
  match goal with
  | |- context[trim_archives ?stamps 0%nat]=>
    destruct(trim_archives stamps 0%nat)as [kept discarded]eqn:Trim
  end.
  match goal with
- | |- context[fold_left(fun(current:state)(doc:document)=>remember_document namespace doc current)?docs ?initial]=>
-   pose proof(fold_remember_epoch_monotone namespace docs initial)as Progress
+ | |- context[fold_left(fun(current:retention)(doc:document)=>remember_document (context_namespace context) doc current)?docs ?initial]=>
+   pose proof(fold_remember_epoch_monotone (context_namespace context) docs initial)as Progress
  end.
  rewrite namespace_switch_preserves_epoch_allocator in Progress. exact Progress.
 Qed.

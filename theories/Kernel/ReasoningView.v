@@ -37,11 +37,12 @@ Fixpoint public_value (fuel : nat) (value : json) : json := match fuel with
        | limit => JObject [(name,item);("__selvedge_preview__",limit)] end end
    | _ => value end end.
 Definition text_message role text := JObject [("role",JString role);("content",JString text)].
+Definition public_parts_text parts := String.concat "
+" (map (fun part => text_default "text" part "") (public_parts parts)).
 Definition public_context value := let value := provider_value value in
  match text_default "type" value "" with
- | "message" => Some (text_message "assistant" (String.concat "" (map Conversation.provider_part_text (array_default "content" value))))
- | "reasoning" => Some (text_message "reasoning_summary"
-    (String.concat "" (map (fun part => text_default "text" part "") (public_parts (array_default "summary" value)))))
+ | "message" => Some (text_message "assistant" (public_parts_text (array_default "content" value)))
+ | "reasoning" => Some (text_message "reasoning_summary" (public_parts_text (array_default "summary" value)))
  | _ => None end.
 Definition public_message (message : message) := match message with
  | SpeechTranscript _ _ _ who _ text => Some (text_message (match who with UserSpeaker => "user" | AssistantSpeaker => "assistant" end) text)
@@ -54,8 +55,6 @@ Definition public_message (message : message) := match message with
  | FunctionOutput id value error => Some (JObject [("role",JString "function_output");("call_id",JString id);("content",public_value 512 value);("is_error",JBool error)])
  | OperationResult _ call value error => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
     ("name",JString (call_name call));("content",public_value 512 value);("is_error",JBool error)])
- | ForkReceipt _ call branch => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
-    ("content",JNumber (Selvedge.Foundation.Numbers.show_natural branch));("is_error",JBool false)])
  | _ => None end.
 Definition preview_value value := let rendered := TextJson.render_json value in
  match Utf8.scalar_count rendered with Some count => if Nat.leb count 1024 then value else JString (excerpt rendered)

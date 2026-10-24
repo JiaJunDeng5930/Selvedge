@@ -1,73 +1,219 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema SchemaJson.
-From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments.
+From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema Arguments Numbers.
+From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
+From Selvedge.Kernel Require Import ChatgptArguments ChatgptProtocol.
+From Selvedge.Features Require Import Titles BoardParameters.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Features Require Import TaskGraphDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition kind_json := SchemaJson.kind_schema.
-Definition schema_json := SchemaJson.schema_json.
+(* Public creation commands and model tools share the settings declaration.
+   Guidance is a host observation, never model-supplied authority. *)
+(* A command's interval takes precedence over the generic natural bound. *)
+Definition natural_bounds (argument : argument_spec) :=
+ match argument_type_of argument with
+ | Scalar KNatural => match argument_bounds argument with
+   | Some _ => argument
+   | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
+   end
+ | _ => argument end.
+Definition settings_arguments := map (fun field =>
+ let argument := natural_bounds (Arguments.omittable_nonnull (Arguments.from_field field)) in
+ if String.eqb (field_name field) "workspace" then
+   Arguments.with_structure (SchemaJson.omittable_fields Workspace.workspace_schema) argument else
+ if String.eqb (field_name field) "sandbox" then
+   Arguments.with_structure (Arguments.schema_fields Codec.sandbox_patch_arguments) argument else
+ if String.eqb (field_name field) "approval" then
+   Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
+ (filter (fun field => negb (String.eqb (field_name field) "guidance" || String.eqb (field_name field) "workspace_binding")) Codec.task_settings_schema).
+Definition settings_schema := Arguments.schema_fields settings_arguments.
+Definition public_settings_schema := Json.set_field "type"
+ (JArray [JString "object"; JString "null"]) settings_schema.
+Definition nullable_structure (fields : list (string * json)) :=
+ [("anyOf",JArray [JObject fields; JObject [("type",JString "null")]])].
+Definition public_content_argument (argument : argument_spec) :=
+ match argument_type_of argument with
+ | Scalar (KOptional KJson) =>
+   if String.eqb (argument_name argument) "message" then
+    Arguments.with_structure (nullable_structure ContentDeclarations.content_schema) argument
+   else argument
+ | Scalar (KOptional (KArray KJson)) =>
+   if String.eqb (argument_name argument) "images" then
+    Arguments.with_structure (nullable_structure ContentDeclarations.images_schema) argument
+   else if String.eqb (argument_name argument) "messages" then
+    Arguments.with_structure (nullable_structure
+      [("type",JString "array");("items",JObject ContentDeclarations.content_schema)]) argument
+   else argument
+ | _ => argument
+ end.
+Definition attachment_item_schema := SchemaJson.schema_fields BoardParameters.attachment_schema.
+Definition attachment_array_schema :=
+  [("type",JString "array");("items",JObject attachment_item_schema)].
+(** These public JSON Schema bounds mirror byte limits enforced by the owning
+    domain operations; JSON Schema's length keywords count characters. *)
+Definition controller_id_schema :=
+  SchemaJson.kind_schema KText ++ [("minLength",JNumber "1");
+    ("maxLength",JNumber (Numbers.show_natural 128%N))].
+Definition title_prompt_schema :=
+  SchemaJson.kind_schema KText ++ [("minLength",JNumber "1");
+    ("maxLength",JNumber (Numbers.show_natural Titles.maximum_instruction_bytes))].
+Definition permission_names := ["read";"control";"configure";"approve"].
+Definition permissions_schema := SchemaJson.object_fields
+  (map (fun name => (name,JObject (SchemaJson.kind_schema KBool))) permission_names)
+  permission_names.
+Definition connection_grants_schema :=
+  let grants := Arguments.refine_fields
+    [("connection_id",ChatgptArguments.identity_schema);
+     ("project_ids",[("type",JString "array");("items",JObject ChatgptArguments.identity_schema)]);
+     ("sandbox",SchemaJson.schema_fields Codec.sandbox_schema)]
+    (map Arguments.from_field ChatgptArguments.grant_declaration) in
+  [("type",JString "array");("items",Arguments.json_schema grants)].
+Definition connection_field_refinements (name : string) :=
+  if String.eqb name "configure_chatgpt_connections" then [("connections",connection_grants_schema)]
+  else match find (fun route => String.eqb name (ChatgptProtocol.native_name route)) ChatgptProtocol.routes with
+  | Some route => map (fun field => (field,ChatgptArguments.identity_schema))
+      ["connection_id";"project_id";"operation_id"] ++
+      match route with
+      | ChatgptProtocol.Execute => [("arguments",match ChatgptArguments.args_schema with JObject fields => fields | _ => [] end)]
+      | _ => [] end
+  | None => [] end.
+Definition project_field_refinements (name : string) :=
+  if String.eqb name "create_project" || String.eqb name "update_project" then
+    [("workspace",if String.eqb name "create_project"
+      then SchemaJson.schema_fields Workspace.workspace_schema
+      else nullable_structure (SchemaJson.schema_fields Workspace.workspace_schema));
+     ("guidance",nullable_structure (SchemaJson.schema_fields Codec.guidance_schema))]
+  else [].
+Definition command_field_refinements (name : string) :=
+  (("settings",public_settings_schema) :: project_field_refinements name) ++
+  (if String.eqb name "create_card" || String.eqb name "update_card" then
+    [("attachments",attachment_array_schema)] else
+  if String.eqb name "configure_title_settings" then
+    [("task_prompt",title_prompt_schema);("agent_prompt",title_prompt_schema)] else
+  if String.eqb name "remote_grant" then
+    [("controller_id",controller_id_schema);("permissions",permissions_schema)] else
+  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else connection_field_refinements name).
+Definition command_schema (specification : command_spec) :=
+  let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
+    (map public_content_argument (Commands.command_arguments specification)) in
+  JObject (SchemaJson.object_fields
+    (map (fun argument => (Arguments.argument_name argument,
+      Arguments.argument_json argument)) declaration)
+    (map Arguments.argument_name (filter Arguments.argument_required declaration))).
 Record command_binding := CommandBinding {
  binding_tool : string;
  binding_command : string;
  binding_caller_field : option string;
  binding_description : string
 }.
+Definition feature_commands := [
+ "archive_card"; "board_settings"; "chatgpt_cancel"; "chatgpt_exec";
+ "chatgpt_forget"; "chatgpt_operation"; "chatgpt_operations"; "chatgpt_project";
+ "chatgpt_projects"; "configure_chatgpt_connections"; "configure_title_settings";
+ "create_card"; "create_workspace_task"; "create_worktree_task"; "delete_board_agent";
+ "delete_card"; "link_card"; "list_board_agents"; "list_cards"; "list_worktrees";
+ "move_card"; "pin_card"; "read_card"; "read_title_settings"; "read_worktree";
+ "regenerate_card_title"; "remote_disable"; "remote_enable"; "remote_grant";
+ "remote_revoke"; "remote_status"; "restore_card"; "retry_worktree_archive";
+ "run_card"; "save_board_agent"; "update_card"].
+Definition feature_bindings := map (fun entry =>
+ CommandBinding (fst entry) (fst entry) None (snd entry))
+ (filter (fun entry => existsb (String.eqb (fst entry)) feature_commands)
+   Commands.command_descriptions).
 Definition bindings := [
- CommandBinding "create_task" "create" None "Create an independent task with the caller's execution limits.";
- CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit.";
- CommandBinding "search_history" "search_history" None "Search committed user and assistant conversation text.";
- CommandBinding "read_task" "read" None "Read a bounded page of a task's original history.";
+  CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
+  CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
+  CommandBinding "search_history" "search_history" None "Search committed user and assistant messages by literal keyword or phrase (ASCII case-insensitive). Restrict to a project or Work, or both. Results include a zero-based message_index; use read_task with after=message_index to read the original message.";
+ CommandBinding "read_task" "read" None "Read a task's identity, lifecycle, available controls and a bounded page of its original history.";
  CommandBinding "read_current_task" "read" (Some "task_id") "Read this task's identity, lifecycle and Work ownership.";
- CommandBinding "send_message_to_task" "send" None "Commit or queue a message to another task.";
+  CommandBinding "send_message_to_task" "send" None "Commit a user message to another task, or queue it while that task is busy or frozen.";
  CommandBinding "archive_task" "archive" None "Permanently archive a task and cancel its work.";
- CommandBinding "cancel_operation" "cancel_operation" (Some "task_id") "Cancel one live operation without cancelling unrelated work.";
- CommandBinding "create_task_graph" "create_task_graph" None "Create a task graph from declared output handlers.";
- CommandBinding "update_task_graph" "update_task_graph" None "Replace a graph's future output handlers atomically.";
- CommandBinding "delete_task_graph" "delete_task_graph" None "Remove a graph without archiving its tasks.";
- CommandBinding "list_task_graphs" "list_task_graphs" None "List installed task graphs.";
- CommandBinding "read_task_graph" "read_task_graph" None "Read a graph and its delivery receipts.";
- CommandBinding "create_work" "create_work" None "Create a continuing undertaking.";
- CommandBinding "rename_work" "rename_work" None "Rename a Work.";
- CommandBinding "create_work_task" "create_work_task" None "Create a task owned by a Work.";
- CommandBinding "list_works" "list_works" None "List Works.";
- CommandBinding "read_work" "read_work" None "Read a Work and its tasks and graphs.";
- CommandBinding "read_work_ui" "read_work_ui" None "Read the calling task's persistent shared Work UI source.";
- CommandBinding "apply_work_ui_patch" "apply_work_ui_patch" None "Apply an exact-context revision-bound patch to this Work's shared UI."
-].
+  CommandBinding "cancel_operation" "cancel_operation" (Some "task_id") "Cancel one live operation without cancelling the task or unrelated work. Use its operation_id from a running status or read_task. Cancellation cannot undo effects already performed.";
+ CommandBinding "create_task_graph" "create_task_graph" None "Create Tasks and install their output handlers atomically before scheduling them. Optional work_id scopes the graph: existing Tasks must already belong to that Work and new Tasks join it.";
+ CommandBinding "update_task_graph" "update_task_graph" None "Replace a graph declaration atomically; retained Task references keep their existing settings and history.";
+ CommandBinding "delete_task_graph" "delete_task_graph" None "Remove a graph and its future output handlers without archiving its Tasks.";
+ CommandBinding "list_task_graphs" "list_task_graphs" None "Observe installed Task graphs, resolved Task references and latest delivery receipts.";
+ CommandBinding "read_task_graph" "read_task_graph" None "Observe one installed Task graph, its rules and latest delivery receipts.";
+ CommandBinding "create_work" "create_work" None "Create a Work independent of Projects; an omitted name becomes Work #id.";
+ CommandBinding "rename_work" "rename_work" None "Rename a Work while preserving its Tasks and Task graphs.";
+ CommandBinding "create_work_task" "create_work_task" None "Create a root Task and record its immutable Work ownership atomically; optionally create a managed worktree.";
+ CommandBinding "list_works" "list_works" None "Observe Works with their derived Task IDs and associated Task graph IDs.";
+ CommandBinding "read_work" "read_work" None "Observe one Work with its derived Task IDs and associated Task graph IDs.";
+ CommandBinding "read_work_ui" "read_work_ui" None "Read the persistent shared UI source and revision of this calling Task's Work. The source uses the same selvedge-ui DSL as conversation interfaces, without a Markdown fence. No Work or Task identifier is accepted.";
+ CommandBinding "apply_work_ui_patch" "apply_work_ui_patch" None "Edit this Task's Work UI atomically using the revision from read_work_ui. Patch exactly one virtual file work-ui.dsl using *** Begin Patch, *** Add File: work-ui.dsl (for empty source), *** Update File: work-ui.dsl with @@ and exact context/-/+ lines, or *** Delete File: work-ui.dsl (clear), then *** End Patch. Example initial patch:
+*** Begin Patch
+*** Add File: work-ui.dsl
++<ui id=""work""><metric id=""progress"" label=""Progress"" value={0} /></ui>
+*** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch."
+] ++ feature_bindings.
 Definition binding_schema (binding : command_binding) (specification : command_spec) :=
+ if String.eqb (binding_tool binding) "read_current_task" then [] else
  match binding_caller_field binding with
  | None => command_fields specification
  | Some name => if String.eqb (binding_command binding) "cancel_operation" then
    map (fun field => if String.eqb name (field_name field) then Field name (KOptional KNatural) else field) (command_fields specification)
    else filter (fun field => negb (String.eqb name (field_name field))) (command_fields specification)
  end.
-Definition binding_entry (binding : command_binding) : list tool :=
+Definition model_field (binding : command_binding) (argument : argument_spec) :=
+ let argument := Arguments.omittable_nonnull argument in
+ if (String.eqb (binding_command binding) "create" || String.eqb (binding_command binding) "send") &&
+    String.eqb (argument_name argument) "message" then Arguments.with_scalar KText true argument else
+ if String.eqb (binding_command binding) "fork" && String.eqb (argument_name argument) "messages"
+ then Arguments.with_scalar (KArray KText) false argument else argument.
+Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
+ Arguments.refine_fields
+ (filter (fun entry => negb (String.eqb (fst entry) "settings"))
+    (command_field_refinements (binding_command binding)) ++
+  ContentDeclarations.native_argument_fields (binding_command binding) ++
+  TaskGraphDeclarations.native_argument_fields (JObject settings_schema) (binding_command binding))
+ (map (fun field => let declared := Commands.command_argument (binding_command binding) field in
+   let argument := if field_omittable field then declared else model_field binding declared in
+   if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "child_count"
+   then Arguments.with_bounds (1,max_fork) argument else
+   if String.eqb (field_name field) "settings" then Arguments.with_structure settings_schema argument else
+   natural_bounds argument)
+   (filter (fun field => negb ((String.eqb (binding_command binding) "create" ||
+     String.eqb (binding_command binding) "send") && String.eqb (field_name field) "images"))
+     (binding_schema binding specification))).
+Definition binding_entry (max_fork : N) (binding : command_binding) : list tool :=
  match find (fun command => String.eqb (binding_command binding) (command_name command)) Selvedge.Kernel.Commands.command_specs with
  | None => []
- | Some specification => [Tool (binding_tool binding) (binding_description binding)
-    (schema_json (binding_schema binding specification))
-    (JObject [("kind", JString "native"); ("program", JObject [("kind", JString "Command"); ("command", JString (binding_command binding))])])]
+  | Some specification => [Tool (binding_tool binding) (binding_description binding)
+     (NativeToolSource (binding_arguments max_fork binding specification)
+       (JObject [("kind", JString "Command"); ("command", JString (binding_command binding))]))]
  end.
 Definition primitive_kind (value : native_tool) := match value with
  | Bash => "Process" | ReadProcess => "ProcessRead" | WriteProcess => "ProcessWrite" | ReadImage => "ReadImage" end.
 Definition primitive_entry (value : native_tool) :=
  Tool (ToolArguments.tool_name value)
   (match value with
-  | Bash => "Run Bash in this task's sandbox. Completion is asynchronous; do not poll automatically."
-  | ReadProcess => "Read incremental output from this task's Bash operation on demand."
-  | WriteProcess => "Write to this task's running Bash operation."
-  | ReadImage => "Read a sandboxed immutable image asset as visual model input." end)
-  (ToolArguments.json_schema value)
-  (JObject [("kind", JString "native"); ("program", JObject [("kind", JString (primitive_kind value))])]).
+   | Bash => "Run Bash in this task's primary workspace root, or / for an empty workspace. Independent calls run concurrently. Running or awaiting_approval is not completion; results arrive automatically. Use read_process on demand for incremental output and write_process for input; do not poll automatically. Pipe mode is the default; select pty for interactive terminal programs. Full Access runs commands unrestricted; other modes obey the task sandbox by default. To request one command outside that sandbox, set sandbox_permissions to require_escalated and explain the concrete need in justification before executing it. Failure may leave partial effects; there is no automatic unrestricted retry. Descendants are terminated on exit. Nonzero exits are errors. Output retains bounded latest content and marks omitted characters. Runtime is unlimited unless timeout_ms is supplied."
+   | ReadProcess => "Read available incremental output from this task's Bash operation while running or after completion. Use next_cursor from the previous read. Output is bounded and explicitly marks discarded content. Call on demand; do not poll automatically."
+   | WriteProcess => "Write input to this task's running Bash operation. Pipe mode supports eof to close stdin. PTY mode accepts terminal keys as control characters and escape sequences, and paired cols/rows to resize; eof is unavailable."
+   | ReadImage => (String.append "Read a local PNG, JPEG, GIF or WebP image in this task's sandbox and return visual content to the model. Relative paths use the task workspace. Images are snapshotted before use; maximum bytes: " (String.append (Numbers.show_natural Images.image_byte_limit) ". detail defaults to auto.")) end)
+   (NativeToolSource (ToolArguments.argument_specs value)
+     (JObject [("kind", JString (primitive_kind value))])).
 Definition discover_schema := [Field "query" (KOptional KText); Field "names" (KOptional (KArray KText));
  Field "offset" (KOptional KNatural); Field "limit" (KOptional KNatural)].
+Definition discover_arguments := map (fun field =>
+ let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
+ let argument := Arguments.with_description
+   (match field_name field with
+    | "query" => "Case-insensitive keywords matched against tool names and descriptions."
+    | "names" => "Exact tool names; bypasses query, offset and limit. Unknown names are returned in missing."
+    | "offset" => "Zero-based directory page offset; defaults to 0."
+    | "limit" => "Directory page size from 1 to 20; defaults to 5."
+    | _ => "" end) argument in
+ if String.eqb (field_name field) "limit" then Arguments.with_bounds (1,20) argument else
+ if String.eqb (field_name field) "offset" then Arguments.with_bounds (0,JsonSchema.maximum_natural) argument else argument)
+ discover_schema.
 Definition discover_entry := Tool "discover_tools"
- "Find external MCP and plugin tools by keywords, or load exact names to obtain their complete parameter definitions."
- (schema_json discover_schema) (JObject [("kind", JString "native"); ("program", JObject [("kind", JString "Discover")])]).
-Definition catalog := discover_entry ::
- map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map binding_entry bindings.
+  "Find external MCP and plugin tools by keywords, or load complete definitions with exact names. External function declarations are a lightweight directory, not parameter definitions. Discover an unfamiliar external tool before calling it and copy its parameters from the result. names bypasses query, offset and limit; unknown names are returned in missing. Without query or names, returns a bounded directory page; use offset for later pages. Definitions remain ordinary tool results, so rediscover after compaction if needed."
+  (NativeToolSource discover_arguments (JObject [("kind", JString "Discover")])).
+Definition catalog (max_fork : N) := discover_entry ::
+  map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map (binding_entry max_fork) bindings.
 Definition find_binding (name : string) := find (fun binding => String.eqb name (binding_tool binding)) bindings.
 Definition command (caller : N) (invocation : call) : option Selvedge.Generated.Commands.command :=
  match find_binding (call_name invocation), call_arguments invocation with
@@ -78,22 +224,23 @@ Definition command (caller : N) (invocation : call) : option Selvedge.Generated.
       | Some JNull => Json.set_field name (Numbers.number caller) fields
       | Some _ => fields end
     | None => fields end in
+   let fields := if String.eqb (binding_tool binding) "read_current_task" then
+     Json.set_field "after" (Numbers.number 0) (Json.set_field "limit" (Numbers.number 1) fields)
+     else fields in
    Selvedge.Generated.Commands.decode (JObject (("op", JString (binding_command binding)) :: fields))
  | _,_ => None end.
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].
-Definition arguments_valid (invocation : call) :=
- match primitive (call_name invocation) with
- | Some primitive => ToolArguments.valid_arguments primitive (call_arguments invocation)
- | None => match find_binding (call_name invocation) with
-   | Some binding => match find (fun command => String.eqb (binding_command binding) (command_name command)) Selvedge.Kernel.Commands.command_specs with
-     | Some specification => match Schema.decode (binding_schema binding specification) (call_arguments invocation) with Some _ => true | None => false end
-     | None => false end
-   | None => match Schema.decode discover_schema (call_arguments invocation) with
-     | Some values => String.eqb (call_name invocation) "discover_tools" &&
-       (match head (tail (tail (tail values))) with None => true | Some limit => ((1 <=? limit) && (limit <=? 20))%N end) &&
-       (match head (tail (tail values)) with None => true | Some offset => (offset <=? 4294967295)%N end)
-     | None => false end
+Definition arguments_valid (definition : tool) (invocation : call) :=
+ match tool_origin definition with
+ | NativeToolSource parameters _ => Arguments.valid parameters (call_arguments invocation) &&
+   match primitive (call_name invocation) with
+   | Some primitive => ToolArguments.tool_constraints primitive (call_arguments invocation)
+   | None => match find_binding (call_name invocation) with
+     | Some _ => true
+     | None => String.eqb (call_name invocation) "discover_tools"
+     end
    end
+ | _ => false
  end.
 
 Definition deferred_parameters := JObject [("type",JString "object");("properties",JObject []);("additionalProperties",JBool true)].

@@ -21,7 +21,8 @@ Qed.
 Ltac simple_budget:=first[apply return_budget_safe|apply lift_budget_safe|apply charge_budget_safe|unfold met_fail;apply lift_budget_safe].
 Lemma insert_budget_safe path descending value xs:budget_safe(insert_metered path descending value xs).
 Proof.
- induction xs as[|x xs IH];cbn[insert_metered];[apply return_budget_safe|].
+ induction xs as[|x xs IH];cbn[insert_metered];
+ [apply bind_budget_safe;[apply lift_budget_safe|intro;apply return_budget_safe]|].
  apply bind_budget_safe;[apply charge_budget_safe|intros[]].
  apply bind_budget_safe;[apply lift_budget_safe|intro order].
  destruct order;cbn;try destruct descending.

@@ -54,6 +54,11 @@ Definition graph_projection graph_id graph world : outcome json:=
  edges <-? traverse(rule_edges graph_id nodes)rules;;
  Good(JObject[("id",JString(show_natural graph_id));("name",JString name);("nodes",JArray nodes);("edges",JArray(List.concat edges))]).
 Definition handle status fresh sequence value:=JObject[("status",JString status);("fresh",JBool fresh);("sequence",JString sequence);("value",value)].
+Definition graph_limit value:=match array_field "nodes"value,array_field "edges"value with
+ |Some nodes,Some edges=>if Nat.leb(List.length nodes)Bounds.graph_nodes then
+   if Nat.leb(List.length edges)Bounds.graph_edges then None else Some "Graph source exceeds 512 edges"
+   else Some "Graph source exceeds 128 nodes"
+ |_,_=>Some "Graph source has no node or edge list"end.
 Definition refresh(req:request)(environment previous:json):json:=
  match bool_field "revoked"environment with
  | Some true=>handle "forbidden"false ""JNull
@@ -68,7 +73,10 @@ Definition refresh(req:request)(environment previous:json):json:=
          | Some sequence=>match find_id "graph_id"req.(graph_id)graphs with
          | None=>handle "missing"true sequence JNull
          | Some graph=>match graph_projection req.(graph_id)graph world with
-           | Good value=>handle "ready"true sequence value
+           | Good value=>match graph_limit value with
+           |None=>handle "ready"true sequence value
+           |Some reason=>JObject[("status",JString "error");("fresh",JBool false);("sequence",JString sequence);
+              ("value",value);("error",JString reason)]end
            | Error reason=>JObject[("status",JString "error");("fresh",JBool false);("sequence",JString sequence);("value",JNull);("error",JString reason)]end end
        | None=>handle "loading"false ""JNull end
        | None=>handle "loading"false ""JNull end

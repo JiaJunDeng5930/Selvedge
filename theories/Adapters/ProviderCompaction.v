@@ -6,11 +6,16 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Record request_content := RequestContent { opaque_content : bool; image_count : N }.
+Record request_content := RequestContent {
+  opaque_content : bool;
+  encrypted_content_present : bool;
+  image_count : N
+}.
 Definition combine_content (left right : request_content) :=
   RequestContent (opaque_content left || opaque_content right)
+    (encrypted_content_present left || encrypted_content_present right)
     (image_count left + image_count right).
-Definition empty_content := RequestContent false 0.
+Definition empty_content := RequestContent false false 0.
 (* Image handles and encrypted continuations cannot be bounded by their textual
    representation. The complete request, rather than an IO assertion, owns this fact. *)
 Fixpoint classify_content (value : json) : request_content :=
@@ -26,7 +31,7 @@ Fixpoint classify_content (value : json) : request_content :=
          let image := String.eqb name "image_asset" && is_object item in
          let encrypted := String.eqb name "encrypted_content" && is_text item &&
            negb (String.eqb (text item) "") in
-         combine_content (RequestContent (image || encrypted) (if image then 1 else 0))
+         combine_content (RequestContent (image || encrypted) encrypted (if image then 1 else 0))
            (combine_content (classify_content item) (scan tail)) end) fields
   | _ => empty_content
   end.
@@ -88,7 +93,8 @@ Definition scope (source : json) := success (JString (TextJson.render_json (JArr
 Definition bind_item (scope item : json) :=
   if String.eqb (str item "type") "context" then
     JObject [("type",JString "context"); ("part",get item "part"); ("value",JObject [
-      ("type",JString "provider_receipt"); ("scope",scope); ("item",get item "value")])]
+      ("type",JString "provider_receipt"); ("scope",scope); ("item",get item "value");
+      ("markdown_fences",get item "markdown_fences")])]
   else item.
 Definition bind_output (source : json) := success (JArray
   (map (bind_item (get source "scope")) (items (get source "items")))).
@@ -116,7 +122,8 @@ Definition measurement_plan (source : json) :=
   else let content := classify_content request in let images := N.ltb 0 (image_count content) in
   if String.eqb (str (get source "profile") "provider") "chatgpt" && images then
     (* The account transport does not promise the public token-count endpoint.
-       Its image estimate is ceil(7373/4), plus the complete UTF-8 request length. *)
+       Keep image requests usable with an encrypted continuation as well: the
+       estimate includes the complete encoded request and each image. *)
     success (JObject [("action",JString "local"); ("scope",get source "scope");
       ("input_tokens",number (N.of_nat (String.length (TextJson.render_json request)) +
         1844 * image_count content)); ("tokenizer",JString "codex_image_estimate")])

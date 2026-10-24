@@ -1,11 +1,21 @@
 // The extracted model marks the native targets whose layout should keep them exposed.
 // Scrolling alone does not change this signature or move keyboard focus.
+export function revealAndFocus(node) {
+  node.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+  node.focus({ preventScroll: true });
+}
 export function createLayoutRevealer(root) {
   let previous = new Map();
   const coordinate = value => Math.round(value * 100) / 100;
   return function revealLayoutTargets() {
     const current = new Map();
+    const modal = root.querySelector('dialog:modal');
     for (const node of root.querySelectorAll('[data-reveal-on-layout="true"]')) {
+      if (modal && !modal.contains(node)) {
+        // A foreground native dialog makes the background inert without adding an inert attribute.
+        if (previous.has(node)) current.set(node, previous.get(node));
+        continue;
+      }
       if (!node.getClientRects().length || node.closest('[aria-hidden="true"],[inert]')
         || getComputedStyle(node).visibility === 'hidden') continue;
       const box = node.getBoundingClientRect();

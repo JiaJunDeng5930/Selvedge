@@ -102,12 +102,12 @@ export function workspaceCommandPlan(command) {
   return boundary('effect.workspace_command', { command });
 }
 
-export async function observeWorkspaceCommand(command, limits, { projectWorkspace } = {}) {
+export async function observeWorkspaceCommand(command, limits, { projectWorkspace, workspaceEnvironment } = {}) {
   command = cloneJson(command);
   const plan = workspaceCommandPlan(command);
   const observations = await Promise.all(plan.selections.map(selection =>
     observeWorkspaceSettings(selection.value, limits,
-      selection.resolve_project ? projectWorkspace : undefined)));
+      selection.resolve_project ? projectWorkspace : undefined, workspaceEnvironment)));
   return boundary('effect.workspace_command_observed', { command, observations });
 }
 
@@ -115,7 +115,7 @@ export function hasRootTaskCreation(command) {
   return workspaceCommandPlan(command).root_task;
 }
 
-async function observeWorkspaceSettings(selected, limits, projectWorkspace) {
+async function observeWorkspaceSettings(selected, limits, projectWorkspace, workspaceEnvironment) {
   const plan = boundary('effect.workspace_settings', { value: selected, resolve_project: Boolean(projectWorkspace) });
   if (plan.project_id !== null) {
     const workspace = await projectWorkspace(plan.project_id);
@@ -123,11 +123,18 @@ async function observeWorkspaceSettings(selected, limits, projectWorkspace) {
     if (workspace === undefined) return {};
     selected = { ...selected, workspace };
   } else if (!plan.observe_workspace) return {};
-  const canonical = await canonicalWorkspace(selected.workspace);
-  const observed = { workspace: { roots: canonical.roots } };
-  if (canonical.primary_root !== null) {
-    observed.workspace.primary_root = canonical.primary_root;
-    observed.guidance = await snapshotProject(canonical.primary_root, limits);
-  }
-  return observed;
+  const resolution = await workspaceEnvironment?.(plan.project_id === null
+    ? { workspace: selected.workspace } : { project_id: plan.project_id });
+  const environment = resolution?.environment;
+  try {
+    const canonical = await canonicalWorkspace(selected.workspace, { filesystem: environment?.filesystem });
+    if (environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
+    const observed = { workspace: { roots: canonical.roots } };
+    if (resolution) observed.workspace_binding = resolution.workspace_binding;
+    if (canonical.primary_root !== null) {
+      observed.workspace.primary_root = canonical.primary_root;
+      observed.guidance = await snapshotProject(canonical.primary_root, limits, { filesystem: environment?.filesystem });
+    }
+    return observed;
+  } finally { await environment?.filesystem.close(); }
 }

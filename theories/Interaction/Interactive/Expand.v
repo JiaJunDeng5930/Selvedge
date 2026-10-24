@@ -32,8 +32,7 @@ Definition parse_action p locals:outcome action:=
    l <-? from_option "Action target is not a root state"(find_local target locals);;
    value <-? from_option "set requires value"(field "value"props);;
    _ <-? from_option "set value violates the target schema"(Local.assign l value);;Good(Assign target value)
- |"reset"=>if Json.equal(match field "target"props with Some v=>v|None=>JNull end)JNull&&
-                 Json.equal(match field "value"props with Some v=>v|None=>JNull end)JNull then Good ResetAll else Error "reset takes no target or value"
+ |"reset"=>Good ResetAll
  |"draft"=>text <-? from_option "draft requires message"(string_field "message"props);;
    if String.eqb text ""then Error "draft message is empty"else Good(Draft text)
  |"submit"=>text <-? from_option "submit requires message"(string_field "message"props);;
@@ -66,6 +65,12 @@ Definition graph_endpoints p:=let nodes:=property_array "nodes"p in let edges:=p
  |_,_=>false end)edges.
 Definition graph_identities items:=forallb(fun item=>match string_field "identity"item with
  |Some id=>negb(String.eqb id "")|None=>false end)items.
+Definition graph_selection_target p:=match property "select"p with Some(JString id)=>if String.eqb id ""then None else Some id|_=>None end.
+Definition graph_selection_valid locals p:=match property "select"p with
+ |Some(JString id)=>if String.eqb id ""then true else match Local.find_local id locals with
+   |Some local=>match local.(Local.local_shape)with Local.Text _=>true|_=>false end
+   |None=>false end
+ |None|Some JNull=>true|Some _=>false end.
 Definition required_label_valid p:=forallb(fun field=>
  if String.eqb field.(field_name)"label"then match field.(field_kind)with
  |KText=>negb(String.eqb(property_text "label"p)"")|_=>true end else true)p.(description).(component_fields).
@@ -73,7 +78,7 @@ Definition extra_valid p children:=required_label_valid p&&
  match p.(description).(component_role)with
  |MetricLeaf=>match property "value"p with Some v=>scalar v|None=>false end
  |Layout=>if String.eqb p.(description).(component_tag)"grid"then
-   match property "columns"p with Some v=>match as_small 4 v with Some n=>0<?n|None=>false end|_=>false end else true
+   match property "columns"p with Some v=>match as_small Bounds.grid_columns v with Some n=>0<?n|None=>false end|_=>false end else true
  |Repeat=>collection_valid(property_text "key"p)(property_array "items"p)
  |Table=>collection_valid(property_text "row-key"p)(property_array "rows"p)&&
    (0<?List.length children)&&(List.length children<=?Bounds.table_columns)&&forallb(fun e=>match e with Element "column"_ []_=>true|_=>false end)children
@@ -124,7 +129,10 @@ with expand_node(fuel:nat)(b:block)(prepared:prepared)(external_env:json)(ctx:co
    |Good props=>match component_values spec props with
      |None=>message path("Invalid component properties: "++tag)allocation
      |Some values=>let props:=Properties spec values in
-       if negb(property_bool true "visible"props)then([],allocation)else
+       if String.eqb tag "graph-view"&&negb(graph_selection_valid prepared.(prepared_locals) props)
+       then message path "Graph selection must bind a root string state" allocation else
+       if negb(property_bool true "visible"props)||
+          (match spec.(component_role)with Condition=>negb(property_bool false "test"props)|_=>false end)then([],allocation)else
        if negb spec.(container)&&negb(Nat.eqb(List.length children)0)then message path "Leaf component cannot contain children"allocation else
        if negb(extra_valid props children)then message path "Invalid component data or child structure"allocation else
        let active:=ctx.(enabled)&&property_bool true "enabled"props in
@@ -136,7 +144,7 @@ with expand_node(fuel:nat)(b:block)(prepared:prepared)(external_env:json)(ctx:co
          match spec.(component_role)with
          |Condition=>if property_bool false "test"props then
              let '(children,allocation):=expand_nodes k b prepared external_env ctx' children allocation in([Mounted event_id props binding children],allocation)
-           else([Mounted event_id props binding []],allocation)
+           else([],allocation)
          |Repeat=>let variable:=property_text "item"props in
            if variable_free variable ctx.(environment)then
              let '(children,allocation):=expand_items k b prepared external_env ctx' variable(property_text "key"props)(property_array "items"props)children allocation in

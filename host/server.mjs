@@ -3,7 +3,7 @@ import { boundary } from './public/model-boundary.mjs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Service, CommandNotSubmitted } from './service.mjs';
+import { Service } from './service.mjs';
 import { stringifyJson } from './codec.mjs';
 import { readText } from './network.mjs';
 import { writeAtomic } from './files.mjs';
@@ -40,6 +40,7 @@ export async function startServer(options) {
   const token = randomBytes(32).toString('hex');
   const clients = new Set();
   const audioClients = new Set();
+  const sockets = new Set();
   const filename = path.join(options.home, 'server.json');
   let closing;
   let address;
@@ -47,11 +48,15 @@ export async function startServer(options) {
     // DEFENSE: Requests can fail UTF-8/JSON admission, authentication or external filesystem/service work; return the declared HTTP failure before headers, otherwise close the partial response.
     route(request, response).catch(error => {
       if (response.headersSent) response.destroy();
-      else if (error instanceof CommandNotSubmitted) json(response, 400,
-        { ok: false, error: { code: 'command_not_submitted', message: error.message } });
-      else json(response, error instanceof RangeError || error instanceof SyntaxError || error instanceof TypeError ? 400 : 503,
-        { ok: false, error: { code: 'request_failed', message: error.message } });
+      else {
+        const failure = boundary('http.error', { name: error.name, message: error.message });
+        json(response, failure.status, failure.value);
+      }
     });
+  });
+  server.on('connection', socket => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
   });
   server.requestTimeout = service.limits.request_timeout_ms;
   server.headersTimeout = service.limits.request_timeout_ms;
@@ -286,6 +291,7 @@ export async function startServer(options) {
         case 'browser_command':
         case 'browser_observation':
         case 'command':
+        case 'assess':
         case 'connection_command': {
           if (!bodyObserved) {
             const maximum = ['account_refresh', 'audio_login'].includes(plan.action) ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
@@ -339,6 +345,10 @@ export async function startServer(options) {
               // Public commands are resolved by the service's native command boundary.
               const result = await service.command(body);
               json(response, boundary('http.reply_status', { reply: result.reply }), { sequence: result.sequence, ...result.reply });
+              return;
+            }
+            case 'assess': {
+              json(response, 200, await service.assess(body));
               return;
             }
             case 'connection_command': {
@@ -405,7 +415,10 @@ export async function startServer(options) {
       for (const client of [...clients, ...audioClients]) client.end();
       // DEFENSE: Startup can fail before listen succeeds; ERR_SERVER_NOT_RUNNING then means there is no listener to close.
       const stopped = new Promise((resolve, reject) => server.close(error => error && error.code !== 'ERR_SERVER_NOT_RUNNING' ? reject(error) : resolve()));
-      server.closeAllConnections();
+      // DEFENSE: Bun's close() detaches its native server before closeAllConnections
+      // can reach active keep-alive sockets, which could still target this stopping
+      // service after a listener restarts on the same port.
+      for (const socket of sockets) socket.destroy();
       await Promise.all([stopped, service.close()]);
       try {
         const saved = JSON.parse(await readFile(filename, 'utf8'));

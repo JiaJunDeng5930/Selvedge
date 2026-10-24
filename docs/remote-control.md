@@ -7,7 +7,18 @@ port, VPS, public host IP or purchased domain is needed. A Cloudflare account an
 a deployed relay are required. This change does not include a phone interface.
 
 The executable authorization and receipt model starts at
-[remote feature](../theories/Features/Remote.v). The shared wire definitions and
+[remote feature](../theories/Features/Remote.v), with its grants, permissions,
+generations and receipts declared in [feature state](../theories/Features/Domain.v).
+[Remote proofs](../theories/Features/RemoteProofs.v) bind the complete access and
+request outcomes to the actual operations, including permission replacement,
+receipt authority and generation monotonicity.
+[Entry proofs](../theories/Features/RemoteEntryProofs.v) connect an admitted
+control request to the real task executor. Administration stays local; replacing
+or revoking a grant clears that controller's receipts, and a generation is never
+reused. This domain owns authorization and retained results; task execution and
+transport authentication belong to their respective boundaries.
+
+The shared wire definitions and
 endpoint rules live in [remote/protocol.mjs](../remote/protocol.mjs); the deployment
 package is [relay](../relay/README.md). TLS terminates at Cloudflare, so Cloudflare
 can see relayed messages. This is not end-to-end encryption.
@@ -100,7 +111,8 @@ permission admission and command classification are defined by the native
 feature and harness assembly; local service administration stays on the host.
 
 Managed Git worktrees use the same native lifecycle as local tasks.
-`create_worktree_task` requires both `control` and `configure`; `list_worktrees`
+`create_worktree_task` and `create_workspace_task` require both `control` and
+`configure`; `list_worktrees`
 and `read_worktree` require `read`, and `retry_worktree_archive` requires
 `control`. Keep the service home outside the source Git repository so private
 service state is excluded from checkout copies. Worktree creation and archiving

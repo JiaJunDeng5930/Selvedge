@@ -1,8 +1,47 @@
 From Stdlib Require Import String List NArith Bool.
-From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Scheduler JsonProofs.
+From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Scheduler.
 Import ListNotations.
 Open Scope string_scope.
+
+(* MCP's advertised schema is opaque to the extension interpreter. The server
+   is responsible for validating its own dialect before executing the request. *)
+Theorem mcp_object_arguments_reach_the_server_contract : forall name description schema server remote id fields attempt,
+ Callbacks.model_call_arguments_valid
+   (Tool name description (McpToolSource schema server remote))
+   (Call id name (JObject fields) attempt) = true.
+Proof. reflexivity. Qed.
+
+Theorem extension_arguments_use_the_declared_fragment : forall name description schema reference remote id arguments attempt,
+ Callbacks.model_call_arguments_valid
+   (Tool name description (ExtensionToolSource schema reference remote))
+   (Call id name arguments attempt) = JsonSchema.valid schema arguments.
+Proof. reflexivity. Qed.
+
+(* The normal admission premises do not assume an emitted effect. This positive
+   obligation rules out an implementation that accepts MCP calls but drops them. *)
+Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote invocation remaining task value,
+ let advertised := Tool name description (McpToolSource schema server remote) in
+ Capabilities.available (environment_tools (world_environment value)) advertised = true ->
+ (exists fields, call_arguments invocation = JObject fields) ->
+ NativeTools.command id invocation = None ->
+ String.eqb (call_name invocation) "discover_tools" = false ->
+ String.eqb (call_name invocation) "bash" = false ->
+ N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
+ decision_effects (Scheduler.execute_checked_call execute id advertised invocation remaining task value) =
+ [ExecuteTool id (world_next_ticket value) (world_next_ticket value) advertised invocation
+   (task_current_settings task)
+   (match settings_approval (task_current_settings task) with
+    | FullAccess => ElevatedAccess | _ => DefaultAccess end)].
+Proof.
+ intros execute id name description schema server remote invocation remaining task value advertised
+   Available [fields Arguments] NoNative NoDiscover NoBash Room.
+ unfold Scheduler.execute_checked_call, Scheduler.call_admission. rewrite Available.
+ unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
+ rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
+ unfold Scheduler.start_external. rewrite Room, NoBash.
+ destruct (settings_approval (task_current_settings task)); reflexivity.
+Qed.
 
 Lemma same_reference_preserves_identity : forall left right,
  PluginProtocol.same_reference left right = true ->
@@ -10,7 +49,7 @@ Lemma same_reference_preserves_identity : forall left right,
  value_or_null "revision" left = value_or_null "revision" right.
 Proof.
  intros left right Same; unfold PluginProtocol.same_reference in Same.
- apply json_comparison_is_exact in Same.
+ apply equal_reflects_equality in Same.
  split; [apply (f_equal (value_or_null "name")) in Same | apply (f_equal (value_or_null "revision")) in Same];
  cbn [PluginProtocol.reference_json PluginProtocol.reference_schema Schema.declared_names Schema.field_name value_or_null field lookup] in Same;
  exact Same.
@@ -42,9 +81,10 @@ Proof.
  intros execute id invocation remaining task value plugin pending Frozen Emitted.
  unfold Scheduler.start_call in Emitted.
  destruct (Tasks.find_tool (call_name invocation) (contract_tools (task_contract task))) as [tool|]; [|contradiction].
- rewrite Frozen in Emitted; unfold Scheduler.before_hook_step in Emitted.
- destruct (Capabilities.hook_available Capabilities.BeforeTool plugin (environment_plugins (world_environment value))) eqn:Available; [|contradiction].
- apply current_hook_owner in Available; exact Available.
+ destruct (call_origin invocation); [|destruct (Scheduler.retry_safe tool)]; try contradiction.
+ all: rewrite Frozen in Emitted; unfold Scheduler.before_hook_step in Emitted.
+ all: destruct (Capabilities.hook_available Capabilities.BeforeTool plugin (environment_plugins (world_environment value))) eqn:Available; [|contradiction].
+ all: apply current_hook_owner in Available; exact Available.
 Qed.
 
 Theorem actual_after_hook_requires_a_current_hook_owner : forall id operation task value plugin pending result error,

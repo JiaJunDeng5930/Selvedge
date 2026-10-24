@@ -6,32 +6,41 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Inductive provider_output := ToolCall (id name : string) (arguments : json)
-  | ContextItem (value : json).
+  | ContextItem (value markdown_fences : json).
 Definition encode_output index value := match value with
   | ToolCall id name arguments => JObject [("type",JString "call"); ("id",JString id);
       ("name",JString name); ("arguments",arguments)]
-  | ContextItem item => JObject [("part",number index); ("type",JString "context"); ("value",item)] end.
+  | ContextItem item markdown_fences => JObject [("part",number index); ("type",JString "context");
+      ("value",item);("markdown_fences",markdown_fences)] end.
 Definition message_part part := is_object part &&
   ((String.eqb (str part "type") "output_text" && is_text (get part "text")) ||
    (String.eqb (str part "type") "refusal" && is_text (get part "refusal"))).
-Definition parse_output (profile item : json) : outcome provider_output :=
+Definition fence_observation_valid observation := is_object observation &&
+ is_text (get observation "raw_info") && is_text (get observation "fence_kind") &&
+ Json.is_bool (get observation "info_complete").
+Definition empty_observations observations := is_array observations && Nat.eqb (List.length (items observations)) 0.
+Definition parse_output (profile item markdown_fences : json) : outcome provider_output :=
   if negb (is_object item) then reject "Provider returned an invalid output item"
   else if String.eqb (str item "type") "function_call" then
-    if account profile && negb (JsonObjects.equivalent (get item "namespace") (JString local_tool_namespace))
-    then reject "ChatGPT returned a function call outside the local tool namespace"
+    if negb (empty_observations markdown_fences) then reject "Tool output cannot carry Markdown fence observations"
+    else if account profile && negb (JsonObjects.equivalent (get item "namespace") (JString local_tool_namespace))
+      then reject "ChatGPT returned a function call outside the local tool namespace"
     else if nonempty (get item "call_id") && nonempty (get item "name") && is_text (get item "arguments") then
       (* DEFENSE: Provider function arguments are external JSON text, including
          duplicate object members; they must be parsed before tool dispatch. *)
-      match TextJson.parse_json (str item "arguments") with
+      match TextJson.parse_json_members (str item "arguments") with
       | Some (JObject fields) => Accepted (ToolCall (str item "call_id") (str item "name") (JObject fields))
       | Some _ => reject "Function arguments must be a JSON object"
       | None => reject "Invalid JSON function arguments" end
     else reject "Provider returned a malformed function call"
   else if String.eqb (str item "type") "message" then
     if String.eqb (str item "role") "assistant" && is_array (get item "content") &&
-       forallb message_part (items (get item "content")) then Accepted (ContextItem item)
+       forallb message_part (items (get item "content")) && is_array markdown_fences &&
+       forallb fence_observation_valid (items markdown_fences) then Accepted (ContextItem item markdown_fences)
     else reject "Provider returned an unsupported assistant message"
-  else if existsb (String.eqb (str item "type")) ["reasoning";"compaction"] then Accepted (ContextItem item)
+  else if existsb (String.eqb (str item "type")) ["reasoning";"compaction"] then
+    if empty_observations markdown_fences then Accepted (ContextItem item markdown_fences)
+    else reject "Non-message provider output cannot carry Markdown fence observations"
   else reject ("Unsupported provider output type: " ++ display_field item "type").
 Fixpoint valid_coordinates (previous : option N) values := match values with
   | [] => true | value :: rest => match natural value with None => false | Some index =>
@@ -39,18 +48,23 @@ Fixpoint valid_coordinates (previous : option N) values := match values with
       valid_coordinates (Some index) rest end end.
 Definition coordinates_valid values count := match values with [] => true
   | _ => Nat.eqb (List.length values) count && valid_coordinates None values end.
-Fixpoint output_items profile values coordinates index : outcome (list json) :=
-  match values with [] => Accepted [] | value :: rest =>
+Fixpoint output_items profile values observations coordinates index : outcome (list json) :=
+  match values,observations with
+  | [],[] => Accepted []
+  | value :: rest,markdown_fences :: fence_rest =>
     let coordinate := match coordinates with [] => index | first :: _ => nat_value first end in
-    bind (parse_output profile value) (fun parsed =>
-      bind (output_items profile rest (tl coordinates) (index + 1))
-        (fun tail => Accepted (encode_output coordinate parsed :: tail))) end.
+    bind (parse_output profile value markdown_fences) (fun parsed =>
+      bind (output_items profile rest fence_rest (tl coordinates) (index + 1))
+        (fun tail => Accepted (encode_output coordinate parsed :: tail)))
+  | _,_ => reject "Provider output and Markdown fence observations are misaligned"
+  end.
 Definition output source :=
-  if is_array (get source "output") && coordinates_valid (items (get source "output_indices"))
+  if is_array (get source "output") && is_array (get source "markdown_observations") &&
+    coordinates_valid (items (get source "output_indices"))
     (List.length (items (get source "output")))
   then render_outcome JArray (output_items (get source "profile") (items (get source "output"))
-    (items (get source "output_indices")) 0)
-  else err "Completed response has no output array".
+    (items (get source "markdown_observations")) (items (get source "output_indices")) 0)
+  else err "Completed response requires output and Markdown fence observations".
 
 Record completed_item := CompletedItem { completed_index : N; completed_value : json }.
 Record response_stream := ResponseStream { output_started : bool; completed_items : list completed_item }.

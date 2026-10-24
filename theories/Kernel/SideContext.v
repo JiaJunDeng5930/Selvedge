@@ -30,7 +30,7 @@ Definition observe_parent (id : N) (parent value : task) :=
  end in match change with Some change => append_history [ContextObservation change] value | None => value end.
 Definition reconcile_task (parents : list task) (value : task) :=
  match task_lifecycle value, task_side_parent value with
- | Archived,_ | _,None => value
+ | Archived _,_ | _,None => value
  | _,Some id => match registry_at id parents with Some parent => observe_parent id parent value | None => value end end.
 Definition reconcile (value : world) :=
  with_tasks (map (reconcile_task (world_tasks value)) (world_tasks value)) value.

@@ -44,8 +44,9 @@ object with `project_id`, `workspace`, `sandbox` and `approval`.
 
 When the primary workspace has a Git commit, the New task dialog lets you choose
 the current workspace, a local Git worktree, or Tencent Cloud CVM.
-A project's `create_worktree` preference initializes the local choice; changing
-the choice affects only the task being created. The programmatic local entry is
+A project's `create_worktree` preference initializes the local choice. Creating
+a Task with a local choice remembers that preference for the Project; choosing
+a cloud environment does not change it. The programmatic local entry is
 `create_worktree_task`; `create_workspace_task` additionally accepts the typed
 `backend` name `local` or `tencent_cvm`. Both use the existing task startup and
 archive lifecycle.

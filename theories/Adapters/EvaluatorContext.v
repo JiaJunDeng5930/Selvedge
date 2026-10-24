@@ -44,7 +44,7 @@ Definition context_raw effect observations :=
     ("kind",get item "role");("text",JString (public_content (get item "content")))])
     (filter (fun pair => note_role (str (snd pair) "role")) (combine (seq 0 (List.length history)) history)) in
   context_calls (JObject [("schema",JString "selvedge-reasoning-context-1");("scope",JString "native_public_history");
-    ("model",get (get effect "model") "name");("project_context",get (get effect "model") "project");
+    ("model",get (get effect "model") "name");("project_context",get effect "project_context");
     ("original_user_request",hd (JString "") users);("latest_user_request",last users (JString ""));
     ("prior_user_requests",JArray (firstn (List.length users - 2) (skipn 1 users)));("public_notes",JArray notes)])
     (JArray (pair_calls recent history observations)) (number (N.of_nat (List.length call_values - List.length recent))).

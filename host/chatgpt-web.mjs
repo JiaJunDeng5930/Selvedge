@@ -4,6 +4,7 @@ import { boundary } from './public/model-boundary.mjs';
 import { readText, sseEvents, requestJson } from './network.mjs';
 import { prepareModelRequest, requestHeaders } from './model-request.mjs';
 import { WebRequestStore, retainedRequest } from './chatgpt-web-store.mjs';
+import { observeTextItems } from './public/markdown-fence-observation.mjs';
 
 const digest = value => createHash('sha256').update(stringifyJson(value)).digest('hex');
 const requestOwner = effect => boundary('web.owner', { effect });
@@ -131,7 +132,9 @@ export async function requestChatGPTWeb(effect, profile, home, limits, { signal,
       }, stage);
       const settled = boundary('web.settle', { effect, resource: terminal, deferred, body, index: stage });
       if (options.snapshots) onSnapshot(settled.snapshot, stage);
-      output.push(...settled.items);
+      output.push(...boundary('backend.observe_text_output', {
+        items: settled.items, markdown_observations: observeTextItems(settled.items),
+      }));
       body = settled.body;
       deferred = settled.deferred;
       if (settled.continue) continue;

@@ -1,91 +1,73 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
-From Selvedge.Interaction Require Import Codec Identity Resource Services Forms Speech ApplicationState ApplicationOps Input ApplicationCore.
+From Selvedge.Interaction Require Import Codec CommandAssessment Application.
+From Selvedge.Interaction.Session Require Draft State Authoring.
+From Selvedge.Interaction.Experience Require Activity Model Observation.
+From Selvedge.Interaction.Submission Require Parameters.
+From Selvedge.Browser Require Layout.
 Import ListNotations.
 Open Scope string_scope.
+Module EO:=Selvedge.Interaction.Experience.Observation.
+Module EM:=Selvedge.Interaction.Experience.Model.
+Module SS:=Selvedge.Interaction.Session.State.
 
-Lemma ensure_preserves_services : forall e world s d s',
-  ensure e world s=Some(d,s') -> ApplicationState.service_state s'=ApplicationState.service_state s.
-Proof.
- intros e world s d s' H. unfold ensure in H.
- destruct(find_draft e s)as [existing|]eqn:Found.
- - unfold bind in H. destruct(prepare_existing existing world s)eqn:Prepared;try discriminate.
-   inversion H;reflexivity.
- - unfold bind in H. destruct(initialize_for e world s)eqn:Initialized;try discriminate.
-   inversion H;subst;reflexivity.
-Qed.
+(** A parser callback without a current document owner cannot drive either
+    product preparation or a new publication generation. *)
+Theorem irrelevant_document_observation_is_idle request snapshot namespace source raw state:
+ Documents.admit_observation
+   (Selvedge.Interaction.Session.Runtime.context namespace snapshot state)
+   source(SS.document_retention state)=Documents.IrrelevantObservation ->
+ Application.input_decision request snapshot namespace (Input.CodeObserved source)raw state=
+ (Authoring.keep state,"keep").
+Proof. intros Irrelevant. unfold Application.input_decision. rewrite Irrelevant. reflexivity. Qed.
 
-(** These conclusions bind the operation the public interaction entry executes,
-    including the effects that the browser will interpret. *)
-Theorem disconnected_submit_emits_no_command : forall now e world s,
- connected(ApplicationState.service_state s)=false -> emitted(submit now e world s)=[].
-Proof.
- intros now e world s Disconnected. unfold submit.
- destruct(ensure e world s)as [[d s']|]eqn:Ensured;simpl;auto.
- destruct(editor_pending e s');simpl;auto.
- pose proof(ensure_preserves_services _ _ _ _ _ Ensured)as Same.
- unfold obstruction,service_obstruction. rewrite Same,Disconnected. reflexivity.
-Qed.
-Theorem disconnected_public_submission_emits_no_effect : forall now e world s result,
- connected(ApplicationState.service_state s)=false ->
- local_step now(Input.Submit e)world s=Some result -> emitted result=[].
-Proof.
- intros now e world s result Disconnected Entered. simpl in Entered.
- destruct(layers(navigation_state s))as[|panel rest].
- - inversion Entered;subst;now apply disconnected_submit_emits_no_command.
- - destruct panel as [owner trigger|kind subject trigger|command caption destination trigger].
-   + inversion Entered;subst;now apply disconnected_submit_emits_no_command.
-   + destruct(String.eqb kind "property_source");inversion Entered;subst;simpl;auto.
-     now apply disconnected_submit_emits_no_command.
-   + inversion Entered;subst;now apply disconnected_submit_emits_no_command.
-Qed.
-Theorem accepted_command_is_exactly_queued : forall command purpose s,
- let ticket:=next(authoring_state s)in
- emitted(queue_command command purpose s)=[Execute ticket command].
-Proof. reflexivity. Qed.
-Theorem edited_draft_survives_older_completion : forall snapshot outcome s current,
- find_draft(owner snapshot)s=Some current -> revision current<>revision snapshot -> settle_draft snapshot outcome s=s.
-Proof.
- intros snapshot outcome s current Found Changed. unfold settle_draft. rewrite Found.
- destruct(N.eqb(revision current)(revision snapshot))eqn:Same;auto.
- apply N.eqb_eq in Same;congruence.
-Qed.
-Theorem unrelated_authentication_completion_is_ignored : forall s ticket current result,
- Services.connection s=Loading current tt -> current<>ticket ->
- Services.service_state(auth_result ticket result s)=s /\ service_effects(auth_result ticket result s)=[].
-Proof.
- intros s ticket current result Found Other. unfold auth_result;rewrite Found.
- destruct(N.eqb ticket current)eqn:Same;simpl;auto.
- apply N.eqb_eq in Same;congruence.
-Qed.
-Theorem cancelled_dictation_rejects_late_transcript : forall s ticket text,
- current s=Idle -> Speech.speech_state(speech_step(Transcribed ticket text)s)=s /\ transcript(speech_step(Transcribed ticket text)s)=None.
-Proof. intros. unfold speech_step. rewrite H;auto. Qed.
+(** A world refresh can follow ordinary command admission while the stream is
+    disconnected. Only the separately correlated authentication receipt owns
+    connection recovery. *)
+Theorem ordinary_snapshot_preserves_connection namespace snapshot lagged state:
+ let result:=Selvedge.Interaction.Session.Runtime.core namespace snapshot lagged Input.Snapshot state in
+ Services.connection(SS.service_state(Authoring.result_state result))=
+ Services.connection(SS.service_state state) /\ Authoring.result_effects result=[].
+Proof. split;reflexivity. Qed.
 
-Theorem invalid_workspace_observation_emits_no_effect : forall world ticket observation s,
- admit_directories observation=None -> emitted(directories_completed world ticket(inr observation)s)=[].
+Theorem stale_element_cannot_produce_a_product_input snapshot current environment generation raw incoming:
+ natural_field "generation" raw=Some incoming -> incoming<>generation ->
+ Application.element snapshot current environment generation raw=None.
 Proof.
- intros world ticket observation s Invalid. unfold directories_completed.
- destruct(find(fun p=>N.eqb ticket(preparation_ticket p))(preparations(service_state s)))as[pending|];simpl;auto.
- set (clean:=with_services(forget_preparation ticket(service_state s))s).
- destruct(find_draft(owner(preparation_draft pending))clean)as[current|];simpl;auto.
- destruct(N.eqb(revision current)(revision(preparation_draft pending)));simpl;auto.
- destruct(editor_pending(owner(preparation_draft pending))clean);simpl;auto.
- destruct(obstruction world(forget_preparation ticket(service_state s))(preparation_draft pending));simpl;auto.
- rewrite Invalid. reflexivity.
+ intros Incoming Different. unfold Application.element. rewrite Incoming.
+ apply N.eqb_neq in Different. simpl. rewrite Different. reflexivity.
 Qed.
 
-Theorem old_configuration_receipt_preserves_navigation : forall snapshot captured accepted outcome world s,
- captured<>generation(navigation_state s) ->
- navigation_state(resulting_state(complete_purpose(ConfigurationSubmission snapshot captured)accepted outcome world s))=
- navigation_state s.
+Theorem refused_submission_emits_no_command snapshot draft trigger state command reason:
+ Authoring.current_command state draft=Some command ->
+ EO.admission snapshot state(DraftOwner(Draft.owner draft))(Draft.revision draft)command=EM.Unavailable reason ->
+ Authoring.result_effects(Authoring.issue_draft snapshot draft trigger state)=nil.
 Proof.
- intros snapshot captured accepted outcome world s Changed.
- assert (Old:N.eqb captured(generation(navigation_state s))=false)by(now apply N.eqb_neq).
- cbn [complete_purpose]. rewrite Old, Bool.andb_false_r. simpl.
- destruct(find_draft(owner snapshot)s);simpl.
- all: destruct(completion_success outcome);simpl;auto.
- all: unfold remember_accepted_model.
- all: destruct(string_field "profile"(encode_command accepted))as[profile|];destruct(string_field "reasoning"(encode_command accepted))as[effort|];simpl;auto.
- all: unfold remember_model;destruct(ModelSelection.valid_preference world(profile,effort));reflexivity.
+ intros Command Refused. unfold Authoring.issue_draft.
+ destruct(Authoring.submission_obstruction snapshot draft state)as [obstruction|];[reflexivity|].
+ rewrite Command. unfold Authoring.canonical_ready. rewrite Refused. reflexivity.
 Qed.
+
+Theorem live_setting_selection_preserves_the_message_draft snapshot owner assignment state draft:
+ Draft.find_draft owner(SS.drafts(SS.authoring_state state))=Some draft ->
+ EO.assignment_available snapshot state assignment=EM.Available ->
+ Parameters.live_configuration owner(EM.subject_declaration(Activity.assignment_subject assignment))=true ->
+ SS.drafts(SS.authoring_state(Authoring.result_state(Authoring.apply_field snapshot owner assignment state)))=
+ SS.drafts(SS.authoring_state state).
+Proof.
+ intros Existing Available Live. unfold Authoring.apply_field.
+ rewrite Live. cbn [andb].
+ destruct(SS.pending_editor owner state);[reflexivity|].
+ unfold Authoring.ensure_draft. rewrite Existing,Available.
+ repeat rewrite Live.
+ destruct(Values.candidate_command snapshot(SS.now state)(SS.current_draft state owner)assignment)as [command|];simpl;auto.
+ destruct(Authoring.canonical_ready snapshot state
+  (EO.candidate_owner(Activity.assignment_subject assignment)
+   (Schema.encode_value(EM.subject_kind(Activity.assignment_subject assignment))(Activity.assignment_value assignment)))
+  (Draft.revision(SS.current_draft state owner))command);unfold Authoring.issue;destruct(SS.pending_command command state);reflexivity.
+Qed.
+
+Theorem a_pending_command_is_not_executed_twice command purpose state:
+ SS.pending_command command state=true ->
+ Authoring.result_effects(Authoring.issue command purpose state)=nil.
+Proof. intro Pending. unfold Authoring.issue. rewrite Pending. reflexivity. Qed.

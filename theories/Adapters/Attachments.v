@@ -26,12 +26,31 @@ Definition attachment (source : json) :=
       ("mime",get record "mime");("path",get source "path");("bytes",JString (decimal (num source "bytes")))])
     else name
   else err "Attachment content or metadata failed its integrity check".
+Definition byte_eqb (bytes : list json) (index : nat) (expected : N) :=
+  match nth_error bytes index with
+  | Some value => match natural value with Some value => N.eqb value expected | None => false end
+  | None => false
+  end.
+Definition signature_matches (bytes : list json) (offset : nat) (expected : list N) :=
+  forallb (fun indexed => byte_eqb bytes (offset + fst indexed) (snd indexed))
+    (combine (seq 0 (List.length expected)) expected).
+Definition attachment_media_type (source : json) :=
+  let bytes := items (get source "prefix") in
+  if signature_matches bytes 0 [137;80;78;71;13;10;26;10] then success (JString "image/png")
+  else if signature_matches bytes 0 [255;216;255] then success (JString "image/jpeg")
+  else if signature_matches bytes 0 [71;73;70;56;55;97] || signature_matches bytes 0 [71;73;70;56;57;97]
+  then success (JString "image/gif")
+  else if signature_matches bytes 0 [82;73;70;70] && signature_matches bytes 8 [87;69;66;80]
+  then success (JString "image/webp")
+  (* DEFENSE: Uploaded SVG/HTML and caller-supplied MIME types must not authorize active inline content. *)
+  else success (JString "application/octet-stream").
 Definition board_command (source : json) :=
   let command := get source "command" in
   let observe := is_object command && existsb (String.eqb (str command "op"))
     ["create_card";"update_card";"move_card";"archive_card";"restore_card";"delete_card";"run_card";"link_card";"regenerate_card_title";"pin_card"] in
+  (* DEFENSE: Explicit malformed attachment input must not bypass reference admission. *)
   success (JObject [("observe",JBool observe);("attachments",JBool
-    (observe && negb (is_null (get command "attachments")) && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).
+    (observe && has command "attachments" && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).
 Fixpoint reference_shapes (seen : list string) (references : list json) :=
   match references with [] => true | reference::rest =>
     plain_fields_only ["id";"name";"mime";"path";"bytes"] reference && is_text (get reference "id") &&

@@ -3,28 +3,36 @@ From Selvedge.Adapters Require Import Common Observation EffectCallbacks.
 Import ListNotations.
 Open Scope string_scope.
 
-Theorem callback_results_cannot_forge_task_identity : forall kind effect result,
-  get (extend (base kind effect) result) "task_id" = get effect "task_id".
-Proof. reflexivity. Qed.
+(** External result fields cannot choose the pending operation they complete.
+    Each callback family retains the coordinates from the issued effect. *)
+Definition committed_coordinates (effect reply : json) : Prop :=
+  match callback_kind_of (str effect "kind") with
+  | ChatgptExec => get reply "operation_id" = get effect "operation_id"
+  | BoardText => get reply "card_id" = get effect "card_id" /\
+      get reply "ticket" = get effect "ticket"
+  | Worktree _ => get reply "task_id" = get effect "task_id"
+  | AfterHook => get reply "task_id" = get effect "task_id" /\
+      get reply "ticket" = get effect "ticket" /\
+      get reply "operation_id" = get effect "operation_id"
+  | _ => get reply "task_id" = get effect "task_id" /\
+      get reply "ticket" = get effect "ticket"
+  end.
 
-Theorem callback_results_cannot_forge_invocation_ticket : forall kind effect result,
-  get (extend (base kind effect) result) "ticket" = get effect "ticket".
-Proof. reflexivity. Qed.
-
-Theorem model_completion_preserves_committed_coordinates : forall effect result reply,
-  str effect "kind" = "model" ->
-  completed effect result = Some reply ->
-  get reply "task_id" = get effect "task_id" /\ get reply "ticket" = get effect "ticket".
+Theorem completed_callback_preserves_committed_coordinates effect result reply :
+  completed effect result = Some reply -> committed_coordinates effect reply.
 Proof.
-  intros effect result reply kind H. unfold completed in H.
-  rewrite kind in H. cbn in H. inversion H. auto.
+  unfold completed, committed_coordinates.
+  destruct (callback_kind_of (str effect "kind"));
+    try solve [intro H; inversion H; subst; cbn [base extend]; repeat split; reflexivity].
+  destruct (Utf8.take 1024 (str result "message")); intro H; try discriminate.
+  inversion H; subst. unfold worktree_reply. cbn. reflexivity.
 Qed.
 
-Theorem plugin_completion_preserves_committed_operation : forall effect result reply,
-  str effect "kind" = "chatgpt_exec" ->
-  completed effect result = Some reply ->
-  get reply "operation_id" = get effect "operation_id".
+Theorem failed_callback_preserves_committed_coordinates effect message short_message limit :
+  committed_coordinates effect (failed effect message short_message limit).
 Proof.
-  intros effect result reply kind H. unfold completed in H.
-  rewrite kind in H. cbn in H. inversion H. reflexivity.
+  unfold committed_coordinates, failed.
+  destruct (callback_kind_of (str effect "kind"));
+    try solve [cbn [base failed_outcome worktree_reply]; repeat split; reflexivity].
+  destruct limit; cbn [base optional]; auto.
 Qed.

@@ -158,14 +158,56 @@ Proof.
  rewrite map_map;change (NoDup (map model_slug models)).
  exact (proj1 (admitted_models_have_unique_fresh_names _ _ _ decoded)).
 Qed.
-Theorem public_valid_callback_authorizes_its_client :
-  Api.call "account.callback" (JObject [
-    ("url",JObject [("href",JString "http://localhost/auth/callback");("pathname",JString "/auth/callback");("origin",JString "http://localhost")]);
-    ("redirect",JObject [("host",JString "localhost");("origin",JString "http://localhost")]);
-    ("request",JObject [("method",JString "GET");("host",JString "localhost")]);
-    ("parameters",JObject [("code",JArray [JString "code"]);("state",JArray [JString "nonce"]);("client_id",JArray [JString "client-1"])]);
-    ("state",JString "nonce")]) = success (encode_callback (AcceptCallback (JString "client-1"))).
-Proof. vm_compute;reflexivity. Qed.
+(* Callback admission binds the browser request to this login. Token signature,
+   nonce and PKCE verification remain obligations of the OpenID client. *)
+Theorem public_valid_callback_authorizes_its_client : forall source code state id,
+  parsed (get source "url") = true ->
+  get (get source "url") "pathname" = JString "/auth/callback" ->
+  boolean_field source "received" = false ->
+  get (get source "request") "method" = JString "GET" ->
+  same (get (get source "request") "host") (get (get source "redirect") "host") = true ->
+  same (get (get source "url") "origin") (get (get source "redirect") "origin") = true ->
+  parameters source "code" = [code] -> nonempty code = true ->
+  parameters source "state" = [state] -> same state (get source "state") = true ->
+  parameters source "client_id" = [id] -> client id = true ->
+  parameters source "error" = [] ->
+  (is_object (get source "registered") = false \/
+    same id (get (get source "registered") "client_id") = true) ->
+  Api.call "account.callback" source = success (encode_callback (AcceptCallback id)).
+Proof.
+ intros source code state id parsed_url path fresh method host origin codes code_present
+   states state_matches clients valid_client errors registered.
+ assert (exists issued, id = JString issued) as [issued ->].
+ { unfold client,identity_text,nonempty in valid_client.
+   destruct id; cbn in valid_client; try discriminate; eauto. }
+ assert (callback_bound source = true) as bound.
+ { unfold callback_bound. rewrite method,host,origin.
+   cbn [forallb]. rewrite codes,states,clients,errors.
+   change (same state (get source "state") = true). exact state_matches. }
+ change (callback source = success (encode_callback (AcceptCallback (JString issued)))).
+ unfold callback,decide_callback. rewrite parsed_url,path,fresh,bound.
+ rewrite errors,clients,codes. cbn [first default is_null List.length Nat.eqb hd].
+ rewrite code_present,valid_client.
+ destruct registered as [absent|matching]; rewrite absent || rewrite matching;
+   now destruct (is_object (get source "registered")).
+Qed.
+Theorem public_accepted_callback_binds_the_login_request : forall source id,
+  Api.call "account.callback" source = success (encode_callback (AcceptCallback id)) ->
+  same (get (get source "request") "method") (JString "GET") = true /\
+  same (get (get source "request") "host") (get (get source "redirect") "host") = true /\
+  same (get (get source "url") "origin") (get (get source "redirect") "origin") = true /\
+  same (first (parameters source "state")) (get source "state") = true.
+Proof.
+ intros source id accepted.
+ change (callback source = success (encode_callback (AcceptCallback id))) in accepted.
+ unfold callback,decide_callback in accepted.
+ destruct (parsed (get source "url")); cbn in accepted; [|discriminate].
+ destruct (same (get (get source "url") "pathname") (JString "/auth/callback"));
+   cbn in accepted; [|discriminate].
+ destruct (boolean_field source "received"); cbn in accepted; [discriminate|].
+ destruct (callback_bound source) eqn:bound; cbn in accepted; [|discriminate].
+ unfold callback_bound in bound. repeat rewrite andb_true_iff in bound. tauto.
+Qed.
 Definition example_model := JObject [("slug",JString "model-1");("display_name",JString "Model 1");("visibility",JString "list")].
 Theorem public_valid_model_is_selectable :
   Api.call "account.catalog" (JObject [("value",JObject [("models",JArray [example_model])])]) = success (JArray [example_model]).

@@ -11,6 +11,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.cloud_workspace",CloudWorkspaces.workspace);
   ("effect.artifact_limit",Attachments.artifact_limit);
   ("effect.attachment",Attachments.attachment);
+  ("effect.attachment_media_type",Attachments.attachment_media_type);
   ("effect.attachment_budget",Attachments.attachment_budget);
   ("effect.attachment_id",fun source => Attachments.identifier (get source "id"));
   ("effect.board_clock",Attachments.board_clock);
@@ -41,6 +42,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.workspace_selected",Workspaces.workspace_selected);
   ("effect.workspace_selection",Workspaces.workspace_selection);
   ("effect.workspace_bound",Workspaces.workspace_bound);
+  ("effect.workspace_environment_bound",Workspaces.workspace_environment_bound);
   ("effect.worktree_locations",Workspaces.worktree_locations);
   ("effect.worktree_path",Workspaces.worktree_path);
   ("effect.worktree_receipt",Workspaces.worktree_receipt);

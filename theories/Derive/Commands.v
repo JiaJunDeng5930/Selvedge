@@ -27,7 +27,11 @@ Fixpoint kind_source (description : kind) : String.string :=
       join "; " (map (fun value => concat [""""; value; """"]) rest); "])"]
   end.
 Definition field_source (field : field_spec) :=
-  concat ["Field """; field_name field; """ "; kind_source (field_kind field)].
+  concat [if field_omittable field then "OmittableField """ else "Field """;
+    field_name field; """ "; kind_source (field_kind field)].
+Definition field_type_source (field : field_spec) :=
+  let value := concat ["denote "; kind_source (field_kind field)] in
+  if field_omittable field then concat ["option ("; value; ")"] else value.
 Definition getter_name (name : String.string) (field : field_spec) := concat [name; "_"; field_name field].
 Definition field_reference (index : nat) :=
   append "(head " (append (Nat.iter index (fun x => append "(tail " (append x ")")) "values") ")").
@@ -43,7 +47,7 @@ Definition payload_source (index : nat) (command : command_spec) : String.string
     match declarations with
     | [] => line (concat ["Definition "; name; "_payload : Type := unit."])
     | _ => line (concat ["Record "; name; "_payload : Type := Build_"; name; " { ";
-      join "; " (map (fun item => concat [getter_name name (snd item); " : denote "; kind_source (field_kind (snd item))])
+      join "; " (map (fun item => concat [getter_name name (snd item); " : "; field_type_source (snd item)])
       (indexed 0 declarations)); " }."])
     end;
     line (concat ["Definition "; name; "_from_fields (values : fields "; name; "_schema) : "; name; "_payload := ";
@@ -61,8 +65,8 @@ Definition payload_source (index : nat) (command : command_spec) : String.string
     line "Proof. intros []; reflexivity. Qed.";
     concat (map (fun item => concat [
       line (concat ["Theorem "; getter_name name (snd item); "_field : forall payload, lookup_field """;
-        field_name (snd item); """ ("; name; "_to_fields payload) = Some (encode_value (field_kind (List.nth ";
-        show_nat (fst item); " "; name; "_schema (Field """" KJson))) ("; getter_name name (snd item); " payload))."]);
+        field_name (snd item); """ ("; name; "_to_fields payload) = encode_field (List.nth ";
+        show_nat (fst item); " "; name; "_schema (Field """" KJson)) ("; getter_name name (snd item); " payload)."]);
       line "Proof. intros; reflexivity. Qed."
     ]) (indexed 0 declarations))
   ].
@@ -91,8 +95,6 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
     show_nat (fst item); " Selvedge.Kernel.Commands.command_specs (Command """" [])) ("; command_name (snd item); "_to_fields payload)"])) (indexed 0 commands) ++
   [line "end.";
    line "Theorem encode_declared_wire : forall value, encode value = JObject ((""op"", JString (command_name (declared_command value))) :: declared_payload value).";
-   line "Proof. intros []; reflexivity. Qed.";
-   line "Theorem encode_declared_keys : forall value, (match encode value with JObject values => source_keys values | _ => [] end) = ""op"" :: declared_names (command_fields (declared_command value)).";
    line "Proof. intros []; reflexivity. Qed.";
    line "Ltac command_payload_case handler := match goal with"] ++
   map (fun command => line (concat ["| [payload : "; command_name command;

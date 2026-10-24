@@ -121,7 +121,7 @@ Definition portable_messages (messages : list json) :=
 Definition history_json (owner : N) (history : list message) := map (Codec.message_json owner) history.
 Definition has_output (history : list message) (id : string) :=
  existsb (fun message => match message with
- | FunctionOutput call_id _ _ | OperationResult _ (Call call_id _ _) _ _ | ForkReceipt _ (Call call_id _ _) _ => String.eqb call_id id
+ | FunctionOutput call_id _ _ | OperationResult _ (Call call_id _ _ _) _ _ | ForkReceipt _ (Call call_id _ _ _) _ => String.eqb call_id id
  | _ => false end) history.
 Definition settled_calls (snapshot whole : list message) :=
  forallb (fun message => match message with FunctionCall invocation => has_output whole (call_id invocation) | _ => true end) snapshot.

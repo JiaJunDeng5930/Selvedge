@@ -21,12 +21,14 @@ Theorem task_creation_never_rewrites_existing_history : forall value created,
  world_tasks (append_task created value) = world_tasks value ++ [created].
 Proof. reflexivity. Qed.
 Theorem archival_removes_all_execution_authority : forall value,
- task_lifecycle (Tasks.control_task Tasks.Archive value) = Archived /\
+ task_archived value = false ->
+ task_lifecycle (Tasks.control_task Tasks.Archive value) = Archived [] /\
  task_operations (Tasks.control_task Tasks.Archive value) = [].
-Proof. intros [contract profile settings lifecycle history queued lineage parent cursor]; destruct lifecycle; split; reflexivity. Qed.
-Theorem archived_tasks_have_no_live_operations : forall value,
- task_lifecycle value = Archived -> task_operations value = [].
-Proof. intros [contract profile settings lifecycle history queued lineage parent cursor] H; cbn in *; rewrite H; reflexivity. Qed.
+Proof.
+ intros [contract profile settings lifecycle history queued lineage parent cursor] Live.
+ destruct lifecycle; cbn [task_archived task_lifecycle] in Live; try discriminate;
+ split; reflexivity.
+Qed.
 Theorem restart_removes_all_old_operation_rights : forall id value,
  task_operations (Recovery.recover_task id value) = [].
 Proof. intros id [contract profile settings lifecycle history queued lineage parent cursor]; destruct lifecycle; reflexivity. Qed.

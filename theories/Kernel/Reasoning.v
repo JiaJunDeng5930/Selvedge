@@ -1,22 +1,16 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec Conversation Tasks ReasoningView ReasoningProtocol.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
 
-Definition failed_result (error : bool) (value : json) :=
- error || match natural_field "exit_code" value with Some code => N.ltb 0 code | None => false end.
-Inductive lease := NoLease | Lease (effort : string) (remaining : N).
-Definition lease_step (owner : N) (previous : lease) (message : message) :=
- match message with
- | ReasoningRecord actual effort remaining _ => if N.eqb owner actual then Lease effort remaining else NoLease
- | UserMessage _ | SpeechTranscript _ _ _ UserSpeaker _ _ | ContextObservation _
- | FailureMessage _ | ContextReplacement _ | SettingsMessage _ _ _ => NoLease
- | FunctionOutput _ value error | OperationResult _ _ value error | ToolReceipt _ _ _ value error =>
-   if failed_result error value then NoLease else previous
- | ModelContext _ value => if String.eqb (text_default "type" (provider_value value) "") "compaction" then NoLease else previous
- | _ => previous end.
-Definition history_lease (owner : N) (history : list message) := fold_left (lease_step owner) history NoLease.
+Definition capture (ticket : N) (task : task) :=
+ with_activity (ObservingContext ticket (List.length (task_history task))) task.
+Definition observe_context (id : N) (task : task) (value : world) :=
+ let '(ticket, allocated) := allocate_ticket value in
+ accept (JObject [("accepted",JBool true)])
+  (put_task id (capture ticket task) allocated) [ObserveContext id ticket task].
+
 Definition allowed (policy : adaptive_reasoning) (effort : string) := existsb (String.eqb effort) (reasoning_efforts policy).
 Inductive plan := Fixed (model : profile) | Reuse (model : profile) (remaining : N) | Evaluate.
 Definition next (owner : N) (task : task) :=
@@ -54,8 +48,8 @@ Definition last_configuration (history : list message) :=
 Definition trailing_configuration (history : list message) :=
  fold_left (fun previous entry => match entry with
  | ReasoningConfigurationMessage _ => true
- | ReasoningRecord _ _ _ _ | HookReceipt _ _ _ _ | AfterReceipt _ _ _ _
- | ApprovalReceipt _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
+ | ReasoningRecord _ _ _ _ | AfterReceipt _ _ _ _
+ | ApprovalReceipt _ _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
  | _ => false end) history false.
 Definition generation (owner : N) (model : profile) (remaining : N) (task : task) :=
  let effort := profile_reasoning model in
@@ -75,3 +69,14 @@ Definition sampling (model : profile) (requested : profile) :=
   | AdaptivePolicy policy => match reasoning_transport_mode policy with ConfigurationUpdates => reasoning_baseline policy | RequestEffort => effective end
   | FixedReasoning => effective end))].
 Definition evaluator_history (_ : N) (task : task) := ReasoningView.history (task_history task).
+
+(* Evaluators see the same committed project snapshot as the requested turn.
+   Looking up a mutable Project here would change an already captured request. *)
+Definition evaluator_project_context (task : task) :=
+ match workspace_primary (settings_workspace (task_current_settings task)) with
+ | None => JNull
+ | Some root => match ContextUpdates.find_snapshot
+     (ContextKey Context.project_guidance [("workspace",root)])
+     (ContextUpdates.bindings (task_history task)) with
+   | Some snapshot => Context.snapshot_json snapshot | None => JNull end
+ end.

@@ -20,9 +20,23 @@ allows retained jobs to be removed without keeping an ever-growing sparse array.
 receives the existing scheduler executor. It neither starts another scheduler nor
 performs a second transition hook. Queries do not apply a prepared configuration.
 
-`SharingProofs.v` states laws about the actual command and completion functions,
-including positive admission, denied authority, replay, frozen execution context,
-and repeated cancellation. The Rocq kernel checks these laws. Extraction and the
-JavaScript compiler remain trusted translations. Authenticated controller
-identity, faithful prepared commands, external process behavior, and actual stop
-completion belong to the IO host; the proofs do not claim those external facts.
+`RemoteProofs.v` derives fresh admission and retained-result replay from current
+grants, componentwise permission requirements, request bounds and stored receipts.
+It also checks disabled access, revoked authority and oversized-reply rollback.
+Replay is derived without assuming that authorization already returned `Replay`.
+`SharingProofs.v` contains the separate connection-job guarantees for frozen
+execution context and repeated cancellation, so editing remote proofs does not
+recheck the connection-job proofs.
+
+`RemoteEntryProofs.v` composes authority with the actual `Packet.execute_domain`
+interpreter: for a running first task and its satisfied workspace guard, a
+current control grant stops the task and retains the success receipt before
+the ordinary scheduler runs. It does
+not require read, configure or approve authority. This scoped positive family
+rules out rejecting every command or preserving every task unchanged; business
+properties of other commands remain with their owning domains.
+
+The Rocq kernel checks these laws. Extraction and the JavaScript compiler remain
+trusted translations. Authenticated controller identity, faithful prepared
+commands, external process behavior and actual stop completion belong to the IO
+host; the proofs do not claim those external facts.

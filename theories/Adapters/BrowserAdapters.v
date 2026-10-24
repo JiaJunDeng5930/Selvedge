@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8.
 From Selvedge.Kernel Require Import Images Streams.
 From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Interaction Require Import Origin.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -32,9 +33,19 @@ Definition stream_step (configuration : Streams.configuration) (source : json) :
     success (JObject [("state",Streams.state_json state);("publish",JBool publish)])
   | _,_ => err "Invalid browser stream source: expected typed stream state and notice"
   end.
+Definition public_stream_step (source : json) :=
+  match Streams.decode_state (get source "state"),string_field "namespace" source with
+  | Some state,Some namespace =>
+    match Streams.decode_event_in_namespace (Origin.valid_namespace namespace) namespace (get source "notice") with
+    | Some event => let '(state,publish) := Streams.step Streams.browser_configuration event state in
+      success (JObject [("state",Streams.state_json state);("publish",JBool publish)])
+    | None => err "Invalid browser stream source: expected a namespaced typed notice"
+    end
+  | _,_ => err "Invalid browser stream source: expected current namespace and typed stream state"
+  end.
 Definition call (operation : string) (source : json) :=
   if String.eqb operation "browser.link" then success (link source)
   else if String.eqb operation "browser.image" then success (image source)
-  else if String.eqb operation "browser.stream_step" then stream_step Streams.browser_configuration source
+  else if String.eqb operation "browser.stream_step" then public_stream_step source
   else if String.eqb operation "browser.host_stream_step" then stream_step Streams.host_configuration source
   else err ("Unknown browser model operation: " ++ operation).

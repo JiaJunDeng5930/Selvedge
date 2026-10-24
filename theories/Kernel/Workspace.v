@@ -1,8 +1,10 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Schema Utf8 Numbers.
-From Selvedge.Kernel Require Import Domain.
+From Selvedge.Kernel Require Import Domain Numbers.
 Import ListNotations.
 Open Scope string_scope.
+Definition valid_project_name (name : string) :=
+ Utf8.nonblank name && Nat.leb (String.length name) 256.
 Fixpoint contains (needle text : string) :=
  if String.prefix needle text then true else match text with EmptyString => false | String _ rest => contains needle rest end.
 Definition valid_path (path : string) :=
@@ -21,20 +23,52 @@ Definition root_within (root bound : string) :=
  String.eqb bound "/" || String.eqb root bound || String.prefix (String.append bound "/") root.
 Definition workspace_bound (child parent : workspace) :=
  forallb (fun root => existsb (root_within root) (workspace_roots parent)) (workspace_roots child).
-Definition sandbox_bound (child parent : sandbox) :=
- (match sandbox_access parent, sandbox_access child with ReadOnly, WorkspaceWrite => false | _,_ => true end) &&
- (negb (sandbox_network child) || sandbox_network parent).
+(* Display metadata does not change the independent reviewer's execution
+   configuration, and cannot widen or revoke a delegation by itself. *)
+Definition same_reviewer_profile (left right : profile) :=
+ String.eqb (profile_key left) (profile_key right) &&
+ String.eqb (profile_provider left) (profile_provider right) &&
+ String.eqb (profile_model left) (profile_model right) &&
+ String.eqb (profile_reasoning left) (profile_reasoning right) &&
+ Json.equal (Json.JArray (map Json.JString (profile_reasoning_options left)))
+   (Json.JArray (map Json.JString (profile_reasoning_options right))).
 Definition approval_bound (child parent : approval_policy) :=
  match parent, child with
  | FullAccess,_ => true
  | AskForApproval, AskForApproval => true
  | ReviewWith _, AskForApproval => true
- | ReviewWith parent, ReviewWith child => Domain.same_profile child parent
+ | ReviewWith parent, ReviewWith child => same_reviewer_profile child parent
  | _,_ => false end.
 Definition same_resource (first second : option N) :=
  match first,second with None,None=>true | Some owner,Some other=>N.eqb owner other | _,_=>false end.
-Definition settings_bound (child parent : task_settings) :=
- same_resource (settings_resource child) (settings_resource parent) &&
- workspace_bound (settings_workspace child) (settings_workspace parent) &&
- sandbox_bound (settings_sandbox child) (settings_sandbox parent) &&
- approval_bound (settings_approval child) (settings_approval parent).
+Definition writes_no_broader (child parent : sandbox) (child_space parent_space : workspace) :=
+ match sandbox_access child, sandbox_access parent with
+ | ReadOnly, _ => true
+ | WorkspaceWrite, WorkspaceWrite => workspace_bound child_space parent_space
+ | _, _ => false
+ end.
+(* FullAccess authorizes unrestricted delegation. Otherwise only write roots
+   are bounded: selecting another read-only root does not confer write access. *)
+Definition may_delegate (child parent : task_settings) :=
+ match settings_approval parent with
+ | FullAccess => true
+ | approval =>
+   (negb (sandbox_network (settings_sandbox child)) || sandbox_network (settings_sandbox parent)) &&
+   writes_no_broader (settings_sandbox child) (settings_sandbox parent)
+     (settings_workspace child) (settings_workspace parent) &&
+   approval_bound (settings_approval child) approval
+ end.
+
+(* Stable registry positions are identities; the last registry edit controls
+   presentation order independently of that identity. *)
+Definition next_project_order (projects : list project) :=
+ N.succ (fold_right (fun value order => N.max (project_order value) order) 0%N projects).
+Fixpoint insert_project (entry : N * project) (entries : list (N * project)) :=
+ match entries with
+ | [] => [entry]
+ | first :: rest => if N.leb (project_order (snd first)) (project_order (snd entry))
+   then entry :: entries else first :: insert_project entry rest
+ end.
+Definition ordered_projects (projects : list project) :=
+ fold_right insert_project []
+  (filter (fun entry => negb (project_deleted (snd entry))) (Numbers.indexed pair 0 projects)).
