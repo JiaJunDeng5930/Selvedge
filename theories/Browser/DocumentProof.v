@@ -62,8 +62,10 @@ Theorem touch_navigation_has_44_pixel_floor env activity role area purpose icon 
       (control_geometry_properties env activity role area purpose icon choice supporting).
 Proof.
   intros Touch. unfold control_geometry_properties. rewrite Touch.
-  eexists. split; [apply Nat.le_max_l|].
-  apply in_or_app; left. simpl. auto.
+  eexists. split.
+  2: { apply in_or_app; left. right; left; reflexivity. }
+  eapply Nat.le_trans; [|apply Nat.le_max_l].
+  unfold Layout.touch_minimum. apply Nat.le_max_l.
 Qed.
 
 (** Active previews hide the original source target. The browser applies this
@@ -101,7 +103,7 @@ Proof.
   set (motor := if activity then Layout.motor_minimum env else Layout.base_motor_minimum).
   assert (Motor : 32 <= motor).
   { unfold motor. destruct activity; [unfold Layout.motor_minimum; apply Nat.le_max_l|reflexivity]. }
-  exists motor, (Nat.max (if navigation_target env role area then 44 else motor)
+  exists motor, (Nat.max (if navigation_target env role area then Layout.touch_minimum env else motor)
     (if activity then Nat.max motor
       (target_height (geometry_for purpose area icon choice supporting))
      else (if activity then match target_height (geometry_for purpose area icon choice supporting) with
@@ -110,6 +112,8 @@ Proof.
        else target_height (geometry_for purpose area icon choice supporting)))).
   split; [exact Motor|]. split.
   - eapply Nat.le_trans; [|apply Nat.le_max_l].
-    destruct (navigation_target env role area); [lia|exact Motor].
+    destruct (navigation_target env role area).
+    + unfold Layout.touch_minimum. eapply Nat.le_trans; [|apply Nat.le_max_l]. vm_compute. lia.
+    + exact Motor.
   - split; apply in_or_app; left; simpl; auto.
 Qed.

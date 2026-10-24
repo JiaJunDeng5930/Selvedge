@@ -15,6 +15,14 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     if (changed) onChange();
   });
   resize.observe(surface);
+  // Root font preferences can change while every observed pixel-sized region
+  // stays fixed. A rem-sized observation schedules the existing font receipt.
+  const rootFontProbe = document.createElement('span');
+  rootFontProbe.setAttribute('aria-hidden', 'true');
+  Object.assign(rootFontProbe.style, { position: 'fixed', visibility: 'hidden',
+    pointerEvents: 'none', inlineSize: '1rem', blockSize: '1rem' });
+  document.body.append(rootFontProbe);
+  resize.observe(rootFontProbe);
   const fontChange = () => onChange();
   document.fonts.addEventListener('loadingdone', fontChange);
   function viewport() {
@@ -111,5 +119,5 @@ export function createPhysicalMeasurer({ surface, onChange }) {
     } finally { probe.remove(); }
   }
   return { viewport, measure, refresh, regions, responsiveRows,
-    dispose() { resize.disconnect(); document.fonts.removeEventListener('loadingdone', fontChange); observed.clear(); } };
+    dispose() { resize.disconnect(); rootFontProbe.remove(); document.fonts.removeEventListener('loadingdone', fontChange); observed.clear(); } };
 }

@@ -33,10 +33,14 @@ Theorem rich_headings_keep_authored_emphasis env parent strength :
     (rich_properties env parent strength).
 Proof. unfold rich_properties. simpl. tauto. Qed.
 
-Theorem supporting_context_preserves_reading_role {A} env (value : Surface.meaning A) :
-  source_properties env (Surface.ActivityRow Surface.SupportingRow) value =
-    supporting_properties env.
-Proof. destruct value; reflexivity. Qed.
+Theorem supporting_context_preserves_reading_role {A} env (value : Surface.meaning A) property :
+  In property (Typography.properties (Layout.root_font_size_milli env)
+    Typography.ActivitySupport (match value with Surface.InformationText role=>Typography.information_emphasis role|_=>Typography.Regular end)) ->
+  In property (source_properties env (Surface.ActivityRow Surface.SupportingRow) value).
+Proof.
+  intros Reading. destruct value; cbn [source_properties];
+    try unfold supporting_properties; repeat rewrite in_app_iff; auto.
+Qed.
 
 Theorem selected_navigation_rest_and_feedback_remain_distinct :
   background (ChoicePaint true) Rest = selected_wash SubtleWash /\

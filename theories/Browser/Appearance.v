@@ -110,7 +110,7 @@ Definition foreground value :=
   end.
 Definition background value state :=
   match value with
-  | CanvasPaint => token "--app-color-background-surface-under"
+  | CanvasPaint => token "--app-color-background-surface"
   | NavigationPaint => token "--color-token-side-bar-background"
   | ContentPaint | FieldPaint => token "--color-token-main-surface-primary"
   | FloatingPaint => token "--color-token-dropdown-background"
@@ -226,7 +226,7 @@ Definition alignment_properties value : list (string * string) :=
 Definition overflow_properties value : list (string * string) :=
   match value with
   | ContentFlow => []
-  | ScrollFlow => [("overflow-y","auto"); ("min-block-size","0")]
+  | ScrollFlow => [("overflow-y","auto"); ("overflow-x","hidden"); ("min-block-size","0")]
   | CodeOverflow => [("overflow-x","auto")]
   | SingleLineOverflow => [("overflow","hidden"); ("text-overflow","ellipsis"); ("white-space","nowrap")]
   end.
@@ -320,12 +320,17 @@ Definition role_properties_at env (activity : bool) role := role_properties env 
       Layout.group_properties env true ++ [("padding-inline","0"); ("padding-block","0")]
   | _ => [] end else [].
 
+Definition information_foreground role := match role with
+ | Information.NavigationCaption | Information.Description | Information.Status => secondary_text
+ | _ => "inherit" end.
 Definition information_properties env activity role :=
   Typography.properties (Layout.root_font_size_milli env)
     (Typography.information_tier activity role) (Typography.information_emphasis role) ++
-  [("color",match role with
-    | Information.NavigationCaption | Information.Description | Information.Status => secondary_text
-    | _ => primary_text end); ("min-inline-size","0")].
+  [("color",information_foreground role); ("min-inline-size","0")].
+
+Definition aggregate_focus_properties role : list (string * string) :=
+  [("--control-focus-width","1px"); ("--control-focus-offset","0px");
+   ("--control-focus-ring",chrome_border (style_chrome (role_style role)))].
 
 Definition rich_properties env parent strength : list (string * string) :=
   let root := Layout.root_font_size_milli env in
@@ -355,7 +360,8 @@ Definition markdown_properties env parent kind : list (string * string) :=
   let policy := markdown_policy env parent kind in
   let frame := rich_code_frame policy in let chrome := rich_code_chrome policy in
   rich_properties env parent Typography.Regular ++
-  [("--physical-code-padding-inline",Typography.px (padding_inline frame));
+  [("text-align","start");
+   ("--physical-code-padding-inline",Typography.px (padding_inline frame));
    ("--physical-code-padding-block",Typography.px (padding_block frame));
    ("--physical-code-gap",Typography.px (frame_gap frame));
    ("--physical-code-color",foreground (chrome_paint chrome));

@@ -73,6 +73,7 @@ Definition observe_capacity env : option (bool * bool) :=
 Definition base_motor_minimum := 32%nat.
 Definition motor_minimum env := Nat.max base_motor_minimum
   (Typography.scaled (root_font_size_milli env) base_motor_minimum).
+Definition touch_minimum env := Nat.max 44 (Typography.scaled (root_font_size_milli env) 44).
 Definition writing_lines := 2%nat.
 Definition clearance env := Typography.scaled (root_font_size_milli env) 12.
 Definition composer_clearance := 12%nat.
@@ -83,8 +84,8 @@ Definition dialog_reading_width env :=
 Definition work_overview_clearance := 8%nat.
 Definition work_overview_width env := Nat.min (2 * reading_maximum_width (parameters env))
   (viewport_width env - 2 * work_overview_clearance).
-Definition work_overview_height env := Nat.min (viewport_height env * 94 / 100)
-  (viewport_height env - 2 * work_overview_clearance).
+Definition work_overview_height env :=
+  (viewport_height env - 2 * work_overview_clearance) * 94 / 100.
 Definition modal_navigation_width env :=
   match observe_capacity env with
   |Some (true,_)=>navigation_width(parameters env)
@@ -158,7 +159,8 @@ Definition region_properties env (region : Composition.region) (position : Compo
       ("flex-wrap","nowrap"); ("align-items","center"); ("gap",Typography.px (Enclosure.separation Enclosure.ComposerControls))]
   | Composition.ConversationTitle => [("flex","1 1 auto"); ("overflow","hidden"); ("white-space","nowrap")]
   | Composition.TaskActions => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
-      ("align-items","center"); ("gap",Typography.px (Enclosure.separation Enclosure.InlineControls)); ("flex","none")]
+      ("align-items","center"); ("gap",Typography.px (Enclosure.separation Enclosure.InlineControls));
+      ("inline-size","fit-content"); ("flex","0 1 auto"); ("overflow","hidden")]
   | Composition.BoardControls => [("display","flex"); ("flex-direction","row");
       ("gap",Typography.px (Enclosure.separation Enclosure.ComposerControls))]
   | Composition.TimelineContent => [("display","flex"); ("flex-direction","column");
@@ -169,8 +171,9 @@ Definition region_properties env (region : Composition.region) (position : Compo
   | Composition.CreationContext => [("display","flex");("flex-direction","column");
       ("align-items","center");("text-align","center");("padding-inline","0");
       ("padding-block","0");("gap",Typography.px (Enclosure.separation Enclosure.Sections));("min-block-size","0")]
-  | Composition.BoardStages => [("display","flex"); ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
-      ("overflow-x","auto"); ("min-block-size","0"); ("flex","1 1 auto")]
+  | Composition.BoardStages => [("display","flex"); ("flex-direction","row"); ("flex-wrap","nowrap");
+      ("gap",Typography.px (Enclosure.separation Enclosure.BoardColumns));
+      ("overflow-x","auto"); ("overflow-y","hidden"); ("min-block-size","0"); ("flex","1 1 auto")]
   | _ => [] end.
 
 Definition workspace_properties env (navigation_visible supporting_visible : bool) : list (string * string) :=

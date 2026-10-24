@@ -351,7 +351,7 @@ Definition control_geometry_properties env (activity : bool) role area purpose i
     | 0 => 0 | S _ => Typography.scaled (Layout.root_font_size_milli env) amount end else amount in
   let motor := if activity then Layout.motor_minimum env else Layout.base_motor_minimum in
   let touch := navigation_target env role area in
-  let height := Nat.max (if touch then 44 else motor)
+  let height := Nat.max (if touch then Layout.touch_minimum env else motor)
     (if activity then Nat.max motor (target_height value)
      else scale (target_height value)) in
   let edges := if activity then
@@ -367,7 +367,7 @@ Definition control_geometry_properties env (activity : bool) role area purpose i
    ("justify-content","center");("white-space",if choice then "normal"else"nowrap");
    ("--control-icon-size",Typography.px (scale 16))] ++
   if icon then
-    let width := Nat.max (if touch then 44 else motor)
+    let width := Nat.max (if touch then Layout.touch_minimum env else motor)
       (if activity then Nat.max motor (target_width value)
        else scale (target_width value)) in
     [("inline-size",Typography.px width); ("block-size",Typography.px height); ("flex","none")]
@@ -507,8 +507,8 @@ Definition native_field_width {A} env (activity:bool) (meaning:S.meaning A) :=
 Definition native_node_dimensions {A} role current_area (meaning:S.meaning A) :=
  let intrinsic := match meaning with
  | S.Activate _ | S.ActionCommit _ _ _ | S.PanelToggle _ _
- | S.SupportingControl _ _ _ _ | S.SkillSuggestion _ _
- | S.InformationText _ | S.Fact _ | S.ReadOnly _ => true
+ | S.SupportingControl _ _ _ _ | S.SkillSuggestion _ _ => true
+ | S.InformationText _ | S.Fact _ | S.ReadOnly _ => false
  | S.Choice _ _ _ _ => match current_area with BoardViewArea=>true|_=>false end
  | _ => match role with Roles.UserMessage=>true|_=>false end end in
  [("inline-size",if intrinsic then "fit-content"else"100%");("block-size","fit-content")] ++
@@ -538,6 +538,7 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
  |Model.TrailingDetails=>if Model.layer_beside behavior then [("inline-size",Typography.px(Layout.details_width(Layout.parameters env)));("flex","none")] else []
  |Model.ModalDialog=>[]end|_=>[]end) ++ SemanticAppearance.meaning_properties env activity meaning ++
  meaning_geometry describe env activity role current_area meaning ++ SemanticAppearance.source_properties env source meaning ++
+ (match meaning with S.ActionUnit _ _=>NativeAppearance.aggregate_focus_properties role|_=>[]end) ++
  (match meaning,current_area with
   |S.Choice _ selected _ _,BoardViewArea=>
     NativeAppearance.style_properties env (NativeAppearance.button_style(NativeAppearance.ChoicePaint selected)) ++
@@ -546,6 +547,8 @@ let styles:=NativeAppearance.role_properties_at env activity role ++
   |S.Choice _ true _ _,_=>[("--control-rest-background","transparent")]
   |_,_=>[]end) ++
  (match role with
+ |Roles.CompactHeader=>[("block-size",Typography.px(Layout.touch_minimum env));
+  ("min-block-size",Typography.px(Layout.touch_minimum env));("flex","none");("overflow","hidden")]
  |Roles.WorkTabs=>[("display","flex");("flex-direction","row");("align-items","flex-end");
   ("padding-block-start",Typography.px(Typography.scaled(Layout.root_font_size_milli env)4));
   ("block-size",Typography.px(Typography.scaled(Layout.root_font_size_milli env)44));
@@ -619,6 +622,24 @@ Definition reading_identity {A}(value:S.node A) := match S.node_meaning value wi
  |S.PublishedText document=>CodeSource.source_key(DocumentPublication.published_code_source document)
  |S.RichText source _=>CodeSource.source_key source
  |_=>S.semantic_key value end.
+(** Group headings and their indented members are separate enclosures. *)
+Definition is_group_heading {A} (value:S.node A) := match S.node_meaning value with
+ |S.InformationText Information.GroupTitle|S.ActivityRow S.ObjectHeading=>true|_=>false end.
+Definition group_heading_keys {A} (key:string) (values:list(S.node A)) : string :=
+ match filter is_group_heading values with
+ |[]=>String.append key "/heading"|headings=>String.concat " "(map S.node_key headings)end.
+Definition grouped_content {A} env activity (key label:string) (grouped:bool)
+ (values:list(S.node A)) (children:list DOM.node) :=
+ let paired:=combine values children in
+ let headings:=map snd(filter(fun pair=>is_group_heading(fst pair))paired)in
+ (match headings with []=>[DOM.Element(String.append key "/heading")"h3"[("id",String.append key "/heading")]
+   (NativeAppearance.information_properties env activity Information.GroupTitle)[]empty[DOM.Text label]]
+ |headings=>headings end)++
+ [DOM.Element(String.append key "/@members")"div"[]
+  ((if grouped then Layout.group_properties env activity else Layout.member_properties env activity true)++
+   [("padding-inline",Typography.px(Layout.nesting_inset(Layout.hierarchy_for env activity)));("min-inline-size","0")])
+  []empty(map snd(filter(fun pair=>negb(is_group_heading(fst pair)))paired))].
+
 Definition compile_element {A} (describe:A->C.purpose) env generation inherited_area activity (source:S.meaning A) view component (value:S.node A) (children:list DOM.node) : DOM.node :=
  let key:=S.node_key value in let label:=S.node_label value in
  let meaning:=S.node_meaning value in let role:=S.node_role value in
@@ -644,6 +665,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
   |_,S.InformationText Information.NavigationCaption=>ControlContent.single_line_attributes label
   |_,_=>[]end) ++
  NativeAppearance.overflow_attributes (NativeAppearance.style_overflow (NativeAppearance.role_style role)) label ++
+ (match meaning with S.ActionUnit _ _=>[("data-focus-owner","aggregate")]|_=>[]end) ++
  (match role with Roles.Timeline=>[("tabindex","0")]|Roles.UserMessage|Roles.AssistantMessage|Roles.Activity=>[("data-reading-anchor","true");("data-reading-identity",reading_identity value)]|Roles.Composer=>[("data-composer-dock","true");("data-focus-owner","aggregate")]|_=>[] end) ++
  (if supporting then ControlContent.support_row_attributes key
   else if responsive then [("data-native-responsive-row",key);("data-native-row-direction","column")] else []) in
@@ -652,7 +674,10 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
   |S.Region=>existsb(fun child=>match S.node_meaning child with
       S.ReceiveFile _ _ _=>true|_=>false end)(S.node_children value)
   |_=>false end in
- let styles:=if collection_field then styles++[("gap","8px")]else styles in
+ let styles:=if collection_field then match meaning with S.WorkspaceCollection _ _=>styles|_=>styles++[("gap","8px")]end else styles in
+ let styles:=match role with Roles.Menu=>if existsb(fun child=>match S.node_meaning child with
+  S.DecisionGroup _ _|S.ObjectGroup _|S.WorkspaceCollection _ _=>true|_=>false end)(S.node_children value)
+  then styles++[("gap",Typography.px(Layout.group_gap(Layout.hierarchy_for env activity)))]else styles|_=>styles end in
  let styles:=match role with
  |Roles.WorkTabGroup=>styles++[("max-inline-size",Typography.px
    (List.length(S.node_children value)*Typography.scaled(Layout.root_font_size_milli env)232))]
@@ -686,7 +711,7 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  (if help then [("data-help",description);("title",description)]else[])++purpose_attributes purpose++navigation_attributes role++help_describedby key help extra)
  (styles++control_styles purpose role++
  (match source with S.TaskRow _ _ _ _ _=>[("display","flex");("flex-direction","row");("align-items","center");("inline-size","100%");("min-inline-size",Typography.px(Layout.motor_minimum env));("padding","0");("gap",Typography.px(ControlContent.navigation_following env))]|_=>[]end)++match source,C.action_purpose purpose with S.CardContent _,C.OpenCardDetails _=>
- [("background","transparent");("border","0");("padding","0");("text-align","left");("font-weight","600");("white-space","nowrap");("overflow","hidden");("text-overflow","ellipsis")]|_,_=>[]end)
+ [("background","transparent");("border","0");("text-align","left");("font-weight","600");("white-space","nowrap");("overflow","hidden");("text-overflow","ellipsis")]|_,_=>[]end)
  events empty
  ((match ControlContent.face_content env key glyph meaning (S.node_children value) with Some content=>content|None=>
  match source,C.action_purpose purpose with S.CardContent face,C.OpenCardDetails card=>
@@ -911,7 +936,9 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  ("padding","8px 12px");("text-align","left");("border","0");("border-radius","6px");
  ("background",if selected then "var(--color-token-main-surface-tertiary)"else"transparent");("cursor","pointer")])
  [event key generation "click" "activate" Gesture.Press] empty children
- |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");("aria-label",UX.decision_question decision)] [] empty children
+ |S.DecisionGroup _ decision=>element "section" [("role","radiogroup");
+   ("aria-labelledby",group_heading_keys key(S.node_children value))] [] empty
+   (grouped_content env activity key(UX.decision_question decision)false(S.node_children value)children)
  |S.ChoiceGroup=>element "section" [("role","radiogroup")] [] empty children
  |S.PageContext conversation=>element (role_tag role) [("data-view",match conversation with Some v=>Identity.task_view_scope v|None=>"" end)] [] empty children
  |S.ProjectGroup project selected expanded=>element (role_tag role) [("data-project-id",text_number project);("data-expanded",flag expanded)] [] empty children
@@ -920,14 +947,17 @@ Definition compile_element {A} (describe:A->C.purpose) env generation inherited_
  let nested (pair:S.node A*DOM.node):=match S.node_meaning(fst pair)with S.TaskChildren _=>true|_=>false end in
  element "div" [("data-task-id",text_number task);("data-task-status",status);("aria-current",flag selected)] [] empty
  (map snd(filter(fun pair=>negb(nested pair))paired)++map snd(filter nested paired))
+ |S.ObjectGroup object=>element "section"
+   [("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
+   (grouped_content env activity key label true(S.node_children value)children)
+ |S.WorkspaceCollection _ _=>element "section"
+   [("tabindex","-1");("aria-labelledby",group_heading_keys key(S.node_children value))][]empty
+   (grouped_content env activity key label false(S.node_children value)children)
  |S.BoardLane stage count=>element (role_tag role) [("data-board-stage",stage);("data-drop-target",key)] [] empty children
  |S.CardArchive count=>element (role_tag role) [("data-card-archive",text_number count);("data-drop-target",key)] [] empty children
  |S.TaskChildren task=>element "div"[("role","group");("aria-label",label);("data-task-parent",text_number task)][]empty children
- |S.WorkspaceCollection _ _=>element (role_tag role) [] [] empty
-   (if String.eqb label ""then children else DOM.Element (key++"/heading")%string "span" []
-      (NativeAppearance.information_properties env activity Information.GroupTitle) [] empty [DOM.Text label]::children)
  |S.ActivityRow _|S.WorkspaceMember _ _ _
- |S.ActionExplanation _ _|S.ObjectGroup _|S.Region|S.ProjectChooser _|S.DirectoryRow _ _
+ |S.ActionExplanation _ _|S.Region|S.ProjectChooser _|S.DirectoryRow _ _
  |S.ContextSummary _=>element (role_tag role) [] [] empty children
  |S.CardContent face=>
  let movement:=card_movement(S.node_children value)in
@@ -1034,11 +1064,13 @@ Definition recovery root generation reason := DOM.encode(DOM.Document
  (DOM.Element "@browser/utility" "section"[("role","status");("aria-label",reason);("title",reason)]
  (Typography.properties root Typography.Body Typography.Regular++
  [("display","flex");("flex-direction","column");("gap","12px");("padding","16px");
+ ("block-size","100dvh");("overflow-y","auto");("min-inline-size","0");
+ ("overflow-wrap","anywhere");
  ("color","var(--color-token-text-primary)");("background","var(--color-token-bg-primary)")]) [] empty
  [DOM.Element "@browser/utility/message" "p"[][][]empty[DOM.Text reason];
  DOM.Element "@browser/utility/retry" "button"
  [("type","button");("aria-label",("Retry rendering: "++reason)%string);("title",("Retry rendering: "++reason)%string)]
  [("display","inline-flex");("align-items","center");("justify-content","center");
-  ("min-inline-size","32px");("min-block-size","32px");("align-self","flex-start")]
+  ("min-inline-size","32px");("min-block-size","32px");("flex","none");("align-self","flex-start")]
  [DOM.Binding "click" "retry_render" DOM.RetryRendering] empty(glyph "refresh")])
  "Selvedge" generation true [] []).

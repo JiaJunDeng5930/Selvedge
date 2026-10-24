@@ -25,7 +25,7 @@ Definition component_properties env (value : Presentation.component) : list (str
   ("max-inline-size","100%"); ("gap",Typography.px (gap (Expand.property_text "gap" props)))] ++
  (match tone (Expand.property_text "tone" props) with Some color => [("color",color)] | None => [] end) ++
  (match tag with
- | "row-layout" => Layout.row_properties Layout.Vertical ++ [("align-items","stretch")]
+ | "row-layout" => Layout.row_properties Layout.Vertical ++ [("align-items","stretch");("overflow","hidden")]
  | "card" | "badge" => enclosed
  | "table" => [("min-block-size","40px"); ("max-block-size","560px"); ("overflow","auto")]
  | "text-input" | "number-input" | "select" | "textarea" | "slider" =>

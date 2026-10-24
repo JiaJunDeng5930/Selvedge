@@ -42,7 +42,7 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   | Surface.Edit _ _ _ | Surface.RichText _ _ | Surface.PublishedText _
   | Surface.EmbeddedMarkdown _ => false
   | Surface.TaskRow _ _ _ _ _ => false
-  | Surface.ActivityRow Surface.NavigationRow | Surface.ActivityRow Surface.TerminalRow => false
+  | Surface.ActivityRow _ => false
   | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => activity
   | Surface.BoardGroup _ => false
   | Surface.PageRegion Composition.ConversationHeader _
@@ -58,9 +58,7 @@ Definition responsive_row {Action} activity (source : Surface.meaning Action)
   end.
 Definition action_properties env (activity : bool) : list (string * string) :=
   (if activity then Layout.heading_properties env true else
-    [("display","flex"); ("flex-direction","column"); ("padding","12px"); ("gap","12px")]) ++
-  [("--control-focus-width","1px"); ("--control-focus-offset","-1px");
-   ("--control-focus-ring",Appearance.token "--color-token-border-default")].
+    [("display","flex"); ("flex-direction","column"); ("padding","12px"); ("gap","12px")]).
 Definition surface_maximum_width env := Nat.max (scaled env 200)
   (Layout.activity_primary_advance (Layout.parameters env) * 56 + scaled env 16).
 Definition surface_properties env : list (string * string) :=
@@ -74,12 +72,14 @@ Definition member_width_properties env : list (string * string) :=
   [("max-inline-size",Typography.px (Layout.activity_primary_advance (Layout.parameters env) * 44))].
 Definition field_width_properties env : list (string * string) :=
   let advance := Layout.activity_primary_advance (Layout.parameters env) in
-  [("inline-size",Typography.px (advance * 32));
-   ("min-inline-size","0");("max-inline-size","100%");
+  [("inline-size","auto");
+   ("min-inline-size",Typography.px (advance * 32));
+   ("max-inline-size",String.append "min(100%,"
+     (String.append (Typography.px (advance * 64)) ")"));
    ("field-sizing","content");("align-self","flex-start")].
 Definition supporting_properties env :=
   Typography.properties (Layout.root_font_size_milli env) Typography.ActivitySupport Typography.Regular ++
-  [("color",Appearance.secondary_text)].
+  [("color","inherit")].
 Definition toggle_properties (env : Layout.environment) :=
   [("inline-size","16px"); ("block-size","16px"); ("min-block-size","16px");
    ("padding","0"); ("align-self","center"); ("border-radius","3px")].
@@ -92,7 +92,7 @@ Definition editor_properties {Action} env (activity : bool) (value : Surface.mea
       then embedded env else
       match UX.subject_declaration subject, Model.editing_observation control with
       | Fields.MessageText, _ => embedded env ++
-          [("padding","0"); ("border-radius","0"); ("resize","none"); ("inline-size","100%");
+          [("padding","0"); ("border-radius",pixels env 8); ("resize","none"); ("inline-size","100%");
            ("max-block-size",Typography.px (Layout.input_maximum_height (Layout.parameters env)))]
       | Fields.CardTitle, _ => [("border-width","0")]
       | Fields.CardDescription, _ => [("border-width","0"); ("min-block-size","110px")]
@@ -116,7 +116,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.PageContext _ =>
       [("flex","1 1 auto");("min-block-size","0");("overflow","hidden")]
   | Surface.ReadingTimeline _ _ =>
-      [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto")]
+      [("flex","1 1 auto");("min-block-size","0");("overflow-y","auto");("overflow-x","hidden")]
   | Surface.ProjectGroup _ _ _ => [("display","flex"); ("flex-direction","column"); ("gap","0")]
   | Surface.TaskRow _ _ _ _ selected =>
       Appearance.style_properties env (Appearance.navigation_style selected 6 0)
@@ -127,9 +127,9 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
   | Surface.LayerRegion behavior =>
       match Model.layer_presentation behavior with Model.AnchoredMenu => surface_properties env | _ => [] end
   | Surface.ContextSummary _ => [("display","flex"); ("flex-direction","column"); ("gap","4px"); ("padding-inline","8px")]
-  | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => member_properties env activity ++
-      if activity then member_width_properties env else []
-  | Surface.ChoiceGroup | Surface.DecisionGroup _ _ => [("display","flex"); ("flex-direction","column"); ("gap","4px")]
+  | Surface.DirectoryRow _ _ | Surface.WorkspaceMember _ _ _ => member_properties env activity
+  | Surface.ChoiceGroup | Surface.DecisionGroup _ _ | Surface.WorkspaceCollection _ _ =>
+      Layout.heading_properties env activity
   | Surface.Choice _ selected description _ =>
       Appearance.style_properties env (Appearance.navigation_style selected 8 6) ++
       [("align-items","flex-start"); ("justify-content","flex-start"); ("white-space","normal"); ("padding-block",pixels env 8)]
@@ -138,14 +138,15 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
         (Appearance.token (if selected then "--color-token-focus-border" else "--color-token-border-default"))
         1 10 false Appearance.Leading Appearance.RowFlow Appearance.ContentFlow 12 12 8 120 100 true false) ++ [("justify-content","flex-start")]
   | Surface.ActionUnit _ _ => action_properties env activity
-  | Surface.ObjectGroup _ => Layout.group_properties env activity
-  | Surface.ActivityRow Surface.ObjectHeading => Layout.heading_properties env activity
-  | Surface.ActivityRow Surface.SupportingRow => Layout.member_properties env true false ++ supporting_properties env
-  | Surface.ActivityRow Surface.NavigationRow => Layout.member_properties env activity false ++
-      Layout.row_properties Layout.Horizontal ++ [("align-items","center")]
-  | Surface.ActivityRow Surface.TerminalRow => Layout.member_properties env activity false ++
-      Layout.row_properties Layout.Horizontal ++ [("justify-content","flex-end")]
-  | Surface.ActivityRow _ => Layout.member_properties env activity false
+  | Surface.ObjectGroup _ => Layout.heading_properties env activity
+  | Surface.ActivityRow row =>
+      Layout.row_properties (match row with
+        | Surface.MemberRow | Surface.ObjectHeading | Surface.NavigationRow | Surface.TerminalRow => Layout.Horizontal
+        | _ => Layout.Vertical end) ++
+      [("padding","0");("gap",pixels env 8);("overflow","hidden");
+       ("min-block-size",Typography.px (Layout.motor_minimum env));("align-items","center");
+       ("justify-content",match row with Surface.TerminalRow => "flex-end" | _ => "flex-start" end)] ++
+      (match row with Surface.SupportingRow => description_properties env ++ supporting_properties env | _ => [] end)
   | Surface.SettingEntry _ _ _ | Surface.SupportingControl _ _ _ _ => compact_control env
   | Surface.BoardLane _ _ => [("background",Appearance.token "--color-surface-secondary");
       ("padding","8px"); ("min-inline-size",Typography.px (Layout.lane_minimum_width (Layout.parameters env)))]
@@ -153,7 +154,7 @@ Definition meaning_properties {Action} env activity (value : Surface.meaning Act
       ("flex-wrap","nowrap");("flex","1 1 0%");("min-inline-size","min-content")]
   | Surface.ActionFeedback _ _ _ | Surface.ActionExplanation _ _ =>
       Appearance.information_properties env activity Information.Description
-  | Surface.ReadOnly _ => [("overflow-wrap","anywhere")]
+  | Surface.ReadOnly _ | Surface.Fact _ => [("overflow-wrap","anywhere");("color","inherit")]
   | _ => [] end) ++ editor_properties env activity value ++
   if activity then match value with
   | Surface.SearchChoices _ _ => field_width_properties env ++
@@ -178,6 +179,7 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
       Typography.properties (Layout.root_font_size_milli env) Typography.Section Typography.Medium ++
       [("display","block");("min-inline-size","1ch");("overflow","hidden");
        ("text-overflow","ellipsis");("white-space","nowrap")]
+  | Surface.Choice _ _ _ _,Surface.InformationText Information.Description => description_properties env
   | Surface.WorkChoice _ _ _,Surface.InformationText _ =>
       [("display","block");("min-inline-size","1ch");("overflow","hidden");
        ("text-overflow","ellipsis");("white-space","nowrap")]
@@ -194,6 +196,10 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
       [("font-size","11px");("color",Appearance.secondary_text);("overflow-wrap","anywhere")]
   | Surface.SkillSuggestions _ _ _, Surface.InformationText Information.Status =>
       [("padding","10px 12px");("font-size","13px")]
+  | Surface.DirectoryRow _ _, Surface.InformationText Information.FieldValue
+  | Surface.WorkspaceMember _ _ _, Surface.Region
+  | Surface.WorkspaceMember _ _ _, Surface.Fact _ =>
+      member_width_properties env ++ [("inline-size","fit-content")]
   | Surface.ProjectGroup _ selected _, Surface.Region =>
       Appearance.style_properties env (Appearance.navigation_style selected 0 0)
   | Surface.ProjectGroup _ _ _, Surface.Activate _ => single_line env
@@ -202,10 +208,15 @@ Definition source_properties {Action} env (source current : Surface.meaning Acti
   | Surface.ProjectGroup _ _ _, Surface.InformationText Information.GroupTitle =>
       Typography.properties (Layout.root_font_size_milli env) Typography.ActivityPrimary Typography.Strong
   | Surface.LayerRegion behavior, Surface.ActionUnit _ _
-  | Surface.NavigationRegion _ behavior, Surface.ActionUnit _ _ =>
+  | Surface.NavigationRegion _ behavior, Surface.ActionUnit _ _
+  | Surface.ActivityGroup _ _ _ behavior, Surface.ActionUnit _ _ =>
       if Model.modal_layer behavior then
-        [("flex","1 1 auto"); ("min-inline-size","0"); ("min-block-size","0");
+        [("display","flex"); ("flex-direction","column"); ("overflow","hidden");
+         ("flex","1 1 auto"); ("min-inline-size","0"); ("min-block-size","0");
          ("padding","0"); ("gap","0")]
       else []
-  | Surface.ActivityRow Surface.SupportingRow, _ => supporting_properties env
+  | Surface.ActivityRow Surface.SupportingRow, Surface.InformationText role =>
+      Typography.properties (Layout.root_font_size_milli env) Typography.ActivitySupport (Typography.information_emphasis role) ++
+      [("color",Appearance.information_foreground role)] ++ description_properties env
+  | Surface.ActivityRow Surface.SupportingRow, _ => supporting_properties env ++ description_properties env
   | _,_ => [] end.

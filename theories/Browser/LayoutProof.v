@@ -21,7 +21,11 @@ Theorem work_overview_preserves_its_reading_span_and_viewport_edges env :
   work_overview_height env <= viewport_height env * 94 / 100 /\
   work_overview_height env <= viewport_height env - 2 * work_overview_clearance.
 Proof. unfold work_overview_width, work_overview_height.
-  repeat split; apply Nat.le_min_l || apply Nat.le_min_r. Qed.
+  repeat split; try apply Nat.le_min_l; try apply Nat.le_min_r.
+  - apply Nat.Div0.div_le_mono. apply Nat.mul_le_mono_r. lia.
+  - apply Nat.Div0.div_le_upper_bound. rewrite Nat.mul_comm.
+    apply Nat.mul_le_mono_r. vm_compute. lia.
+Qed.
 
 Theorem compact_navigation_uses_the_viewport env details :
   observe_capacity env = Some (false,details) ->
