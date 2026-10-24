@@ -56,8 +56,21 @@ Definition input_publication input current updated :=
  |Input.Snapshot|Input.EnvironmentObserved=>changed
  |_=>if Json.equal(SC.encode_state current)(SC.encode_state updated)then "keep"else changed
  end.
+(** A rejected native assignment leaves the domain value unchanged, but the
+    browser has already edited its control. Restore that published value even
+    when no new page is required. *)
+Definition restore_rejected_field input raw decision:=
+ match SA.result_error decision,input with
+ |Some _,Input.ApplyAssignment _ _|Some _,Input.ActivityAssignment _ _ _=>
+  match string_field "op" raw,string_field "key" raw with
+  |Some "element",Some key=>SA.Result(SA.result_state decision)
+    (SA.result_effects decision++[SA.emit "restore_field_buffer"[("key",JString key)]])
+    (SA.result_error decision)(SA.result_visible_error decision)
+  |_,_=>decision end
+ |_,_=>decision end.
 Definition run_input request snapshot namespace input raw current:=
- let decision:=refresh request snapshot(native_step namespace snapshot(flag "semantic_lagged" request)input raw current)in
+ let decision:=restore_rejected_field input raw
+   (refresh request snapshot(native_step namespace snapshot(flag "semantic_lagged" request)input raw current))in
  (decision,input_publication input current(SA.result_state decision)).
 
 Definition input_decision request snapshot namespace input raw current:=

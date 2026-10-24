@@ -452,7 +452,9 @@ export class Renderer {
     const record = target && this.records.get(target.dataset.key);
     // DEFENSE: The owning surface may have removed a field before its rejection reaches the native publication.
     if (!record) return;
-    this.fieldSession(record, 'reject', value);
+    // Ordinary assignments restore the published value; interactive fields may
+    // supply their newer canonical value explicitly.
+    this.fieldSession(record, 'reject', value ?? record.attributes.get('value'));
   }
   async whenSettled() {
     const results = await Promise.all(Array.from(this.records.values(), record => record.markdown?.whenSettled() ?? true));
