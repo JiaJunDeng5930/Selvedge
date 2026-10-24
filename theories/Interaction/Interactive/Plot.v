@@ -59,9 +59,9 @@ Definition chart_rows p:=firstn Bounds.chart_points(property_array "data"p).
 Definition chart p : outcome(plot input):=
  if negb(valid_field_path(property_text "x" p)&&valid_field_path(property_text "y" p))
  then Error "Chart x and y require nonempty field paths" else
- (* The drawing bound must not hide invalid data later in the source collection. *)
- all_points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(property_array "data"p);;
- let points:=firstn Bounds.chart_points all_points in
+ (* Expansion validates every row's axis types. Fixed-decimal conversion is
+    only needed for the plotted prefix; values outside it do not affect it. *)
+ points <-? Sources.traverse(data_point(property_text "x"p)(property_text "y"p))(chart_rows p);;
  x_domain <-? magnitude (fun p=>match p.(x_number) with Some x=>Decimal.units x|None=>0 end) points;;
  y_domain <-? magnitude (fun p=>Decimal.units p.(y_number)) points;;
  coordinates <-? chart_coordinates x_domain y_domain 0 (List.length points) points;;

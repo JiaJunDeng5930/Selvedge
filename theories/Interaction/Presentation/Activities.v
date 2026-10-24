@@ -20,7 +20,7 @@ Definition candidate_node {e} (pending:bool) occurrence parent (decision:UX.deci
  let action:=Control label label Secondary
   (Input.ActivityAssignment occurrence e(Act.Assignment(UX.decision_subject decision)(UX.alternative_value alternative)))
   (if pending && Parameters.live_configuration e(UX.subject_declaration(UX.decision_subject decision))
-   then Unavailable "This action is pending"else domain_availability(UX.alternative_availability alternative))in
+   then Busy "This action is pending"else domain_availability(UX.alternative_availability alternative))in
  Node(part key "row")"choice-row" ""Roles.Section(ActivityRow ChoiceRow)
  [Node key "alternative"label Roles.Button
   (Choice SingleChoice(UX.alternative_selected alternative)(UX.alternative_explanation alternative)action)
@@ -185,10 +185,9 @@ Fixpoint relation_nodes {e} snapshot s occurrence parent query request
      ([Editors.assessment_nodes parent assessment]++
       Composer.action_feedback parent action(Editors.draft_feedback(State.current_draft s e))++
       [Node(part parent "terminal")"terminal" ""Roles.Section(ActivityRow TerminalRow)
-       [dialog_actions parent
         [Node(part parent "submit")"submit"(Editors.submit_label(State.current_draft s e)e)Roles.PrimaryButton
           (ActionCommit e assessment(Control "submit"(Editors.submit_label(State.current_draft s e)e)Primary(Input.Submit e(part parent "submit"))
-           (Editors.unit_availability action assessment)))[]]]])]
+           (Editors.unit_availability action assessment)))[]]])]
  |_,_=>children end.
 Definition activity_fields snapshot s {e} (occurrence:N) parent (activity:Act.activity e) :=
  match activity with
@@ -277,18 +276,23 @@ Definition activity_view snapshot s e request occurrence source_expanded parent 
     |Observation.ApplyAndReturn|Observation.ReturnToOwner=>
       [navigation_header parent caption(Input.ActivityComplete occurrence)]
     |_=>[title parent caption]end in
-  let header:=List.app header(match completion with
+  let relations:=Act.activity_relations activity in
+  let terminal:=fun relation=>match relation with Act.AssessedAction _ _=>true|_=>false end in
+  let actions:=(flat_map(relation_nodes snapshot s occurrence parent query request activity view)
+    (filter terminal relations) ++ match completion with
     |Observation.CommitOrDiscard=>[declared parent Roles.Button(secondary "discard" "Cancel" Input.ClosePanel)]
-    |_=>[]end)in
+    |_=>[]end)%list in
   let body:=((if Observation.search_required activity view then
      [Node(part parent "search")"search" "Search models"Roles.Field
       (SearchChoices query(fun value=>option_map(Input.ActivitySearch occurrence)(as_string value)))[]]else[])++
     activity_fields snapshot s occurrence parent activity++
-    flat_map(relation_nodes snapshot s occurrence parent query request activity view)(Act.activity_relations activity)++
+    flat_map(relation_nodes snapshot s occurrence parent query request activity view)(filter(fun relation=>negb(terminal relation))relations)++
     (match view with Act.PrincipalView=>
       [Node(part parent "inspection")"inspection" ""Roles.Section(ActivityRow InspectionRow)
        [declared parent Roles.Button(secondary "source"(inspection_label(UX.property_kind_of(Act.activity_property activity)))
          (Input.TogglePropertySource e occurrence))]]|_=>[]end))%list in
   Node parent "activity"caption Roles.Dialog(ActivityGroup e activity view behavior)
-   (if Model.modal_layer behavior then [dialog_header parent header;dialog_body parent body]
-    else header++body) end.
+   (if Model.modal_layer behavior then
+      ([dialog_header parent header;dialog_body parent body] ++
+      (match actions with []=>[]|_=>[dialog_actions parent actions]end))%list
+    else (header++body++actions)%list) end.

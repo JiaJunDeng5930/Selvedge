@@ -177,8 +177,8 @@ button[data-help]::after {
   text-align: start;
   pointer-events: none;
 }
-button[data-help]:hover::after,
-button[data-help]:focus-visible::after {
+button[data-help]:not([data-help-dismissed]):hover::after,
+button[data-help]:not([data-help-dismissed]):focus-visible::after {
   display: block;
   animation: control-help-delay var(--control-help-delay) step-end;
 }
@@ -191,3 +191,9 @@ button[data-help]:focus-visible {
   outline-offset: var(--control-focus-offset, var(--native-focus-offset));
 }
 button[data-help][aria-disabled="true"] { cursor: default; }
+
+/* The real native file chooser is transparent inside its paperclip label. */
+[data-file-picker]:focus-within {
+  outline: var(--native-focus-width) solid var(--native-focus-ring);
+  outline-offset: var(--native-focus-offset);
+}

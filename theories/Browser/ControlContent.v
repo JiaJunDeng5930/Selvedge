@@ -209,7 +209,7 @@ Definition has_selected {A} (select : S.node A -> bool) (value : S.node A) :=
   negb (Nat.eqb (length (selected_keys select value)) 0).
 Definition action_purpose {A} (describe : A -> C.purpose) (value : S.node A) :=
   match S.node_meaning value with
-  | S.Activate action => Some (describe (PM.control_input action))
+  | S.Activate action => Some (C.action_purpose(describe (PM.control_input action)))
   | _ => None end.
 Definition create_action {A} describe (value : S.node A) :=
   match action_purpose describe value with Some C.CreateItem => true | _ => false end.
@@ -219,8 +219,10 @@ Definition project_disclosure {A} describe project (value : S.node A) :=
 Definition project_title {A} (value : S.node A) :=
   match S.node_role value with Roles.NavigationEntry _ => true | _ => false end.
 Fixpoint project_titles {A} (value : S.node A) : list (string * string) :=
-  if project_title value then [(S.node_key value,S.node_label value)]
-  else flat_map project_titles (S.node_children value).
+  match S.node_meaning value with
+  | S.TaskRow _ _ _ _ _ | S.TaskChildren _ => []
+  | _ => if project_title value then [(S.node_key value,S.node_label value)]
+    else flat_map project_titles (S.node_children value) end.
 Definition project_auxiliary {A} describe (value : S.node A) :=
   match S.node_role value with
   | Roles.NavigationEntry _ => false

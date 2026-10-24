@@ -84,7 +84,8 @@ Definition task_navigation_with toggle snapshot s (expanded:bool) :=
       (match current with SharedUI _ task=>task|_=>None end))))]end in
  Node "/navigation" "navigation" "Task tree" Roles.Navigation Region
   (region "/navigation" "header" "Task tree" Roles.NavigationHeader
-   (declared(part "/navigation" "header") Roles.Button
+   (title(part "/navigation" "header") "Task tree"::
+    declared(part "/navigation" "header") Roles.Button
       (secondary "toggle"(if expanded then "Collapse Task sidebar"else"Expand Task sidebar")(toggle(negb expanded)))::
     match State.active_work navigation with None=>[]|Some work=>
      [declared "/navigation" Roles.Button(secondary "rename-work" "Rename Work"(Input.OpenEditor(WorkName work)(part "/navigation" "rename-work")))]end)::
@@ -132,15 +133,15 @@ Definition work_overview snapshot s parent :=
    match works snapshot with
    |None=>[read_only parent "unavailable" "Works" "Work observations unavailable"]
    |Some entries=>map(fun work=>choice(Some(work_id work))(work_name work))entries end in
- [dialog_header parent [title parent "Works";
-   declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)];
+ [dialog_header parent [title parent "Works"];
   dialog_body parent [Node(part parent "work-choices")"work-choices" "Works" Roles.Section ChoiceGroup(work_choice_rows parent 0 entries)];
   dialog_actions parent
-   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork))]].
+   [declared parent Roles.Button(observe_control(fun input=>domain_availability(Authoring.input_availability snapshot s input))(secondary "work/new" "New Work" Input.CreateWork));
+    declared parent Roles.Button(secondary "done" "Done" Input.ClosePanel)]].
 Definition global_menu s parent :=
  let current:=State.location(State.navigation_state s)in
  region parent "global-menu" "Global destinations" Roles.CompactNavigationMenu
- (List.app(map(fun entry=>let '(identity,label,target):=entry in
+ (title parent "Global navigation" :: List.app(map(fun entry=>let '(identity,label,target):=entry in
    declared parent(Roles.CompactNavigationEntry(same_route current target))
      (secondary identity label(Input.Navigate target)))destinations)
   [declared parent(Roles.CompactNavigationEntry false)(secondary "settings" "Settings"(Input.ServiceInput Services.OpenSettings));

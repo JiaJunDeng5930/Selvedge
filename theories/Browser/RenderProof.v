@@ -74,5 +74,7 @@ Proof.
  cbn [Document.disabled Surface.node_role Surface.node_meaning Document.area_for].
  rewrite !Bool.orb_true_r.
  cbn; right.
- repeat rewrite in_app_iff; cbn [List.In]; tauto.
+ destruct(Model.control_availability action) eqn:Availability;
+   cbn [Model.available] in Unavailable; try discriminate;
+   repeat rewrite in_app_iff; cbn [List.In List.app]; tauto.
 Qed.

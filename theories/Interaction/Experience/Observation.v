@@ -152,8 +152,11 @@ Definition context_information snapshot {e}(subject:Model.subject e) project wor
       |None=>None end)
    |None=>RequiredAbsence "Choose an available project"end end
  |Fields.WorkspaceDirectories|Fields.WorkspacePrimary=>workspace_information subject workspace inherited
- |Fields.SandboxMode=>present(NamedChoice(sandbox_label sandbox)(network_label sandbox))
- |Fields.NetworkAccess=>present(Model.TextValue(network_label sandbox))
+ |Fields.SandboxMode=>present(NamedChoice
+   (match approval with Some policy=>filesystem_summary sandbox policy|None=>sandbox_label sandbox end)
+   (match approval with Some policy=>network_summary sandbox policy|None=>network_label sandbox end))
+ |Fields.NetworkAccess=>present(Model.TextValue(match approval with
+   Some policy=>network_summary sandbox policy|None=>network_label sandbox end))
  |Fields.ApprovalReviewer=>match approval with
   |Some(Selvedge.Kernel.Domain.ReviewWith reviewer)=>present(NamedChoice(profile_label reviewer)"Reviewing model")
   |Some _=>NotApplicable "A reviewing model is used only for automatic review."
@@ -174,7 +177,7 @@ Definition information_of snapshot {e}(subject:Model.subject e)(value:Fields.obs
  |Fields.TextValue text=>if String.eqb text ""then OptionalAbsence else present(Model.TextValue text)
  |Fields.ModelValue key effort=>match profile_for_subject snapshot subject key with
   |None=>match subject_declaration subject with
-    |Fields.ModelProfile=>RequiredAbsence "Choose a configured model"
+    |Fields.ModelProfile=>RequiredAbsence(if String.eqb key ""then "Choose a configured model"else "Missing model "++key)
     |_=>UnavailableInformation "Choose a configured model before inspecting its parameters"end
   |Some profile=>if ModelSelection.permitted_profile profile effort then
     match subject_declaration subject with

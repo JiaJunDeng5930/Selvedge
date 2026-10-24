@@ -93,7 +93,7 @@ Inductive meaning (Action : Type) :=
 | ReceiveFile (owner : editor) (enabled : bool) (receive : json -> option Action)
 | EnterDirectory (owner : editor) (text : string) (receive : json -> option Action) (confirm : option Action)
 | BoardProfile (automatic : bool) (selected : string) (choices : list Fields.choice_value)
-    (enabled : bool) (receive : json -> option Action).
+    (enabled busy : bool) (receive : json -> option Action).
 
 Arguments SettingEntry {Action}.
 Arguments ActivityContent {Action}.
@@ -238,7 +238,7 @@ Definition resolve_meaning {A} (content : meaning A) gesture value : option A :=
   | Gesture.Attach, ReceiveFile _ true receive => receive value
   | Gesture.Directory, EnterDirectory _ _ receive _ => receive value
   | Gesture.ConfirmDirectory, EnterDirectory _ _ _ confirm => confirm
-  | Gesture.SelectBoardProfile, BoardProfile _ _ _ true receive => receive value
+  | Gesture.SelectBoardProfile, BoardProfile _ _ _ true false receive => receive value
   | Gesture.Dismiss, ActivityGroup _ _ _ behavior
   | Gesture.Dismiss, LayerRegion behavior
   | Gesture.Dismiss, NavigationRegion _ behavior => dismiss_layer behavior value
@@ -379,8 +379,8 @@ Definition map_meaning {A B} (f : A -> B) (value : meaning A) : meaning B :=
   | ReceiveFile owner enabled receive => ReceiveFile owner enabled (map_receiver f receive)
   | EnterDirectory owner text receive confirm =>
       EnterDirectory owner text (map_receiver f receive) (option_map f confirm)
-  | BoardProfile automatic selected choices enabled receive =>
-      BoardProfile automatic selected choices enabled (map_receiver f receive)
+  | BoardProfile automatic selected choices enabled busy receive =>
+      BoardProfile automatic selected choices enabled busy (map_receiver f receive)
   end.
 
 Fixpoint map_node {A B} (f : A -> B) (value : node A) : node B :=
@@ -420,7 +420,7 @@ Definition meaning_actions {A}(content:meaning A):list A:=match content with
   |Some action=>action::rest|None=>rest end)[](Components.table_columns table)
 |EnterDirectory _ _ _ (Some confirm)=>[confirm]
 |Edit _ subject value=>edit_actions subject value
-|BoardProfile _ _ choices _ receive=>
+|BoardProfile _ _ choices _ _ receive=>
  receiver_actions receive(map(fun choice=>JString(Fields.choice_value_of choice))choices)
 |_=>[]end.
 Fixpoint node_actions {A}(value:node A):list A:=

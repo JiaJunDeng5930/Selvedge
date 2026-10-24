@@ -35,31 +35,34 @@ Definition activity_expanded owner request state:=match State.layers(State.navig
 Definition panel_open trigger state := existsb
  (fun layer=>String.eqb trigger (State.layer_trigger layer))
  (State.layers(State.navigation_state state)).
+Definition editor_open owner state:=existsb(fun layer=>match State.layer_panel layer with
+ |State.EditorPanel actual=>same_editor owner actual|_=>false end)(State.layers(State.navigation_state state)).
 Definition describe snapshot state input:P.purpose:=match input with
 |Input.Submit owner _=>editor_purpose owner
-|Input.NewCard _ _=>P.CreateItem
+|Input.NewCard _ trigger=>P.DialogTrigger P.CreateItem (panel_open trigger state)
 |Input.CreateWork=>P.WorkCreation
 |Input.BeginTask None=>P.CreateItem|Input.BeginTask(Some _)=>P.ProjectTaskCreation
-|Input.OpenEditor owner _=>editor_purpose owner
+|Input.OpenEditor owner trigger=>P.DialogTrigger(editor_purpose owner)(panel_open trigger state)
 |Input.Navigate route=>P.NavigateTo(route_symbol route)
 |Input.OpenObjectActions subject _=>P.MoreActions(match State.layers(State.navigation_state state)with
  |layer::_=>match State.layer_panel layer with State.ObjectActionsPanel actual=>if CommandAssessment.menu_subject_eq_dec subject actual then true else false|_=>false end|[]=>false end)
-|Input.MenuAction subject key _=>match ObjectActions.resolve snapshot state subject key with
+|Input.MenuAction subject key trigger=>match ObjectActions.resolve snapshot state subject key with
  |Some action=>match ObjectActions.command action with Some command=>command_purpose command|None=>match ObjectActions.action_operation action with
-  ObjectActions.Editor owner=>editor_purpose owner|ObjectActions.Destination route=>P.NavigateTo(route_symbol route)|_=>P.NamedAction end end|None=>P.NamedAction end
-|Input.Command command|Input.Confirmation command _ _ _=>command_purpose command
+  ObjectActions.Editor owner=>P.DialogTrigger(editor_purpose owner)(editor_open owner state)|ObjectActions.Destination route=>P.NavigateTo(route_symbol route)|_=>P.NamedAction end end|None=>P.NamedAction end
+|Input.Command command=>command_purpose command
+|Input.Confirmation command _ _ trigger=>P.DialogTrigger(command_purpose command)(panel_open trigger state)
 |Input.OpenNavigation kind trigger=>match kind with GlobalMenu=>P.GlobalDestinations(panel_open trigger state)
  |WorkOverview=>P.OpenPanel "columns" false (panel_open trigger state)|TasksDrawer=>P.OpenPanel "conversation" false (panel_open trigger state) end
 |Input.OpenBoard kind trigger=>P.OpenPanel(match kind with State.BoardSettings=>"settings"|State.BoardFilters=>"filter-funnel"|State.ArchivedCards=>"archive-box"end)false (panel_open trigger state)
 |Input.BoardToggle category value=>match BoardFilter.parse_category category with
  |Some category=>P.BoardFilterChoice category value|None=>P.NamedAction end
-|Input.OpenInformation(SS.CardDetails card) _=>P.OpenCardDetails card
+|Input.OpenInformation(SS.CardDetails card) trigger=>P.DialogTrigger(P.OpenCardDetails card)(panel_open trigger state)
 |Input.OpenInformation(SS.TaskDetails task) _=>P.OpenPanel "inspector" false
  (match State.layers(State.navigation_state state)with
   |layer::_=>match State.layer_panel layer with
     |State.InformationPanel(State.TaskDetails actual)=>N.eqb task actual|_=>false end
   |[]=>false end)
-|Input.OpenInformation _ _=>P.OpenPanel "inspector" false false
+|Input.OpenInformation _ trigger=>P.OpenPanel "inspector" false(panel_open trigger state)
 |Input.OpenActivity owner request _=>match request with Activity.WorkspaceActivity|Activity.PropertyActivity Selvedge.Interaction.Experience.Model.WorkspaceProperty=>P.WorkspacePicker(activity_expanded owner request state)
  |_=>P.ChooseValue(activity_expanded owner request state)end
 |Input.ActivityAssignment _ _ _=>P.SelectedOption false
@@ -70,6 +73,7 @@ Definition describe snapshot state input:P.purpose:=match input with
      (Activity.assignment_value assignment)with JNull=>P.ResetDefaults|_=>P.NamedAction end
  |_=>P.NamedAction end
 |Input.ActivityFocus _ _ _|Input.InspectSource _ _ _|Input.TogglePropertySource _ _=>P.ShowActivity false
+|Input.BeginSide _ trigger|Input.ShowSide _ trigger=>P.DialogTrigger(P.OpenPanel "conversation"false false)(panel_open trigger state)
 |Input.ClosePanel=>P.Dismiss|Input.CloseSide=>P.Dismiss
 |Input.NavigationExpanded _=>P.ToggleNavigation(Navigation.expanded_for false state)
 |Input.TaskListVisible _=>P.ToggleNavigation(State.desktop_task_list_visible(State.navigation_state state))
@@ -87,7 +91,10 @@ Definition describe snapshot state input:P.purpose:=match input with
  |Services.CloseSettings|Services.ClosePreview=>P.Dismiss|Services.CloseDirectory=>P.NamedAction
  |Services.RetryUpload _|Services.RetryAssessment _=>P.RetryTransfer
  |Services.CancelUpload _=>P.AbortOperation|Services.OpenPreview _ _=>P.PreviewFile|Services.Download _=>P.DownloadFile
- |Services.OpenDirectory _ _ _=>P.OpenPanel "folder"false false|_=>P.NamedAction end
+ |Services.OpenDirectory _ _ trigger=>P.OpenPanel "folder"false
+  (match Selvedge.Interaction.Resource.resource_request(Services.directory(State.service_state state))with
+   |Some request=>String.eqb trigger(Services.directory_trigger request)|None=>false end)|_=>P.NamedAction end
+|Input.SetDisclosure _ _ _ expanded=>P.ShowActivity(negb expanded)
 |Input.RetainedOutput _ toggle=>P.ShowActivity(negb toggle)
 |Input.Interactive _=>P.NamedAction
 |_=>P.NamedAction end.

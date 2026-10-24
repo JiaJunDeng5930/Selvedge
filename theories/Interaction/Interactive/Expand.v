@@ -19,6 +19,9 @@ Definition key_value j:=match j with
  |_=>None end.
 Definition collection_keys path xs:=Sources.traverse(fun x=>from_option "Collection key must be a nonempty string or integer"(key_value(get_path path x)))xs.
 Definition collection_valid path xs:=valid_field_path path&&match collection_keys path xs with Good keys=>Schema.unique_names keys|_=>false end.
+Definition chart_rows_valid x y rows := forallb(fun row=>
+ (match get_path x row with JString _|JNumber _=>true|_=>false end) &&
+ (match get_path y row with JNumber _=>true|_=>false end))rows.
 Definition binding_id := Syntax.valid_binding.
 Definition variable_free {A}(name:string)(env:list(string*A)):= binding_id name&&negb(existsb(fun kv=>String.eqb name(fst kv))env).
 Definition field_matches tag shape:=
@@ -82,7 +85,8 @@ Definition extra_valid p children:=required_label_valid p&&
  |Repeat=>collection_valid(property_text "key"p)(property_array "items"p)
  |Table=>collection_valid(property_text "row-key"p)(property_array "rows"p)&&
    (0<?List.length children)&&(List.length children<=?Bounds.table_columns)&&forallb(fun e=>match e with Element "column"_ []_=>true|_=>false end)children
- |Chart=>collection_valid(property_text "row-key"p)(property_array "data"p)
+ |Chart=>collection_valid(property_text "row-key"p)(property_array "data"p) &&
+   chart_rows_valid(property_text "x"p)(property_text "y"p)(property_array "data"p)
  |Graph=>collection_valid "identity"(property_array "nodes"p)&&collection_valid "identity"(property_array "edges"p)&&
    graph_identities(property_array "nodes"p)&&graph_identities(property_array "edges"p)&&
    (List.length(property_array "nodes"p)<=?Bounds.graph_nodes)&&(List.length(property_array "edges"p)<=?Bounds.graph_edges)&&graph_endpoints p&&

@@ -45,6 +45,19 @@ Proof.
   exact Within.
 Qed.
 
+(** The actual plot producer depends only on the selected prefix. Values in
+    type-correct later rows cannot change it or fail numeric conversion. *)
+Theorem chart_ignores_unplotted_values left right :
+  X.property_text "x" left = X.property_text "x" right ->
+  X.property_text "y" left = X.property_text "y" right ->
+  P.chart_rows left = P.chart_rows right ->
+  V.component_tag (X.description left) = V.component_tag (X.description right) ->
+  P.chart left = P.chart right.
+Proof.
+  intros XAxis YAxis Rows Kind. unfold P.chart.
+  rewrite XAxis, YAxis, Rows, Kind. reflexivity.
+Qed.
+
 Theorem data_point_admits_category_x x_path y_path row category y_value :
   get_path x_path row = JString category ->
   E.decimal_value (get_path y_path row) = Some y_value ->
@@ -153,9 +166,8 @@ Proof.
   cbn [E.bind] in Admitted.
   destruct (Src.traverse
     (P.data_point (X.property_text "x" properties) (X.property_text "y" properties))
-    (X.property_array "data" properties)) as [all_points|reason] eqn:Rows;
+    (P.chart_rows properties)) as [points|reason] eqn:Rows;
     cbn [E.bind] in Admitted; try discriminate.
-  set (points := firstn Bounds.chart_points all_points) in *.
   destruct (P.magnitude
     (fun point => match P.x_number point with Some x => D.units x | None => 0 end) points)
     as [x_domain|reason] eqn:XDomain; cbn [E.bind] in Admitted; try discriminate.

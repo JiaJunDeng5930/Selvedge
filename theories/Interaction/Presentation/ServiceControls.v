@@ -163,11 +163,11 @@ Definition preview_view s :=match Services.preview(State.service_state s)with
   [Node parent "file-preview"(asset_name(Services.preview_file request))Roles.Dialog
    (LayerRegion(LayerBehavior ModalDialog false ticket parent(Services.preview_trigger request)"/main"(Services.preview_trigger request)
     (Input.ServiceInput Services.ClosePreview)true true))
-   [dialog_header parent [title parent(asset_name(Services.preview_file request));
-     declared parent Roles.Button(secondary "close" "Close preview"(Input.ServiceInput Services.ClosePreview))];
-    dialog_body parent body;
-    dialog_actions parent[declared parent Roles.Button
+   ([dialog_header parent [title parent(asset_name(Services.preview_file request));
+     declared parent Roles.Button(secondary "close" "Close preview"(Input.ServiceInput Services.ClosePreview))]] ++
+    (match body with []=>[]|_=>[dialog_body parent body]end) ++
+    [dialog_actions parent[declared parent Roles.Button
       (Control "download" "Download" Secondary(Input.ServiceInput(Services.Download(Services.preview_file request)))
-       (match resource with Resource.Loaded _ _ _=>Available|_=>Unavailable "The preview is not ready"end))]]]
+       (match resource with Resource.Loaded _ _ _=>Available|_=>Unavailable "The preview is not ready"end))]])%list]
  |_,_=>[]end end.
 Definition dialogs s :=(settings s++directory_view s++preview_view s)%list.

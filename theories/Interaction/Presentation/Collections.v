@@ -88,7 +88,7 @@ Definition card_node snapshot s board_parent parent value :=match natural_field 
  match card_face snapshot s id value with
  |None=>read_only key "invalid-card" "Card unavailable" "Card priority observation unavailable"
  |Some face=>Node key "card"(text "title" value)Roles.Card(CardContent face)
-   [Node(part key "movement")"movement" "Move task"Roles.Content(MovableCard face(card_destinations snapshot s board_parent value))[];
+   [Node(part key "movement")"movement"("Move "++text "title" value)Roles.Content(MovableCard face(card_destinations snapshot s board_parent value))[];
     declared key Roles.Button(secondary "open"("打开 "++text "title" value)(Input.OpenInformation(State.CardDetails id)(part key "open")));
     more key(CardActions id)]end end.
 Definition board_group {A} parent key grouping (children:list(node A)):=Node(part parent key)key ""Roles.Toolbar(BoardGroup grouping)children.
@@ -168,7 +168,7 @@ Definition graph_node snapshot s parent value :=match natural_field "graph_id" v
     declared key Roles.Button(secondary "edit" "Edit task graph"(Input.OpenEditor(graph_editor(Some id)(State.active_work(State.navigation_state s)))(part key "edit")));
     more key(GraphActions id)]++
    [region key "nodes" "Tasks"Roles.Section
-    (flat_map(fun entry=>match natural_field "task_id" entry with
+    (group_title(part key "nodes")"Tasks"::flat_map(fun entry=>match natural_field "task_id" entry with
      |None=>[]|Some task=>let node_key:=part key(String.append "node/"(text "key" entry))in
       [Node node_key "task-graph/node" ""Roles.Section(ObjectGroup(Selvedge.Interaction.Experience.Model.TaskObject task))
        (group_title node_key(String.concat ""[text "key" entry;" · Task #";show_natural task])::

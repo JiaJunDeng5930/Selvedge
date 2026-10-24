@@ -18,7 +18,7 @@ Module SessionObserve := Selvedge.Interaction.Session.Observation.
 Definition status_availability status :=match status with
 |ObjectActions.Available=>Available|ObjectActions.InFlight=>Busy "This action is pending"|ObjectActions.Awaiting=>Unavailable "Checking action availability"
 |ObjectActions.Unavailable reason|ObjectActions.AssessmentFailed reason=>Unavailable reason end.
-Definition menu_nodes snapshot s subject occurrence parent :=flat_map(fun action=>
+Definition menu_nodes snapshot s subject occurrence parent :=title parent "Actions" :: flat_map(fun action=>
  let key:=part parent(ObjectActions.action_key action)in
  let command:=Node key(ObjectActions.action_key action)(ObjectActions.action_label action)Roles.Button
   (Activate(Control(ObjectActions.action_key action)(ObjectActions.action_label action)
@@ -121,12 +121,15 @@ Definition board_settings snapshot s parent :=match Projection.board snapshot wi
 |None=>[read_only parent "missing" "Board settings" "Board observations unavailable"]
 |Some board=>let automatic:=flag "automatic" board in
  let profile:=text "draft_profile" board in
+ let busy:=existsb(fun pending=>String.eqb "board_settings"
+   (text "op"(Schema.encode_command(State.accepted_command pending))))
+   (State.awaiting(State.authoring_state s)) in
  let toggle:=option_map Input.Command(decode_command Selvedge.Kernel.Commands.command_specs
   (G.encode(G.Cmd_board_settings(G.Build_board_settings(negb automatic)profile))))in
  ((match toggle with None=>[]|Some input=>[declared parent Roles.Button(observe_control(fun input=>domain_availability(Selvedge.Interaction.Session.Authoring.input_availability snapshot s input))(secondary "automation"(if automatic then"关闭自动执行"else"启用自动执行")input))]end)++
  [Node(part parent "drafting-model")"drafting-model" "草稿模型"Roles.Field
   (BoardProfile automatic profile(map(fun value=>Fields.ChoiceValue(Domain.profile_key value)(Observation.profile_label value))(Observation.selectable_profiles(SessionObserve.catalog snapshot)))
-    (Services.connected(State.service_state s))(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
+    (Services.connected(State.service_state s))busy(fun value=>option_map Input.BoardProfile(as_string value)))[]])%list end.
 Definition filter_choices snapshot category :=match category with
 |BoardFilter.Status=>map(fun stage=>(Selvedge.Features.Domain.stage_name stage,Selvedge.Features.Domain.stage_label stage))Selvedge.Features.Domain.stages
 |BoardFilter.Priority=>map(fun level=>(Selvedge.Features.Domain.priority_name level,Selvedge.Features.Domain.priority_label level))Selvedge.Features.Domain.priorities
@@ -202,6 +205,19 @@ Definition side_content snapshot s task parent :=
   dialog_body parent
    (information parent "side/parent" Information.Description description::
     Pages.conversation_page snapshot s(SideTask task)parent)].
+Definition panel_title panel := match panel with
+ |State.EditorPanel owner=>Editors.editor_title owner
+ |State.SideConversationPanel task=>"Side conversation · task #"++show_natural task
+ |State.NavigationPanel GlobalMenu=>"Global navigation"
+ |State.NavigationPanel WorkOverview=>"Work overview"|State.NavigationPanel TasksDrawer=>"Task tree"
+ |State.ObjectActionsPanel _=>"Actions"
+ |State.InformationPanel(State.TaskDetails _)=>"Task details"
+ |State.InformationPanel(State.TaskContext _)=>"Execution context"
+ |State.InformationPanel(State.CardDetails _)=>"任务详情"
+ |State.InformationPanel(State.PropertySource _ _)=>"Configuration source"
+ |State.BoardSettingsPanel=>"看板设置"|State.BoardFiltersPanel=>"筛选任务"
+ |State.ArchivedCardsPanel=>"Archived cards"|State.Confirmation _ caption _=>caption
+ |State.PropertyPanel _ _=>"Settings"end.
 Definition layer_view snapshot s capacity layer :=
  let parent:=SessionNavigation.panel_key(State.layer_panel layer)in
  let behavior:=behavior s capacity layer in
@@ -223,15 +239,21 @@ Definition layer_view snapshot s capacity layer :=
   |State.BoardFiltersPanel=>board_filters snapshot s parent
   |State.ArchivedCardsPanel=>map(Collections.card_node snapshot s parent parent)(value_or[](Projection.archived_cards snapshot))
   |State.Confirmation command caption destination=>
-   [dialog_header parent [title parent caption;
-     declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel)];dialog_actions parent
-    [declared parent Roles.DestructiveButton(Control "confirm" "Confirm"Destructive Input.Confirm
-      (if State.layer_pending layer then Unavailable "This action is pending"else
+   [dialog_header parent [title parent caption];
+    dialog_body parent(match State.layer_feedback layer with
+     |None=>[]|Some reason=>[Node(part parent "feedback")"confirmation-feedback" "Action failed"Roles.Alert(ReadOnly(Codec.diagnostic_message reason))[]]end);
+    dialog_actions parent
+    [declared parent Roles.Button(secondary "cancel" "Cancel" Input.ClosePanel);
+     declared parent Roles.DestructiveButton(Control "confirm" "Confirm"Destructive Input.Confirm
+      (if State.layer_pending layer then Busy "This action is pending"else
        domain_availability(Selvedge.Interaction.Session.Authoring.confirmation_availability snapshot s command)))]]
   |_=>[]end in
   let content:=match State.layer_panel layer with
   |State.EditorPanel _|State.SideConversationPanel _|State.NavigationPanel WorkOverview|State.NavigationPanel TasksDrawer
   |State.Confirmation _ _ _=>content
+  |State.InformationPanel(State.TaskDetails _)|State.InformationPanel(State.TaskContext _)
+  |State.InformationPanel(State.CardDetails _)|State.BoardSettingsPanel|State.BoardFiltersPanel
+  |State.ArchivedCardsPanel=>[dialog_header parent[title parent(panel_title panel)];dialog_body parent content]
   |_=>if Model.modal_layer behavior then [dialog_body parent content] else content end in
-  Node(part parent "layer") "layer" ""(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
+  Node(part parent "layer") "layer" (panel_title panel)(match layer_presentation behavior with ModalDialog=>Roles.Dialog|AnchoredMenu=>Roles.Menu|TrailingDetails=>Roles.Details end)
    (match State.layer_panel layer with State.NavigationPanel panel=>NavigationRegion panel behavior|_=>LayerRegion behavior end)content end.

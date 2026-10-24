@@ -34,7 +34,11 @@ Definition assessment_availability {e}(value:UX.assessment e) :=match UX.assessm
 |UX.PreparationBlocked first rest=>Unavailable
  (String.concat " · " (map(fun obstruction=>UX.obstruction_message obstruction)(first::rest)))end.
 Definition unit_availability {e}(unit:UX.action_unit e)(assessment:UX.assessment e):availability:=
- if UX.action_pending unit then Unavailable "This action is pending"else assessment_availability assessment.
+ if UX.action_pending unit then Busy
+  (match Observe.assessment_obstructions(UX.assessment_outcome assessment)with
+   |[]=>"This action is pending"
+   |causes=>String.concat " · "(map UX.obstruction_message causes)end)
+ else assessment_availability assessment.
 Definition field_control snapshot s {e}(subject:UX.subject e) :=
  EditControl(Observe.entry snapshot s subject)(Observe.observe_subject snapshot s subject)
   None(Observe.choices snapshot s subject)
@@ -56,7 +60,9 @@ Definition assignment_node {e} parent identity label (subject:UX.subject e) inco
  |None=>read_only parent identity label "This value does not satisfy the field contract"end.
 Definition workspace_field snapshot s {e} parent(subject:UX.subject e) :=
  match workspace_observation(Observe.observe_subject snapshot s subject)with
- |None=>read_only parent "unavailable" "Working directories" "Workspace observations unavailable"
+ |None=>region parent "unavailable" "Working directories" Roles.Section
+  [information parent "label" Information.FieldLabel "Working directories";
+   information parent "status" Information.Status "Workspace observations unavailable"]
  |Some(workspace,inherited)=>let collection:=UX.Collection workspace inherited in
   let roots:=Domain.workspace_roots workspace in
   Node parent "workspace-collection" "Working directories"Roles.Section(WorkspaceCollection e collection)
@@ -76,7 +82,8 @@ Definition field_node snapshot s e parent field :=
  |Some subject=>let identity:=part parent(Parameters.name field)in
   Some(match Parameters.entry_for field with
    |Fields.DirectoryCollection=>workspace_field snapshot s identity subject
-   |Fields.FileCollection=>ServiceControls.files e identity s
+   |Fields.FileCollection=>region identity "field" "" Roles.Section
+    [information identity "label" Information.FieldLabel(Parameters.label field);ServiceControls.files e identity s]
    |_=>Node identity(Parameters.name field)(Parameters.label field)Roles.Field(Edit e subject(field_control snapshot s subject))[]end)
  end.
 Definition obstruction_nodes {e} parent(cause:UX.obstruction e):list(node Input.input):=
@@ -111,23 +118,24 @@ Definition assessment_nodes {e} parent (assessment:UX.assessment e):node Input.i
  Node(part parent "assessment")"assessment" ""Roles.Content(ActionExplanation e assessment)
   (match Observe.action_obstruction(UX.assessment_outcome assessment)with
   |Some cause=>[read_only parent "reason" ""(UX.obstruction_message cause)]|None=>[]end).
-Definition skill_option_key parent skill:=part parent("skill/"++SkillMention.skill_path skill).
+Definition skill_option_key parent index:=part parent("skill/"++show_natural(N.of_nat index)).
 Definition skill_nodes snapshot s e parent :=
  let view:=Selvedge.Interaction.Session.Authoring.skill_view snapshot s e in
  let mention:=Selvedge.Interaction.Session.Authoring.skill_mention view in
  match mention with SkillMention.Suggesting _ _=>
  let items:=Selvedge.Interaction.Session.Authoring.skill_items view in
  let matches:=SkillMention.mention_candidates items mention in
- let highlighted:=SkillMention.highlighted items mention in
- let active:=option_map(skill_option_key parent)highlighted in
- let entries:=map(fun skill=>let key:=skill_option_key parent skill in
+ let highlighted:=SkillMention.highlighted_choice items mention in
+ let indexed:=combine (seq 0 (List.length matches)) matches in
+ let active:=option_map (fun item=>skill_option_key parent (fst item)) highlighted in
+ let entries:=map(fun item=>let '(index,skill):=item in let key:=skill_option_key parent index in
   let selected:=match active with Some current=>String.eqb key current|None=>false end in
   Node key "skill-option"(SkillMention.skill_name skill)
    (if selected then Roles.SelectedButton else Roles.Button)
    (SkillSuggestion selected(secondary "select"(SkillMention.skill_name skill)(Input.SkillSelected e(SkillMention.skill_path skill))))
    [information key "name" Information.OptionLabel(SkillMention.skill_name skill);
     information key "description" Information.Description(SkillMention.skill_description skill);
-    information key "path" Information.FieldValue(SkillMention.skill_path skill)])matches in
+    information key "path" Information.FieldValue(SkillMention.skill_path skill)])indexed in
  let empty:=match entries with _::_=>[]|[]=>
   [information parent "skills-status" Information.Status
    (match Selvedge.Interaction.Session.Authoring.skill_error view with

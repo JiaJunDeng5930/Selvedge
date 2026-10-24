@@ -24,7 +24,11 @@ Inductive purpose :=
 | CopyCode (state : CodeBlock.copy_state) | WrapCode (enabled : bool)
 | ShowActivity (expanded : bool) | Latest | ToggleNavigation (expanded : bool)
 | ResetDefaults | RemoveValue | RetryTransfer | PreviewFile | DownloadFile
-| Connect (connecting : bool) (failure : option string).
+| Connect (connecting : bool) (failure : option string)
+| DialogTrigger (action : purpose) (expanded : bool).
+
+Fixpoint action_purpose value := match value with
+ | DialogTrigger action _ => action_purpose action | _ => value end.
 
 Definition toggle_widget (field:Fields.field)(observation:Fields.observed) :=
  match field with Fields.NetworkAccess|Fields.AssistedCapture=>true
