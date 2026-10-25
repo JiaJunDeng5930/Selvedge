@@ -6,7 +6,17 @@ const [tool, ...source] = process.argv.slice(2);
 const arguments_ = source.map(value => value.replaceAll('/workspace/selvedge/', `${process.env.SELVEDGE_CLOUD_TEST_REMOTE}/`));
 let file;
 let options;
-if (tool === 'git') {
+if (tool === 'base64') {
+  // GNU base64 accepts a positional file; the macOS binary requires -i.
+  file = 'python3';
+  options = ['-c', 'import base64,sys; source=open(sys.argv[1],"rb") if len(sys.argv)>1 else sys.stdin.buffer; sys.stdout.buffer.write(base64.encodebytes(source.read()))', ...arguments_];
+} else if (tool === 'setsid') {
+  // The loopback SSH fixture runs on macOS as well as Linux. Python invokes
+  // the actual POSIX session syscall where the GNU command is unavailable.
+  file = 'python3';
+  options = ['-c', 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])',
+    ...arguments_.filter(value => value !== '--wait')];
+} else if (tool === 'git') {
   file = process.env.SELVEDGE_CLOUD_TEST_GIT;
   options = arguments_.map(value => value === 'https://github.com/selvedge-fixture/project.git'
     ? process.env.SELVEDGE_CLOUD_TEST_REPOSITORY : value);
@@ -19,7 +29,17 @@ if (tool === 'git') {
   }
   index++;
   file = '/bin/bash';
-  options = ['-c', arguments_.slice(index).join(' ')];
+  let command = arguments_.slice(index).join(' ');
+  if (process.platform === 'darwin') {
+    // Linux exposes the same session observation in /proc; the local fixture
+    // obtains the real parent session directly on macOS.
+    command = command.replace('read -r pid comm state parent group session rest < /proc/$$/stat;',
+      'session=$(python3 -c "import os; print(os.getsid(os.getppid()))");');
+    // Loopback commands own a POSIX process group; macOS has no /proc session table.
+    command = command.replace(/def terminate_members\(signum\):[\s\S]*?\nterminate_members\(signal\.SIGTERM\)/,
+      'def terminate_members(signum):\n    try: os.killpg(session, signum)\n    # DEFENSE: The command may finish before fixture cancellation arrives.\n    except ProcessLookupError: pass\nterminate_members(signal.SIGTERM)');
+  }
+  options = ['-c', command];
 }
 // Keep remote paths isolated without decoding SSH's binary byte streams.
 function substitute(from, to) {

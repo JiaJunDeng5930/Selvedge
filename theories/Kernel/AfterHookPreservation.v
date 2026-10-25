@@ -1,3 +1,4 @@
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia Sorting.Permutation.
 From Selvedge.Foundation Require Import Json JsonProofs Schema.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -28,12 +29,7 @@ Proof.
  rewrite <- (Stable left), <- (Stable right), Same; reflexivity.
 Qed.
 
-Lemma registry_lookup_commutes_with_mapping : forall (A B : Type) (f : A -> B) values owner,
- registry_at owner (map f values) = option_map f (registry_at owner values).
-Proof.
- intros A B f values; induction values as [|first rest IH]; intros owner; cbn; [reflexivity|].
- destruct (N.eqb owner 0); [reflexivity|apply IH].
-Qed.
+Definition registry_lookup_commutes_with_mapping := @Selvedge.Foundation.RegistryProofs.registry_lookup_commutes_with_mapping.
 
 Lemma observing_a_registry_with_equal_operation_erasure :
  forall (A : Type) (observe : task -> A) missing before after owner,
@@ -478,7 +474,7 @@ Proof.
      apply in_or_app; right; apply in_flat_map; exists original; split; [exact Member|].
      apply operation_identifiers_are_part_of_the_ticket_supply. }
  apply Forall_forall with (x:=operation_id original) in Bounded; [|exact Allocated].
- cbn [TicketedRequest.issue TicketedRequest.build decision_world accept].
+ cbn [TicketedRequest.issue TicketedRequest.allocate_identity TicketedRequest.next_identity TicketedRequest.build decision_world accept].
  assert (Operations : task_operations task = operations).
  { unfold task_operations; rewrite ArchivedTask; reflexivity. }
  rewrite Operations.

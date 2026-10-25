@@ -14,10 +14,8 @@ Proof.
  destruct (traverse Images.parse_content (message_sources request)) as [messages|] eqn:Parsed.
  - rewrite (a_manual_fork_uses_the_actual_domain_constructor request messages before Parsed).
    apply every_actual_fork_retains_or_constructs_its_cross_state_authority; exact Valid.
- - unfold CommandHandlers.execute, Commands.dispatch;
-     cbn [CommandHandlers.handlers Commands.handle_fork].
-   unfold CommandExecution.execute; cbn [CommandHandlers.require_handler].
-   fold (message_sources request); rewrite Parsed; left; reflexivity.
+ - rewrite the_actual_manual_fork_handler_interprets_its_message_admission, Parsed.
+   left; reflexivity.
 Qed.
 
 Theorem a_manual_fork_transaction_retains_or_constructs_its_cross_state_authority :

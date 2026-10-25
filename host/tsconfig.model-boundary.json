@@ -10,8 +10,19 @@
     "allowJs": true,
     "checkJs": false,
     "skipLibCheck": true,
-    "lib": ["ESNext", "DOM"],
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
     "allowImportingTsExtensions": true
   },
-  "include": ["generated/model-schema.ts", "model-api.ts", "effect-dispatch.ts"]
+  "include": [
+    "generated/model-schema.ts",
+    "model-api.ts",
+    "effect-dispatch.ts",
+    "effect-lifecycle.ts",
+    "../remote/transport-runner.ts",
+    "cloud-readiness.ts",
+    "resource-runtime.ts"
+  ]
 }

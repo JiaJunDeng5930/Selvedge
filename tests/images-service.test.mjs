@@ -115,7 +115,9 @@ test('local and MCP images reach subsequent model turns and preserve their snaps
   const output = fixture.requests[1].input.find(item => item.type === 'function_call_output' && item.call_id === 'inspect-local-image');
   assert.ok(output, 'The accepted image tool call must settle through its public tool result');
   assertImageBytes(fixture.requests[1], 1, 'high');
-  assert.ok(fixture.requests[2].input.some(item => item.type === 'function_call_output' && item.call_id === 'inspect-mcp-image'));
+  const history = (await fixture.command({ op: 'read', task_id })).messages;
+  assert.ok(history.some(item => item.role === 'function_output' && item.call_id === 'inspect-mcp-image'),
+    'The completed MCP call must remain in committed history when the model context is summarized');
   assertImageBytes(fixture.requests[2], expectedImages.length, undefined, expectedImages);
 
   await unlink(filename);

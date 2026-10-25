@@ -1,6 +1,6 @@
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Utf8 TextJson.
+From Selvedge.Foundation Require Import Utf8 TextJson BoundedDiagnostic.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
@@ -16,6 +16,14 @@ Definition unreserved (reserved : list string) (fields : list (string * json)) :
   filter (fun pair => negb (existsb (String.eqb (fst pair)) reserved)) fields.
 Definition extend (fields : list (string * json)) (result : json) :=
   JObject (fields ++ unreserved (map (@fst string json) fields) (object_fields result)).
+Definition diagnostic_contract (kind : ModelDeclarations.callback_kind) :=
+  match kind with
+  | Approval => BoundedDiagnostic.Contract 2048 true
+  | TaskTitle | BoardText | ChatgptExec | Context | Compaction _ | Worktree _ |
+      Reasoning | Hook | AfterHook | Model | Tool => BoundedDiagnostic.Contract 4096 false
+  end.
+Definition diagnostic (kind : ModelDeclarations.callback_kind) (message : string) :=
+  BoundedDiagnostic.make (diagnostic_contract kind) message.
 Definition worktree_reply (created : bool) (effect result : json) (message : string) :=
   let ok := boolean_field result "ok" in
   JObject ([("kind",JString (if created then "worktree_created" else "worktree_archived"));
@@ -24,7 +32,9 @@ Definition worktree_reply (created : bool) (effect result : json) (message : str
       [("root",get result "root")] ++
         if ok then [("workspace",get result "workspace");("guidance",get result "guidance")]
         else [("message",JString message)]
-    else if ok then [("root",get result "root")] else [("message",JString message)]).
+    else if ok then [("outcome",if Json.is_null (get result "outcome")
+      then JObject [("kind",JString "archived_at");("root",get result "root")]
+      else get result "outcome")] else [("message",JString message)]).
 Definition completed (effect result : json) : option json :=
   match callback_kind_of (str effect "kind") with
   | Some TaskTitle => Some (JObject (base "task_title" effect ++ [("ok",JBool true);("title",get result "title")]))
@@ -37,10 +47,7 @@ Definition completed (effect result : json) : option json :=
   | Some Context => Some (JObject (base "context_observed" effect ++ [("ok",JBool true);("observations",get result "observations")]))
   | Some (Compaction done) => Some (JObject (base (if done then "compaction_completed" else "compaction_measured") effect ++ [("result",result);("error",JBool false)]))
   | Some (Worktree created) =>
-    match Utf8.take 1024%nat (str result "message") with
-    | Some message => Some (worktree_reply created effect result message)
-    | None => None
-    end
+    Some (worktree_reply created effect result (diagnostic (Worktree created) (str result "message")))
   | Some Reasoning => Some (extend (base "reasoning" effect ++ [("ok",JBool true)]) result)
   | Some Model => Some (JObject (base "model" effect ++ [("ok",JBool true);("items",result)]))
   | Some Tool => Some (extend (base "tool" effect) result)
@@ -50,9 +57,11 @@ Definition error_value (message : string) := JObject [("error",JObject
   [("code",JString "external_execution_failed");("message",JString message)])].
 Definition failed_outcome (kind : string) (effect : json) (message : string) :=
   JObject (base kind effect ++ [("outcome",JObject [("decision",JString "failed");("reason",JString message)])]).
-Definition failed (effect : json) (message short_message : string) (context_limit : bool) : json :=
+Definition failed (effect : json) (original : string) (context_limit : bool) : json :=
+  let message := match callback_kind_of (str effect "kind") with
+    | Some kind => diagnostic kind original | None => BoundedDiagnostic.fallback end in
   match callback_kind_of (str effect "kind") with
-  | Some TaskTitle => JObject (base "task_title" effect ++ [("ok",JBool false);("message",JString short_message)])
+  | Some TaskTitle => JObject (base "task_title" effect ++ [("ok",JBool false);("message",JString message)])
   | Some ChatgptExec => JObject [("kind",JString "chatgpt_result");("operation_id",get effect "operation_id");
       ("error",JBool true);("value",error_value message)]
   | Some BoardText => JObject [("kind",JString "board_text");("card_id",get effect "card_id");
@@ -63,7 +72,7 @@ Definition failed (effect : json) (message short_message : string) (context_limi
   | Some (Worktree created) => worktree_reply created effect (JObject [("ok",JBool false);("root",JNull)]) message
   | Some Reasoning => JObject (base "reasoning" effect ++ [("ok",JBool false);("message",JString message)])
   | Some Hook => failed_outcome "hook" effect message
-  | Some Approval => failed_outcome "approval" effect short_message
+  | Some Approval => failed_outcome "approval" effect message
   | Some AfterHook => set (failed_outcome "after_hook" effect message) "operation_id" (get effect "operation_id")
   | Some Model => JObject (optional context_limit "failure_kind" (JString "context_limit") ++ base "model" effect ++
       [("ok",JBool false);("message",JString message)])
@@ -78,12 +87,7 @@ Definition completion (source : json) :=
 Definition failure (source : json) :=
   let original := match as_string (get source "message") with
     | Some value => value | None => "External execution failed" end in
-  (* DEFENSE: External error messages may contain invalid UTF-8 and may exceed durable message bounds. *)
   match callback_kind_of (str (get source "effect") "kind") with
  | None => type_error "The effect has no completion callback"
- | Some _ => match Utf8.chunks original with
-  | None => type_error "External execution failure contains invalid UTF-8 text"
-  | Some chunks => success (failed (get source "effect")
-      (Utf8.render_chunks (firstn 1024%nat chunks)) (Utf8.render_chunks (firstn 400%nat chunks))
-      (boolean_field source "context_limit"))
-  end end.
+ | Some _ => success (failed (get source "effect") original (boolean_field source "context_limit"))
+ end.

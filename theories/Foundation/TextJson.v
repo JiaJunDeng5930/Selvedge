@@ -96,6 +96,56 @@ Definition keyword {A} (name:string) (value:A) (s:string) : scan A := match drop
 Definition input_nesting := 257.
 Definition input_nesting_error := "JSON nesting exceeds 256 containers".
 Definition consume_input_nesting nesting := match nesting with O=>None | S rest=>Some rest end.
+(* Container scanning is shared by the parser and its member-preservation proof.
+   The recursive scanner supplies the remaining value and nesting budgets. *)
+Fixpoint array_items (next : string -> scan json) (left:nat) (text:string) (reversed:list json) : scan (list json) :=
+ match left with
+ | O=>Invalid "JSON array exceeds budget"
+ | S n=>let text:=trim_left text in
+   match text with
+   | EmptyString=>More
+   | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append reversed [])r else
+     match next text with
+     | Scanned value rest=>let rest:=trim_left rest in
+       match rest with
+       | EmptyString=>More
+       | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append(value::reversed)[])r else
+         if Ascii.eqb c "," then
+           match trim_left r with
+           | String c _=>if Ascii.eqb c "]" then Invalid "Trailing array comma"
+             else array_items next n r(value::reversed)
+           | _=>More end
+         else Invalid "Expected array separator" end
+     | More=>More | Invalid e=>Invalid e end
+   end end.
+
+Fixpoint object_members (unique_members : bool) (next : string -> scan json) (token_budget left:nat) (seen:list string) (text:string) (reversed:list(string*json)) : scan (list(string*json)) :=
+ match left with
+ | O=>Invalid "JSON object exceeds budget"
+ | S n=>let text:=trim_left text in
+   match text with
+   | EmptyString=>More
+   | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append reversed [])r else
+     match quoted token_budget text with
+     | Scanned key rest=>if unique_members && existsb (String.eqb key) seen then Invalid "Duplicate object key" else
+       match trim_left rest with
+       | EmptyString=>More
+       | String c r=>if Ascii.eqb c ":" then
+         match next r with
+         | Scanned value rest=>match trim_left rest with
+           | EmptyString=>More
+           | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append((key,value)::reversed)[])r else
+             if Ascii.eqb c "," then
+               match trim_left r with
+               | String c _=>if Ascii.eqb c "}" then Invalid "Trailing object comma"
+                 else object_members unique_members next token_budget n(key::seen)r((key,value)::reversed)
+               | _=>More end
+             else Invalid "Expected object separator" end
+         | More=>More | Invalid e=>Invalid e end
+         else Invalid "Expected object colon" end
+     | More=>More | Invalid e=>Invalid e end
+   end end.
+
 Fixpoint json_value_at (unique_members : bool) (fuel nesting:nat) (s:string) {struct fuel} : scan json :=
  match fuel with
  | O=>Invalid "JSON nesting or token budget exceeded"
@@ -106,53 +156,9 @@ Fixpoint json_value_at (unique_members : bool) (fuel nesting:nat) (s:string) {st
    | String c r=>
     if Ascii.eqb c """" then scan_map JString (quoted_body k r) else
     if Ascii.eqb c "[" then
-      let fix items (left:nat) (text:string) (reversed:list json) : scan (list json) :=
-        match left with
-        | O=>Invalid "JSON array exceeds budget"
-        | S n=>let text:=trim_left text in
-          match text with
-          | EmptyString=>More
-          | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append reversed [])r else
-            match json_value_at unique_members k child_nesting text with
-            | Scanned value rest=>let rest:=trim_left rest in
-              match rest with
-              | EmptyString=>More
-              | String c r=>if Ascii.eqb c "]" then Scanned(List.rev_append(value::reversed)[])r else
-                if Ascii.eqb c "," then
-                  match trim_left r with
-                  | String c _=>if Ascii.eqb c "]" then Invalid "Trailing array comma"
-                    else items n r(value::reversed)
-                  | _=>More end
-                else Invalid "Expected array separator" end
-            | More=>More | Invalid e=>Invalid e end
-          end end in scan_map JArray (items k r [])
+      scan_map JArray (array_items (json_value_at unique_members k child_nesting) k r [])
     else if Ascii.eqb c "{" then
-      let fix members (left:nat) (seen:list string) (text:string) (reversed:list(string*json)) : scan (list(string*json)) :=
-        match left with
-        | O=>Invalid "JSON object exceeds budget"
-        | S n=>let text:=trim_left text in
-          match text with
-          | EmptyString=>More
-          | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append reversed [])r else
-            match quoted k text with
-            | Scanned key rest=>if unique_members && existsb (String.eqb key) seen then Invalid "Duplicate object key" else
-              match trim_left rest with
-              | EmptyString=>More
-              | String c r=>if Ascii.eqb c ":" then
-                match json_value_at unique_members k child_nesting r with
-                | Scanned value rest=>match trim_left rest with
-                  | EmptyString=>More
-                  | String c r=>if Ascii.eqb c "}" then Scanned(List.rev_append((key,value)::reversed)[])r else
-                    if Ascii.eqb c "," then
-                      match trim_left r with
-                      | String c _=>if Ascii.eqb c "}" then Invalid "Trailing object comma"
-                        else members n(key::seen)r((key,value)::reversed)
-                      | _=>More end
-                    else Invalid "Expected object separator" end
-                | More=>More | Invalid e=>Invalid e end
-                else Invalid "Expected object colon" end
-            | More=>More | Invalid e=>Invalid e end
-          end end in scan_map JObject (members k [] r [])
+      scan_map JObject (object_members unique_members (json_value_at unique_members k child_nesting) k k [] r [])
     else if Ascii.eqb c "t" then keyword "true" (JBool true) s else
     if Ascii.eqb c "f" then keyword "false" (JBool false) s else
     if Ascii.eqb c "n" then keyword "null" JNull s else
@@ -170,10 +176,13 @@ Definition parse_json (s:string) : option json :=
 
 (* Raw service values and tool arguments retain every member occurrence.
    Protocol records use parse_json, whose unique-member admission is unchanged. *)
-Definition parse_json_members (s : string) : option json :=
- if Utf8.well_formed s then match json_value_with false (S (String.length s)) s with
+Definition parse_json_members_at (nesting : nat) (s : string) : option json :=
+ if Utf8.well_formed s then match json_value_at false (S (String.length s)) nesting s with
  | Scanned value rest => if String.eqb (trim_left rest) "" then Some value else None
  | _ => None end else None.
+
+Definition parse_json_members (s : string) : option json :=
+ parse_json_members_at (S (String.length s)) s.
 
 Inductive input_admission :=
 | InputAccepted (value : json)

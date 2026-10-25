@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson JsonObjects.
+From Selvedge.Foundation Require Import Json CallWire TextJson JsonObjects.
 From Selvedge.Kernel Require Import Images ContextProtocol Conversation.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
 Import ListNotations.
@@ -111,7 +111,7 @@ Definition function_call value profile :=
   let call := get value "content" in
   JObject (optional (account profile) "namespace" (JString local_tool_namespace) ++ [
     ("type",JString "function_call");("call_id",get call "id");("name",get call "name");
-    ("arguments",JString (TextJson.render_json (get call "arguments"))) ]).
+    ("arguments",JString (CallWire.argument_text call)) ]).
 Definition function_output_envelope value := JString (TextJson.render_json (JObject [
   ("value",get value "content");("is_error",get value "is_error")])).
 Definition operation_result_envelope value := JString

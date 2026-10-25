@@ -1,6 +1,6 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Adapters Require Import Common Audio.
-From Selvedge.Host Require Import AudioState AudioSession AudioConnection.
+From Selvedge.Host Require Import AudioState AudioSession AudioConnection AudioTransport.
 From Selvedge.Kernel Require Import Conversation.
 Import ListNotations.
 Open Scope string_scope.
@@ -24,14 +24,15 @@ Definition session_step (source : json) :=
     else if String.eqb kind "journal_failed" then Some (AudioSession.JournalFailed (str observed "message"))
     else if String.eqb kind "stop" then Some AudioSession.Stop
     else if String.eqb kind "progress" then Some AudioSession.ProgressRequested
-    else if String.eqb kind "progress_failed" then Some (AudioSession.ProgressFailed (str observed "message"))
+    else if String.eqb kind "progress_failed" then Some (AudioSession.ProgressFailed (num observed "token") (str observed "message"))
+    else if String.eqb kind "delivered" then Some (AudioSession.ProgressDelivered (num observed "token"))
     else if String.eqb kind "creation_failed" then Some AudioSession.CreationFailed
     else if String.eqb kind "connected" then Some AudioSession.Connected
     else if String.eqb kind "cursor" then let page := get observed "page" in
       Some (AudioSession.InitialCursor (num page "after" + N.of_nat (List.length (items (get page "messages"))))%N)
     else if String.eqb kind "page" then
       let updates := Audio.task_progress Conversation.json_message_assistant Conversation.json_message_content (get observed "page") in
-      Some (AudioSession.ProgressPage (get observed "page") (items (get updates "value"))) else None in
+      Some (AudioSession.ProgressPage (num observed "token") (get observed "page") (items (get updates "value"))) else None in
   match observation with None => failure "TypeError" "Unknown audio session observation" | Some observation =>
     let '(next,effects) := AudioSession.step state (get observed "generation") observation in
     success (JObject [("state",AudioSession.state_json next);("actions",JArray (map (AudioSession.primitive_json next) effects))]) end.
@@ -48,8 +49,28 @@ Definition connection_step (source : json) :=
   match observation with None => failure "TypeError" "Unknown audio connection observation" | Some observation =>
     let '(next,effects) := AudioConnection.step state observation in
     success (JObject [("state",AudioConnection.state_json next);("actions",JArray (map AudioConnection.primitive_json effects))]) end.
+Definition transport_step (source : json) :=
+  let state := AudioTransport.state_of (get source "state") in let observed := get source "observation" in
+  let kind := str observed "kind" in let attempt := num observed "attempt" in
+  let observation := if String.eqb kind "ack" then Some (AudioTransport.EmitAck (num observed "token"))
+    else if String.eqb kind "failed" then Some (AudioTransport.EmitFailed (num observed "token"))
+    else if String.eqb kind "stop" then Some (AudioTransport.GracefulStop (str observed "message"))
+    else if String.eqb kind "startup_timeout" then Some (AudioTransport.StartupTimeout (str observed "message"))
+    else if String.eqb kind "open" then Some (AudioTransport.Arrival (AudioConnection.Opened attempt))
+    else if String.eqb kind "upgrade" then Some (AudioTransport.Arrival (AudioConnection.UpgradeRejected attempt (num observed "status")))
+    else if String.eqb kind "error" then Some (AudioTransport.Arrival (AudioConnection.SocketFailed attempt (str observed "message")))
+    else if String.eqb kind "close" then Some (AudioTransport.Arrival (AudioConnection.SocketClosed attempt (num observed "code")))
+    else if String.eqb kind "message" then Some (AudioTransport.Arrival (AudioConnection.ProviderMessage attempt (get observed "value")))
+    else if String.eqb kind "retry" then Some (AudioTransport.Arrival (AudioConnection.RetryElapsed attempt)) else None in
+  match observation with None => failure "TypeError" "Unknown audio transport observation" | Some observation =>
+    let '(next,actions) := AudioTransport.step state observation in
+    success (JObject [("state",AudioTransport.state_json next);("actions",JArray actions)]) end.
 Definition call (operation : string) (source : json) : json :=
-  if String.eqb operation "control.audio.connection_initial" then
+  if String.eqb operation "control.audio.transport_initial" then
+    let '(state,actions) := AudioTransport.begin (AudioTransport.initial source) in
+    success (JObject [("state",AudioTransport.state_json state);("actions",JArray actions)])
+  else if String.eqb operation "control.audio.transport_step" then transport_step source
+  else if String.eqb operation "control.audio.connection_initial" then
     success (JObject [("state",AudioConnection.state_json AudioConnection.initial);("actions",JArray [AudioConnection.primitive_json (AudioConnection.Connect 0)])])
   else if String.eqb operation "control.audio.connection_step" then connection_step source
   else if String.eqb operation "control.audio.stream_initial" then success (AudioState.stream_json (AudioState.stream_initial source))

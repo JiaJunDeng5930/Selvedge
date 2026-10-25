@@ -1,5 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Kernel Require Import WorkspaceBackend.
+From Selvedge.Host Require Import CloudResources.
 From Selvedge.Adapters Require Import Common Workspaces CloudConfiguration.
 Import ListNotations.
 Open Scope string_scope.
@@ -66,7 +67,7 @@ Definition receipt_matches (source : json) :=
   CloudConfiguration.valid (JObject [("backend",get value "backend");
     (WorkspaceBackend.name WorkspaceBackend.TencentCvm,get value "settings")]) &&
   (is_null (get source "bound_root") || equal (get value "root") (get source "bound_root")) &&
-  contained_workspace (get value "workspace") (str value "root") && recovery_authority value.
+  contained_workspace (get value "workspace") (str value "root") && recovery_authority value && CloudResources.receipt_valid value.
 Definition receipt (source : json) :=
   if receipt_matches source then success (get source "value")
   else type_error "Cloud workspace receipt does not match its task".

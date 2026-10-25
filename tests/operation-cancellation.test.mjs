@@ -147,3 +147,42 @@ test('an approved executing operation retains its announcement, ticket and argum
   assertContinued(page, upstream);
   assert.deepEqual(upstream.failures, []);
 });
+
+test('a frozen idle task processes an owned operation result after unfreeze', async t => {
+  const { service, taskId, upstream, ready, release } = await fixture(t, ({ workspace }) => {
+    const ready = path.join(workspace, 'frozen-ready');
+    const release = path.join(workspace, 'frozen-release');
+    return { ready, release, command: `printf ready > ${shellQuote(ready)}; while [ ! -e ${shellQuote(release)} ]; do sleep 0.01; done; printf frozen-result` };
+  });
+  const { operation } = await waitForOperation(service, taskId, value => value.status === 'awaiting_approval');
+  assert.equal((await service.command({ op: 'review_approval', task_id: taskId,
+    operation_id: operation.operation_id, decision: 'allow', reason: 'Run the frozen result fixture.' })).reply.ok, true);
+  await waitForFile(ready);
+
+  async function waitForState(accepts) {
+    const deadline = Date.now() + 10000;
+    let page;
+    do {
+      page = await readTask(service, taskId);
+      if (accepts(page.task)) return page;
+      await delay(10);
+    } while (Date.now() < deadline);
+    assert.fail(`The expected frozen result state was not reached: ${JSON.stringify(page?.task)}`);
+  }
+  await waitForState(task => task.phase === 'idle' && task.operations.length === 1);
+  assert.equal((await service.command({ op: 'freeze', task_id: taskId })).reply.ok, true);
+  const beforeResult = upstream.requests.length;
+  await writeFile(release, 'complete while frozen');
+  const frozen = await waitForState(task => task.status === 'frozen' && task.operations.length === 0);
+  assert.equal(frozen.task.phase, 'ready');
+  assert.equal(upstream.requests.length, beforeResult);
+  assert.ok(frozen.messages.some(entry => entry.role === 'operation_result'
+    && entry.operation_id === operation.operation_id));
+  const configured = await service.command({ op: 'configure_task_execution', task_id: taskId });
+  assert.equal(configured.reply.error.code, 'task_busy');
+
+  assert.equal((await service.command({ op: 'unfreeze', task_id: taskId })).reply.ok, true);
+  await taskIdle(service, taskId);
+  assert.equal(upstream.requests.length, beforeResult + 1);
+  assert.deepEqual(upstream.failures, []);
+});

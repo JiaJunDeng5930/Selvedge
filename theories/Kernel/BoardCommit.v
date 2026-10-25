@@ -1,0 +1,16 @@
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json.
+From Selvedge.Generated Require Import Commands.
+From Selvedge.Kernel Require Import State Inputs DeferredCommit.
+From Selvedge.Features Require Import Board.
+
+Definition input (decoded : option Inputs.input) : option Commands.create_card_payload :=
+ match decoded with
+ | Some (UserCommand (Commands.Cmd_create_card request)) => Some request
+ | _ => None
+ end.
+Definition candidate (request : Commands.create_card_payload) (before : world) :=
+ DeferredCommit.continue (Board.handle_create_card request None before).
+Definition packet (request : Commands.create_card_payload) (raw : json) (before : world) :=
+ DeferredCommit.packet (Some (UserCommand (Commands.Cmd_create_card request))) raw before
+   (candidate request before).

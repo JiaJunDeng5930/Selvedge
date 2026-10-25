@@ -6,12 +6,13 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { boundary } from './public/model-boundary.mjs';
 import { naturalKey } from './codec.mjs';
+import { runCloudResourceController } from './resource-runtime.ts';
 import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from './cloud-environments.mjs';
 
 const execute = promisify(execFile);
-const receiptFormat = 'selvedge-cloud-workspace-2';
+const receiptFormat = 'selvedge-cloud-workspace-3';
 
 async function git(primary, arguments_, { signal } = {}) {
   // DEFENSE: A host GIT_DIR/GIT_WORK_TREE selector must not redirect the project's observed repository.
@@ -96,69 +97,25 @@ const resource = (operation, source) => boundary(`control.resource.${operation}`
 /** Interpret only physical operations; the extracted resource step chooses their order and outcome. */
 async function runResource(plan, { files, backend, signal, prepare, errors = [] }) {
   let cleanupSignal;
-  while (true) {
-    const state = plan.state;
-    let observation;
-    switch (plan.effects[0]) {
-      case 'finish': return { receipt: state, errors };
-      case 'persist':
-        try {
-          const { guidance, recording_failed, ...durable } = state;
-          await saveReceipt(files.receipt, durable);
-          observation = { kind: 'persisted' };
-        } catch (error) {
-          // DEFENSE: Disk exhaustion after allocation must not prevent exact-ID reclamation.
-          errors.push(`Could not persist cloud resource: ${error.message}`);
-          observation = { kind: 'persistence_failed' };
-        }
-        break;
-      case 'allocate':
-        try { observation = { kind: 'allocated', ...await backend.create(state.request, { signal }) }; }
-        catch (error) {
-          errors.push(`Allocation outcome unknown: ${error.message}`);
-          observation = { kind: 'allocation_failed' };
-        }
-        break;
-      case 'prepare':
-        try { observation = { kind: 'prepared', ...await prepare(state) }; }
-        catch (error) {
-          errors.push(`Cloud preparation failed: ${error.message}`);
-          observation = { kind: 'preparation_failed' };
-        }
-        break;
-      case 'credentials':
-        cleanupSignal = AbortSignal.timeout(120_000);
-        try {
-          backend = recoveredBackend(state);
-          observation = { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
-        }
-        catch (error) {
-          errors.push(`Cloud recovery needs credentials: ${error.message}`);
-          observation = { kind: 'credentials_failed' };
-        }
-        break;
-      case 'scan':
-        try { observation = { kind: 'scan_page', ...await backend.scan(state.token, state.scan_offset, { signal: cleanupSignal }) }; }
-        catch (error) {
-          errors.push(`Cloud allocation reconciliation incomplete: ${error.message}`);
-          observation = { kind: 'scan_failed' };
-        }
-        break;
-      case 'terminate': {
-        const id = state.instance_ids[0];
-        try {
-          await backend.destroy(id, { signal: cleanupSignal });
-          observation = { kind: 'terminated', id };
-        } catch (error) {
-          errors.push(`Cloud destruction failed (${id}): ${error.message}`);
-          observation = { kind: 'termination_failed', id };
-        }
-        break;
-      }
-      default: throw new Error(`Unknown resource primitive: ${plan.effects[0]}`);
-    }
-    plan = resource('step', { state, observation });
-  }
+  return runCloudResourceController(plan, (state, observation) => resource('step', { state, observation }), {
+    async persist(state) {
+      await saveReceipt(files.receipt, resource('receipt', { state }));
+    },
+    async allocate(state) { return { kind: 'allocated', ...await backend.create(state.request, { signal }) }; },
+    async prepare(state) { return { kind: 'prepared', ...await prepare(state) }; },
+    async credentials(state) {
+      cleanupSignal = AbortSignal.timeout(120_000);
+      backend = recoveredBackend(state);
+      return { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
+    },
+    async scan(state) { return { kind: 'scan_page', ...await backend.scan(state.token, state.scan_offset, { signal: cleanupSignal }) }; },
+    async terminate(state) {
+      const id = state.instance_ids[0];
+      await backend.destroy(id, { signal: cleanupSignal });
+      return { kind: 'terminated', id };
+    },
+    async terminateFailure(state) { return { kind: 'termination_failed', id: state.instance_ids[0] }; },
+  }, errors);
 }
 
 function recoveredBackend(receipt) {
@@ -276,7 +233,7 @@ export async function archiveTaskWorkspace(effect, options = {}) {
 
 export async function reconcileTaskWorkspace(entry, options = {}) {
   if (entry.backend === 'local') return reconcileManagedWorktree(entry, options);
-  const effect = { kind: entry.status === 'archiving' ? 'worktree_archive' : 'worktree_create', ...entry };
+  const { effect } = resource('recovery', { entry, receipt: null });
   let files, receipt, environment;
   try {
     files = await locations(options, entry.task_id);
@@ -288,7 +245,8 @@ export async function reconcileTaskWorkspace(entry, options = {}) {
       }
       throw error;
     }
-    if (effect.kind === 'worktree_create' && entry.status !== 'creating_archived' && receipt.status === 'ready') {
+    const recovery = resource('recovery', { entry, receipt });
+    if (recovery.action === 'resume') {
       const result = await runResource(resource('step', { state: receipt, observation: { kind: 'resume' } }), {
         files,
         async prepare(state) {

@@ -82,6 +82,12 @@ test('HTTP attachment reads preserve uploaded bytes and reject changed bytes or 
   await unlink(stored);
   await symlink(external, stored);
   assert.equal((await read()).ok, false, 'Matching bytes do not authorize following an external symlink');
+  await unlink(stored);
+  await promisify(execFile)('mkfifo', [stored]);
+  const fifoResponse = await fetch(`${fixture.running.address}/api/board/attachments/${attachment.id}`, {
+    headers: fixture.headers, signal: AbortSignal.timeout(2000),
+  });
+  assert.equal(fifoResponse.ok, false, 'A FIFO must be rejected without waiting for a writer');
   const health = await fetch(`${fixture.running.address}/api/health`, { headers: fixture.headers });
   assert.equal(health.status, 200);
 });

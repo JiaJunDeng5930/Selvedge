@@ -12,11 +12,8 @@ Proof.
  destruct (traverse Images.parse_content (message_sources request)) as [messages|] eqn:Parsed.
  - rewrite (a_manual_fork_uses_the_actual_domain_constructor request messages before Parsed).
    apply every_manual_fork_preserves_every_world_requirement; exact Valid.
- - unfold CommandHandlers.execute, Commands.dispatch;
-     cbn [CommandHandlers.handlers Commands.handle_fork].
-   unfold CommandExecution.execute; cbn [CommandHandlers.require_handler].
-   change (traverse Images.parse_content (message_sources request) = None) in Parsed.
-   fold (message_sources request); rewrite Parsed; exact Valid.
+ - rewrite the_actual_manual_fork_handler_interprets_its_message_admission, Parsed.
+   exact Valid.
 Qed.
 
 Lemma the_manual_fork_proposal_preserves_world_requirements : forall request before,

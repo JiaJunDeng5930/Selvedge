@@ -6,7 +6,7 @@ import { startRelay, WebSocket } from '../relay/test/runtime.mjs';
 const secret = () => randomBytes(32).toString('base64url');
 
 test('real Durable Object hibernation restores live WebSocket identities and an unspent ticket', async t => {
-  const enrollmentToken = secret();
+  const enrollmentToken = secret().repeat(10);
   const relay = await startRelay({ enrollmentToken });
   const sockets = new Set();
   t.after(async () => { for (const socket of sockets) socket.terminate(); await relay.close(); });

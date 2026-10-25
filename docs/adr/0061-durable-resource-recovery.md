@@ -43,3 +43,36 @@ The current cloud receipt format includes this recovery authority. Older
 receipts lack account and single-dispatch evidence, remain untouched external
 material, and require explicit reconciliation rather than synthesized authority
 or automatic format conversion.
+
+Resource phases now carry their applicable evidence in closed Gallina
+constructors. Allocation uncertainty and a confirmed allocation are distinct
+values; preparation, successful readiness and readiness revalidation carry the
+instance and connection facts they actually require. Durable phase fields are
+projections of those constructors, rather than independently mutable flags.
+This prevents a host status update from accidentally granting allocation or
+cleanup authority. Recovery consumes observations and cannot regain allocation
+authority along a subsequent controller trace. The current receipt format is
+advanced together with this representation; accepting an earlier format would
+reintroduce an independent interpretation of those facts.
+
+The production resource and SSH readiness interpreters consume generated action
+unions under strict TypeScript checking. SSH exit 255 is an observed temporary
+transport failure during image startup; the extracted controller owns its bounded
+retry and deadline. Missing image programs remain a definite preparation failure.
+Neither a timer nor a transport adapter selects a resource continuation.
+
+Exclusive directory creation establishes a local reservation, not Git
+registration. The reservation records its canonical path, device, inode and
+fresh identity before the controller permits Git registration. A separately
+persisted registration acknowledgement permits preparation. Canonical roots and
+Git backlinks are physical observations admitted by the same extracted owner.
+
+Failed creation and archival share ownership evidence but retain distinct
+intents. Archival moves registered worktrees to preserve tracked and untracked
+changes. An owned, empty, unregistered reservation can instead be released with
+nonrecursive `rmdir`. Release synchronizes the parent directory and persists a
+terminal receipt before its callback can settle the resource as having no archive
+path. Recovery may acknowledge that a durable reservation is already absent; it
+never repeats a release or Git move. A crash before reservation identity reaches
+disk leaves an explicit ownership resolution requirement rather than authorizing
+a deletion from the directory name alone.

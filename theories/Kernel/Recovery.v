@@ -28,4 +28,4 @@ Definition recover_task (owner : N) (value : task) :=
    recovery_receipts owner (task_activity value)) value).
 Definition recover (value : world) :=
  accept (JObject [("recovered",JBool true)])
-  (with_tasks (Numbers.indexed recover_task 0 (world_tasks value)) value) [].
+  (with_tasks (Selvedge.Foundation.Registry.indexed recover_task 0 (world_tasks value)) value) [].

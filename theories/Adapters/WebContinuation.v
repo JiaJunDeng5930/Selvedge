@@ -98,7 +98,12 @@ Definition receipt source := let effect := get source "effect" in let resource :
     ("input_count",number (array_count (get effect "history")));("input_hash",get source "input_hash");("output_count",get source "output_count");
     ("calls",JArray (if eq resource "status" "requires_action" then
       map (fun call => JObject (subset call ["call_id";"name"])) (items (get resource "output")) else []));("deferred",get source "deferred")]).
-Definition emitted_call call := JObject (("type",JString "call")::("id",get call "call_id")::subset call ["name";"arguments"]).
+Definition emitted_call call : outcome json :=
+  match CallWire.parse_arguments CallWire.callback_argument_nesting
+    (str call "arguments_json") with
+  | Some arguments => Accepted (CallWire.encode_item (str call "call_id") (str call "name") arguments)
+  (* DEFENSE: web.settle can be called directly with an unadmitted resource. *)
+  | None => reject "ChatGPT Web returned invalid function arguments" end.
 Definition settle source := let index := get source "index" in let resource := get source "resource" in
   if negb (natural index && (same index (number 0) || same index (number 1)))
   then err "Unsupported ChatGPT Web output stage; only parts 0 and 1 are defined"
@@ -109,5 +114,6 @@ Definition settle source := let index := get source "index" in let resource := g
     success (JObject [("items",JArray [JObject [("type",JString "text");("part",index);("text",JString answer)]]);
       ("snapshot",JString answer);("continue",JBool pending);("deferred",if pending then JArray [] else get source "deferred");
       ("body",if pending then successor_body (get resource "id") (items (get source "deferred")) else get source "body")])
-  else success (JObject [("items",JArray (map emitted_call (items (get resource "output"))));("snapshot",JString "");
-    ("continue",JBool false);("deferred",get source "deferred");("body",get source "body")]).
+  else render_outcome (fun calls => JObject [("items",JArray calls);("snapshot",JString "");
+    ("continue",JBool false);("deferred",get source "deferred");("body",get source "body")])
+    (traverse emitted_call (items (get resource "output"))).

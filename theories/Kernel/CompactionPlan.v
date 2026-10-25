@@ -21,9 +21,9 @@ Fixpoint contains_image (value : json) : bool :=
    (String.eqb (fst entry) "type" && (Json.equal (snd entry) (JString "image") || Json.equal (snd entry) (JString "input_image"))) ||
    contains_image (snd entry)) fields
  | _ => false end.
-Definition start (history raw : json) (provider : string) (method : method) (input_tokens window reserve : N) :=
+Definition start_with_images (has_images : bool) (history raw : json) (provider : string) (method : method) (input_tokens window reserve : N) :=
  let value := CompactionState (NativeSource history raw) 0 "" window window reserve in
- if negb (contains_image history || contains_image raw) && String.eqb provider "chatgpt" &&
+ if negb has_images && String.eqb provider "chatgpt" &&
     (match method with Automatic => true | Summary => false end) && (input_tokens + reserve <=? window)
  then Some value else to_portable value.
 Definition chunk (value : compaction_state) :=

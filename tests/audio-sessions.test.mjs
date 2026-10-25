@@ -148,3 +148,96 @@ test('voice activation retries only its bounded 404 window and reports exhaustio
     await audio.close();
   }
 });
+
+test('stop drains received provider transcripts and the latest tail behind a blocked journal acknowledgement', async t => {
+  const wire = transport(), events = [];
+  let release, entered;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const first = new Promise(resolve => { entered = resolve; });
+  const audio = createChatGPTAudio({ home: '/unused-audio-fixture', ...wire.options, onEvent: async event => {
+    events.push(event);
+    if (event.item_id === 'first') { entered(); await blocked; }
+  } });
+  t.after(() => { release(); return audio.close(); });
+  await audio.createSession({ id: 'draining', generation: 'live', connection: 'audio-fixture', task_id: 0, sdp: 'v=0' });
+  await eventually(() => events.some(event => event.type === 'ready'));
+  const socket = wire.sockets[0];
+  socket.provider({ type: 'turn.done', turn: { role: 'assistant', id: 'first', transcript: 'first committed answer' } });
+  await first;
+  socket.provider({ type: 'turn.done', turn: { role: 'assistant', id: 'second', transcript: 'second received answer' } });
+  socket.provider({ type: 'output_transcript.added', item: { text: 'latest unfinished tail' } });
+  let stopped = false;
+  const stopping = audio.stopSession('draining').then(() => { stopped = true; });
+  await delay(10);
+  assert.equal(stopped, false);
+  release();
+  await stopping;
+  assert.deepEqual(events.filter(event => event.type === 'transcript').map(event => event.text),
+    ['first committed answer', 'second received answer', 'latest unfinished tail']);
+  assert.equal(events.at(-1).type, 'closed');
+  assert.equal(socket.readyState, 3);
+});
+
+test('a rejected speech emission retires the queued semantic suffix while still acknowledging cleanup', async t => {
+  const wire = transport(), events = [];
+  let reject, entered;
+  const blocked = new Promise((_resolve, fail) => { reject = fail; });
+  const first = new Promise(resolve => { entered = resolve; });
+  const audio = createChatGPTAudio({ home: '/unused-audio-fixture', ...wire.options, onEvent: async event => {
+    events.push(event);
+    if (event.item_id === 'uncertain') { entered(); await blocked; }
+  } });
+  t.after(() => { reject(new Error('test cleanup')); return audio.close(); });
+  await audio.createSession({ id: 'retiring', generation: 'live', connection: 'audio-fixture', task_id: 0, sdp: 'v=0' });
+  await eventually(() => events.some(event => event.type === 'ready'));
+  const socket = wire.sockets[0];
+  socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'uncertain', transcript: 'uncertain journal commit' } });
+  await first;
+  socket.provider({ type: 'turn.done', turn: { role: 'user', id: 'suffix', transcript: 'must not commit after failure' } });
+  const stopping = audio.stopSession('retiring');
+  reject(new Error('journal unavailable'));
+  await stopping;
+  assert.equal(events.some(event => event.item_id === 'suffix'), false);
+  assert.equal(events.at(-1).type, 'closed');
+  assert.equal(socket.readyState, 3);
+});
+
+test('progress requests share a reservation and advance before a dirty follow-up reads', async t => {
+  let receive, request, release;
+  t.after(() => release?.());
+  const contexts = [];
+  const { service, task_id, read } = await serviceFixture(t, { audioFactory: options => {
+    receive = options.onEvent;
+    return {
+      async createSession(value) { request = value; return { id: value.id, sdp: 'v=0' }; },
+      async appendContext(_id, context) { contexts.push(context); return true; },
+      async stopSession() {}, async close() {},
+    };
+  } });
+  const session = await service.audioCreate({ browser_id: 'browser', connection: 'audio-fixture', task_id, sdp: 'v=0' });
+  await service.command({ op: 'send', task_id, message: 'first progress reservation' });
+  await eventually(async () => (await read()).some(message => message.role === 'model_context' && message.content?.item?.role === 'assistant'));
+  const original = service.command.bind(service), reads = [];
+  const blocked = new Promise(resolve => { release = resolve; });
+  service.command = async command => {
+    const result = await original(command);
+    if (command.op === 'read' && command.after !== undefined && command.limit === 100) {
+      reads.push(command.after);
+      if (reads.length === 1) await blocked;
+    }
+    return result;
+  };
+  try {
+    await receive({ session_id: session.id, generation: request.generation, type: 'ready' });
+    await eventually(() => reads.length === 1);
+    await service.command({ op: 'send', task_id, message: 'second progress reservation' });
+    await eventually(async () => (await read()).filter(message => message.role === 'model_context' && message.content?.item?.role === 'assistant').length === 2);
+    assert.equal(reads.length, 1);
+    release();
+    await eventually(() => contexts.filter(context => context.text.includes('progress (')).length >= 2);
+    const progress = contexts.filter(context => context.text.includes('progress ('));
+    assert.equal(progress.filter(context => context.text.includes('first progress reservation')).length, 1);
+    assert.equal(progress.filter(context => context.text.includes('second progress reservation')).length, 1);
+    assert.ok(BigInt(reads[1]) > BigInt(reads[0]));
+  } finally { release(); }
+});

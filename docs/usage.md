@@ -201,7 +201,7 @@ has one buffer of the same size; the tool result byte budget can reduce these
 limits. Previews keep the newest output;
 metadata reports raw byte counts and omitted character counts. Truncated streams
 carry private artifact paths, SHA-256 revisions and explicit retention limits.
-An artifact capped at 8 MiB is a retained prefix, not the complete output. Inspect
+An artifact capped at 8 MiB retains the latest raw output bytes. Inspect
 it through Bash. Nonzero exits, deadlines and cancellation are tool errors, and
 shell descendants are terminated when the shell exits.
 The executable catalog and `limits` in `describe` are authoritative.

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { tencentCvmBackend } from './tencent-cvm.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { snapshotProject } from './project.mjs';
+import { awaitCloudSsh } from './cloud-readiness.ts';
 
 const executeFile = promisify(execFile);
 export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -228,16 +229,14 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
     kind: 'cloud', backend: receipt.backend, task_id: receipt.task_id, root: receipt.root, filesystem, execute,
     readFile: (filename, options) => filesystem.readFile(filename, options),
     async ready({ signal, deadline }) {
-      while (Date.now() < deadline) {
-        signal?.throwIfAborted();
-        const result = await execute('command -v bash >/dev/null && command -v git >/dev/null && command -v setsid >/dev/null',
-          { signal, timeout: Math.min(15_000, Math.max(1, deadline - Date.now())) });
-        if (result.exit_code === 0) return;
-        // DEFENSE: RUNNING precedes SSH daemon/cloud-init readiness on a newly booting CVM image.
-        if (result.exit_code !== 255) throw new Error(`Cloud image requires bash, git and setsid: ${result.stderr}`);
-        await delay(Math.min(2000, Math.max(1, deadline - Date.now())), undefined, { signal });
-      }
-      throw new Error('Cloud SSH startup deadline exceeded');
+      await awaitCloudSsh(deadline, {
+        now: () => Date.now(),
+        probe: timeout => {
+          signal?.throwIfAborted();
+          return execute('command -v bash >/dev/null && command -v git >/dev/null && command -v setsid >/dev/null', { signal, timeout });
+        },
+        delay: milliseconds => delay(milliseconds, undefined, { signal }),
+      });
     },
     async prepareBash(arguments_, execution, { signal } = {}) {
       signal?.throwIfAborted();

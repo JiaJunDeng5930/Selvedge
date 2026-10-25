@@ -2,6 +2,8 @@ import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, dispatchControlResult, interpretAudioControl } from './model-api.ts';
 import { EventEmitter } from 'node:events';
+import { launchEffect, settleEffect } from './effect-lifecycle.ts';
+import { materializeCallArguments } from './public/call-wire.mjs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createChatGPTAudio } from './chatgpt-audio.mjs';
@@ -196,7 +198,7 @@ export class Service extends EventEmitter {
       const active = this.#running.get(naturalKey(action.generation));
       // DEFENSE: A promise can finish after cancellation was planned and before its AbortController is visited.
       if (!active) continue;
-      if (action.provider) this.#cancelProvider(active.effect);
+      if (action.provider) this.#cancelProvider(active.task);
       active.controller.abort(reason);
     }
   }
@@ -249,19 +251,15 @@ export class Service extends EventEmitter {
         this.#compactionTimer.unref();
       },
       start: effect => {
-        for (const generation of this.#dispatchControl({ kind: 'launch', effect }).starts) {
-          const key = naturalKey(generation);
-          const controller = new AbortController();
-          const active = { task: effect.task_id, effect, controller };
-          this.#running.set(key, active);
-          // DEFENSE: A failed interpreter/settlement retires the service; completion removes only its own generation.
-          active.promise = this.#perform(effect, controller.signal, generation).catch(error => this.#fatal(error)).finally(() => {
-            this.#dispatchControl({ kind: 'complete', generation });
-            this.#running.delete(key);
-          });
-        }
+        // Background execution observes failures separately; the runner retains its rejecting promise.
+        void this.#launch(effect, (handle, signal) => this.#perform(effect, signal, handle))
+          .catch(error => this.#fatal(error));
       },
     });
+  }
+
+  #launch(effect, run) {
+    return launchEffect(observation => this.#dispatchControl(observation), this.#running, effect, run);
   }
 
   #cancelProvider(task) {
@@ -276,9 +274,10 @@ export class Service extends EventEmitter {
     const key = `${naturalKey(effect.task_id)}:${naturalKey(effect.operation_id)}`;
     // Register before observing the checkout or preparing the sandbox: a sibling
     // read/write effect can run while the original process is still starting.
-    const session = this.#processRegistry.register(key, effect.call.arguments.mode ?? 'pipe');
+    const arguments_ = materializeCallArguments(effect.call);
+    const session = this.#processRegistry.register(key, arguments_.mode ?? 'pipe');
     const prepared = this.#resourceWorkspace(effect.execution.resource, signal).then(({ managedWorktreeRoot, environment }) =>
-      startBash(effect.call.arguments, this.limits, { signal, execution: effect.execution, managedWorktreeRoot, environment,
+      startBash(arguments_, this.limits, { signal, execution: effect.execution, managedWorktreeRoot, environment,
         readOnlyPaths: [this.home], ...(environment ? {} : { artifactDirectory: path.join(this.home, 'artifacts') }) }));
     session.ready = prepared.then(({ read, write }) => { session.read = read; session.write = write; },
       error => {
@@ -295,7 +294,7 @@ export class Service extends EventEmitter {
   async #processTool(effect) {
     const reading = effect.tool.source.program.kind === 'ProcessRead';
     const arguments_ = boundary(reading ? 'effect.process_read_arguments' : 'effect.process_write_arguments',
-      { arguments: effect.call.arguments });
+      { arguments: materializeCallArguments(effect.call) });
     try {
       const { session, pending } = this.#processRegistry.lookup(`${naturalKey(effect.task_id)}:${naturalKey(arguments_.operation_id)}`);
       if (reading) {
@@ -313,7 +312,7 @@ export class Service extends EventEmitter {
     }
   }
 
-  async #performWorkspace(effect, signal, generation) {
+  async #performWorkspace(effect, signal, handle) {
     if (workspaceOperation(effect) === 'archive') {
       // Committed cancellation can precede the underlying process or filesystem operation finishing.
       const running = [...this.#running.values()].filter(active => !workspaceEffect(active.effect));
@@ -321,29 +320,28 @@ export class Service extends EventEmitter {
         ? active.effect.execution.resource
         : Object.hasOwn(active.effect, 'resource') ? active.effect.resource
         : active.task === undefined ? undefined : this.#worktree(active.task)));
-      await Promise.all(running.filter((active, index) => {
-        const resource = resources[index];
-        const sameResource = resource && sameNatural(resource.task_id, effect.task_id) && resource.backend === effect.backend;
-        const localExecution = effect.backend === 'local' && active.effect.execution && !resource &&
-          active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root));
-        return (active.task !== undefined && sameNatural(active.task, effect.task_id)) || sameResource || localExecution;
-      }).map(active => active.promise));
+      const plan = this.#dispatchControl({ kind: 'workspace_barrier', effect,
+        running: running.map((active, index) => ({ generation: active.handle.generation,
+          task: active.task ?? null, resource: resources[index] ?? null,
+          local_overlap: effect.backend === 'local' && !!active.effect.execution && !resources[index] &&
+            active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root)) })) });
+      await Promise.all(plan.awaits.map(generation => this.#running.get(naturalKey(generation))?.promise));
     }
     const completion = await (workspaceOperation(effect) === 'create' ? createTaskWorkspace : archiveTaskWorkspace)(effect,
       this.#workspaceOptions(signal));
     // DEFENSE: Shutdown can finish before the physical operation; preserve its receipt for recovery.
-    if (!this.#closing && !this.#failure) await this.#settleWorkspaceCompletion(effect, completion, generation);
+    if (!this.#closing && !this.#failure) await this.#settleWorkspaceCompletion(effect, completion, handle);
   }
 
 
-  async #perform(effect, signal, generation) {
+  async #perform(effect, signal, handle) {
     let input;
     let observation;
     const model = modelEffect(effect);
     const cancelPreview = () => this.notify({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
     try {
       const performed = await performEffect(effect, {
-        workspace: effect => this.#performWorkspace(effect, signal, generation),
+        workspace: effect => this.#performWorkspace(effect, signal, handle),
         context: async effect => {
           const { environment } = await this.#resourceWorkspace(effect.resource, signal);
           const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
@@ -391,7 +389,7 @@ export class Service extends EventEmitter {
             if (effect.tool.source.program.kind === 'ReadImage') {
               const executionOptions = { signal, execution: effect.execution,
                 ...await this.#resourceWorkspace(effect.execution.resource, signal), readOnlyPaths: [this.home], home: this.home };
-              return runReadImage(effect.call.arguments, this.limits, executionOptions);
+              return runReadImage(materializeCallArguments(effect.call), this.limits, executionOptions);
             }
             return this.#processTool(effect);
           }
@@ -404,7 +402,7 @@ export class Service extends EventEmitter {
           const client = this.#servers.get(effect.tool.source.server);
           // DEFENSE: A frozen tool can name a server removed from configuration.
           if (!client) throw new Error('MCP route is unavailable');
-          return client.call(effect.tool.source.name, effect.call.arguments, { signal });
+          return client.call(effect.tool.source.name, materializeCallArguments(effect.call), { signal });
         },
       });
       if (performed.kind === 'settled') return;
@@ -417,7 +415,7 @@ export class Service extends EventEmitter {
     // DEFENSE: Shutdown can abort an operation while its external failure/success continuation is resuming.
     if (this.#closing || this.#failure) return;
     const result = await this.#settleCompletion(input, () => this.#failureInput(effect,
-      'External result cannot fit the kernel boundary'), generation);
+      'External result cannot fit the kernel boundary'), handle);
     this.#queueAudioProgress(effect.task_id);
     if (model) {
       // DEFENSE: Cancellation may occur while model completion is committing; do not record stale cache activity after the request was aborted.
@@ -454,36 +452,19 @@ export class Service extends EventEmitter {
     return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal };
   }
 
-  async #settleCompletion(input, failure, generation) {
-    for (;;) {
-      let result;
-      let error;
-      let outcome;
-      try {
-        result = await this.journal.execute(input);
-        outcome = result.reply.ok ? 'accepted' : result.reply.error.code === 'output_limit' ? 'output_limit' : 'rejected';
-      } catch (caught) {
-        error = caught;
-        outcome = isDefiniteRejection(caught) && caught instanceof RangeError ? 'input_limit'
-          : transactionOutcome(caught) === 'unknown' ? 'uncertain' : 'rejected';
-      }
-      const actions = this.#dispatchControl({ kind: 'settlement', generation, outcome });
-      if (actions.settled) return result;
-      if (actions.retryFailure) {
-        input = await failure();
-        continue;
-      }
-      // DEFENSE: A rejected reduced callback or uncertain commit must retire its world without dispatching a second completion.
-      throw error ?? new Error(result?.reply.ok === false ? `Effect settlement rejected: ${result.reply.error.message}` : 'Effect settlement was retired');
-    }
+  #settleCompletion(input, failure, handle) {
+    return settleEffect(observation => this.#dispatchControl(observation), handle, input,
+      value => this.journal.execute(value), failure,
+      error => isDefiniteRejection(error) && error instanceof RangeError ? 'input_limit'
+        : transactionOutcome(error) === 'unknown' ? 'uncertain' : 'rejected');
   }
 
-  async #settleWorkspaceCompletion(effect, completion, generation) {
+  async #settleWorkspaceCompletion(effect, completion, handle) {
     return this.#settleCompletion(completion, () =>
-      workspaceOperation(effect) === 'create' && effect.backend === 'tencent_cvm' && completion.ok
+      this.#dispatchControl({ kind: 'workspace_limit', effect, completion }).rollbackWorkspace
         ? rollbackTaskWorkspaceCreation(effect, { ...this.#workspaceOptions(), message: 'Cloud workspace completion exceeds the kernel boundary' })
         : boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
-          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } }), generation);
+          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } }), handle);
   }
 
   async #resourceWorkspace(resource, signal) {
@@ -520,13 +501,12 @@ export class Service extends EventEmitter {
     if (!result.reply.ok) throw new Error(`Managed worktree recovery query rejected: ${result.reply.error.message}`);
     for (const entry of result.reply.result.worktrees) {
       if (!['creating', 'creating_archived', 'archiving'].includes(entry.status)) continue;
-      const completion = await reconcileTaskWorkspace(entry, this.#workspaceOptions());
-      const settled = entry.backend === 'tencent_cvm'
-        ? await this.#settleWorkspaceCompletion({ ...entry,
-          kind: completion.kind === 'worktree_created' ? 'worktree_create' : 'worktree_archive' }, completion)
-        : await this.journal.execute(completion);
-      // DEFENSE: Recovered filesystem metadata must still pass native completion admission and complete-decision limits.
-      if (!settled.reply.ok) throw new Error(`Managed worktree recovery rejected: ${settled.reply.error.message}`);
+      const effect = { ...entry, kind: entry.status === 'archiving' ? 'worktree_archive' : 'worktree_create' };
+      // Recovery observes the existing resource; it must never replay create or archive IO.
+      await this.#launch(effect, async (handle, signal) => {
+        const completion = await reconcileTaskWorkspace(entry, this.#workspaceOptions(signal));
+        await this.#settleWorkspaceCompletion(effect, completion, handle);
+      });
     }
   }
 
@@ -842,6 +822,14 @@ export class Service extends EventEmitter {
         await this.#applyAudio(session, { kind: 'ack', generation: observation.generation, token, reply: result.reply });
       },
       context: context => this.audio.appendContext(session.id, context),
+      contexts: async (token, contexts) => {
+        try {
+          for (const context of contexts) await this.audio.appendContext(session.id, context);
+          await this.#applyAudio(session, { kind: 'delivered', generation: observation.generation, token });
+        } catch (error) {
+          await this.#applyAudio(session, { kind: 'progress_failed', generation: observation.generation, token, message: error.message });
+        }
+      },
       timer: () => this.#audioTimer(session, session.maximum - (Date.now() - session.started)),
       connectTimer: () => this.#audioTimer(session, session.connectMaximum),
       stop: async () => {
@@ -852,14 +840,14 @@ export class Service extends EventEmitter {
         clearTimeout(session.timer);
         if (this.#audioSessions.get(session.id) === session) this.#audioSessions.delete(session.id);
       },
-      read: after => {
+      read: (token, after) => {
         session.progress = session.progress.then(async () => {
           // DEFENSE: A queued progress read can outlive service shutdown; shutdown owns cancellation of physical IO.
           if (this.#closing || this.#failure) return;
           const result = await this.command({ op: 'read', task_id: session.task_id, after, limit: 100 });
           if (!result.reply.ok) throw new Error(result.reply.error.message);
-          await this.#applyAudio(session, { kind: 'page', generation: observation.generation, page: result.reply.result });
-        }).catch(error => this.#applyAudio(session, { kind: 'progress_failed', generation: observation.generation, message: error.message }));
+          await this.#applyAudio(session, { kind: 'page', generation: observation.generation, token, page: result.reply.result });
+        }).catch(error => this.#applyAudio(session, { kind: 'progress_failed', generation: observation.generation, token, message: error.message }));
       },
     });
   }

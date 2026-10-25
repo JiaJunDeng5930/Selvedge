@@ -79,9 +79,14 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
   map (fun command => line (concat ["if String.eqb name """; command_name command;
     """ then option_map Cmd_"; command_name command; " (decode_"; command_name command; " source) else"])) commands ++
   [line "None.";
-   line "Definition decode (source : json) : option command :=";
+   line "Definition decode_admitted (source : json) : option command :=";
    line "match source with JObject values => if unique_names (source_keys values) then";
    line "match lookup ""op"" values with Some (JString name) => decode_named name (JObject (remove_field ""op"" values)) | _ => None end else None | _ => None end.";
+   line "Definition decode (source : json) : option command :=";
+   line "match CommandDeclarations.admit_observed source with";
+   line "| Some admitted => decode_admitted (CommandDeclarations.observed_source admitted) | None => None end.";
+   line "Lemma decode_observed_declaration : forall source, decode source = if CommandDeclarations.valid true source then decode_admitted source else None.";
+   line "Proof. intro source; unfold decode, CommandDeclarations.admit_observed; destruct (Bool.bool_dec (CommandDeclarations.valid true source) true) as [Accepted | Rejected]; cbn [CommandDeclarations.observed_source]; [rewrite Accepted; reflexivity | destruct (CommandDeclarations.valid true source); [contradiction | reflexivity]]. Qed.";
    line "Definition declared_command (value : command) : command_spec := match value with"] ++
   map (fun item => line (concat ["| Cmd_"; command_name (snd item);
     " _ => List.nth "; show_nat (fst item); " Selvedge.Kernel.Commands.command_specs (Command """" [])"])) (indexed 0 commands) ++
@@ -141,7 +146,7 @@ Definition generate_commands : TemplateMonad unit :=
           tmMsg (bytestring.String.of_string "SELVDERIVE_BEGIN") ;;
           tmMsg (bytestring.String.of_string (concat [line "From Stdlib Require Import String List.";
             line "From Selvedge.Foundation Require Import Json Schema.";
-            line "From Selvedge.Kernel Require Import Commands.";
+            line "From Selvedge.Kernel Require Import Commands CommandDeclarations.";
             line "Import ListNotations."; line "Open Scope string_scope."])) ;;
           emit_payloads (indexed 0 commands) ;;
           emit_chunks (command_chunks commands) ;;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readFile, mkdir, open } from 'node:fs/promises';
+import { readFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, homeDirectory, defaultConfig, validateConfig } from './config.mjs';
@@ -9,6 +9,7 @@ import { startServer } from './server.mjs';
 import { requestJson, events } from './network.mjs';
 import { parseJson, stringifyJson } from './codec.mjs';
 import { writeAtomic } from './files.mjs';
+import { publishBytes } from './file-io.mjs';
 import { provisionRemote } from './remote-control.mjs';
 
 function parseOptions(args) {
@@ -148,9 +149,9 @@ export async function main(args = process.argv.slice(2)) {
     const home = homeDirectory(global.home);
     await mkdir(home, { recursive: true, mode: 0o700 });
     const filename = global.filename ? path.resolve(global.filename) : path.join(home, 'config.json');
-    const file = await open(filename, 'wx', 0o600);
-    try { await file.writeFile(JSON.stringify(defaultConfig, null, 2) + '\n'); await file.sync(); }
-    finally { await file.close(); }
+    const publication = await publishBytes(filename, JSON.stringify(defaultConfig, null, 2) + '\n', { mode: 'create-if-absent' });
+    // DEFENSE: Explicit init must not replace an existing configuration.
+    if (publication === 'already-exists') throw Object.assign(new Error(`Configuration already exists: ${filename}`), { code: 'EEXIST' });
     console.log(filename);
     return;
   }

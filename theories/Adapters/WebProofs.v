@@ -41,35 +41,35 @@ Qed.
 
 Theorem public_raw_json_parse_preserves_value : forall source value,
   base_source source = true -> strings source ["text"] = true ->
-  TextJson.parse_json (str source "text") = Some value ->
+  parse_provider_json (str source "text") = Some value ->
   Api.call "web.decode" source = success value.
 Proof.
  intros source value B S P.
- change ((if base_source source && strings source ["text"] then decode_text (str source "text")
+ change ((if base_source source && strings source ["text"] then decode_provider_text (str source "text")
    else err "Invalid ChatGPT Web JSON source") = success value).
- rewrite B,S;cbn;unfold decode_text;now rewrite P.
+ rewrite B,S;cbn;unfold decode_provider_text;now rewrite P.
 Qed.
 Theorem public_invalid_raw_json_is_rejected : forall source,
   base_source source = true -> strings source ["text"] = true ->
-  TextJson.parse_json (str source "text") = None ->
-  domain_json_failure (str source "text") = false ->
+  parse_provider_json (str source "text") = None ->
+  domain_json_failure_at (S TextJson.input_nesting) (str source "text") = false ->
   Api.call "web.decode" source = failure "SyntaxError" "Invalid ChatGPT Web JSON".
 Proof.
  intros source B S P D.
- change ((if base_source source && strings source ["text"] then decode_text (str source "text")
+ change ((if base_source source && strings source ["text"] then decode_provider_text (str source "text")
    else err "Invalid ChatGPT Web JSON source") = failure "SyntaxError" "Invalid ChatGPT Web JSON").
- rewrite B,S;cbn;unfold decode_text;now rewrite P,D.
+ rewrite B,S;cbn;unfold decode_provider_text;now rewrite P,D.
 Qed.
 Theorem public_invalid_domain_json_is_rejected : forall source,
   base_source source = true -> strings source ["text"] = true ->
-  TextJson.parse_json (str source "text") = None ->
-  domain_json_failure (str source "text") = true ->
+  parse_provider_json (str source "text") = None ->
+  domain_json_failure_at (S TextJson.input_nesting) (str source "text") = true ->
   Api.call "web.decode" source = err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode".
 Proof.
  intros source B S P D.
- change ((if base_source source && strings source ["text"] then decode_text (str source "text")
+ change ((if base_source source && strings source ["text"] then decode_provider_text (str source "text")
    else err "Invalid ChatGPT Web JSON source") = err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode").
- rewrite B,S;cbn;unfold decode_text;now rewrite P,D.
+ rewrite B,S;cbn;unfold decode_provider_text;now rewrite P,D.
 Qed.
 Theorem public_successful_invalid_http_json_reports_protocol_error : forall source,
   base_source source = true ->

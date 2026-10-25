@@ -7,7 +7,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition indexed {A B : Type} := @Numbers.indexed A B.
+Definition indexed {A B : Type} := @Selvedge.Foundation.Registry.indexed A B.
 Definition association := Selvedge.Features.Domain.association.
 (* Auxiliary text generation reuses the connection, without the Task's effort
    or adaptive evaluator. The provider resolves its ordinary default effort. *)
@@ -89,7 +89,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  ("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",settings_guidance (task_current_settings value));
- ("history", JArray (map (message_json id) (task_history value)));
+ ("history", JArray (map (public_message_json id) (task_history value)));
  ("context", JArray (map Context.snapshot_json (ContextUpdates.bindings (task_history value))));
  ("model_pending", match task_activity value with AskingModel ticket callable mode =>
   JObject [("operation_id",number ticket);("ticket",number ticket);("mode",JString (output_mode_name mode));("callable",JArray (map JString callable))]
@@ -154,7 +154,7 @@ Definition world_json (value : world) :=
  ("board", Selvedge.Features.Observation.board_json_in_world value);
  ("worktrees", JArray (map worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", remote_json (Selvedge.Features.Domain.feature_remote features))].
-Definition history_json (id : N) (task : task) := JArray (map (message_json id) (task_history task)).
+Definition history_json (id : N) (task : task) := JArray (map (public_message_json id) (task_history task)).
 Definition effect_fields (state : world) (value : effect) : list (string * json) :=
  match value with
  | ObserveContext id ticket task => [
@@ -190,22 +190,22 @@ Definition effect_fields (state : world) (value : effect) : list (string * json)
    ("history_preview", JBool true); ("history_preview_bytes", number (N.of_nat ReasoningView.maximum_bytes))]
  | ExecuteTool id ticket operation tool call settings access => [
    ("task_id", number id); ("ticket", number ticket);
-   ("operation_id", number operation); ("tool", tool_json tool); ("call", call_json call);
+   ("operation_id", number operation); ("tool", tool_json tool); ("call", wire_call_json call);
    ("execution", JObject [("workspace", workspace_json (settings_workspace settings));
       ("resource", WorkspaceBinding.execution settings state);
       ("sandbox", sandbox_json (settings_sandbox settings)); ("access", JString (match access with DefaultAccess => "sandboxed" | ElevatedAccess => "unrestricted" end))])]
  | RequestApproval id ticket profile call task => [
    ("task_id", number id); ("ticket", number ticket);
-   ("model", model_json profile); ("call", call_json call);
+   ("model", model_json profile); ("call", wire_call_json call);
    ("settings", settings_json (task_current_settings task));
    ("instructions", JString ApprovalProtocol.instructions);
    ("user_requests", JArray (ApprovalProtocol.user_requests (task_history task)))]
  | CheckTool id ticket plugin tool call => [
    ("task_id", number id); ("ticket", number ticket);
-   ("plugin", plugin); ("tool", tool_json tool); ("call", call_json call)]
+   ("plugin", plugin); ("tool", tool_json tool); ("call", wire_call_json call)]
  | CheckResult id ticket operation plugin call value error => [
    ("task_id", number id); ("ticket", number ticket);
-   ("operation_id", number operation); ("plugin", plugin); ("call", call_json call);
+   ("operation_id", number operation); ("plugin", plugin); ("call", wire_call_json call);
    ("value", value); ("error", JBool error)]
  | ResetModelSession id => [("task_id", number id)]
  | CancelTask id => [("task_id", number id)]

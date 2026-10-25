@@ -40,16 +40,26 @@ Definition creation_allowed (settings : option json) (selected : task_settings) 
  | Some id => match find_task id value with
    | None => false
    | Some task => native_creation_allowed settings selected (task_current_settings task) value end end.
+Definition resolve_context_start (entry : Tasks.creation_entry) (name : string)
+ (effort : option string) (contents : content) (settings : option json) (idle : bool)
+ (caller : option N) (value : world) : Tasks.start_resolution :=
+ let defaults := creation_defaults (world_environment value) in
+ let base := match caller with
+ | None => defaults
+ | Some id => match find_task id value with
+   | None => defaults
+   | Some task => creation_base settings (task_current_settings task) value end end in
+ Tasks.resolve_start entry name effort contents settings idle base value.
 Definition create_in_context (name : string) (effort : option string) (contents : content)
  (settings : option json) (idle : bool) (caller : option N) (value : world) :=
- match resolve_creation name settings caller value with
- | None => match find_profile name (environment_profiles (world_environment value)) with
-   | None => Tasks.create name effort contents settings idle value
-   | Some _ => reject "invalid_settings" "Task settings do not resolve to an observed execution environment" value end
- | Some selected =>
-   if creation_allowed settings selected caller value then
-     Tasks.create_with_defaults name effort contents None idle selected value
-   else reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value
+ let entry := match caller with Some _ => Tasks.NativeCreation
+   | None => if idle then Tasks.IdleCreation else Tasks.OrdinaryCreation end in
+ match resolve_context_start entry name effort contents settings idle caller value with
+ | Tasks.StartRefused cause => Tasks.refuse_start entry cause value
+ | Tasks.StartResolved plan =>
+   if creation_allowed settings (Tasks.start_settings plan) caller value
+   then Tasks.interpret_start plan value
+   else Tasks.refuse_start entry Tasks.AuthorityExpansion value
  end.
 Definition create_project (name : string) (source : json) (guidance : option json) (worktree : option bool)
  (resource : option json) (value : world) :=
@@ -176,37 +186,81 @@ Definition return_side (id : N) (value : world) :=
      else result
      end
    end end end.
-Definition execute (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) : option decision :=
- let caller := option_map Tasks.native_owner context in
- match command with
- | Selvedge.Generated.Commands.Cmd_send request => Some (with_content (Selvedge.Generated.Commands.send_message request) (Selvedge.Generated.Commands.send_images request) (fun contents => Tasks.send (Selvedge.Generated.Commands.send_task_id request) contents value) value)
- | Selvedge.Generated.Commands.Cmd_steer request => Some (with_content (Selvedge.Generated.Commands.steer_message request) (Selvedge.Generated.Commands.steer_images request) (fun contents => Tasks.steer (Selvedge.Generated.Commands.steer_task_id request) contents value) value)
- | Selvedge.Generated.Commands.Cmd_freeze request => Some (control_command (Selvedge.Generated.Commands.freeze_task_id request) Freeze value)
- | Selvedge.Generated.Commands.Cmd_unfreeze request => Some (control_command (Selvedge.Generated.Commands.unfreeze_task_id request) Unfreeze value)
- | Selvedge.Generated.Commands.Cmd_stop request => Some (control_command (Selvedge.Generated.Commands.stop_task_id request) Stop value)
- | Selvedge.Generated.Commands.Cmd_interrupt request => Some (control_command (Selvedge.Generated.Commands.interrupt_task_id request) Interrupt value)
- | Selvedge.Generated.Commands.Cmd_archive request => Some (control_command (Selvedge.Generated.Commands.archive_task_id request) Archive value)
- | Selvedge.Generated.Commands.Cmd_cancel_operation request => Some (cancel_operation (Selvedge.Generated.Commands.cancel_operation_task_id request) (Selvedge.Generated.Commands.cancel_operation_operation_id request) value)
- | Selvedge.Generated.Commands.Cmd_fork request => Some (match traverse Images.parse_content (match Selvedge.Generated.Commands.fork_messages request with Some values => values | None => [] end) with
+Definition handle_send (request : Selvedge.Generated.Commands.send_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ with_content (Selvedge.Generated.Commands.send_message request) (Selvedge.Generated.Commands.send_images request) (fun contents => Tasks.send (Selvedge.Generated.Commands.send_task_id request) contents value) value.
+
+Definition handle_steer (request : Selvedge.Generated.Commands.steer_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ with_content (Selvedge.Generated.Commands.steer_message request) (Selvedge.Generated.Commands.steer_images request) (fun contents => Tasks.steer (Selvedge.Generated.Commands.steer_task_id request) contents value) value.
+
+Definition handle_freeze (request : Selvedge.Generated.Commands.freeze_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ control_command (Selvedge.Generated.Commands.freeze_task_id request) Freeze value.
+
+Definition handle_unfreeze (request : Selvedge.Generated.Commands.unfreeze_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ control_command (Selvedge.Generated.Commands.unfreeze_task_id request) Unfreeze value.
+
+Definition handle_stop (request : Selvedge.Generated.Commands.stop_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ control_command (Selvedge.Generated.Commands.stop_task_id request) Stop value.
+
+Definition handle_interrupt (request : Selvedge.Generated.Commands.interrupt_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ control_command (Selvedge.Generated.Commands.interrupt_task_id request) Interrupt value.
+
+Definition handle_archive (request : Selvedge.Generated.Commands.archive_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ control_command (Selvedge.Generated.Commands.archive_task_id request) Archive value.
+
+Definition handle_cancel_operation (request : Selvedge.Generated.Commands.cancel_operation_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ cancel_operation (Selvedge.Generated.Commands.cancel_operation_task_id request) (Selvedge.Generated.Commands.cancel_operation_operation_id request) value.
+
+Definition handle_fork (request : Selvedge.Generated.Commands.fork_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ match traverse Images.parse_content (match Selvedge.Generated.Commands.fork_messages request with Some values => values | None => [] end) with
    | Some messages => Tasks.fork_with_caller (match context with Some accepted => if N.eqb (Tasks.native_owner accepted) (Selvedge.Generated.Commands.fork_task_id request) then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted) else Tasks.ManualFork | None => Tasks.ManualFork end) (match Selvedge.Generated.Commands.fork_settings_origin request with
      |Some source=>if String.eqb (proj1_sig source) "environment" then Tasks.EnvironmentSettings else Tasks.ParentSettings
      |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
-   | None => reject "invalid_message" "Child messages contain invalid content parts" value end)
- | Selvedge.Generated.Commands.Cmd_open_side_conversation request => Some (with_content (Selvedge.Generated.Commands.open_side_conversation_message request) (Selvedge.Generated.Commands.open_side_conversation_images request)
-   (fun contents => Tasks.open_side (Selvedge.Generated.Commands.open_side_conversation_task_id request) contents value) value)
- | Selvedge.Generated.Commands.Cmd_return_side_conversation request => Some (return_side (Selvedge.Generated.Commands.return_side_conversation_task_id request) value)
+   | None => reject "invalid_message" "Child messages contain invalid content parts" value end.
 
- | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding request) value)
- | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding request) value)
- | Selvedge.Generated.Commands.Cmd_delete_project request => Some (delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value)
- | Selvedge.Generated.Commands.Cmd_review_approval request => Some (
+Definition handle_open_side_conversation (request : Selvedge.Generated.Commands.open_side_conversation_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ with_content (Selvedge.Generated.Commands.open_side_conversation_message request) (Selvedge.Generated.Commands.open_side_conversation_images request)
+   (fun contents => Tasks.open_side (Selvedge.Generated.Commands.open_side_conversation_task_id request) contents value) value.
+
+Definition handle_return_side_conversation (request : Selvedge.Generated.Commands.return_side_conversation_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ return_side (Selvedge.Generated.Commands.return_side_conversation_task_id request) value.
+
+Definition handle_create_project (request : Selvedge.Generated.Commands.create_project_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding request) value.
+
+Definition handle_update_project (request : Selvedge.Generated.Commands.update_project_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding request) value.
+
+Definition handle_delete_project (request : Selvedge.Generated.Commands.delete_project_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value.
+
+Definition handle_review_approval (request : Selvedge.Generated.Commands.review_approval_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ 
    let reason := match Selvedge.Generated.Commands.review_approval_reason request with Some reason => reason | None => "" end in
    review_approval (Selvedge.Generated.Commands.review_approval_task_id request) (Selvedge.Generated.Commands.review_approval_operation_id request)
-    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value)
- | Selvedge.Generated.Commands.Cmd_record_speech_transcript request => Some (speech_transcript (Selvedge.Generated.Commands.record_speech_transcript_task_id request) (Selvedge.Generated.Commands.record_speech_transcript_session_id request) (Selvedge.Generated.Commands.record_speech_transcript_item_id request)
+    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value.
+
+Definition handle_record_speech_transcript (request : Selvedge.Generated.Commands.record_speech_transcript_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ speech_transcript (Selvedge.Generated.Commands.record_speech_transcript_task_id request) (Selvedge.Generated.Commands.record_speech_transcript_session_id request) (Selvedge.Generated.Commands.record_speech_transcript_item_id request)
    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_speaker request)) "user" then UserSpeaker else AssistantSpeaker)
-   (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_completion request)) "completed" then SpeechCompleted else SpeechInterrupted) (Selvedge.Generated.Commands.record_speech_transcript_text request) value)
- | Selvedge.Generated.Commands.Cmd_accept_speech_delegation request => Some (speech_delegation (Selvedge.Generated.Commands.accept_speech_delegation_task_id request) (Selvedge.Generated.Commands.accept_speech_delegation_session_id request)
-   (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id request) (proj1_sig (Selvedge.Generated.Commands.accept_speech_delegation_mode request)) (Selvedge.Generated.Commands.accept_speech_delegation_message request) value)
- | _ => None
- end.
+   (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_completion request)) "completed" then SpeechCompleted else SpeechInterrupted) (Selvedge.Generated.Commands.record_speech_transcript_text request) value.
+
+Definition handle_accept_speech_delegation (request : Selvedge.Generated.Commands.accept_speech_delegation_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ speech_delegation (Selvedge.Generated.Commands.accept_speech_delegation_task_id request) (Selvedge.Generated.Commands.accept_speech_delegation_session_id request)
+   (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id request) (proj1_sig (Selvedge.Generated.Commands.accept_speech_delegation_mode request)) (Selvedge.Generated.Commands.accept_speech_delegation_message request) value.

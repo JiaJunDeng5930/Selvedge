@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require Import Json Utf8 TextJson.
+From Selvedge.Foundation Require Import CallWire Json Utf8 TextJson.
 From Selvedge.Kernel Require Import ChatgptProtocol ChatgptArguments.
 From Selvedge.Adapters Require Import Common Observation PluginConnections PluginCatalog.
 Import ListNotations.
@@ -18,14 +18,14 @@ Definition command source := let body := get source "body" in
   | Some route => if keys (get body "arguments") (client_keys route)
     then success (command_value (get source "connection") route (get body "arguments"))
     else type_error "Invalid ChatGPT tool arguments" end.
-Definition callback_request effect (after : bool) := JObject (map (fun key => (key,get effect key))
+Definition callback_request effect (after : bool) := JObject (map (fun key => (key,if String.eqb key "call" then CallWire.external (get effect key) else get effect key))
   (if after then ["task_id";"operation_id";"ticket";"plugin";"call";"value";"error"] else ["task_id";"ticket";"plugin";"tool";"call"])).
 Definition hook_request source (after : bool) := let effect := get source "effect" in
   if matching (get effect "plugin") (get source "reference") && boolean_field (get source "descriptor") (if after then "after_tool" else "before_tool")
   then success (callback_request effect after) else err "Required plugin revision is unavailable".
 Definition call_request source := let effect := get source "effect" in let tool_source := get (get effect "tool") "source" in
   if matching (get tool_source "plugin") (get source "reference") then success (JObject [("name",get tool_source "name");
-    ("arguments",get (get effect "call") "arguments");("context",JObject [("task_id",get effect "task_id");
+    ("arguments",get (CallWire.external (get effect "call")) "arguments");("context",JObject [("task_id",get effect "task_id");
       ("operation_id",get effect "ticket");("call_id",get (get effect "call") "id")])]) else err "Plugin tool revision is unavailable".
 Definition hook_valid outcome (after : bool) :=
   if String.eqb (str outcome "decision") "allow" then exact_fields ["decision"] outcome

@@ -1,7 +1,7 @@
 import {
   decodeAudioAdmission, decodeHttpPlan, decodeHttpRemoteApprovalBody, decodeHttpRemoteRevokeBody,
   decodeHttpRemotePermissions, decodeHttpBrowserCommandBody, decodeHttpReplyStatus, decodeBrowserObservationPlan, decodeBrowserPath,
-  decodeDispatchTransition, decodeDispatchAction, decodeAudioTransition, decodeAudioAction,
+  decodeDispatchTransition, decodeDispatchAction, decodeAudioTransition, decodeAudioAction, decodeAudioTransportBegin, decodeAudioTransportAction,
   decodeWorkspaceCommandPlan, decodeWorkspaceSelectionPlan, decodeWorkspaceSettingsPlan,
   type AudioAdmission, type JsonValue, type BrowserObservationPlan, type DomainNatural, type HttpRemotePermissions,
 } from './generated/model-schema.ts';
@@ -158,6 +158,9 @@ export function resolveBrowserPath(input: unknown, canonicalize: (value: JsonVal
   return plan.canonicalize ? canonicalize(plan.path) : Promise.resolve(plan.path);
 }
 export interface DispatchControlPrimitives {
+  rollbackWorkspace(): void;
+  retainWorkspace(): void;
+  await(generation: DomainNatural): void;
   state(state: JsonValue): void;
   start(generation: DomainNatural): void;
   cancel(generation: DomainNatural, provider: boolean): void;
@@ -172,6 +175,9 @@ export function interpretDispatchControl(input: unknown, io: DispatchControlPrim
     const action = decodeDispatchAction(raw);
     switch (action.kind) {
       case 'start': io.start(action.generation); break;
+      case 'await': io.await(action.generation); break;
+      case 'rollback_workspace': io.rollbackWorkspace(); break;
+      case 'retain_workspace': io.retainWorkspace(); break;
       case 'cancel': io.cancel(action.generation, action.provider); break;
       case 'retry_failure': io.retryFailure(); break;
       case 'settled': io.settled(); break;
@@ -185,7 +191,8 @@ export interface AudioControlPrimitives {
   emit(event: JsonValue): void;
   journal(token: JsonValue, command: JsonValue): Promise<void>;
   context(context: JsonValue): Promise<void>;
-  read(after: DomainNatural): void;
+  contexts(token: JsonValue, contexts: JsonValue[]): Promise<void>;
+  read(token: JsonValue, after: DomainNatural): void;
   stop(): Promise<void>;
   release(): void;
   timer(): void;
@@ -200,7 +207,8 @@ export async function interpretAudioControl(input: unknown, io: AudioControlPrim
       case 'emit': io.emit(action.event); break;
       case 'journal': await io.journal(action.token, action.command); break;
       case 'context': await io.context(action.context); break;
-      case 'read': io.read(action.after); break;
+      case 'contexts': await io.contexts(action.token, action.contexts); break;
+      case 'read': io.read(action.token, action.after); break;
       case 'stop': await io.stop(); break;
       case 'release': io.release(); break;
       case 'timer': io.timer(); break;
@@ -213,14 +221,16 @@ export async function interpretAudioControl(input: unknown, io: AudioControlPrim
 }
 
 export function dispatchControlResult(input: unknown) {
-  const starts: DomainNatural[] = [], cancellations: Array<{generation: DomainNatural; provider: boolean}> = [];
-  let state: JsonValue = null, settled = false, retryFailure = false, retire = false;
+  const starts: DomainNatural[] = [], awaits: DomainNatural[] = [], cancellations: Array<{generation: DomainNatural; provider: boolean}> = [];
+  let state: JsonValue = null, settled = false, retryFailure = false, retire = false, rollbackWorkspace = false;
   interpretDispatchControl(input, {
+    rollbackWorkspace: () => { rollbackWorkspace = true; }, retainWorkspace: () => {},
+    await: generation => { awaits.push(generation); },
     state: value => { state = value; }, start: generation => { starts.push(generation); },
     cancel: (generation, provider) => { cancellations.push({ generation, provider }); },
     settled: () => { settled = true; }, retryFailure: () => { retryFailure = true; }, retire: () => { retire = true; },
   });
-  return { state, starts, cancellations, settled, retryFailure, retire };
+  return { state, starts, awaits, cancellations, settled, retryFailure, retire, rollbackWorkspace };
 }
 export function browseDirectoryLocation(plan: Extract<BrowserObservationPlan, {kind: 'browse-directories'}>,
   resolve: () => unknown, canonicalize: (value: JsonValue) => Promise<JsonValue>): Promise<JsonValue> {
@@ -243,4 +253,35 @@ export async function interpretWorkspaceSettings(input: unknown, io: {
     if (!await io.project(projectId)) return {};
   } else if (!plan.observe_workspace) return {};
   return io.observe(projectId);
+}
+
+export interface AudioTransportPrimitives {
+  ready(): void;
+  emit(event: JsonValue): Promise<void>;
+  close(event: JsonValue): Promise<void>;
+  connect(attempt: DomainNatural): void;
+  retry(attempt: DomainNatural, delay: DomainNatural): void;
+  ack(token: DomainNatural): void;
+  failed(token: DomainNatural): void;
+}
+/** Execute exactly the reservation selected by the extracted transport FIFO. */
+export async function interpretAudioTransport(input: unknown, io: AudioTransportPrimitives): Promise<void> {
+  const begin = decodeAudioTransportBegin(input);
+  const action = decodeAudioTransportAction(begin.effect);
+  try {
+    switch (action.type) {
+      case 'ready': io.ready(); break;
+      case 'emit': await io.emit(action.event); break;
+      case 'close': await io.close(action.event); break;
+      case 'connect': io.connect(action.attempt); break;
+      case 'retry': io.retry(action.attempt, action.delay); break;
+      default: { const unreachable: never = action; return unreachable; }
+    }
+  } catch {
+    // DEFENSE: A physical send or journal callback can reject. The owner model
+    // discards the uncertain semantic suffix and schedules its cleanup primitive.
+    io.failed(begin.token);
+    return;
+  }
+  io.ack(begin.token);
 }

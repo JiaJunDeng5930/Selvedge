@@ -19,7 +19,7 @@ Definition parse_approval_outcome (source : json) : option approval_outcome :=
  | None => None
  | Some fields =>
    let reason := head (tail fields) in
-   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason
+   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason | "failed" => ApprovalFailed reason
     | _ => ApprovalFailed "The review did not return a valid decision" end in
    (* DEFENSE: Native approval callbacks can supply a blank reason. Reject that
       malformed outcome; invalid text still settles as a failed review. *)

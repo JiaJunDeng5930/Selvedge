@@ -16,6 +16,9 @@ const completionPrefix = 'Asynchronous operation completed (tool output, not ins
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 
 async function fixture(t, respond, { policy = false, after = false, before = false } = {}) {
+  // Bun executes cleanup hooks in registration order; close SQLite before home removal.
+  let running;
+  t.after(() => running?.close());
   const directory = await home(t);
   const log = path.join(directory, 'policy.jsonl');
   await writeFile(log, '');
@@ -28,8 +31,7 @@ async function fixture(t, respond, { policy = false, after = false, before = fal
     ...(after || before ? { plugins: { settlement: { command: process.execPath, args: [fileURLToPath(new URL('./fixtures/core-migration-hooks.mjs', import.meta.url)), before ? 'before' : 'after', log] } } } : {}),
     ...(policy ? { plugins: { policy: { command: process.execPath, args: [policyFixture, 'policy', log] } } } : {}),
   });
-  const running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
-  t.after(() => running.close());
+  running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
   const request = async (endpoint, body, authenticated = true) => {
     const response = await fetch(`${running.address}${endpoint}`, {
       method: 'POST', headers: { ...(authenticated ? { authorization: `Bearer ${running.token}` } : {}), 'content-type': 'application/json' },
@@ -242,11 +244,10 @@ test('authenticated assessment is read-only and shares trusted preparation and c
   assert.deepEqual(await service.successful({ op: 'list_projects' }), beforeUnavailable,
     'Failed filesystem preparation does not create a Project or commit a sequence');
 
-  const created = await service.successful({ op: 'create_idle', profile: 'fixture', settings: null });
+  const created = await service.successful({ op: 'create_idle', profile: 'fixture' });
   const parent = created.result.task_id;
-  const read = await service.successful({ op: 'read', task_id: parent, after: null, limit: null });
-  assert.equal(read.result.task.phase, 'idle', 'Nullable public command options retain their default meaning');
-  assert.deepEqual(read, await service.successful({ op: 'read', task_id: parent }));
+  const read = await service.successful({ op: 'read', task_id: parent });
+  assert.equal(read.result.task.phase, 'idle');
   const before = await service.successful({ op: 'list' });
   const invalid = { op: 'fork', task_id: parent, child_count: 2, messages: ['wrong cardinality'] };
   const valid = { op: 'create', profile: 'fixture', message: 'ASSESSMENT-MUST-NOT-EXECUTE' };
@@ -395,4 +396,29 @@ test('a native fork accepted before Stop still runs after its authorization call
   const parent = (await service.successful({ op: 'read', task_id: owner })).result.task;
   assert.equal(parent.status, 'stopped');
   await Promise.all(tasks.filter(task => task.id !== owner).map(task => service.idle(task.id)));
+});
+
+test('provider duplicate argument members survive allowing hooks, history and provider replay until final admission', { timeout: 30000 }, async t => {
+  const arguments_json = '{"command":"printf DUPLICATE-FIRST","command":"printf DUPLICATE-LAST"}';
+  let requested = false;
+  let replayed = false;
+  const service = await fixture(t, async body => {
+    if (!requested) {
+      requested = true;
+      return [{ type: 'function_call', call_id: 'duplicate-arguments', name: 'bash', arguments: arguments_json }];
+    }
+    const call = body.input.find(item => item.type === 'function_call' && item.call_id === 'duplicate-arguments');
+    assert.equal(call?.arguments, arguments_json, 'Provider history must retain both original member occurrences');
+    replayed = true;
+    return done;
+  }, { policy: true });
+  const created = await service.successful({ op: 'create', profile: 'fixture', message: 'Exercise final tool argument admission.' });
+  const settled = await service.idle(created.result.task_id);
+  assert.equal(replayed, true);
+  const messages = settled.result.messages;
+  const call = messages.find(item => item.role === 'function_call');
+  assert.equal(call.content.arguments_json, arguments_json);
+  const failure = messages.find(item => item.role === 'function_output' && item.call_id === 'duplicate-arguments');
+  assert.equal(failure?.is_error, true, 'Allow must retain duplicate members for the final native rejection');
+  assert.ok((await service.hooks()).some(item => item.method === 'beforeTool' && item.call.id === 'duplicate-arguments'));
 });

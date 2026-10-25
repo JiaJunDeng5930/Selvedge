@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import State Inputs InputDecoder Packet PacketProofs Journal
  WorldInvariant WorldInvariantProofs CommitAdmission ForkCommit ForkCommitAuthorization.
-From Selvedge.Kernel Require Scheduler.
+From Selvedge.Kernel Require Scheduler CreationCommit CreationCommitAuthorization DeferredCommitProofs.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 
@@ -43,6 +43,20 @@ Proof.
      - left; rewrite domain_projection_erases_journal_sequence; exact Retained.
      - right; exists (Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request))).
        rewrite domain_relation_ignores_journal_sequence; exact Evolved. }
+   destruct (CreationCommit.input (InputDecoder.decode source)) as [request|].
+   { unfold CreationCommit.packet, Delivery.deliver_with_status.
+     destruct (Delivery.fits true (CreationCommit.candidate request before)); cbn [fst decision_world].
+     - right; exists (Some (UserCommand (Selvedge.Generated.Commands.Cmd_create request))).
+       rewrite domain_relation_ignores_journal_sequence.
+       apply CreationCommitAuthorization.every_creation_candidate_preserves_retained_execution_authority; exact Valid.
+     - left; apply domain_projection_erases_journal_sequence. }
+   destruct (Packet.deferred_candidate (InputDecoder.decode source) before) as [[input candidate]|].
+   { pose proof (DeferredCommitProofs.packet_preserves_global_state_relation_or_rolls_back (Some input) source before candidate) as Authority.
+     destruct (DeferredCommit.packet (Some input) source before candidate) as [after envelope] eqn:Committed.
+     cbn [fst] in Authority |- *.
+     destruct Authority as [Retained|Evolved].
+     - left; exact Retained.
+     - right; exists (Some input); exact Evolved. }
    destruct (Packet.transition source before) as [[[durable schedules] input] candidate] eqn:Transition.
    set (prepared := if schedules then Runtime.finish
      (Scheduler.run Packet.execute_command Runtime.can_schedule_task candidate) else candidate).

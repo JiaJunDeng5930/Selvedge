@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Foundation Require Import Json Schema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks.
+From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks TaskChangesProofs.
 From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree Titles TitleRuntime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
@@ -99,7 +99,7 @@ Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,
 Proof.
  intros target task value found not_archived.
  unfold Selvedge.Kernel.Domain.task_archived in not_archived.
- unfold Tasks.control_command. rewrite found.
+ rewrite TaskChangesProofs.control_command_expression. rewrite found.
  unfold Tasks.control_target, Tasks.control_transition.
  destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl in *; try discriminate; reflexivity.
 Qed.
@@ -112,7 +112,8 @@ Lemma interrupt_preserves_task_authority : forall task,
  Selvedge.Kernel.Domain.task_current_settings (Tasks.control_task Tasks.Interrupt task)=
    Selvedge.Kernel.Domain.task_current_settings task.
 Proof.
- intros task. unfold Tasks.control_task, Tasks.control_target, Tasks.control_transition,
+ intros task. rewrite TaskChangesProofs.control_task_expression.
+ unfold Tasks.control_target, Tasks.control_transition,
    Selvedge.Kernel.Domain.with_lifecycle, Selvedge.Kernel.Domain.append_history,
    Selvedge.Kernel.Domain.with_history.
  cbv [set]. destruct (Selvedge.Kernel.Domain.task_lifecycle task); simpl; repeat split; reflexivity.
@@ -152,6 +153,7 @@ Proof.
  unfold Board.busy, BoardFacts.busy, BoardFacts.busy_task, BoardFacts.linked_task.
  rewrite linked, task_found, busy. cbn zeta.
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
+ unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
    (F.card_contents card) (Some target) true (F.card_created card) now
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
@@ -204,6 +206,7 @@ Proof.
  unfold Board.busy, BoardFacts.busy, BoardFacts.busy_task, BoardFacts.linked_task.
  rewrite linked, task_found, busy. cbn zeta.
  cbn [Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
+ unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
    (F.card_contents card) (Some target) true (F.card_created card) now
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
@@ -212,7 +215,7 @@ Proof.
    (Board.put id updated value)=
    Selvedge.Kernel.State.reject "invalid_control" "This lifecycle control is unavailable for the task"
      (Board.put id updated value)).
- { unfold Tasks.control_command.
+ { rewrite TaskChangesProofs.control_command_expression.
    rewrite BoardRelations.task_lookup_after_board_put, task_found.
    unfold Tasks.control_target, Tasks.control_transition.
    rewrite archived_lifecycle. reflexivity. }
@@ -252,6 +255,7 @@ Proof.
  unfold Board.busy, BoardFacts.busy, BoardFacts.busy_task, BoardFacts.linked_task.
  rewrite linked, task_found, idle. cbn zeta.
  cbn [andb Board.save Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.accept].
+ unfold set. cbn. rewrite linked.
  set (updated := F.Card (N.succ (F.card_revision card))
    (F.card_contents card) (Some target) true (F.card_created card) now
    F.NoEnrichment (F.card_start_error card) (F.card_pinned card)).
@@ -302,7 +306,14 @@ Proof.
  intros id revision value card profile_name selected now observed found current clock editable available ordinary.
  subst revision. rewrite idle_regeneration_uses_drafting_policy with (card:=card) (now:=now);
  [|exact found|exact clock|exact editable].
- unfold Board.request_text. rewrite available,ordinary. reflexivity.
+ assert (N.leb id (N.of_nat (List.length (F.board_cards (Board.registry value)))) = true) as Within.
+ { apply N.leb_le. unfold Board.lookup in found.
+   destruct (registry_at id (F.board_cards (Board.registry value))) as [[existing|]|] eqn:At; try discriminate.
+   pose proof (registry_lookup_implies_position_bound _ _ _ _ At); lia. }
+ unfold Board.request_text. rewrite available,ordinary.
+ unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
+ destruct (Bool.bool_dec _ true) as [Valid|Invalid]; [reflexivity|].
+ exfalso; apply Invalid; exact Within.
 Qed.
 
 (** A title result retains the linked Task identifier in the saved card. *)

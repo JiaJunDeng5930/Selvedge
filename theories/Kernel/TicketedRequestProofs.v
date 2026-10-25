@@ -1,18 +1,12 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
+From Selvedge.Kernel Require Import TaskScope.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State TicketedRequest LifecycleProofs ModelRequestConstructionProofs.
 Import ListNotations.
 
-Lemma registry_replace_other : forall (A : Type) (values : list A) selected queried replacement,
- selected <> queried ->
- registry_at queried (replace selected replacement values) = registry_at queried values.
-Proof.
- intros A values; induction values as [|head rest IH]; intros selected queried replacement Different; cbn; [reflexivity|].
- destruct (N.eqb selected 0) eqn:Selected; destruct (N.eqb queried 0) eqn:Queried;
-   cbn; rewrite ?Queried; try reflexivity.
- - apply N.eqb_eq in Selected; apply N.eqb_eq in Queried; congruence.
- - apply IH. apply N.eqb_neq in Selected; apply N.eqb_neq in Queried; lia.
-Qed.
+Definition registry_replace_other := @Selvedge.Foundation.RegistryProofs.registry_replace_other.
 
 (* The only writable world components are one selected registry entry and the
    fresh-ticket counter. This lift applies to every request variant. *)
@@ -21,7 +15,7 @@ Theorem issue_preserves_other_tasks : forall owner source before other,
  find_task other (decision_world (TicketedRequest.issue owner source before)) = find_task other before.
 Proof.
  intros owner source before other Different.
- unfold TicketedRequest.issue.
+ unfold TicketedRequest.issue; cbn [allocate_identity next_identity].
  destruct (TicketedRequest.build owner (world_next_ticket before) (world_environment before) source).
  cbn [decision_world accept].
  unfold find_task, put_task, with_tasks, with_ticket; cbn.
@@ -36,7 +30,7 @@ Theorem issue_preserves_world_frame : forall owner source before,
  world_next_ticket after = N.succ (world_next_ticket before) /\
  List.length (world_tasks after) = List.length (world_tasks before).
 Proof.
- intros owner source before. unfold TicketedRequest.issue.
+ intros owner source before. unfold TicketedRequest.issue; cbn [allocate_identity next_identity].
  destruct (TicketedRequest.build owner (world_next_ticket before) (world_environment before) source).
  cbn [decision_world accept].
  unfold put_task, with_tasks, with_ticket; cbn.
@@ -58,7 +52,7 @@ Proof.
  all: try match type of Member with
  | In _ (decision_effects (TicketedRequest.issue _ (TicketedRequest.Infer ?current) _)) =>
    destruct (ModelRequest.choose owner current) eqn:Chosen;
-   unfold TicketedRequest.issue, TicketedRequest.build in Member; rewrite Chosen in Member
+   unfold TicketedRequest.issue, TicketedRequest.build in Member; cbn [allocate_identity next_identity] in Member; rewrite Chosen in Member
  end.
  all: cbn [TicketedRequest.issue TicketedRequest.build decision_effects accept] in Member;
    try contradiction; destruct Member as [<-|Impossible]; try contradiction; reflexivity.
@@ -99,7 +93,7 @@ Qed.
 Lemma wake_keeps_execution_identity : forall task,
  execution_identity (Tasks.wake_after_result task) = execution_identity task.
 Proof.
- intros task. unfold Tasks.wake_after_result.
+ intros task. rewrite TaskChangesProofs.waking_result_expression.
  destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|operations];
  try destruct phase; try apply promote_keeps_execution_identity; reflexivity.
 Qed.
@@ -136,7 +130,7 @@ Proof.
  intros owner source before chosen Selected.
  destruct (choosing_a_fixed_profile owner source chosen Selected)
    as [choice [Chosen [Model Base]]].
- unfold TicketedRequest.issue, TicketedRequest.build. rewrite Chosen.
+ unfold TicketedRequest.issue, TicketedRequest.build; cbn [allocate_identity next_identity]. rewrite Chosen.
  eexists; cbn [decision_effects accept]. repeat split; try reflexivity.
  - exact Model.
  - cbn [ModelRequest.issue ModelRequest.history]. now rewrite Base.
@@ -163,4 +157,136 @@ Proof.
  inversion Equal; subst request. split; [reflexivity|]. split; [reflexivity|].
  cbn [ModelRequest.issue ModelRequest.selection].
  eapply a_chosen_model_is_bound_to_the_actual_source; exact Chosen.
+Qed.
+
+(* Eligibility belongs to the plan, so interpreting it installs the receiver even
+   when no scheduler guard or later effect filter runs. *)
+Theorem scoped_observation_installs_its_receiver : forall before
+ (request : TicketedRequest.Scoped.plan before) publish,
+ TicketedRequest.Scoped.intent request = TicketedRequest.Scoped.ObserveTask publish ->
+ let owner := TaskScope.owner (TicketedRequest.Scoped.target request) in
+ let source := match TicketedRequest.Scoped.lower request with
+   | TicketedRequest.Observe source => source | _ => TaskScope.selected (TicketedRequest.Scoped.target request) end in
+ exists waiting,
+ find_task owner (decision_world (TicketedRequest.Scoped.issue request)) = Some waiting /\
+ task_activity waiting = ObservingContext (world_next_ticket before) (List.length (task_history source)) /\
+ decision_effects (TicketedRequest.Scoped.issue request) =
+   [ObserveContext owner (world_next_ticket before) source].
+Proof.
+ intros before [[owner current Found] intent Permission] publish Intent.
+ cbn in Intent; subst intent.
+ change (let source := if publish then TicketedRequest.publish_operations (Tasks.promote current) else current in
+ exists waiting,
+ find_task owner (decision_world (TicketedRequest.issue owner (TicketedRequest.Observe source) before)) = Some waiting /\
+ task_activity waiting = ObservingContext (world_next_ticket before) (List.length (task_history source)) /\
+ decision_effects (TicketedRequest.issue owner (TicketedRequest.Observe source) before) =
+   [ObserveContext owner (world_next_ticket before) source]).
+ cbn zeta.
+ cbn [TicketedRequest.Scoped.admitted_action] in Permission.
+ eexists; split.
+ - unfold TicketedRequest.issue, TicketedRequest.build; cbn [decision_world accept].
+   eapply find_put_task. exact Found.
+ - split; [|reflexivity].
+   unfold TicketedRequest.Scoped.can_observe in Permission.
+   cbn [TaskScope.selected] in Permission.
+   apply Bool.andb_true_iff in Permission as [_ Phase].
+   destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   destruct lifecycle as [phase operations|phase operations|phase operations|operations];
+     try discriminate Phase.
+   destruct publish; cbn in Phase.
+   + destruct phase; try discriminate Phase.
+     destruct queued; reflexivity.
+   + destruct phase; try discriminate Phase; reflexivity.
+Qed.
+
+Theorem inference_plans_require_a_captured_running_context : forall before
+ (request : TicketedRequest.Scoped.plan before),
+ TicketedRequest.Scoped.intent request = TicketedRequest.Scoped.InferTask ->
+ exists operations,
+ task_lifecycle (TaskScope.selected (TicketedRequest.Scoped.target request)) =
+   Running ReadyForModel operations /\
+ TicketedRequest.Scoped.resources_available
+   (TaskScope.selected (TicketedRequest.Scoped.target request)) before = true.
+Proof.
+ intros before [target intent Permission] Intent; cbn in Intent; subst intent.
+ change (exists operations, task_lifecycle (TaskScope.selected target) = Running ReadyForModel operations /\
+   TicketedRequest.Scoped.resources_available (TaskScope.selected target) before = true).
+ cbn [TicketedRequest.Scoped.admitted_action] in Permission.
+ unfold TicketedRequest.Scoped.can_infer in Permission.
+ apply Bool.andb_true_iff in Permission as [Resources Phase].
+ destruct (task_lifecycle (TaskScope.selected target)) as
+   [phase operations|phase operations|phase operations|operations] eqn:Lifecycle;
+   try discriminate Phase.
+ destruct phase; try discriminate Phase.
+ exists operations; split; [reflexivity|exact Resources].
+Qed.
+
+Theorem frozen_and_archived_cannot_construct_new_execution : forall before owner current source,
+ (exists phase operations, task_lifecycle current = Frozen phase operations) \/
+ (exists operations, task_lifecycle current = Archived operations) ->
+ TicketedRequest.Scoped.admitted_action before owner current source ->
+ exists operation plugin pending result error,
+ source = TicketedRequest.Scoped.AfterOperation operation plugin pending result error /\
+ TicketedRequest.Scoped.operation_at (operation_id operation) current = Some operation /\
+ operation_stage operation = AfterHooksReady (plugin :: pending) result error.
+Proof.
+ intros before owner current source Paused Admitted.
+ destruct Paused as [[phase [operations Lifecycle]]|[operations Lifecycle]];
+ destruct source; cbn [TicketedRequest.Scoped.admitted_action] in Admitted.
+ all: try (unfold TicketedRequest.Scoped.can_observe in Admitted;
+   rewrite Lifecycle, andb_false_r in Admitted; discriminate).
+ all: try (unfold TicketedRequest.Scoped.can_infer in Admitted;
+   rewrite Lifecycle, andb_false_r in Admitted; discriminate).
+ all: try (unfold TicketedRequest.Scoped.call_action, TicketedRequest.Scoped.can_execute in Admitted;
+   rewrite Lifecycle in Admitted; discriminate).
+ all: try (destruct Admitted as [Active _];
+   unfold TicketedRequest.Scoped.can_execute in Active; rewrite Lifecycle in Active; discriminate).
+ all: do 5 eexists; split; [reflexivity|exact Admitted].
+Qed.
+
+Lemma preparing_a_model_preserves_lifecycle : forall owner current model remaining,
+ task_lifecycle (ModelRequest.prepared owner current model remaining) = task_lifecycle current.
+Proof.
+ intros owner current model [remaining|]; [|reflexivity].
+ unfold ModelRequest.prepared, ModelRequest.Plans.generation.
+ repeat match goal with |- context[if ?condition then _ else _] => destruct condition end;
+ reflexivity.
+Qed.
+
+Theorem scoped_inference_installs_its_receiver : forall before
+ (request : TicketedRequest.Scoped.plan before),
+ TicketedRequest.Scoped.intent request = TicketedRequest.Scoped.InferTask ->
+ exists waiting,
+ find_task (TaskScope.owner (TicketedRequest.Scoped.target request))
+   (decision_world (TicketedRequest.Scoped.issue request)) = Some waiting /\
+ match decision_effects (TicketedRequest.Scoped.issue request) with
+ | [RequestModel model] => task_activity waiting = ModelRequest.request_activity model
+ | [RequestReasoning _ ticket snapshot] =>
+   task_activity waiting = EvaluatingReasoning ticket (List.length (task_history snapshot))
+ | _ => False end.
+Proof.
+ intros before request Intent.
+ destruct (inference_plans_require_a_captured_running_context before request Intent)
+   as [operations [Lifecycle Resources]].
+ destruct request as [[owner current Found] intent Permission].
+ cbn in Intent; subst intent.
+ change (task_lifecycle current = Running ReadyForModel operations) in Lifecycle.
+ change (exists waiting,
+   find_task owner (decision_world (TicketedRequest.issue owner (TicketedRequest.Infer current) before)) = Some waiting /\
+   match decision_effects (TicketedRequest.issue owner (TicketedRequest.Infer current) before) with
+   | [RequestModel model] => task_activity waiting = ModelRequest.request_activity model
+   | [RequestReasoning _ ticket snapshot] => task_activity waiting = EvaluatingReasoning ticket (List.length (task_history snapshot))
+   | _ => False end).
+ unfold TicketedRequest.issue, TicketedRequest.build; cbn [allocate_identity next_identity].
+ destruct (ModelRequest.choose owner current) as [choice|] eqn:Chosen;
+   eexists; split; cbn [decision_world decision_effects accept].
+ - eapply find_put_task; exact Found.
+ - apply ModelRequestConstructionProofs.installing_a_running_model_request_uses_its_sent_phase with
+     (phase := ReadyForModel) (operations := operations).
+   destruct (ModelRequestConstructionProofs.a_chosen_model_is_bound_to_the_actual_source owner current choice Chosen)
+     as [model [remaining [_ [_ Base]]]].
+   change (task_lifecycle (ModelRequest.base choice) = Running ReadyForModel operations).
+   rewrite Base, preparing_a_model_preserves_lifecycle; exact Lifecycle.
+ - eapply find_put_task; exact Found.
+ - unfold with_activity; rewrite Lifecycle; reflexivity.
 Qed.

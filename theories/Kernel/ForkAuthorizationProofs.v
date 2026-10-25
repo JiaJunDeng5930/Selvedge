@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs
@@ -117,7 +118,7 @@ Lemma actual_fork_state_is_retained_or_constructed :
      fork_candidate entry owner count messages parent selected before.
 Proof.
  intros entry origin owner count messages requested before.
- unfold Tasks.fork_with_caller.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
  destruct (find_task owner before) as [parent|] eqn:Parent; [|left; reflexivity].
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&

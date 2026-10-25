@@ -34,3 +34,25 @@ exhaustively. An additional effect therefore requires an explicit interpreter;
 there is no default tool route. JavaScript primitives retain physical handles and
 perform IO, while the extracted steps choose the control actions. SQLite durability,
 Worker execution and external-provider outcomes remain explicit trust boundaries.
+
+Recovery uses the same lifecycle runner as ordinary effects because its callback
+needs an active generation even though its physical action is observation rather
+than creation. The runner installs the controller and the original rejecting
+promise before invoking its interpreter. Startup awaits that promise directly;
+a background failure observer must not convert a failed recovery into successful
+startup. An opaque handle ties completion and settlement to that registration,
+and the actual runner and settlement interpreter are included in the strict
+TypeScript check. A finalizer removes only its own generation. The runner never
+adds a second settlement around an interpreter that already settles its result.
+
+Archive barriers and size-rejection compensation belong to the extracted
+dispatch controller. The host supplies resource identities and physical path
+overlap observations. This keeps a new running-effect category from silently
+bypassing the resource wait policy, and keeps an uncertain journal outcome from
+acquiring physical rollback authority through an adapter branch.
+
+Retiring the dispatcher prevents new launches and callback reduction; it does not
+undo an already accepted journal commit. Shutdown can occur while the promise
+for that commit is returning. Its still-active handle may acknowledge the
+accepted result once while preserving the retired dispatcher, so waiting for
+physical cleanup does not turn a successful commit into a shutdown failure.

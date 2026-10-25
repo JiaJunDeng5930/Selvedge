@@ -103,6 +103,8 @@ Proof.
  intros source value result transition unchanged no_effects.
  unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source) (Packet.transition source value). destruct (N.leb _ _) eqn:frame.
  - rewrite (PacketProofs.a_nondurable_transition_is_not_a_manual_fork source value result transition).
+   rewrite (PacketProofs.a_nondurable_transition_is_not_a_public_creation source value result transition).
+   rewrite (PacketProofs.a_nondurable_transition_is_not_a_deferred_transaction source value result transition).
    rewrite transition. cbn beta iota zeta.
    assert (retained : Dispatch.retain_live_effects result=result).
    { destruct result as [world reply effects]. cbn in no_effects.

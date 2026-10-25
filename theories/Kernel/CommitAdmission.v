@@ -290,7 +290,7 @@ Definition same_option_card_task (before after : option N) :=
  | Some _, None => false
  end.
 Definition board_card_at (cards : list (option F.card)) (id : N) :=
- match Numbers.registry_at id cards with Some card => card | None => None end.
+ match Selvedge.Foundation.Registry.registry_at id cards with Some card => card | None => None end.
 Definition retained_card (before after : F.card) :=
  N.leb (F.card_revision before) (F.card_revision after) &&
  same_option_card_task (F.card_task before) (F.card_task after).

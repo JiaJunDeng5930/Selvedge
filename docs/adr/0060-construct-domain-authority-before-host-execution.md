@@ -53,6 +53,22 @@ the retained count and absolute cursor and supplies slice instructions. Sending
 the entire tail through JSON for each chunk failed the existing throughput
 acceptance criterion without strengthening the policy boundary.
 
+Graph declarations resolve against one original observation before allocating
+Tasks. Resolving an Existing node against a partially installed graph allowed a
+caller to guess a future Task ID, and even made acceptance depend on node order.
+Plans retain the original existence and Work membership evidence; spawned Tasks
+carry the same resolved start used by ordinary creation. Ownership consumes the
+fresh birth reference instead of accepting an arbitrary world-mutating callback.
+This preserves the meaning of Existing while allowing multiple graph keys to
+name the same preexisting Task.
+
+Native authority and domain failure order are separate contracts. Cache ordinary
+start outcomes so authority can inspect every successful selection without
+prematurely returning a failed selection. After that gate, consume failures in
+the declaration's original order. An explicit creation intent supplies failure
+projection because ordinary, idle, Work and workspace creation have different
+observable error contracts despite sharing their start construction.
+
 ## Consequences
 
 The Rocq kernel checks domain constructions and their stated theorems. Extraction,

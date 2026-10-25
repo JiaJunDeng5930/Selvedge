@@ -57,17 +57,34 @@ Definition revoke controller value :=
  let next:=Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (remove_grants controller (Selvedge.Features.Domain.remote_grants state))
    (Selvedge.Features.Domain.remote_next_epoch state) (remove_receipts controller (Selvedge.Features.Domain.remote_receipts state)) in
  accept (JObject [("controller_id",JString controller);("revoked",JBool true)]) (store next value) [].
-Definition query (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) : option json := match command with
- | Selvedge.Generated.Commands.Cmd_remote_status _ => Some (match caller with None=>Selvedge.Kernel.State.success (status (registry value)) | Some _=>decision_reply (local_only value) end)
- | _=>None end.
-Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) : option decision :=
- let change:=match command with
- | Selvedge.Generated.Commands.Cmd_remote_enable _=>Some (admin_enabled true)
- | Selvedge.Generated.Commands.Cmd_remote_disable _=>Some (admin_enabled false)
- | Selvedge.Generated.Commands.Cmd_remote_grant p=>Some (grant (Selvedge.Generated.Commands.remote_grant_controller_id p) (Selvedge.Generated.Commands.remote_grant_permissions p))
- | Selvedge.Generated.Commands.Cmd_remote_revoke p=>Some (revoke (Selvedge.Generated.Commands.remote_revoke_controller_id p))
- | _=>None end in
- match change with None=>None | Some change=>Some (match caller with None=>change value | Some _=>local_only value end) end.
+Definition handle_remote_status (_payload : Selvedge.Generated.Commands.remote_status_payload)
+ (caller : option N) (value : world) : json :=
+ match caller with None => Selvedge.Kernel.State.success (status (registry value))
+ | Some _ => decision_reply (local_only value) end.
+Definition admin_command (change : world -> decision) (caller : option N) (value : world) :=
+ match caller with None => change value | Some _ => local_only value end.
+Definition handle_remote_enable (_payload : Selvedge.Generated.Commands.remote_enable_payload)
+ (caller : option N) (value : world) : decision := admin_command (admin_enabled true) caller value.
+Definition handle_remote_disable (_payload : Selvedge.Generated.Commands.remote_disable_payload)
+ (caller : option N) (value : world) : decision := admin_command (admin_enabled false) caller value.
+Definition handle_remote_grant (payload : Selvedge.Generated.Commands.remote_grant_payload)
+ (caller : option N) (value : world) : decision :=
+ admin_command (grant (Selvedge.Generated.Commands.remote_grant_controller_id payload)
+   (Selvedge.Generated.Commands.remote_grant_permissions payload)) caller value.
+Definition handle_remote_revoke (payload : Selvedge.Generated.Commands.remote_revoke_payload)
+ (caller : option N) (value : world) : decision :=
+ admin_command (revoke (Selvedge.Generated.Commands.remote_revoke_controller_id payload)) caller value.
+Definition query (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option json :=
+ match command with
+ | Selvedge.Generated.Commands.Cmd_remote_status payload => Some (handle_remote_status payload caller value)
+ | _ => None end.
+Definition command (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option decision :=
+ match command with
+ | Selvedge.Generated.Commands.Cmd_remote_enable payload => Some (handle_remote_enable payload caller value)
+ | Selvedge.Generated.Commands.Cmd_remote_disable payload => Some (handle_remote_disable payload caller value)
+ | Selvedge.Generated.Commands.Cmd_remote_grant payload => Some (handle_remote_grant payload caller value)
+ | Selvedge.Generated.Commands.Cmd_remote_revoke payload => Some (handle_remote_revoke payload caller value)
+ | _ => None end.
 
 Definition selected_settings settings := match settings with None | Some JNull | Some (JObject [])=>false | _=>true end.
 Definition read_rights := Selvedge.Features.Domain.Rights true false false false.

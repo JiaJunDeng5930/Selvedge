@@ -101,9 +101,11 @@ outcome may already have happened.
 
 ## One before-tool protocol
 
-A model call must first satisfy its frozen tool argument contract before it can
-enter task history or request authorization. The kernel then commits a tool
-authorization check effect and a task-local pending ticket. The host sends
+A model call first passes envelope and frozen tool identity admission. The kernel
+then records the call and runs before-tool hooks in order. Allow preserves the
+original ordered argument members; rewrite replaces the arguments while retaining
+the call identity. Final per-tool argument admission runs after those hooks and
+before authorization or execution. The host sends
 `beforeTool` with:
 
 ```json

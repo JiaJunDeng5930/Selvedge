@@ -1,16 +1,13 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks LifecycleProofs TicketedRequestProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
 
-Lemma registry_lookup_preserved_by_append : forall (A : Type) (values : list A) index existing suffix,
- registry_at index values = Some existing -> registry_at index (values ++ suffix) = Some existing.
-Proof.
- intros A values; induction values as [|head rest IH]; intros index existing suffix Found; cbn in *; [discriminate|].
- destruct (N.eqb index 0); [exact Found|]. eapply IH; exact Found.
-Qed.
+Definition registry_lookup_preserved_by_append := @Selvedge.Foundation.RegistryProofs.registry_lookup_preserved_by_append.
 Lemma append_task_preserves_existing : forall owner existing child value,
  find_task owner value = Some existing -> find_task owner (append_task child value) = Some existing.
 Proof.
@@ -29,7 +26,7 @@ Theorem fork_does_not_write_unrelated_existing_tasks : forall entry origin id co
  find_task other (decision_world (Tasks.fork_with_caller entry origin id count messages settings before)) = Some existing.
 Proof.
  intros entry origin id count messages settings before other existing Different Found.
- unfold Tasks.fork_with_caller.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
  destruct (find_task id before) as [parent|]; [|exact Found].
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
@@ -55,7 +52,7 @@ Theorem accepted_native_fork_never_reconfigures_its_parent : forall invocation r
    (Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages settings before)) = Some parent.
 Proof.
  intros invocation remaining origin id count messages settings before parent Found.
- unfold Tasks.fork_with_caller; rewrite Found.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
  destruct (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&

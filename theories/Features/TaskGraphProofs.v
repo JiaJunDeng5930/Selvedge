@@ -1,73 +1,12 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Conversation Callbacks Tasks LifecycleProofs.
-From Selvedge.Features Require Import Domain State TaskGraph TaskGraphSemantics.
+From Selvedge.Kernel Require Import Numbers Domain State Codec Conversation Callbacks Tasks LifecycleProofs.
+From Selvedge.Features Require Import Domain State TaskGraph TaskGraphSemantics WorktreeProofs.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
 Module K:=Selvedge.Kernel.State.
-Lemma failed_birth_is_terminal : forall nodes owner caller failure,
- fold_left (fun progress node=>TaskGraph.birth owner caller node progress) nodes (TaskGraph.BirthFailed failure) = TaskGraph.BirthFailed failure.
-Proof. induction nodes;intros; simpl;auto. Qed.
-(** A missing existing node after any declaration prefix cannot leave births
-    or effects from that rejected installation behind. *)
-Theorem missing_first_node_is_atomic : forall id owner name key target rest rules caller value
- (admitted:TaskGraph.admissible (TaskGraph.Declaration name (F.ExistingNode key target::rest) rules)),
- K.find_task target value = None ->
- decision_world (TaskGraph.install id owner (exist _ _ admitted) caller value) = value /\
- decision_effects (TaskGraph.install id owner (exist _ _ admitted) caller value) = [].
-Proof.
- intros.
- assert (first : TaskGraph.birth owner caller (F.ExistingNode key target) (TaskGraph.Born value [] []) =
- TaskGraph.BirthFailed (K.failure "task_not_found"%string "A referenced graph task does not exist"%string)).
- { unfold TaskGraph.birth. rewrite H. reflexivity. }
- unfold TaskGraph.install. destruct (TaskGraph.work_valid owner value); [|split;reflexivity].
- cbn -[TaskGraph.birth]. rewrite first.
- rewrite failed_birth_is_terminal. split;reflexivity.
-Qed.
-
-Lemma registry_lookup_at_appended_index : forall (A : Type) (entries : list A) value,
- registry_at (N.of_nat (List.length entries)) (entries ++ [value]) = Some value.
-Proof.
- intros A entries; induction entries as [|head rest IH]; intro value; [reflexivity|].
- change ((if N.eqb (N.of_nat (S (List.length rest))) 0 then Some head
-   else registry_at (N.pred (N.of_nat (S (List.length rest)))) (rest ++ [value])) = Some value).
- assert (Positive : N.eqb (N.of_nat (S (List.length rest))) 0 = false)
-   by (apply N.eqb_neq; lia).
- rewrite Positive.
- replace (N.pred (N.of_nat (S (List.length rest)))) with (N.of_nat (List.length rest)) by lia.
- apply IH.
-Qed.
-
-Lemma registry_append_preserves_other_lookup : forall (A : Type) (entries : list A) index value,
- index <> N.of_nat (List.length entries) ->
- registry_at index (entries ++ [value]) = registry_at index entries.
-Proof.
- intros A entries; induction entries as [|head rest IH]; intros index value Different.
- - cbn. destruct (N.eqb index 0) eqn:Selected; [|reflexivity].
-   apply N.eqb_eq in Selected. exfalso; apply Different; exact Selected.
- - cbn [List.app registry_at]. destruct (N.eqb index 0) eqn:Selected; [reflexivity|].
-   apply IH. apply N.eqb_neq in Selected. intro Equal. apply Different.
-   cbn [List.length]. rewrite Nat2N.inj_succ, <- Equal.
-   symmetry; now apply N.succ_pred.
-Qed.
-
-Lemma registry_replacement_preserves_other_lookup : forall (A : Type) (entries : list A)
- updated observed replacement,
- updated <> observed ->
- registry_at observed (replace updated replacement entries) = registry_at observed entries.
-Proof.
- intros A entries; induction entries as [|head rest IH]; intros updated observed replacement Different;
-   [reflexivity|].
- cbn [replace registry_at].
- destruct (N.eqb updated 0) eqn:Write; destruct (N.eqb observed 0) eqn:Read;
-   cbn [registry_at]; rewrite ?Read.
- - apply N.eqb_eq in Write, Read. exfalso; apply Different; congruence.
- - reflexivity.
- - reflexivity.
- - apply IH. apply N.eqb_neq in Write, Read. intro Equal. apply Different.
-   now apply N.pred_inj.
-Qed.
-
 Lemma graph_lookup_has_registry_entry : forall id value graph,
  TaskGraph.lookup id value = Some graph ->
  registry_at id (TaskGraph.registry value) = Some (Some graph).
@@ -123,7 +62,7 @@ Proof.
    | Some graph => graph | None => None end).
  destruct (N.eqb id (N.of_nat (List.length (TaskGraph.registry value)))) eqn:Append.
  - apply N.eqb_eq in Append. rewrite registry_append_preserves_other_lookup; [reflexivity|lia].
- - rewrite registry_replacement_preserves_other_lookup; [reflexivity|exact Different].
+ - rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other; [reflexivity|exact Different].
 Qed.
 (** Installing a graph never dispatches the pre-existing history again. *)
 Theorem unchanged_history_has_no_new_outputs : forall value id task,
@@ -143,23 +82,24 @@ Proof.
  apply N.eqb_neq in other. now rewrite other.
 Qed.
 
-Theorem failed_installation_is_atomic : forall id owner checked caller original failure,
- fold_left (fun progress node=>TaskGraph.birth owner caller node progress)
-   (TaskGraph.declaration_nodes (proj1_sig checked))
-   (TaskGraph.Born original [] [])=TaskGraph.BirthFailed failure ->
- decision_world (TaskGraph.install id owner checked caller original)=original /\
- decision_effects (TaskGraph.install id owner checked caller original)=[].
+Theorem resolved_installation_succeeds : forall id owner checked caller original cached plans,
+ TaskGraph.prepare_nodes owner caller original cached = TaskGraph.NodesResolved plans ->
+ bool_default "ok"%string (decision_reply (TaskGraph.install_cached id owner checked caller cached original)) false = true.
 Proof.
- intros. unfold TaskGraph.install. destruct (TaskGraph.work_valid owner original);
- [rewrite H|]; split;reflexivity.
+ intros id owner checked caller original cached plans Prepared.
+ unfold TaskGraph.install_cached. rewrite Prepared.
+ destruct (fold_left (fun progress plan=>TaskGraph.birth plan progress) plans
+   (TaskGraph.Born original [] [])); reflexivity.
 Qed.
+Theorem refused_plan_is_atomic : forall id owner checked caller original cached failure,
+ TaskGraph.prepare_nodes owner caller original cached = TaskGraph.NodesRefused failure ->
+ TaskGraph.install_cached id owner checked caller cached original = K.Decision original failure [].
+Proof. intros; unfold TaskGraph.install_cached; now rewrite H. Qed.
 
-(** Structural admission cannot establish world-dependent ownership. Every
-    installation path rejects a Work that is absent from the current world. *)
 Theorem missing_work_rejects_installation : forall id owner checked caller original,
  Selvedge.Features.Work.lookup owner original=None ->
  TaskGraph.install id (Some owner) checked caller original=
-   TaskGraph.invalid_declaration original.
+   K.reject "work_not_found"%string "The Work does not exist."%string original.
 Proof.
  intros id owner checked caller original missing.
  unfold TaskGraph.install,TaskGraph.work_valid. now rewrite missing.
@@ -383,7 +323,7 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
  task_lifecycle received=Running WantsModel [].
 Proof.
  intros source item result task found idle nonempty.
- unfold TaskGraph.send_delivery, Tasks.send. rewrite found, idle, nonempty.
+ unfold TaskGraph.send_delivery. rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
  cbn [decision_world].
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
@@ -391,7 +331,7 @@ Proof.
  rewrite tasks_same.
  exists (Tasks.receive [TextPart (TaskGraph.delivery_text item)] task).
  split; [now apply find_put_task with task|].
- unfold Tasks.receive. rewrite idle. split; reflexivity.
+ rewrite TaskChangesProofs.receive_expression, idle. split; reflexivity.
 Qed.
 
 Lemma removed_graph_owner_is_absent : forall id bindings,
@@ -408,18 +348,16 @@ Proof.
  rewrite Selected in Kept; discriminate.
 Qed.
 
-Theorem resolved_installation_associates_its_work : forall id owner checked caller original prepared nodes effects,
- TaskGraph.work_valid (Some owner) original = true ->
- fold_left (fun progress node => TaskGraph.birth (Some owner) caller node progress)
-   (TaskGraph.declaration_nodes (proj1_sig checked)) (TaskGraph.Born original [] []) =
+Theorem resolved_installation_associates_its_work : forall id owner checked caller original cached plans prepared nodes effects,
+ TaskGraph.prepare_nodes (Some owner) caller original cached = TaskGraph.NodesResolved plans ->
+ fold_left (fun progress node => TaskGraph.birth node progress) plans (TaskGraph.Born original [] []) =
    TaskGraph.Born prepared nodes effects ->
  F.association id (F.feature_graph_owners (world_features
-   (decision_world (TaskGraph.install id (Some owner) checked caller original)))) = Some owner.
+   (decision_world (TaskGraph.install_cached id (Some owner) checked caller cached original)))) = Some owner.
 Proof.
- intros id owner checked caller original prepared nodes effects Owned Prepared.
- unfold TaskGraph.install. rewrite Owned, Prepared.
+ intros id owner checked caller original cached plans prepared nodes effects Resolved Prepared.
+ unfold TaskGraph.install_cached. rewrite Resolved, Prepared.
  unfold F.association, K.with_features, Selvedge.Features.State.with_graph_owners.
- (* RecordUpdate setters reduce when their input records are constructors. *)
  destruct (TaskGraph.store id
    (F.TaskGraph (TaskGraph.declaration_name (proj1_sig checked)) nodes
      (TaskGraph.declaration_rules (proj1_sig checked)) []) prepared)
@@ -439,7 +377,7 @@ Theorem graph_removal_preserves_other_identities : forall request caller value p
  TaskGraph.lookup other (decision_world result) = TaskGraph.lookup other value.
 Proof.
  intros request caller value previous Found.
- unfold TaskGraph.command. rewrite Found.
+ unfold TaskGraph.command, TaskGraph.handle_delete_task_graph. rewrite Found.
  eexists; split; [reflexivity|].
  pose proof (graph_lookup_has_registry_entry _ _ _ Found) as Entry.
  split.
@@ -454,7 +392,7 @@ Proof.
      (replace (Selvedge.Generated.Commands.delete_task_graph_graph_id request) None
        (TaskGraph.registry value)) with Some graph => graph | None => None end =
      match registry_at other (TaskGraph.registry value) with Some graph => graph | None => None end).
-     rewrite registry_replacement_preserves_other_lookup; [reflexivity|exact Different].
+     rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other; [reflexivity|exact Different].
 Qed.
 
 Theorem recording_a_receipt_retains_the_latest_history : forall id receipt value previous,
@@ -512,4 +450,35 @@ Proof.
    destruct Rules as [fragments [Meanings Expanded]]. rewrite Expanded.
    econstructor; eauto.
  - now constructor.
+Qed.
+
+
+Lemma planned_node_preserves_existing_tasks : forall original owner (plan:TaskGraph.node_plan original owner) progress id task,
+ find_task id (TaskGraph.born_world progress)=Some task ->
+ find_task id (TaskGraph.born_world (TaskGraph.birth plan progress))=Some task.
+Proof.
+ intros original owner plan [current nodes effects] id task Found.
+ destruct plan as [key target previous observed membership|key start]; [exact Found|].
+ destruct owner; change (find_task id (decision_world (Worktree.consume_planned_start start current))=Some task);
+ apply WorktreeProofs.planned_birth_preserves_existing_tasks; exact Found.
+Qed.
+Lemma planned_nodes_preserve_existing_tasks : forall original owner (plans:list (TaskGraph.node_plan original owner)) progress id task,
+ find_task id (TaskGraph.born_world progress)=Some task ->
+ find_task id (TaskGraph.born_world (fold_left (fun progress plan=>TaskGraph.birth plan progress) plans progress))=Some task.
+Proof.
+ intros original owner plans; induction plans as [|plan rest IH]; intros progress id task Found; [exact Found|].
+ cbn [fold_left]. apply IH. apply planned_node_preserves_existing_tasks. exact Found.
+Qed.
+Theorem installation_preserves_original_task_references : forall id owner checked caller original cached plans task_id task,
+ TaskGraph.prepare_nodes owner caller original cached=TaskGraph.NodesResolved plans ->
+ find_task task_id original=Some task ->
+ find_task task_id (decision_world (TaskGraph.install_cached id owner checked caller cached original))=Some task.
+Proof.
+ intros id owner checked caller original cached plans task_id task Prepared Found.
+ pose proof (planned_nodes_preserve_existing_tasks original owner plans
+   (TaskGraph.Born original [] []) task_id task Found) as Retained.
+ unfold TaskGraph.install_cached. rewrite Prepared.
+ destruct (fold_left (fun progress plan=>TaskGraph.birth plan progress) plans (TaskGraph.Born original [] []))
+   as [current nodes effects].
+ destruct owner; exact Retained.
 Qed.

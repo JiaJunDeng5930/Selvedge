@@ -246,7 +246,7 @@ Theorem an_issued_after_hook_has_its_actual_operation_authority :
 Proof.
  intros owner original plugin pending result error task before Found Member.
  unfold CommitAdmission.after_effect_valid, TicketedRequest.issue, TicketedRequest.build.
- cbn [decision_world accept].
+ cbn [TicketedRequest.allocate_identity TicketedRequest.next_identity decision_world accept].
  rewrite find_put_task with (before:=task) by exact Found.
  unfold CommitAdmission.operation_at.
  assert (Ops : forall operations, task_operations (with_operations operations task) = operations).

@@ -1,3 +1,4 @@
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia DecimalString DecimalN DecimalPos.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks WorldInvariant.
@@ -84,15 +85,7 @@ Proof.
  apply Forall_forall with (x := ancestor) in AncestorsEarlier; [lia|exact Member].
 Qed.
 
-Lemma registry_lookup_implies_position_bound : forall (A : Type) (entries : list A) owner value,
- registry_at owner entries = Some value -> (owner < N.of_nat (List.length entries))%N.
-Proof.
- intros A entries; induction entries as [|head tail IH]; intros owner value Found; [discriminate|].
- cbn [registry_at] in Found; cbn [List.length]; rewrite Nat2N.inj_succ.
- destruct (N.eqb owner 0) eqn:Zero.
- - apply N.eqb_eq in Zero; subst; lia.
- - apply N.eqb_neq in Zero; specialize (IH _ _ Found); lia.
-Qed.
+Definition registry_lookup_implies_position_bound := @Selvedge.Foundation.RegistryProofs.registry_lookup_implies_position_bound.
 
 Lemma descendant_count_app : forall ancestor left right,
  Tasks.descendant_count ancestor (left ++ right) =
@@ -179,17 +172,7 @@ Proof.
    apply N.leb_le in Bound; lia.
 Qed.
 
-Lemma a_registry_member_has_a_position : forall (A : Type) (entries : list A) value,
- In value entries -> exists owner, registry_at owner entries = Some value.
-Proof.
- intros A entries; induction entries as [|head tail IH]; intros value Member; [contradiction|].
- destruct Member as [Same|Member].
- - subst; exists 0%N; reflexivity.
- - destruct (IH value Member) as [owner Found].
-   exists (N.succ owner); cbn [registry_at].
-   assert (Nonzero : N.eqb (N.succ owner) 0 = false) by (apply N.eqb_neq; lia).
-   rewrite Nonzero, N.pred_succ; exact Found.
-Qed.
+Definition a_registry_member_has_a_position := @Selvedge.Foundation.RegistryProofs.a_registry_member_has_a_position.
 
 Lemma legal_registry_lineages_precede_the_append_position : forall before,
  WorldInvariant.well_formed before ->

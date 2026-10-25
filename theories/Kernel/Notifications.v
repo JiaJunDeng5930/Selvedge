@@ -48,7 +48,7 @@ Definition history_event (id : N) (value : task) (index : N) (message : message)
  | OperationResult _ invocation result error =>
    (call_id invocation :: seen,settled id value cursor (call_id invocation) result error seen)
  | HookReceipt owner _ _ _ | AfterReceipt owner _ _ _ =>
-   (seen,if N.eqb id owner then task_event id value "hook_completed" (Some cursor) (message_json id message) else [])
+   (seen,if N.eqb id owner then task_event id value "hook_completed" (Some cursor) (public_message_json id message) else [])
  | ForkReceipt owner invocation branch =>
    (seen,if N.eqb owner id then task_event id value "tool_completed" (Some cursor)
     (JObject [("call_id",JString (call_id invocation));("value",number branch);("error",JBool false);("origin",JString "fork_return")]) else [])
@@ -71,7 +71,7 @@ Definition task_events (before : world) (id : N) (value : task) (after : world) 
  | None => match fork_birth_index id (task_history value) with
    | Some index => N.of_nat index | None => task_side_cursor value end
  end in
- let records := rev (Numbers.indexed (fun index message => (index,message)) start (skipn (N.to_nat start) (task_history value))) in
+ let records := rev (Selvedge.Foundation.Registry.indexed (fun index message => (index,message)) start (skipn (N.to_nat start) (task_history value))) in
  let '(_,notices) := fold_left (fun state entry => let '(seen,events) := state in let '(index,message) := entry in
    let '(seen,added) := history_event id value index message seen in (seen,added ++ events)) records ([],[]) in
  lifecycle ++ notices.
@@ -103,7 +103,7 @@ Definition effect_events (after : world) (output : effect) :=
 Definition batch (source : option input) (before : world) (result : decision) :=
  let after := decision_world result in
  input_events source before after ++
-  concat (Numbers.indexed (fun id task => task_events before id task after) 0 (world_tasks after)) ++
+  concat (Selvedge.Foundation.Registry.indexed (fun id task => task_events before id task after) 0 (world_tasks after)) ++
   flat_map (effect_events after) (decision_effects result).
 Definition enriched_envelope (durable : bool) (result : decision) (notices : list json) :=
  Observation.envelope_with_effects durable (decision_reply result)

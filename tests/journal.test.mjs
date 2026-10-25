@@ -115,14 +115,14 @@ test('the previous durable journal format is rejected without replay or conversi
   const filename = path.join(directory, 'journal.sqlite');
   const database = new DatabaseSync(filename);
   const rows = database.prepare('SELECT * FROM journal ORDER BY seq').all();
-  database.prepare('UPDATE meta SET value = ? WHERE key = ?').run('selvedge-rocq-journal-5', 'format');
+  database.prepare('UPDATE meta SET value = ? WHERE key = ?').run('selvedge-rocq-journal-6', 'format');
   database.close();
 
   await assert.rejects(Service.open(options), /current Selvedge Rocq journal format/);
   const retained = new DatabaseSync(filename);
   try {
     assert.equal(retained.prepare('SELECT value FROM meta WHERE key = ?').get('format').value,
-      'selvedge-rocq-journal-5');
+      'selvedge-rocq-journal-6');
     assert.deepEqual(retained.prepare('SELECT * FROM journal ORDER BY seq').all(), rows);
   } finally { retained.close(); }
 });

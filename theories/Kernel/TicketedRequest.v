@@ -1,6 +1,9 @@
+From Selvedge.Kernel Require Import TaskScope.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks Capabilities ContextUpdates Codec ReasoningPlan Compaction ContextSelection.
+From Selvedge.Features Require Import WorkspaceBinding State.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -81,25 +84,28 @@ Definition build (owner ticket : N) (environment : environment) (source : reques
    (with_operations (replace_operation waiting (task_operations task)) task,
     [CheckResult owner ticket (operation_id operation) plugin (operation_call operation) result error])
  end.
+Inductive identity_space := TaskTicket | ConnectionIdentity.
+Definition next_identity (space : identity_space) (before : world) :=
+ match space with
+ | TaskTicket => world_next_ticket before
+ | ConnectionIdentity => Selvedge.Features.Domain.sharing_next
+     (Selvedge.Features.Domain.feature_sharing (world_features before)) end.
+Definition allocate_identity (space : identity_space) (before : world) : N * world :=
+ let identity := next_identity space before in
+ (identity, match space with
+ | TaskTicket => with_ticket (N.succ identity) before
+ | ConnectionIdentity => with_features
+   (Selvedge.Features.State.with_sharing
+     (set Selvedge.Features.Domain.sharing_next (fun _ => N.succ identity)
+       (Selvedge.Features.Domain.feature_sharing (world_features before)))
+     (world_features before)) before end).
 Definition issue (owner : N) (source : request) (before : world) :=
- let ticket := world_next_ticket before in
+ let '(ticket,allocated) := allocate_identity TaskTicket before in
  let '(pending,effects) := build owner ticket (world_environment before) source in
- accept (JObject [("accepted",JBool true)])
-   (put_task owner pending (with_ticket (N.succ ticket) before)) effects.
+ accept (JObject [("accepted",JBool true)]) (put_task owner pending allocated) effects.
 
 Module Scoped.
-Record task_reference (before : world) := TaskReference {
- owner : N;
- selected : task;
- observed : find_task owner before = Some selected
-}.
-Arguments owner {before}.
-Arguments selected {before}.
-Arguments observed {before}.
-Definition select (id : N) (before : world) : option (task_reference before) :=
- match find_task id before as found return find_task id before = found -> option (task_reference before) with
- | Some current => fun evidence => Some (TaskReference before id current evidence)
- | None => fun _ => None end eq_refl.
+Import TaskScope.
 Inductive action :=
 | ObserveTask (publish : bool)
 | InferTask
@@ -125,6 +131,8 @@ Definition external_authority_for (current : task) (invocation : call) :=
  if elevated then match settings_approval settings with
  | AskForApproval => AskHuman | ReviewWith reviewer => AskModel reviewer
  | FullAccess => Unrestricted end else Ordinary.
+Definition can_execute (current : task) := match task_lifecycle current with
+ | Running _ _ | Stopped _ _ => true | _ => false end.
 Definition call_action (current : task) : option action :=
  let prepare invocation pending remaining :=
    match find_tool (call_name invocation) (contract_tools (task_contract current)) with
@@ -133,25 +141,41 @@ Definition call_action (current : task) : option action :=
      | [] => StartCall tool invocation remaining (external_authority_for current invocation)
      | plugin :: rest => AuthorizeCall plugin tool invocation rest remaining end)
    end in
- match task_activity current with
+ if can_execute current then match task_activity current with
  | PendingCalls (invocation :: remaining) => prepare invocation
      (Capabilities.hook_references Capabilities.BeforeTool (contract_plugins (task_contract current))) remaining
  | ReadyForHooks invocation pending remaining => prepare invocation pending remaining
- | _ => None end.
-Definition admitted_action (owner : N) (current : task) (source : action) : Prop := match source with
+ | _ => None end else None.
+Definition resources_available (current : task) (before : world) :=
+ let settings := task_current_settings current in
+ WorkspaceBinding.resource_ready (settings_workspace settings) (settings_resource settings) before &&
+ WorkspaceBinding.settings_execution_ready settings before.
+(* Scheduled inference captures WantsModel. Direct observation is reserved for
+   manual compaction at Idle and revision retries of an existing context read. *)
+Definition can_observe (publish : bool) (current : task) (before : world) :=
+ resources_available current before && match task_lifecycle current with
+ | Running phase _ => if publish then match phase with WantsModel => true | _ => false end
+   else match phase with Idle | ObservingContext _ _ => true | _ => false end
+ | _ => false end.
+Definition can_infer (current : task) (before : world) :=
+ resources_available current before && match task_lifecycle current with
+ | Running ReadyForModel _ => true | _ => false end.
+Definition admitted_action (before : world) (owner : N) (current : task) (source : action) : Prop := match source with
  | AuthorizeCall _ _ _ _ _ | StartCall _ _ _ _ => call_action current = Some source
  | ResumeOperation operation tool reviewer =>
+   can_execute current = true /\
    operation_at (operation_id operation) current = Some operation /\
    operation_stage operation = Granted reviewer /\
    find_tool (call_name (operation_call operation)) (contract_tools (task_contract current)) = Some tool
  | AfterOperation operation plugin pending result error =>
    operation_at (operation_id operation) current = Some operation /\
    operation_stage operation = AfterHooksReady (plugin :: pending) result error
- | _ => True end.
+ | ObserveTask publish => can_observe publish current before = true
+ | InferTask => can_infer current before = true end.
 Record plan (before : world) := Plan {
  target : task_reference before;
  intent : action;
- operation_observed : admitted_action (owner target) (selected target) intent
+ operation_observed : admitted_action before (owner target) (selected target) intent
 }.
 Arguments target {before}.
 Arguments intent {before}.
@@ -166,14 +190,25 @@ Definition lower {before} (value : plan before) : request :=
  | AfterOperation operation plugin pending result error => After operation plugin pending result error current
  end.
 Definition issue {before} (value : plan before) := TicketedRequest.issue (owner (target value)) (lower value) before.
+Definition observe_allowed {before} (publish : bool) (target : task_reference before) (allowed : bool)
+ (evidence : can_observe publish (selected target) before = allowed) : option (plan before) :=
+ match allowed as allowed
+   return can_observe publish (selected target) before = allowed -> option (plan before) with
+ | true => fun admitted => Some (Plan before target (ObserveTask publish) admitted)
+ | false => fun _ => None end evidence.
+Definition observe_selected {before} (publish : bool) (target : task_reference before) :=
+ observe_allowed publish target _ eq_refl.
 Definition observe (id : N) (publish : bool) (before : world) : option (plan before) :=
- match select id before with
- | Some target => Some (Plan before target (ObserveTask publish) I)
- | None => None end.
+ match select id before with Some target => observe_selected publish target | None => None end.
+Definition model_allowed {before} (target : task_reference before) (allowed : bool)
+ (evidence : can_infer (selected target) before = allowed) : option (plan before) :=
+ match allowed as allowed
+   return can_infer (selected target) before = allowed -> option (plan before) with
+ | true => fun admitted => Some (Plan before target InferTask admitted)
+ | false => fun _ => None end evidence.
+Definition model_selected {before} (target : task_reference before) := model_allowed target _ eq_refl.
 Definition model (id : N) (before : world) : option (plan before) :=
- match select id before with
- | Some target => Some (Plan before target InferTask I)
- | None => None end.
+ match select id before with Some target => model_selected target | None => None end.
 Definition next_call (id : N) (before : world) : option (plan before) :=
  match select id before with
  | None => None
@@ -226,16 +261,118 @@ Definition resume (id identity : N) (before : world) : option (plan before) :=
          return find_tool (call_name (operation_call current)) (contract_tools (task_contract (selected target))) = selected_tool -> option (plan before) with
        | None => fun _ => None
        | Some tool => fun known =>
-         Some (Plan before target (ResumeOperation current tool reviewer)
-           (conj (eq_ind identity (fun key => operation_at key (selected target) = Some current) found
-             (operation_id current) (operation_at_identity identity (selected target) current found)) (conj granted known)))
+         match can_execute (selected target) as allowed
+           return can_execute (selected target) = allowed -> option (plan before) with
+         | true => fun active => Some (Plan before target (ResumeOperation current tool reviewer)
+           (conj active (conj (eq_ind identity (fun key => operation_at key (selected target) = Some current) found
+             (operation_id current) (operation_at_identity identity (selected target) current found)) (conj granted known))))
+         | false => fun _ => None end eq_refl
        end eq_refl
      | _ => fun _ => None end eq_refl
    end eq_refl
  end.
 Definition run {before} (candidate : option (plan before)) :=
  match candidate with Some value => issue value
- (* DEFENSE: A selected task or operation may have been removed by an earlier
-    action in this atomic schedule; an absent current reference has no IO right. *)
+ (* DEFENSE: A task or operation can disappear before a callback is handled;
+    lifecycle, phase or resource admission can also refuse a new request. *)
  | None => State.ignored before end.
+(* Feature requests extend the same before-indexed request family. An action
+   records its receiver and frozen domain input once; callers cannot choose an
+   effect independently of the receiver installed by the interpreter. *)
+Module F := Selvedge.Features.Domain.
+Module FS := Selvedge.Features.State.
+Module C := Selvedge.Features.CompactionTypes.
+Inductive maintenance_action :=
+| ScopeRequest (input : C.capture) (purpose : option C.reason) (entry : C.entry)
+| MeasureRequest (input : C.capture) (purpose : option C.reason)
+    (candidate : option (ContextSelection.artifact * list message)) (scope : string) (entry : C.entry)
+| CompactRequest (input : C.capture) (purpose : C.reason)
+    (target : C.target) (progress : Compaction.compaction_state) (scope : string) (entry : C.entry).
+Inductive feature_action :=
+| TitleRequest (owner : N) (selected : profile) (prompt : string)
+| CardRequest (owner : N) (card : F.card) (selected : profile) (prompt : string) (retitle : bool)
+| ConnectionRequest (job : F.connection_job)
+| MaintainRequest (owner : N) (request : maintenance_action).
+Definition feature_valid (before : world) (source : feature_action) :=
+ match source with
+ | CardRequest owner _ _ _ _ => N.leb owner
+    (N.of_nat (List.length (F.board_cards (F.feature_board (world_features before)))))
+ | ConnectionRequest job => match F.job_state job with F.JobRunning => true | _ => false end
+ | _ => true end.
+Record feature_plan (before : world) := FeaturePlan {
+ feature_intent : feature_action;
+ feature_admitted : feature_valid before feature_intent = true
+}.
+Arguments FeaturePlan {before}.
+Arguments feature_intent {before}.
+Definition feature_space (source : feature_action) := match source with
+ | ConnectionRequest _ => ConnectionIdentity | _ => TaskTicket end.
+Definition put_title owner state value :=
+ with_features (FS.with_titles
+   (F.TitleEntry owner state :: filter (fun item => negb (N.eqb owner (F.title_task item)))
+     (F.feature_titles (world_features value))) (world_features value)) value.
+Definition put_card owner card value :=
+ let board := F.feature_board (world_features value) in
+ with_features (FS.with_board
+  (set F.board_order (fun order => if existsb (N.eqb owner) order then order else order ++ [owner])
+   (set F.board_cards (fun cards => if N.eqb owner (N.of_nat (List.length cards))
+      then cards ++ [Some card] else replace owner (Some card) cards) board))
+  (world_features value)) value.
+Definition put_connection identity job value :=
+ let state := F.feature_sharing (world_features value) in
+ with_features (FS.with_sharing
+  (set F.sharing_jobs (fun jobs => (identity,job) :: filter (fun item => negb (N.eqb identity (fst item))) jobs) state)
+  (world_features value)) value.
+Definition put_compaction owner entry value :=
+ let state := F.feature_compaction (world_features value) in
+ with_features (FS.with_compaction
+  (set C.maintenance_entries (fun entries => (owner,entry) :: filter (fun item => negb (N.eqb (fst item) owner)) entries) state)
+  (world_features value)) value.
+Definition maintenance_build owner identity source : C.entry * C.effect :=
+ match source with
+ | ScopeRequest input purpose entry =>
+   let pending := match purpose with
+   | None => set C.entry_measurement (fun _ => C.Measuring identity input C.InspectScope) entry
+   | Some purpose => set C.entry_measurement (fun _ => C.Unmeasured)
+       (set C.entry_job (fun _ => C.Preparing identity input purpose C.InspectScope) entry) end in
+   (pending, C.Scope owner identity input)
+ | MeasureRequest input purpose candidate scope entry =>
+   let pending := match purpose,candidate with
+   | Some purpose,Some (candidate,preview) => set C.entry_job
+       (fun _ => C.Validating identity input purpose candidate preview (C.InspectCount scope)) entry
+   | Some purpose,None => set C.entry_job (fun _ => C.Preparing identity input purpose (C.InspectCount scope)) entry
+   | None,_ => set C.entry_measurement (fun _ => C.Measuring identity input (C.InspectCount scope)) entry end in
+   let measured_input := match candidate with Some (_,preview) => set C.captured_history (fun _ => preview) input | None => input end in
+   (pending, C.Measure owner identity measured_input scope (match candidate with Some _ => true | None => false end))
+ | CompactRequest input purpose target progress scope entry =>
+   (set C.entry_job (fun _ => C.Compacting identity input purpose progress scope) entry,
+    C.Compact owner identity input target progress scope) end.
+Definition feature_build identity source allocated : world * effect :=
+ match source with
+ | TitleRequest owner selected prompt =>
+   (put_title owner (F.TitlePending identity selected prompt) allocated, SuggestTitle owner identity selected prompt)
+ | CardRequest owner card selected prompt retitle =>
+   (put_card owner (set F.card_enrichment (fun _ => F.Enriching identity (F.card_revision card) retitle) card) allocated,
+     SuggestCard owner identity (F.card_revision card) selected prompt (F.card_contents card) retitle)
+ | ConnectionRequest job => (put_connection identity job allocated, RunConnectionJob identity job)
+ | MaintainRequest owner request =>
+   let '(pending, request_effect) := maintenance_build owner identity request in
+   (put_compaction owner pending allocated, MaintainContext request_effect) end.
+Definition feature_issue {before} (request : feature_plan before) : decision :=
+ let '(identity,allocated) := allocate_identity (feature_space (feature_intent request)) before in
+ let '(installed,request_effect) := feature_build identity (feature_intent request) allocated in
+ accept (JObject [("accepted",JBool true)]) installed [request_effect].
+Definition feature (source : feature_action) (before : world) : option (feature_plan before) :=
+ match Bool.bool_dec (feature_valid before source) true with
+ | left evidence => Some (FeaturePlan source evidence)
+ | right _ => None end.
+Definition feature_with_reply (reply : json) (source : feature_action) (before : world) :=
+ match feature source before with
+ | Some request => let issued:=feature_issue request in
+   Decision (decision_world issued) reply (decision_effects issued)
+ (* DEFENSE: A positional card receiver cannot be installed beyond the append
+    key, and a completed connection job is not a new pending execution. *)
+ | None => reject "invalid_request_receiver" "The request has no installable pending receiver" before end.
+Definition feature_run (source : feature_action) (before : world) :=
+ feature_with_reply (success (JObject [("accepted",JBool true)])) source before.
 End Scoped.

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Dispatch
@@ -33,7 +34,7 @@ Theorem a_manual_fork_selects_children_without_reconfiguring_the_parent :
 Proof.
  intros origin owner count messages options before parent operations selected selection
    Found Running Count Messages Capacity Resolved Fixed.
- unfold Tasks.fork_with_caller; rewrite Found.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
  unfold Tasks.fork_parent_ready; rewrite Running.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold allocate_ticket. cbn [decision_world decision_reply accept success bool_default field value_or_null].

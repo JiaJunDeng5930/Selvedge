@@ -32,7 +32,8 @@ Definition authority value := match parse_status (str value "status") with
 Fixpoint declared_calls calls tools := match calls with [] => true | call::rest =>
   eq call "type" "function_call" && is_text (get call "id") && nonempty (get call "call_id") &&
   negb (contains_name rest "call_id" (get call "call_id")) &&
-  contains_name tools "name" (get call "name") && is_object (get call "arguments") && declared_calls rest tools end.
+  contains_name tools "name" (get call "name") && (match CallWire.parse_arguments CallWire.callback_argument_nesting (str call "arguments_json") with
+  | Some _ => true | None => false end) && declared_calls rest tools end.
 Definition declared_batch source := let value := get source "value" in
   negb (eq value "status" "requires_action") || declared_calls (items (get value "output")) (items (get source "tools")).
 Definition resource_admissible source := resource_identity source && same_model_request source &&
@@ -90,17 +91,16 @@ Definition event_dispatch source := let event := get source "event" in
 Definition event (header : bool) source :=
   if eq (get source "frame") "data" "[DONE]" then
     event_action "stop" (set source "event" JNull) []
-  else match TextJson.parse_input_json (str (get source "frame") "data") with
-    | TextJson.InputInvalid => failure "SyntaxError" "Invalid ChatGPT Web JSON"
-    | TextJson.InputNestingExceeded => failure "RangeError" TextJson.input_nesting_error
-    | TextJson.InputAccepted value => let source := set source "event" value in
+  else let parsed := decode_provider_text (str (get source "frame") "data") in
+    if negb (boolean_field parsed "ok") then parsed
+    else let value := get parsed "value" in let source := set source "event" value in
       if negb (is_object value) then err "ChatGPT Web returned an invalid SSE event"
       else if has value "type" && negb (eq value "type" (event_kind source))
       then err "ChatGPT Web returned conflicting SSE event names"
-      else if header then event_action "identify" source [] else event_dispatch source end.
+      else if header then event_action "identify" source [] else event_dispatch source.
 
 Definition frame source := if eq (get source "frame") "data" "[DONE]" then success JNull
-  else decode_text (str (get source "frame") "data").
+  else decode_provider_text (str (get source "frame") "data").
 Definition http_json source := match TextJson.parse_json_members (str source "text") with
   | Some value => success (JObject [("present",JBool true);("value",value)])
   | None => if boolean_field (get source "response") "ok"

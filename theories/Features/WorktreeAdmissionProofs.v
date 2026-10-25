@@ -21,7 +21,7 @@ Theorem failed_parent_preserves_side_return : forall payload caller value side p
 Proof.
  intros payload caller value side parent found related failed.
  unfold Packet.execute_domain, Packet.query.
- cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler].
+ cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command.
  rewrite found, related, failed. reflexivity.
 Qed.
@@ -29,14 +29,16 @@ Qed.
 Local Lemma rejected_command_preserves_tasks_at_packet : forall source command value code reason,
  InputDecoder.decode source = Some (UserCommand command) ->
  Packet.manual_fork source = None ->
+ CreationCommit.input (InputDecoder.decode source) = None ->
+ Packet.deferred_candidate (InputDecoder.decode source) value = None ->
  Packet.execute_domain command None value = reject code reason value ->
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
- intros source command value code reason decoded Manual refused.
+ intros source command value code reason decoded Manual Creation Deferred refused.
  unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source) (Packet.transition source value).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes);
    [|reflexivity].
- rewrite Manual. unfold Packet.transition, Packet.transition_decoded. rewrite decoded.
+ rewrite Manual, Creation, Deferred. unfold Packet.transition, Packet.transition_decoded. rewrite decoded.
  destruct (Packet.query command None value) as [reply|] eqn:queried.
  - destruct (Packet.admit_with_status false (Some (UserCommand command)) source value
      (Decision value reply [])) as [admitted result] eqn:Outcome.
@@ -69,8 +71,10 @@ Theorem failed_parent_preserves_tasks_at_packet : forall source payload value si
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
  intros source payload value side parent decoded found related failed.
- eapply rejected_command_preserves_tasks_at_packet; [exact decoded| |].
+ eapply rejected_command_preserves_tasks_at_packet; [exact decoded| | | |].
    { unfold Packet.manual_fork, Packet.manual_fork_input; rewrite decoded; reflexivity. }
+   { rewrite decoded; reflexivity. }
+   { rewrite decoded; reflexivity. }
  eapply failed_parent_preserves_side_return; eassumption.
 Qed.
 
@@ -80,10 +84,12 @@ Theorem failed_setup_refuses_new_input_at_packet : forall source payload value,
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
  intros source payload value Decoded Failed.
- eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| |].
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| | | |].
    { unfold Packet.manual_fork, Packet.manual_fork_input; rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
  unfold Packet.execute_domain, Packet.query.
- cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler].
+ cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
  rewrite Failed; reflexivity.
 Qed.
@@ -110,10 +116,12 @@ Theorem failed_setup_refuses_steering_at_packet : forall source payload value,
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
  intros source payload value Decoded Failed.
- eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| |].
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| | | |].
    { unfold Packet.manual_fork, Packet.manual_fork_input; rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
  unfold Packet.execute_domain, Packet.query.
- cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler].
+ cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
  rewrite Failed; reflexivity.
 Qed.
@@ -124,10 +132,12 @@ Theorem failed_setup_refuses_side_creation_at_packet : forall source payload val
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
  intros source payload value Decoded Failed.
- eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| |].
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| | | |].
    { unfold Packet.manual_fork, Packet.manual_fork_input; rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
  unfold Packet.execute_domain, Packet.query.
- cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler].
+ cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
  rewrite Failed; reflexivity.
 Qed.
@@ -138,10 +148,12 @@ Theorem failed_setup_refuses_execution_changes_at_packet : forall source payload
  world_tasks (fst (Packet.packet source value)) = world_tasks value.
 Proof.
  intros source payload value Decoded Failed.
- eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| |].
+ eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| | | |].
    { unfold Packet.manual_fork, Packet.manual_fork_input; rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
  unfold Packet.execute_domain, Packet.query.
- cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler].
+ cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
  rewrite Failed; reflexivity.
 Qed.
@@ -154,10 +166,12 @@ Theorem pending_setup_refuses_execution_changes_at_packet : forall source payloa
 Proof.
  intros source payload value tree Decoded Found Pending.
  destruct (Worktree.execution_allowed (configure_task_execution_task_id payload) value) eqn:Available.
- - eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| |].
+ - eapply rejected_command_preserves_tasks_at_packet; [exact Decoded| | | |].
    { unfold Packet.manual_fork, Packet.manual_fork_input; rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
+   { rewrite Decoded; reflexivity. }
    unfold Packet.execute_domain, Packet.query.
-   cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler].
+   cbn [Queries.answer CommandHandlers.query Selvedge.Generated.Commands.dispatch CommandHandlers.handlers].
    unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command, Worktree.execution_guard.
    rewrite Available, Found, Pending; reflexivity.
  - eapply failed_setup_refuses_execution_changes_at_packet; eassumption.

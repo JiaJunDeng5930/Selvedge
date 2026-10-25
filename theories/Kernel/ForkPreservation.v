@@ -1,3 +1,5 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -149,7 +151,7 @@ Theorem every_admissible_fork_constructs_its_positive_business_result :
 Proof.
  intros entry origin owner count messages raw before parent selected
    (Found & Ready & Count & Messages & Ancestors & Resolved & [selection [Admitted Selected]] & Delegation).
- unfold Tasks.fork_with_caller; rewrite Found, Ready, Count, Messages, Ancestors; cbn.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Ready, Count, Messages, Ancestors; cbn.
  rewrite Resolved, Admitted; rewrite Selected; cbn.
  destruct entry as [|invocation remaining]; cbn in *;
    [|rewrite Delegation; cbn]; reflexivity.
@@ -364,6 +366,7 @@ Qed.
    identity, operations and execution settings remain the same. *)
 Definition retained_task_frame (value : task) := match task_lifecycle value with
  | Running _ operations => with_lifecycle (Running Idle operations) (with_history [] value)
+ | Archived _ => with_lifecycle (Archived []) (with_history [] value)
  | _ => with_history [] value end.
 Definition fork_retains_task (old next : task) :=
  retained_task_frame old = retained_task_frame next /\
@@ -413,7 +416,7 @@ Proof.
    + exists old; split; [|apply fork_retains_task_reflexive].
      apply fork_children_preserve_every_existing_task.
      unfold find_task, put_task, with_tasks, with_ticket; cbv [set]; cbn.
-     rewrite TicketedRequestProofs.registry_replace_other by congruence; exact Found.
+     rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other by congruence; exact Found.
  - cbn [fork_retained]. exists old; split; [apply fork_children_preserve_every_existing_task; exact Found|].
    apply fork_retains_task_reflexive.
 Qed.
@@ -885,13 +888,7 @@ Proof.
  - now apply N.leb_le.
 Qed.
 
-Lemma registry_lookup_after_head : forall (A : Type) (first : A) rest owner,
- registry_at (N.succ owner) (first :: rest) = registry_at owner rest.
-Proof.
- intros; cbn [registry_at]. rewrite N.pred_succ.
- assert (Positive : N.eqb (N.succ owner) 0 = false) by (apply N.eqb_neq; lia).
- rewrite Positive; reflexivity.
-Qed.
+Definition registry_lookup_after_head := @Selvedge.Foundation.RegistryProofs.registry_lookup_after_head.
 
 Lemma task_registry_requirement_from_every_lookup : forall entries owner state,
  (forall offset value, registry_at offset entries = Some value ->
@@ -906,15 +903,7 @@ Proof.
    apply Valid; rewrite registry_lookup_after_head; exact Found.
 Qed.
 
-Lemma registry_lookup_exists_below_length : forall (A : Type) (entries : list A) owner,
- (owner < N.of_nat (List.length entries))%N -> exists value, registry_at owner entries = Some value.
-Proof.
- intros A entries; induction entries as [|first rest IH]; intros owner Bound; [cbn in Bound; lia|].
- cbn [registry_at]; destruct (N.eqb owner 0) eqn:Zero; [exists first; reflexivity|].
- apply N.eqb_neq in Zero; apply IH.
- change (owner < N.of_nat (S (List.length rest)))%N in Bound.
- rewrite Nat2N.inj_succ in Bound; lia.
-Qed.
+Definition registry_lookup_exists_below_length := @Selvedge.Foundation.RegistryProofs.registry_lookup_exists_below_length.
 
 Lemma admitted_fork_selection_keeps_the_resolved_value : forall parent before selected selection,
  Tasks.admit_fork_selection parent before selected = Some selection ->
@@ -985,7 +974,7 @@ Proof.
        (fork_retained Tasks.ManualFork owner (fork_invocation Tasks.ManualFork count messages parent before) parent before) =
        find_task queried before).
      { unfold fork_retained, find_task, put_task, with_tasks, with_ticket; cbv [set]; cbn.
-       rewrite TicketedRequestProofs.registry_replace_other by congruence; reflexivity. }
+       rewrite Selvedge.Foundation.RegistryProofs.registry_replace_other by congruence; reflexivity. }
      rewrite Same in Found; exists next; split; [exact Found|]; split; [apply fork_retains_task_reflexive|].
      eapply a_valid_task_has_its_progress_requirements; eapply ForkLineageProofs.lookup_task_requirements; eauto.
  - cbn [fork_retained] in Found; exists next; split; [exact Found|]; split; [apply fork_retains_task_reflexive|].
@@ -1146,7 +1135,7 @@ Proof.
    + exact ParentAfter.
    + symmetry; apply task_frame_preserves_lineage; exact ParentFrame.
    + symmetry; apply task_frame_preserves_contract; exact ParentFrame.
-   + pose proof (ForkLineageProofs.registry_lookup_implies_position_bound _ _ _ _ Parent); unfold next_task in Fresh; lia.
+   + pose proof (Selvedge.Foundation.RegistryProofs.registry_lookup_implies_position_bound _ _ _ _ Parent); unfold next_task in Fresh; lia.
    + destruct entry; [reflexivity|destruct remaining; reflexivity].
    + destruct entry; [reflexivity|destruct remaining; reflexivity].
    + destruct entry; [reflexivity|destruct remaining; reflexivity].
@@ -1242,7 +1231,7 @@ Theorem actual_forks_preserve_every_world_requirement :
  WorldInvariant.well_formed (decision_world (Tasks.fork_with_caller entry origin owner count messages raw before)).
 Proof.
  intros entry origin owner count messages raw before Valid Accepted.
- unfold Tasks.fork_with_caller.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta.
  destruct (find_task owner before) as [parent|] eqn:Parent; [|exact Valid].
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&

@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json TextJson CallWire.
 From Selvedge.Kernel Require Import NativeTools ModelCapabilities.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory ProviderCompaction.
@@ -21,7 +21,7 @@ Definition independent_effect effect :=
   else if String.eqb kind "approval" then
     set (set (set (set effect "tools" (JArray [])) "callable" (JArray [])) "history"
       (JArray [message "user" (JString (TextJson.render_json (JObject [
-        ("task_id",get effect "task_id");("request_id",get effect "ticket");("command",get effect "call");
+        ("task_id",get effect "task_id");("request_id",get effect "ticket");("command",CallWire.external (get effect "call"));
         ("task_settings",get effect "settings");("recent_user_requests_newest_first",get effect "user_requests");
         ("context_boundary",JString "Only the latest four user requests, each limited to 4096 characters; older requests and other task data are omitted.")])))]))
       "output_mode" (JString "plain")

@@ -63,11 +63,42 @@ Definition completion_json result startup :=
       optional (has value "stderr_artifact") "stderr_artifact" (get value "stderr_artifact")))]
   else if is_null startup then [] else [("completion",JObject
     [("error",JBool true);("exit_code",JNull);("signal",JNull);("reason",startup)])].
+Definition ring_json current := JObject [("position",number (N.of_nat current.(ring_position)));
+  ("length",number (N.of_nat current.(ring_length)));("total",number current.(ring_total))].
+Definition ring_of source := ByteRing (N.to_nat (num source "position"))
+  (N.to_nat (num source "length")) (num source "total").
+Definition slice_json slice := JObject [("start",number (N.of_nat slice.(slice_start)));
+  ("count",number (N.of_nat slice.(slice_count)));("offset",number (N.of_nat slice.(slice_offset)))].
+Definition cleanup_step_json step := JString (match step with
+  | TerminateEnvironment => "terminate_environment" | TerminateGroup => "terminate_group"
+  | TerminateSession => "terminate_session" | CloseInput => "close_input" | ArmDrainDeadline => "arm_deadline" end).
+Definition drain_step_json step := JString (match step with
+  | CleanupProcess => "cleanup" | WaitSession => "wait_session" | WaitEnvironment => "wait_environment" | WaitOutput => "wait_output"
+  | WaitOutputClose => "wait_output_close" | WaitInput => "wait_input"
+  | MarkDrained => "mark_drained" | ClearDrainDeadline => "clear_deadline" end).
+Definition artifact_metadata source :=
+  let ring := ring_of (get source "ring") in JObject
+    [("path",get source "path");("revision",get source "revision");("bytes",number (N.of_nat ring.(ring_length)));
+     ("total_bytes",number ring.(ring_total));("truncated",JBool (N.ltb (N.of_nat ring.(ring_length)) ring.(ring_total)));
+     ("persisted",JBool (artifact_persisted (boolean_field source "capture_complete")
+       (boolean_field source "file_synced") (boolean_field source "batch_synced") (boolean_field source "parent_synced")))].
 Definition call operation source :=
   let current := state_of (get source "state") in
   let registry := registry_of (get source "registry") in
   let key := str source "key" in
-  if String.eqb operation "control.process.registry_initial" then success (registry_json empty_registry)
+  if String.eqb operation "control.process.ring_initial" then success (ring_json empty_ring)
+  else if String.eqb operation "control.process.ring_append" then
+    let capacity := N.to_nat (num source "capacity") in
+    let added := N.to_nat (num source "count") in let ring := ring_of (get source "ring") in
+    success (JObject [("ring",ring_json (append_ring capacity ring added));
+      ("writes",JArray (map slice_json (ring_writes capacity ring added)))])
+  else if String.eqb operation "control.process.ring_finish" then
+    success (JArray (map slice_json (ring_slices (N.to_nat (num source "capacity")) (ring_of (get source "ring")))))
+  else if String.eqb operation "control.process.artifact_metadata" then success (artifact_metadata source)
+  else if String.eqb operation "control.process.cleanup_plan" then success (JObject
+    [("steps",JArray (map cleanup_step_json cleanup_plan));("deadline_ms",number drain_deadline_ms)])
+  else if String.eqb operation "control.process.drain_plan" then success (JArray (map drain_step_json drain_plan))
+  else if String.eqb operation "control.process.registry_initial" then success (registry_json empty_registry)
   else if String.eqb operation "control.process.initial" then success (state_json initial)
   else if String.eqb operation "control.process.observe" then success (state_json (observe current (event_of (str source "event"))))
   else if String.eqb operation "control.process.stop" then

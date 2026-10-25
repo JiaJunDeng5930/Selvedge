@@ -65,3 +65,32 @@ Proof. unfold read_start, tail_start; apply N.max_lub; lia. Qed.
 Theorem completed_retention_is_bounded current key :
   List.length (completed (complete current key)) <= 64.
 Proof. unfold complete; cbn; rewrite length_skipn; lia. Qed.
+
+Theorem artifact_publication_requires_all_barriers captured file batch parent :
+  artifact_persisted captured file batch parent = true ->
+  captured = true /\ file = true /\ batch = true /\ parent = true.
+Proof. unfold artifact_persisted; repeat rewrite andb_true_iff; intuition. Qed.
+
+Theorem byte_ring_is_bounded capacity current added :
+  ring_length (append_ring capacity current added) <= capacity.
+Proof. unfold append_ring; cbn; apply Nat.le_min_l. Qed.
+
+Theorem byte_ring_position_is_bounded capacity current added :
+  0 < capacity -> ring_position (append_ring capacity current added) < capacity.
+Proof.
+  intros positive; unfold append_ring; cbn.
+  destruct (Nat.leb capacity added); [lia|].
+  apply Nat.mod_upper_bound; lia.
+Qed.
+
+Theorem byte_ring_preserves_total capacity current added :
+  ring_total (append_ring capacity current added) = (ring_total current + N.of_nat added)%N.
+Proof. reflexivity. Qed.
+
+Theorem byte_ring_rotation_preserves_length capacity current :
+  ring_position current <= ring_length current ->
+  fold_right (fun slice count => slice_count slice + count) 0 (ring_slices capacity current) = ring_length current.
+Proof.
+  intros bounded; unfold ring_slices.
+  destruct (Nat.eqb (ring_length current) capacity); cbn; lia.
+Qed.

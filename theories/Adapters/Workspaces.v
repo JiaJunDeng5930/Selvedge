@@ -1,8 +1,9 @@
 From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 Schema.
-From Selvedge.Kernel Require Import Commands Workspace.
+From Selvedge.Kernel Require Import Commands Workspace CommandDeclarations.
 From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Host Require Import LocalResources.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -128,12 +129,16 @@ Definition clear_observed_fields (value : json) := match value with
   | JObject fields => JObject (remove_field "workspace_binding" (remove_field "guidance" fields))
   | _ => value end.
 Definition workspace_command_raw (source : json) :=
-  let command := get source "command" in
+ match CommandDeclarations.admit_public (get source "command") with
+ | None => type_error "Command fields do not match their declared presence, shape or bounds"
+ | Some admitted =>
+  let command := CommandDeclarations.public_raw_source admitted in
   let selections := (plan command).(selections) in
   type_admit (forallb raw_settings_valid selections)
     (fold_left (fun current selection => apply_observation current
       (Selection selection.(selected_path) (clear_observed_fields selection.(selected_value)) selection.(resolve_project), JObject [])) selections command)
-    "Root guidance and workspace resources are observed by the service, not supplied by a client".
+    "Root guidance and workspace resources are observed by the service, not supplied by a client"
+ end.
 
 Definition child (parent leaf : string) :=
   if String.eqb (String.substring (Nat.pred (String.length parent)) 1 parent) "/"
@@ -155,12 +160,24 @@ Definition worktree_path (source : json) :=
      (String.eqb op "copy" && contains_path (str source "source") (str source "repository") &&
        contains_path (str source "destination") (text root) && negb (equal (get source "destination") root))
   then success JNull else err "Managed worktree path must remain in its admitted repository or owned storage; service home must stay outside the source repository".
+Definition reservation_valid (value : json) (files : json) :=
+  plain_fields_only ["id";"canonical_root";"dev";"ino";"repository"] value &&
+  forallb (fun key => is_text (get value key) && negb (String.eqb (str value key) ""))
+    ["id";"dev";"ino";"repository"] &&
+  equal (get value "canonical_root") (get files "active") && path_valid (get value "repository").
+Definition worktree_receipt_fields := ["task_id";"source_root";"root";"workspace";"status";"local_phase";"reservation"].
+Definition worktree_receipt_encode (source : json) :=
+  let state := get source "state" in
+  success (JObject (map (fun key => (key,get state key)) worktree_receipt_fields)).
 Definition worktree_receipt (source : json) :=
   let value := get source "value" in let workspace := get value "workspace" in let root := get value "root" in
-  type_admit (plain_fields_only ["task_id";"source_root";"root";"workspace";"status"] value &&
+  let files := get source "files" in
+  let unreserved := String.eqb (str value "local_phase") "unreserved" && is_null (get value "reservation") in
+  type_admit (plain_fields_only worktree_receipt_fields value && LocalResources.receipt_stage_valid value &&
     equal (get value "task_id") (get source "task_id") && equal (get value "source_root") (get source "source_root") &&
-    ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving"] && equal root (get (get source "files") "active")) ||
-     (String.eqb (str value "status") "archived" && equal root (get (get source "files") "archived"))) &&
+    (unreserved || reservation_valid (get value "reservation") files) &&
+    ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving";"released";"needs_resolution";"destroy_pending"] && equal root (get files "active")) ||
+     (String.eqb (str value "status") "archived" && equal root (get files "archived"))) &&
     workspace_valid workspace && forallb path_valid (items (get workspace "roots")) &&
     existsb (fun root => String.eqb (text root) (str workspace "primary_root")) (items (get workspace "roots")) &&
     contains_path (str workspace "primary_root") (text root)) value "Invalid managed worktree receipt".

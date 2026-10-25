@@ -102,34 +102,93 @@ Definition browser_browse_directories := variant "kind" "browse-directories" ([F
 Definition browser_directories := variant "kind" "directories" (Field "workspace" KJson::task) [].
 Definition browser_skill_catalog := variant "kind" "skill-catalog" (Field "workspace" KJson::task) [].
 Definition browser_plans := [browser_streams;browser_workspace_git;browser_browse_directories;browser_directories;browser_skill_catalog].
+Definition cloud_readiness_probe := variant "kind" "probe" [Field "timeout" KNatural] [].
+Definition cloud_readiness_delay := variant "kind" "delay" [Field "milliseconds" KNatural] [].
+Definition cloud_readiness_connected := variant "kind" "connected" [] [].
+Definition cloud_readiness_reject := variant "kind" "reject" [Field "message" KText] [].
+Definition cloud_readiness_actions := [cloud_readiness_probe;cloud_readiness_delay;cloud_readiness_connected;cloud_readiness_reject].
+Definition cloud_readiness_transition := [Field "state" KJson;Field "actions" (KArray KJson)].
 Definition dispatch_start := variant "kind" "start" [Field "generation" KNatural] [].
+Definition dispatch_rollback_workspace := variant "kind" "rollback_workspace" [] [].
+Definition dispatch_retain_workspace := variant "kind" "retain_workspace" [] [].
+Definition dispatch_await := variant "kind" "await" [Field "generation" KNatural] [].
 Definition dispatch_cancel := variant "kind" "cancel" [Field "generation" KNatural;Field "provider" KBool] [].
 Definition dispatch_retry_failure := variant "kind" "retry_failure" [] [].
 Definition dispatch_settled := variant "kind" "settled" [] [].
 Definition dispatch_retire := variant "kind" "retire" [] [].
-Definition dispatch_actions := [dispatch_start;dispatch_cancel;dispatch_retry_failure;dispatch_settled;dispatch_retire].
+Definition dispatch_actions := [dispatch_start;dispatch_rollback_workspace;dispatch_retain_workspace;dispatch_await;dispatch_cancel;dispatch_retry_failure;dispatch_settled;dispatch_retire].
 Definition audio_emit := variant "type" "emit" [Field "event" KJson] [].
 Definition audio_journal := variant "type" "journal" [Field "token" KJson;Field "command" KJson] [].
 Definition audio_context := variant "type" "context" [Field "context" KJson] [].
-Definition audio_read := variant "type" "read" [Field "after" KNatural] [].
+Definition audio_contexts := variant "type" "contexts" [Field "token" KJson;Field "contexts" (KArray KJson)] [].
+Definition audio_read := variant "type" "read" [Field "token" KJson;Field "after" KNatural] [].
 Definition audio_stop := variant "type" "stop" [] [].
 Definition audio_release := variant "type" "release" [] [].
 Definition audio_timer := variant "type" "timer" [] [].
 Definition audio_connect_timer := variant "type" "connect_timer" [] [].
 Definition audio_reject := variant "type" "reject" [Field "message" KText] [].
-Definition audio_actions := [audio_emit;audio_journal;audio_context;audio_read;audio_stop;audio_release;audio_timer;audio_connect_timer;audio_reject].
-Definition unions := [("HttpPlan",http_plans);("BrowserObservationPlan",browser_plans);
- ("DispatchAction",dispatch_actions);("AudioAction",audio_actions)].
+Definition audio_transport_connect := variant "type" "connect" [Field "attempt" KNatural] [].
+Definition audio_transport_retry := variant "type" "retry" [Field "attempt" KNatural;Field "delay" KNatural] [].
+Definition audio_transport_ready := variant "type" "ready" [] [].
+Definition audio_transport_emit := variant "type" "emit" [Field "event" KJson] [].
+Definition audio_transport_close := variant "type" "close" [Field "event" KJson] [].
+Definition audio_transport_actions := [audio_transport_connect;audio_transport_retry;audio_transport_ready;audio_transport_emit;audio_transport_close].
+Definition audio_actions := [audio_emit;audio_journal;audio_context;audio_contexts;audio_read;audio_stop;audio_release;audio_timer;audio_connect_timer;audio_reject].
+(** Remote transport state and observations are closed over their phase. *)
+Definition remote_generation := Field "generation" KNatural.
+Definition remote_state tag fields := variant "phase" tag (remote_generation::fields)
+ ("generation"::map field_name fields).
+Definition remote_transport_states := [remote_state "stopped" [];remote_state "connecting" [Field "attempt" KNatural];
+ remote_state "negotiating" [Field "attempt" KNatural];remote_state "online" [Field "last_pong" KNatural];
+ remote_state "retrying" [Field "attempt" KNatural;Field "deadline" KNatural];remote_state "auth_failed" []].
+Definition remote_action tag fields := variant "kind" tag fields (map field_name fields).
+Definition remote_transport_actions := [remote_action "connect" [remote_generation];remote_action "open" [remote_generation];
+ remote_action "retry" [remote_generation;Field "deadline" KNatural];remote_action "heartbeat" [remote_generation;Field "deadline" KNatural];
+ remote_action "online" [remote_generation];remote_action "ping" [remote_generation];remote_action "retire" [];
+ remote_action "stopped" [];remote_action "auth_failed" []].
+Definition remote_observation tag fields := variant "kind" tag fields (map field_name fields).
+Definition remote_timed := [remote_generation;Field "now" KNatural].
+Definition remote_sampled := remote_timed ++ [Field "sample" KNatural].
+Definition remote_transport_observations := [remote_observation "enable" [];remote_observation "stop" [];
+ remote_observation "probe" (remote_sampled ++ [Field "status" KNatural]);remote_observation "lost" remote_sampled;
+ remote_observation "rejected" [remote_generation];remote_observation "negotiated" remote_timed;
+ remote_observation "pong" remote_timed;remote_observation "heartbeat" remote_sampled;remote_observation "retry" remote_timed].
+Definition remote_authorization_states := map (fun phase => variant "phase" phase [] [])
+ ["first";"second";"third";"last";"authorized";"denied";"revision_changed"].
+Definition remote_authorization_actions := map (fun action => variant "kind" action [] []) ["check";"capture";"deny";"disconnect"].
+Definition remote_connector_actions := KEnum "ignore" ["installed";"retire";"pairing";"pending";"expired";
+ "grants";"enqueue";"dequeue";"disconnect";"ready";"controller_open";"controller_close";"request";"pair_request";"pong"].
+Definition remote_connector_states := [remote_state "offline" [Field "pairing" KJson];
+ remote_state "negotiating" [Field "pairing" KJson];remote_state "ready" [Field "pairing" KJson;
+ Field "grants" (KArray KJson);Field "connections" (KArray KJson);Field "pending" (KArray KJson)]].
+Definition remote_connector_observations := [remote_observation "install" [remote_generation];
+ remote_observation "retire" [remote_generation];remote_observation "pair" (remote_timed++[Field "frame" KJson]);
+ remote_observation "pairing_current" remote_timed;remote_observation "grants" [remote_generation;Field "grants" (KArray KJson)];
+ remote_observation "enqueue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural];
+ remote_observation "dequeue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural];
+ remote_observation "frame" [remote_generation;Field "frame" KJson]].
+Definition unions := [("RemoteConnectorSessionState",remote_connector_states);("RemoteConnectorSessionObservation",remote_connector_observations);("CloudReadinessAction",cloud_readiness_actions);("RemoteTransportState",remote_transport_states);("RemoteTransportAction",remote_transport_actions);
+ ("RemoteTransportObservation",remote_transport_observations);("RemoteAuthorizationState",remote_authorization_states);
+ ("RemoteAuthorizationAction",remote_authorization_actions);("HttpPlan",http_plans);("BrowserObservationPlan",browser_plans);
+ ("DispatchAction",dispatch_actions);("AudioAction",audio_actions);("AudioTransportAction",audio_transport_actions)].
 Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
 Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
 Definition http_permissions_fields := [Field "read" KBool;Field "control" KBool;Field "configure" KBool;Field "approve" KBool].
+Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
+ "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
+Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
+ ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" remote_connector_actions]);("CloudReadinessTransition",cloud_readiness_transition);
+ ("ResourceTransition",resource_transition_fields);
+ ("RemoteTransportTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
+ ("RemoteAuthorizationTransition",[Field "state" KJson;Field "action" KJson]);
  ("WorkspaceCommandPlan",workspace_command_fields);
  ("WorkspaceSelectionPlan",workspace_selection_fields);
  ("WorkspaceSettingsPlan",workspace_settings_fields);
  ("BrowserPath",[Field "path" KJson;Field "canonicalize" KBool]);
  ("DispatchTransition",[Field "state" KJson;Field "effects" (KArray KJson)]);
+ ("AudioTransportBegin",[Field "token" KNatural;Field "effect" KJson]);
  ("AudioTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
  ("HttpRemoteApprovalBody",[Field "request_id" KText;Field "permissions" KJson]);
  ("HttpRemotePermissions",http_permissions_fields);

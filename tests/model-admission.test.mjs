@@ -24,6 +24,7 @@ test('public command preparation preserves exact task IDs and rejects client wor
 
   const guidance = { workspace: directory, path: `${directory}/AGENTS.md`, revision: 'a'.repeat(64), instructions: 'Client supplied text' };
   for (const command of [
+    { op: 'create_idle', profile: 'demo', settings: null },
     { op: 'create_idle', profile: 'demo', settings: { guidance } },
     { op: 'create_project', name: 'Unobserved', workspace: { roots: [directory] }, guidance },
     { op: 'create_task_graph', name: 'Unobserved', nodes: [{ key: 'new', profile: 'demo', settings: { guidance } }], rules: [] },
@@ -31,8 +32,8 @@ test('public command preparation preserves exact task IDs and rejects client wor
   ]) {
     const refused = await post(JSON.stringify(command));
     assert.equal(refused.body.ok, false);
-    assert.match(refused.body.error.message, /observed by the service/);
+    assert.equal(refused.body.error.code, 'command_not_submitted');
   }
-  const created = await post('{"op":"create_idle","profile":"demo","settings":{"guidance":null,"workspace_binding":null}}');
+  const created = await post('{"op":"create_idle","profile":"demo","settings":{}}');
   assert.equal(created.body.ok, true, JSON.stringify(created.body));
 });

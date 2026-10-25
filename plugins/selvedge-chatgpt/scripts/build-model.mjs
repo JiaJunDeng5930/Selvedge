@@ -6,7 +6,7 @@ import path from 'node:path';
 const plugin = fileURLToPath(new URL('../', import.meta.url));
 const checkout = path.resolve(plugin, '../..');
 const hash = value => createHash('sha256').update(value).digest('hex');
-const assets = ['host-model.mjs', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs'];
+const assets = ['host-model.mjs', 'json-tokens.mjs', 'model-boundary.mjs', 'opaque-credentials.mjs', 'file-io.mjs'];
 export const packagedModelFiles = Object.freeze([...assets, 'sources.json']);
 
 /** Runtime packages contain the actual extracted definitions and no compiler dependency. */
@@ -36,6 +36,7 @@ export async function buildModel({ buildResult } = {}) {
     'json-tokens.mjs': 'host/public/json-tokens.mjs',
     'model-boundary.mjs': 'host/public/model-boundary.mjs',
     'opaque-credentials.mjs': 'host/opaque-credentials.mjs',
+    'file-io.mjs': 'host/file-io.mjs',
   };
   const provenance = {};
   for (const [name, source] of Object.entries(sources)) {

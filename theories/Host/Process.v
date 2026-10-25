@@ -75,6 +75,33 @@ Definition read_start current cursor := N.max (N.min cursor current.(total)) (ta
 Definition omitted current cursor := (tail_start current - N.min cursor current.(total))%N.
 Definition read_offset current cursor := (read_start current cursor - tail_start current)%N.
 
+(** Byte artifacts preserve the exact output suffix. Unicode repair belongs only
+    to the independently decoded interactive tail. Plans describe bounded IO;
+    the host never chooses eviction, rotation or publication policy. *)
+Record byte_ring := ByteRing { ring_position : nat; ring_length : nat; ring_total : N }.
+Record byte_slice := ByteSlice { slice_start : nat; slice_count : nat; slice_offset : nat }.
+Definition empty_ring := ByteRing 0 0 0.
+Definition ring_writes capacity current added :=
+  if Nat.leb capacity added then [ByteSlice (Nat.sub added capacity) capacity 0]
+  else let first := Nat.min added (Nat.sub capacity current.(ring_position)) in
+    [ByteSlice 0 first current.(ring_position); ByteSlice first (Nat.sub added first) 0].
+Definition append_ring capacity current added :=
+  ByteRing (if Nat.leb capacity added then 0 else Nat.modulo (Nat.add current.(ring_position) added) capacity)
+    (Nat.min capacity (Nat.add current.(ring_length) added)) (N.add current.(ring_total) (N.of_nat added)).
+Definition ring_slices capacity current :=
+  if Nat.eqb current.(ring_length) capacity then
+    [ByteSlice current.(ring_position) (Nat.sub current.(ring_length) current.(ring_position)) 0;
+     ByteSlice 0 current.(ring_position) 0]
+  else [ByteSlice 0 current.(ring_length) 0].
+Definition artifact_persisted capture_complete file_synced batch_synced parent_synced :=
+  capture_complete && file_synced && batch_synced && parent_synced.
+
+Inductive cleanup_step := TerminateEnvironment | TerminateGroup | TerminateSession | CloseInput | ArmDrainDeadline.
+Definition cleanup_plan := [TerminateEnvironment; TerminateGroup; TerminateSession; CloseInput; ArmDrainDeadline].
+Inductive drain_step := CleanupProcess | WaitSession | WaitEnvironment | WaitOutput | WaitOutputClose | WaitInput | MarkDrained | ClearDrainDeadline.
+Definition drain_plan := [CleanupProcess; WaitSession; WaitEnvironment; WaitOutput; WaitOutputClose; WaitInput; MarkDrained; ClearDrainDeadline].
+Definition drain_deadline_ms : N := 2000.
+
 Record registry_entry := Entry { entry_key : string; entry_mode : mode; entry_failure : option failure }.
 Record registry := Registry { entries : list registry_entry; completed : list string }.
 Definition empty_registry := Registry [] [].

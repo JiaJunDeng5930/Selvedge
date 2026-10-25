@@ -47,6 +47,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.worktree_locations",Workspaces.worktree_locations);
   ("effect.worktree_path",Workspaces.worktree_path);
   ("effect.worktree_receipt",Workspaces.worktree_receipt);
+  ("effect.worktree_receipt_encode",Workspaces.worktree_receipt_encode);
   ("effect.worktree_workspace",Workspaces.worktree_workspace);
   ("effect.worktree_recovery_effect",Workspaces.worktree_recovery_effect);
   ("effect.completion",EffectCallbacks.completion);

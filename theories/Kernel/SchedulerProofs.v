@@ -1,6 +1,6 @@
 From Stdlib Require Import List Bool NArith.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler TicketedRequest ScopedRequestProofs TaskChangeProofs SchedulerChangesProofs TaskChangesProofs.
 Import ListNotations.
 
 Local Lemma lifecycle_after_with_lifecycle : forall state task,
@@ -55,7 +55,7 @@ Qed.
 Theorem exhausted_schedule_requests_another_step : forall execute permitted value effects,
  existsb (fun entry => let '(id, task) := entry in
    match Scheduler.next_runnable_step permitted id task (SideContext.reconcile value) with Some _ => true | None => false end)
-   (Numbers.indexed (fun id task => (id, task)) 0 (world_tasks (SideContext.reconcile value))) = true ->
+   (Selvedge.Foundation.Registry.indexed (fun id task => (id, task)) 0 (world_tasks (SideContext.reconcile value))) = true ->
  Scheduler.schedule 0 execute permitted value effects =
    (SideContext.reconcile value, effects ++ [ContinueScheduling]).
 Proof.
@@ -74,7 +74,7 @@ Proof.
  intros task operations operation Pending Member NeedsModel.
  assert (Promoted : task_lifecycle (Tasks.promote task) = Running WantsModel operations \/
    task_lifecycle (Tasks.promote task) = Running (PendingCalls []) operations).
- { unfold Tasks.promote; rewrite Pending.
+ { rewrite promotion_expression, Pending.
    destruct (task_queued task) as [|first rest].
    - right; exact Pending.
    - left; apply lifecycle_after_with_lifecycle. }
@@ -84,7 +84,8 @@ Proof.
  assert (SomeWork : existsb Scheduler.process_needs_model
    (task_operations (Tasks.promote task)) = true).
  { rewrite PromotedOperations. apply existsb_exists; exists operation; split; assumption. }
- unfold Scheduler.continue_after_calls. rewrite SomeWork, Bool.orb_true_r.
+ rewrite !continue_after_calls_expression; cbv zeta.
+ rewrite SomeWork, Bool.orb_true_r.
  assert (NextPhase : task_lifecycle (Domain.with_activity WantsModel (Tasks.promote task)) =
    Running WantsModel operations).
  { unfold Domain.with_activity; destruct Promoted as [Promoted|Promoted];

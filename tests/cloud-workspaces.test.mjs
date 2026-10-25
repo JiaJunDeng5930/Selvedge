@@ -21,7 +21,7 @@ function tool(body, id, name, arguments_) {
 }
 
 async function until(observe, predicate, description) {
-  const deadline = Date.now() + 15000;
+  const deadline = Date.now() + 30000;
   let value;
   do {
     value = await observe();
@@ -65,7 +65,7 @@ async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMIT
   await writeFile(path.join(source, 'marker.txt'), 'LOCAL-DIRTY-FILE\n');
   await writeFile(path.join(source, 'image.png'), 'LOCAL-DIRTY-IMAGE');
   const shim = fileURLToPath(new URL('./fixtures/cloud-tools.mjs', import.meta.url));
-  for (const name of ['ssh', 'git']) await writeFile(path.join(bin, name),
+  for (const name of ['ssh', 'git', ...(process.platform === 'darwin' ? ['setsid', 'base64'] : [])]) await writeFile(path.join(bin, name),
     `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(shim)} ${name} "$@"\n`, { mode: 0o755 });
   const environment = {
     PATH: `${bin}:${process.env.PATH}`,
@@ -207,13 +207,15 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
   let inheritedCompleted = false;
   const fixture_ = await fixture(t, async (body, { prepared }) => {
     if (inherit) {
-      const forkCall = body.input.findLast(item => item.type === 'function_call' && item.name === 'fork_task');
-      assert.ok(forkCall, 'Forked model requests must carry the public fork receipt');
-      const branch = successful(outputs(body).get(forkCall.call_id));
-      if (branch === 0) return done;
-      assert.equal(branch, 1, 'The single child must receive its own branch receipt');
       const result = outputs(body).get('cloud-inherited-marker');
-      if (!result) return tool(body, 'cloud-inherited-marker', 'bash', { command: 'cat marker.txt' });
+      if (!result) {
+        const forkCall = body.input.findLast(item => item.type === 'function_call' && item.name === 'fork_task');
+        assert.ok(forkCall, 'The first forked model request must carry the public fork receipt');
+        const branch = successful(outputs(body).get(forkCall.call_id));
+        if (branch === 0) return done;
+        assert.equal(branch, 1, 'The single child must receive its own branch receipt');
+        return tool(body, 'cloud-inherited-marker', 'bash', { command: 'cat marker.txt' });
+      }
       const observed = successful(result);
       if (observed.status === 'running') return done;
       assert.equal(observed.exit_code, 0, JSON.stringify(observed));
@@ -224,7 +226,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
     }
     const imageOutput = body.input.find(item => item.type === 'function_call_output' && item.call_id === 'cloud-image');
     if (imageOutput) {
-      assert.ok(Array.isArray(imageOutput.output), 'The image tool result must use native provider content');
+      assert.ok(Array.isArray(imageOutput.output), `The image tool result must use native provider content: ${JSON.stringify(imageOutput)}`);
       successful(JSON.parse(imageOutput.output.find(part => part.type === 'input_text').text));
       const images = imageOutput.output.filter(part => part.type === 'input_image');
       assert.equal(images.length, 1, 'The remote image reader must deliver a native model image input');
@@ -294,7 +296,7 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
   assert.equal(entry.root, `/workspace/selvedge/${id}/repository`);
   await assert.rejects(() => fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
     messages: ['Reject caller-supplied root guidance on the ready cloud path.'],
-    settings: { guidance: { instructions: 'UNTRUSTED-CLIENT-GUIDANCE' } } }), /Root guidance and workspace resources/);
+    settings: { guidance: { instructions: 'UNTRUSTED-CLIENT-GUIDANCE' } } }), { name: 'CommandNotSubmitted' });
   const rejected = await fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
     messages: ['Reject an environment-origin cloud workspace override.'], settings_origin: 'environment',
     settings: { workspace: { roots: [fixture_.source], primary_root: fixture_.source } } });

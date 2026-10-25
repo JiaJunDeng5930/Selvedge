@@ -4,6 +4,7 @@ From Selvedge.Kernel Require Import State Observation Notifications Delivery.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
+Local Opaque Notifications.batch Observation.effect_json Delivery.fits_json.
 
 Theorem a_noncommitting_observation_has_no_notification_batch : forall durable source before result,
  Notifications.envelope durable false source before result = Observation.envelope durable result.

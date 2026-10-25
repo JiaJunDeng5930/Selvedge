@@ -71,4 +71,4 @@ Fixpoint insert_project (entry : N * project) (entries : list (N * project)) :=
  end.
 Definition ordered_projects (projects : list project) :=
  fold_right insert_project []
-  (filter (fun entry => negb (project_deleted (snd entry))) (Numbers.indexed pair 0 projects)).
+  (filter (fun entry => negb (project_deleted (snd entry))) (Selvedge.Foundation.Registry.indexed pair 0 projects)).

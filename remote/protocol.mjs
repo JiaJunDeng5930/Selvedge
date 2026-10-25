@@ -5,7 +5,6 @@ export const REMOTE_PROTOCOL_VERSION = 1;
 // NOTE: The native complete decision is bounded to 4 MiB; encoded observations
 // and their surrounding wire envelope need additional room.
 export const MAX_REMOTE_FRAME_BYTES = 16 * 1024 * 1024;
-export const MAX_REMOTE_HTTP_BYTES = 4096;
 export const MAX_REMOTE_GRANTS = 64;
 export const MAX_REMOTE_CONTROLLERS = 32;
 // NOTE: Tickets share the host's 2 KiB WebSocket hibernation attachment.

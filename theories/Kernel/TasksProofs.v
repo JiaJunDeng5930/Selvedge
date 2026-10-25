@@ -1,3 +1,5 @@
+From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -21,11 +23,14 @@ Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count m
  TaskConstraints.fork_capacities_valid count
   (map(Tasks.ancestor_capacity value)(id::task_lineage parent))=false ->
  Tasks.fork_with_caller invoked origin id count messages requested value=
- reject "fork_unavailable"
-  "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value.
+ match invoked with
+ | Tasks.ManualFork => reject "fork_unavailable"
+  "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value
+ | Tasks.AcceptedNativeFork _ _ => Tasks.refuse_start Tasks.NativeForkEntry Tasks.DescendantCapacity value end.
 Proof.
- intros Found Capacity. unfold Tasks.fork_with_caller. rewrite Found.
- unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r. reflexivity.
+ intros Found Capacity. rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Found.
+ unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r.
+ destruct invoked; reflexivity.
 Qed.
 
 Theorem archived_control_is_terminal : forall task operations,
@@ -43,7 +48,7 @@ Theorem archived_send_rejects_without_changing_world : forall id contents value 
    reject "task_archived" "Archived tasks cannot accept input" value.
 Proof.
  intros id contents value task operations Hfind Harchived.
- unfold Tasks.send. rewrite Hfind, Harchived. reflexivity.
+ rewrite TaskChangesProofs.send_expression; cbv beta zeta. rewrite Hfind, Harchived. reflexivity.
 Qed.
 
 Theorem stopped_idle_receive_reactivates : forall contents task,
@@ -55,7 +60,7 @@ Proof.
    task_lifecycle (Domain.with_lifecycle state value) = state).
  { intros state value. unfold Domain.with_lifecycle.
    exact (@set_get Domain.task Domain.lifecycle task_lifecycle _ (fun _ => state) value). }
- unfold Tasks.receive. rewrite Hstopped, Hget. reflexivity.
+ rewrite TaskChangesProofs.receive_expression; cbv beta zeta. rewrite Hstopped, Hget. reflexivity.
 Qed.
 
 Theorem interrupt_task_is_idempotent : forall task,
@@ -64,7 +69,7 @@ Theorem interrupt_task_is_idempotent : forall task,
 Proof.
  intros [contract profile settings lifecycle history queued lineage parent cursor].
  destruct lifecycle;
- unfold Tasks.control_task, Tasks.control_target, Tasks.control_transition, Tasks.unknown_operations,
+ repeat rewrite TaskChangesProofs.control_task_expression; cbv beta zeta; unfold Tasks.control_target, Tasks.control_transition, Tasks.unknown_operations,
    with_lifecycle, append_history, with_history;
  cbn [task_lifecycle task_activity task_operations History.interrupted_phase];
  try rewrite app_nil_r; reflexivity.
@@ -165,11 +170,10 @@ Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining 
  Tasks.admit_fork_selection parent value selected = Some selection ->
  Workspace.may_delegate (Tasks.fork_selected parent value selection) (task_current_settings parent) = false ->
  Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages requested value =
-   reject "settings_forbidden"
-     "Task tools cannot expand the caller's workspace, sandbox or approval authority" value.
+   Tasks.refuse_start Tasks.NativeForkEntry Tasks.AuthorityExpansion value.
 Proof.
  intros invocation remaining origin id count messages requested value parent selected selection Hfind Heligible Hresolved Hselection Hdelegate.
- unfold Tasks.fork_with_caller. rewrite Hfind, Heligible, Hresolved, Hselection.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Hfind, Heligible, Hresolved, Hselection.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 
@@ -211,7 +215,7 @@ Theorem accepted_model_success_uses_origin_scoped_messages : forall owner ticket
    (Callbacks.item_messages owner ticket mode items).
 Proof.
  intros owner ticket allowed mode items task Hpermitted. split.
- - unfold Callbacks.model_result. rewrite Hpermitted. destruct (Callbacks.item_calls items); reflexivity.
+ - rewrite CallbackChangesProofs.model_result_expression. rewrite Hpermitted. destruct (Callbacks.item_calls items); reflexivity.
  - apply model_item_messages_preserve_output_origin.
 Qed.
 

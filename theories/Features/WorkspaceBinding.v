@@ -52,6 +52,16 @@ Definition for_task (id : N) (value : world) :=
   | None => None
   end.
 
+Definition settings_execution_ready (settings : task_settings) (value : world) :=
+ match resolve settings value with
+ | Some tree => match Selvedge.Features.Domain.worktree_phase tree with
+   | Selvedge.Features.Domain.TreeReady _ _ => true | _ => false end
+ | None => true end.
+Definition execution_ready (id : N) (value : world) :=
+ match find_task id value with
+ | Some task => settings_execution_ready (task_current_settings task) value
+ | None => true end.
+
 Definition cloud_settings (settings : task_settings) :=
   Settings (settings_workspace settings) (settings_project settings) (Sandbox WorkspaceWrite true)
     FullAccess (settings_guidance settings) (settings_worktree settings) (settings_resource settings).
@@ -89,8 +99,12 @@ Definition resource_ready (space : workspace) (owner : option N) (value : world)
   match owner with
   | None => true
   | Some id => match owned id value with
-    | Some tree => WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) &&
-      within_resource space tree && match Selvedge.Features.Domain.worktree_phase tree with
+    | Some tree =>
+      (* Cloud roots share one remote filesystem. A local managed checkout owns
+         the primary root while the task can retain independent secondary roots. *)
+      (if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree)
+       then within_resource space tree else contains space tree) &&
+      match Selvedge.Features.Domain.worktree_phase tree with
         | Selvedge.Features.Domain.TreeReady _ _ => true | _ => false end
     | None => false end end.
 Definition cloud_intersects (space : workspace) (tree : Selvedge.Features.Domain.worktree) :=

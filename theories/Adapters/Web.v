@@ -52,7 +52,7 @@ Definition operations := [
   Operation "web.recovery" any_source WebStore.recovery;
   Operation "web.recovery_result" any_source WebStore.recovery_result;
   Operation "web.retained" (fun source => objects source ["record"]) WebResources.retained;
-  Operation "web.decode" (fun source => strings source ["text"]) (fun source => decode_text (str source "text"));
+  Operation "web.decode" (fun source => strings source ["text"]) (fun source => decode_provider_text (str source "text"));
   Operation "web.settle" (fun source => objects source ["resource";"effect"] && arrays source ["deferred"]) WebContinuation.settle;
   Operation "web.cancel_owner" any_source WebStore.cancel_owner;
   Operation "web.position" (fun source => effect_source source && is_array (get (get source "effect") "history")) WebCommon.position;

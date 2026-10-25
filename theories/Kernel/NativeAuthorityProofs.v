@@ -1,3 +1,5 @@
+From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks CommandExecution Scheduler Codec Limits Inputs TicketedRequest ScopedRequestProofs ReasoningPlan.
@@ -7,6 +9,7 @@ Open Scope list_scope.
 
 Theorem full_access_dispatch_is_unrestricted : forall id tool invocation remaining task value,
  find_task id value = Some task ->
+ TicketedRequest.Scoped.can_execute task = true ->
  task_activity task = ReadyForHooks invocation [] remaining ->
  find_tool (call_name invocation) (contract_tools (task_contract task)) = Some tool ->
  settings_approval (task_current_settings task) = FullAccess ->
@@ -15,10 +18,10 @@ Theorem full_access_dispatch_is_unrestricted : forall id tool invocation remaini
  [ExecuteTool id (world_next_ticket value) (world_next_ticket value) tool invocation
    (task_current_settings task) ElevatedAccess].
 Proof.
- intros id tool invocation remaining task value Found Ready Known Full Room.
+ intros id tool invocation remaining task value Found ExecuteAllowed Ready Known Full Room.
  rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task tool invocation remaining
    (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite Ready, Known; reflexivity. }
+ 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
  rewrite Room. cbn [decision_effects TicketedRequest.issue TicketedRequest.build accept].
  unfold TicketedRequest.Scoped.external_authority_for; now rewrite Full.
 Qed.
@@ -36,18 +39,18 @@ Proof.
  apply existsb_exists in Roots as [known [Known Equal]].
  apply String.eqb_eq in Equal; subst known; contradiction.
 Qed.
-Theorem actual_native_creation_rejects_unobserved_roots : forall name effort contents options caller_id value caller selected root,
+Theorem actual_native_creation_rejects_unobserved_roots : forall name effort contents options caller_id value caller plan root,
  find_task caller_id value = Some caller ->
- CommandExecution.resolve_creation name options (Some caller_id) value = Some selected ->
- In root (workspace_roots (settings_workspace selected)) ->
- ~ In root (Tasks.observed_creation_roots selected (task_current_settings caller) value) ->
+ CommandExecution.resolve_context_start NativeCreation name effort contents options false (Some caller_id) value = StartResolved plan ->
+ In root (workspace_roots (settings_workspace (start_settings plan))) ->
+ ~ In root (Tasks.observed_creation_roots (start_settings plan) (task_current_settings caller) value) ->
  decision_world (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = value /\
  decision_effects (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = [].
 Proof.
- intros name effort contents options caller_id value caller selected root Found Resolved Member Unknown.
+ intros name effort contents options caller_id value caller plan root Found Resolved Member Unknown.
  unfold CommandExecution.create_in_context; rewrite Resolved.
  unfold CommandExecution.creation_allowed; rewrite Found.
- rewrite (unobserved_roots_fail_native_admission options selected (task_current_settings caller) value root Member Unknown).
+ rewrite (unobserved_roots_fail_native_admission options (start_settings plan) (task_current_settings caller) value root Member Unknown).
  split; reflexivity.
 Qed.
 Theorem native_creation_cannot_supply_guidance_observations : forall source selected caller value guidance,
@@ -77,7 +80,7 @@ Theorem a_full_access_native_fork_accepts_a_fixed_selection :
 Proof.
  intros invocation origin id count messages options value task selected selection remaining operations
    Found Pending Count Messages Capacity Resolved Fixed Observed Full.
- unfold Tasks.fork_with_caller,Tasks.fork_parent_ready; rewrite Found, Pending.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; unfold Tasks.fork_parent_ready; rewrite Found, Pending.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
  unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
  destruct (allocate_ticket value); reflexivity.
@@ -87,6 +90,7 @@ Qed.
    carries the reviewer frozen in task settings, including across reloads. *)
 Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation remaining task value reviewer,
  find_task id value = Some task ->
+ TicketedRequest.Scoped.can_execute task = true ->
  task_activity task = ReadyForHooks invocation [] remaining ->
  find_tool (call_name invocation) (contract_tools (task_contract task)) = Some tool ->
  N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
@@ -99,10 +103,10 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
      (Operation (world_next_ticket value) invocation false
        (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
 Proof.
- intros id tool invocation remaining task value reviewer Found Ready Known Room Bash Elevated Policy.
+ intros id tool invocation remaining task value reviewer Found ExecuteAllowed Ready Known Room Bash Elevated Policy.
  rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task tool invocation remaining
    (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite Ready, Known; reflexivity. }
+ 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
  rewrite Room. unfold TicketedRequest.Scoped.external_authority_for.
  rewrite Policy, Bash, Elevated; reflexivity.
 Qed.
@@ -112,21 +116,23 @@ Qed.
    queued input is promoted before that turn observes and captures context. *)
 Theorem announced_operations_allow_an_independent_model_turn : forall execute id task value operations,
  find_task id value = Some task ->
+ TicketedRequest.Scoped.can_observe true task value = true ->
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
  decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (Tasks.promote task))].
 Proof.
- intros execute id task value operations Found Phase NoReady.
+ intros execute id task value operations Found ObserveAllowed Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.
  eexists; split; [reflexivity|].
  unfold Reasoning.observe_scheduled_context.
- rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task true Found); reflexivity.
+ rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task true Found ObserveAllowed); reflexivity.
 Qed.
 
 Theorem actual_model_request_freezes_the_consumed_history : forall id model task value,
  find_task id value = Some task ->
+ TicketedRequest.Scoped.can_infer task value = true ->
  ReasoningPlan.next id task = ReasoningPlan.Fixed model ->
  exists request,
  decision_effects (Scheduler.ready_model id value) = [RequestModel request] /\
@@ -136,8 +142,8 @@ Theorem actual_model_request_freezes_the_consumed_history : forall id model task
  ModelRequest.history request = task_history task /\
  task_model_cursor (ModelRequest.context_task request) = List.length (task_history task).
 Proof.
- intros id model task value Found Fixed. unfold Scheduler.ready_model.
- rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found).
+ intros id model task value Found InferAllowed Fixed. unfold Scheduler.ready_model.
+ rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found InferAllowed).
  destruct (TicketedRequestProofs.fixed_inference_freezes_its_complete_context id task value model Fixed)
    as [request [Effects [Owner [Ticket [Model [History [Cursor Contract]]]]]]].
  exists request; repeat split; assumption.
@@ -163,14 +169,14 @@ Theorem an_unconsumed_result_survives_a_model_reply : forall id ticket allowed m
  task_lifecycle updated = Running WantsModel operations.
 Proof.
  intros id ticket allowed mode task value operations Found Phase Unseen.
- unfold Callbacks.model_completed; rewrite Found.
+ rewrite CallbackChangesProofs.model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Phase, N.eqb_refl.
  eexists; split; [reflexivity|].
- unfold Callbacks.model_result; cbn [Callbacks.permitted_items Callbacks.item_messages Callbacks.item_calls].
+ rewrite CallbackChangesProofs.model_result_expression; cbn [Callbacks.permitted_items Callbacks.item_messages Callbacks.item_calls].
  assert (NoOutput : append_history [] task = task).
  { unfold append_history; rewrite app_nil_r; destruct task; reflexivity. }
  change (task_lifecycle (Callbacks.settle_model (append_history [] task)) = Running WantsModel operations).
- rewrite NoOutput. unfold Callbacks.settle_model; rewrite Unseen.
+ rewrite NoOutput. rewrite CallbackChangesProofs.settle_model_expression; rewrite Unseen.
  destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
  cbn in Phase; subst lifecycle; destruct queued; reflexivity.
 Qed.
@@ -214,7 +220,7 @@ Theorem an_eligible_native_fork_accepts_its_observed_selection :
 Proof.
  intros invocation remaining origin id count messages options value task selected selection
    Found Eligible Count Messages Capacity Resolved Fixed Delegated Observed.
- unfold Tasks.fork_with_caller; rewrite Found, Eligible, Count, Messages, Capacity, Resolved, Fixed.
+ rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found, Eligible, Count, Messages, Capacity, Resolved, Fixed.
  cbn [andb]. rewrite Delegated, Observed. cbn [negb andb].
  destruct (allocate_ticket value); reflexivity.
 Qed.

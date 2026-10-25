@@ -1,6 +1,7 @@
 import { remoteControl } from '../remote/control-model.mjs';
 import { constants } from 'node:fs';
-import { link, mkdir, open, unlink } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
+import { publishBytes } from './file-io.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requestJson } from './network.mjs';
@@ -65,11 +66,9 @@ async function readIdentity(home, relayUrl) {
 export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLoopback = false }) {
   const relay_url = assertRelayUrl(relayUrl, { allowLoopback });
   // DEFENSE: remote init reads this credential from the user's environment; absent or invalid header bytes cannot authenticate enrollment.
-  if (typeof enrollmentToken !== 'string' || enrollmentToken.length < 32 || enrollmentToken.length > 512 ||
-      !/^[\x21-\x7e]+$/.test(enrollmentToken)) {
+  if (!remoteControl('enrollment_credential', enrollmentToken ?? null)) {
     throw remoteError('remote_enrollment_missing', 'Set SELVEDGE_RELAY_ENROLLMENT_TOKEN to the relay enrollment credential');
   }
-  await mkdir(home, { recursive: true, mode: 0o700 });
   let identity;
   try { identity = await readIdentity(home, relay_url); }
   catch (error) {
@@ -77,25 +76,11 @@ export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLo
     if (error.code !== 'remote_identity_missing') throw error;
     const proposed = { format: identityFormat, host_id: randomUUID(), host_token: randomBytes(32).toString('base64url'), relay_url };
     const filename = path.join(home, identityName);
-    const temporary = `${filename}.${randomUUID()}.tmp`;
-    let file;
-    try {
-      file = await open(temporary, 'wx', 0o600);
-      await file.writeFile(JSON.stringify(proposed) + '\n');
-      await file.sync();
-      await file.close();
-      file = undefined;
-      try { await link(temporary, filename); }
-      // DEFENSE: Concurrent remote-init processes may publish first; the loser reads the winner's completed private identity.
-      catch (error) { if (error.code !== 'EEXIST') throw error; }
-      await unlink(temporary);
-      const directory = await open(home, 'r');
-      try { await directory.sync(); } finally { await directory.close(); }
-    } finally {
-      await file?.close();
-      // DEFENSE: Successful publication already removed this temporary file; every other cleanup failure remains visible.
-      await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
-    }
+    await publishBytes(filename, Buffer.from(JSON.stringify(proposed) + '\n'), {
+      mode: 'create-if-absent', permissions: 0o600,
+    });
+    // A concurrent initializer can win publication. Always admit the completed
+    // winner from disk before registering this installation's identity.
     identity = await readIdentity(home, relay_url);
   }
   let registered;
@@ -260,7 +245,7 @@ export class RemoteControl {
       return;
     }
     if (!this.#connector) {
-      this.#connector = new RemoteConnector({ relayUrl: this.#identity.relay_url, hostId: this.#identity.host_id,
+      this.#connector = new RemoteConnector({ ...this.#options, relayUrl: this.#identity.relay_url, hostId: this.#identity.host_id,
         hostToken: this.#identity.host_token, service: this.#service,
         allowLoopback: this.#options.allowLoopback === true,
         getGrants: async () => {

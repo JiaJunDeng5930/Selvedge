@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Scheduler.
+From Selvedge.Kernel Require Import Domain State Scheduler TitleCommit.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime.
 Definition or_else {A:Type} (first:option A) (next:unit->option A) := match first with Some value=>Some value | None=>next tt end.
@@ -11,8 +11,8 @@ Definition completion (execute:Scheduler.executor) (source:json) (value:world) :
  or_else (Chatgpt.completion source value) (fun _=>
  or_else (Compaction.completion source value) (fun _=>TitleRuntime.completion source value))))).
 Definition after_transition (before:world) (result:decision) :decision :=
- Compaction.after_transition before (TitleRuntime.after_transition before
- (Board.after_transition before (TaskGraph.after_transition before (Worktree.after_transition before result)))).
+ Compaction.after_transition before
+ (Board.after_transition before (TaskGraph.after_transition before (Worktree.after_transition before result))).
 Definition recover (value:world) :world :=
  TitleRuntime.recover (Compaction.recover (Chatgpt.recover (Board.recover (Worktree.recover value)))).
 Definition reconfigure := Compaction.recover.
@@ -22,7 +22,7 @@ Definition schedules (command:Selvedge.Generated.Commands.command) :bool := matc
  | Selvedge.Generated.Commands.Cmd_remote_revoke _ | Selvedge.Generated.Commands.Cmd_remote_status _ => false | _=>true end.
 Definition can_schedule_task (id:N) (value:world) :=
  Worktree.execution_ready id value && Compaction.can_schedule_task id value.
-Definition finish (result:decision) := Selvedge.Features.Compaction.attach (Board.finish result).
+Definition finish (result:decision) := TitleCommit.enqueue (Selvedge.Features.Compaction.attach (Board.finish result)).
 
 Definition guard_command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :=
  or_else (Worktree.guard_command command caller value) (fun _=>match command with

@@ -1,12 +1,13 @@
 import { boundary } from './public/model-boundary.mjs';
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, open, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, open, readdir, readFile } from 'node:fs/promises';
 import { readSync, writeSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { prepareSandbox } from './sandbox.mjs';
 import { storeImageContent } from './files.mjs';
+import { durableDirectory, syncDirectory } from './file-io.mjs';
 
 export function killGroup(child, signal = 'SIGKILL') {
   // DEFENSE: A failed spawn has no PID and therefore owns no process group.
@@ -110,9 +111,7 @@ function processOutput(limit, combined) {
 
 // A disk ring keeps the latest bytes without rewriting the retained file on every chunk.
 function outputArtifact(file, filename, limit) {
-  let position = 0;
-  let total = 0;
-  let length = 0;
+  let ring = boundary('control.process.ring_initial', {});
   let failed = false;
   function writeAll(bytes, offset) {
     for (let written = 0; written < bytes.length;) {
@@ -121,45 +120,30 @@ function outputArtifact(file, filename, limit) {
   }
   return {
     add(chunk) {
-      total += chunk.length;
-      // NOTE: PTY data callbacks cannot await a write; synchronous bounded writes also apply disk backpressure.
-      if (chunk.length >= limit) {
-        writeAll(chunk.subarray(chunk.length - limit), 0);
-        position = 0;
-        length = limit;
-      } else {
-        const first = Math.min(chunk.length, limit - position);
-        writeAll(chunk.subarray(0, first), position);
-        if (first < chunk.length) writeAll(chunk.subarray(first), 0);
-        position = (position + chunk.length) % limit;
-        length = Math.min(limit, length + chunk.length);
-      }
+      const plan = boundary('control.process.ring_append', { ring, capacity: limit, count: chunk.length });
+      ring = plan.ring;
+      // PTY callbacks cannot await writes; bounded synchronous writes apply disk backpressure.
+      for (const part of plan.writes) writeAll(chunk.subarray(part.start, part.start + part.count), part.offset);
     },
     fail() { failed = true; },
     async finish() {
-      let retained = Buffer.alloc(length);
-      let persisted = false;
+      const physical = Buffer.alloc(ring.length);
       try {
-        for (let offset = 0; offset < length;) {
-          const read = readSync(file.fd, retained, offset, length - offset, offset);
+        for (let offset = 0; offset < physical.length;) {
+          const read = readSync(file.fd, physical, offset, physical.length - offset, offset);
           // DEFENSE: External truncation of an in-use artifact must report failed capture instead of looping.
           if (!read) throw new Error('Output artifact was shortened during capture');
           offset += read;
         }
-        if (length === limit && position) retained = Buffer.concat([retained.subarray(position), retained.subarray(0, position)]);
-        // DEFENSE: Byte eviction can leave a UTF-8 continuation at the retained beginning.
-        if (total > length) {
-          let first = 0;
-          while (first < retained.length && (retained[first] & 0xc0) === 0x80) first++;
-          retained = retained.subarray(first);
-        }
+        const slices = boundary('control.process.ring_finish', { ring, capacity: limit });
+        const retained = Buffer.concat(slices.map(part => physical.subarray(part.start, part.start + part.count)));
         await file.truncate(0);
         writeAll(retained, 0);
         await file.sync();
-        persisted = !failed;
+        // Directory barriers publish both output names together after both files finish.
+        return { path: filename, revision: createHash('sha256').update(retained).digest('hex'),
+          ring, capture_complete: !failed, file_synced: true };
       } finally { await file.close(); }
-      return { path: filename, revision: createHash('sha256').update(retained).digest('hex'), bytes: retained.length,
-        total_bytes: total, truncated: retained.length < total, persisted };
     },
     close: () => file.close(),
   };
@@ -181,6 +165,7 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
   const stdout = processOutput(maximum, combined);
   const stderr = processOutput(maximum, combined);
   const artifacts = [];
+  let artifactBatch;
   const readers = new Map();
   let child;
   let launch;
@@ -236,20 +221,34 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
     terminalResolve();
   }
   function cleanupGroup() {
-    if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
-      // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
-      recordReason({ code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` });
-    });
-    try { killGroup(child); }
-    // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
-    catch (error) { recordReason({ code: 'process_cleanup_failed', message: error.message }); }
-    sessionClose ??= killSession(child.pid).catch(error => {
-      recordReason({ code: 'process_cleanup_failed', message: `Could not terminate process session: ${error.message}` });
-    });
-    closeInput();
-    // DEFENSE: Descendants can deliberately leave their session while retaining inherited output handles.
-    forcedClose ??= setTimeout(forceOutputClose, 2000);
+    const plan = boundary('control.process.cleanup_plan', {});
+    for (const step of plan.steps) {
+      switch (step) {
+        case 'terminate_environment':
+          if (launch?.cancel && !environmentClose) environmentClose = launch.cancel().catch(error => {
+            // DEFENSE: A lost SSH connection can prevent confirmation that the remote process group exited.
+            recordReason({ code: 'process_cleanup_failed', message: `Could not terminate cloud process session: ${error.message}` });
+          });
+          break;
+        case 'terminate_group':
+          try { killGroup(child); }
+          // DEFENSE: OS signal failures must become a command failure instead of escaping timer/event callbacks.
+          catch (error) { recordReason({ code: 'process_cleanup_failed', message: error.message }); }
+          break;
+        case 'terminate_session':
+          sessionClose ??= killSession(child.pid).catch(error => {
+            recordReason({ code: 'process_cleanup_failed', message: `Could not terminate process session: ${error.message}` });
+          });
+          break;
+        case 'close_input': closeInput(); break;
+        case 'arm_deadline':
+          // DEFENSE: Descendants can leave their session while retaining inherited output handles.
+          forcedClose ??= setTimeout(forceOutputClose, plan.deadline_ms);
+          break;
+      }
+    }
   }
+
   function stop(reason, event) {
     const next = boundary('control.process.stop', { state: control, reason, event, timeout });
     control = next.state;
@@ -282,10 +281,10 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
         : await prepareSandbox(execution, { signal, readOnlyPaths, managedWorktreeRoot, processMode: mode });
       if (artifactDirectory) {
         boundary('effect.artifact_limit', { arguments: arguments_, limits, options });
-        await mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
-        const directory = await mkdtemp(path.join(artifactDirectory, 'bash-'));
+        await durableDirectory(artifactDirectory);
+        artifactBatch = await mkdtemp(path.join(artifactDirectory, 'bash-'));
         for (const stream of ['stdout', 'stderr']) {
-          const filename = path.join(directory, stream);
+          const filename = path.join(artifactBatch, stream);
           artifacts.push(outputArtifact(await open(filename, 'wx+', 0o600), filename, limits.artifact_bytes));
         }
       }
@@ -319,18 +318,36 @@ export function startBash(arguments_, limits, { signal, artifactDirectory, execu
       if (timeout !== null && timeout !== undefined) timer = setTimeout(() => stop(null, 'timeout'), timeout);
       const exitCode = await child.exited;
       observe('exited');
-      cleanupGroup();
-      await sessionClose;
-      await environmentClose;
-      await Promise.all(outputTasks);
-      await outputClose;
-      await inputClose;
-      observe('drained');
-      clearTimeout(forcedClose);
-      const retained = await Promise.all(artifacts.map(async artifact => {
+      for (const step of boundary('control.process.drain_plan', {})) {
+        switch (step) {
+          case 'cleanup': cleanupGroup(); break;
+          case 'wait_session': await sessionClose; break;
+          case 'wait_environment': await environmentClose; break;
+          case 'wait_output': await Promise.all(outputTasks); break;
+          case 'wait_output_close': await outputClose; break;
+          case 'wait_input': await inputClose; break;
+          case 'mark_drained': observe('drained'); break;
+          case 'clear_deadline': clearTimeout(forcedClose); break;
+        }
+      }
+      const candidates = await Promise.all(artifacts.map(async artifact => {
         try { return await artifact.finish(); }
         // DEFENSE: Real artifact sync/close failures must not publish a successfully persisted artifact.
         catch (error) { recordReason({ code: 'output_capture_failed', message: `Could not finalize command output: ${error.message}` }); return undefined; }
+      }));
+      let batchSynced = false;
+      let parentSynced = false;
+      if (artifactBatch) {
+        try {
+          await syncDirectory(artifactBatch);
+          batchSynced = true;
+          await syncDirectory(artifactDirectory);
+          parentSynced = true;
+        // DEFENSE: A failed directory barrier leaves the output names unconfirmed after successful file sync.
+        } catch (error) { recordReason({ code: 'output_capture_failed', message: `Could not publish command output: ${error.message}` }); }
+      }
+      const retained = candidates.map(candidate => candidate && boundary('control.process.artifact_metadata', {
+        ...candidate, batch_synced: batchSynced, parent_synced: parentSynced,
       }));
       try { await launch.cleanup(); }
       // DEFENSE: Scratch-directory or sandbox-descriptor cleanup can fail after the process exits.

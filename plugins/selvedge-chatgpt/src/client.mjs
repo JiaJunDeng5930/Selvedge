@@ -2,8 +2,7 @@ import http from 'node:http';
 import { boundary } from '../generated/model-boundary.mjs';
 import { interpretCredential } from '../generated/opaque-credentials.mjs';
 import { parseJson } from '../generated/json-tokens.mjs';
-import { constants } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { readBoundedRegularSnapshot } from '../generated/file-io.mjs';
 import path from 'node:path';
 import { requirePackagedModel } from '../scripts/build-model.mjs';
 
@@ -15,22 +14,20 @@ export async function loadSettings(env = process.env) {
   if (!env.SELVEDGE_CONNECTION_FILE) return settings(env);
   const absolute = path.isAbsolute(env.SELVEDGE_CONNECTION_FILE);
   boundary('plugin.settings_file', { phase: 'path', absolute });
-  const file = await open(env.SELVEDGE_CONNECTION_FILE, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const stat = await file.stat();
-    boundary('plugin.settings_file', { phase: 'metadata', absolute, nofollow: true,
-      regular: stat.isFile(), bytes: stat.size, mode: stat.mode,
-      owner_uid: stat.uid, current_uid: process.getuid() });
-    const bytes = await file.readFile();
-    let value;
-    try { value = parseJson(utf8Decoder.decode(bytes)); }
-    // DEFENSE: A manually edited credential file can contain invalid UTF-8/JSON; parser diagnostics must not expose its contents.
-    catch { throw new Error('Invalid connection file JSON'); }
-    boundary('plugin.settings_file', { phase: 'keys', absolute,
-      object: value !== null && typeof value === 'object' && !Array.isArray(value),
-      keys: value !== null && typeof value === 'object' ? Object.keys(value) : [] });
-    return settings(value);
-  } finally { await file.close(); }
+  const { bytes } = await readBoundedRegularSnapshot(env.SELVEDGE_CONNECTION_FILE, { maximumBytes: 4096,
+    admitMetadata(stat) {
+      boundary('plugin.settings_file', { phase: 'metadata', absolute, nofollow: true,
+        regular: stat.isFile(), bytes: stat.size, mode: stat.mode,
+        owner_uid: stat.uid, current_uid: process.getuid() });
+    } });
+  let value;
+  try { value = parseJson(utf8Decoder.decode(bytes)); }
+  // DEFENSE: A manually edited credential file can contain invalid UTF-8/JSON; parser diagnostics must not expose its contents.
+  catch { throw new Error('Invalid connection file JSON'); }
+  boundary('plugin.settings_file', { phase: 'keys', absolute,
+    object: value !== null && typeof value === 'object' && !Array.isArray(value),
+    keys: value !== null && typeof value === 'object' ? Object.keys(value) : [] });
+  return settings(value);
 }
 
 export function settings(env = process.env) {

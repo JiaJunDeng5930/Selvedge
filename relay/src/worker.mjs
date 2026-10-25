@@ -1,8 +1,8 @@
 import { remoteControl } from '../../remote/control-model.mjs';
 import {
-  REMOTE_PROTOCOL_VERSION, MAX_REMOTE_HTTP_BYTES,
+  REMOTE_PROTOCOL_VERSION,
   REMOTE_TICKET_TTL_MS,
-  isHostId, isRemoteToken, parseRemoteFrame, encodeRemoteFrame, protocolError, RemoteProtocolError,
+  parseRemoteFrame, encodeRemoteFrame, protocolError, RemoteProtocolError,
   validateHostFrame, validateControllerRequest,
 } from '../../remote/protocol.mjs';
 
@@ -10,15 +10,15 @@ const utf8 = new TextEncoder();
 const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const result = (body, status = 200) => Response.json(body, { status, headers: jsonHeaders });
 const failure = (code, status) => result({ error: { code } }, status);
-const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const exact = (value, fields) => object(value) && Object.keys(value).length === fields.length
-  && fields.every(field => Object.hasOwn(value, field));
-const labelValid = value => typeof value === 'string' && value.trim().length > 0
-  && value.length <= 80 && !/[\u0000-\u001f\u007f]/u.test(value);
-const bearer = request => {
-  const value = request.headers.get('authorization');
-  // DEFENSE: Public requests can omit Authorization or supply oversized/malformed bearer headers.
-  return value?.length <= 200 && /^Bearer [^\s]+$/.test(value) ? value.slice(7) : null;
+const admission = (operation, source) => remoteControl(`relay_${operation}`, source);
+const bearer = (request, route) => {
+  const admitted = admission('credential', { route, header: request.headers.get('authorization') || '' });
+  if (!admitted.accepted) throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
+  return admitted.credential;
+};
+const admitBody = (route, body) => {
+  const admitted = admission('body', { route, body });
+  if (admitted !== true) throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
 };
 const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', utf8.encode(value)))
   ].map(byte => byte.toString(16).padStart(2, '0')).join('');
@@ -33,14 +33,13 @@ const token = () => {
 };
 
 async function readJson(request) {
-  // DEFENSE: Public relay clients may omit or send a non-JSON Content-Type; reject before decoding.
-  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
-    throw Object.assign(new Error('Remote relay requires JSON'), { status: 415 });
-  }
-  // DEFENSE: An HTTP client may declare a body larger than the enrollment/pairing budget.
-  if (Number(request.headers.get('content-length')) > MAX_REMOTE_HTTP_BYTES) {
-    throw Object.assign(new Error('Remote relay body too large'), { status: 413 });
-  }
+  const content = { content_type: request.headers.get('content-type') || '',
+    content_length: request.headers.get('content-length') || '', received_bytes: 0 };
+  const requireContent = () => {
+    const admitted = admission('content', content);
+    if (admitted !== 0) throw Object.assign(new Error(admitted.code), { status: admitted.status, code: admitted.code });
+  };
+  requireContent();
   const reader = request.body?.getReader();
   let size = 0;
   const chunks = [];
@@ -50,11 +49,10 @@ async function readJson(request) {
         const { value, done } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        // DEFENSE: Chunked clients can omit or understate Content-Length; enforce the bound while reading.
-        if (size > MAX_REMOTE_HTTP_BYTES) {
-          await reader.cancel();
-          throw Object.assign(new Error('Remote relay body too large'), { status: 413 });
-        }
+        content.received_bytes = size;
+        // DEFENSE: Chunked HTTP bodies have no trustworthy declared byte count.
+        try { requireContent(); }
+        catch (error) { await reader.cancel(); throw error; }
         chunks.push(value);
       }
     } finally { reader.releaseLock(); }
@@ -77,49 +75,31 @@ export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
-      const localTest = env.REMOTE_LOCAL_TEST === 'true' && url.protocol === 'http:'
-        && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-      // DEFENSE: Relay credentials and one-time tickets require TLS outside the explicit loopback fixture.
-      if (url.protocol !== 'https:' && !localTest) return failure('https_required', 400);
-      if (url.pathname === '/health') {
-        return request.method === 'GET' && !url.search
-          ? result({ service: 'selvedge-remote-relay', version: REMOTE_PROTOCOL_VERSION })
-          : failure('method_not_allowed', 405);
-      }
-      if (url.pathname === '/v1/hosts/register') {
-        // DEFENSE: Registration accepts only POST without query parameters; reject other public routes.
-        if (request.method !== 'POST' || url.search) return failure('method_not_allowed', 405);
-        const supplied = bearer(request);
+      const route = admission('route', { protocol: url.protocol, hostname: url.hostname,
+        local_test: env.REMOTE_LOCAL_TEST === 'true', path: url.pathname, method: request.method,
+        query: [...url.searchParams] });
+      if (route.action === 'reject') return failure(route.code, route.status);
+      if (route.action === 'health') return result({ service: 'selvedge-remote-relay', version: REMOTE_PROTOCOL_VERSION });
+      if (route.action === 'register') {
         // DEFENSE: Deployments without an enrollment secret must not allow host registration.
         if (!env.RELAY_ENROLLMENT_TOKEN) return failure('enrollment_disabled', 503);
+        const supplied = bearer(request, 'register');
         // DEFENSE: Anyone can reach registration; only the configured enrollment credential admits a host.
-        if (!supplied || !sameDigest(await digest(supplied), await digest(env.RELAY_ENROLLMENT_TOKEN))) {
+        if (!sameDigest(await digest(supplied), await digest(env.RELAY_ENROLLMENT_TOKEN))) {
           return failure('unauthorized', 401);
         }
         const body = await readJson(request);
-        // DEFENSE: Registration JSON can forge malformed host ids or credential bytes.
-        if (!exact(body, ['host_id', 'host_token']) || !isHostId(body.host_id) || !isRemoteToken(body.host_token)) {
-          return failure('invalid_registration', 400);
-        }
+        admitBody('register', body);
         const stub = env.REMOTE_HOSTS.get(env.REMOTE_HOSTS.idFromName(body.host_id));
         return stub.fetch(new Request('https://relay.internal/register', {
           method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
         }));
       }
-      const route = /^\/v1\/hosts\/([^/]+)\/(host|pair|tickets|control)$/.exec(url.pathname);
-      // DEFENSE: Arbitrary public paths must not select a Durable Object outside the host UUID namespace.
-      if (!route || !isHostId(route[1])) return failure('not_found', 404);
-      if (route[2] === 'control') {
-        // DEFENSE: A control upgrade requires exactly one ticket and no unrelated query parameters.
-        if (request.method !== 'GET' || [...url.searchParams.keys()].some(key => key !== 'ticket')
-            || url.searchParams.getAll('ticket').length !== 1) return failure('invalid_control_route', 400);
-      // DEFENSE: Non-control routes must not accept credentials or operation options through query strings.
-      } else if (url.search) return failure('invalid_route_query', 400);
-      const stub = env.REMOTE_HOSTS.get(env.REMOTE_HOSTS.idFromName(route[1]));
+      const stub = env.REMOTE_HOSTS.get(env.REMOTE_HOSTS.idFromName(route.host_id));
       return stub.fetch(request);
     } catch (error) {
       // DEFENSE: readJson rejects unsupported content types, oversized bodies, and malformed UTF-8/JSON with an explicit HTTP status.
-      if (error.status) return failure('invalid_request', error.status);
+      if (error.status) return failure(error.code || 'invalid_request', error.status);
       throw error;
     }
   },
@@ -185,17 +165,15 @@ export class RemoteHostRelay {
       return await this.connectController(request, url);
     } catch (error) {
       // DEFENSE: readJson rejects unsupported content types, oversized bodies, and malformed UTF-8/JSON with an explicit HTTP status.
-      if (error.status) return failure('invalid_request', error.status);
+      if (error.status) return failure(error.code || 'invalid_request', error.status);
       throw error;
     }
   }
 
   async connectHost(request) {
-    // DEFENSE: The host WebSocket endpoint rejects non-GET requests.
-    if (request.method !== 'GET') return failure('method_not_allowed', 405);
-    const secret = bearer(request);
+    const secret = bearer(request, 'host');
     // DEFENSE: A caller can know the host UUID without possessing its installation credential.
-    if (!secret || !isRemoteToken(secret) || !sameDigest(await digest(secret), this.hostDigest)) {
+    if (!sameDigest(await digest(secret), this.hostDigest)) {
       return failure('unauthorized', 401);
     }
     // DEFENSE: The connector probes authentication over HTTP before upgrading; report the required transport explicitly.
@@ -215,19 +193,12 @@ export class RemoteHostRelay {
   }
 
   async pair(request) {
-    // DEFENSE: Pairing and ticket issuance accept JSON POST requests only.
-    if (request.method !== 'POST') return failure('method_not_allowed', 405);
     const host = this.host();
     // DEFENSE: A controller can pair, request a ticket, or connect while its host is offline; never queue commands.
     if (!host) return failure('host_offline', 503);
     const body = await readJson(request);
-    // DEFENSE: Pairing JSON can contain invalid controller credentials or unbounded/control-character labels.
-    if (!exact(body, ['controller_token', 'label']) || !isRemoteToken(body.controller_token) || !labelValid(body.label)) {
-      return failure('invalid_pairing_request', 400);
-    }
-    const supplied = bearer(request);
-    // DEFENSE: A pairing request without its one-time bearer code cannot authenticate a pending device.
-    if (!supplied) return failure('invalid_pairing_code', 401);
+    admitBody('pair', body);
+    const supplied = bearer(request, 'pair');
     const suppliedDigest = await digest(supplied);
     const state = host.deserializeAttachment();
     const consumed = this.step(state, { kind: 'pair_consume', digest: suppliedDigest });
@@ -245,14 +216,9 @@ export class RemoteHostRelay {
   }
 
   async ticket(request) {
-    // DEFENSE: Pairing and ticket issuance accept JSON POST requests only.
-    if (request.method !== 'POST') return failure('method_not_allowed', 405);
     const body = await readJson(request);
-    // DEFENSE: Ticket requests carry no JSON options; reject fields that could appear to override grant policy.
-    if (!exact(body, [])) return failure('invalid_ticket_request', 400);
-    const secret = bearer(request);
-    // DEFENSE: The public endpoint can receive missing or malformed bearer credentials/tickets.
-    if (!isRemoteToken(secret)) return failure('unauthorized', 401);
+    admitBody('tickets', body);
+    const secret = bearer(request, 'tickets');
     const controllerId = await digest(secret);
     const grantEpoch = this.grants.get(controllerId);
     // DEFENSE: A valid-shaped controller token may have no current owner-approved grant.
@@ -274,10 +240,11 @@ export class RemoteHostRelay {
 
   async connectController(request, url) {
     // DEFENSE: Controller connections require a GET WebSocket upgrade.
-    if (request.method !== 'GET' || !upgrade(request)) return failure('websocket_required', 426);
-    const secret = url.searchParams.get('ticket');
-    // DEFENSE: The public endpoint can receive missing or malformed bearer credentials/tickets.
-    if (!isRemoteToken(secret)) return failure('invalid_ticket', 401);
+    if (!upgrade(request)) return failure('websocket_required', 426);
+    const supplied = admission('credential', { route: 'control', header: `Bearer ${url.searchParams.get('ticket') || ''}` });
+    // DEFENSE: A control URL can contain an invalid or missing ticket.
+    if (!supplied.accepted) return failure(supplied.code, supplied.status);
+    const secret = supplied.credential;
     const secretDigest = await digest(secret);
     const host = this.host();
     // DEFENSE: A controller can pair, request a ticket, or connect while its host is offline; never queue commands.
@@ -324,7 +291,6 @@ export class RemoteHostRelay {
     // DEFENSE: Malformed peer frames and failed storage/socket effects retire this connection without retrying the command.
     } catch (error) {
       this.disconnect(socket);
-      socket.serializeAttachment({ role: 'closed' });
       const protocolRejected = error instanceof RemoteProtocolError;
       socket.close(protocolRejected ? (error.code === 'frame_too_large' ? 1009 : 1008) : 1011,
         protocolRejected ? 'Remote protocol rejected' : 'Remote relay operation failed');
@@ -376,27 +342,25 @@ export class RemoteHostRelay {
 
   webSocketClose(socket, code, reason) {
     this.disconnect(socket);
-    socket.serializeAttachment({ role: 'closed' });
     // DEFENSE: Close events can report reserved 1005/1006 codes, which cannot be sent in a close frame.
     socket.close(code === 1005 || code === 1006 ? 1000 : code, reason);
   }
 
   webSocketError(socket) {
     this.disconnect(socket);
-    socket.serializeAttachment({ role: 'closed' });
     socket.close(1011, 'Remote connection failed');
   }
 
   disconnect(socket) {
-    const state = socket.deserializeAttachment();
-    if (state.role === 'host' && state.generation === this.generation) {
-      const current = { ...state, negotiated: false, synced: false, tickets: [], pairing: null };
-      socket.serializeAttachment(current);
+    const transition = admission('disconnect', { connection: socket.deserializeAttachment(),
+      generation: this.generation, host_ready: Boolean(this.host()) });
+    socket.serializeAttachment(transition.state);
+    if (transition.action === 'close_controllers') {
       for (const controller of this.controllers()) controller.close(1012, 'Remote host disconnected');
-    } else if (state.role === 'controller' && state.generation === this.generation) {
+    } else if (transition.action === 'notify_host') {
       const host = this.host();
       if (host) {
-        try { send(host, { type: 'controller_close', connection_id: state.connection_id }); }
+        try { send(host, { type: 'controller_close', connection_id: transition.connection_id }); }
         // DEFENSE: The host can close before its controller-close notification is sent; retire that failed transport.
         catch { host.close(1011, 'Remote connection failed'); }
       }

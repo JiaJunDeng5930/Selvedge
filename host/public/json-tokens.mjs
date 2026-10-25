@@ -1,3 +1,5 @@
+import { boundary } from './model-boundary.mjs';
+
 /** Lossless JSON at the shared value boundary. Numeric lexemes survive the extraction boundary. */
 export class JsonNumber {
   constructor(source) {
@@ -29,27 +31,12 @@ export function stringifyJson(value) {
 
 /** Decode bounded wire integers by their mathematical value, without rounding. */
 export function safeInteger(value) {
-  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : undefined;
-  if (!(value instanceof JsonNumber)) return undefined;
-  const match = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(value.source);
-  if (!match) return undefined;
-  let coefficient = (match[2] + (match[3] ?? '')).replace(/^0+/, '');
-  if (!coefficient) return 0;
-  const exponent = (match[4] ?? '0').replace(/^\+/, '');
-  const magnitude = exponent.replace(/^-/, '').replace(/^0+/, '');
-  // DEFENSE: An external JSON exponent can have millions of digits; bound it before numeric conversion or allocation.
-  const limit = coefficient.length + 16;
-  if (magnitude.length > String(limit).length || Number(magnitude) > limit) return undefined;
-  const shift = Number(exponent) - (match[3]?.length ?? 0);
-  if (shift < 0) {
-    if (-shift >= coefficient.length || !coefficient.endsWith('0'.repeat(-shift))) return undefined;
-    coefficient = coefficient.slice(0, shift);
-  } else {
-    if (coefficient.length + shift > 16) return undefined;
-    coefficient += '0'.repeat(shift);
-  }
-  const result = Number(match[1] + coefficient);
-  return Number.isSafeInteger(result) ? result : undefined;
+  const lexeme = value instanceof JsonNumber ? value.source
+    : typeof value === 'number' ? Object.is(value, -0) ? '-0' : String(value)
+    : undefined;
+  if (lexeme === undefined) return undefined;
+  const decoded = boundary('control.remote.safe_integer', lexeme);
+  return decoded === null ? undefined : Number(decoded);
 }
 
 /** Domain naturals use canonical decimal tokens; unlike wire integers their lexical contract is strict. */

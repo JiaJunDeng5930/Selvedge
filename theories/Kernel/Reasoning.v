@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates ReasoningPlan TicketedRequest.
+From Selvedge.Kernel Require Import Numbers Domain Codec State TaskChange Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates ReasoningPlan TicketedRequest.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -19,23 +19,30 @@ Definition Reuse := ReasoningPlan.Reuse.
 Definition Evaluate := ReasoningPlan.Evaluate.
 Definition next := ReasoningPlan.next.
 Inductive outcome := Chosen (effort : string) (generations : N) | EvaluationFailed (reason : string).
+Definition failed_changes (reason : string) (task : task) :=
+ let messages := [FailureMessage ("Automatic reasoning: " ++ reason)] in
+ TaskChange.AppendHistory messages :: TaskChange.ChangePhase Idle ::
+ Tasks.promote_changes (with_activity Idle (append_history messages task)).
 Definition failed (reason : string) (task : task) :=
- Tasks.promote (with_activity Idle (append_history [FailureMessage ("Automatic reasoning: " ++ reason)] task)).
-Definition complete (owner : N) (outcome : outcome) (task : task) :=
+ TaskChange.apply (failed_changes reason task) task.
+Definition complete_changes (owner : N) (outcome : outcome) (task : task) :=
  match profile_policy (task_current_profile task) with
- | FixedReasoning => task
+ | FixedReasoning => []
  | AdaptivePolicy policy =>
    match outcome with
    | Chosen effort generations =>
      (* DEFENSE: An external evaluator may return choices outside its frozen
         endpoint policy; that response must not start a model generation. *)
      if allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations
-     then Tasks.promote (with_activity ReadyForModel
-       (append_history [ReasoningRecord owner effort generations false] task))
-     else failed "the evaluator selected an unsupported effort or lease; no model request was sent" task
-   | EvaluationFailed reason => failed reason task
+     then let messages := [ReasoningRecord owner effort generations false] in
+       TaskChange.AppendHistory messages :: TaskChange.ChangePhase ReadyForModel ::
+       Tasks.promote_changes (with_activity ReadyForModel (append_history messages task))
+     else failed_changes "the evaluator selected an unsupported effort or lease; no model request was sent" task
+   | EvaluationFailed reason => failed_changes reason task
    end
  end.
+Definition complete (owner : N) (outcome : outcome) (task : task) :=
+ TaskChange.apply (complete_changes owner outcome task) task.
 Definition last_configuration := TicketedRequest.last_configuration.
 Definition trailing_configuration := TicketedRequest.trailing_configuration.
 Definition generation := TicketedRequest.generation.

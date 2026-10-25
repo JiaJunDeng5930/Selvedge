@@ -6,7 +6,8 @@ Open Scope string_scope.
 Open Scope list_scope.
 
 Definition req (name : string) (type : kind) := Field name type.
-Definition opt (name : string) (type : kind) := Field name (KOptional type).
+Definition opt (name : string) (type : kind) := OmittableField name type.
+Definition nullable (name : string) (type : kind) := Field name (KOptional type).
 Definition task_identity := [req "task_id" KNatural].
 Definition content_fields := [opt "message" KJson; opt "images" (KArray KJson)].
 Definition creation_fields := [req "profile" KText; opt "reasoning" KText] ++
@@ -55,7 +56,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand KernelChange (Command "stop" task_identity);
   DeclareCommand KernelChange (Command "interrupt" task_identity);
   DeclareCommand KernelChange (Command "archive" task_identity);
-  DeclareCommand KernelChange (Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson; opt "settings_origin" (KEnum "parent" ["environment"])]));
+  DeclareCommand KernelChange (Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson; nullable "settings_origin" (KEnum "parent" ["environment"])]));
   DeclareCommand KernelChange (Command "open_side_conversation" (task_identity ++ content_fields));
   DeclareCommand KernelChange (Command "return_side_conversation" task_identity);
   DeclareCommand CompactionChange (Command "compact" (task_identity ++ [opt "summary" KText]));
@@ -119,7 +120,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand WorktreeQuery (Command "list_worktrees" []);
   DeclareCommand WorktreeQuery (Command "read_worktree" task_identity);
   DeclareCommand WorktreeChange (Command "retry_worktree_archive" task_identity);
-  DeclareCommand WorktreeQuery (Command "resolve_workspace" [opt "workspace" KJson; opt "project_id" KNatural])
+  DeclareCommand WorktreeQuery (Command "resolve_workspace" [nullable "workspace" KJson; nullable "project_id" KNatural])
 ].
 Definition command_specs := map declared_schema command_declarations.
 

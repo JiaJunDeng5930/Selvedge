@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { interpretAudioTransport } from './model-api.ts';
 import { Impit } from 'impit';
 import WebSocket from 'ws';
 import { createAudioAccount } from './chatgpt-account.mjs';
@@ -121,106 +122,84 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
       headers: { 'content-type': 'application/json', ...sessionHeaders } }, selected, lifetime);
     const answer = boundary('audio.session_response', { status: response.status,
       sdp: await responseText(response, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
-    const activation = boundary('control.audio.connection_initial', {});
-    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id, connection: activation.state,
-      state: boundary('control.audio.stream_initial', { id, task_id, generation }), queue: Promise.resolve() };
+    const activation = boundary('control.audio.transport_initial', { id, task_id, generation });
+    let finish;
+    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id,
+      state: activation.state, finished: new Promise(resolve => { finish = resolve; }) };
     Object.defineProperties(record, {
-      closed: { get: () => record.state.phase === 'closed' },
+      closed: { get: () => record.state.phase !== 'live' },
     });
     sessions.set(id, record);
-    const transition = observation => {
-      const result = boundary('control.audio.stream_step', { state: record.state,
-        observation: { generation, ...observation } });
+    // Every physical arrival installs its model state before any asynchronous
+    // primitive starts. Only the extracted FIFO chooses the next emission.
+    const observe = observation => {
+      const result = boundary('control.audio.transport_step', { state: record.state, observation });
       record.state = result.state;
-      return result.actions;
+      drive(result.actions);
+      if (record.state.phase === 'closed') finish();
     };
-    const interpret = async actions => {
-      for (const action of actions) switch (action.type) {
-        case 'ready': lifetime.removeEventListener('abort', startupAbort); break;
-        case 'emit': await onEvent(action.event); break;
-        case 'close': {
-          connectionTransition({ kind: 'stop' });
-          signal?.removeEventListener('abort', abort);
-          lifetime.removeEventListener('abort', startupAbort);
-          if (sessions.get(id) === record) sessions.delete(id);
-          clearTimeout(record.retryTimer);
-          const socket = record.socket;
-          if (socket?.readyState === 1) { socket.send(JSON.stringify({ type: 'session.close' })); socket.close(); }
-          else if (socket?.readyState === 0) socket.terminate();
-          break;
-        }
-        default: throw new TypeError(`Unknown audio transport effect: ${action.type}`);
+    const cleanup = () => {
+      signal?.removeEventListener('abort', abort);
+      lifetime.removeEventListener('abort', startupAbort);
+      if (sessions.get(id) === record) sessions.delete(id);
+      clearTimeout(record.retryTimer);
+      const socket = record.socket;
+      if (socket?.readyState === 1) {
+        try { socket.send(JSON.stringify({ type: 'session.close' })); } finally { socket.close(); }
       }
+      else if (socket?.readyState === 0) socket.terminate();
     };
-    const markReady = () => interpret(transition({ kind: 'open' }));
-    const enqueue = action => {
-      record.queue = record.queue.then(action).catch(error => {
-        // DEFENSE: A malformed provider event or a rejected journal commit ends this control connection; continuing would lose the correspondence between voice observations and accepted task input.
-        terminate(error);
+    function drive(actions) {
+      for (const begin of actions) void interpretAudioTransport(begin, {
+        ready: () => lifetime.removeEventListener('abort', startupAbort),
+        emit: event => onEvent(event),
+        close: async () => { cleanup(); },
+        connect: attempt => connectSideband(attempt),
+        retry: (attempt, delay) => {
+          record.retryTimer = setTimeout(() => observe({ kind: 'retry', attempt }), Number(delay));
+        },
+        ack: token => observe({ kind: 'ack', token }),
+        failed: token => observe({ kind: 'failed', token }),
       });
-    };
-    function terminate(error, kind = 'stop') {
-      const actions = transition({ kind, message: error?.message ?? '' });
-      record.queue = record.queue.then(() => interpret(actions));
     }
+    const terminate = error => observe({ kind: 'stop', message: error?.message ?? '' });
     const abort = () => terminate(signal.reason);
-    const startupAbort = () => terminate(lifetime.reason, 'startup_timeout');
+    const startupAbort = () => observe({ kind: 'startup_timeout', message: lifetime.reason?.message ?? '' });
     signal?.addEventListener('abort', abort, { once: true });
     lifetime.addEventListener('abort', startupAbort, { once: true });
     record.stop = terminate;
-    const connectionTransition = observation => {
-      const result = boundary('control.audio.connection_step', { state: record.connection, observation });
-      record.connection = result.state;
-      return result.actions;
-    };
-    const interpretConnection = async actions => {
-      for (const action of actions) switch (action.type) {
-        case 'connect': connectSideband(action.attempt); break;
-        case 'retry':
-          record.retryTimer = setTimeout(() => enqueue(() => interpretConnection(connectionTransition({ kind: 'retry', attempt: action.attempt }))), action.delay);
-          break;
-        case 'open': await markReady(); break;
-        case 'stop': terminate(action.message ? new Error(action.message) : undefined); break;
-        case 'provider': {
-          const value = parsedJson(action.raw);
-          if (value === null) throw new Error('ChatGPT voice control returned invalid JSON');
-          await interpret(transition({ kind: 'event', value }));
-          break;
-        }
-        default: throw new TypeError(`Unknown audio connection effect: ${action.type}`);
-      }
-    };
     function connectSideband(attempt) {
       const socket = new WebSocketImpl(`${limits.sideband_base}${encodeURIComponent(answer.call_id)}`, {
         headers: { ...authHeaders(selected.authorization), ...sessionHeaders, 'x-session-id': id }, maxPayload: limits.event_max_bytes,
       });
       record.socket = socket;
       socket.on('unexpected-response', (_request, response) => {
-        const actions = connectionTransition({ kind: 'upgrade', attempt, status: response.statusCode });
-        response.destroy();
-        socket.terminate();
-        enqueue(() => interpretConnection(actions));
+        observe({ kind: 'upgrade', attempt, status: response.statusCode });
+        response.destroy(); socket.terminate();
       });
-      socket.addEventListener('open', () => enqueue(() => interpretConnection(connectionTransition({ kind: 'open', attempt }))));
-      socket.addEventListener('message', message => enqueue(() => {
-        const raw = typeof message.data === 'string' ? message.data : new TextDecoder('utf-8', { fatal: true }).decode(message.data);
-        return interpretConnection(connectionTransition({ kind: 'message', attempt, raw }));
-      }));
-      socket.addEventListener('error', event => enqueue(() => interpretConnection(connectionTransition({ kind: 'error', attempt,
-        message: `ChatGPT voice control connection failed${event.message ? `: ${event.message}` : ''}` }))));
-      socket.addEventListener('close', event => enqueue(() => interpretConnection(connectionTransition({ kind: 'close', attempt, code: event.code }))));
+      socket.addEventListener('open', () => observe({ kind: 'open', attempt }));
+      socket.addEventListener('message', message => {
+        let value;
+        // DEFENSE: Provider frames are external UTF-8/JSON input. A malformed
+        // frame retires this call rather than entering the semantic event FIFO.
+        try {
+          const raw = typeof message.data === 'string' ? message.data : new TextDecoder('utf-8', { fatal: true }).decode(message.data);
+          value = parsedJson(raw);
+          if (value === null) throw new Error('ChatGPT voice control returned invalid JSON');
+        } catch (error) { observe({ kind: 'error', attempt, message: error.message }); return; }
+        observe({ kind: 'message', attempt, value });
+      });
+      socket.addEventListener('error', event => observe({ kind: 'error', attempt,
+        message: `ChatGPT voice control connection failed${event.message ? `: ${event.message}` : ''}` }));
+      socket.addEventListener('close', event => observe({ kind: 'close', attempt, code: event.code }));
     }
-    await interpretConnection(activation.actions);
+    drive(activation.actions);
     if (lifetime.aborted) {
-      startupAbort();
-      await record.queue;
-      throw lifetime.reason;
+      startupAbort(); await record.finished; throw lifetime.reason;
     }
     if (closed) {
       const error = new Error('Audio host is closed');
-      terminate(error);
-      await record.queue;
-      throw error;
+      terminate(error); await record.finished; throw error;
     }
     return { id, ...answer };
   }
@@ -255,7 +234,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     // A stop owns cancellation of its in-flight create; the create caller receives
     // that rejection while this caller waits for physical cleanup.
     if (pending) await Promise.allSettled([pending.promise]);
-    if (record) await record.queue;
+    if (record) await record.finished;
     return true;
   }
 

@@ -1,9 +1,10 @@
-import { access, readFile, stat } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { accountConnection, authorize, defaultChatGPTAccount } from './chatgpt-account.mjs';
 import { requestJson } from './network.mjs';
 import { writeAtomic } from './files.mjs';
+import { readBoundedRegularSnapshot } from './file-io.mjs';
 import { boundary } from './public/model-boundary.mjs';
 import { modelsURL } from './chatgpt-contract.mjs';
 
@@ -47,9 +48,8 @@ async function readCache(profile, home, account, now) {
   const filename = modelCacheFile(profile, home);
   let contents;
   try {
-    // DEFENSE: A cache file can be externally replaced with oversized data; do not load it before native size admission.
-    if (!boundary('account.cache_size', { profile, home, account, now, filename, size: (await stat(filename)).size })) return undefined;
-    contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(await readFile(filename));
+    const snapshot = await readBoundedRegularSnapshot(filename, { maximumBytes: 1048576, noFollow: false });
+    contents = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(snapshot.bytes);
   } catch (error) {
     // DEFENSE: A missing cache causes discovery; other filesystem failures become a native cache-read error.
     return boundary('account.cache_error', { profile, home, account, now, filename, code: error.code }) ?? undefined;

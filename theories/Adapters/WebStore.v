@@ -60,7 +60,7 @@ Definition retire_candidates records source := fold_right (fun record selected =
     [if num previous "ordinal" <? num record "ordinal" then record else previous] end else selected) [] records.
 Definition retire_writes records := map (fun record => JObject [("record",record);("request_key",get record "request_key");
   ("updates",JObject [("retired",retirement_code Cancelled)])]) records.
-Definition current_format := "selvedge-chatgpt-web-1".
+Definition current_format := "selvedge-chatgpt-web-2".
 Definition metadata_reply create identity := success (JObject [("create",JBool create);
   ("identity",identity);("format",JString current_format)]).
 Definition metadata_error := err "ChatGPT Web receipts are not in the current format".

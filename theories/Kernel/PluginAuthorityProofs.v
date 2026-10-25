@@ -23,6 +23,7 @@ Proof. reflexivity. Qed.
 Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote invocation remaining task value,
  let advertised := Tool name description (McpToolSource schema server remote) in
  find_task id value = Some task ->
+ TicketedRequest.Scoped.can_execute task = true ->
  task_activity task = ReadyForHooks invocation [] remaining ->
  find_tool (call_name invocation) (contract_tools (task_contract task)) = Some advertised ->
  Capabilities.available (environment_tools (world_environment value)) advertised = true ->
@@ -38,13 +39,13 @@ Theorem admitted_mcp_calls_dispatch : forall execute id name description schema 
     | FullAccess => ElevatedAccess | _ => DefaultAccess end)].
 Proof.
  intros execute id name description schema server remote invocation remaining task value advertised
-   Found Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
+   Found ExecuteAllowed Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
  unfold Scheduler.execute_checked_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
  rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
  rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task advertised invocation remaining
    (TicketedRequest.Scoped.external_authority_for task invocation) Found).
- 2: { unfold TicketedRequest.Scoped.call_action; rewrite Ready, Known; reflexivity. }
+ 2: { unfold TicketedRequest.Scoped.call_action; rewrite ExecuteAllowed, Ready, Known; reflexivity. }
  rewrite Room. unfold TicketedRequest.Scoped.external_authority_for.
  rewrite NoBash. destruct (settings_approval (task_current_settings task)); reflexivity.
 Qed.
