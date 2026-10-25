@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Kernel Require Import Commands.
 From Selvedge.Interaction Require Import Codec Identity Services.
+From Selvedge.Interaction.Submission Require Fields Parameters.
 Import ListNotations.
 Open Scope string_scope.
 Record connection := Connection { connection_id:string; connection_label:string; asr:bool; voice:bool }.
@@ -37,13 +38,15 @@ Definition result s es:=SpeechResult s es None.
 Definition free s:=match current s with Idle=>true|_=>false end.
 Definition release s:=match active_ticket(current s)with Some t=>[Release t]|None=>[]end.
 Definition begin_dictation e revision s :=
-  if free s then match eligible false s with
+  (* DEFENSE: Native inputs can name settings editors with no message field;
+     recording there cannot produce an insertable transcript. *)
+  if existsb(fun field=>if Parameters.field_eq_dec field Fields.MessageText then true else false)(Parameters.fields e) && free s then match eligible false s with
   |Some _=>let t:=next s in result(with_next(N.succ t)(with_activity(Acquiring t e revision)(with_notice "" s)))[RecordAudio t e]
-  |None=>keep(with_notice "Select a connection with speech recognition" s)end else keep s.
+  |None=>keep s end else keep s.
 Definition begin_voice task s :=
   if free s then match eligible true s with
   |Some c=>let t:=next s in result(with_next(N.succ t)(with_activity(ConnectingVoice t task)(with_notice "" s)))[ConnectVoice t(connection_id c)task]
-  |None=>keep(with_notice "Select a connection with live voice" s)end else keep s.
+  |None=>keep s end else keep s.
 Definition speech_step input s :=
   match input with
   |Authorize=>if free s && match connections s with []=>true|_=>false end then result s[AudioLogin]else keep s
@@ -53,7 +56,7 @@ Definition speech_step input s :=
       let chosen:=match selected s with Some id=>if existsb(fun c=>String.eqb id(connection_id c)&&available c)cs then Some id else first|None=>first end in
       keep(Speech cs chosen(next s)(current s)""(live_text s))
   |CapabilitiesFailed e=>keep(with_notice e s)
-  |Select id=>if free s && existsb(fun c=>String.eqb id(connection_id c)&&(asr c||voice c))(connections s)then keep(Speech(connections s)(Some id)(next s)(current s)(notice s)(live_text s))else keep s
+  |Select id=>if free s && existsb(fun c=>String.eqb id(connection_id c)&&(asr c||voice c))(connections s)then keep(Speech(connections s)(Some id)(next s)(current s)""(live_text s))else keep s
   |BeginDictation e rev=>begin_dictation e rev s
   |Captured t start finish=>match current s with Acquiring u e rev=>if N.eqb t u then keep(with_activity(Recording t(Target e rev start finish))s)else keep s|_=>keep s end
   |FinishDictation=>match current s,eligible false s with Recording t capture,Some c=>result(with_activity(Transcribing t capture)s)[Transcribe t(connection_id c)]|_,_=>keep s end
@@ -61,8 +64,10 @@ Definition speech_step input s :=
   |InsertTranscript=>match current s with Retained capture text=>SpeechResult s[](Some(capture,text))|_=>keep s end
   |DismissTranscript=>match current s with Retained _ _=>keep(with_activity Idle s)|_=>keep s end
   |BeginVoice task=>begin_voice task s
-  |BeginNewVoice origin revision generation command=>if free s then match eligible true s with Some _=>let t:=next s in result(with_next(N.succ t)(with_activity(CreatingTask t origin revision generation)s))[CreateTask t command]|None=>keep(with_notice "Select a connection with live voice" s)end else keep s
-  |TaskCreated t task=>match current s with CreatingTask u _ _ _=>if N.eqb t u then begin_voice task(with_activity Idle s)else keep s|_=>keep s end
+  |BeginNewVoice origin revision generation command=>if free s then match eligible true s with Some _=>let t:=next s in result(with_next(N.succ t)(with_activity(CreatingTask t origin revision generation)(with_notice "" s)))[CreateTask t command]|None=>keep s end else keep s
+  |TaskCreated t task=>match current s with CreatingTask u _ _ _=>if N.eqb t u then
+    match eligible true s with Some connection=>result(with_activity(ConnectingVoice t task)(with_notice "" s))[ConnectVoice t(connection_id connection)task]|None=>keep s end
+    else keep s|_=>keep s end
   |VoiceReady t=>match current s with ConnectingVoice u task=>if N.eqb t u then keep(with_activity(Voice t task false false)s)else keep s|_=>keep s end
   |LiveText t text=>if owns t(current s)then keep(Speech(connections s)(selected s)(next s)(current s)(notice s)text)else keep s
   |ToggleInputMute=>match current s with Voice t task mic out=>result(with_activity(Voice t task(negb mic)out)s)[SetInputMute t(negb mic)]|_=>keep s end
@@ -126,3 +131,20 @@ Definition decode_input j := match string_field "type" j with
   |Some "audio_failed"=>t<-natural_field "ticket" j;;s<-string_field "error" j;;Some(Failed t s)
   |Some "audio_ended"=>t<-natural_field "ticket" j;;s<-string_field "error" j;;Some(Ended t s)
   |Some "audio_released"=>Some Released|_=>None end.
+
+Theorem cancellation_releases_owned_microphone s :
+ speech_effects(speech_step Cancel s)=release s /\
+ current(speech_state(speech_step Cancel s))=Idle.
+Proof. destruct s;cbn;simpl;split;reflexivity. Qed.
+
+Theorem matching_transcription_retains_capture cs selected next ticket capture notice live text :
+ let result:=speech_step(Transcribed ticket text)(Speech cs selected next(Transcribing ticket capture)notice live)in
+ current(speech_state result)=Retained capture text /\
+ transcript result=Some(capture,text) /\ speech_effects result=[Release ticket].
+Proof. cbn;rewrite N.eqb_refl;repeat split;reflexivity. Qed.
+
+Theorem stale_transcription_preserves_capture s selected next expected ticket capture notice live text :
+ N.eqb ticket expected=false ->
+ speech_step(Transcribed ticket text)(Speech s selected next(Transcribing expected capture)notice live)=
+ keep(Speech s selected next(Transcribing expected capture)notice live).
+Proof. intro stale;cbn;rewrite stale;reflexivity. Qed.

@@ -13,6 +13,7 @@ Definition routes := [
   Route "POST" "/api/browser/command" "browser_command" true;
   Route "POST" "/api/browser/observation" "browser_observation" true;
   Route "POST" "/api/commands" "command" true;
+  Route "POST" "/api/assess" "assess" true;
   Route "GET" "/api/browser/state" "browser_state" false;
   Route "GET" "/api/describe" "describe" false;
   Route "GET" "/api/events" "events" false;
@@ -141,6 +142,9 @@ Definition body_shape (target : string) (body : json) :=
   else if String.eqb target "remote_revoke" then exact_fields ["controller_id"] body && nonempty_text (get body "controller_id")
   else if starts target "remote_" || String.eqb target "account_refresh" then exact_fields [] body
   else if String.eqb target "browser_command" then exact_fields ["command"] body
+  else if String.eqb target "assess" then exact_fields ["command";"editor";"revision";"sequence"] body &&
+    is_object (get body "command") &&
+    (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)
   else if String.eqb target "audio_login" then exact_fields ["browser_id"] body && nonempty_text (get body "browser_id")
   else if String.eqb target "audio_create" then exact_fields ["connection";"task_id";"sdp";"browser_id"] body &&
     forallb (fun key => nonempty_text (get body key)) ["connection";"sdp";"browser_id"]
@@ -160,15 +164,17 @@ Definition body_stage (body : bool) (source : json) :=
   else match as_string (get source "text") with
   | None => body_error target
   | Some original =>
-    match TextJson.parse_json original with
-    | Some value => if body_shape target value then JObject
+    match TextJson.parse_input_json original with
+    | TextJson.InputAccepted value => if body_shape target value then JObject
       [("action",JString target);("body",value)] else body_error target
-    | None => body_error target
+    | TextJson.InputInvalid => body_error target
+    | TextJson.InputNestingExceeded => exception "RangeError" TextJson.input_nesting_error
     end
   end.
-Definition audio_limits := JObject [("allowed",JBool true);("max_bytes",number 26214400);
-  ("timeout_ms",number 120000);("connect_timeout_ms",number 20000);("session_max_ms",number 3600000)].
-Definition audio_reject (message : string) := JObject [("allowed",JBool false);("error",JString message)].
+Definition audio_limits := JObject [("allowed",JBool true);("max_bytes",number Audio.asr_max_bytes);
+  ("timeout_ms",number Audio.request_timeout_ms);("connect_timeout_ms",number Audio.connect_timeout_ms);
+  ("session_max_ms",number Audio.session_max_ms)].
+Definition audio_reject (message : string) := JObject [("allowed",JBool false);("message",JString message)].
 Definition audio_admission (source : json) :=
   let kind := str source "kind" in
   if String.eqb kind "create" then
@@ -181,6 +187,18 @@ Definition audio_admission (source : json) :=
   else if nonempty_text (get source "browser_id") && equal (get source "browser_id") (get source "owner") &&
     boolean_field source "exists" && bound (get source "elapsed_ms") 0 Audio.session_max_ms
   then audio_limits else audio_reject "Audio session is unavailable to this browser".
+Definition public_command_allowed (source : json) :=
+  negb (existsb (String.eqb (str (get source "command") "op"))
+    ["record_speech_transcript";"accept_speech_delegation"]).
+Definition public_command (source : json) :=
+  if public_command_allowed source then success JNull
+  else type_error "Speech observations require a live upstream session".
+Definition request_error_response (source : json) :=
+  let name := str source "name" in
+  let message := str source "message" in
+  if String.eqb name "CommandNotSubmitted" then rejection 400 "command_not_submitted" message
+  else rejection (if existsb (String.eqb name) ["RangeError";"SyntaxError";"TypeError"] then 400 else 503)
+    "request_failed" message.
 Definition call (operation : string) (source : json) :=
   if String.eqb operation "http.closing" then success
     (if boolean_field source "closing" then rejection 503 "stopping" "Server is stopping" else action "observe_host")
@@ -196,8 +214,8 @@ Definition call (operation : string) (source : json) :=
     then success (request_guard source local_route (fun source => content_target (body_target source)))
   else if String.eqb operation "http.content_type" || String.eqb operation "http.body"
     then success (request_guard source (body_stage (String.eqb operation "http.body")) (body_stage (String.eqb operation "http.body")))
+  else if String.eqb operation "http.error" then success (request_error_response source)
   else if String.eqb operation "http.reply_status" then success (number (if boolean_field (get source "reply") "ok" then 200 else 400))
   else if String.eqb operation "http.audio" then success (audio_admission source)
-  else if String.eqb operation "http.public_command" then success (JObject [("allowed",JBool
-    (negb (existsb (String.eqb (str (get source "command") "op")) ["record_speech_transcript";"accept_speech_delegation"])))])
+  else if String.eqb operation "http.public_command" then public_command source
   else err "Unknown HTTP operation".

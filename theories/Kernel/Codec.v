@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema Utf8.
+From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
 Import ListNotations.
@@ -30,9 +30,10 @@ Fixpoint strings (values : list json) : option (list string) :=
 Definition workspace_json (value : workspace) := JObject [
  ("roots", JArray (map JString (workspace_roots value)));
  ("primary_root", optional_string (workspace_primary value))].
-Definition sandbox_json (value : sandbox) := JObject [
+Definition sandbox_fields (value : sandbox) := [
  ("mode", JString (match sandbox_access value with ReadOnly => "read-only" | WorkspaceWrite => "workspace-write" end));
  ("network_access", JBool (sandbox_network value))].
+Definition sandbox_json value := JObject (sandbox_fields value).
 Definition approval_json (value : approval_policy) :=
  match value with
  | FullAccess => JObject [("mode", JString "full-access")]
@@ -59,14 +60,27 @@ Definition parse_workspace (value : json) : option workspace :=
    end else None
  | None => None end
  | None => None end end.
+Definition sandbox_schema := [Field "mode" (KEnum "read-only" ["workspace-write"]); Field "network_access" KBool].
+Definition approval_schema := [Field "mode" (KEnum "full-access" ["ask-for-approval";"approval-for-me"]);
+ Field "reviewer_profile" (KOptional KText)].
 Definition parse_sandbox (value : json) : option sandbox :=
- match Schema.decode [Field "mode" KText; Field "network_access" KBool] value with None => None | Some _ =>
+ match Schema.decode sandbox_schema value with None => None | Some _ =>
  match string_field "mode" value, bool_field "network_access" value with
  | Some "read-only", Some network => Some (Sandbox ReadOnly network)
  | Some "workspace-write", Some network => Some (Sandbox WorkspaceWrite network)
  | _, _ => None end end.
+(* Creation settings are a partial override. The concrete sandbox DTO remains
+   complete; omitting a patch field inherits its committed fallback value. *)
+Definition sandbox_patch_arguments := map
+ (fun field => Arguments.omittable (Arguments.from_field field)) sandbox_schema.
+Definition parse_sandbox_patch (fallback : sandbox) (value : json) : option sandbox :=
+ if Arguments.valid sandbox_patch_arguments value then match value with
+ | JObject updates => parse_sandbox (JObject
+   (fold_left (fun fields entry => Json.set_field (fst entry) (snd entry) fields)
+      updates (sandbox_fields fallback)))
+ | _ => None end else None.
 Definition parse_approval (model : profile) (catalog : list profile) (value : json) : option approval_policy :=
- match Schema.decode [Field "mode" KText; Field "reviewer_profile" (KOptional KText)] value with None => None | Some _ =>
+ match Schema.decode approval_schema value with None => None | Some _ =>
  match string_field "mode" value with
  | Some "full-access" => Some FullAccess
  | Some "ask-for-approval" => Some AskForApproval
@@ -80,10 +94,23 @@ Definition parse_approval (model : profile) (catalog : list profile) (value : js
 Definition select_optional {A : Type} (parse : json -> option A)
  (key : string) (source : json) (fallback : A) :=
  match field key source with None | Some JNull => Some fallback | Some value => parse value end.
+(* Task settings distinguish an omitted override from an explicitly supplied
+   invalid value. Nullable command DTO fields use select_optional instead. *)
+Definition select_override {A : Type} (parse : json -> option A)
+ (key : string) (source : json) (fallback : A) :=
+ match field key source with None => Some fallback | Some value => parse value end.
+Definition workspace_binding_json (owner : option N) :=
+ JObject [("task_id",optional_number owner)].
+Definition parse_workspace_binding (source : json) : option (option N) :=
+ match source with
+ | JObject [("task_id",JNull)] => Some None
+ | JObject [("task_id",owner)] => option_map (@Some N) (natural owner)
+ | _ => None end.
 Definition task_settings_schema := [Field "workspace" (KOptional KJson); Field "sandbox" (KOptional KJson);
- Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson)].
+ Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson); Field "workspace_binding" (KOptional KJson)].
+Definition guidance_schema := [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText].
 Definition valid_guidance (value : json) := match value with JNull => true | _ =>
- match Schema.decode [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText] value with
+ match Schema.decode guidance_schema value with
  | None => false | Some _ =>
  let root := text_default "workspace" value "" in
  let path := text_default "path" value "" in
@@ -95,6 +122,8 @@ Definition valid_guidance (value : json) := match value with JNull => true | _ =
 Definition guidance_member (workspace : workspace) (guidance : json) := match guidance with
  | JNull => true | _ => match workspace_primary workspace, string_field "workspace" guidance with
  | Some root, Some observed => String.eqb root observed | _,_ => false end end.
+Definition inherited_guidance (workspace : workspace) (guidance : json) :=
+ if guidance_member workspace guidance then guidance else JNull.
 Definition parse_settings (model : profile) (catalog : list profile) (value : json) (fallback : task_settings) : option task_settings :=
  match value with JNull => Some fallback | _ =>
  match Schema.decode task_settings_schema value with None => None | Some _ =>
@@ -102,26 +131,44 @@ Definition parse_settings (model : profile) (catalog : list profile) (value : js
  | JNull => Some fallback
  | JObject fields =>
    if valid_guidance (value_or_null "guidance" value) then
-   match select_optional parse_workspace "workspace" value (settings_workspace fallback),
-         select_optional parse_sandbox "sandbox" value (settings_sandbox fallback),
-         select_optional (parse_approval model catalog) "approval" value (settings_approval fallback) with
+   match select_override parse_workspace "workspace" value (settings_workspace fallback),
+         select_override (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" value (settings_sandbox fallback),
+         select_override (parse_approval model catalog) "approval" value (settings_approval fallback) with
    | Some workspace, Some sandbox, Some approval =>
      let project := match field "project_id" value with
-       | None => settings_project fallback | Some JNull => None
-       | Some value => natural value end in
+       | None => Some (settings_project fallback)
+       | Some value => option_map (@Some N) (natural value) end in
      let guidance := match field "guidance" value with
-       | None | Some JNull => if guidance_member workspace (settings_guidance fallback) then settings_guidance fallback else JNull
+       | None | Some JNull => inherited_guidance workspace (settings_guidance fallback)
        | Some guidance => guidance end in
-     if guidance_member workspace guidance then
-     Some (Settings workspace project sandbox approval guidance (settings_worktree fallback)
-       (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)) else None
+     let resource := match field "workspace_binding" value with
+       | Some observation => parse_workspace_binding observation
+       | None => Some (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)
+       end in
+     match project,resource with
+     | Some project,Some owner => if guidance_member workspace guidance then
+       Some (Settings workspace project sandbox approval guidance (settings_worktree fallback) owner) else None
+     | _,_ => None end
    | _,_,_ => None end else None
  | _ => None end end end.
 Definition profile_json (value : profile) := profile_metadata value.
+Definition reviewer_json (value : reviewer) := match value with
+ | HumanReviewer => JObject [("kind",JString "human")]
+ | ModelReviewer profile => JObject [("kind",JString "model");("profile",profile_json profile)] end.
+Definition reasoning_policy_json (value : reasoning_policy) := match value with
+ | FixedReasoning => JNull
+ | AdaptivePolicy policy => JObject [
+   ("evaluator", JString (reasoning_evaluator policy));
+   ("efforts", JArray (map JString (reasoning_efforts policy)));
+   ("baseline", JString (reasoning_baseline policy));
+   ("transport", JString (match reasoning_transport_mode policy with
+     | RequestEffort => "request_effort" | ConfigurationUpdates => "configuration_update" end));
+   ("max_lease", number (reasoning_max_lease policy))]
+ end.
 Definition model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString (profile_reasoning value));
- ("adaptive_reasoning", value_or_null "adaptive_reasoning" (profile_metadata value))].
+ ("adaptive_reasoning", reasoning_policy_json (profile_policy value))].
 Definition with_reasoning (effort : string) (value : profile) :=
  Profile (profile_key value) (profile_provider value) (profile_model value) effort
   (profile_reasoning_options value) (profile_policy value) (profile_metadata value).
@@ -150,7 +197,7 @@ Definition profile_options (source : json) : option (list string * string) :=
      | Some (first :: rest) =>
        let values := nodup String.string_dec (first :: rest) in
        if forallb (fun effort => nonempty effort && negb (String.eqb effort "auto")) values then
-       let requested := text_default "default" source "medium" in
+       let requested := text_default "default" source first in
        Some (values, if existsb (String.eqb requested) values then requested else first)
        else None
      | _ => None end
@@ -172,14 +219,23 @@ Definition tool_json (value : tool) := JObject [
  ("name", JString (tool_name value)); ("description", JString (tool_description value));
  ("parameters", tool_schema value); ("source", tool_metadata value)].
 Definition parse_tool (value : json) : option tool :=
- match string_field "name" value, string_field "description" value, field "schema" value with
- | Some name, Some description, Some schema =>
-   if nonempty name then Some (Tool name description schema
-     (match field "plugin" value with
-      | Some (JObject plugin) => JObject [("plugin", PluginProtocol.reference_json (JObject plugin)); ("name", value_or_null "remote" value)]
-      | _ => JObject [("server", value_or_null "server" value); ("name", value_or_null "remote" value)]
-      end)) else None
- | _,_,_ => None end.
+ match string_field "name" value, string_field "description" value,
+       field "schema" value, string_field "remote" value with
+ | Some name, Some description, Some schema, Some remote =>
+   if nonempty name then
+     match field "plugin" value with
+     | Some (JObject plugin) => if JsonSchema.definition schema then
+       Some (Tool name description
+         (ExtensionToolSource schema (PluginProtocol.reference_json (JObject plugin)) remote)) else None
+     | None | Some JNull =>
+       (* MCP requires an object schema; validating its full dialect belongs to
+          the server. In particular, number/$ref/anyOf are not extension rules. *)
+       match string_field "server" value, schema with
+       | Some server, JObject _ => Some (Tool name description (McpToolSource schema server remote))
+       | _,_ => None end
+     | _ => None end
+   else None
+ | _,_,_,_ => None end.
 Fixpoint traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
  match values with [] => Some [] | value :: rest =>
  match f value, traverse f rest with Some value, Some rest => Some (value :: rest) | _,_ => None end end.
@@ -188,7 +244,7 @@ Definition call_json (value : call) := JObject [
 Definition parse_call (value : json) : option call :=
  match string_field "id" value, string_field "name" value, field "arguments" value with
  | Some id, Some name, Some (JObject arguments) =>
-   if nonempty id && nonempty name then Some (Call id name (JObject arguments)) else None
+   if nonempty id && nonempty name then Some (Call id name (JObject arguments) InitialAttempt) else None
  | _,_,_ => None end.
 Definition content_json (value : content) := JArray (map Images.content_part_json value).
 Definition parse_model_item (value : json) : option model_item :=
@@ -200,7 +256,7 @@ Definition parse_model_item (value : json) : option model_item :=
  | Some "call" => match Schema.decode [Field "type" (KEnum "call" []);Field "id" KText;Field "name" KText;Field "arguments" KJson] value with
    | Some values => let identity := head (tail values) in let name := head (tail (tail values)) in
      match head (tail (tail (tail values))) with
-     | JObject arguments => if nonempty identity && nonempty name then Some (CallItem (Call identity name (JObject arguments))) else None
+     | JObject arguments => if nonempty identity && nonempty name then Some (CallItem (Call identity name (JObject arguments) InitialAttempt)) else None
      | _ => None end
    | None => None end
  | Some "context" => match Schema.decode [Field "type" (KEnum "context" []);Field "part" KNatural;Field "value" KJson] value with
@@ -229,6 +285,8 @@ Definition message_json (owner : N) (value : message) :=
  | ModelContext origin value => JObject [("role", JString "model_context"); ("origin", origin_json origin); ("content", value)]
  | ContextReplacement value => JObject [("role", JString "context_replacement"); ("content", value)]
  | ContextObservation change => JObject [("role", JString "task_context"); ("type", JString "context_change"); ("change", Context.change_json change)]
+ | SideConversationBirth side parent start => JObject [("role", JString "task_context"); ("type", JString "side_conversation");
+   ("owner_task", number side); ("parent_task", number parent); ("start", number start)]
  | SpeechTranscript owner session item speaker completion text => JObject [
    ("role", JString "speech_transcript"); ("task_id", number owner); ("session_id", JString session); ("item_id", JString item);
    ("speaker", JString (match speaker with UserSpeaker => "user" | AssistantSpeaker => "assistant" end));
@@ -236,9 +294,18 @@ Definition message_json (owner : N) (value : message) :=
  | SpeechDelegation owner session delegation mode text => JObject [("role", JString "speech_delegation_receipt"); ("task_id", number owner);
    ("session_id", JString session); ("delegation_id", JString delegation); ("mode", JString mode); ("content", JString text)]
  | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", outcome)]
- | ApprovalReceipt owner operation call outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", call_json call); ("content", outcome)]
+ | ApprovalReceipt owner operation call reviewed_by outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", call_json call); ("reviewer", reviewer_json reviewed_by); ("content", outcome)]
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
    ("operation_id",number operation);("call",call_json invocation);("content",result);("is_error",JBool error)]
  | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]
- | ForkReceipt _ call child => JObject [("role", JString "function_output"); ("call_id", JString (call_id call)); ("content", number child); ("is_error", JBool false)]
+ | ForkReceipt _ call child => JObject [("role", JString "function_output"); ("call_id", JString (call_id call));
+   ("content", number child); ("is_error", JBool false); ("receipt_kind", JString "fork_result")]
  end.
+
+Theorem fork_receipt_json_preserves_provider_result : forall owner invocation child,
+ field "role" (message_json owner (ForkReceipt owner invocation child)) = Some (JString "function_output") /\
+ field "call_id" (message_json owner (ForkReceipt owner invocation child)) = Some (JString (call_id invocation)) /\
+ field "content" (message_json owner (ForkReceipt owner invocation child)) = Some (number child) /\
+ field "is_error" (message_json owner (ForkReceipt owner invocation child)) = Some (JBool false) /\
+ field "receipt_kind" (message_json owner (ForkReceipt owner invocation child)) = Some (JString "fork_result").
+Proof. intros; repeat split; reflexivity. Qed.

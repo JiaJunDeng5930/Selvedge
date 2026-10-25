@@ -20,6 +20,9 @@ Definition with_tasks (replacement : list task) (value : world) :=
  set world_tasks (fun _ => replacement) value.
 Definition with_ticket (replacement : N) (value : world) :=
  set world_next_ticket (fun _ => replacement) value.
+Definition allocate_ticket (value : world) : N * world :=
+ let ticket := world_next_ticket value in
+ (ticket, with_ticket (N.succ ticket) value).
 Definition with_environment (replacement : environment) (value : world) :=
  set world_environment (fun _ => replacement) value.
 Definition with_projects (replacement : list project) (value : world) :=

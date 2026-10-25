@@ -124,12 +124,14 @@ Definition move_mention backward skills state :=
   | Suggesting value selected => Suggesting value
       (move_index backward selected (List.length (candidates (query value) skills)))
   | _ => state end.
-Definition highlighted skills state :=
+Definition highlighted_choice skills state :=
   match state with
   | Suggesting value selected =>
       let matches := candidates (query value) skills in
-      nth_error matches (selected mod List.length matches)
+      let index := selected mod List.length matches in
+      option_map (fun skill => (index, skill)) (nth_error matches index)
   | _ => None end.
+Definition highlighted skills state := option_map snd (highlighted_choice skills state).
 Definition choose_mention index skills state :=
   match state with
   | Suggesting value _ => option_map (fun chosen => (value, chosen))
@@ -177,3 +179,10 @@ Definition replacement (value : skill) (suffix : string) : string :=
     | EmptyString => " "
     | String char _ => if whitespace char then "" else " "
     end.
+
+Record insertion := Insertion { insertion_text : string; insertion_caret : nat }.
+Definition insert (source : string) (found : trigger) (value : skill) : insertion :=
+  let prefix := substring 0 (trigger_start found) source in
+  let suffix := substring (trigger_end found) (String.length source) source in
+  let inserted := replacement value suffix in
+  Insertion (prefix ++ inserted ++ suffix) (trigger_start found + String.length inserted).

@@ -65,12 +65,12 @@ Record connection_grant := ConnectionGrant { connection_id : N; connection_proje
 Inductive job_status := JobRunning | JobFinished (value : json) (error : bool) | JobInterrupted (reason : string).
 Record connection_job := ConnectionJob { job_connection : N; job_project : N;
  job_request : string; job_arguments : Schema.fields ChatgptArguments.argument_declaration;
- job_workspace : workspace; job_sandbox : sandbox; job_state : job_status }.
+ job_workspace : workspace; job_resource : option N; job_sandbox : sandbox; job_state : job_status }.
 Definition job_arguments_json job := Schema.encode ChatgptArguments.argument_declaration (job_arguments job).
 Record connection_state := ConnectionState { sharing_grants : list connection_grant;
  sharing_jobs : list (N * connection_job); sharing_next : N }.
 Record title_settings := TitleSettings { title_revision : N; title_task_prompt : string; title_agent_prompt : string }.
-Inductive title_state := Untitled | TitlePending (ticket : N) (selected : profile) (prompt : string) | Named (text : string) | TitleFailed (reason : string).
+Inductive title_state := TitlePending (ticket : N) (selected : profile) (prompt : string) | Named (text : string) | TitleFailed (reason : string).
 Record title_entry := TitleEntry { title_task : N; title_value : title_state }.
 Record state := State {
  feature_board : board;

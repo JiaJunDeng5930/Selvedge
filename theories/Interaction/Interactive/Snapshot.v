@@ -26,7 +26,19 @@ Fixpoint restore_locals declared values := match declared,values with
  | [],[]=>Some []
  | l::rest,value::tail=>l <- restore_local l value;;rest <- restore_locals rest tail;;Some(l::rest)
  | _,_=>None end.
-Definition decode b prepared value : option (list local * list(string*view_state)) :=
+Definition restored_views_admitted b locals environment views :=
+ (* DEFENSE: A storage payload can pair restored roots with a view of an item
+    those roots remove. Check the trial before committing any local value. *)
+ let trial:=State.with_locals locals b in
+ let prepared:=Registry.prepare trial.(State.syntax) trial.(State.locals) trial.(State.sources) environment in
+ let trial:=State.with_sources prepared.(Registry.sources)
+  (State.with_locals prepared.(prepared_locals) trial) in
+ let '(nodes,_):=Expand.expand trial prepared environment in
+ forallb(Paths.retained prepared nodes)views.
+Definition admitted_snapshot b environment :=
+ {values:list local * list(string*view_state) |
+  restored_views_admitted b (fst values) environment (snd values)=true}.
+Definition decode b environment value : option (admitted_snapshot b environment) :=
  if TextJson.within_scalars Bounds.snapshot_scalars(TextJson.render_json value)then
  format <- string_field "format" value;;owner <- string_field "owner" value;;ui <- string_field "ui" value;;
  definition <- string_field "definition" value;;expected_ui <- root_id b;;
@@ -34,7 +46,8 @@ Definition decode b prepared value : option (list local * list(string*view_state
     String.eqb ui expected_ui && String.eqb definition b.(source)
  then values <- array_field "locals" value;;locals <- restore_locals b.(locals) values;;
    encoded_views <- field "views" value;;views <- Codec.decode_views encoded_views;;
-   if forallb (Paths.declared prepared) views then Some(locals,views) else None
+   match Bool.bool_dec(restored_views_admitted b locals environment views)true with
+   |left admitted=>Some(exist _ (locals,views) admitted)|right _=>None end
  else None else None.
 Definition save b prepared nodes :=
  if ready b prepared then
@@ -57,15 +70,20 @@ Definition restore_admitted b prepared definition callback_revision :=
    N.eqb requested callback_revision && N.eqb callback_revision b.(revision) && negb b.(edited) &&
       String.eqb definition b.(source) && ready b prepared
  | _=>false end.
-Definition restore b prepared definition callback_revision value :=
+Definition restore b prepared environment definition callback_revision value :=
  if restore_admitted b prepared definition callback_revision then
    let b:=State.with_restoration RestorationSettled b in
    match value with
    | None => (b,[])
-   | Some raw => match Codec.bind(TextJson.parse_json raw)(fun entry=>Codec.bind(field "payload"entry)(decode b prepared))with
-     | Some(locals,views)=>(State.with_views views (State.with_locals locals b),[])
+   | Some raw => match TextJson.parse_json raw with
+     (* DEFENSE: A physical storage entry can contain malformed JSON. Preserve
+        its raw data and report the failed read without admitting any values. *)
+     | None=>(State.with_notice (Some "本地保存的状态无法读取，已保留原始数据。") b,[])
+     | Some entry=>match Codec.bind(field "payload"entry)(decode b environment)with
+     | Some admitted=>let '(locals,views):=proj1_sig admitted in
+       (State.with_views views (State.with_locals locals b),[])
      (* DEFENSE: Browser storage can contain a corrupt or obsolete entry. Admit
         the complete entry before applying any value, then remove invalid data. *)
      | None=>(State.with_notice (Some "本地保存的状态无效，已忽略并移除。") b,
-       [RemoveSnapshot b.(block_owner) (storage_key b)]) end
+       [RemoveSnapshot b.(block_owner) (storage_key b) b.(revision)]) end end
    end else (b,[]).

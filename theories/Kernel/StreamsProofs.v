@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Streams.
 Import ListNotations.
 
@@ -37,12 +38,21 @@ Proof.
     destruct (key_equal (stream_identity entry) key) eqn:same;[|reflexivity].
     apply key_equal_true in same. contradiction.
 Qed.
-Theorem accepted_browser_restoration_obeys_text_and_part_budgets : forall restored previous,
-  snd (step browser_configuration (Restore restored) previous) = true ->
-  forallb (fun entry => parts_within_budget (stream_parts entry))
-    (fst (step browser_configuration (Restore restored) previous)) = true.
+Theorem browser_restoration_preserves_the_complete_snapshot : forall restored previous,
+  step browser_configuration (Restore restored) previous = (normalized_state restored,true).
+Proof. reflexivity. Qed.
+
+Theorem unadmitted_namespace_preserves_stream_state : forall config valid namespace source received streams,
+  string_field "namespace" source = Some received ->
+  (valid = false \/ received <> namespace) ->
+  match decode_event_in_namespace valid namespace source with
+  | Some notice => step config notice streams
+  | None => (streams,false)
+  end = (streams,false).
 Proof.
-  intros restored previous. cbn.
-  destruct (forallb (fun entry => parts_within_budget (stream_parts entry)) (normalized_state restored)) eqn:bounded;
-    cbn;[exact (fun _ => bounded)|discriminate].
+  intros config valid namespace source received streams Namespace Unadmitted.
+  unfold decode_event_in_namespace. rewrite Namespace.
+  destruct valid eqn:Valid;cbn;[|reflexivity].
+  destruct (String.eqb received namespace) eqn:Same;cbn;[|reflexivity].
+  apply String.eqb_eq in Same. destruct Unadmitted as [Invalid|Foreign];[discriminate|contradiction].
 Qed.

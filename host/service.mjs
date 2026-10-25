@@ -363,8 +363,8 @@ export class Service extends EventEmitter {
           onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
         input = boundary('effect.completion', { effect, result: { observations } });
       } else if (effect.kind === 'chatgpt_exec') {
-        const environment = await this.#workspaceEnvironment(effect.execution.resource, signal);
-        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, environment, readOnlyPaths: [this.home] });
+        const resource = await this.#resourceWorkspace(effect.execution.resource, signal);
+        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] });
         input = boundary('effect.completion', { effect, result });
       } else if (effect.kind === 'board_text' || effect.kind === 'task_title') {
         input = boundary('effect.completion', { effect, result: await requestTaskText(effect, this.config, this.home, this.limits, { signal }) });
@@ -542,8 +542,29 @@ export class Service extends EventEmitter {
   }
 
   #publicCommand(command) {
-    // DEFENSE: Browser, CLI and remote command clients can forge upstream transcript and delegation objects; only the live sideband callback has that authority.
-    if (!boundary('http.public_command', { command }).allowed) throw new CommandNotSubmitted(new TypeError('Speech observations require a live upstream session'));
+    // DEFENSE: Browser, CLI and remote clients can forge sideband-only commands; any public admission failure occurs before journal submission.
+    try { boundary('http.public_command', { command }); }
+    catch (cause) { throw new CommandNotSubmitted(cause); }
+  }
+
+  assess(candidate) {
+    this.#publicCommand(candidate.command);
+    // DEFENSE: An HTTP assessment can already be in flight when the service closes or loses its worker.
+    if (this.#failure) return Promise.reject(this.#failure);
+    if (this.#closing) return Promise.reject(new Error('Service is stopping'));
+    const result = this.#catalogTail.then(async () => {
+      // DEFENSE: Catalog work queued before assessment can fail, or shutdown can finish while it waits.
+      if (this.#failure) throw this.#failure;
+      if (this.#closing) throw new Error('Service is stopping');
+      const command = await this.#observeCommandInput(candidate.command);
+      // DEFENSE: Shutdown or a fatal operation can occur during the same filesystem preparation used by submission.
+      if (this.#failure) throw this.#failure;
+      if (this.#closing) throw new Error('Service is stopping');
+      return this.journal.assess({ ...candidate, command });
+    });
+    // DEFENSE: A refused filesystem observation reports its own error without blocking later catalog work.
+    this.#catalogTail = result.catch(() => {});
+    return result;
   }
 
   async command(command) {
@@ -551,7 +572,6 @@ export class Service extends EventEmitter {
     // DEFENSE: HTTP commands already in flight can reach the service after a fatal operation or shutdown.
     if (this.#failure) return Promise.reject(this.#failure);
     if (this.#closing) return Promise.reject(new Error('Service is stopping'));
-    command = await observeMessageImages(command, this.home);
     if (hasRootTaskCreation(command)) {
       // Keep each root's observed defaults adjacent to its command even when
       // catalog refreshes and other root births arrive concurrently.
@@ -620,6 +640,9 @@ export class Service extends EventEmitter {
   }
 
   async #observeCommandWorkspace(command) {
+    const plan = workspaceCommandPlan(command);
+    // DEFENSE: A stale task command needs domain rejection, not an unrelated workspace lookup failure.
+    if (plan.selections.length === 0 && !plan.worktree) return structuredClone(command);
     // Cloud tasks inherit a fixed workspace. Core admits or rejects their options;
     // local repository observations cannot establish facts about that environment.
     if (command.task_id !== undefined && (await this.#worktree(command.task_id))?.backend === 'tencent_cvm') {
@@ -627,12 +650,19 @@ export class Service extends EventEmitter {
     }
     const selectedSettings = command.settings;
     let observed = await observeWorkspaceCommand(command, this.limits, {
+      workspaceEnvironment: async selection => {
+        const result = await this.journal.execute({ kind: 'command', command: { op: 'resolve_workspace', ...selection } });
+        // DEFENSE: A selected cloud resource can be ambiguous, unavailable or archived before directory observation.
+        if (!result.reply.ok) throw new Error(result.reply.error.message);
+        const resource = result.reply.result.resource;
+        return { resource, workspace_binding: result.reply.result.workspace_binding, ...await this.#resourceWorkspace(resource) };
+      },
       projectWorkspace: async project_id => {
         const result = await this.journal.execute({ kind: 'command', command: { op: 'read_project', project_id } });
         return result.reply.ok ? result.reply.result.workspace : undefined;
       },
     });
-    if (workspaceCommandPlan(command).worktree) {
+    if (plan.worktree) {
       if (!observed.settings?.workspace) {
         observed = await observeWorkspaceCommand({ ...observed,
           settings: { ...observed.settings, workspace: { roots: [this.cwd], primary_root: this.cwd } } }, this.limits);
@@ -661,7 +691,7 @@ export class Service extends EventEmitter {
       const instructions = { configured: this.config.instructions,
         global: await snapshotGlobalInstructions(this.home, this.limits) };
       const project = await snapshotProject(this.cwd, this.limits);
-      const observed = await this.#observeCommandWorkspace(command);
+      const observed = await this.#observeCommandInput(command);
       const previous = { project: this.project, instructions: this.instructions };
       Object.assign(this, { project, instructions });
       try { await this.#configure(); }
@@ -672,12 +702,17 @@ export class Service extends EventEmitter {
     } catch (cause) { throw new CommandNotSubmitted(cause); }
   }
 
+  async #observeCommandInput(command) {
+    try {
+      const imagesObserved = await observeMessageImages(command, this.home);
+      const boardObserved = await observeBoardCommand(imagesObserved, this.home);
+      return await this.#observeCommandWorkspace(boardObserved);
+    // DEFENSE: Client-supplied paths or image references can fail their trusted host observation before domain submission.
+    } catch (cause) { throw new CommandNotSubmitted(cause); }
+  }
+
   async #submitCommand(command) {
-    const boardObserved = await observeBoardCommand(command, this.home);
-    let observed;
-    try { observed = await observeWorkspaceCommand(boardObserved, this.limits); }
-    // DEFENSE: Workspace paths supplied in a public command can be inaccessible or invalid before the native command is submitted.
-    catch (cause) { throw new CommandNotSubmitted(cause); }
+    const observed = await this.#observeCommandInput(command);
     // DEFENSE: Shutdown or a fatal operation can occur while command filesystem observations are awaited.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
@@ -707,7 +742,7 @@ export class Service extends EventEmitter {
   #audioAdmission(kind, observations) {
     const plan = boundary('http.audio', { kind, ...observations });
     // DEFENSE: Authenticated clients can exceed the native audio resource contract or name another browser's live session.
-    if (!plan.allowed) throw new TypeError(plan.message);
+    if (!plan.allowed) throw new TypeError(plan.error);
     return plan;
   }
 
@@ -897,58 +932,67 @@ export class Service extends EventEmitter {
     // DEFENSE: Browser requests already in flight can reach this method after the service stops.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    // DEFENSE: Authenticated HTTP clients can submit JSON null, arrays or scalars instead of an observation request.
-    if (!observation || typeof observation !== 'object' || Array.isArray(observation)) throw new TypeError('Expected an observation request');
-    // DEFENSE: Browser observation requests are external JSON; each admitted variant requires its declared fields and types.
-    if (observation.kind === 'streams' && Object.keys(observation).length === 1) {
+    const plan = boundary('browser.observation', {
+      phase: 'plan', observation, cwd: this.cwd, project_root: this.project.workspace
+    });
+    if (plan.kind === 'streams') {
       return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
     }
-    if (observation.kind === 'workspace-git' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id')) && typeof observation.primary === 'string') {
-      const primary = observation.primary === '' ? this.cwd : observation.primary;
-      const environment = await this.#observationEnvironment(observation);
-      try { return { kind: 'workspace-git', available: await observeWorkspaceGit(primary, { environment }) }; }
+    if (plan.kind === 'workspace-git') {
+      const environment = await this.#observationEnvironment(plan);
+      try {
+        const available = await observeWorkspaceGit(plan.primary, { environment });
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, available });
+      }
       finally { await environment?.filesystem.close(); }
     }
-    if (observation.kind === 'browse-directories' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id'))) {
+    if (plan.kind === 'browse-directories') {
       let environment;
+      let outcome;
       try {
-        let location = observation.path;
-        environment = await this.#observationEnvironment(observation);
-        if (location === '') {
-          const workspace = environment ? { primary_root: environment.root }
-            : await canonicalWorkspace({ roots: [this.project.workspace] });
-          location = workspace.primary_root;
+        environment = await this.#observationEnvironment(plan);
+        let location = plan.path;
+        if (plan.default_path) {
+          const resolved = boundary('browser.observation', {
+            phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
+          });
+          location = resolved.path;
+          if (resolved.canonicalize) location = (await canonicalWorkspace({ roots: [location] })).primary_root;
         }
-        return await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
+        const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
+        outcome = result.ok ? { ok: true, value: result } : { ok: false, error: result.error };
       // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
       } catch (error) {
-        return { ok: false, error: error.message };
+        outcome = { ok: false, error: error.message };
       } finally { await environment?.filesystem.close(); }
+      return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
     }
-    if (observation.kind === 'directories' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id')) && observation.workspace) {
-      const environment = await this.#observationEnvironment(observation);
+    if (plan.kind === 'directories') {
+      const environment = await this.#observationEnvironment(plan);
       try {
-        const workspace = await canonicalWorkspace(observation.workspace, { filesystem: environment?.filesystem });
+        const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
         const primary = workspace.primary_root ?? workspace.roots[0];
         const guidance = primary ? await snapshotProject(primary, this.limits, { filesystem: environment?.filesystem }) : null;
-        return { kind: 'directories', workspace, guidance };
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, value: { workspace, guidance } });
       } finally { await environment?.filesystem.close(); }
     }
-    if (observation.kind === 'skill-catalog' && Object.keys(observation).length === 2 + Number(Object.hasOwn(observation, 'task_id')) && observation.workspace) {
+    if (plan.kind === 'skill-catalog') {
       let environment;
+      let outcome;
       try {
-        environment = await this.#observationEnvironment(observation);
-        const workspace = await canonicalWorkspace(observation.workspace, { filesystem: environment?.filesystem });
+        environment = await this.#observationEnvironment(plan);
+        const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
         const skills = await observeSkillCatalog(workspace,
           { home: this.home, config: this.declaredConfig, limits: this.limits, environment });
-        return { kind: 'skill-catalog', ok: true, skills };
+        outcome = { ok: true, value: skills };
       // DEFENSE: A selected workspace, configuration or discovered skill file
       // can disappear or deny access while the user is opening the skill menu.
       } catch (error) {
-        return { kind: 'skill-catalog', ok: false, error: error.message };
+        outcome = { ok: false, error: error.message };
       } finally { await environment?.filesystem.close(); }
+      return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
     }
-    // DEFENSE: A client can send an unknown observation kind or fields outside its declared request variant.
+    // DEFENSE: The extracted plan admits only the four host-executed observation variants and the streams query.
     throw new TypeError('Unknown browser observation');
   }
 

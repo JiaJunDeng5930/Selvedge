@@ -22,8 +22,14 @@ Definition runnable (card:Selvedge.Features.Domain.card) (value:world) := mutabl
 Fixpoint latest_failure_events (history:list message) := match history with
  | []=>false | FailureMessage _::_=>true | UserMessage _::_|AssistantMessage _ _::_|ModelContext _ _::_=>false | _::rest=>latest_failure_events rest end.
 Definition latest_failure (task:task) := latest_failure_events (rev (task_history task)).
+(** A queued card may still be waiting for its agent's concurrency slot. *)
+Definition queued_candidate (card:Selvedge.Features.Domain.card) :=
+ negb (Selvedge.Features.Domain.card_archived card) && unlinked card &&
+ (match Selvedge.Features.Domain.card_enrichment card with Selvedge.Features.Domain.NoEnrichment=>true|_=>false end) &&
+ (match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true|_=>false end) &&
+ match Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.ProfileOwner _|Selvedge.Features.Domain.AgentOwner _=>true|_=>false end.
 Definition activity (card:Selvedge.Features.Domain.card) (value:world) := match Selvedge.Features.Domain.card_enrichment card with
  | Selvedge.Features.Domain.Enriching _ _ _=>"generating" | Selvedge.Features.Domain.EnrichmentFailed _=>"draft_failed" | _=>match linked_task card value with
- | Some task=>match task_lifecycle task with Archived=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"
+ | Some task=>match task_lifecycle task with Archived _=>"archived" | Stopped Idle []=>"interrupted" | Frozen _ _=>"paused"
  | Running (EvaluatingReasoning _ _) _=>"evaluating" | _=>if existsb (fun operation=>match operation_stage operation with AwaitingApproval _ _=>true | _=>false end) (task_operations task) then "awaiting_approval" else if busy_task task then "working" else if latest_failure task then "failed" else "completed" end
- | None=>if runnable card value && (match Selvedge.Features.Domain.draft_stage (Selvedge.Features.Domain.card_contents card) with Selvedge.Features.Domain.Todo|Selvedge.Features.Domain.InProgress=>true | _=>false end) then "queued" else "not_started" end end.
+ | None=>if Selvedge.Features.Domain.board_automatic (registry value) && queued_candidate card then "queued" else "not_started" end end.

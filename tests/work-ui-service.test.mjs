@@ -8,7 +8,7 @@ import { home, responsesServer, taskIdle } from './support.mjs';
 
 const answer = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 
-test('Task tools share one Work UI atomically and retain its source across a real journal reopen', async t => {
+test('Task tools share one Work UI atomically and retain its source across a real journal reopen', { timeout: 60000 }, async t => {
   const directory = await realpath(await home(t));
   const key = 'SELVEDGE_WORK_UI_FIXTURE';
   const previous = process.env[key];

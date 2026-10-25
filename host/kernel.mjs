@@ -1,9 +1,12 @@
 import { Worker } from 'node:worker_threads';
-import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { encodeInput, parseJson } from './codec.mjs';
 
 const defaultModule = fileURLToPath(new URL('../.build/kernel-model.mjs', import.meta.url));
+class KernelInputError extends TypeError {}
+class KernelInputRangeError extends RangeError {}
+const inputErrors = { TypeError: KernelInputError, RangeError: KernelInputRangeError };
+export const isKernelInputRejection = error => error instanceof KernelInputError || error instanceof KernelInputRangeError;
 
 /** One serialized conversation with the extracted Rocq program worker. */
 export class Kernel {
@@ -21,10 +24,15 @@ export class Kernel {
       // DEFENSE: Timeout/abort clears the pending request before Worker termination completes; an already queued completion can still arrive.
       if (this.#failure) return;
       // DEFENSE: A compiled transition can throw in the Worker; retire its world and reject queued callers.
-      if (message.error) { this.#fail(new Error(message.error)); return; }
+      if (Object.hasOwn(message, 'error')) { this.#fail(new Error(message.error)); return; }
       const pending = this.#pending;
       this.#pending = undefined;
       clearTimeout(pending.timer);
+      if (message.inputError) {
+        const ErrorType = inputErrors[message.inputError.name];
+        pending.reject(new ErrorType(message.inputError.message));
+        return;
+      }
       const { programText, ...result } = message;
       pending.resolve({ ...result, value: parseJson(message.text),
         ...(programText === undefined ? {} : { program: parseJson(programText) }) });
@@ -65,7 +73,11 @@ export class Kernel {
     return this.#request(input, false);
   }
 
-  #request(input, snapshot) {
+  assess(candidate) {
+    return this.#request(candidate, false, 'assess');
+  }
+
+  #request(input, snapshot, operation = 'packet') {
     const text = encodeInput(input, this.maximum);
     const result = this.#tail.then(() => {
       // DEFENSE: A queued request can reach its turn after an earlier transition failed or shutdown started.
@@ -75,7 +87,7 @@ export class Kernel {
         // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
         this.#pending = { resolve, reject, timer };
-        this.#worker.postMessage({ text, snapshot });
+        this.#worker.postMessage({ text, snapshot, operation });
       });
     });
     // DEFENSE: The request's returned promise reports its failure; the queue must still admit close and reject later callers explicitly.
@@ -93,8 +105,4 @@ export class Kernel {
     await this.#worker.terminate();
     return this.exited;
   }
-}
-
-export async function buildIdentity() {
-  return JSON.parse(await readFile(new URL('../.build/kernel.json', import.meta.url), 'utf8'));
 }

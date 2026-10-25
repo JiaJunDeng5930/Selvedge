@@ -7,8 +7,8 @@ Open Scope string_scope.
 Inductive action:=Assign(target:string)(value:json)|ResetAll|Draft(text:string)|Submit(message:string)|Copy(text:string)|Navigate(url:string).
 Inductive transaction:=Waiting(ticket occurrence:N)(action:action)|CopyingDefinition(ticket:N)|Answered(ticket:N)(success:bool)(message:string).
 Record feedback:=FeedbackEntry{feedback_path:string;feedback_transaction:transaction}.
-Inductive view_state:=SourceView(open:bool)|GraphView(zoom pan_x pan_y:Decimal.decimal)(selected:string)|TableView(column:option string)(descending:bool)(page:nat).
-Definition default_graph:=GraphView Decimal.one Decimal.zero Decimal.zero "".
+Inductive view_state:=SourceView(open:bool)|GraphView(zoom pan_x pan_y:Decimal.decimal)(fit:bool)(selected:string)|TableView(sort_field:option string)(descending:bool)(page:nat).
+Definition default_graph:=GraphView Decimal.one Decimal.zero Decimal.zero false "".
 Definition default_table:=TableView None false 0.
 Inductive restoration:=Unrequested|LoadingSnapshot(request_revision:N)|RestorationSettled.
 Record block:=Block{

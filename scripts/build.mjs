@@ -1,43 +1,22 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, readdir, stat, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { root, run, targets, jsonEntries } from './build-tools.mjs';
+import { auditAssumptions } from './assumptions.mjs';
+export { root, run, targets, jsonEntries } from './build-tools.mjs';
 
-export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
 const flags = ['-w', '-register-all,-extraction-default-directory', '-Q', 'theories', 'Selvedge'];
 const productionTargets = ['kernel', 'host', 'browser', 'interaction'];
-export const targets = {
-  commands: { module: 'Generated.Commands', model: 'CommandsModel', entry: ['decode','encode'], global: '__selvedgeCommands', exported: 'decode' },
-  kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'packet', 'world_json'], global: '__selvedgeKernel' },
-  host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },
-  browser: { module: 'Browser.Runtime', model: 'BrowserModel', entry: ['call'], global: '__selvedgeBrowser', exported: 'browserCall' },
-  interaction: { module: 'Interaction.Application', model: 'InteractionModel', entry: ['call'], global: '__selvedgeInteraction', exported: 'interactionCall' }
-};
-export const jsonEntries = {
-  selvedge_parse_json: 'Foundation.TextJson.parse_json',
-  selvedge_render_json: 'Foundation.TextJson.render_json'
-};
-
-export async function run(command, args, options = {}) {
-  const output = await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: root, ...options, stdio: ['ignore', 'pipe', 'pipe'] });
-    const chunks = [];
-    child.stdout.on('data', chunk => chunks.push(chunk));
-    child.stderr.on('data', chunk => chunks.push(chunk));
-    child.on('error', reject);
-    child.on('close', code => resolve({ code, text: Buffer.concat(chunks).toString() }));
-  });
-  if (output.code !== 0) {
-    await mkdir(path.join(buildDirectory, 'logs'), { recursive: true });
-    const filename = path.join(buildDirectory, 'logs', `${path.basename(command)}-${Date.now()}.log`);
-    await writeFile(filename, output.text);
-    throw new Error(`${command} failed (${output.code}); full output: ${filename}\n${output.text.slice(-5000)}`);
-  }
-  return output.text;
+export async function compilerVersions() {
+  return Promise.all([
+    run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
+    run('opam', ['var', 'rocq-metarocq-template:version']),
+    run('ocamlfind', ['query', '-format', '%v', 'zarith']), run('bun', ['--version'])
+  ]);
 }
 const exists = filename => stat(path.join(root, filename)).then(() => true, error => {
   // DEFENSE: A missing build artifact requires compilation; other filesystem errors are real failures.
@@ -47,11 +26,18 @@ const exists = filename => stat(path.join(root, filename)).then(() => true, erro
 async function fingerprint(filename) {
   return await exists(filename) ? digest(await readFile(path.join(root, filename))) : null;
 }
+let nextTemporary = 0;
 async function writeChanged(filename, value) {
   const previous = await exists(filename) ? await readFile(path.join(root, filename), 'utf8') : null;
   if (previous !== value) {
     await mkdir(path.dirname(path.join(root, filename)), { recursive: true });
-    await writeFile(path.join(root, filename), value);
+    const temporary = `${path.join(root, filename)}.${process.pid}.${nextTemporary++}.tmp`;
+    try {
+      await writeFile(temporary, value);
+      await rename(temporary, path.join(root, filename));
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 }
 async function sourceFiles(directory = 'theories') {
@@ -61,10 +47,11 @@ async function sourceFiles(directory = 'theories') {
     return entry.isDirectory() ? sourceFiles(filename) : filename.endsWith('.v') ? [filename] : [];
   }))).flat().sort();
 }
-async function dependencies(files, recursive = false) {
+async function dependencies(files, recursive, readInput) {
   const graph = new Map();
   let pending = files;
   while (pending.length) {
+    await Promise.all(pending.map(readInput));
     const output = await run('coqdep', ['-Q', 'theories', 'Selvedge', ...pending]);
     for (const line of output.split('\n')) {
       const [left, right] = line.split(':');
@@ -94,6 +81,13 @@ function limitConcurrency(limit) {
   };
 }
 
+async function settleIndependent(actions, description) {
+  const results = await Promise.allSettled(actions);
+  const errors = [...new Set(results.filter(result => result.status === 'rejected').map(result => result.reason))];
+  // DEFENSE: Independent compiler jobs can fail together; finish them all before reporting their distinct failures.
+  if (errors.length) throw new AggregateError(errors, `${description}: ${errors.length} independent failure(s)`);
+}
+
 export async function build(options = {}) {
   const { modules = [], check = false } = options;
   const selected = [...new Set(options.selected ?? (modules.length ? [] : productionTargets))];
@@ -105,7 +99,7 @@ export async function build(options = {}) {
   const roots = [...selected.map(name => {
     if (!targets[name]) throw new Error(`Unknown build target: ${name}`);
     return `theories/${targets[name].module.replaceAll('.', '/')}.v`;
-  }), ...moduleFiles];
+  }), ...moduleFiles, ...(selected.length ? ['theories/Foundation/TextJson.v'] : [])];
   await mkdir(buildDirectory, { recursive: true });
   for (const filename of moduleFiles) if (!await exists(filename)) throw new Error(`Requested Rocq module is missing: ${filename}`);
   for (const name of selected) {
@@ -115,12 +109,52 @@ export async function build(options = {}) {
       throw new Error(`Production entry ${filename} is missing; the full migration build is incomplete`);
     }
   }
-  const versions = await Promise.all([
-    run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
-    run('opam', ['var', 'rocq-metarocq-template:version']),
-    run('ocamlfind', ['query', '-format', '%v', 'zarith']), run('bun', ['--version'])
-  ]);
-  const pins = JSON.parse(await readFile(path.join(root, 'toolchain.json'), 'utf8'));
+  const versions = await compilerVersions();
+  const inputFingerprints = new Map();
+  let inputsStable = true;
+  let buildSucceeded = false;
+  let checkedSourceFiles = null;
+  async function readInput(filename) {
+    const bytes = await readFile(path.join(root, filename));
+    const actual = digest(bytes);
+    const previous = inputFingerprints.get(filename);
+    if (previous !== undefined && previous !== actual) {
+      inputsStable = false;
+      throw new Error(`Build input changed during compilation: ${filename}`);
+    }
+    inputFingerprints.set(filename, actual);
+    return bytes;
+  }
+  async function assertInputsUnchanged() {
+    if (!inputsStable) return;
+    const changed = (await Promise.all([...inputFingerprints].map(async ([filename, expected]) => {
+      let actual;
+      try {
+        actual = digest(await readFile(path.join(root, filename)));
+      } catch (error) {
+        // DEFENSE: A source or runtime input can be removed while Rocq or extraction is using the captured build inputs.
+        if (error.code === 'ENOENT') actual = null;
+        else throw error;
+      }
+      return actual === expected ? null : filename;
+    }))).find(Boolean);
+    if (changed) {
+      inputsStable = false;
+      throw new Error(`Build input changed during Rocq checking or extraction: ${changed}; retry with stable sources`);
+    }
+    if (allModules && checkedSourceFiles) {
+      const current = (await sourceFiles()).filter(file => !file.startsWith('theories/Derive/'));
+      if (JSON.stringify(current) !== JSON.stringify(checkedSourceFiles)) {
+        inputsStable = false;
+        throw new Error('Rocq source file set changed during the full build; retry with stable sources');
+      }
+    }
+  }
+  const pins = JSON.parse((await readInput('toolchain.json')).toString('utf8'));
+  // DEFENSE: The public build can be launched with Bun below its declared minimum.
+  if (!Bun.semver.satisfies(versions[5].trim(), `>=${pins.bun}`)) {
+    throw new Error(`Bun ${pins.bun} or later is required by toolchain.json`);
+  }
   if (!versions[0].includes(`version ${pins.rocq}`) || versions[1].trim() !== pins.ocaml || versions[2].trim() !== pins.js_of_ocaml
       || versions[3].trim() !== pins['metarocq-template'] || versions[4].trim() !== pins.zarith) {
     throw new Error('Toolchain does not match toolchain.json; run scripts/bootstrap.sh');
@@ -129,126 +163,197 @@ export async function build(options = {}) {
   for (const [name, expected] of Object.entries(pins.zarith_stubs_js_sha256)) {
     const filename = `${stubsDirectory}/${name}`;
     if (!await exists(filename)) throw new Error('Pinned Zarith JS runtime is missing; run scripts/bootstrap.sh');
-    if (digest(await readFile(path.join(root, filename))) !== expected) throw new Error(`Zarith JS runtime checksum mismatch: ${filename}`);
+    if (digest(await readInput(filename)) !== expected) throw new Error(`Zarith JS runtime checksum mismatch: ${filename}`);
   }
   const identity = digest(JSON.stringify([versions[0], flags]));
-  const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, await readFile(fileURLToPath(import.meta.url), 'utf8'), await readFile(path.join(root, 'runtime/Extraction.v'), 'utf8')]));
+  const buildScript = await readInput(path.relative(root, fileURLToPath(import.meta.url)));
+  const extraction = await readInput('runtime/Extraction.v');
+  const buildTools = await readInput('scripts/build-tools.mjs');
+  const assumptionAudit = await readInput('scripts/assumptions.mjs');
+  const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, buildScript, buildTools, assumptionAudit, extraction]));
   const state = await exists('.build/build-state.json') ? JSON.parse(await readFile(stateFile, 'utf8')) : {};
   const next = {};
   let compiled = 0;
   const pending = new Map();
-  const graphInputs = async () => allModules
-    ? (await sourceFiles()).filter(file => !file.startsWith('theories/Derive/'))
-    : (await Promise.all(roots.map(async file => await exists(file) ? file : null))).filter(Boolean);
-  let graph = await dependencies(await graphInputs(), !allModules);
-  const withModuleSlot = limitConcurrency(4);
-  async function compile(filename) {
-    if (pending.has(filename)) return pending.get(filename);
-    const promise = (async () => {
-      const imported = graph.get(filename) ?? [];
-      await Promise.all(imported.map(compile));
-      const key = digest(JSON.stringify([identity, await readFile(path.join(root, filename), 'utf8'), imported.map(file => next[file])]));
-      const artifact = filename.slice(0, -1) + 'vo';
-      const actual = await fingerprint(artifact);
-      // DEFENSE: A direct rocq compilation followed by restoring the source can leave a different .vo behind the cached source key.
-      if (state[filename] !== key || actual === null || state[`artifact:${artifact}`] !== actual) {
-        await withModuleSlot(() => run('rocq', ['c', ...flags, filename]));
-        compiled++;
+  async function persistState() {
+    const temporary = `${stateFile}.${process.pid}.tmp`;
+    await writeFile(temporary, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
+    await rename(temporary, stateFile);
+  }
+  const publicationDirectory = selected.length ? await mkdtemp(path.join(buildDirectory, 'publication-')) : null;
+  const publications = new Map();
+  try {
+    const graphInputs = async () => {
+      if (allModules) {
+        checkedSourceFiles = (await sourceFiles()).filter(file => !file.startsWith('theories/Derive/'));
+        return checkedSourceFiles;
       }
-      next[filename] = key;
-      next[`artifact:${artifact}`] = await fingerprint(artifact);
-    })();
-    pending.set(filename, promise);
-    return promise;
-  }
-
-  const reachable = new Set();
-  const requested = [...roots];
-  while (requested.length) {
-    const filename = requested.pop();
-    if (reachable.has(filename)) continue;
-    reachable.add(filename);
-    requested.push(...(graph.get(filename) ?? []));
-  }
-  if (allModules || reachable.has('theories/Generated/Commands.v')) {
-    await compile('theories/Kernel/Commands.v');
-    const generator = 'theories/Derive/Commands.v';
-    const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), await readFile(path.join(root, generator), 'utf8'), next['theories/Kernel/Commands.v']]));
-    const generatedPath = 'theories/Generated/Commands.v';
-    const generatedCurrent = await fingerprint(generatedPath);
-    if (check || state.generator !== generatorKey || generatedCurrent !== state.generatedSource) {
-      const output = await run('rocq', ['c', ...flags, generator]);
-      const match = /SELVDERIVE_BEGIN\r?\n([\s\S]*?)SELVDERIVE_END/.exec(output);
-      if (!match) throw new Error('MetaRocq command generator did not produce its delimited source');
-      const generated = `(* Generated by MetaRocq from Kernel.Commands.command_specs. Do not edit. *)\n${match[1].trimEnd()}\n`;
-      if (check && generatedCurrent && generatedCurrent !== digest(generated)) throw new Error('Generated command source is stale; run bun run build');
-      await writeChanged(generatedPath, generated);
+      return (await Promise.all(roots.map(async file => await exists(file) ? file : null))).filter(Boolean);
+    };
+    let graph = await dependencies(await graphInputs(), !allModules, readInput);
+    const withModuleSlot = limitConcurrency(4);
+    async function compile(filename) {
+      if (pending.has(filename)) return pending.get(filename);
+      const promise = (async () => {
+        const imported = graph.get(filename) ?? [];
+        await Promise.all(imported.map(compile));
+        const source = (await readInput(filename)).toString('utf8');
+        const key = digest(JSON.stringify([identity, source, imported.map(file => next[file])]));
+        const artifact = filename.slice(0, -1) + 'vo';
+        const actual = await fingerprint(artifact);
+        // DEFENSE: A direct rocq compilation followed by restoring the source can leave a different .vo behind the cached source key.
+        if (state[filename] !== key || actual === null || state[`artifact:${artifact}`] !== actual) {
+          await withModuleSlot(() => run('rocq', ['c', ...flags, filename]));
+          compiled++;
+        }
+        next[filename] = key;
+        next[`artifact:${artifact}`] = await fingerprint(artifact);
+      })();
+      pending.set(filename, promise);
+      return promise;
     }
-    next.generator = generatorKey;
-    next.generatedSource = await fingerprint(generatedPath);
-    graph = await dependencies(await graphInputs(), !allModules);
-  }
-  if (selected.length) await compile('theories/Foundation/TextJson.v');
-  if (allModules) await Promise.all([...graph.keys()].map(compile));
-  else await Promise.all(roots.map(compile));
 
-  await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
+    const reachable = new Set();
+    const requested = [...roots];
+    while (requested.length) {
+      const filename = requested.pop();
+      if (reachable.has(filename)) continue;
+      reachable.add(filename);
+      requested.push(...(graph.get(filename) ?? []));
+    }
+    if (allModules || reachable.has('theories/Generated/Commands.v')) {
+      await compile('theories/Kernel/Commands.v');
+      const generator = 'theories/Derive/Commands.v';
+      const generatorSource = (await readInput(generator)).toString('utf8');
+      const generatorKey = digest(JSON.stringify([identity, versions[3].trim(), generatorSource, next['theories/Kernel/Commands.v']]));
+      const generatedPath = 'theories/Generated/Commands.v';
+      const generatedCurrent = await fingerprint(generatedPath);
+      if (check || state.generator !== generatorKey || generatedCurrent !== state.generatedSource) {
+        const output = await run('rocq', ['c', ...flags, generator]);
+        const match = /SELVDERIVE_BEGIN\r?\n([\s\S]*?)SELVDERIVE_END/.exec(output);
+        if (!match) throw new Error('MetaRocq command generator did not produce its delimited source');
+        const generated = `(* Generated by MetaRocq from Kernel.Commands.command_specs. Do not edit. *)\n${match[1].trimEnd()}\n`;
+        if (check && generatedCurrent && generatedCurrent !== digest(generated)) throw new Error('Generated command source is stale; run bun run build');
+        await writeChanged(generatedPath, generated);
+        inputFingerprints.set(generatedPath, digest(generated));
+      }
+      next.generator = generatorKey;
+      next.generatedSource = await fingerprint(generatedPath);
+      graph = await dependencies(await graphInputs(), !allModules, readInput);
+    }
+    if (selected.length) await compile('theories/Foundation/TextJson.v');
+    const requestedChecks = (allModules ? [...graph.keys()] : roots).map(compile);
+    await settleIndependent([...requestedChecks, ...pending.values()], 'Rocq checking failed');
 
-  const withTargetSlot = limitConcurrency(2);
-  await Promise.all(selected.map(name => withTargetSlot(async () => {
-    const target = targets[name];
-    const filename = `theories/${target.module.replaceAll('.', '/')}.v`;
-    const runtime = name === 'commands' ? await readFile(path.join(root, 'runtime/commands_runtime.ml'), 'utf8')
-      : name === 'kernel' ? await readFile(path.join(root, 'runtime/kernel_runtime.ml'), 'utf8')
-      : (await readFile(path.join(root, 'runtime/call_runtime.ml.in'), 'utf8')).replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global).replaceAll('@ENTRY@', `selvedge_${name}_call`);
-    const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, await readFile(path.join(root, 'runtime/json_io.ml'), 'utf8')]));
-    const output = `.build/${name}-model.mjs`;
-    const runtimeOutput = `.build/${name}-runtime.js`;
-    const actual = await Promise.all([fingerprint(output), fingerprint(runtimeOutput)]);
-    const expected = state[`target:${name}:artifacts`];
-    // DEFENSE: A partial build-directory cleanup can retain the ES module while removing or replacing its imported runtime.
-    if (state[`target:${name}`] === key && actual.every(value => value !== null)
-        && expected?.every((value, index) => value === actual[index])) {
+    if (selected.length) {
+      await auditAssumptions({ sources: [...graph.keys()], entries: [
+        ...(allModules ? Object.values(targets) : selected.map(name => targets[name]))
+          .flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)),
+        ...Object.values(jsonEntries)
+      ] });
+    }
+    await assertInputsUnchanged();
+    await persistState();
+
+    const withTargetSlot = limitConcurrency(2);
+    await settleIndependent(selected.map(name => withTargetSlot(async () => {
+      const target = targets[name];
+      const filename = `theories/${target.module.replaceAll('.', '/')}.v`;
+      const runtime = name === 'commands' ? (await readInput('runtime/commands_runtime.ml')).toString('utf8')
+        : name === 'kernel' ? (await readInput('runtime/kernel_runtime.ml')).toString('utf8')
+        : (await readInput('runtime/call_runtime.ml.in')).toString('utf8').replaceAll('@MODEL@', target.model).replaceAll('@GLOBAL@', target.global).replaceAll('@ENTRY@', `selvedge_${name}_call`);
+      const jsonIo = (await readInput('runtime/json_io.ml')).toString('utf8');
+      const key = digest(JSON.stringify([extractionIdentity, next[filename], next['theories/Foundation/TextJson.v'], runtime, jsonIo]));
+      const output = `.build/${name}-model.mjs`;
+      const actual = [await fingerprint(output)];
+      const expected = state[`target:${name}:artifacts`];
+      // DEFENSE: Build-directory cleanup or external compilation can remove or replace a cached bundle.
+      if (state[`target:${name}`] === key && actual.every(value => value !== null)
+          && expected?.every((value, index) => value === actual[index])) {
+        if (['host','browser','interaction'].includes(name)) {
+          publications.set(`host/public/generated/${name}-model.mjs`, await readFile(path.join(root, output), 'utf8'));
+        }
+        next[`target:${name}`] = key;
+        next[`target:${name}:artifacts`] = actual;
+        return;
+      }
+      const directory = `.build/extracted/${name}`;
+      await rm(path.join(root, directory), { recursive: true, force: true });
+      await mkdir(path.join(root, directory), { recursive: true });
+      const aliases = target.entry.map(entry => `Definition selvedge_${name}_${entry} := Selvedge.${target.module}.${entry}.`).join('\n');
+      const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
+      // Separate extraction preserves module aliases used by typed domain surfaces.
+      // Each target owns its OCaml units; ocamldep supplies their compilation order.
+      const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nSet Extraction Output Directory "${directory}".\nSeparate Extraction ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
+      const extractionFile = `.build/Extract${target.model}.v`;
+      await writeChanged(extractionFile, extraction);
+      await run('rocq', ['c', ...flags, extractionFile]);
+      await writeChanged(`${directory}/${target.model}.ml`, `include Json\ninclude Extract${target.model}\n`);
+      const extracted = (await readdir(path.join(root, directory)))
+        .filter(filename => filename.endsWith('.ml')).map(filename => `${directory}/${filename}`);
+      const ordered = (await run('ocamlfind', ['ocamldep', '-package', 'zarith,js_of_ocaml', '-I', directory, '-sort', ...extracted])).trim().split(/\s+/);
+      await writeChanged(`${directory}/json_io.ml`, jsonIo);
+      await writeChanged(`${directory}/entry.ml`, runtime);
+      const ocaml = ['ocamlc', '-package', 'zarith,js_of_ocaml', '-I', directory];
+      for (const source of ordered) {
+        const signature = source.replace(/\.ml$/, '.mli');
+        if (await exists(signature)) await run('ocamlfind', [...ocaml, '-c', signature]);
+        await run('ocamlfind', [...ocaml, '-c', source]);
+      }
+      await run('ocamlfind', [...ocaml, '-c', `${directory}/json_io.ml`]);
+      await run('ocamlfind', [...ocaml, '-c', `${directory}/entry.ml`]);
+      await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, ...ordered.map(source => source.replace(/\.ml$/, '.cmo')), `${directory}/json_io.cmo`, `${directory}/entry.cmo`]);
+      const stagedRuntime = path.join(publicationDirectory, `${name}-runtime.js`);
+      await run('js_of_ocaml', ['--target-env', 'browser', '-o', stagedRuntime, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
+      const exports = name === 'kernel'
+        ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\nexport const assess = runtime.assess;\n'
+        : `export const ${target.exported} = runtime.${name === 'commands' ? 'decode' : 'call'};\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
+      // Keep each runtime and its exports in one atomically replaceable module.
+      const bundle = `${await readFile(stagedRuntime, 'utf8')}\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`;
+      publications.set(output, bundle);
       if (['host','browser','interaction'].includes(name)) {
-        await writeChanged(`host/public/generated/${name}-model.mjs`, await readFile(path.join(root, output), 'utf8'));
-        await writeChanged(`host/public/generated/${name}-runtime.js`, await readFile(path.join(root, `.build/${name}-runtime.js`), 'utf8'));
+        publications.set(`host/public/generated/${name}-model.mjs`, bundle);
       }
       next[`target:${name}`] = key;
-      next[`target:${name}:artifacts`] = actual;
-      return;
-    }
-    const directory = `.build/extracted/${name}`;
-    await mkdir(path.join(root, directory), { recursive: true });
-    const aliases = target.entry.map(entry => `Definition selvedge_${name}_${entry} := Selvedge.${target.module}.${entry}.`).join('\n');
-    const jsonAliases = Object.entries(jsonEntries).map(([alias, entry]) => `Definition ${alias} := Selvedge.${entry}.`).join('\n');
-    const extraction = `From Selvedge.${target.module.split('.')[0]} Require Import ${target.module.split('.')[1]}.\nFrom Selvedge.Foundation Require Import TextJson.\nLoad "runtime/Extraction.v".\n${aliases}\n${jsonAliases}\nExtraction "${directory}/${target.model}.ml" ${target.entry.map(entry => `selvedge_${name}_${entry}`).join(' ')} ${Object.keys(jsonEntries).join(' ')}.\n`;
-    const extractionFile = `.build/Extract${target.model}.v`;
-    await writeChanged(extractionFile, extraction);
-    await run('rocq', ['c', ...flags, extractionFile]);
-    await writeChanged(`${directory}/json_io.ml`, await readFile(path.join(root, 'runtime/json_io.ml'), 'utf8'));
-    await writeChanged(`${directory}/entry.ml`, runtime);
-    const ocaml = ['ocamlc', '-package', 'zarith,js_of_ocaml', '-I', directory];
-    await run('ocamlfind', [...ocaml, '-c', `${directory}/${target.model}.mli`]);
-    await run('ocamlfind', [...ocaml, '-c', `${directory}/${target.model}.ml`]);
-    await run('ocamlfind', [...ocaml, '-c', `${directory}/json_io.ml`]);
-    await run('ocamlfind', [...ocaml, '-c', `${directory}/entry.ml`]);
-    await run('ocamlfind', [...ocaml, '-linkpkg', '-o', `${directory}/runtime.bc`, `${directory}/${target.model}.cmo`, `${directory}/json_io.cmo`, `${directory}/entry.cmo`]);
-    await run('js_of_ocaml', ['--target-env', 'browser', '-o', `.build/${name}-runtime.js`, `${stubsDirectory}/biginteger.js`, `${stubsDirectory}/runtime.js`, `${directory}/runtime.bc`]);
-    const exports = name === 'kernel'
-      ? 'export const initial = runtime.initial;\nexport const packet = runtime.packet;\nexport const observe = runtime.observe;\n'
-      : `export const ${target.exported} = runtime.${name === 'commands' ? 'decode' : 'call'};\n${name === 'host' ? 'export const callStructured = runtime.callStructured;\n' : ''}`;
-    await writeChanged(output, `import './${name}-runtime.js';\nconst runtime = globalThis.${target.global};\ndelete globalThis.${target.global};\n${exports}`);
-    if (['host','browser','interaction'].includes(name)) {
-      const publicDirectory = 'host/public/generated';
-      await writeChanged(`${publicDirectory}/${name}-model.mjs`, await readFile(path.join(root, output), 'utf8'));
-      await writeChanged(`${publicDirectory}/${name}-runtime.js`, await readFile(path.join(root, `.build/${name}-runtime.js`), 'utf8'));
-    }
-    next[`target:${name}`] = key;
-    next[`target:${name}:artifacts`] = await Promise.all([fingerprint(output), fingerprint(runtimeOutput)]);
-    console.log(`extracted ${name}`);
-  })));
-  await writeFile(stateFile, `${JSON.stringify({ ...state, ...next }, null, 2)}\n`);
-  console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
+      next[`target:${name}:artifacts`] = [digest(bundle)];
+      console.log(`extracted ${name}`);
+    })), 'Executable extraction failed');
+    // No executable asset is published until every selected target and captured input has passed.
+    await assertInputsUnchanged();
+    for (const [filename, bundle] of publications) await writeChanged(filename, bundle);
+    console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
+    const provenance = Object.fromEntries(selected.map(name => {
+      const target = targets[name];
+      const sources = new Set(['runtime/Extraction.v', 'theories/Foundation/TextJson.v',
+        `theories/${target.module.replaceAll('.', '/')}.v`]);
+      const pending = [...sources];
+      while (pending.length) {
+        for (const dependency of graph.get(pending.pop()) ?? []) {
+          if (!sources.has(dependency)) { sources.add(dependency); pending.push(dependency); }
+        }
+      }
+      if (sources.has('theories/Generated/Commands.v')) sources.add('theories/Derive/Commands.v');
+      for (const filename of inputFingerprints.keys()) {
+        if (!filename.endsWith('.v')) sources.add(filename);
+      }
+      return [name, Object.freeze({ sourceRoot: root, target: name, compiler: Object.freeze([...versions]),
+        sources: Object.freeze([...sources].sort().map(filename => Object.freeze({
+          path: filename, sha256: inputFingerprints.get(filename)
+        }))), artifacts: Object.freeze([...next[`target:${name}:artifacts`]]) })];
+    }));
+    const result = Object.freeze({
+      checked: check && allModules && productionTargets.every(name => selected.includes(name)),
+      targets: Object.freeze([...selected]),
+      provenance: Object.freeze(provenance),
+    });
+    buildSucceeded = true;
+    return result;
+  } finally {
+    // DEFENSE: A failed dependency can reject its consumer while other scheduled checks are still running.
+    await Promise.allSettled([...pending.values()]);
+    if (publicationDirectory) await rm(publicationDirectory, { recursive: true, force: true });
+    if (buildSucceeded) await persistState();
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

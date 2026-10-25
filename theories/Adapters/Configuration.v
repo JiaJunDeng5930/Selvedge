@@ -257,7 +257,7 @@ Definition adaptive_policy (source : json) :=
   then plan_object (Some (get value "ref")) [
     plan_field "max_lease" (selected (observed_field value "max_lease") (number 10));
     plan_field "efforts" (JObject [("array",JArray (map reference choices))])]
-  else invalid "Adaptive reasoning requires bounded distinct efforts, an included baseline and a valid lease".
+  else invalid "Adaptive reasoning requires an evaluator, bounded distinct efforts, an included baseline, a supported transport and a lease bound of 1..10".
 Fixpoint unique_efforts (values seen : list json) :=
   match values with [] => [] | value::rest =>
     let effort := observed_field value "effort" in

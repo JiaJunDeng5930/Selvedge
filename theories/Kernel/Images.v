@@ -66,18 +66,31 @@ Definition parse_content_part (value : json) : option content_part :=
 Fixpoint traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
   match values with [] => Some [] | value::rest =>
     match parse value,traverse parse rest with Some value,Some rest => Some (value::rest) | _,_ => None end end.
-Definition parse_content (source : json) : option content := match source with
-  | JNull => Some [] | JString text => Some [TextPart text]
-  | JArray values => traverse parse_content_part values | _ => None end.
 Definition image_count (parts : content) := List.length (filter (fun part => match part with ImagePart _ => true | _ => false end) parts).
+(* DEFENSE: Both fork message arrays and message-plus-attachment requests can
+   exceed the per-message image limit at their public JSON input boundaries. *)
+Definition admit_content (parts : content) : option content :=
+  if Nat.leb (image_count parts) message_image_limit then Some parts else None.
+Definition parse_content (source : json) : option content :=
+  match match source with
+    | JNull => Some [] | JString text => Some [TextPart text]
+    | JArray values => traverse parse_content_part values | _ => None end with
+  | Some parts => admit_content parts | None => None end.
 Definition parse_user_content (source : json) : option content :=
   let message := match field "message" source with Some value => value | None => JNull end in
   let images := match field "images" source with None | Some JNull => Some []
     | Some (JArray values) => traverse parse_image values | _ => None end in
   match parse_content message,images with
-  | Some parts,Some images => let content := List.app parts (map ImagePart images) in
-    if Nat.leb (image_count content) message_image_limit then Some content else None
+  | Some parts,Some images => admit_content (List.app parts (map ImagePart images))
   | _,_ => None end.
 Definition valid_image_asset (source : json) := match parse_asset source with Some _ => true | None => false end.
 Definition valid_image_part (source : json) := match parse_content_part source with Some (ImagePart _) => true | _ => false end.
 Definition valid_reference (source : json) := match parse_image source with Some _ => true | None => false end.
+
+Definition only_images (parts : content) :=
+ filter (fun part => match part with ImagePart _ => true | _ => false end) parts.
+Definition result_images (source : json) :=
+ match field "content" source with
+ | Some (JArray parts) => flat_map (fun part => match parse_content_part part with
+   | Some (ImagePart image) => [ImagePart image] | _ => [] end) parts
+ | _ => [] end.

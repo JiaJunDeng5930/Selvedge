@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 TextJson Numbers.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks History Workspace Inputs Callbacks Limits Observation ApprovalProtocol.
 From Selvedge.Generated Require Import Commands.
+From Selvedge.Features Require Import WorkspaceBinding.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -22,39 +23,59 @@ Definition create_in_context (name : string) (effort : option string) (contents 
    | Some caller => match resolve_for_profile name settings (task_current_settings caller) value with
      | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
      | Some selected =>
-       if native_settings_bound settings selected (task_current_settings caller) value then
+       if native_creation_allowed settings selected (task_current_settings caller) value then
        Tasks.create_with_defaults name effort contents None idle selected value
        else reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value
      end
    end
  end.
-Definition create_project (name : string) (source : json) (guidance : option json) (worktree : option bool) (value : world) :=
+Definition create_project (name : string) (source : json) (guidance : option json) (worktree : option bool)
+ (resource : option json) (value : world) :=
  match parse_workspace source with
  | None => reject "invalid_workspace" "Project roots must be distinct absolute canonical paths" value
  | Some workspace =>
-   let guidance := match guidance with Some source => source | None => JNull end in
-   if nonempty name && Nat.leb (String.length name) 256 && valid_guidance guidance && guidance_member workspace guidance &&
-      Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
-      N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
-   let id := N.of_nat (List.length (world_projects value)) in
-   let project := Project name workspace guidance (match worktree with Some value => value | None => false end) false in
-   accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
-   else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
+   let selected := match resource with Some source => parse_workspace_binding source | None => WorkspaceBinding.select_resource workspace value end in
+   match selected with
+   | None => reject "workspace_unavailable" "The workspace does not select one available execution environment" value
+   | Some owner =>
+     let guidance := match guidance with Some source => source | None => JNull end in
+     if WorkspaceBinding.resource_ready workspace owner value &&
+        Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance &&
+        Nat.ltb (List.length (filter (fun project => negb (project_deleted project)) (world_projects value))) 256 &&
+        N.ltb (N.of_nat (List.length (world_projects value))) 4294967295 then
+     let id := N.of_nat (List.length (world_projects value)) in
+     let project := Project name workspace guidance (match worktree with Some value => value | None => false end)
+      (Workspace.next_project_order (world_projects value)) false owner in
+     accept (project_json id project) (with_projects (world_projects value ++ [project]) value) []
+     else reject "invalid_project" "Project name, guidance or registry capacity is invalid" value
+   end
  end.
-Definition update_project (id : N) (name : option string) (workspace guidance : option json)
- (worktree : option bool) (value : world) :=
+Definition update_project (id : N) (name : option string) (workspace_source guidance : option json)
+ (worktree : option bool) (resource : option json) (value : world) :=
  match registry_at id (world_projects value) with
  | None => reject "project_not_found" "The project does not exist" value
  | Some project => if project_deleted project then reject "project_not_found" "The project does not exist" value else
-   match (match workspace with Some source => parse_workspace source | None => Some (project_workspace project) end) with
+   match (match workspace_source with Some source => parse_workspace source | None => Some (project_workspace project) end) with
    | None => reject "invalid_workspace" "Project roots must be distinct absolute canonical paths" value
    | Some workspace =>
-     let name := match name with Some name => name | None => project_name project end in
-     let guidance := match guidance with Some value => value | None => Domain.project_guidance project end in
-     if nonempty name && Nat.leb (String.length name) 256 && valid_guidance guidance && guidance_member workspace guidance then
-     let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end) false in
-     accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
-     else reject "invalid_project" "Project name or guidance is invalid" value
+     let selected := match resource, workspace_source with
+       | Some source,_ => parse_workspace_binding source
+       | None,Some _ => WorkspaceBinding.select_resource workspace value
+       | None,None => Some (project_resource project) end in
+     match selected with
+     | None => reject "workspace_unavailable" "The workspace does not select one available execution environment" value
+     | Some owner =>
+       let ready := match resource, workspace_source with None,None => true
+         | _,_ => WorkspaceBinding.resource_ready workspace owner value end in
+       let name := match name with Some name => name | None => project_name project end in
+       let guidance := match guidance with Some value => value
+         | None => inherited_guidance workspace (Domain.project_guidance project) end in
+       if ready && Workspace.valid_project_name name && valid_guidance guidance && guidance_member workspace guidance then
+       let project := Project name workspace guidance (match worktree with Some value => value | None => project_worktree project end)
+        (Workspace.next_project_order (world_projects value)) false owner in
+       accept (project_json id project) (with_projects (replace id project (world_projects value)) value) []
+       else reject "invalid_project" "Project name or guidance is invalid" value
+     end
    end
  end.
 Definition delete_project (id : N) (value : world) :=
@@ -65,7 +86,7 @@ Definition delete_project (id : N) (value : world) :=
      | Some current => N.eqb id current | None => false end) (world_tasks value)
    then reject "project_in_use" "A project referenced by a task cannot be deleted" value
    else accept (JObject [("project_id",number id)])
-    (with_projects (replace id (Project "" (Workspace [] None) JNull false true) (world_projects value)) value) []
+    (with_projects (replace id (Project "" (Workspace [] None) JNull false (project_order project) true None) (world_projects value)) value) []
  end.
 Definition speech_transcript (id : N) (session item : string) (speaker : Domain.speaker)
  (completion : speech_completion) (text : string) (value : world) :=
@@ -78,7 +99,7 @@ Definition speech_transcript (id : N) (session item : string) (speaker : Domain.
    | Some message => if Json.equal (message_json id message) (message_json id (SpeechTranscript id session item speaker completion text))
      then accept (result true) value [] else reject "speech_conflict" "A transcript identity already has different committed content" value
    | None => match task_lifecycle task with
-     | Archived => reject "task_archived" "Archived tasks cannot accept new speech transcripts" value
+     | Archived _ => reject "task_archived" "Archived tasks cannot accept new speech transcripts" value
      | _ => accept (result false) (put_task id (append_history [SpeechTranscript id session item speaker completion text] task) value) [] end
    end
    else reject "invalid_arguments" "Final transcripts require stable identities and nonempty Unicode text" value
@@ -107,7 +128,7 @@ Definition return_side (id : N) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The side conversation does not exist" value
  | Some side => match task_lifecycle side with
-   | Archived => reject "task_archived" "Returning side conversation content requires non-archived source and parent tasks" value
+   | Archived _ => reject "task_archived" "Returning side conversation content requires non-archived source and parent tasks" value
    | _ => match task_side_parent side with
    | None => reject "not_side_conversation" "The task has no side conversation parent" value
    | Some parent =>
@@ -124,7 +145,7 @@ Definition return_side (id : N) (value : world) :=
 ```json
 " (String.append (TextJson.render_json transcript) "
 ```") in
-     let images := flat_map (fun message => match message with UserMessage parts => filter (fun part => match part with ImagePart _ => true | _ => false end) parts | _ => [] end) messages in
+     let images := flat_map History.message_images messages in
      let result := Tasks.send parent (TextPart text :: images) value in
      if bool_default "ok" (decision_reply result) false then
        Decision (put_task id (with_side_cursor through side) (decision_world result))
@@ -147,25 +168,26 @@ Definition execute (command : Selvedge.Generated.Commands.command) (caller : opt
  | Selvedge.Generated.Commands.Cmd_archive request => Some (control_command (Selvedge.Generated.Commands.archive_task_id request) Archive value)
  | Selvedge.Generated.Commands.Cmd_cancel_operation request => Some (cancel_operation (Selvedge.Generated.Commands.cancel_operation_task_id request) (Selvedge.Generated.Commands.cancel_operation_operation_id request) value)
  | Selvedge.Generated.Commands.Cmd_fork request => Some (match traverse Images.parse_content (match Selvedge.Generated.Commands.fork_messages request with Some values => values | None => [] end) with
-   | Some messages => Tasks.fork_with_caller (match caller with Some id => N.eqb id (Selvedge.Generated.Commands.fork_task_id request) | None => false end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
+   | Some messages => Tasks.fork_with_caller (match caller with Some id => N.eqb id (Selvedge.Generated.Commands.fork_task_id request) | None => false end) (match Selvedge.Generated.Commands.fork_settings_origin request with
+     |Some source=>if String.eqb (proj1_sig source) "environment" then Tasks.EnvironmentSettings else Tasks.ParentSettings
+     |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
    | None => reject "invalid_message" "Child messages contain invalid content parts" value end)
  | Selvedge.Generated.Commands.Cmd_open_side_conversation request => Some (with_content (Selvedge.Generated.Commands.open_side_conversation_message request) (Selvedge.Generated.Commands.open_side_conversation_images request)
    (fun contents => Tasks.open_side (Selvedge.Generated.Commands.open_side_conversation_task_id request) contents value) value)
  | Selvedge.Generated.Commands.Cmd_return_side_conversation request => Some (return_side (Selvedge.Generated.Commands.return_side_conversation_task_id request) value)
- | Selvedge.Generated.Commands.Cmd_configure_task_execution request => Some (match parse_sandbox (Selvedge.Generated.Commands.configure_task_execution_sandbox request) with
-   | Some sandbox => configure_execution (Selvedge.Generated.Commands.configure_task_execution_task_id request)
-     (Selvedge.Generated.Commands.configure_task_execution_profile request) (Selvedge.Generated.Commands.configure_task_execution_reasoning request)
-     sandbox (Selvedge.Generated.Commands.configure_task_execution_approval request) value
-   | None => reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value end)
- | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) value)
- | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) value)
+ | Selvedge.Generated.Commands.Cmd_configure_task_execution request => Some (configure_execution
+     (Selvedge.Generated.Commands.configure_task_execution_task_id request)
+     (Selvedge.Generated.Commands.configure_task_execution_profile request)
+     (Selvedge.Generated.Commands.configure_task_execution_reasoning request)
+     (Selvedge.Generated.Commands.configure_task_execution_sandbox request)
+     (Selvedge.Generated.Commands.configure_task_execution_approval request) value)
+ | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding request) value)
+ | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding request) value)
  | Selvedge.Generated.Commands.Cmd_delete_project request => Some (delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value)
  | Selvedge.Generated.Commands.Cmd_review_approval request => Some (
    let reason := match Selvedge.Generated.Commands.review_approval_reason request with Some reason => reason | None => "" end in
-   if ApprovalProtocol.valid_reason reason then
    review_approval (Selvedge.Generated.Commands.review_approval_task_id request) (Selvedge.Generated.Commands.review_approval_operation_id request)
-    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value
-   else reject "invalid_arguments" ("Approval reasons require valid Unicode without NUL and at most " ++ show_natural ApprovalProtocol.reason_bytes ++ " UTF-8 bytes") value)
+    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.review_approval_decision request)) "allow" then Approved reason else Denied reason) value)
  | Selvedge.Generated.Commands.Cmd_record_speech_transcript request => Some (speech_transcript (Selvedge.Generated.Commands.record_speech_transcript_task_id request) (Selvedge.Generated.Commands.record_speech_transcript_session_id request) (Selvedge.Generated.Commands.record_speech_transcript_item_id request)
    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_speaker request)) "user" then UserSpeaker else AssistantSpeaker)
    (if String.eqb (proj1_sig (Selvedge.Generated.Commands.record_speech_transcript_completion request)) "completed" then SpeechCompleted else SpeechInterrupted) (Selvedge.Generated.Commands.record_speech_transcript_text request) value)

@@ -6,6 +6,7 @@ import { boundary } from './public/model-boundary.mjs';
 import { requestHeaders } from './model-request.mjs';
 import { imageDataURL } from './files.mjs';
 import { requestChatGPTWeb, cancelChatGPTWeb } from './chatgpt-web.mjs';
+import { observeMarkdownFences, observeTextItems } from './public/markdown-fence-observation.mjs';
 
 // Transport abort detaches an observer. A committed native cancellation also
 // stops retained remote work where the provider has an explicit stop endpoint.
@@ -35,7 +36,16 @@ export class ContextScopeChangedError extends Error {
 }
 
 export function providerOutput(output, profile = {}, output_indices = []) {
-  return boundary('backend.output', { output, profile, output_indices });
+  const markdown_observations = Array.isArray(output) ? output.map(item => {
+    if (item?.type !== 'message' || item.role !== 'assistant' || !Array.isArray(item.content)) return [];
+    const text = item.content.map(part => {
+      if (part?.type === 'output_text') return typeof part.text === 'string' ? part.text : '';
+      if (part?.type === 'refusal') return typeof part.refusal === 'string' ? part.refusal : '';
+      return '';
+    }).join('');
+    return observeMarkdownFences(text);
+  }) : [];
+  return boundary('backend.output', { output, profile, output_indices, markdown_observations });
 }
 
 export function responseBody(effect, profile = { provider: effect.model.provider }) {
@@ -170,7 +180,10 @@ export async function requestModel(effect, config, home, limits, { signal, onDel
   if (support.transport === 'web') {
     return requestChatGPTWeb(effect, configured, home, limits, { signal, onSnapshot, onRetry });
   }
-  if (support.transport === 'echo') return boundary('backend.echo', { history: effect.history });
+  if (support.transport === 'echo') {
+    const items = boundary('backend.echo', { history: effect.history });
+    return boundary('backend.observe_text_output', { items, markdown_observations: observeTextItems(items) });
+  }
   const session = await createProviderSession(effect, configured, support, home, { signal });
   const { profile, scope } = session;
   const consumer = observeCompactionScope(effect, scope);

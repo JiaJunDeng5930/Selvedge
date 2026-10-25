@@ -10,20 +10,21 @@ Definition object_keys (source : json) (names : list string) :=
  match source with
  | JObject fields => unique_names (map fst fields) && forallb (fun field => member (fst field) names) fields
  | _ => false end.
+Definition maximum_natural : N := 4294967295.
 Definition natural (value : json) := match value with
  | JNumber source => match Numbers.parse_natural source with
-   | Some value => if N.leb value 4294967295 then Some value else None
+   | Some value => if N.leb value maximum_natural then Some value else None
    | None => None end
  | _ => None end.
 Definition optional_text (value : option json) := match value with
- | None | Some (JString _) => true | _ => false end.
+ | None | Some JNull | Some (JString _) => true | _ => false end.
 Definition optional_bound (value : option json) := match value with
- | None => true | Some value => match natural value with Some _ => true | _ => false end end.
+ | None | Some JNull => true | Some value => match natural value with Some _ => true | _ => false end end.
 Definition bound_or (value : option json) (fallback : N) :=
  match value with Some value => match natural value with Some value => value | None => fallback end | None => fallback end.
 Definition bound_matches (schema : json) (value : N) :=
  N.leb (bound_or (field "minimum" schema) 0) value &&
- N.leb value (bound_or (field "maximum" schema) 4294967295).
+ N.leb value (bound_or (field "maximum" schema) maximum_natural).
 Fixpoint strings (values : list json) : option (list string) :=
  match values with [] => Some [] | JString text :: rest => option_map (cons text) (strings rest) | _ => None end.
 Definition enum_definition (source : option json) :=
@@ -39,13 +40,13 @@ Definition enum_accepts (schema : json) (value : json) :=
  | Some (JArray values) => existsb (Json.equal value) values
  | _ => false end.
 Definition required_valid (properties : list (string * json)) (source : option json) :=
- match source with None => true | Some (JArray values) =>
+ match source with None | Some JNull => true | Some (JArray values) =>
  match strings values with Some names => unique_names names &&
    forallb (fun name => member name (map fst properties)) names | None => false end
  | _ => false end.
 Definition required_present (schema : json) (source : list (string * json)) :=
  match field "required" schema with
- | None => true
+ | None | Some JNull => true
  | Some (JArray values) => forallb (fun value => match value with JString name =>
    match lookup name source with Some _ => true | None => false end | _ => false end) values
  | _ => false end.
@@ -61,7 +62,7 @@ Fixpoint definition_fuel (fuel : nat) (schema : json) : bool :=
    | None => match string_field "type" schema with
      | Some "object" =>
        object_keys schema ["type"; "description"; "title"; "properties"; "required"; "additionalProperties"] &&
-       (match field "additionalProperties" schema with None | Some (JBool false) => true | _ => false end) &&
+       (match field "additionalProperties" schema with None | Some JNull | Some (JBool false) => true | _ => false end) &&
        match field "properties" schema with
        | Some (JObject properties) => unique_names (map fst properties) &&
          required_valid properties (field "required" schema) && forallb (fun property => definition_fuel fuel (snd property)) properties
@@ -71,7 +72,7 @@ Fixpoint definition_fuel (fuel : nat) (schema : json) : bool :=
      | Some "string" => object_keys schema ["type"; "description"; "title"; "enum"] && enum_definition (field "enum" schema)
      | Some "integer" => object_keys schema ["type"; "description"; "title"; "minimum"; "maximum"] &&
        optional_bound (field "minimum" schema) && optional_bound (field "maximum" schema) &&
-       N.leb (bound_or (field "minimum" schema) 0) (bound_or (field "maximum" schema) 4294967295)
+       N.leb (bound_or (field "minimum" schema) 0) (bound_or (field "maximum" schema) maximum_natural)
      | Some "boolean" | Some "null" => object_keys schema ["type"; "description"; "title"]
      | _ => false end
    end

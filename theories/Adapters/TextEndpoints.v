@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 TextJson.
+From Selvedge.Kernel Require Import Conversation.
 From Selvedge.Features Require Import Titles.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
@@ -11,7 +12,7 @@ Definition extract (item : json) : option response_piece :=
   if String.eqb (str item "type") "text" then
     if is_text (get item "text") then Some (Captured (get item "text")) else None
   else if String.eqb (str item "type") "context" then
-    let value := get item "value" in
+    let value := Conversation.provider_value (get item "value") in
     if String.eqb (str value "type") "reasoning" then Some Skipped
     else if String.eqb (str value "type") "message" && String.eqb (str value "role") "assistant" then
       match items (get value "content") with
@@ -49,7 +50,7 @@ Definition response_text (approval : bool) (source : json) :=
     end.
 Definition approval_outcome (source : json) :=
   match TextJson.parse_json (str source "text") with
-  | Some value =>
+  | Some (JObject [(_,JString _);(_,JString _)] as value) =>
     if exact_fields ["decision";"reason"] value &&
       existsb (String.eqb (str value "decision")) ["allow";"deny"] &&
       is_text (get value "reason") && Utf8.nonblank (str value "reason") &&
@@ -57,7 +58,7 @@ Definition approval_outcome (source : json) :=
       bound (get source "limit") (N.of_nat (String.length (str value "reason"))) 9007199254740991
     then success value
     else type_error "The approval reviewer returned a malformed decision"
-  | None => type_error "The approval reviewer must return exactly two string fields"
+  | _ => type_error "The approval reviewer must return exactly two string fields"
   end.
 Definition task_text_outcome (source : json) :=
   match TextJson.parse_json (str source "text") with

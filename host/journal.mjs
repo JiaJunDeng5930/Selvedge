@@ -4,10 +4,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { Kernel } from './kernel.mjs';
+import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
 
-export const journalFormat = 'selvedge-rocq-journal-2';
+export const journalFormat = 'selvedge-rocq-journal-5';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
@@ -107,6 +107,22 @@ export class Journal extends EventEmitter {
     this.kernel?.abort(error);
   }
 
+  assess(candidate) {
+    // DEFENSE: An assessment may be queued just before the journal closes.
+    if (this.#closing) return Promise.reject(new Error('Journal is closed'));
+    const result = this.#tail.then(async () => {
+      // DEFENSE: A failed prior commit leaves no authoritative world for a read-only assessment.
+      if (this.#failure) throw this.#failure;
+      const request = this.kernel.assess(candidate);
+      try { return (await request).value; }
+      // DEFENSE: A worker failure during assessment retires that world, so later journal commands must also fail.
+      catch (error) { if (!isKernelInputRejection(error)) this.#poison(error); throw error; }
+    });
+    // DEFENSE: The returned promise reports the failure; close must still wait for this queued assessment.
+    this.#tail = result.catch(() => {});
+    return result;
+  }
+
   execute(input) {
     // DEFENSE: Requests already in flight at shutdown can still reach the journal.
     if (this.#closing) return Promise.reject(new Error('Journal is closed'));
@@ -115,12 +131,12 @@ export class Journal extends EventEmitter {
       if (this.#failure) throw this.#failure;
       const inputText = stringifyJson(input);
       // Encoding failures occur before this returns a promise and cannot change
-      // the kernel. Any asynchronous failure makes its resulting state unknown.
+      // the kernel. A worker input rejection also precedes every transition.
       const request = this.kernel.request(input);
       let response;
       try { response = await request; }
       // DEFENSE: An asynchronous Worker failure can occur after its state advanced; this journal cannot keep accepting inputs.
-      catch (error) { this.#poison(error); throw error; }
+      catch (error) { if (!isKernelInputRejection(error)) this.#poison(error); throw error; }
       if (!response.value.durable) {
         this.program = response.program;
         return { sequence: this.sequence, program: this.program, ...response.value };

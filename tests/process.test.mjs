@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, realpath } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -298,20 +298,24 @@ test('PTY mode supplies a real terminal, resizes the foreground application and 
 });
 
 test('deadlines, cancellation and shell exit release the real background process tree', async t => {
-  const command = (directory, name, tail) =>
+  const command = (directory, name, tail, wait = 'sleep 0.4') =>
     `printf ready > ${shellQuote(path.join(directory, `${name}.ready`))}; ` +
-    `(sleep 0.4; printf escaped > ${shellQuote(path.join(directory, `${name}.escaped`))}) & ${tail}`;
+    `(${wait}; printf escaped > ${shellQuote(path.join(directory, `${name}.escaped`))}) & ${tail}`;
   const running = await session(t, directory => ({ command: command(directory, 'deadline', 'exec sleep 60'), timeout_ms: 150 }),
     async function* ({ directory, operationId }) {
       await waitFile(path.join(directory, 'deadline.ready'));
       const expired = yield* readUntil(operationId, observed => observed.status === 'completed');
       assert.equal(expired.observed.completion.error, true);
       assert.equal(expired.observed.completion.reason.code, 'command_timed_out');
-      const cancellable = value(yield call('bash', { command: command(directory, 'cancelled', 'exec sleep 60') }));
+      const release = path.join(directory, 'cancelled.release');
+      const waitForRelease = `while [ ! -e ${shellQuote(release)} ]; do sleep 0.01; done`;
+      const cancellable = value(yield call('bash', { command: command(directory, 'cancelled', 'exec sleep 60', waitForRelease) }));
       assert.equal(cancellable.status, 'running');
       await waitFile(path.join(directory, 'cancelled.ready'));
       value(yield call('cancel_operation', { operation_id: cancellable.operation_id }));
       yield* readUntil(cancellable.operation_id, observed => observed.status === 'completed');
+      // Release the child write after cancellation, independently of model latency.
+      await writeFile(release, 'release');
       const exiting = value(yield call('bash', { command: command(directory, 'exited', 'printf done') }));
       assert.equal(exiting.status, 'running');
       yield* readUntil(exiting.operation_id, observed => observed.status === 'completed');

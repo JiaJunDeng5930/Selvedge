@@ -1,6 +1,6 @@
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { root, run, targets, jsonEntries } from './build.mjs';
+import { root, run, targets, jsonEntries } from './build-tools.mjs';
 
 async function files(directory) {
   return (await Promise.all((await readdir(path.join(root, directory), { withFileTypes: true })).map(entry => {
@@ -19,9 +19,9 @@ function withoutComments(source) {
   }
   return result;
 }
-export async function auditAssumptions({ prefixes = [] } = {}) {
+export async function auditAssumptions({ prefixes = [], sources = null, entries = null } = {}) {
   const declarations = [];
-  for (const filename of await files('theories')) {
+  for (const filename of sources ?? await files('theories')) {
     if (filename.startsWith('theories/Derive/')) continue;
     if (prefixes.length && !prefixes.some(prefix => filename.startsWith(`theories/${prefix}/`))) continue;
     const module = `Selvedge.${filename.slice('theories/'.length, -2).replaceAll('/', '.')}`;
@@ -40,14 +40,14 @@ export async function auditAssumptions({ prefixes = [] } = {}) {
       }
     }
   }
-  if (!declarations.length) throw new Error('No checked theorem declarations found for assumption audit');
   const theorems = declarations.length;
-  const entries = [...Object.values(targets).flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)), ...Object.values(jsonEntries)];
-  for (const entry of entries) {
+  const auditedEntries = entries ?? [...Object.values(targets).flatMap(target => target.entry.map(entry => `${target.module}.${entry}`)), ...Object.values(jsonEntries)];
+  for (const entry of auditedEntries) {
     if (prefixes.length && !prefixes.some(prefix => entry.startsWith(`${prefix}.`))) continue;
     const module = `Selvedge.${entry.slice(0, entry.lastIndexOf('.'))}`;
     declarations.push({ module, name: `Selvedge.${entry}` });
   }
+  if (!declarations.length) throw new Error('No checked declarations found for assumption audit');
   const imports = [...new Set(declarations.map(item => item.module))].map(module => `Require Import ${module}.`).join('\n');
   const commands = declarations.map(item => `Print Assumptions ${item.name}.`).join('\n');
   await mkdir(path.join(root, '.build'), { recursive: true });

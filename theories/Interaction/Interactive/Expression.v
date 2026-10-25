@@ -15,36 +15,37 @@ Definition alpha c := let n:=nat_of_ascii c in ((65<=?n)&&(n<=?90))||((97<=?n)&&
 Definition alphanumeric c := alpha c || is_digit c.
 Definition is_symbol sym t := match t with Symbol s=>String.eqb sym s | _=>false end.
 Definition paired s := existsb (String.eqb s) ["==";"!=";"<=";">=";"&&";"||"].
-Fixpoint tokenize (fuel:nat) (source:string) : outcome(list token) :=
+Fixpoint tokenize_acc (fuel:nat) (source:string) (reversed:list token) : outcome(list token) :=
  match fuel with
- | O=>if String.eqb(trim_left source) "" then Good [] else Error "Expression token budget exceeded"
+ | O=>if String.eqb(trim_left source) "" then Good(List.rev_append reversed []) else Error "Expression token budget exceeded"
  | S k=>let source:=trim_left source in match source with
-   | EmptyString=>Good []
+   | EmptyString=>Good(List.rev_append reversed [])
    | String c r=>
      if Ascii.eqb c """" then
        match quoted (S(String.length source)) source with
-       | Scanned value rest=>xs <-? tokenize k rest ;; Good(Literal(JString value)::xs)
+       | Scanned value rest=>tokenize_acc k rest(Literal(JString value)::reversed)
        | _=>Error "Invalid expression string" end
      else if alpha c then
        let '(name,rest):=take_while alphanumeric source in
-       xs <-? tokenize k rest ;;
-       Good ((if String.eqb name "true" then Literal(JBool true) else
+       tokenize_acc k rest((if String.eqb name "true" then Literal(JBool true) else
               if String.eqb name "false" then Literal(JBool false) else
-              if String.eqb name "null" then Literal JNull else Name name)::xs)
+              if String.eqb name "null" then Literal JNull else Name name)::reversed)
      else if is_digit c then
        let '(number,rest):=take_while (fun c=>is_digit c||Ascii.eqb c ".") source in
-       d <-? from_option "Invalid fixed decimal literal" (Decimal.parse number) ;;
-       xs <-? tokenize k rest ;; Good(Literal(JNumber(Decimal.text d))::xs)
+       match Decimal.parse number with
+       |Some d=>tokenize_acc k rest(Literal(JNumber(Decimal.text d))::reversed)
+       |None=>Error "Invalid fixed decimal literal" end
      else
        let '(operator,rest):=match r with
        | String d rest=>let two:=String c (String d "") in if paired two then (two,rest) else (String c "",r)
        | _=>(String c "",r) end in
        if existsb (String.eqb operator) ["==";"!=";"<=";">=";"&&";"||";"!";"-";"+";"*";"/";"%";"<";">";"?";":";".";",";"(";")";"[";"]";"{";"}"]
-       then xs <-? tokenize k rest ;; Good(Symbol operator::xs)
+       then tokenize_acc k rest(Symbol operator::reversed)
        else Error "Unknown expression token"
    end end.
+Definition tokenize fuel source:=tokenize_acc fuel source [].
 Inductive expr :=
-| Value (value:json) | Reference (name:string)
+| Value (value:json) | InvalidExpression(reason:string) | Reference (name:string)
 | Unary (operator:string) (argument:expr)
 | Binary (operator:string) (lhs rhs:expr)
 | Conditional (test yes no:expr)
@@ -103,7 +104,7 @@ with sequence (fuel:nat) (closing:string) (tokens:list token) : outcome(list exp
       match rest with
       | Symbol s::rest=>if String.eqb s closing then Good([v],rest) else
           if String.eqb s "," then
-          match rest with Symbol s::_=>if String.eqb s closing then Error "Trailing expression comma" else
+          match rest with Symbol s::_=>if String.eqb s closing then Good([v],List.tl rest) else
             tail <-? sequence k closing rest ;; let '(vs,rest):=tail in Good(v::vs,rest)
           | _=>tail <-? sequence k closing rest ;; let '(vs,rest):=tail in Good(v::vs,rest) end
           else Error "Expected collection separator"
@@ -112,7 +113,7 @@ with sequence (fuel:nat) (closing:string) (tokens:list token) : outcome(list exp
       match rest with
       | Symbol s::rest=>if String.eqb s closing then Good([v],rest) else
         if String.eqb s "," then
-          match rest with Symbol t::_=>if String.eqb t closing then Error "Trailing expression comma" else tail <-? sequence k closing rest ;; let '(vs,rest):=tail in Good(v::vs,rest)
+          match rest with Symbol t::_=>if String.eqb t closing then Good([v],List.tl rest) else tail <-? sequence k closing rest ;; let '(vs,rest):=tail in Good(v::vs,rest)
           | _=>tail <-? sequence k closing rest ;; let '(vs,rest):=tail in Good(v::vs,rest)end
         else Error "Expected collection separator"
       | _=>Error "Unclosed expression collection" end
@@ -127,7 +128,7 @@ with record_fields (fuel:nat) (seen:list string) (tokens:list token) : outcome(l
      p <-? expression k 0 rest ;; let '(v,rest):=p in
      match rest with
      | Symbol "}"::rest=>Good([(name,v)],rest)
-     | Symbol ","::rest=>match rest with Symbol "}"::_=>Error "Trailing record comma"
+     | Symbol ","::rest=>match rest with Symbol "}"::rest=>Good([(name,v)],rest)
         | _=>tail <-? record_fields k (name::seen) rest ;; let '(fields,rest):=tail in Good((name,v)::fields,rest)end
      | _=>Error "Expected record separator" end
    | _=>Error "Expected static record key" end end.
@@ -171,8 +172,12 @@ Definition as_small maximum value :=
 Definition access_value container key :=
  match container,key with
  | JObject fs,JString name=>Good(match lookup name fs with Some v=>v | None=>JNull end)
- | JArray values,_=>match as_small Bounds.collection_items key with Some index=>Good(nth index values JNull) | None=>Error "List index must be a bounded nonnegative integer" end
- | JNull,_=>Good JNull
+ | JArray values,_=>match decimal_value key with
+   |Some index=>if Decimal.integral index&&Z.leb 0(Decimal.units index)then
+      if Z.ltb(Decimal.units index)(Z.of_nat(List.length values)*Decimal.scale)then
+        Good(nth(Z.to_nat(Z.quot(Decimal.units index)Decimal.scale))values JNull)else Good JNull
+      else Error "List index must be a nonnegative integer"
+   |None=>Error "List index must be a nonnegative integer"end
  | _,_=>Error "Field access requires a record or list" end.
 Definition unary_value op value :=
  if String.eqb op "!" then match value with JBool b=>Good(JBool(negb b)) | _=>Error "Boolean operand required" end else
@@ -211,7 +216,7 @@ Notation "x <-! a ;; b" := (met_bind a (fun x=>b)) (at level 100,a at next level
 Definition met_charge cost:metered unit:=fun budget=>
  if cost<=?budget then(Good tt,budget-cost)else(Error "Expression evaluation budget exceeded",0).
 Fixpoint insert_metered(path:string)(descending:bool)(value:json)(xs:list json):metered(list json):=
- match xs with []=>met_return[value]|x::rest=>
+ match xs with []=>_ <-! met_lift(order_values(get_path path value)(get_path path value));;met_return[value]|x::rest=>
  _ <-! met_charge(S(value_cost 33(get_path path value)+value_cost 33(get_path path x)));;
  order <-! met_lift(order_values(get_path path value)(get_path path x));;
  if match order with Lt=>negb descending|Eq=>true|Gt=>descending end then met_return(value::xs)else
@@ -235,19 +240,22 @@ Fixpoint group_whole s : string :=
  String c (if (negb(String.eqb r ""))&&Nat.eqb(String.length r mod 3)0 then ","++group_whole r else group_whole r)end.
 Definition formatted d style : outcome string :=
  let n:=Decimal.units d in
- if String.eqb style "number" || String.eqb style "percent" then
-   let n:=if String.eqb style "percent" then (n*100)%Z else n in
+ match Builtins.decode_format style with
+ |Some selected=>match selected with
+ |Builtins.DecimalFormat|Builtins.PercentFormat=>
+   let percent:=match selected with Builtins.PercentFormat=>true|_=>false end in
+   let n:=if percent then (n*100)%Z else n in
    let s:=Decimal.render(Z.abs n)in
    match Decimal.split_dot s with
    | Some(w,f)=>Good((if Z.ltb n 0 then "-"else "")++group_whole w++
-       (match f with Some s=>"."++s|_=>""end)++(if String.eqb style "percent"then "%"else ""))
+       (match f with Some s=>"."++s|_=>""end)++(if percent then "%"else ""))
    | None=>Error "Invalid decimal format"end
- else if String.eqb style "currency:USD" || String.eqb style "currency:CNY" then
+ |Builtins.UsdFormat|Builtins.CnyFormat=>
    cents <-? from_option "Invalid currency"(Decimal.rounded_division(Z.abs n)10000);;
    let fraction:=show_integer(Z.rem cents 100)in
-   Good((if Z.ltb n 0 then "-"else "")++(if String.eqb style "currency:USD"then "$"else "¥")++
-    group_whole(show_integer(Z.quot cents 100))++"."++Decimal.zeros(2-String.length fraction)++fraction)
- else Error "Unknown number format".
+   Good((if Z.ltb n 0 then "-"else "")++(match selected with Builtins.UsdFormat=>"$"|_=>"¥"end)++
+    group_whole(show_integer(Z.quot cents 100))++"."++Decimal.zeros(2-String.length fraction)++fraction)end
+ |None=>Error "Unknown number format"end.
 Definition valid_field_path path:=
  forallb(fun part=>negb(String.eqb part ""))(path_parts path).
 Definition records_only xs:=forallb(fun value=>match value with JObject _=>true|_=>false end)xs.
@@ -274,9 +282,11 @@ Definition builtin_body (kind:Builtins.builtin) args : metered json :=
  |Builtins.Filter,[JArray xs;JString path;wanted]=>if valid_field_path path&&records_only xs&&scalar wanted then
    xs <-! filter_metered path wanted xs;;met_return(JArray xs)else met_fail "filter requires records, field path and scalar comparison"
  |Builtins.Sort,[JArray xs;JString path;JString direction]=>
-   if valid_field_path path&&records_only xs&&(String.eqb direction "asc"||String.eqb direction "desc")then
-   xs <-! sort_metered path(String.eqb direction "desc")xs;;met_return(JArray xs)
-   else met_fail "sort requires records, field path and asc or desc direction"
+   match Builtins.decode_sort direction with
+   |Some order=>if valid_field_path path&&records_only xs then
+     xs <-! sort_metered path(match order with Builtins.Descending=>true|_=>false end)xs;;met_return(JArray xs)
+     else met_fail "sort requires records, field path and asc or desc direction"
+   |None=>met_fail "sort requires records, field path and asc or desc direction"end
  |Builtins.Take,[JArray xs;n]=>n <-! met_lift(from_option "take count must be 0..4096"(as_small Bounds.collection_items n));;met_return(JArray(firstn n xs))
  |Builtins.Text,[JNull]=>met_return(JString "")
  |Builtins.Text,[JString s]=>met_return(JString s)
@@ -311,75 +321,88 @@ Fixpoint visits (expressions:list expr) environment depth :=
  match expressions with []=>[]|e::rest=>Visit e environment depth::visits rest environment depth end.
 Definition checked_tasks value tail:=Validate[(S Bounds.nesting,value)]value::tail.
 Definition evaluation := (outcome json * nat)%type.
-Fixpoint run (fuel budget:nat) (tasks:list task) (values:list json) : evaluation :=
- match tasks with []=>match values with [v]=>(Good v,budget)|_=>(Error "Expression result stack",budget)end
- | head::tail=>match fuel,budget with
- | S fuel,S budget=>
+Definition next_evaluation := (nat * list task * list json)%type.
+Definition resume budget tasks values : evaluation + next_evaluation := inr(budget,tasks,values).
+Definition evaluation_step (budget:nat) (head:task) (tail:list task) (values:list json)
+ : evaluation + next_evaluation :=
    match head with
-   | Visit expression env depth=>if Bounds.nesting <? depth then (Error "Expression depth limit",budget)else
+   | Visit expression env depth=>if Bounds.nesting <? depth then inl(Error "Expression depth limit",budget)else
      match expression with
-     | Value v=>run fuel budget(checked_tasks v tail)values
+     | Value v=>resume budget(checked_tasks v tail)values
+     | InvalidExpression reason=>inl(Error reason,budget)
      | Reference name=>match find(fun kv=>String.eqb name(fst kv))env with
-       | Some(_,Good v)=>run fuel budget(checked_tasks v tail)values|Some(_,Error reason)=>(Error("Dependency error: "++reason),budget)
-       | None=>(Error("Unknown binding: "++name),budget)end
-     | Unary op value=>run fuel budget(Visit value env(S depth)::ApplyUnary op::tail)values
-     | Binary op a b=>run fuel budget(Visit a env(S depth)::AfterLeft op b env(S depth)::tail)values
-     | Conditional test yes no=>run fuel budget(Visit test env(S depth)::Choose yes no env(S depth)::tail)values
-     | Access container index=>run fuel budget(Visit container env(S depth)::AfterContainer index env(S depth)::tail)values
-     | Array xs=>run fuel budget(visits xs env(S depth)++BuildArray(List.length xs)::tail)values
-     | Record fs=>run fuel budget(visits(map snd fs)env(S depth)++BuildRecord(map fst fs)::tail)values
-     | Call name xs=>run fuel budget(visits xs env(S depth)++ApplyCall name(List.length xs)::tail)values
+       | Some(_,Good v)=>resume budget(checked_tasks v tail)values|Some(_,Error reason)=>inl(Error("Dependency error: "++reason),budget)
+       | None=>inl(Error("Unknown binding: "++name),budget)end
+     | Unary op value=>resume budget(Visit value env(S depth)::ApplyUnary op::tail)values
+     | Binary op a b=>resume budget(Visit a env(S depth)::AfterLeft op b env(S depth)::tail)values
+     | Conditional test yes no=>resume budget(Visit test env(S depth)::Choose yes no env(S depth)::tail)values
+     | Access container index=>resume budget(Visit container env(S depth)::AfterContainer index env(S depth)::tail)values
+     | Array xs=>resume budget(visits xs env(S depth)++BuildArray(List.length xs)::tail)values
+     | Record fs=>resume budget(visits(map snd fs)env(S depth)++BuildRecord(map fst fs)::tail)values
+     | Call name xs=>resume budget(visits xs env(S depth)++ApplyCall name(List.length xs)::tail)values
      end
-   | ApplyUnary op=>match values with v::rest=>match unary_value op v with Good v=>run fuel budget(checked_tasks v tail)rest|Error e=>(Error e,budget)end|_=>(Error "Unary stack",budget)end
+   | ApplyUnary op=>match values with v::rest=>match unary_value op v with Good v=>resume budget(checked_tasks v tail)rest|Error e=>inl(Error e,budget)end|_=>inl(Error "Unary stack",budget)end
    | AfterLeft op rhs env depth=>match values with
      | lhs::rest=>
        if String.eqb op "&&"||String.eqb op "||"then match lhs with
-       | JBool b=>if Bool.eqb b (String.eqb op "||")then run fuel budget tail(lhs::rest)
-         else run fuel budget(Visit rhs env depth::RequireBoolean::tail)rest
-       | _=>(Error "Boolean operand required",budget)end
-       else run fuel budget(Visit rhs env depth::ApplyBinary op lhs::tail)rest
-     | _=>(Error "Binary stack",budget)end
+       | JBool b=>if Bool.eqb b (String.eqb op "||")then resume budget tail(lhs::rest)
+         else resume budget(Visit rhs env depth::RequireBoolean::tail)rest
+       | _=>inl(Error "Boolean operand required",budget)end
+       else resume budget(Visit rhs env depth::ApplyBinary op lhs::tail)rest
+     | _=>inl(Error "Binary stack",budget)end
    | ApplyBinary op lhs=>match values with rhs::rest=>
        match spend budget(value_cost 33 lhs+value_cost 33 rhs)with
-       | Error e=>(Error e,0)
-       | Good remaining_budget=>match binary_value op lhs rhs with Good v=>run fuel remaining_budget(checked_tasks v tail)rest|Error e=>(Error e,remaining_budget)end end
-       | _=>(Error "Binary stack",budget)end
-   | Choose yes no env depth=>match values with JBool b::rest=>run fuel budget(Visit(if b then yes else no)env depth::tail)rest|_=>(Error "Conditional requires Bool",budget)end
-   | AfterContainer index env depth=>match values with v::rest=>run fuel budget(Visit index env depth::ApplyAccess v::tail)rest|_=>(Error "Access stack",budget)end
-   | ApplyAccess container=>match values with key::rest=>match access_value container key with Good v=>run fuel budget(checked_tasks v tail)rest|Error e=>(Error e,budget)end|_=>(Error "Access stack",budget)end
+       | Error e=>inl(Error e,0)
+       | Good remaining_budget=>match binary_value op lhs rhs with Good v=>resume remaining_budget(checked_tasks v tail)rest|Error e=>inl(Error e,remaining_budget)end end
+       | _=>inl(Error "Binary stack",budget)end
+   | Choose yes no env depth=>match values with JBool b::rest=>resume budget(Visit(if b then yes else no)env depth::tail)rest|_=>inl(Error "Conditional requires Bool",budget)end
+   | AfterContainer index env depth=>match values with v::rest=>resume budget(Visit index env depth::ApplyAccess v::tail)rest|_=>inl(Error "Access stack",budget)end
+   | ApplyAccess container=>match values with key::rest=>match access_value container key with Good v=>resume budget(checked_tasks v tail)rest|Error e=>inl(Error e,budget)end|_=>inl(Error "Access stack",budget)end
    | BuildArray n=>if n<=?List.length values then
        let result:=rev(firstn n values)in
-       if n<=?Bounds.collection_items then run fuel budget(checked_tasks(JArray result)tail)(skipn n values)else (Error "Collection item limit",budget)
-       else (Error "Array stack",budget)
+       if n<=?Bounds.collection_items then resume budget(checked_tasks(JArray result)tail)(skipn n values)else inl(Error "Collection item limit",budget)
+       else inl(Error "Array stack",budget)
    | BuildRecord keys=>if List.length keys<=?List.length values then
-       if List.length keys<=?Bounds.record_fields then run fuel budget(checked_tasks(JObject(combine keys(rev(firstn(List.length keys)values))))tail)(skipn(List.length keys)values)
-       else (Error "Record field limit",budget)else (Error "Record stack",budget)
+       if List.length keys<=?Bounds.record_fields then resume budget(checked_tasks(JObject(combine keys(rev(firstn(List.length keys)values))))tail)(skipn(List.length keys)values)
+       else inl(Error "Record field limit",budget)else inl(Error "Record stack",budget)
    | ApplyCall name count=>if count<=?List.length values then
        match builtin name(rev(firstn count values))budget with
-       | (Good v,remaining_budget)=>run fuel remaining_budget(checked_tasks v tail)(skipn count values)
-       | (Error e,remaining_budget)=>(Error e,remaining_budget)end
-       else (Error "Call stack",budget)
-   | RequireBoolean=>match values with JBool _::_=>run fuel budget tail values|_=>(Error "Boolean operand required",budget)end
+       | (Good v,remaining_budget)=>resume remaining_budget(checked_tasks v tail)(skipn count values)
+       | (Error e,remaining_budget)=>inl(Error e,remaining_budget)end
+       else inl(Error "Call stack",budget)
+   | RequireBoolean=>match values with JBool _::_=>resume budget tail values|_=>inl(Error "Boolean operand required",budget)end
    (* DEFENSE: live world fields can exceed the authored language's value limits. *)
    | Validate pending result=>match pending with
-     | []=>run fuel budget tail(result::values)
-     | (depth,value)::rest=>match depth with O=>(Error "Value nesting limit",budget)|S depth=>
-       let continue pending:=run fuel budget(Validate pending result::tail)values in
+     | []=>resume budget tail(result::values)
+     | (depth,value)::rest=>match depth with O=>inl(Error "Value nesting limit",budget)|S depth=>
+       let continue pending:=resume budget(Validate pending result::tail)values in
        match value with
        | JNull|JBool _=>continue rest
-       | JNumber spelling=>match Decimal.parse spelling with Some _=>continue rest|None=>(Error "Invalid fixed decimal value",budget)end
-       | JString text=>if within_scalars Bounds.string_scalars text then continue rest else(Error "String value limit",budget)
-       | JArray xs=>if List.length xs<=?Bounds.collection_items then continue(List.app(map(fun value=>(depth,value))xs)rest)else(Error "Collection item limit",budget)
+       | JNumber spelling=>match Decimal.parse spelling with Some _=>continue rest|None=>inl(Error "Invalid fixed decimal value",budget)end
+       | JString text=>if within_scalars Bounds.string_scalars text then continue rest else inl(Error "String value limit",budget)
+       | JArray xs=>if List.length xs<=?Bounds.collection_items then continue(List.app(map(fun value=>(depth,value))xs)rest)else inl(Error "Collection item limit",budget)
        | JObject fs=>if (List.length fs<=?Bounds.record_fields)&&Schema.unique_names(map fst fs)
-          then continue(List.app(map(fun field=>(depth,snd field))fs)rest)else(Error "Record field limit or duplicate key",budget)
+          then continue(List.app(map(fun field=>(depth,snd field))fs)rest)else inl(Error "Record field limit or duplicate key",budget)
        end end end
-   end
- | _,_=>(Error "Expression evaluation budget exceeded",0)end end.
+   end.
+(* Keep the extracted driver directly tail recursive across all task variants. *)
+Fixpoint run (fuel budget:nat) (tasks:list task) (values:list json) : evaluation :=
+ match tasks with
+ |[]=>match values with [v]=>(Good v,budget)|_=>(Error "Expression result stack",budget)end
+ |head::tail=>match fuel with
+   |O=>(Error "Expression evaluation budget exceeded",0)
+   |S fuel=>if Nat.eqb budget 0 then(Error "Expression evaluation budget exceeded",0)else
+     match evaluation_step (Nat.pred budget) head tail values with
+     |inl result=>result
+     |inr(remaining,tasks,values)=>run fuel remaining tasks values end
+   end end.
 Definition evaluate budget env e := run budget budget [Visit e env 0] [].
 Definition evaluate_source budget env source :=match parse source with Good e=>evaluate budget env e|Error e=>(Error e,budget)end.
+Fixpoint numeric_literal (fuel:nat)(e:expr):bool:=match fuel with
+ |O=>false|S k=>match e with Value(JNumber _)=>true|Unary "-"value=>numeric_literal k value|_=>false end end.
 Fixpoint is_literal (fuel:nat)(e:expr):bool:=
  match fuel with O=>false|S k=>match e with
- | Value _=>true|Unary "-"(Value(JNumber _))=>true
+ | Value _=>true|Unary "-"value=>numeric_literal k value
  | Array xs=>forallb(is_literal k)xs|Record fs=>forallb(fun kv=>is_literal k(snd kv))fs
  | _=>false end end.
 Definition literal source :=e <-? parse source;;if is_literal 33 e then

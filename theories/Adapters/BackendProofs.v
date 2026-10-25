@@ -1,10 +1,47 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects.
+From Selvedge.Foundation Require Import Json JsonObjects TextJson.
 From Selvedge.Kernel Require Import ContextSelection.
 From Selvedge.Adapters Require Import Common ProviderCatalog BackendHistory BackendRequests BackendResponses RetryAfter BackendRetry Backends Api.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
+
+Theorem public_completed_response_preserves_durable_output : forall source first rest,
+  str (get source "event") "type" = "response.completed" ->
+  str (get (get source "event") "response") "status" = "completed" ->
+  get (get (get source "event") "response") "output" = JArray (first :: rest) ->
+  str (get (Api.call "backend.stream_step" source) "value") "action" = "terminal" /\
+  get (get (Api.call "backend.stream_step" source) "value") "output" = JArray (first :: rest).
+Proof.
+ intros source first rest kind completed output.
+ change (str (get (BackendResponses.stream_step source) "value") "action" = "terminal" /\
+   get (get (BackendResponses.stream_step source) "value") "output" = JArray (first :: rest)).
+ unfold BackendResponses.stream_step,step. rewrite kind. cbn.
+ rewrite completed,String.eqb_refl. unfold terminal_action. rewrite output. cbn [is_array items].
+ destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); split; reflexivity.
+Qed.
+
+Theorem public_nonterminal_events_cannot_release_durable_output : forall source,
+  str (get source "event") "type" <> "response.completed" ->
+  str (get (Api.call "backend.stream_step" source) "value") "action" <> "terminal".
+Proof.
+ intros source nonterminal.
+ change (str (get (BackendResponses.stream_step source) "value") "action" <> "terminal").
+ unfold BackendResponses.stream_step,step.
+ destruct (String.eqb (str (get source "event") "type") "response.output_text.delta");
+   [destruct (is_text (get (get source "event") "delta") &&
+      canonical_natural (get (get source "event") "output_index"))|];
+   try (destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate).
+ destruct (String.eqb (str (get source "event") "type") "response.output_item.done").
+ - destruct (canonical_natural (get (get source "event") "output_index") &&
+     is_object (get (get source "event") "item"));
+     try (destruct (conflict _ _ _));
+     destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate.
+ - apply String.eqb_neq in nonterminal. rewrite nonterminal.
+   destruct (existsb (String.eqb (str (get source "event") "type"))
+     ["error";"response.failed";"response.incomplete"]);
+     destruct (String.eqb (str (get source "effect") "kind") "context_compaction"); discriminate.
+Qed.
 
 Theorem public_frozen_account_rejects_another_identity : forall source,
   text (get (get source "profile") "bound_account_id") <> "" ->
@@ -67,23 +104,43 @@ Theorem public_admitted_retry_keeps_the_header_minimum : forall source delay,
   Api.call "backend.retry" source = continue source true (maximum_delay (base_delay source) delay).
 Proof. intros source delay error response status available header budget;change (retry source = continue source true (maximum_delay (base_delay source) delay));
  unfold retry,chosen_delay;now rewrite error,response,status,available,header,budget. Qed.
-Definition example_account_output arguments namespace := JObject [
+Definition account_function_output arguments namespace := JObject [
   ("profile",JObject [("provider",JString "chatgpt")]);
+  ("markdown_observations",JArray [JArray []]);
   ("output",JArray [JObject [("type",JString "function_call");("namespace",JString namespace);
     ("call_id",JString "call-1");("name",JString "read_work");("arguments",JString arguments)]])].
-Theorem public_local_function_call_decodes_raw_arguments :
-  Api.call "backend.output" (example_account_output "{""work_id"":7}" "selvedge") =
+Theorem public_local_function_call_decodes_raw_arguments : forall arguments fields,
+  TextJson.parse_json_members arguments = Some (JObject fields) ->
+  Api.call "backend.output" (account_function_output arguments "selvedge") =
     success (JArray [JObject [("type",JString "call");("id",JString "call-1");
-      ("name",JString "read_work");("arguments",JObject [("work_id",JNumber "7")])]]).
-Proof. vm_compute;reflexivity. Qed.
-Theorem public_foreign_function_namespace_is_rejected :
-  Api.call "backend.output" (example_account_output "{}" "foreign") =
+      ("name",JString "read_work");("arguments",JObject fields)]]).
+Proof.
+  intros arguments fields parsed.
+  change (Api.call "backend.output" (account_function_output arguments "selvedge"))
+    with (BackendResponses.output (account_function_output arguments "selvedge")).
+  cbn -[TextJson.parse_json_members]. rewrite parsed. reflexivity.
+Qed.
+Theorem public_foreign_function_namespace_is_rejected : forall arguments namespace,
+  namespace <> local_tool_namespace ->
+  Api.call "backend.output" (account_function_output arguments namespace) =
     err "ChatGPT returned a function call outside the local tool namespace".
-Proof. vm_compute;reflexivity. Qed.
-Theorem public_duplicate_function_arguments_are_rejected :
-  Api.call "backend.output" (example_account_output "{""x"":1,""x"":2}" "selvedge") =
+Proof.
+  intros arguments namespace foreign.
+  apply String.eqb_neq in foreign.
+  change (Api.call "backend.output" (account_function_output arguments namespace))
+    with (BackendResponses.output (account_function_output arguments namespace)).
+  cbn -[TextJson.parse_json_members]. rewrite foreign. reflexivity.
+Qed.
+Theorem public_unparseable_function_arguments_are_rejected : forall arguments,
+  TextJson.parse_json_members arguments = None ->
+  Api.call "backend.output" (account_function_output arguments "selvedge") =
     err "Invalid JSON function arguments".
-Proof. vm_compute;reflexivity. Qed.
+Proof.
+  intros arguments malformed.
+  change (Api.call "backend.output" (account_function_output arguments "selvedge"))
+    with (BackendResponses.output (account_function_output arguments "selvedge")).
+  cbn -[TextJson.parse_json_members]. rewrite malformed. reflexivity.
+Qed.
 Theorem public_helper_request_has_no_tool_authority : forall tools callable,
   let source := JObject [("effect",JObject [("kind",JString "context_compaction");
     ("tools",JArray tools);("callable",JArray callable);("history",JArray []);

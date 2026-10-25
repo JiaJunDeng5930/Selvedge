@@ -2,7 +2,7 @@ import { EventFrames } from './events.mjs';
 
 /** Observe one authenticated connection. Retry and failure admission belong to the extracted model. */
 export async function observeConnection({ request, fetchEvents, signal, sequence, snapshot, ready, notice,
-  current = () => !signal.aborted, namespace = () => null, refreshNeeded = () => true, publish = () => {} }) {
+  current = () => !signal.aborted, ownership = () => null, namespace = () => null, refreshNeeded = () => true, publish = () => {} }) {
   const initial = await request('/api/browser/state', signal, true);
   if (!current()) return;
   snapshot(initial, true);
@@ -41,12 +41,15 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
     });
   };
   try {
-    response = await fetchEvents(`/api/events?after=${sequence()}`, signal);
+    const opening = ownership();
+    try { response = await fetchEvents(`/api/events?after=${sequence()}`, signal); }
+    catch (error) { error.requestScope = opening; throw error; }
     if (!subscribed()) return;
     // DEFENSE: The SSE endpoint can return an HTTP rejection or a bodyless response instead of an event stream.
     if (!response.ok || !response.body) {
       const error = new Error(`Event connection: HTTP ${response.status}`);
       error.status = response.status;
+      error.requestScope = opening;
       throw error;
     }
     reader = response.body.getReader();
@@ -93,6 +96,9 @@ export async function observeConnection({ request, fetchEvents, signal, sequence
       frames.write(decoder.decode(received.value, { stream: true }));
     }
   } catch (error) {
+    // DEFENSE: a read can reject after an accepted snapshot has replaced this
+    // subscription's namespace; its failure does not describe the new source.
+    if (!subscribed()) return;
     flushStreams();
     throw error;
   } finally {

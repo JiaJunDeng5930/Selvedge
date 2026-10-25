@@ -2,7 +2,8 @@ From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
- Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits.
+ Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits WorldInvariant.
+From Selvedge.Kernel Require Import CommitAdmission.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -29,16 +30,27 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (calle
      Selvedge.Features.Runtime.guard_result value result
    end
  end.
+(* Assess against the worker's authoritative immutable world. The hypothetical
+   decision is discarded: no world, scheduler work or IO effect is committed. *)
+Definition assess (source : json) (value : world) : json :=
+ let candidate := match Selvedge.Generated.Commands.decode (value_or_null "command" source) with
+ | Some command => decision_reply (execute_domain command None value)
+ | None => State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source))
+ end in
+ let admitted := bool_default "ok" candidate false in
+ JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
+   ("sequence",number (world_sequence value));("admitted",JBool admitted);
+   ("refusal",if admitted then JNull else value_or_null "error" candidate)].
 Definition execute_command (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) :=
  let result := execute_domain command caller value in
  if command_schedules command result then Selvedge.Features.Runtime.after_transition value result else result.
 Definition core_transition (source : input) (value : world) :=
  match source with
  | UserCommand command => execute_command command None value
- | Configure environment => accept (JObject [("configured",JBool true)]) (with_environment environment value) []
+ | Configure environment => accept (JObject [("configured",JBool true)])
+   (Selvedge.Features.Runtime.reconfigure (with_environment environment value)) []
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_transition value
    (Callbacks.context_completed id ticket observations diagnostic value)
- | ModelCompleted id ticket ModelContextLimit => Selvedge.Features.Runtime.after_transition value (Selvedge.Features.Runtime.model_context_limit id ticket value)
  | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
  | ReasoningCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.reasoning_completed id ticket outcome value)
  | ToolCompleted id ticket result error => Selvedge.Features.Runtime.after_transition value (Callbacks.tool_completed id ticket result error value)
@@ -56,19 +68,23 @@ Definition transition (source : json) (value : world) : bool * bool * option inp
      (true,command_schedules command result,Some (UserCommand command),result) end
  | Some input => (true,match input with Configure _ => false | _ => true end,Some input,core_transition input value)
  | None => if InputDecoder.owns_kind source then
-     (false,false,None,reject "invalid_input" "Malformed input for the declared protocol" value)
+     (false,false,None,reject "invalid_input" (InputDecoder.diagnostic source) value)
    else match Selvedge.Features.Runtime.completion execute_domain source value with
      | Some (durable,schedules,result) => (durable,schedules,None,if schedules then Selvedge.Features.Runtime.after_transition value result else result)
      | None => (false,false,None,reject "invalid_input" "Unknown input kind or malformed domain callback" value)
      end
  end.
-Definition admit (durable : bool) (source : option input) (before : world) (result : decision) :=
- Delivery.deliver durable (Notifications.decorate durable source before result) before.
+Definition admit (durable : bool) (source : option input) (raw_source : json)
+ (before : world) (result : decision) :=
+ let result := CommitAdmission.retain_live_effects result in
+ Delivery.deliver durable
+  (CommitAdmission.validate durable source raw_source before
+    (WorldInvariant.validate before (Notifications.decorate durable source before result))) before.
 Definition packet (source : json) (value : world) : world * json :=
  if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
  let '(durable,schedules,input,result) := transition source value in
  let result := if schedules then Selvedge.Features.Runtime.finish (Scheduler.run execute_command Selvedge.Features.Runtime.can_schedule_task result) else result in
- let result := admit durable input value result in
+ let result := admit durable input source value result in
  let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
    else decision_world result in
  (committed,Observation.envelope durable result)

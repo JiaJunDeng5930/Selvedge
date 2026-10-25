@@ -72,18 +72,32 @@ Proof.
  - cbn [schema_valid declared_names unique_names] in Unique.
    apply andb_true_iff in Unique as [Absent Unique]; apply negb_true_iff in Absent.
    cbn [protocol_schema] in Supported; apply andb_true_iff in Supported as [HeadSupported TailSupported].
-   destruct (typed_field_wire_is_decodable (field_kind field) value HeadSupported) as [head [Head Wire]].
    destruct (IH Unique TailSupported) as [tail [Tail Wires]].
-   exists (FCons head tail). cbn [decode_fields encode_fields lookup]. rewrite String.eqb_refl.
-   rewrite decode_fields_ignores_other_name by exact Absent.
-   rewrite Head, Tail, Wire, Wires. split; reflexivity.
+   destruct field as [name kind omittable]; destruct omittable;
+     cbn [field_name field_kind] in Absent, HeadSupported.
+   + destruct value as [value|].
+     * destruct (typed_field_wire_is_decodable kind value HeadSupported) as [head [Head Wire]].
+       exists (@FCons (FieldSpec name kind true) rest (Some head) tail).
+       cbn [decode_fields encode_fields encode_field decode_field option_map lookup field_name].
+       rewrite String.eqb_refl. rewrite decode_fields_ignores_other_name by exact Absent.
+       rewrite Head, Tail, Wire, Wires. split; reflexivity.
+     * exists (@FCons (FieldSpec name kind true) rest None tail).
+       cbn [decode_fields encode_fields encode_field decode_field option_map field_name].
+       rewrite (Selvedge.Foundation.SchemaProofs.encoded_lookup_is_absent rest values name Absent).
+       rewrite Tail, Wires. split; reflexivity.
+   + destruct (typed_field_wire_is_decodable kind value HeadSupported) as [head [Head Wire]].
+     exists (@FCons (FieldSpec name kind false) rest head tail).
+     cbn [decode_fields encode_fields encode_field decode_field option_map lookup field_name].
+     rewrite String.eqb_refl. rewrite decode_fields_ignores_other_name by exact Absent.
+     rewrite Head, Tail, Wire, Wires. split; reflexivity.
 Qed.
 Lemma encoded_keys_are_declared : forall description (values : fields description),
  keys_declared description (encode_fields values) = true.
 Proof.
  intros description values. unfold keys_declared, source_keys.
- rewrite Selvedge.Foundation.SchemaProofs.encode_declared_fields.
- apply forallb_forall; intros name Inside. apply existsb_exists; exists name; split; [exact Inside|apply String.eqb_refl].
+ apply forallb_forall; intros name Inside. apply existsb_exists; exists name; split.
+ - now apply (Selvedge.Foundation.SchemaProofs.encode_declared_fields description values).
+ - apply String.eqb_refl.
 Qed.
 Theorem schema_wire_roundtrip : forall description (values : fields description),
  schema_valid description = true -> protocol_schema description = true ->
@@ -94,9 +108,9 @@ Proof.
  intros description values Unique Supported.
  destruct (typed_fields_wire_is_decodable description values Unique Supported) as [canonical [Decoded Wire]].
  exists canonical. unfold Schema.decode, Schema.encode.
- unfold source_keys. rewrite Selvedge.Foundation.SchemaProofs.encode_declared_fields.
- rewrite encoded_keys_are_declared, Unique.
- change (unique_names (declared_names description) = true) in Unique. rewrite Unique. cbn. rewrite Decoded, Wire. split; reflexivity.
+ unfold source_keys. rewrite encoded_keys_are_declared, Unique.
+ rewrite (Selvedge.Foundation.SchemaProofs.encoded_names_are_unique description values Unique).
+ cbn. rewrite Decoded, Wire. split; reflexivity.
 Qed.
 
 From Selvedge.Generated Require Import Commands.
@@ -113,9 +127,10 @@ Lemma encoded_fields_have_no_undeclared_tag : forall description (values : field
  existsb (String.eqb "op") (declared_names description) = false ->
  Json.remove_field "op" (encode_fields values) = encode_fields values.
 Proof.
- intros description values; induction values; intros Absent; [reflexivity|].
+ intros description values; induction values as [|field rest value values IH]; intros Absent; [reflexivity|].
  cbn in Absent; apply orb_false_iff in Absent as [Different Absent].
- cbn; rewrite Different, IHvalues by exact Absent; reflexivity.
+ cbn [encode_fields]. destruct (encode_field field value); cbn;
+ rewrite ?Different, IH by exact Absent; reflexivity.
 Qed.
 Lemma declared_command_reaches_its_named_decoder : forall specification (values : fields (command_fields specification)),
  unique_names ("op" :: declared_names (command_fields specification)) = true ->
@@ -128,7 +143,11 @@ Proof.
  change ((if unique_names ("op" :: map fst (encode_fields values)) then
    G.decode_named (command_name specification) (JObject (remove_field "op" (encode_fields values)))
    else None) = G.decode_named (command_name specification) (Schema.encode _ values)).
- rewrite Selvedge.Foundation.SchemaProofs.encode_declared_fields, Unique.
+ assert (Valid : schema_valid (command_fields specification) = true).
+ { cbn in Unique. now apply andb_true_iff in Unique as [_ Unique]. }
+ cbn [unique_names].
+ rewrite (Selvedge.Foundation.SchemaProofs.encoded_name_is_absent _ values "op" NoTag).
+ rewrite (Selvedge.Foundation.SchemaProofs.encoded_names_are_unique _ values Valid). cbn.
  rewrite encoded_fields_have_no_undeclared_tag by exact NoTag. reflexivity.
 
 Qed.

@@ -13,6 +13,11 @@ syntax, and `bun run test` for public end-to-end behavior. `bun run bench`
 measures clean, unchanged and edited production builds. Report the checks actually performed and
 their scope. GitHub Actions remains disabled; run validation locally.
 
+Browser end-to-end tests use a system Chromium with the pinned `playwright-core`
+driver. Install `chromium` or `chromium-browser`, or set
+`SELVEDGE_CHROMIUM_EXECUTABLE_PATH` to its executable. The tests report a missing
+browser as a setup error.
+
 To enable the configured hooks, install `pre-commit`, then run
 `pre-commit install` and `pre-commit install --hook-type pre-push`.
 `just hooks` runs both configured stages manually.

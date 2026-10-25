@@ -93,8 +93,8 @@ expansion and checked the complete module in under a second. Use that approach
 for this vocabulary; do not encode compiler cost as a domain restriction.
 
 A Project supplies creation defaults, while a Task owns its frozen execution
-settings and per-creation choices. Reusing the selected default must not turn a
-Task submission into an implicit write to shared Project configuration. Browser
+settings and per-creation choices. Reusing the selected default does not write shared Project configuration;
+an explicit remember choice can update that Project preference. Browser
 reading position likewise has one owner; retaining an unused second reading
 state in Interaction would create competing sources of authority.
 

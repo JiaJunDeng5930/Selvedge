@@ -104,7 +104,7 @@ Definition retry_calculation source := let phase := str source "phase" in
  else if String.eqb phase "response" then retry_response source
  else if String.eqb phase "cancelled" then
    if JsonObjects.equivalent (retry_response source) (get source "plan") && String.eqb (str (get source "plan") "after_cancel") "retry" then retry_header source
-   else retry_error ("Reasoning evaluation failed with HTTP " ++ text (get source "status"))
+   else retry_error ("Reasoning evaluation failed with HTTP " ++ decimal (num source "status"))
  else retry_error "Unknown evaluator retry phase".
 Definition same_provider source := is_text (get (get source "request") "model") && is_text (get (get source "evaluator") "model") &&
  JsonObjects.equivalent (get (get source "request") "model") (get (get source "evaluator") "model").

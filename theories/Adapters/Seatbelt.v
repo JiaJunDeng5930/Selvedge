@@ -32,10 +32,18 @@ Definition network_rules (network : bool) :=
   if network then ["(allow network-outbound (remote ip ""*:*""))";
     "(allow network-inbound (local ip ""*:*""))";
     "(allow mach-lookup (global-name ""com.apple.system.config.network_change"") (global-name ""com.apple.mDNSResponder"") (global-name ""com.apple.trustd.agent""))"] else [].
+Definition terminal_rules (mode : string) : list string :=
+  (* TIOCGPGRP and TIOCSPGRP let the shell give its existing terminal to the
+     foreground job, which must receive resize and keyboard signals.  These
+     Darwin ioctl numbers do not permit terminal-input injection (TIOCSTI). *)
+  if String.eqb mode "pty" then
+    ["(allow file-ioctl (require-all (regex #""^/dev/ttys[0-9]+$"") (ioctl-command #x40047477 #x80047476)))"]
+  else [].
 Definition rules (source : json) (writes reads : list json) : list string :=
   let restricted := has source "readableRoots" && negb (is_null (get source "readableRoots")) in
   ["(version 1)";"(deny default)";"(allow process-exec process-fork)";
     "(allow signal (target same-sandbox))";"(allow process-info* (target same-sandbox))"] ++
+  terminal_rules (str source "processMode") ++
   read_rules restricted reads (unique_paths (flat_map items (items (get source "readAncestors")))) ++
   ["(allow sysctl-read)";"(allow mach-lookup (global-name ""com.apple.system.opendirectoryd.libinfo""))";
     "(allow ipc-posix-sem)";"(allow file-write-data (require-all (literal ""/dev/null"") (vnode-type CHARACTER-DEVICE)))";
@@ -53,6 +61,7 @@ Definition seatbelt (source : json) :=
   else type_error "Invalid sandbox path".
 Definition seatbelt_input (source : json) := JObject
   ([("writableRoots",get source "writableRoots");("scratch",get source "scratch");
+    ("processMode",get (get source "options") "processMode");
     ("readOnlyPaths",get source "protectedRoots");("readOnlyExceptions",JArray (managed_writable_roots source));
     ("networkAccess",get (get (get source "plan") "sandbox") "network_access")] ++
     if boolean_field source "projectOnly" then [("readableRoots",JArray

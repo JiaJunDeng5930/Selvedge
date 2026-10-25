@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers.
+From Selvedge.Foundation Require Import Json Numbers TextJson.
 Import ListNotations.
 Open Scope string_scope.
 Definition bind {A B} (v:option A) (f:A->option B) := match v with Some x => f x | None => None end.
@@ -17,3 +17,11 @@ Definition value_or {A} (fallback:A) (x:option A) := match x with Some x => x | 
 Definition text name j := value_or "" (string_field name j).
 Definition items name j := value_or [] (array_field name j).
 Definition flag name j := value_or false (bool_field name j).
+Definition command_failure (outcome:sum string json):json:=match outcome with
+|inl reason=>JString reason
+|inr reply=>value_or reply(field "error" reply)end.
+Definition diagnostic_message (diagnostic:json):string:=
+ match string_field "message" diagnostic with
+ |Some message=>match string_field "code" diagnostic with
+  |Some code=>code++": "++message|None=>message end
+ |None=>match diagnostic with JString message=>message|_=>TextJson.render_json diagnostic end end.

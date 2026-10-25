@@ -3,8 +3,52 @@ From Selvedge.Foundation Require Import Json Schema.
 Import ListNotations.
 
 Theorem encode_declared_fields : forall description (values : fields description),
-  map fst (encode_fields values) = declared_names description.
-Proof. intros description values; induction values; simpl; congruence. Qed.
+  incl (map fst (encode_fields values)) (declared_names description).
+Proof.
+ intros description values; induction values as [|field rest value values IH].
+ - intros name Inside; inversion Inside.
+ - cbn [encode_fields declared_names]. destruct (encode_field field value); cbn.
+   + intros name [Same|Inside]; [now left|right; now apply IH].
+   + intros name Inside; right; now apply IH.
+Qed.
+
+Theorem encode_all_present_fields : forall description (values : fields description),
+ forallb (fun field => negb (field_omittable field)) description = true ->
+ map fst (encode_fields values) = declared_names description.
+Proof.
+ intros description values; induction values as [|field rest value values IH]; intros Present; [reflexivity|].
+ destruct field as [name kind optional]; destruct optional; cbn in Present; try discriminate.
+ cbn [encode_fields encode_field declared_names map field_name]. f_equal. now apply IH.
+Qed.
+
+Lemma encoded_name_is_absent : forall description (values : fields description) name,
+ existsb (String.eqb name) (declared_names description) = false ->
+ existsb (String.eqb name) (map fst (encode_fields values)) = false.
+Proof.
+ intros description values; induction values as [|field rest value values IH]; intros name Absent; [reflexivity|].
+ cbn in Absent; apply Bool.orb_false_iff in Absent as [Different Absent].
+ cbn [encode_fields]. destruct (encode_field field value); cbn; rewrite ?Different; now apply IH.
+Qed.
+
+Lemma encoded_lookup_is_absent : forall description (values : fields description) name,
+ existsb (String.eqb name) (declared_names description) = false ->
+ lookup name (encode_fields values) = None.
+Proof.
+ intros description values; induction values as [|field rest value values IH]; intros name Absent; [reflexivity|].
+ cbn in Absent; apply Bool.orb_false_iff in Absent as [Different Absent].
+ cbn [encode_fields]. destruct (encode_field field value); cbn; rewrite ?Different; now apply IH.
+Qed.
+
+Theorem encoded_names_are_unique : forall description (values : fields description),
+ schema_valid description = true -> unique_names (map fst (encode_fields values)) = true.
+Proof.
+ intros description values; induction values as [|field rest value values IH]; intros Unique; [reflexivity|].
+ cbn [schema_valid declared_names unique_names] in Unique.
+ apply Bool.andb_true_iff in Unique as [Absent Unique]; apply Bool.negb_true_iff in Absent.
+ cbn [encode_fields]. destruct (encode_field field value); cbn [map fst unique_names].
+ - rewrite (encoded_name_is_absent rest values (field_name field) Absent), (IH Unique); reflexivity.
+ - now apply IH.
+Qed.
 
 Theorem rejects_unknown_field : forall description source,
   keys_declared description source = false ->
@@ -37,7 +81,7 @@ Proof.
   intros description name other source values.
   induction values; intros replacement distinct changed; simpl in changed; try discriminate.
   destruct (String.eqb name (field_name field)) eqn:same.
-  - destruct (decode_value (field_kind field) source) eqn:decoded; inversion changed; subst.
+  - destruct (decode_field field (Some source)) eqn:decoded; inversion changed; subst.
     simpl. apply String.eqb_eq in same.
     destruct (String.eqb other (field_name field)) eqn:other_same; auto.
     apply String.eqb_eq in other_same. exfalso; apply distinct; congruence.

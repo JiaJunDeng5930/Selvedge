@@ -1,10 +1,15 @@
-From Stdlib Require Import NArith ZArith.
+From Stdlib Require Import List NArith ZArith.
 From Stdlib Require Export Extraction ExtrOcamlBasic ExtrOcamlNativeString ExtrOcamlNatBigInt ExtrOcamlZBigInt.
 Extraction Language OCaml.
+(* Extracted modules must not shadow native modules used by string mappings. *)
+Extraction Blacklist String List.
 
 (* Native strings report their byte length without recursively copying suffixes.
    Convert that representable native length to the exact extracted nat. *)
-Extract Constant String.length => "(fun s -> Big_int_Z.big_int_of_int (String.length s))".
+Extract Constant String.length => "(fun s -> Big_int_Z.big_int_of_int (Stdlib.String.length s))".
+(* Native tail traversal avoids a frame per cell; every increment remains an
+   arbitrary-precision natural rather than a machine-integer accumulator. *)
+Extract Constant List.length => "(fun xs -> Stdlib.List.fold_left (fun count _ -> Big_int_Z.succ_big_int count) Big_int_Z.zero_big_int xs)".
 (** Peano elimination overflowed the JS stack on ordinary surrogate escapes.
     These standard arbitrary-precision representations preserve natural and
     signed integer values; no machine-integer bounds are assumed. *)
@@ -19,9 +24,9 @@ Extract Constant Nat.modulo => "(fun n d -> if Big_int_Z.sign_big_int d = 0 then
 
 (* Gallina substring clips both bounds to the available byte string. Clip exact
    natural indices before converting these representable native bounds. *)
-Extract Constant String.substring => "(fun start count text -> let length = String.length text in if Big_int_Z.ge_big_int start (Big_int_Z.big_int_of_int length) then String.empty else let offset = Big_int_Z.int_of_big_int start in let available = length - offset in let clipped = Big_int_Z.min_big_int count (Big_int_Z.big_int_of_int available) in String.sub text offset (Big_int_Z.int_of_big_int clipped))".
+Extract Constant String.substring => "(fun start count text -> let length = Stdlib.String.length text in if Big_int_Z.ge_big_int start (Big_int_Z.big_int_of_int length) then Stdlib.String.empty else let offset = Big_int_Z.int_of_big_int start in let available = length - offset in let clipped = Big_int_Z.min_big_int count (Big_int_Z.big_int_of_int available) in Stdlib.String.sub text offset (Big_int_Z.int_of_big_int clipped))".
 
 (* Native byte conversions avoid eight arbitrary-precision bit steps
    on every UTF-8 byte while retaining the standard eight-bit modulo semantics. *)
-Extract Constant Ascii.nat_of_ascii => "(fun c -> Big_int_Z.big_int_of_int (Char.code c))".
-Extract Constant Ascii.ascii_of_nat => "(fun n -> Char.chr (Big_int_Z.int_of_big_int (Big_int_Z.mod_big_int n (Big_int_Z.big_int_of_int 256))))".
+Extract Constant Ascii.nat_of_ascii => "(fun c -> Big_int_Z.big_int_of_int (Stdlib.Char.code c))".
+Extract Constant Ascii.ascii_of_nat => "(fun n -> Stdlib.Char.chr (Big_int_Z.int_of_big_int (Big_int_Z.mod_big_int n (Big_int_Z.big_int_of_int 256))))".

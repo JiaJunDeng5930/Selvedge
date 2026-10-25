@@ -34,8 +34,12 @@ export async function imagesFixture(t, { respond = () => answer('Image request a
       return;
     }
     const title = entry.body.text?.format?.name === 'task_title';
-    if (!title) requests.push(entry.body);
-    const output = title ? answer('{"title":"Image fixture task"}') : await respond(entry.body, requests.length - 1);
+    const independent = !entry.body.tools?.length;
+    // Independent title and compaction requests do not advance the scripted tool turns.
+    if (!independent) requests.push(entry.body);
+    const output = title ? answer('{"title":"Image fixture task"}')
+      : independent ? answer('Retain the image attachments and completed tool results.')
+      : await respond(entry.body, requests.length - 1);
     response.writeHead(200, { 'content-type': 'text/event-stream' });
     response.end(`data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output } })}\n\n`);
   };

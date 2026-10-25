@@ -58,10 +58,7 @@ Definition step (limits : configuration) (notice : event) (streams : state) : st
   | Snapshot key index text => update false limits key index text streams
   | Restore restored =>
     if limits.(restore_enabled) then
-      let restored := normalized_state restored in
-      (* DEFENSE: A reconnect can carry an unbounded host stream; restoration must obey the browser's existing text/part limits. *)
-      if negb limits.(bounded) || forallb (fun entry => parts_within_budget entry.(stream_parts)) restored
-      then (restored,true) else (streams,false)
+      (normalized_state restored,true)
     else (streams,false)
   | Ignore => (streams,false)
   end.
@@ -71,7 +68,7 @@ Definition cumulative (streams : state) (task ticket operation : N) : option liv
 Definition value (source : json) (key : string) := match field key source with Some value => value | None => JNull end.
 Definition integer (source : json) : option N := match source with
   | JNumber text => match parse_natural text with
-    | Some value => if (value <=? 9007199254740991) && String.eqb text (show_natural value) then Some value else None
+    | Some value => if String.eqb text (show_natural value) then Some value else None
     | None => None end
   | _ => None end.
 Definition decode_key (source : json) := match integer (value source "task_id"),integer (value source "ticket") with
@@ -111,6 +108,12 @@ Definition decode_event (source : json) : option event :=
         | _,_ => None end
       else Some Ignore
     end
+  end.
+Definition decode_event_in_namespace (namespace_is_valid : bool) (namespace : string) (source : json) : option event :=
+  match string_field "namespace" source with
+  | Some received =>
+      if namespace_is_valid && String.eqb received namespace then decode_event source else Some Ignore
+  | None => None
   end.
 Definition part_json (part : stream_part) := JObject [("output_index",JNumber (show_natural part.(part_index)));("text",JString part.(part_text))].
 Definition stream_json (entry : stream) := JObject [("task_id",JNumber (show_natural entry.(stream_identity).(stream_task)));

@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import ChatgptProtocol.
-From Selvedge.Adapters Require Import Common Observation Api Http HttpProofs Audio AudioProofs BrowserAdapters BrowserAdaptersProofs
+From Selvedge.Adapters Require Import Common Observation Api Http HttpProofs Audio AudioProofs BrowserAdapters BrowserObservations BrowserAdaptersProofs
   PluginConnections Plugins EvaluatorBudget EvaluatorPolicy Rpc RpcProofs Configuration ConfigurationProofs.
 Import ListNotations.
 Open Scope string_scope.
@@ -19,6 +19,32 @@ Theorem public_http_body_requires_local_origin : forall source target value,
   Api.call "http.body" source = success (JObject [("action",JString target);("body",value)]) ->
   local_origin_valid source = true.
 Proof. intros;apply (http_body_requires_local_origin source target value);assumption. Qed.
+
+Theorem public_admitted_command_body_is_delivered : forall source original value,
+  open_valid source = true -> host_valid source = true -> Http.authorized source = true ->
+  local_origin_valid source = true ->
+  str source "method" = "POST" -> str source "pathname" = "/api/commands" ->
+  str source "target" = "command" ->
+  starts (str source "content_type") "application/json" = true ->
+  as_string (get source "text") = Some original -> TextJson.parse_input_json original = TextJson.InputAccepted value ->
+  Api.call "http.body" source = success (JObject [("action",JString "command");("body",value)]).
+Proof.
+ intros source original value opened host authorization origin method pathname selected mime text parsed.
+ assert (local : connection_path source = false).
+ { unfold connection_path;rewrite pathname;reflexivity. }
+ assert (audio : audio_target source = "").
+ { unfold audio_target,audio_kind;rewrite pathname;reflexivity. }
+ assert (route : selected_route source = Some (Route "POST" "/api/commands" "command" true)).
+ { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
+ assert (target : body_target source = "command").
+ { unfold body_target;rewrite audio,route;reflexivity. }
+ change (Http.call "http.body" source = success (JObject [("action",JString "command");("body",value)])).
+ unfold Http.call;cbn;unfold request_guard,open_host_guard.
+ rewrite opened,host,authorization,local,origin;cbn.
+ unfold body_stage;rewrite target,selected;cbn.
+ rewrite mime;cbn;rewrite text,parsed;reflexivity.
+Qed.
+
 Theorem public_transcript_cannot_delegate : forall source result,
   str (get source "value") "type" = "turn.done" ->
   Api.call "audio.event" source = success result -> get result "type" <> JString "delegation".
@@ -35,6 +61,41 @@ Theorem public_link_has_admitted_scheme : forall source target,
   Api.call "browser.link" source = success (JString target) ->
   starts target "#" || allowed_target target = true.
 Proof. intros;apply (returned_link_has_an_admitted_scheme source target);now inversion H. Qed.
+Theorem public_browser_git_observation_uses_cwd_default : forall cwd,
+  Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "workspace-git");("primary",JString "")]);("cwd",cwd)]) =
+    success (JObject [("kind",JString "workspace-git");("primary",cwd)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_observation_marks_empty_path_default :
+  Api.call "browser.observation" (JObject [("phase",JString "plan");
+    ("observation",JObject [("kind",JString "browse-directories");("path",JString "")])]) =
+    success (JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",JNull)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_default_prefers_task_root : forall task_root project_root,
+  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+    ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",project_root)]);
+    ("task_environment_present",JBool true);("task_root",task_root)]) =
+    success (JObject [("path",task_root);("canonicalize",JBool false)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_default_canonicalizes_project_root : forall project_root,
+  Api.call "browser.observation" (JObject [("phase",JString "resolve");
+    ("plan",JObject [("kind",JString "browse-directories");("path",JString "");
+      ("default_path",JBool true);("project_root",project_root)]);
+    ("task_environment_present",JBool false)]) =
+    success (JObject [("path",project_root);("canonicalize",JBool true)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_directory_failure_is_returned_as_observation : forall message,
+  Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]) =
+    success (JObject [("ok",JBool false);("error",JString message)]).
+Proof. reflexivity. Qed.
+Theorem public_browser_skill_failure_is_returned_as_observation : forall message,
+  Api.call "browser.observation" (JObject [("phase",JString "complete");
+    ("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]) =
+    success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]).
+Proof. reflexivity. Qed.
 Theorem public_exec_injects_authenticated_connection : forall connection args,
   keys args (client_keys Execute) = true ->
   Api.call "plugin.command" (JObject [("connection",connection);("body",JObject [("tool",JString "exec");("arguments",args)])]) =
@@ -109,6 +170,48 @@ Proof.
  unfold Rpc.call;rewrite decoded;cbn.
  now apply unissued_response_cannot_settle.
 Qed.
+
+(** Field presence distinguishes an actual null result from a dropped result. *)
+Theorem public_issued_rpc_result_resolves_its_pending_request : forall source state id,
+  decode_state source = Some state ->
+  is_object (get source "message") = true -> str (get source "message") "jsonrpc" = "2.0" ->
+  as_string (get (get source "message") "method") = None ->
+  correlate state (get (get source "message") "id") = Some id ->
+  has (get source "message") "result" = true -> has (get source "message") "error" = false ->
+  field "ok" (Api.call "rpc.message" source) = Some (JBool true) /\
+  exists reply,
+    field "value" (Api.call "rpc.message" source) = Some reply /\
+    field "action" reply = Some (JString "resolve") /\
+    field "id" reply = Some (number id) /\
+    field "value" reply = Some (get (get source "message") "result") /\
+    field "nextId" reply = Some (number state.(next_id)) /\
+    exists remaining,
+      field "nextPending" reply = Some (JArray (map number remaining)) /\
+      ~ In id remaining /\
+      (forall other, other <> id -> (In other remaining <-> In other state.(pending))).
+Proof.
+ intros source state id decoded shape version method identity result_present error_absent.
+ assert (execution : Api.call "rpc.message" source = encode_action
+   (consume "resolve" state id [("value",get (get source "message") "result")])).
+ { change (Rpc.call "rpc.message" source = encode_action
+     (consume "resolve" state id [("value",get (get source "message") "result")])).
+   unfold Rpc.call;rewrite decoded;cbn.
+   unfold message;rewrite shape,version;cbn;rewrite method,identity.
+   unfold response;rewrite result_present,error_absent;reflexivity. }
+ split; [rewrite execution;reflexivity|].
+ exists (get (encode_action (consume "resolve" state id
+   [("value",get (get source "message") "result")])) "value").
+ split; [rewrite execution;reflexivity|].
+ split; [reflexivity|].
+ split; [reflexivity|].
+ split; [reflexivity|].
+ split; [reflexivity|].
+ exists (retire id state.(pending)).
+ split; [reflexivity|].
+ split; [apply consumed_identity_cannot_remain_pending|].
+ intros other different;now apply unrelated_pending_identity_is_preserved.
+Qed.
+
 Theorem public_compaction_policy_has_ordered_thresholds : forall source result,
   Api.call "config.compaction" source = success result ->
   1 <= nat_value (get result "background_percent") /\

@@ -5,14 +5,26 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
+Theorem full_access_dispatch_is_unrestricted : forall id tool invocation remaining task value,
+ settings_approval (task_current_settings task) = FullAccess ->
+ N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
+ decision_effects (Scheduler.start_external id tool invocation remaining task value) =
+ [ExecuteTool id (world_next_ticket value) (world_next_ticket value) tool invocation
+   (task_current_settings task) ElevatedAccess].
+Proof.
+ intros id tool invocation remaining task value Full Room.
+ unfold Scheduler.start_external; rewrite Room; cbn.
+ now rewrite Full.
+Qed.
+
 Lemma unobserved_roots_fail_native_admission : forall options selected caller value root,
  In root (workspace_roots (settings_workspace selected)) ->
- ~ In root (Tasks.observed_creation_roots caller value) ->
- Tasks.native_settings_bound options selected caller value = false.
+ ~ In root (Tasks.observed_creation_roots selected caller value) ->
+ Tasks.native_creation_allowed options selected caller value = false.
 Proof.
  intros options selected caller value root Member Unknown.
- destruct (Tasks.native_settings_bound options selected caller value) eqn:Admitted; [|reflexivity].
- unfold Tasks.native_settings_bound in Admitted.
+ destruct (Tasks.native_creation_allowed options selected caller value) eqn:Admitted; [|reflexivity].
+ unfold Tasks.native_creation_allowed in Admitted.
  apply andb_true_iff in Admitted as [_ Roots].
  apply forallb_forall with (x:=root) in Roots; [|exact Member].
  apply existsb_exists in Roots as [known [Known Equal]].
@@ -22,7 +34,7 @@ Theorem actual_native_creation_rejects_unobserved_roots : forall name effort con
  find_task caller_id value = Some caller ->
  resolve_for_profile name options (task_current_settings caller) value = Some selected ->
  In root (workspace_roots (settings_workspace selected)) ->
- ~ In root (Tasks.observed_creation_roots (task_current_settings caller) value) ->
+ ~ In root (Tasks.observed_creation_roots selected (task_current_settings caller) value) ->
  decision_world (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = value /\
  decision_effects (CommandExecution.create_in_context name effort contents options false (Some caller_id) value) = [].
 Proof.
@@ -31,13 +43,40 @@ Proof.
  rewrite (unobserved_roots_fail_native_admission options selected (task_current_settings caller) value root Member Unknown).
  split; reflexivity.
 Qed.
-Theorem native_calls_cannot_supply_guidance_observations : forall source selected caller value guidance,
+Theorem native_creation_cannot_supply_guidance_observations : forall source selected caller value guidance,
  field "guidance" source = Some guidance ->
- Tasks.native_settings_bound (Some source) selected caller value = false.
+ Tasks.native_creation_allowed (Some source) selected caller value = false.
 Proof.
- intros; unfold Tasks.native_settings_bound; rewrite H.
- destruct (Workspace.settings_bound selected caller); reflexivity.
+ intros; unfold Tasks.native_creation_allowed; rewrite H.
+ destruct (Workspace.may_delegate selected caller); reflexivity.
 Qed.
+
+(* Native fork runs while its caller's model calls are pending. Unlike creation,
+   it delegates an already resolved selection and does not observe directories. *)
+Theorem a_full_access_native_fork_accepts_any_resolved_child_settings :
+ forall origin id count messages options value task selected remaining,
+ find_task id value = Some task ->
+ task_lifecycle task = Running (PendingCalls remaining) [] ->
+ TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) = true ->
+ TaskConstraints.fork_messages_valid count (List.length messages) = true ->
+ Tasks.ancestors_fit (id :: task_lineage task) count value = true ->
+ Tasks.resolve_settings (task_current_profile task) options (Tasks.fork_settings_base origin task value) value = Some selected ->
+ Tasks.no_resource_observation options = true ->
+ settings_approval (task_current_settings task) = FullAccess ->
+ bool_default "ok" (decision_reply (Tasks.fork_with_caller true origin id count messages options value)) false = true /\
+ decision_world (Tasks.fork_with_caller true origin id count messages options value) =
+   Tasks.fork_children (N.to_nat count) id task messages selected value.
+Proof.
+ intros origin id count messages options value task selected remaining
+   Found Pending Count Messages Capacity Resolved Observed Full.
+ unfold Tasks.fork_with_caller,Tasks.fork_parent_ready; rewrite Found.
+ unfold task_status; rewrite Pending, orb_true_r.
+ cbn [String.eqb negb andb].
+ rewrite Count, Messages, Capacity, Resolved.
+ unfold Workspace.may_delegate; rewrite Full, Observed; cbn [negb andb].
+ destruct (allocate_ticket value); split; reflexivity.
+Qed.
+
 (* No catalog-membership premise is needed: the actual authorization request
    carries the reviewer frozen in task settings, including across reloads. *)
 Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation remaining task value reviewer,
@@ -46,7 +85,10 @@ Theorem actual_approval_uses_the_frozen_reviewer : forall id tool invocation rem
  text_default "sandbox_permissions" (call_arguments invocation) "use_default" = "require_escalated" ->
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  decision_effects (Scheduler.start_external id tool invocation remaining task value) =
- [RequestApproval id (world_next_ticket value) reviewer invocation task].
+ [RequestApproval id (world_next_ticket value) reviewer invocation
+   (Tasks.promote (Scheduler.append_operation
+     (Operation (world_next_ticket value) invocation false
+       (AwaitingApproval (world_next_ticket value) (ModelReviewer reviewer))) remaining task))].
 Proof.
  intros id tool invocation remaining task value reviewer Room Bash Elevated Policy.
  unfold Scheduler.start_external; rewrite Room, Bash, Elevated; cbn.
@@ -54,13 +96,14 @@ Proof.
 Qed.
 
 (* An announcement closes the provider call's immediate obligation. The
-   underlying external operation may remain live during independent inference. *)
+   underlying external operation may remain live during independent inference;
+   queued input is promoted before that turn observes and captures context. *)
 Theorem announced_operations_allow_an_independent_model_turn : forall execute id task value operations,
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
- decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations task)].
+ decision_effects result = [ObserveContext id (world_next_ticket value) (Scheduler.publish_operations (Tasks.promote task))].
 Proof.
  intros execute id task value operations Phase NoReady.
  unfold Scheduler.task_step; rewrite Phase, NoReady.
@@ -106,14 +149,15 @@ Proof.
  { unfold append_history; rewrite app_nil_r; destruct task; reflexivity. }
  change (task_lifecycle (Callbacks.settle_model (append_history [] task)) = Running WantsModel operations).
  rewrite NoOutput. unfold Callbacks.settle_model; rewrite Unseen.
- unfold with_activity; rewrite Phase; reflexivity.
+ destruct task as [contract chosen settings lifecycle history queued lineage parent cursor consumed].
+ cbn in Phase; subst lifecycle; destruct queued; reflexivity.
 Qed.
 
 (** These certificates concern the catalog consumed by the actual native
     dispatcher: no declaration disappears and no tool name shadows another. *)
-Theorem production_native_names_are_unique :
- NoDup (map Selvedge.Kernel.Domain.tool_name Selvedge.Kernel.NativeTools.catalog).
-Proof. vm_compute. repeat (apply NoDup_cons; [simpl; intuition discriminate|]); apply NoDup_nil. Qed.
+Theorem production_native_names_are_unique : forall maximum,
+ NoDup (map Selvedge.Kernel.Domain.tool_name (Selvedge.Kernel.NativeTools.catalog maximum)).
+Proof. intros maximum; vm_compute. repeat (apply NoDup_cons; [simpl; intuition discriminate|]); apply NoDup_nil. Qed.
 Theorem production_native_bindings_are_registered : forall binding,
  In binding Selvedge.Kernel.NativeTools.bindings ->
  exists specification, In specification Selvedge.Kernel.Commands.command_specs /\

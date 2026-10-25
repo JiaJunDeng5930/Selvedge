@@ -6,7 +6,7 @@ Theorem a_prepared_model_request_has_an_unarchived_owner :
  forall value effects id ticket model captured scope reserve,
  let '(committed,requests) := Dispatch.prepare value effects in
  In (RequestModel id ticket model captured scope reserve) requests ->
- exists owner, find_task id committed = Some owner /\ task_lifecycle owner <> Archived.
+ exists owner, find_task id committed = Some owner /\ task_archived owner = false.
 Proof.
  intros value effects id ticket model captured scope reserve.
  unfold Dispatch.prepare. destruct (Dispatch.capture_requests effects value) as [committed requests].
@@ -14,7 +14,7 @@ Proof.
  cbn [Dispatch.live_request Dispatch.request_coordinate] in Live.
  destruct (find_task id committed) as [owner|] eqn:Owned; [|discriminate].
  exists owner; split; [reflexivity|].
- destruct (task_lifecycle owner); discriminate.
+ unfold task_archived. destruct (task_lifecycle owner); try reflexivity; discriminate.
 Qed.
 Theorem a_prepared_result_callback_has_its_current_operation_right :
  forall value effects id ticket operation plugin invocation result error,
@@ -42,7 +42,7 @@ Theorem the_actual_scheduler_never_dispatches_a_model_for_an_archived_owner :
  forall execute permitted before id ticket model captured scope reserve,
  let result := Scheduler.run execute permitted before in
  In (RequestModel id ticket model captured scope reserve) (decision_effects result) ->
- exists owner, find_task id (decision_world result) = Some owner /\ task_lifecycle owner <> Archived.
+ exists owner, find_task id (decision_world result) = Some owner /\ task_archived owner = false.
 Proof.
  intros execute permitted before id ticket model captured scope reserve.
  unfold Scheduler.run.

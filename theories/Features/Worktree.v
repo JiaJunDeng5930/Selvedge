@@ -10,14 +10,19 @@ Definition lookup (id:N) (value:world) := find (fun tree=>N.eqb id (Selvedge.Fea
 Definition store (tree:Selvedge.Features.Domain.worktree) (value:world) := Selvedge.Kernel.State.with_features
  (Selvedge.Features.State.with_worktrees (tree::filter (fun previous=>negb (N.eqb (Selvedge.Features.Domain.worktree_task tree) (Selvedge.Features.Domain.worktree_task previous))) (Selvedge.Features.Domain.feature_worktrees (world_features value))) (world_features value)) value.
 Definition primary (space:workspace) := match workspace_primary space with Some root=>root | None=>"" end.
-Definition archived (task:task) := match task_lifecycle task with Archived=>true | _=>false end.
+Definition archived (task:task) := match task_lifecycle task with Archived _=>true | _=>false end.
 Definition inside (root path:string) := String.eqb root path || String.prefix (String.append root "/") path.
 Definition any_inside (root:string) (roots:list string) := existsb (inside root) roots.
 Definition task_uses_root (root:string) (task:task) :=
  any_inside root (workspace_roots (settings_workspace (contract_settings (task_contract task)))).
 Definition job_uses_root (root:string) (job:Selvedge.Features.Domain.connection_job) :=
  match Selvedge.Features.Domain.job_state job with Selvedge.Features.Domain.JobRunning=>
- any_inside root (workspace_roots (Selvedge.Features.Domain.job_workspace job)) | _=>false end.
+ match Selvedge.Features.Domain.job_resource job with
+ | None => any_inside root (workspace_roots (Selvedge.Features.Domain.job_workspace job)) | Some _ => false end | _=>false end.
+Definition job_uses_resource (owner : N) (job : Selvedge.Features.Domain.connection_job) :=
+ match Selvedge.Features.Domain.job_state job with
+ | Selvedge.Features.Domain.JobRunning => Workspace.same_resource (Selvedge.Features.Domain.job_resource job) (Some owner)
+ | _ => false end.
 Definition root_unused (owner:N) (root:string) (value:world) :=
  let resource:=lookup owner value in
  let uses:=fun task=>match resource with
@@ -29,13 +34,24 @@ Definition root_unused (owner:N) (root:string) (value:world) :=
  | None=>task_uses_root root task end in
  forallb (fun pair=>N.eqb owner (fst pair) || archived (snd pair) || negb (uses (snd pair)))
  (indexed (fun id task=>(id,task)) 0 (world_tasks value)) &&
- match resource with Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then true else
+ match resource with Some tree=>if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
+ forallb (fun pair=>negb (job_uses_resource owner (snd pair)))
+ (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) else
  forallb (fun pair=>negb (job_uses_root root (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value)))
  | None=>forallb (fun pair=>negb (job_uses_root root (snd pair)))
  (Selvedge.Features.Domain.sharing_jobs (Selvedge.Features.Domain.feature_sharing (world_features value))) end.
+Definition bound_tasks_unused (owner : N) (value : world) :=
+ forallb (fun entry => N.eqb owner (fst entry) || archived (snd entry) ||
+  negb (Workspace.same_resource (settings_resource (contract_settings (task_contract (snd entry)))) (Some owner)))
+  (indexed (fun id task => (id,task)) 0 (world_tasks value)).
 Definition archive_allowed (id:N) (value:world) := match lookup id value with
- | Some tree=>match Selvedge.Features.Domain.worktree_root tree with Some root=>root_unused id root value | None=>true end | None=>true end.
+ | Some tree=>match Selvedge.Features.Domain.worktree_root tree with
+   | Some root=>root_unused id root value
+   | None=>match Selvedge.Features.Domain.worktree_phase tree with
+     | Selvedge.Features.Domain.TreeCreating _=>bound_tasks_unused id value
+     | _=>true end end
+ | None=>true end.
 Definition pending (tree:Selvedge.Features.Domain.worktree) := match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreating _|Selvedge.Features.Domain.TreeArchiving _ _=>true | _=>false end.
 Definition execution_allowed (id:N) (value:world) := match WorkspaceBinding.for_task id value with Some tree=>match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeCreateFailed _ _=>false | _=>true end | None=>true end.
 Definition execution_ready (id:N) (value:world) := match WorkspaceBinding.for_task id value with
@@ -99,7 +115,25 @@ Definition create (name:string) (effort:option string) (contents:content) (setti
  let result:=CommandExecution.create_in_context name effort contents settings false caller value in
  if managed then initialize value result else result.
 Definition effective := WorkspaceBinding.for_task.
+Definition resolve_workspace (space : option json) (project_id : option N) (value : world) :=
+ let selected := match space with
+ | Some source => match parse_workspace source with
+   | Some space => WorkspaceBinding.select_resource space value | None => None end
+ | None => match project_id with
+   | Some id => match registry_at id (world_projects value) with
+     | Some project => if negb (project_deleted project) &&
+         WorkspaceBinding.resource_ready (project_workspace project) (project_resource project) value
+       then Some (project_resource project) else None
+     | None => None end
+   | None => None end end in
+ match selected with
+ | Some owner => Selvedge.Kernel.State.success (JObject [("resource",WorkspaceBinding.reference_execution owner value);("workspace_binding",workspace_binding_json owner)])
+ | None => Selvedge.Kernel.State.failure "workspace_unavailable" "The workspace does not select one available execution environment"
+ end.
 Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
+ | Selvedge.Generated.Commands.Cmd_resolve_workspace request=>Some (resolve_workspace
+   (Selvedge.Generated.Commands.resolve_workspace_workspace request)
+   (Selvedge.Generated.Commands.resolve_workspace_project_id request) value)
  | Selvedge.Generated.Commands.Cmd_list_worktrees _=>Some (Selvedge.Kernel.State.success (JObject [("worktrees",JArray (map Observation.worktree_json (Selvedge.Features.Domain.feature_worktrees (world_features value))))]))
  | Selvedge.Generated.Commands.Cmd_read_worktree p=>Some (match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.read_worktree_task_id p) value with None=>Selvedge.Kernel.State.failure "task_not_found" "Task does not exist." | Some _=>match effective (Selvedge.Generated.Commands.read_worktree_task_id p) value with Some tree=>Selvedge.Kernel.State.success (Observation.worktree_json tree) | None=>Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist." end end)
  | _=>None end.
@@ -128,13 +162,12 @@ Definition create_in_work (work:option N) (run:world->decision) (value:world) :=
 Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
  | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>
    if WorkspaceBinding.cloud_task (Selvedge.Generated.Commands.configure_task_execution_task_id p) value then
-   Some (match parse_sandbox (Selvedge.Generated.Commands.configure_task_execution_sandbox p) with
-    | Some sandbox=>Tasks.configure_execution_with WorkspaceBinding.cloud_settings
+   Some (Tasks.configure_execution_with WorkspaceBinding.cloud_settings
       (Selvedge.Generated.Commands.configure_task_execution_task_id p)
       (Selvedge.Generated.Commands.configure_task_execution_profile p)
-      (Selvedge.Generated.Commands.configure_task_execution_reasoning p) sandbox
-      (Selvedge.Generated.Commands.configure_task_execution_approval p) value
-    | None=>Selvedge.Kernel.State.reject "invalid_settings" "Sandbox settings do not satisfy the domain protocol" value end)
+      (Selvedge.Generated.Commands.configure_task_execution_reasoning p)
+      (Selvedge.Generated.Commands.configure_task_execution_sandbox p)
+      (Selvedge.Generated.Commands.configure_task_execution_approval p) value)
    else None
  | Selvedge.Generated.Commands.Cmd_create p=>Some (CommandExecution.with_content (Selvedge.Generated.Commands.create_message p) (Selvedge.Generated.Commands.create_images p)
    (fun contents=>create_selected (Selvedge.Generated.Commands.create_profile p) (Selvedge.Generated.Commands.create_reasoning p) contents (Selvedge.Generated.Commands.create_settings p) false caller None value) value)
@@ -149,24 +182,36 @@ Definition command (command:Selvedge.Generated.Commands.command) (caller:option 
    (fun contents=>create (Selvedge.Generated.Commands.create_worktree_task_profile p) (Selvedge.Generated.Commands.create_worktree_task_reasoning p) contents (Selvedge.Generated.Commands.create_worktree_task_settings p) caller true value) value)
  | Selvedge.Generated.Commands.Cmd_create_work_task p=>Some (Work.create_owned (Selvedge.Generated.Commands.create_work_task_work_id p)
    (fun current=>CommandExecution.with_content (Selvedge.Generated.Commands.create_work_task_message p) (Selvedge.Generated.Commands.create_work_task_images p)
-   (fun contents=>create (Selvedge.Generated.Commands.create_work_task_profile p) (Selvedge.Generated.Commands.create_work_task_reasoning p) contents (Selvedge.Generated.Commands.create_work_task_settings p) caller
-   (match Selvedge.Generated.Commands.create_work_task_create_worktree p with Some enabled=>enabled | None=>false end) current) current) value)
+   (fun contents=>create_selected (Selvedge.Generated.Commands.create_work_task_profile p) (Selvedge.Generated.Commands.create_work_task_reasoning p) contents (Selvedge.Generated.Commands.create_work_task_settings p) false caller
+   (Selvedge.Generated.Commands.create_work_task_create_worktree p) current) current) value)
  | Selvedge.Generated.Commands.Cmd_retry_worktree_archive p=>Some (retry (Selvedge.Generated.Commands.retry_worktree_archive_task_id p) value)
  | _=>None end.
 Definition selected_workspace (target:string) (space:workspace) := match workspace_primary space with
  | None=>space | Some source=>Workspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) end.
 Definition selected_settings (space:workspace) (guidance:json) (settings:task_settings) := Settings space (settings_project settings)
  (settings_sandbox settings) (settings_approval settings) guidance (settings_worktree settings) (settings_resource settings).
-Definition completed_task (space:workspace) (guidance:json) (task:task) :=
+Definition install_workspace (phase : lifecycle) (space:workspace) (guidance:json) (task:task) :=
  let old:=task_contract task in
  let frozen:=selected_settings (selected_workspace (primary space) (settings_workspace (contract_settings old))) guidance (contract_settings old) in
  let chosen:=selected_settings space guidance (task_current_settings task) in
  let contract:=Contract (contract_profile old) (contract_tools old) frozen (contract_max_fork old) (contract_max_descendants old) (contract_plugins old) (contract_reviewers old) in
- let phase:=match task_lifecycle task with Frozen activity operations=>Running activity operations | other=>other end in
  Tasks.promote (Task contract (task_current_profile task) chosen phase
  (task_history task ++ [SettingsMessage chosen (profile_key (task_current_profile task)) (profile_reasoning (task_current_profile task))])
  (task_queued task) (task_lineage task) (task_side_parent task) (task_side_cursor task) (task_model_cursor task)).
-Definition failed_task (message:string) (task:task) := with_lifecycle (if archived task then Archived else Stopped Idle []) (append_history [FailureMessage message] task).
+Definition completed_task (space : workspace) (guidance : json) (task : task) :=
+ install_workspace (match task_lifecycle task with Frozen activity operations=>Running activity operations
+  | other=>other end) space guidance task.
+(* A side or native child can inherit the pending environment before its
+   physical root exists. Setup selects that root for every live binding before
+   the scheduler captures any of their first model requests. *)
+Definition complete_binding (owner id : N) (space : workspace) (guidance : json) (task : task) :=
+ if N.eqb owner id || archived task then task else
+ if Workspace.same_resource (settings_resource (contract_settings (task_contract task))) (Some owner)
+ then install_workspace (task_lifecycle task) space guidance task else task.
+Definition complete_bindings (owner : N) (space : workspace) (guidance : json) (value : world) :=
+ Selvedge.Kernel.State.with_tasks
+  (indexed (fun id task => complete_binding owner id space guidance task) 0 (world_tasks value)) value.
+Definition failed_task (message:string) (task:task) := with_lifecycle (if archived task then task_lifecycle task else Stopped Idle []) (append_history [FailureMessage message] task).
 Definition created_valid (root:string) (space:workspace) (guidance:json) (task:task) :=
  Workspace.valid_path root && Workspace.valid_workspace space && Workspace.valid_path (primary space) && inside root (primary space) &&
  match Json.equal (workspace_json space) (workspace_json (selected_workspace (primary space) (settings_workspace (task_current_settings task)))) with
@@ -178,7 +223,8 @@ Definition created (tree:Selvedge.Features.Domain.worktree) (ok:bool) (root:opti
  if success then match root,space with Some root,Some space=>
  let ready:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeReady root (primary space)) tree in
  if archived task then archive_tree ready (store ready value)
- else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store ready (Selvedge.Kernel.State.put_task id (completed_task space guidance task) value)) []
+ else Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) (store ready (Selvedge.Kernel.State.put_task id (completed_task space guidance task)
+   (complete_bindings id space guidance value))) []
  | _,_=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool false)]) value [] end
  else let reason:=if ok then "Worktree creation returned an invalid workspace or guidance" else message in
  let failed:=Selvedge.Features.Domain.with_worktree_phase (Selvedge.Features.Domain.TreeCreateFailed root reason) tree in
@@ -193,7 +239,12 @@ Definition completion (source:json) (value:world) :option (bool*bool*decision) :
  let space:=match field "workspace" source with Some source=>parse_workspace source | None=>None end in
  let guidance:=value_or_null "guidance" source in
  let valid:=if ok then shape [Field "kind" KText;Field "task_id" KNatural;Field "ok" KBool;Field "root" KText;Field "workspace" KJson;Field "guidance" KJson] source &&
- match root,space with Some root,Some _=>Workspace.valid_path root && Codec.valid_guidance guidance | _,_=>false end
+ match root,space with Some root,Some observed=>
+   Workspace.valid_path root && Codec.valid_guidance guidance && Codec.guidance_member observed guidance &&
+   match field "workspace" source with
+   | Some workspace=>match string_field "primary_root" workspace with Some _=>true | None=>false end
+   | None=>false end
+ | _,_=>false end
  else shape [Field "kind" KText;Field "task_id" KNatural;Field "ok" KBool;Field "root" (KOptional KText);Field "message" KText] source &&
  match root with Some root=>Workspace.valid_path root | None=>true end in
  if negb valid then None else Some (true,true,match lookup id value with
@@ -218,25 +269,96 @@ Definition archive_after (tree:Selvedge.Features.Domain.worktree) (result:decisi
 Definition after_transition (_before:world) (result:decision) := fold_left (fun current tree=>archive_after tree current) (Selvedge.Features.Domain.feature_worktrees (world_features (decision_world result))) result.
 Definition recover (value:world) := value.
 Definition cloud_options_allowed (id : N) (settings : option json) (value : world) :=
- negb (WorkspaceBinding.cloud_task id value) || match settings with
+ negb (WorkspaceBinding.cloud_task id value) ||
+ (* DEFENSE: A supplied observation could otherwise change a cloud fork's
+    environment without a workspace or project override. Forks inherit it. *)
+ (Tasks.no_resource_observation settings && match settings with
  | None=>true | Some settings=>Json.equal (value_or_null "workspace" settings) JNull &&
-  Json.equal (value_or_null "project_id" settings) JNull end.
+  Json.equal (value_or_null "project_id" settings) JNull end).
+Definition failed_execution (value : world) := Selvedge.Kernel.State.reject "worktree_creation_failed"
+ "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace." value.
+Definition execution_guard (id : N) (value : world) : option decision :=
+ if execution_allowed id value then None else Some (failed_execution value).
 Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision :=
  match command with
+ | Selvedge.Generated.Commands.Cmd_send p=>
+   execution_guard (Selvedge.Generated.Commands.send_task_id p) value
+ | Selvedge.Generated.Commands.Cmd_steer p=>
+   execution_guard (Selvedge.Generated.Commands.steer_task_id p) value
+ | Selvedge.Generated.Commands.Cmd_open_side_conversation p=>
+   execution_guard (Selvedge.Generated.Commands.open_side_conversation_task_id p) value
+ | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>
+   let id:=Selvedge.Generated.Commands.configure_task_execution_task_id p in
+   match execution_guard id value with
+   | Some refused=>Some refused
+   | None=>match lookup id value with
+     | Some tree=>if pending tree then Some (Selvedge.Kernel.State.reject "worktree_pending"
+       "Wait for worktree creation or archive the task before changing its execution" value) else None
+     | None=>None end end
+ | Selvedge.Generated.Commands.Cmd_accept_speech_delegation p=>
+   let id:=Selvedge.Generated.Commands.accept_speech_delegation_task_id p in
+   if execution_allowed id value then None else
+   (* An already committed delegation remains an idempotent read after setup
+      failure; a new delegation must obey the same execution gate as send. *)
+   let replay:=CommandExecution.speech_delegation id
+     (Selvedge.Generated.Commands.accept_speech_delegation_session_id p)
+     (Selvedge.Generated.Commands.accept_speech_delegation_delegation_id p)
+     (proj1_sig (Selvedge.Generated.Commands.accept_speech_delegation_mode p))
+     (Selvedge.Generated.Commands.accept_speech_delegation_message p) value in
+   if bool_default "replayed" (value_or_null "result" (decision_reply replay)) false
+     then Some replay else Some (failed_execution value)
+ | Selvedge.Generated.Commands.Cmd_return_side_conversation p=>
+   match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.return_side_conversation_task_id p) value with
+   | Some side=>match task_side_parent side with
+     | Some parent=>
+       (* DEFENSE: A side can be opened while its parent's workspace is creating;
+          a later setup failure must not consume that side's return cursor. *)
+       if execution_allowed parent value
+         then execution_guard (Selvedge.Generated.Commands.return_side_conversation_task_id p) value
+         else Some (failed_execution value)
+     | None=>None end
+   | None=>None end
  | Selvedge.Generated.Commands.Cmd_fork p=>
    if cloud_options_allowed (Selvedge.Generated.Commands.fork_task_id p) (Selvedge.Generated.Commands.fork_settings p) value then
      if execution_allowed (Selvedge.Generated.Commands.fork_task_id p) value then None
-     else Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value)
+     else Some (failed_execution value)
    else Some (Selvedge.Kernel.State.reject "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment" value)
  | _=>
  let request:=match command with
  | Selvedge.Generated.Commands.Cmd_freeze p=>Some (Selvedge.Generated.Commands.freeze_task_id p,Tasks.Freeze) | Selvedge.Generated.Commands.Cmd_unfreeze p=>Some (Selvedge.Generated.Commands.unfreeze_task_id p,Tasks.Unfreeze)
  | Selvedge.Generated.Commands.Cmd_stop p=>Some (Selvedge.Generated.Commands.stop_task_id p,Tasks.Stop) | Selvedge.Generated.Commands.Cmd_interrupt p=>Some (Selvedge.Generated.Commands.interrupt_task_id p,Tasks.Interrupt)
  | Selvedge.Generated.Commands.Cmd_archive p=>Some (Selvedge.Generated.Commands.archive_task_id p,Tasks.Archive) | _=>None end in
- match request with Some (id,action)=>if control_allowed action id value then None else Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value) | None=>None end end.
+ match request with Some (id,action)=>
+   match action with
+   | Tasks.Archive=>if control_allowed action id value then None else
+     Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value)
+   | _=>match execution_guard id value with
+     | Some refused=>Some refused
+     | None=>if control_allowed action id value then None else
+       Some (Selvedge.Kernel.State.reject "worktree_pending"
+         "Wait for worktree creation or archive the task before changing its execution" value)
+     end end
+ | None=>None end end.
+Definition binding_available (settings:task_settings) (value:world) :=
+ match settings_resource settings with
+ | None=>true
+ | Some owner=>match lookup owner value with
+   | Some tree=>match Selvedge.Features.Domain.worktree_phase tree with
+     | Selvedge.Features.Domain.TreeCreating false | Selvedge.Features.Domain.TreeReady _ _=>true
+     | _=>false end
+   | None=>false end end.
 Definition guard_result (before:world) (result:decision) :=
- if forallb (fun pair=>match Selvedge.Kernel.State.find_task (fst pair) before with
- | Some old=>if Json.equal (workspace_json (settings_workspace (task_current_settings old))) (workspace_json (settings_workspace (task_current_settings (snd pair)))) then true else workspace_available (settings_workspace (task_current_settings (snd pair))) before
- | None=>workspace_available (settings_workspace (task_current_settings (snd pair))) before end)
+ (* DEFENSE: Native creation can select a project whose retained resource was
+    archived after the project was saved. Only a new or changed selection is
+    admitted here; existing bindings remain available for failure cleanup. *)
+ if forallb (fun pair=>
+ let selected:=task_current_settings (snd pair) in
+ let available:=workspace_available (settings_workspace selected) before &&
+   binding_available selected (decision_world result) in
+ match Selvedge.Kernel.State.find_task (fst pair) before with
+ | Some old=>if Json.equal (workspace_json (settings_workspace (task_current_settings old))) (workspace_json (settings_workspace selected)) &&
+   Workspace.same_resource (settings_resource (task_current_settings old)) (settings_resource selected)
+   then true else available
+ | None=>available end)
  (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) then result
  else Selvedge.Kernel.State.reject "worktree_unavailable" "The selected workspace belongs to an unavailable managed worktree" before.

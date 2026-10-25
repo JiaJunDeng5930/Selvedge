@@ -30,8 +30,8 @@ instead of creating another styling or measurement protocol.
 Let intrinsic sizing and fractional CSS dimensions replace saturated integral
 pixel allocation. A bounded reading scrollport and reachable composer preserve
 conversation access across wide and narrow windows. Narrow navigation retains
-access to the same commands through native scrolling rather than the old
-compact-menu geometry. Retire the unused measurement jobs, probe trees and
+access to the same commands through a native drawer with a return control and
+restored reading position. Retire the unused measurement jobs, probe trees and
 allocation algebra together with proofs specific to that removed engine.
 
 Charts retain source values and row order in an accessible table. Require

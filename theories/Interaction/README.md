@@ -43,7 +43,22 @@ boundaries. IO success is an observation correlated with a request, not a proof
 that the external service fulfilled a business goal. Model judgments are external
 inputs. Static field typing does not replace validation of these inputs.
 
-The source inventory and integration handoff are maintained outside version
-control in `.workpad/interaction-files.json` and
-`.workpad/interaction-handoff.md`. They distinguish checked library modules from
-final extraction and full-system acceptance.
+Project pages retain their own directories, primary directory, guidance and member
+Tasks. Navigation keeps global destinations separate from Work tabs and the Task
+tree. The physical browser can move the unique navigation header into an expanded
+narrow Task-list dialog; global and Work overview panels still use the ordinary
+layer stack and return to their actual launchers.
+
+Message authoring and committed execution settings have separate owners. Applying
+an execution choice rebases that choice on the latest Task instead of resubmitting
+a cached message configuration; changing the model cannot advance the message's
+revision or overwrite its text. Main and side presentations of the same Task keep
+one document lifetime while native keys and captured return targets identify the
+actual presentation. Closing a supporting window therefore restores its launcher
+without making a second document source or asking the IO host to guess an owner.
+
+Object menus request admission from the same kernel boundary used by committed
+commands. An available native menu action requires the observation for that
+subject, action, menu occurrence and world sequence; the committed command is
+still resolved by the service. Directory preparation supplies a workspace intent,
+while the service observes root guidance at its trusted submission boundary.

@@ -49,6 +49,16 @@ Definition replacement_suffix effect := if eq effect "kind" "model" then
   match Common.natural (get effect "context_replacement_source") with
   | Some index => ":context:" ++ decimal index | None => "" end else "".
 Definition successor_body id input := JObject [("previous_response_id",id);("input",JArray input);("stream",JBool true)].
+(* DEFENSE: Protocol JSON may contain duplicate members or unpaired Unicode
+   escapes. These violate the domain contract even when JSON syntax parses. *)
+Definition domain_json_failure source :=
+  match TextJson.json_value (S (String.length source)) source with
+  | TextJson.Invalid reason => existsb (String.eqb reason)
+      ["Duplicate object key";"Unpaired Unicode surrogate";"Invalid Unicode scalar"]
+  | _ => false
+  end.
 Definition decode_text source := match TextJson.parse_json source with
   | Some value => success value
-  | None => failure "SyntaxError" "Invalid ChatGPT Web JSON" end.
+  | None => if domain_json_failure source
+      then err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode"
+      else failure "SyntaxError" "Invalid ChatGPT Web JSON" end.

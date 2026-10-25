@@ -36,16 +36,16 @@ Definition selected_profile (task:task) (value:world) :=
  match find (fun p=>String.eqb (profile_provider current) "chatgpt" && negb (String.eqb prefix "") && String.prefix prefix (profile_key p) && String.eqb (profile_provider p) "chatgpt" && String.eqb (profile_model p) "gpt-5.6-luna" && ordinary p) configured with
  | Some chosen=>Some chosen | None=>fallback end.
 Definition prompt := Titles.prompt_with.
-Definition accepts (task:task) := match task_lifecycle task with Running _ _|Frozen _ _=>true | _=>false end.
+Definition accepts (task:task) := match task_lifecycle task with Archived _=>false | _=>true end.
 Definition start (id:N) (task:task) (result:decision) :decision :=
  let value:=decision_world result in
  match entry id value with Some _=>result | None=>
  let request:=first_request (task_history task) in
  if negb (accepts task && Utf8.nonblank request) then result else
  match selected_profile task value with None=>result | Some selected=>
- let ticket:=world_next_ticket value in
+ let '(ticket,allocated):=Selvedge.Kernel.State.allocate_ticket value in
  let source:=prompt (Selvedge.Features.Domain.title_agent_prompt (Selvedge.Features.Domain.feature_title_settings (world_features value))) request in
- Selvedge.Kernel.State.Decision (store id (Selvedge.Features.Domain.TitlePending ticket selected source) (Selvedge.Kernel.State.with_ticket (N.succ ticket) value)) (decision_reply result)
+ Selvedge.Kernel.State.Decision (store id (Selvedge.Features.Domain.TitlePending ticket selected source) allocated) (decision_reply result)
  (decision_effects result ++ [Selvedge.Kernel.State.SuggestTitle id ticket selected source]) end end.
 Definition after_transition (_before:world) (result:decision) :=
  fold_left (fun current pair=>start (fst pair) (snd pair) current) (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) result.

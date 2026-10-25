@@ -1,4 +1,5 @@
 .workpad/
+.DS_Store
 .build/
 node_modules/
 *.vo

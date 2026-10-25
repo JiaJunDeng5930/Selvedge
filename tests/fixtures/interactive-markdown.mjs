@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,7 +26,7 @@ function json(response, value, status = 200) {
 
 /** A real service whose only fake boundary is the explicitly controlled model HTTP peer. */
 export async function interactiveMarkdownFixture() {
-  const root = await mkdtemp(path.join(tmpdir(), 'selvedge-interactive-browser-'));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'selvedge-interactive-browser-')));
   const requests = [];
   const failures = [];
   const peers = new Set();
@@ -64,8 +64,8 @@ export async function interactiveMarkdownFixture() {
       provider: 'responses', model: 'interactive-fixture', endpoint, api_key_env: apiKey,
     } },
   });
-  const open = async (home, port = config.port) => {
-    const opened = await startServer({ home, config: { ...config, port }, cwd: root });
+  const open = async (home, port = config.port, profiles = config.profiles) => {
+    const opened = await startServer({ home, config: validateConfig({ ...config, port, profiles }), cwd: root });
     const sockets = new Set();
     opened.server.on('connection', socket => {
       sockets.add(socket);
@@ -109,11 +109,11 @@ export async function interactiveMarkdownFixture() {
     request.response.end();
   }
   async function command(value) { return running.service.command(value); }
-  async function restart({ differentNamespace = false } = {}) {
+  async function restart({ differentNamespace = false, profiles = config.profiles } = {}) {
     const port = Number(new URL(running.address).port);
     await running.close();
     if (differentNamespace) home = path.join(root, `other-state-${Date.now()}`);
-    running = await open(home, port);
+    running = await open(home, port, profiles);
     return status();
   }
   const control = http.createServer((request, response) => {

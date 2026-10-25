@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json Arguments.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes.
 Import ListNotations.
@@ -37,12 +37,27 @@ Record task_settings := Settings {
   settings_worktree : bool;
   settings_resource : option N
 }.
+(* The source owns the argument contract: native commands use their declaration,
+   extensions use our decidable schema fragment, and MCP delegates the complete
+   advertised JSON Schema to its server. Wire metadata is only a projection. *)
+Inductive tool_source :=
+| NativeToolSource (parameters : list argument_spec) (program : json)
+| ExtensionToolSource (parameters reference : json) (remote : string)
+| McpToolSource (parameters : json) (server remote : string).
 Record tool := Tool {
   tool_name : string;
   tool_description : string;
-  tool_schema : json;
-  tool_metadata : json
+  tool_origin : tool_source
 }.
+Definition tool_schema (value : tool) := match tool_origin value with
+| NativeToolSource parameters _ => Arguments.json_schema parameters
+| ExtensionToolSource parameters _ _ | McpToolSource parameters _ _ => parameters
+end.
+Definition tool_metadata (value : tool) := match tool_origin value with
+| NativeToolSource _ program => JObject [("kind",JString "native");("program",program)]
+| ExtensionToolSource _ reference remote => JObject [("plugin",reference);("name",JString remote)]
+| McpToolSource _ server remote => JObject [("server",JString server);("name",JString remote)]
+end.
 Record environment := Environment {
   environment_profiles : list profile;
   environment_tools : list tool;
@@ -76,13 +91,19 @@ Fixpoint content_text (parts : content) := match parts with
  | ImagePart _ :: rest => String.append "
 [Image]
 " (content_text rest) end.
-Record call := Call { call_id : string; call_name : string; call_arguments : json }.
+Inductive call_attempt := InitialAttempt | RecoveryAttempt.
+(* A fork copies accepted calls, but never duplicates external execution rights. *)
+Record call := Call { call_id : string; call_name : string; call_arguments : json;
+ call_origin : call_attempt }.
+Definition recovery_call (value : call) :=
+ Call (call_id value) (call_name value) (call_arguments value) RecoveryAttempt.
 Inductive model_item := TextItem (part : N) (text : string)
  | CallItem (invocation : call) | ContextItem (part : N) (value : json).
 Inductive speaker := UserSpeaker | AssistantSpeaker.
 Inductive speech_completion := SpeechCompleted | SpeechInterrupted.
 Inductive output_mode := PlainOutput | InteractiveOutput.
 Record output_origin := OutputOrigin { origin_producer : N; origin_operation : N; origin_part : N; origin_mode : output_mode }.
+Inductive reviewer := HumanReviewer | ModelReviewer (profile : profile).
 Inductive message :=
 | InstructionMessage (source : string) (value : json)
 | SettingsMessage (settings : task_settings) (profile reasoning : string)
@@ -98,15 +119,15 @@ Inductive message :=
 | ModelContext (origin : output_origin) (value : json)
 | ContextReplacement (value : json)
 | ContextObservation (change : context_change)
+| SideConversationBirth (owner parent start : N)
 | SpeechTranscript (owner : N) (session item : string) (who : speaker) (completion : speech_completion) (text : string)
 | SpeechDelegation (owner : N) (session delegation mode text : string)
 | HookReceipt (owner : N) (invocation : call) (plugin outcome : json)
-| ApprovalReceipt (owner operation : N) (invocation : call) (outcome : json)
+| ApprovalReceipt (owner operation : N) (invocation : call) (reviewed_by : reviewer) (outcome : json)
 | ToolReceipt (owner operation : N) (invocation : call) (result : json) (error : bool)
 | AfterReceipt (owner operation : N) (plugin outcome : json)
 | ForkReceipt (owner : N) (invocation : call) (branch : N).
 
-Inductive reviewer := HumanReviewer | ModelReviewer (profile : profile).
 Inductive operation_state :=
 | Executing (ticket : N)
 | AwaitingApproval (ticket : N) (reviewer_value : reviewer)
@@ -124,20 +145,20 @@ Inductive activity :=
 | Idle
 | WantsModel
 | ReadyForModel
-| ObservingContext (ticket : N)
+| ObservingContext (ticket : N) (source_length : nat)
 | AskingModel (ticket : N) (callable : list string) (mode : output_mode)
 | EvaluatingReasoning (ticket : N) (source_length : nat)
 | PendingCalls (calls : list call)
 | ReadyForHooks (invocation : call) (pending : list json) (calls : list call)
 | CheckingHook (ticket : N) (plugin : json) (invocation : call) (remaining : list json) (calls : list call).
 
-(** Archived tasks cannot carry an outstanding model request or operations.
-    Stopping discards inference while retaining accepted tool settlements. *)
+(** Archival revokes prior work. The archive command's own synchronous result
+    can subsequently acquire result-processing operations, but no inference. *)
 Inductive lifecycle :=
 | Running (phase : activity) (operations : list operation)
 | Frozen (phase : activity) (operations : list operation)
 | Stopped (phase : activity) (operations : list operation)
-| Archived.
+| Archived (operations : list operation).
 Record task := Task {
   task_contract : contract;
   task_current_profile : profile;
@@ -155,7 +176,9 @@ Record project := Project {
   project_workspace : workspace;
   project_guidance : json;
   project_worktree : bool;
-  project_deleted : bool
+  project_order : N;
+  project_deleted : bool;
+  project_resource : option N
 }.
 
 Definition default_workspace := Workspace [] None.
@@ -166,23 +189,25 @@ Definition empty_environment := Environment [] [] 4 64 JNull [] default_instruct
 Definition task_status (value : task) : string :=
   match task_lifecycle value with
   | Running _ _ => "active" | Frozen _ _ => "frozen"
-  | Stopped _ _ => "stopped" | Archived => "archived"
+  | Stopped _ _ => "stopped" | Archived _ => "archived"
   end.
+Definition task_archived (value : task) :=
+ match task_lifecycle value with Archived _ => true | _ => false end.
 Definition task_activity (value : task) :=
   match task_lifecycle value with
   | Running phase _ | Frozen phase _ | Stopped phase _ => phase
-  | Archived => Idle
+  | Archived _ => Idle
   end.
 Definition task_operations (value : task) :=
   match task_lifecycle value with
-  | Running _ ops | Frozen _ ops | Stopped _ ops => ops | Archived => [] end.
+  | Running _ ops | Frozen _ ops | Stopped _ ops | Archived ops => ops end.
 Definition with_lifecycle (state : lifecycle) (value : task) := set task_lifecycle (fun _ => state) value.
 Definition with_history (history : list message) (value : task) := set task_history (fun _ => history) value.
 Definition with_model_cursor (cursor : nat) (value : task) := set task_model_cursor (fun _ => cursor) value.
 (* Only committed input not included in the latest actual model request can
    demand a later inference; model output and administrative receipts do not. *)
 Definition unseen_model_input (value : task) := existsb (fun item => match item with
- | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ => true | _ => false end)
+ | UserMessage _ | FunctionOutput _ _ _ | OperationResult _ _ _ _ | ApprovalReceipt _ _ _ _ _ => true | _ => false end)
  (skipn (task_model_cursor value) (task_history value)).
 Definition with_queued (queued : list content) (value : task) := set task_queued (fun _ => queued) value.
 Definition with_execution (chosen : profile) (settings : task_settings) (value : task) :=
@@ -195,14 +220,14 @@ Definition with_activity (phase : activity) (value : task) :=
   | Running _ ops => with_lifecycle (Running phase ops) value
   | Frozen _ ops => with_lifecycle (Frozen phase ops) value
   | Stopped _ ops => with_lifecycle (Stopped phase ops) value
-  | Archived => value
+  | Archived _ => value
   end.
 Definition with_operations (ops : list operation) (value : task) :=
   match task_lifecycle value with
   | Running phase _ => with_lifecycle (Running phase ops) value
   | Frozen phase _ => with_lifecycle (Frozen phase ops) value
   | Stopped phase _ => with_lifecycle (Stopped phase ops) value
-  | Archived => value
+  | Archived _ => with_lifecycle (Archived ops) value
   end.
 Definition activity_busy (phase : activity) :=
   match phase with Idle => false | _ => true end.
@@ -211,5 +236,5 @@ Definition task_busy (value : task) :=
 
 Definition activity_name (value : activity) := match value with
  | Idle => "idle" | WantsModel | ReadyForModel | PendingCalls _ => "ready"
- | ObservingContext _ => "context_pending" | AskingModel _ _ _ => "model_pending"
+ | ObservingContext _ _ => "context_pending" | AskingModel _ _ _ => "model_pending"
  | EvaluatingReasoning _ _ => "reasoning_pending" | ReadyForHooks _ _ _ | CheckingHook _ _ _ _ _ => "hook_pending" end.

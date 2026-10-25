@@ -27,7 +27,7 @@ Definition authorized_call (identity : string) (history : list message) :=
  | FunctionCall invocation => if String.eqb identity (call_id invocation) then call_json invocation else previous
  | HookReceipt _ invocation _ outcome =>
    if String.eqb identity (call_id invocation) then match string_field "decision" outcome with
-   | Some "rewrite" => call_json (Call identity (call_name invocation) (value_or_null "arguments" outcome))
+   | Some "rewrite" => call_json (Call identity (call_name invocation) (value_or_null "arguments" outcome) (call_origin invocation))
    | Some "allow" => call_json invocation | _ => JNull end else previous
  | _ => previous end) history JNull.
 Definition settled (id : N) (value : task) (cursor : N) (identity : string) (result : json) (error : bool)
@@ -50,13 +50,24 @@ Definition history_event (id : N) (value : task) (index : N) (message : message)
    (seen,if N.eqb owner id then task_event id value "tool_completed" (Some cursor)
     (JObject [("call_id",JString (call_id invocation));("value",number branch);("error",JBool false);("origin",JString "fork_return")]) else [])
  | _ => (seen,[]) end.
+Fixpoint fork_birth_index (id : N) (history : list message) : option nat :=
+ match history with
+ | [] => None
+ | entry :: rest =>
+   if match entry with ForkReceipt owner _ _ => N.eqb owner id | _ => false end
+   then Some O else option_map S (fork_birth_index id rest)
+ end.
 Definition task_events (before : world) (id : N) (value : task) (after : world) :=
  let previous := find_task id before in
  let lifecycle := match previous with
  | None => task_event id value "task_created" None (task_summary id value (world_features after))
  | Some previous => if Json.equal (task_summary id previous (world_features before)) (task_summary id value (world_features after))
    then [] else task_event id value "task_changed" None (task_summary id value (world_features after)) end in
- let start := match previous with Some previous => N.of_nat (List.length (task_history previous)) | None => task_side_cursor value end in
+ let start := match previous with
+ | Some previous => N.of_nat (List.length (task_history previous))
+ | None => match fork_birth_index id (task_history value) with
+   | Some index => N.of_nat index | None => task_side_cursor value end
+ end in
  let records := rev (Numbers.indexed (fun index message => (index,message)) start (skipn (N.to_nat start) (task_history value))) in
  let '(_,notices) := fold_left (fun state entry => let '(seen,events) := state in let '(index,message) := entry in
    let '(seen,added) := history_event id value index message seen in (seen,added ++ events)) records ([],[]) in

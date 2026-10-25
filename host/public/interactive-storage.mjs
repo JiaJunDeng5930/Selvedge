@@ -1,4 +1,4 @@
-import { parseJson, stringifyJson } from './json-tokens.mjs';
+import { JsonNumber, parseJson, stringifyJson } from './json-tokens.mjs';
 /** Physical storage only: definition, schema and value acceptance remain in the extracted model. */
 export class InteractiveSnapshotStorage {
   constructor({ storage = null, maximumDocuments, maximumBytes, prefix }) {
@@ -33,7 +33,8 @@ export class InteractiveSnapshotStorage {
       // missing metadata. Such entries count toward capacity and are evicted
       // before dated entries, without blocking another document's save.
       try {
-        const observed = parseJson(value)?.savedAt;
+        const valueTime = parseJson(value)?.savedAt;
+        const observed = valueTime instanceof JsonNumber ? Number(valueTime.source) : valueTime;
         if (typeof observed === 'number' && Number.isFinite(observed)) savedAt = observed;
       } catch (error) {
         if (error.name !== 'SyntaxError') throw error;
