@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 Json.
+From Selvedge.Foundation Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 Definition maximum_characters : nat := 36.
@@ -45,9 +46,9 @@ Definition normalize (text : string) : string :=
      existsb (N.eqb code) [46%N; 63%N; 33%N]) (List.rev_append collapsed [])) [] in
    Utf8.render_chunks (firstn maximum_characters clean)
  end.
+Definition instruction_declaration := ArgumentDeclaration.bounded_text maximum_instruction_bytes.
 Definition valid_instructions (text : string) :=
- Utf8.nonblank text && Utf8.no_nul text &&
- N.leb (N.of_nat (String.length text)) maximum_instruction_bytes.
+ ArgumentDeclaration.check instruction_declaration (JString text).
 
 Definition title_field_schema := Selvedge.Foundation.Json.JObject [
  ("type",Selvedge.Foundation.Json.JString "string");

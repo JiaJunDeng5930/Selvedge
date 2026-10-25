@@ -11,6 +11,12 @@ candidates restore the previous state and discard every effect. `PacketProofs`
 instantiates preservation at the exported packet boundary, including scheduling,
 notifications, output admission and the journal cursor.
 
+External manual fork commits through `ForkCommit` before independent scheduling.
+`ForkPreservation` proves its constructor preserves arbitrary well-formed worlds;
+`ForkCommitPreservation` connects that result to delivery without repeating global
+admission. `ForkPacketProofs` states the positive exported operation. The existing
+durable continuation drives later scheduling; see ADR 0065 for this boundary.
+
 `Journal` defines histories of that packet operation. `JournalProofs` proves
 preservation for an actual history step, reachability, finite execution and
 replay, in addition to receipt order and replay correspondence. The safety

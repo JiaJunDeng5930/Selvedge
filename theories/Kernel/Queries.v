@@ -13,14 +13,14 @@ Definition read_task (id after limit : N) (value : world) :=
    if N.leb 1 limit && N.leb limit Pagination.history_limit && N.leb after length then
    State.success (JObject [("task", task_summary id task (world_features value));
     ("after", number after); ("cursor", number length); ("has_more", JBool (N.ltb (after+limit)%N length));
-    ("messages", JArray (map (message_json id) (firstn (N.to_nat limit) (skipn (N.to_nat after) (task_history task)))))])
+    ("messages", JArray (map (public_message_json id) (firstn (N.to_nat limit) (skipn (N.to_nat after) (task_history task)))))])
    else State.failure "invalid_page" "History requires a valid cursor and a page size of 1..100"
  end.
 Definition describe := JObject [
  ("commands", JArray (map (fun command => JObject [("name", JString (command_name command));
  ("description", JString (match Selvedge.Kernel.Commands.command_description (command_name command) with
    | Some description => description | None => "" end));
- ("schema", NativeTools.command_schema command)]) Selvedge.Kernel.Commands.command_specs));
+ ("schema", CommandDeclarations.command_schema command)]) Selvedge.Kernel.Commands.command_specs));
  ("limits", Limits.boundary_limits); ("plugins", JObject [("protocolVersion", JString "selvedge-plugin-2");
   ("max_plugins", number Limits.plugin_limit); ("events", JArray (map JString Limits.plugin_events))])].
 Definition list_tasks (value : world) := State.success (JObject [
@@ -38,14 +38,38 @@ Definition read_project (id : N) (value : world) :=
  | None => State.failure "project_not_found" "The project does not exist" end.
 Definition projects_json (value : world) :=
  Observation.projects_json (world_projects value) (world_tasks value).
+Definition handle_describe (_payload : Selvedge.Generated.Commands.describe_payload)
+ (_caller : option N) (value : world) : json :=
+ State.success describe.
+
+Definition handle_list (_payload : Selvedge.Generated.Commands.list_payload)
+ (_caller : option N) (value : world) : json :=
+ list_tasks value.
+
+Definition handle_read (request : Selvedge.Generated.Commands.read_payload)
+ (_caller : option N) (value : world) : json :=
+ read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (default_n (Selvedge.Generated.Commands.read_limit request) Pagination.history_limit) value.
+
+Definition handle_search_history (request : Selvedge.Generated.Commands.search_history_payload)
+ (_caller : option N) (value : world) : json :=
+ Search.search (Selvedge.Generated.Commands.search_history_query request) (Selvedge.Generated.Commands.search_history_project_id request) (Selvedge.Generated.Commands.search_history_work_id request)
+   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (default_n (Selvedge.Generated.Commands.search_history_limit request) Search.default_limit) value.
+
+Definition handle_list_projects (_payload : Selvedge.Generated.Commands.list_projects_payload)
+ (_caller : option N) (value : world) : json :=
+ State.success (JObject [("projects",JArray (projects_json value))]).
+
+Definition handle_read_project (request : Selvedge.Generated.Commands.read_project_payload)
+ (_caller : option N) (value : world) : json :=
+ read_project (Selvedge.Generated.Commands.read_project_project_id request) value.
+
 Definition answer (command : Selvedge.Generated.Commands.command) (value : world) : option json :=
  match command with
- | Selvedge.Generated.Commands.Cmd_describe _ => Some (State.success describe)
- | Selvedge.Generated.Commands.Cmd_list _ => Some (list_tasks value)
- | Selvedge.Generated.Commands.Cmd_read request => Some (read_task (Selvedge.Generated.Commands.read_task_id request) (default_n (Selvedge.Generated.Commands.read_after request) 0) (default_n (Selvedge.Generated.Commands.read_limit request) Pagination.history_limit) value)
- | Selvedge.Generated.Commands.Cmd_search_history request => Some (Search.search (Selvedge.Generated.Commands.search_history_query request) (Selvedge.Generated.Commands.search_history_project_id request) (Selvedge.Generated.Commands.search_history_work_id request)
-   (default_n (Selvedge.Generated.Commands.search_history_after request) 0) (default_n (Selvedge.Generated.Commands.search_history_limit request) Search.default_limit) value)
- | Selvedge.Generated.Commands.Cmd_list_projects _ => Some (State.success (JObject [("projects",JArray (projects_json value))]))
- | Selvedge.Generated.Commands.Cmd_read_project request => Some (read_project (Selvedge.Generated.Commands.read_project_project_id request) value)
+ | Selvedge.Generated.Commands.Cmd_describe payload => Some (handle_describe payload None value)
+ | Selvedge.Generated.Commands.Cmd_list payload => Some (handle_list payload None value)
+ | Selvedge.Generated.Commands.Cmd_read request => Some (handle_read request None value)
+ | Selvedge.Generated.Commands.Cmd_search_history request => Some (handle_search_history request None value)
+ | Selvedge.Generated.Commands.Cmd_list_projects payload => Some (handle_list_projects payload None value)
+ | Selvedge.Generated.Commands.Cmd_read_project request => Some (handle_read_project request None value)
  | _ => None
  end.

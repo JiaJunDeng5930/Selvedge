@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
-From Selvedge.Kernel Require Import Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol.
+From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
@@ -11,34 +11,15 @@ Record decoder := Decoder {
  decoder_construct : fields decoder_fields -> option input
 }.
 Definition coordinates := [Field "task_id" KNatural; Field "ticket" KNatural].
-Definition parse_reason_decision (decision : string) (source : json) :=
- match Schema.decode [Field "decision" (KEnum decision []);Field "reason" KText] source with
- | Some values => let reason := head (tail values) in
-   if Utf8.well_formed reason && Nat.leb (String.length reason) 4096 then Some reason else None
- | None => None end.
-Definition parse_hook (source : json) : option hook_outcome :=
- match string_field "decision" source with
- | Some "allow" => match Schema.decode [Field "decision" (KEnum "allow" [])] source with Some _ => Some HookAllow | _ => None end
- | Some "rewrite" => match Schema.decode [Field "decision" (KEnum "rewrite" []);Field "arguments" KJson] source with
-   | Some fields => match head (tail fields) with JObject arguments => Some (HookRewrite arguments) | _ => None end
-   | _ => None end
- | Some "deny" => option_map HookDeny (parse_reason_decision "deny" source)
- | Some "failed" => option_map HookFailure (parse_reason_decision "failed" source)
- | _ => None end.
-Definition parse_after (source : json) : option after_outcome :=
- match string_field "decision" source with
- | Some "allow" => match Schema.decode [Field "decision" (KEnum "allow" [])] source with Some _ => Some KeepResult | _ => None end
- | Some "rewrite" => match Schema.decode [Field "decision" (KEnum "rewrite" []);Field "value" KJson] source with
-   | Some fields => Some (RewriteResult (head (tail fields))) | _ => None end
- | Some "deny" => option_map DenyResult (parse_reason_decision "deny" source)
- | Some "failed" => option_map AfterFailure (parse_reason_decision "failed" source)
- | _ => None end.
+Definition parse_reason_decision := HookRules.parse_reason_decision.
+Definition parse_hook := HookRules.parse_hook.
+Definition parse_after := HookRules.parse_after.
 Definition parse_approval_outcome (source : json) : option approval_outcome :=
  match Schema.decode [Field "decision" KText; Field "reason" KText] source with
  | None => None
  | Some fields =>
    let reason := head (tail fields) in
-   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason
+   let outcome := match head fields with "allow" => Approved reason | "deny" => Denied reason | "failed" => ApprovalFailed reason
     | _ => ApprovalFailed "The review did not return a valid decision" end in
    (* DEFENSE: Native approval callbacks can supply a blank reason. Reject that
       malformed outcome; invalid text still settles as a failed review. *)

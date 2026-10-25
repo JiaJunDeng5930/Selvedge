@@ -1,7 +1,7 @@
 From Stdlib Require Import String List NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain WorkspaceBackend.
+From Selvedge.Kernel Require Import Numbers Domain WorkspaceBackend ModelRequest.
 From Selvedge.Features Require Import Domain CompactionTypes.
 Import ListNotations.
 
@@ -38,13 +38,12 @@ Definition append_task (task : task) (value : world) :=
 Inductive execution_access := DefaultAccess | ElevatedAccess.
 Inductive effect :=
 | ObserveContext (task_id ticket : N) (task : task)
-| RequestModel (task_id ticket : N) (model : profile) (task : task) (scope : string) (reserve : N)
-| RequestReasoning (task_id ticket : N) (model : profile) (task : task)
+| RequestModel (request : ModelRequest.t)
+| RequestReasoning (task_id ticket : N) (task : task)
 | ExecuteTool (task_id ticket operation_id : N) (tool : tool) (call : call) (settings : task_settings) (access : execution_access)
 | RequestApproval (task_id ticket : N) (profile : profile) (call : call) (task : task)
 | CheckTool (task_id ticket : N) (plugin : json) (tool : tool) (call : call)
 | CheckResult (task_id ticket operation_id : N) (plugin : json) (call : call) (value : json) (error : bool)
-| NotifyPlugins (events : list json)
 | ResetModelSession (task_id : N)
 | CancelTask (task_id : N)
 | CancelTicket (task_id ticket : N)
@@ -69,3 +68,5 @@ Definition reject (code reason : string) (value : world) :=
  Decision value (failure code reason) [].
 Definition accept (result : json) (value : world) (effects : list effect) :=
  Decision value (success result) effects.
+
+Definition ignored (value : world) := accept (JObject [("ignored"%string,JBool true)]) value [].

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool Ascii NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import Domain Codec Conversation OutputClassification Callbacks State Tasks Inputs.
@@ -38,7 +39,7 @@ Qed.
 Local Lemma promotion_extends_history : forall task,
  exists suffix, task_history (Tasks.promote task) = task_history task ++ suffix.
 Proof.
- intros task; unfold Tasks.promote.
+ intros task; rewrite promotion_expression.
  destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|];
  try destruct phase; try destruct calls; destruct (task_queued task); cbn;
  try (exists []; rewrite app_nil_r; reflexivity);
@@ -158,9 +159,9 @@ Proof.
  intros id ticket allowed mode items task value operations Found Pending Duplicated.
  assert (Rejected : Callbacks.permitted_items items allowed task [] [] = false).
  { now apply duplicate_model_output_parts_are_not_permitted. }
- unfold Callbacks.model_completed; rewrite Found.
+ rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
- unfold Callbacks.model_result; rewrite Rejected.
+ rewrite !model_result_expression; rewrite Rejected.
  exists (Callbacks.settle_model
    (append_history
      [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)).
@@ -173,7 +174,7 @@ Proof.
        [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)) =
      task_history task ++
        [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] ++ suffix).
- { unfold Callbacks.settle_model.
+ { rewrite !settle_model_expression.
    destruct (promotion_extends_history
      (with_activity
        (if unseen_model_input
@@ -206,12 +207,12 @@ Theorem accepted_model_completion_appends_each_accepted_item :
  task_history updated = task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix.
 Proof.
  intros id ticket allowed mode items task value operations Found Pending Admitted.
- unfold Callbacks.model_completed; rewrite Found.
+ rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
  eexists; split; [reflexivity|].
- unfold Callbacks.model_result; rewrite Admitted.
+ rewrite !model_result_expression; rewrite Admitted.
  destruct (Callbacks.item_calls items) as [|invocation remaining].
- - unfold Callbacks.settle_model.
+ - rewrite !settle_model_expression.
    destruct (promotion_extends_history
      (with_activity
        (if unseen_model_input (append_history (Callbacks.item_messages id ticket mode items) task)

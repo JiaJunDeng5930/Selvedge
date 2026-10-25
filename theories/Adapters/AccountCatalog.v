@@ -107,10 +107,12 @@ Definition cache_record source := if is_object (get source "now_date") then succ
   ("format",JString cache_format);("account_id",get source "account");("connection",get source "connection");
   ("fetched_at",get (get source "now_date") "iso");("models",get source "models")]) else range_error "Invalid time value".
 Definition cache_size source := success (JBool (between (get source "size") 0 1048576)).
-(* DEFENSE: A first discovery has no cache, and a cache containing invalid UTF-8
-   is disposable like malformed JSON; other filesystem failures stay visible. *)
+(* DEFENSE: Missing, malformed, special, oversized or concurrently edited cache
+   files are disposable; permission and actual IO failures stay visible. *)
 Definition cache_error source := if same (get source "code") (JString "ENOENT") ||
-  same (get source "code") (JString "ERR_ENCODING_INVALID_ENCODED_DATA") then success JNull
+  same (get source "code") (JString "ERR_ENCODING_INVALID_ENCODED_DATA") ||
+  existsb (fun code => same (get source "code") (JString code))
+    ["NOT_REGULAR";"TOO_LARGE";"CHANGED"] then success JNull
   else err "Cannot read the ChatGPT model cache".
 Definition catalog_result source := success (JObject [("account_id",get (get source "authorization") "account_id");
   ("models",if boolean_field source "cached_result" then get (get source "cached") "models" else get source "models");

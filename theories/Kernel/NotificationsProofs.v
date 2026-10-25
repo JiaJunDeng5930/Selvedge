@@ -1,52 +1,57 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Notifications Delivery.
+From Selvedge.Kernel Require Import State Observation Notifications Delivery.
 Import ListNotations.
+Open Scope string_scope.
 Open Scope list_scope.
+Local Opaque Notifications.batch Observation.effect_json Delivery.fits_json.
 
-Theorem decoration_preserves_effects_or_appends_one_notification_batch :
- forall durable source before result,
- decision_effects (Notifications.decorate durable source before result) = decision_effects result \/
- exists notices, notices <> [] /\
-   decision_effects (Notifications.decorate durable source before result) =
-     decision_effects result ++ [NotifyPlugins notices].
+Theorem a_noncommitting_observation_has_no_notification_batch : forall durable source before result,
+ Notifications.envelope durable false source before result = Observation.envelope durable result.
+Proof. intros; unfold Notifications.envelope; destruct durable; reflexivity. Qed.
+Theorem a_query_has_no_notification_batch : forall admitted source before result,
+ Notifications.envelope false admitted source before result = Observation.envelope false result.
+Proof. reflexivity. Qed.
+Theorem notification_envelopes_preserve_the_committed_reply : forall durable admitted source before result,
+ field "reply" (Notifications.envelope durable admitted source before result) = Some (decision_reply result).
 Proof.
- intros durable source before result.
- unfold Notifications.decorate.
- destruct durable; [|left; reflexivity].
- destruct (Notifications.input_events source before (decision_world result) ++
-   List.concat (Numbers.indexed (fun id task => Notifications.task_events before id task
-     (decision_world result)) 0 (world_tasks (decision_world result))) ++
-   List.flat_map (Notifications.effect_events (decision_world result)) (decision_effects result))%list
-   as [|notice rest]; [left; reflexivity|].
- destruct (Delivery.fits true (Decision (decision_world result) (decision_reply result)
-   (decision_effects result ++ [NotifyPlugins (notice :: rest)]))) eqn:Fits.
- - right; exists (notice :: rest); split; [discriminate|reflexivity].
- - left; reflexivity.
+ intros; unfold Notifications.envelope; destruct (durable && admitted); [|reflexivity].
+ destruct (Notifications.batch source before result); [reflexivity|].
+ destruct (Delivery.fits_json _); reflexivity.
 Qed.
-
-Theorem oversized_notification_batch_leaves_the_candidate_effects :
- forall source before result,
- let notices :=
-   Notifications.input_events source before (decision_world result) ++
-   List.concat (Numbers.indexed (fun id task => Notifications.task_events before id task
-     (decision_world result)) 0 (world_tasks (decision_world result))) ++
-   List.flat_map (Notifications.effect_events (decision_world result)) (decision_effects result) in
- notices <> [] ->
- Delivery.fits true (Decision (decision_world result) (decision_reply result)
-   (decision_effects result ++ [NotifyPlugins notices])) = false ->
- Notifications.decorate true source before result = result.
+Theorem notification_envelopes_preserve_the_durability_flag : forall durable admitted source before result,
+ field "durable" (Notifications.envelope durable admitted source before result) = Some (JBool durable).
 Proof.
- intros source before result Nonempty DoesNotFit Overflow.
- cbn zeta in *.
- remember (Notifications.input_events source before (decision_world result) ++
-   List.concat (Numbers.indexed (fun id task => Notifications.task_events before id task
-     (decision_world result)) 0 (world_tasks (decision_world result))) ++
-   List.flat_map (Notifications.effect_events (decision_world result)) (decision_effects result))%list
-   as notices eqn:Batch.
- destruct notices as [|notice rest].
- - contradiction.
- - unfold Notifications.decorate.
-   unfold Nonempty in Overflow.
-   rewrite <- Batch; cbn; rewrite Overflow; reflexivity.
+ intros; unfold Notifications.envelope; destruct (durable && admitted); [|reflexivity].
+ destruct (Notifications.batch source before result); [reflexivity|].
+ destruct (Delivery.fits_json _); reflexivity.
+Qed.
+Theorem notification_envelopes_preserve_all_business_effects : forall durable admitted source before result,
+ let effects := map (Observation.effect_json (decision_world result)) (decision_effects result) in
+ field "effects" (Notifications.envelope durable admitted source before result) = Some (JArray effects) \/
+ field "effects" (Notifications.envelope durable admitted source before result) =
+   Some (JArray (effects ++ [JObject [("kind",JString "plugin_events");
+     ("events",JArray (Notifications.batch source before result))]])).
+Proof.
+ intros. unfold Notifications.envelope; destruct (durable && admitted); [|left; reflexivity].
+ destruct (Notifications.batch source before result) eqn:Batch; [left; reflexivity|].
+ destruct (Delivery.fits_json _); [right|left]; reflexivity.
+Qed.
+Theorem oversized_notification_batch_leaves_the_complete_base_envelope : forall source before result,
+ Delivery.fits_json (Notifications.enriched_envelope true result (Notifications.batch source before result)) = false ->
+ Notifications.envelope true true source before result = Observation.envelope true result.
+Proof.
+ intros source before result Overflow. unfold Notifications.envelope; cbn [andb].
+ destruct (Notifications.batch source before result) eqn:Batch; [reflexivity|].
+ rewrite Overflow. reflexivity.
+Qed.
+Theorem a_fitting_base_envelope_remains_within_the_output_budget : forall durable admitted source before result,
+ Delivery.fits durable result = true ->
+ Delivery.fits_json (Notifications.envelope durable admitted source before result) = true.
+Proof.
+ intros durable admitted source before result Base. unfold Notifications.envelope.
+ destruct (durable && admitted); [|exact Base].
+ destruct (Notifications.batch source before result) as [|notice rest]; [exact Base|].
+ destruct (Delivery.fits_json (Notifications.enriched_envelope durable result (notice :: rest))) eqn:Enriched;
+   [exact Enriched|exact Base].
 Qed.

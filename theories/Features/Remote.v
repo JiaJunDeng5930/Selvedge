@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonObjects Schema TextJson Utf8.
+From Selvedge.Foundation Require Import Json JsonObjects Schema TextJson Utf8 RemoteIdentity.
 From Selvedge.Kernel Require Import Domain State Numbers Codec Configuration Scheduler Commands.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State.
@@ -12,8 +12,9 @@ Module KCommands := Selvedge.Kernel.Commands.
 
 Definition registry value := Selvedge.Features.Domain.feature_remote (world_features value).
 Definition store replacement value := with_features (Selvedge.Features.State.with_remote replacement (world_features value)) value.
-Definition identifier_valid text := negb (String.eqb text "") && Utf8.well_formed text &&
- (N.of_nat (String.length text) <=? 128).
+Definition identifier_valid := RemoteIdentity.request_valid.
+Definition controller_valid := RemoteIdentity.controller_valid.
+Definition epoch_valid := RemoteIdentity.epoch_valid.
 Definition payload_valid source := N.of_nat (String.length (TextJson.render_json source)) <=? 65536.
 Definition find_grant controller state := find (fun grant => String.eqb controller (Selvedge.Features.Domain.grant_controller grant)) (Selvedge.Features.Domain.remote_grants state).
 Definition remove_grants controller := filter (fun grant => negb (String.eqb controller (Selvedge.Features.Domain.grant_controller grant))).
@@ -37,34 +38,53 @@ Definition admin_enabled enabled value :=
  accept (status state) (store state value) [].
 Definition grant controller rights value :=
  let state:=registry value in
- if negb (identifier_valid controller) then reject "remote_invalid_controller" "Controller identity must contain 1 to 128 UTF-8 bytes" value
+ if negb (controller_valid controller) then reject "remote_invalid_controller" "Controller identity must contain exactly 64 lowercase hexadecimal characters" value
  else match parse_rights rights with
  | None => reject "invalid_input" "Remote permissions require exactly four Boolean fields" value
  | Some rights =>
+   if negb (remote_next_epoch state <=? RemoteIdentity.max_epoch) then
+     reject "remote_epochs_exhausted" "Remote grant epochs are exhausted" value else
    if match find_grant controller state with Some _=>true | None=>N.of_nat (List.length (Selvedge.Features.Domain.remote_grants state)) <? 64 end then
-   let issued:=Selvedge.Features.Domain.RemoteGrant controller (Selvedge.Features.Domain.remote_next_epoch state) rights in
+   let issued:=Selvedge.Features.Domain.RemoteGrant (ControllerId controller) (GrantEpoch (Selvedge.Features.Domain.remote_next_epoch state)) rights in
    let next:=Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (issued::remove_grants controller (Selvedge.Features.Domain.remote_grants state))
      (N.succ (Selvedge.Features.Domain.remote_next_epoch state)) (remove_receipts controller (Selvedge.Features.Domain.remote_receipts state)) in
    accept (grant_json issued) (store next value) []
    else reject "remote_grants_full" "At most 64 controllers can be granted; revoke an existing controller first" value
  end.
 Definition revoke controller value :=
- if negb (identifier_valid controller) then reject "remote_invalid_controller" "Controller identity must contain 1 to 128 UTF-8 bytes" value else
+ if negb (controller_valid controller) then reject "remote_invalid_controller" "Controller identity must contain exactly 64 lowercase hexadecimal characters" value else
  let state:=registry value in
  let next:=Selvedge.Features.Domain.Remote (Selvedge.Features.Domain.remote_enabled state) (remove_grants controller (Selvedge.Features.Domain.remote_grants state))
    (Selvedge.Features.Domain.remote_next_epoch state) (remove_receipts controller (Selvedge.Features.Domain.remote_receipts state)) in
  accept (JObject [("controller_id",JString controller);("revoked",JBool true)]) (store next value) [].
-Definition query (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) : option json := match command with
- | Selvedge.Generated.Commands.Cmd_remote_status _ => Some (match caller with None=>Selvedge.Kernel.State.success (status (registry value)) | Some _=>decision_reply (local_only value) end)
- | _=>None end.
-Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) : option decision :=
- let change:=match command with
- | Selvedge.Generated.Commands.Cmd_remote_enable _=>Some (admin_enabled true)
- | Selvedge.Generated.Commands.Cmd_remote_disable _=>Some (admin_enabled false)
- | Selvedge.Generated.Commands.Cmd_remote_grant p=>Some (grant (Selvedge.Generated.Commands.remote_grant_controller_id p) (Selvedge.Generated.Commands.remote_grant_permissions p))
- | Selvedge.Generated.Commands.Cmd_remote_revoke p=>Some (revoke (Selvedge.Generated.Commands.remote_revoke_controller_id p))
- | _=>None end in
- match change with None=>None | Some change=>Some (match caller with None=>change value | Some _=>local_only value end) end.
+Definition handle_remote_status (_payload : Selvedge.Generated.Commands.remote_status_payload)
+ (caller : option N) (value : world) : json :=
+ match caller with None => Selvedge.Kernel.State.success (status (registry value))
+ | Some _ => decision_reply (local_only value) end.
+Definition admin_command (change : world -> decision) (caller : option N) (value : world) :=
+ match caller with None => change value | Some _ => local_only value end.
+Definition handle_remote_enable (_payload : Selvedge.Generated.Commands.remote_enable_payload)
+ (caller : option N) (value : world) : decision := admin_command (admin_enabled true) caller value.
+Definition handle_remote_disable (_payload : Selvedge.Generated.Commands.remote_disable_payload)
+ (caller : option N) (value : world) : decision := admin_command (admin_enabled false) caller value.
+Definition handle_remote_grant (payload : Selvedge.Generated.Commands.remote_grant_payload)
+ (caller : option N) (value : world) : decision :=
+ admin_command (grant (Selvedge.Generated.Commands.remote_grant_controller_id payload)
+   (Selvedge.Generated.Commands.remote_grant_permissions payload)) caller value.
+Definition handle_remote_revoke (payload : Selvedge.Generated.Commands.remote_revoke_payload)
+ (caller : option N) (value : world) : decision :=
+ admin_command (revoke (Selvedge.Generated.Commands.remote_revoke_controller_id payload)) caller value.
+Definition query (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option json :=
+ match command with
+ | Selvedge.Generated.Commands.Cmd_remote_status payload => Some (handle_remote_status payload caller value)
+ | _ => None end.
+Definition command (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option decision :=
+ match command with
+ | Selvedge.Generated.Commands.Cmd_remote_enable payload => Some (handle_remote_enable payload caller value)
+ | Selvedge.Generated.Commands.Cmd_remote_disable payload => Some (handle_remote_disable payload caller value)
+ | Selvedge.Generated.Commands.Cmd_remote_grant payload => Some (handle_remote_grant payload caller value)
+ | Selvedge.Generated.Commands.Cmd_remote_revoke payload => Some (handle_remote_revoke payload caller value)
+ | _ => None end.
 
 Definition selected_settings settings := match settings with None | Some JNull | Some (JObject [])=>false | _=>true end.
 Definition read_rights := Selvedge.Features.Domain.Rights true false false false.
@@ -99,27 +119,27 @@ Definition rights_allow required granted :=
  (negb (Selvedge.Features.Domain.may_configure required) || Selvedge.Features.Domain.may_configure granted) &&
  (negb (Selvedge.Features.Domain.may_approve required) || Selvedge.Features.Domain.may_approve granted).
 Inductive authorization := Denied (code reason:string) | Admitted | Replay (reply:json).
-Record request := Request { controller:string; epoch:N; request_id:string; intent:json }.
-Definition request_valid request := identifier_valid (controller request) && (0 <? epoch request) &&
+Record request := Request { controller:controller_id; epoch:RemoteIdentity.grant_epoch; request_id:RemoteIdentity.request_id; intent:json }.
+Definition request_valid request := controller_valid (controller request) && epoch_valid (epoch request) &&
  identifier_valid (request_id request) && payload_valid (intent request).
 Definition key_matches request receipt := String.eqb (controller request) (Selvedge.Features.Domain.remote_controller receipt) &&
  N.eqb (epoch request) (Selvedge.Features.Domain.remote_epoch receipt) && String.eqb (request_id request) (Selvedge.Features.Domain.remote_request receipt).
 Definition valid (value : F.remote) :=
- (0 <? F.remote_next_epoch value) && Nat.leb (List.length (F.remote_grants value)) 64 &&
- Schema.unique_names (map F.grant_controller (F.remote_grants value)) &&
- forallb (fun grant => identifier_valid (F.grant_controller grant) &&
-   ((0 <? F.grant_epoch grant) && (F.grant_epoch grant <? F.remote_next_epoch value))) (F.remote_grants value) &&
+ ((0 <? F.remote_next_epoch value) && (F.remote_next_epoch value <=? N.succ RemoteIdentity.max_epoch)) && Nat.leb (List.length (F.remote_grants value)) 64 &&
+ Schema.unique_names (map (fun grant => controller_text (F.grant_controller grant)) (F.remote_grants value)) &&
+ forallb (fun grant => controller_valid (F.grant_controller grant) &&
+   (epoch_valid (F.grant_epoch grant) && (F.grant_epoch grant <? F.remote_next_epoch value))) (F.remote_grants value) &&
  Nat.leb (List.length (F.remote_receipts value)) 1024 &&
  Schema.unique_names (map (fun receipt => TextJson.render_json (JArray [
    JString (F.remote_controller receipt); number (F.remote_epoch receipt); JString (F.remote_request receipt)]))
    (F.remote_receipts value)) &&
- forallb (fun receipt => identifier_valid (F.remote_controller receipt) && identifier_valid (F.remote_request receipt) &&
+ forallb (fun receipt => controller_valid (F.remote_controller receipt) && identifier_valid (F.remote_request receipt) &&
    payload_valid (F.remote_intent receipt) && payload_valid (F.remote_reply receipt) &&
    match find_grant (F.remote_controller receipt) value with
    | Some grant => N.eqb (F.remote_epoch receipt) (F.grant_epoch grant) | None => false end) (F.remote_receipts value).
 Definition check required controller epoch state :=
  if negb (Selvedge.Features.Domain.remote_enabled state) then Denied "remote_disabled" "Remote control is disabled on this host"
- else if negb (identifier_valid controller && (0 <? epoch)) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
+ else if negb (controller_valid controller && epoch_valid epoch) then Denied "remote_invalid_request" "Remote request identity or intent exceeds the current protocol bounds"
  else match find_grant controller state with
  | None=>Denied "remote_controller_revoked" "This controller has no active local grant"
  | Some grant=>if negb (N.eqb epoch (Selvedge.Features.Domain.grant_epoch grant)) then Denied "remote_grant_expired" "This device grant generation is no longer current"
@@ -201,7 +221,7 @@ Definition request_schema (prepared : bool) := List.app
  (if prepared then [Field "command" KJson;Field "configuration" KJson] else []).
 Definition parse_request (prepared : bool) source := match Schema.decode (request_schema prepared) source,string_field "controller_id" source,
  natural_field "grant_epoch" source,string_field "request_id" source,field "intent" source with
- | Some _,Some controller,Some epoch,Some id,Some intent=>Some (Request controller epoch id intent)
+ | Some _,Some controller,Some epoch,Some id,Some intent=>Some (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) intent)
  | _,_,_,_,_=>None end.
 Definition completion (execute:Scheduler.executor) source value : option (bool*bool*decision) :=
  match string_field "kind" source with

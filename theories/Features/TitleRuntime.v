@@ -1,6 +1,6 @@
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 Schema.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
 Import ListNotations.
@@ -17,10 +17,20 @@ Definition configure (revision:N) (task_prompt agent_prompt:string) (value:world
  Selvedge.Kernel.State.reject "title_settings_conflict" "Title settings changed; reopen the settings before saving" value
  else let updated:=Selvedge.Features.Domain.TitleSettings (N.succ revision) task_prompt agent_prompt in
  Selvedge.Kernel.State.accept (Observation.title_settings_json updated) (Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_title_settings updated (world_features value)) value) [].
+Definition handle_read_title_settings (_payload : Selvedge.Generated.Commands.read_title_settings_payload)
+ (_caller : option N) (value : Selvedge.Kernel.State.world) : json :=
+ Selvedge.Kernel.State.success (Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings (world_features value))).
+
 Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_read_title_settings _=>Some (Selvedge.Kernel.State.success (Observation.title_settings_json (Selvedge.Features.Domain.feature_title_settings (world_features value)))) | _=>None end.
+ | Selvedge.Generated.Commands.Cmd_read_title_settings payload => Some (handle_read_title_settings payload _caller value)
+ | _=>None end.
+Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.configure_title_settings_payload)
+ (_caller : option N) (value : Selvedge.Kernel.State.world) : decision :=
+ configure (Selvedge.Generated.Commands.configure_title_settings_revision p) (Selvedge.Generated.Commands.configure_title_settings_task_prompt p) (Selvedge.Generated.Commands.configure_title_settings_agent_prompt p) value.
+
 Definition command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_configure_title_settings p=>Some (configure (Selvedge.Generated.Commands.configure_title_settings_revision p) (Selvedge.Generated.Commands.configure_title_settings_task_prompt p) (Selvedge.Generated.Commands.configure_title_settings_agent_prompt p) value) | _=>None end.
+ | Selvedge.Generated.Commands.Cmd_configure_title_settings p => Some (handle_configure_title_settings p _caller value)
+ | _=>None end.
 Definition first_request := Observation.first_request.
 Fixpoint split_slash (text:string) (part:string) :list string := match text with
  | EmptyString=>[part] | String ch rest=>if Ascii.eqb ch "/"%char then part::split_slash rest "" else split_slash rest (String.append part (String ch "")) end.
@@ -43,10 +53,10 @@ Definition start (id:N) (task:task) (result:decision) :decision :=
  let request:=first_request (task_history task) in
  if negb (accepts task && Utf8.nonblank request) then result else
  match selected_profile task value with None=>result | Some selected=>
- let '(ticket,allocated):=Selvedge.Kernel.State.allocate_ticket value in
  let source:=prompt (Selvedge.Features.Domain.title_agent_prompt (Selvedge.Features.Domain.feature_title_settings (world_features value))) request in
- Selvedge.Kernel.State.Decision (store id (Selvedge.Features.Domain.TitlePending ticket selected source) allocated) (decision_reply result)
- (decision_effects result ++ [Selvedge.Kernel.State.SuggestTitle id ticket selected source]) end end.
+ let issued:=TicketedRequest.Scoped.feature_run (TicketedRequest.Scoped.TitleRequest id selected source) value in
+ Selvedge.Kernel.State.Decision (decision_world issued) (decision_reply result)
+ (decision_effects result ++ decision_effects issued) end end.
 Definition after_transition (_before:world) (result:decision) :=
  fold_left (fun current pair=>start (fst pair) (snd pair) current) (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) result.
 Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=

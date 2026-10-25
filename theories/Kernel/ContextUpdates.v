@@ -69,6 +69,12 @@ Definition construct_snapshot (definition : ContextTypes.definition)
  let key := ContextKey definition identity in
  let value := Snapshot key revision fields in
  if valid_snapshot value then Some value else None.
+Definition global_guidance_snapshot (source : json) : option snapshot :=
+ match string_field "path" source, string_field "revision" source, string_field "content" source with
+ | Some path, Some revision, Some content =>
+   construct_snapshot Context.global_guidance [("path",path)] revision [("content",content)]
+ | _,_,_ => None end.
+
 Definition registered_key_candidate (source : json) : option context_key :=
  match string_field "type" source, parse_fields (value_or_null "identity" source),
  find (fun definition => JsonObjects.equivalent (definition_json definition) (value_or_null "definition" source)) definitions with

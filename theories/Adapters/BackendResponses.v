@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Numbers TextJson JsonObjects.
+From Selvedge.Foundation Require Import Json Numbers TextJson JsonObjects CallWire.
 From Selvedge.Adapters Require Import Common ProviderCatalog.
 Import ListNotations.
 Open Scope string_scope.
@@ -8,8 +8,7 @@ Open Scope N_scope.
 Inductive provider_output := ToolCall (id name : string) (arguments : json)
   | ContextItem (value markdown_fences : json).
 Definition encode_output index value := match value with
-  | ToolCall id name arguments => JObject [("type",JString "call"); ("id",JString id);
-      ("name",JString name); ("arguments",arguments)]
+  | ToolCall id name arguments => CallWire.encode_item id name arguments
   | ContextItem item markdown_fences => JObject [("part",number index); ("type",JString "context");
       ("value",item);("markdown_fences",markdown_fences)] end.
 Definition message_part part := is_object part &&
@@ -28,9 +27,8 @@ Definition parse_output (profile item markdown_fences : json) : outcome provider
     else if nonempty (get item "call_id") && nonempty (get item "name") && is_text (get item "arguments") then
       (* DEFENSE: Provider function arguments are external JSON text, including
          duplicate object members; they must be parsed before tool dispatch. *)
-      match TextJson.parse_json_members (str item "arguments") with
-      | Some (JObject fields) => Accepted (ToolCall (str item "call_id") (str item "name") (JObject fields))
-      | Some _ => reject "Function arguments must be a JSON object"
+      match CallWire.parse_arguments CallWire.callback_argument_nesting (str item "arguments") with
+      | Some arguments => Accepted (ToolCall (str item "call_id") (str item "name") arguments)
       | None => reject "Invalid JSON function arguments" end
     else reject "Provider returned a malformed function call"
   else if String.eqb (str item "type") "message" then

@@ -55,22 +55,32 @@ Definition patch_work (id:N) (patch:string) (expected:N) (value:world) := match 
 Definition apply_ui_patch (caller:option N) (patch:string) (expected:N) (value:world) := match caller with
  | None=>Selvedge.Kernel.State.reject "task_call_required" "Edit the shared UI through a Task tool call." value
  | Some caller=>match task_owner caller value with None=>Selvedge.Kernel.State.reject "no_work" "This Task does not belong to a Work." value | Some id=>patch_work id patch expected value end end.
-Definition own_created (work_id:N) (original:world) (created:decision) :=
- match bool_field "ok" (decision_reply created) with
- | Some true=>let value:=decision_world created in let features:=world_features value in
- Decision (with_features (Selvedge.Features.State.with_task_owners ((next_task original,work_id)::Selvedge.Features.Domain.feature_task_owners features) features) value) (decision_reply created) (decision_effects created)
- | _=>Decision original (decision_reply created) [] end.
-Definition create_owned (id:N) (create:world->decision) (value:world) := match lookup id value with
- | None=>Selvedge.Kernel.State.reject "work_not_found" "The Work does not exist." value
- | Some _=>own_created id value (create value) end.
+(* Ownership consumes the fresh reference returned by Task birth; it cannot
+   invoke a callback that mutates unrelated world components. *)
+Definition own_birth (work_id task_id:N) (value:world) :=
+ with_features (Selvedge.Features.State.with_task_owners
+   ((task_id,work_id)::Selvedge.Features.Domain.feature_task_owners (world_features value))
+   (world_features value)) value.
 From Selvedge.Generated Require Import Commands.
+Definition handle_list_works (payload:Selvedge.Generated.Commands.list_works_payload) (caller:option N) (value:world) :json :=
+ Selvedge.Kernel.State.success (JObject [("works",list_works value)]).
+Definition handle_read_work (payload:Selvedge.Generated.Commands.read_work_payload) (caller:option N) (value:world) :json :=
+ read (Selvedge.Generated.Commands.read_work_work_id payload) value.
+Definition handle_read_work_ui (payload:Selvedge.Generated.Commands.read_work_ui_payload) (caller:option N) (value:world) :json :=
+ read_ui caller value.
 Definition query (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_list_works _=>Some (Selvedge.Kernel.State.success (JObject [("works",list_works value)]))
- | Selvedge.Generated.Commands.Cmd_read_work payload=>Some (read (Selvedge.Generated.Commands.read_work_work_id payload) value)
- | Selvedge.Generated.Commands.Cmd_read_work_ui _=>Some (read_ui caller value)
+ | Selvedge.Generated.Commands.Cmd_list_works payload=>Some (handle_list_works payload caller value)
+ | Selvedge.Generated.Commands.Cmd_read_work payload=>Some (handle_read_work payload caller value)
+ | Selvedge.Generated.Commands.Cmd_read_work_ui payload=>Some (handle_read_work_ui payload caller value)
  | _=>None end.
+Definition handle_create_work (payload:Selvedge.Generated.Commands.create_work_payload) (caller:option N) (value:world) :decision :=
+ create (Selvedge.Generated.Commands.create_work_name payload) value.
+Definition handle_rename_work (payload:Selvedge.Generated.Commands.rename_work_payload) (caller:option N) (value:world) :decision :=
+ rename (Selvedge.Generated.Commands.rename_work_work_id payload) (Selvedge.Generated.Commands.rename_work_name payload) value.
+Definition handle_apply_work_ui_patch (payload:Selvedge.Generated.Commands.apply_work_ui_patch_payload) (caller:option N) (value:world) :decision :=
+ apply_ui_patch caller (Selvedge.Generated.Commands.apply_work_ui_patch_patch payload) (Selvedge.Generated.Commands.apply_work_ui_patch_revision payload) value.
 Definition command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_create_work payload=>Some (create (Selvedge.Generated.Commands.create_work_name payload) value)
- | Selvedge.Generated.Commands.Cmd_rename_work payload=>Some (rename (Selvedge.Generated.Commands.rename_work_work_id payload) (Selvedge.Generated.Commands.rename_work_name payload) value)
- | Selvedge.Generated.Commands.Cmd_apply_work_ui_patch payload=>Some (apply_ui_patch _caller (Selvedge.Generated.Commands.apply_work_ui_patch_patch payload) (Selvedge.Generated.Commands.apply_work_ui_patch_revision payload) value)
+ | Selvedge.Generated.Commands.Cmd_create_work payload=>Some (handle_create_work payload _caller value)
+ | Selvedge.Generated.Commands.Cmd_rename_work payload=>Some (handle_rename_work payload _caller value)
+ | Selvedge.Generated.Commands.Cmd_apply_work_ui_patch payload=>Some (handle_apply_work_ui_patch payload _caller value)
  | _=>None end.

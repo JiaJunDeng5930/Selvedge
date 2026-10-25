@@ -1,192 +1,59 @@
 import { lstat, opendir, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { boundary } from './public/model-boundary.mjs';
 
-const discoveryTypes = new Set(['home_guidance', 'primary_guidance', 'workspace_guidance', 'home_skills', 'workspace_skills']);
-
-export function isContextDiscovery(observer) {
-  return discoveryTypes.has(observer.type);
+const descriptors = new WeakMap();
+export function contextDescriptor(observer) {
+  if (!descriptors.has(observer)) descriptors.set(observer, boundary('control.context.descriptor', { observer }));
+  return descriptors.get(observer);
 }
+export const isContextDiscovery = observer => contextDescriptor(observer).discovery;
 
-/** Interpret the kernel's bounded directory-discovery plan for one observation. */
+/** Execute filesystem primitives emitted by the extracted discovery controller. */
 export function createContextDiscovery({ home, settings, signal, filesystem = { lstat, opendir, realpath }, candidates = [], maximum }) {
-  const { lstat, opendir, realpath } = filesystem;
-  const roots = settings.workspace.roots;
-  const primary = settings.workspace.primary_root;
-  const trees = new Map();
   const prefetched = new Map();
+  const kind = stat => stat === null ? 'missing' : stat.isSymbolicLink() ? 'link'
+    : stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other';
 
-  async function directory(filename) {
+  async function probe(filename) {
+    try { return kind(await filesystem.lstat(filename)); }
+    // DEFENSE: Optional guidance/skill files can disappear while their directory is observed.
+    catch (error) { if (error.code === 'ENOENT') return 'missing'; throw error; }
+  }
+
+  async function inspect(effect) {
     signal?.throwIfAborted();
+    const folder = effect.folder;
     if (filesystem.prefetchDirectory) {
-      if (!prefetched.has(filename)) prefetched.set(filename, filesystem.prefetchDirectory(filename, { candidates, maximum }));
-      await prefetched.get(filename);
+      if (!prefetched.has(folder)) prefetched.set(folder, filesystem.prefetchDirectory(folder, { candidates, maximum }));
+      await prefetched.get(folder);
     }
-    const stat = await lstat(filename);
-    // DEFENSE: External directory replacement or links must not make discovery traverse outside canonical roots.
-    if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(filename) !== filename) {
-      throw new Error(`Context discovery requires a canonical directory without symbolic links: ${filename}`);
-    }
-    return stat;
-  }
-
-  async function exists(filename) {
-    signal?.throwIfAborted();
-    try { return await lstat(filename); }
-    // DEFENSE: Guidance/skill candidates are optional and can disappear during a directory scan.
-    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-  }
-
-  async function selectedFile(folder, files) {
-    await directory(folder);
-    for (const name of files) {
-      const filename = path.join(folder, name);
-      const stat = await exists(filename);
-      if (stat === null) continue;
-      // DEFENSE: A named guidance/skill source can be a link or special file supplied by the workspace.
-      if (!stat.isFile() || stat.isSymbolicLink()) {
-        throw new Error(`Context discovery source must be a regular file without symbolic links: ${filename}`);
-      }
-      return filename;
-    }
-    return undefined;
-  }
-
-  async function ancestors(root, policy, budget) {
-    const chain = [];
-    let current = root;
-    for (;;) {
-      await directory(current);
-      budget.directory(current);
-      chain.push(current);
-      for (const marker of policy.repository_markers) {
-        if (await exists(path.join(current, marker))) return chain.reverse();
-      }
-      const parent = path.dirname(current);
-      if (parent === current) return [root];
-      current = parent;
-    }
-  }
-
-  function counter(policy, initial = { directories: [], entries: 0 }) {
-    const directories = new Set(initial.directories);
-    let entries = initial.entries;
-    return {
-      directory(filename) {
-        directories.add(filename);
-        // DEFENSE: A real workspace can contain more directories than the native discovery budget admits.
-        if (directories.size > policy.max_directories) throw new Error('Context discovery directory budget exceeded');
-      },
-      entry() {
-        // DEFENSE: Directory streams may contain arbitrarily many external entries.
-        if (++entries > policy.max_entries) throw new Error('Context discovery entry budget exceeded');
-      },
-      snapshot() { return { directories: [...directories], entries }; },
-    };
-  }
-
-  async function tree(root, policy, budget, stopAtSkill = false) {
-    const folders = [];
-    const pending = [root];
-    const excluded = new Set(policy.excluded);
-    while (pending.length) {
-      signal?.throwIfAborted();
-      const folder = pending.pop();
-      await directory(folder);
-      budget.directory(folder);
-      folders.push(folder);
-      if (stopAtSkill && await selectedFile(folder, policy.files)) continue;
-      const children = [];
-      const stream = await opendir(folder);
+    const stat = await filesystem.lstat(folder);
+    const canonical = stat.isDirectory() && !stat.isSymbolicLink() && await filesystem.realpath(folder) === folder;
+    const observation = { canonical, parent: path.dirname(folder), probes: [], entries: [] };
+    if (!canonical) return observation;
+    observation.probes = await Promise.all(effect.probes.map(async name => ({ name, kind: await probe(path.join(folder, name)) })));
+    if (effect.entries) {
+      const stream = await filesystem.opendir(folder);
       for await (const entry of stream) {
         signal?.throwIfAborted();
-        budget.entry();
-        // DEFENSE: Files, directory links and kernel-excluded folders must not be traversed as discovery directories.
-        if (!entry.isDirectory() || entry.isSymbolicLink() || excluded.has(entry.name)) continue;
-        children.push(path.join(folder, entry.name));
+        observation.entries.push({ name: entry.name, path: path.join(folder, entry.name), kind: kind(entry) });
+        // The controller requests one extra observation to distinguish an exhausted budget from a complete stream.
+        if (observation.entries.length > effect.maximum) break;
       }
-      // Reverse insertion gives deterministic parent-before-child lexical order.
-      children.sort().reverse();
-      pending.push(...children);
     }
-    return folders;
-  }
-
-  async function workspaceDirectories(policy) {
-    const key = JSON.stringify([policy.repository_markers, policy.excluded, policy.max_directories, policy.max_entries]);
-    if (!trees.has(key)) trees.set(key, (async () => {
-      const budget = counter(policy);
-      const result = [];
-      for (const root of roots) {
-        const parents = await ancestors(root, policy, budget);
-        const descendants = await tree(root, policy, budget);
-        result.push({ root, folders: [...parents.slice(0, -1), ...descendants] });
-      }
-      return { owners: result, budget: budget.snapshot() };
-    })());
-    return trees.get(key);
-  }
-
-  function entry(filename, workspace, folder, global = false) {
-    return { filename, workspace,
-      observations: { path: filename, applies_to: global ? '*' : folder, precedence: folder } };
+    return observation;
   }
 
   return async function discover(observer) {
-    const policy = observer.policy;
-    const result = [];
-    function add(item) {
-      result.push(item);
-      // DEFENSE: A workspace can expose more guidance/skill files than the native source budget admits.
-      if (result.length > policy.max_sources) throw new Error('Context discovery source budget exceeded');
+    let result = boundary('control.context.start', { observer, home, workspace: settings.workspace });
+    while (!result.done) {
+      let observation;
+      try { observation = await inspect(result.effects[0]); }
+      catch (error) { signal?.throwIfAborted(); observation = { error: error.message }; }
+      result = boundary('control.context.step', { state: result.state, observation });
     }
-    switch (observer.type) {
-      case 'home_guidance': {
-        const filename = await selectedFile(home, policy.files);
-        if (filename) add(entry(filename, primary, home, true));
-        break;
-      }
-      case 'primary_guidance': {
-        if (primary === null) break;
-        const filename = await selectedFile(primary, policy.files);
-        if (filename) add(entry(filename, primary, primary));
-        break;
-      }
-      case 'workspace_guidance': {
-        for (const { root, folders } of (await workspaceDirectories(policy)).owners) {
-          for (const folder of folders) {
-            if (root === primary && folder === primary) continue;
-            const filename = await selectedFile(folder, policy.files);
-            if (filename) add(entry(filename, root, folder));
-          }
-        }
-        break;
-      }
-      case 'home_skills':
-      case 'workspace_skills': {
-        const global = observer.type === 'home_skills';
-        const scanned = global ? { owners: [{ root: primary, folders: [home] }] } : await workspaceDirectories(policy);
-        const { owners } = scanned;
-        const budget = counter(policy, scanned.budget);
-        const seen = new Set();
-        for (const { root, folders } of owners) {
-          for (const folder of folders) {
-            for (const relative of policy.directories) {
-              const container = path.join(folder, relative);
-              if (await exists(container) === null) continue;
-              for (const candidate of await tree(container, policy, budget, true)) {
-                const filename = await selectedFile(candidate, policy.files);
-                if (filename === undefined) continue;
-                const identity = JSON.stringify([root, filename]);
-                if (seen.has(identity)) continue;
-                seen.add(identity);
-                add(entry(filename, root, folder, global));
-              }
-            }
-          }
-        }
-        break;
-      }
-    }
-    return result;
+    if (result.error !== null) throw new Error(result.error);
+    return result.entries;
   };
 }

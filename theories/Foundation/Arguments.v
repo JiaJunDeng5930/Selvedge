@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Numbers Schema SchemaJson JsonSchema.
+From Selvedge.Foundation Require ArgumentDeclaration.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -9,7 +10,7 @@ Open Scope N_scope.
    its existing nullable value kind. *)
 Inductive argument_type :=
 | Scalar (value : kind)
-| Structured (fields : list (string * json)).
+| Structured (declaration : ArgumentDeclaration.executable).
 Record argument_spec := Argument {
   argument_name : string;
   argument_type_of : argument_type;
@@ -36,20 +37,23 @@ Definition omittable_nonnull (argument : argument_spec) :=
 Definition with_bounds (bounds : N * N) (argument : argument_spec) := Argument
   (argument_name argument) (argument_type_of argument) (argument_required argument)
   (argument_description argument) (Some bounds).
-Definition with_structure (description : list (string * json)) (argument : argument_spec) := Argument
- (argument_name argument) (Structured description) (argument_required argument)
+Definition with_declaration (declaration : ArgumentDeclaration.t) (argument : argument_spec) := Argument
+ (argument_name argument) (Structured (ArgumentDeclaration.compile declaration)) (argument_required argument)
  (argument_description argument) (argument_bounds argument).
+Definition with_structure (description : list (string * json)) (argument : argument_spec) :=
+ with_declaration (match ArgumentDeclaration.parse (JObject description) with
+ | Some declaration => declaration | None => ArgumentDeclaration.Reject end) argument.
 Definition refine_fields (overrides : list (string * list (string * json)))
  (declaration : list argument_spec) := map (fun argument =>
  match find (fun entry => String.eqb (argument_name argument) (fst entry)) overrides with
  | Some (_,fields) => with_structure fields argument | None => argument end) declaration.
 Definition type_valid (description : argument_type) (value : json) := match description with
  | Scalar kind => match Schema.decode_value kind value with Some _ => true | None => false end
- | Structured fields => JsonSchema.valid (JObject fields) value
+ | Structured declaration => ArgumentDeclaration.check (ArgumentDeclaration.program declaration) value
  end.
 Definition type_schema (description : argument_type) := match description with
  | Scalar kind => SchemaJson.kind_schema kind
- | Structured fields => fields
+ | Structured declaration => match ArgumentDeclaration.emitted_schema declaration with JObject fields => fields | _ => [] end
  end.
 Definition shape_kind (description : argument_type) := match description with
  | Scalar kind => kind | Structured _ => KJson end.
@@ -73,13 +77,19 @@ Definition valid (declaration : list argument_spec) (source : json) :=
  | Some _ => forallb (argument_valid source) declaration
  end.
 Definition argument_json (argument : argument_spec) :=
- let fields := (type_schema (argument_type_of argument) ++
+ let source := match argument_type_of argument with
+ | Scalar kind => JObject (SchemaJson.kind_schema kind)
+ | Structured declaration => ArgumentDeclaration.emitted_schema declaration end in
+ match source with
+ | JObject original =>
+ let fields := (original ++
    [("description",JString (argument_description argument))])%list in
  JObject (match argument_bounds argument with
  | None => fields
  | Some (minimum,maximum) => set_field "minimum" (JNumber (show_natural minimum))
      (set_field "maximum" (JNumber (show_natural maximum)) fields)
- end).
+ end)
+ | _ => source end.
 Definition schema_fields (declaration : list argument_spec) := SchemaJson.object_fields
  (map (fun argument => (argument_name argument,argument_json argument)) declaration)
  (map argument_name (filter argument_required declaration)).

@@ -33,8 +33,8 @@ Proof.
  assert (local : connection_path source = false).
  { unfold connection_path;rewrite pathname;reflexivity. }
  assert (audio : audio_target source = "").
- { unfold audio_target,audio_kind;rewrite pathname;reflexivity. }
- assert (route : selected_route source = Some (Route "POST" "/api/commands" "command" true)).
+ { unfold audio_target,audio_kind;rewrite pathname,method;reflexivity. }
+ assert (route : selected_route source = Some (Route "POST" "/api/commands" ModelResultDeclarations.Http_command true)).
  { unfold selected_route,matches_route;rewrite method,pathname;reflexivity. }
  assert (target : body_target source = "command").
  { unfold body_target;rewrite audio,route;reflexivity. }

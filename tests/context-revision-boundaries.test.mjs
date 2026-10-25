@@ -16,7 +16,18 @@ async function packetFixture(t, tools = []) {
   const event = async input => {
     const { value } = await kernel.request(input);
     assert.equal(value.reply.ok, true, JSON.stringify(value.reply));
-    return value;
+    // Drive durable continuations; each scenario still controls its physical observations.
+    const pending = [...value.effects];
+    const effects = [];
+    for (let index = 0; index < pending.length; index++) {
+      const effect = pending[index];
+      if (effect.kind === 'continue') {
+        const { value: next } = await kernel.request({ kind: 'continue' });
+        assert.equal(next.reply.ok, true, JSON.stringify(next.reply));
+        pending.push(...next.effects);
+      } else effects.push(effect);
+    }
+    return { ...value, effects };
   };
   await event({ kind: 'configure',
     profiles: [{ key: 'fixture', provider: 'openai', name: 'fixture-model', reasoning_options: null }],
@@ -54,8 +65,8 @@ test('the production packet rejects an unrelated Context ticket and rereads afte
 
   const model = effect(await fixture.observe(initial), 'model');
   const calls = await fixture.event({ kind: 'model', task_id, ticket: model.ticket, ok: true, items: [
-    { type: 'call', id: 'echo-a', name: echoTool.name, arguments: {} },
-    { type: 'call', id: 'echo-b', name: echoTool.name, arguments: {} },
+    { type: 'call', id: 'echo-a', name: echoTool.name, arguments_json: '{}' },
+    { type: 'call', id: 'echo-b', name: echoTool.name, arguments_json: '{}' },
   ] });
   const tools = calls.effects.filter(value => value.kind === 'tool');
   assert.equal(tools.length, 2);

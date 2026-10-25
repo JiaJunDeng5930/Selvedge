@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
-import { home, responsesServer, shellQuote, taskIdle } from './support.mjs';
+import { responsesServer, shellQuote, taskIdle } from './support.mjs';
 
 const call = (name, args) => ({ name, arguments: args });
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
@@ -99,11 +100,15 @@ async function* readUntil(operationId, predicate, cursor = '0') {
 }
 
 async function session(t, bash, scenario, { ownership = false, settings = { approval: { mode: 'full-access' } } } = {}) {
-  const directory = await realpath(await home(t));
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'selvedge-process-test-')));
+  let service;
+  t.after(async () => {
+    await service?.close();
+    await rm(directory, { recursive: true, force: true });
+  });
   const key = `SELVEDGE_PROCESS_${randomBytes(8).toString('hex')}`;
   process.env[key] = 'loopback-fixture-only';
   t.after(() => { delete process.env[key]; });
-  let service;
   let iterator;
   let pending;
   let started = false;
@@ -161,12 +166,11 @@ async function session(t, bash, scenario, { ownership = false, settings = { appr
     ...(ownership ? { foreign: { provider: 'responses', model: 'foreign-process-model', endpoint: upstream.endpoint, api_key_env: key } } : {}),
   } });
   service = await Service.open({ home: path.join(directory, 'state'), cwd: directory, config });
-  t.after(() => service.close());
   const created = await service.command({ op: 'create', profile: 'worker', message: 'Run the process acceptance scenario.',
     settings: { workspace: { roots: [directory], primary_root: directory }, ...settings } });
   assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
-  return { service, directory, upstream, async settled() {
-    try { await taskIdle(service, created.reply.result.task_id); }
+  return { service, directory, upstream, async settled(timeoutMs) {
+    try { await taskIdle(service, created.reply.result.task_id, timeoutMs); }
     // DEFENSE: A model fixture assertion can prevent the asynchronous task from settling; report its original cause.
     finally { assert.deepEqual(upstream.failures, []); }
     assert.equal(finished, true, 'The model must complete every process interaction');
@@ -238,11 +242,13 @@ test('live reads drain both full pipes and retain the newest valid Unicode with 
       assert.equal(artifact.total_bytes, payloadBytes + Buffer.byteLength(tail));
       assert.ok(bytes.length <= service.limits.artifact_bytes);
       assert.equal(artifact.revision, createHash('sha256').update(bytes).digest('hex'));
-      assert.equal(bytes.toString('utf8').includes('\ufffd'), false);
-      assert.equal(bytes.toString('utf8').endsWith(tail), true);
+      const original = Buffer.concat([Buffer.from((stream === 'stdout' ? '🙂' : '界').repeat(3 * 1048576)), Buffer.from(tail)]);
+      assert.equal(Buffer.compare(bytes, original.subarray(original.length - service.limits.artifact_bytes)), 0,
+        'The artifact must retain the exact byte suffix, including an initial partial UTF-8 sequence');
     }
   }, { ownership: true });
-  await running.settled();
+  // This pressure scenario also waits for a second task with its own 20-second conversation deadline.
+  await running.settled(60_000);
 });
 
 test('PTY mode supplies a real terminal, resizes the foreground application and delivers keyboard interrupt', async t => {
@@ -294,6 +300,26 @@ test('PTY mode supplies a real terminal, resizes the foreground application and 
       await delay(150);
       assert.equal(await readFile(heartbeat, 'utf8'), stopped, 'Cancelling the PTY must stop its background job');
     }, { settings: { sandbox: { mode: 'workspace-write', network_access: false } } });
+  await running.settled();
+});
+
+test('a failed artifact directory barrier reports failed capture without claiming persisted output', async t => {
+  const running = await session(t, directory => ({ command: javascript(
+    "process.stdout.write('x'.repeat(100)); process.stderr.write('y'.repeat(100)); process.stdin.resume(); " +
+    "process.stdin.on('end', () => {}); require('node:fs').writeFileSync(" +
+    JSON.stringify(path.join(directory, 'capture.ready')) + ", 'ready');"), max_output_length: 16 }),
+  async function* ({ directory, operationId }) {
+    await waitFile(path.join(directory, 'capture.ready'));
+    // Move the real open artifact directory before publication; file sync still succeeds,
+    // but the directory barrier must report that the published names are unavailable.
+    await rename(path.join(directory, 'state', 'artifacts'), path.join(directory, 'displaced-artifacts'));
+    value(yield call('write_process', { operation_id: operationId, eof: true }));
+    const completed = yield* readUntil(operationId, observed => observed.status === 'completed');
+    assert.equal(completed.observed.completion.error, true);
+    assert.equal(completed.observed.completion.reason.code, 'output_capture_failed');
+    assert.equal(completed.observed.completion.stdout_artifact.persisted, false);
+    assert.equal(completed.observed.completion.stderr_artifact.persisted, false);
+  });
   await running.settled();
 });
 

@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson JsonSchema Arguments Numbers.
 From Selvedge.Kernel Require Import Domain Codec Commands ToolArguments Pagination ContentDeclarations.
+From Selvedge.Kernel Require Export CommandDeclarations.
 From Selvedge.Kernel Require Import ChatgptArguments ChatgptProtocol.
 From Selvedge.Features Require Import Titles BoardParameters.
 From Selvedge.Generated Require Import Commands.
@@ -9,99 +10,6 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-(* Public creation commands and model tools share the settings declaration.
-   Guidance is a host observation, never model-supplied authority. *)
-(* A command's interval takes precedence over the generic natural bound. *)
-Definition natural_bounds (argument : argument_spec) :=
- match argument_type_of argument with
- | Scalar KNatural => match argument_bounds argument with
-   | Some _ => argument
-   | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument
-   end
- | _ => argument end.
-Definition settings_arguments := map (fun field =>
- let argument := natural_bounds (Arguments.omittable_nonnull (Arguments.from_field field)) in
- if String.eqb (field_name field) "workspace" then
-   Arguments.with_structure (SchemaJson.omittable_fields Workspace.workspace_schema) argument else
- if String.eqb (field_name field) "sandbox" then
-   Arguments.with_structure (Arguments.schema_fields Codec.sandbox_patch_arguments) argument else
- if String.eqb (field_name field) "approval" then
-   Arguments.with_structure (SchemaJson.omittable_fields Codec.approval_schema) argument else argument)
- (filter (fun field => negb (String.eqb (field_name field) "guidance" || String.eqb (field_name field) "workspace_binding")) Codec.task_settings_schema).
-Definition settings_schema := Arguments.schema_fields settings_arguments.
-Definition public_settings_schema := Json.set_field "type"
- (JArray [JString "object"; JString "null"]) settings_schema.
-Definition nullable_structure (fields : list (string * json)) :=
- [("anyOf",JArray [JObject fields; JObject [("type",JString "null")]])].
-Definition public_content_argument (argument : argument_spec) :=
- match argument_type_of argument with
- | Scalar (KOptional KJson) =>
-   if String.eqb (argument_name argument) "message" then
-    Arguments.with_structure (nullable_structure ContentDeclarations.content_schema) argument
-   else argument
- | Scalar (KOptional (KArray KJson)) =>
-   if String.eqb (argument_name argument) "images" then
-    Arguments.with_structure (nullable_structure ContentDeclarations.images_schema) argument
-   else if String.eqb (argument_name argument) "messages" then
-    Arguments.with_structure (nullable_structure
-      [("type",JString "array");("items",JObject ContentDeclarations.content_schema)]) argument
-   else argument
- | _ => argument
- end.
-Definition attachment_item_schema := SchemaJson.schema_fields BoardParameters.attachment_schema.
-Definition attachment_array_schema :=
-  [("type",JString "array");("items",JObject attachment_item_schema)].
-(** These public JSON Schema bounds mirror byte limits enforced by the owning
-    domain operations; JSON Schema's length keywords count characters. *)
-Definition controller_id_schema :=
-  SchemaJson.kind_schema KText ++ [("minLength",JNumber "1");
-    ("maxLength",JNumber (Numbers.show_natural 128%N))].
-Definition title_prompt_schema :=
-  SchemaJson.kind_schema KText ++ [("minLength",JNumber "1");
-    ("maxLength",JNumber (Numbers.show_natural Titles.maximum_instruction_bytes))].
-Definition permission_names := ["read";"control";"configure";"approve"].
-Definition permissions_schema := SchemaJson.object_fields
-  (map (fun name => (name,JObject (SchemaJson.kind_schema KBool))) permission_names)
-  permission_names.
-Definition connection_grants_schema :=
-  let grants := Arguments.refine_fields
-    [("connection_id",ChatgptArguments.identity_schema);
-     ("project_ids",[("type",JString "array");("items",JObject ChatgptArguments.identity_schema)]);
-     ("sandbox",SchemaJson.schema_fields Codec.sandbox_schema)]
-    (map Arguments.from_field ChatgptArguments.grant_declaration) in
-  [("type",JString "array");("items",Arguments.json_schema grants)].
-Definition connection_field_refinements (name : string) :=
-  if String.eqb name "configure_chatgpt_connections" then [("connections",connection_grants_schema)]
-  else match find (fun route => String.eqb name (ChatgptProtocol.native_name route)) ChatgptProtocol.routes with
-  | Some route => map (fun field => (field,ChatgptArguments.identity_schema))
-      ["connection_id";"project_id";"operation_id"] ++
-      match route with
-      | ChatgptProtocol.Execute => [("arguments",match ChatgptArguments.args_schema with JObject fields => fields | _ => [] end)]
-      | _ => [] end
-  | None => [] end.
-Definition project_field_refinements (name : string) :=
-  if String.eqb name "create_project" || String.eqb name "update_project" then
-    [("workspace",if String.eqb name "create_project"
-      then SchemaJson.schema_fields Workspace.workspace_schema
-      else nullable_structure (SchemaJson.schema_fields Workspace.workspace_schema));
-     ("guidance",nullable_structure (SchemaJson.schema_fields Codec.guidance_schema))]
-  else [].
-Definition command_field_refinements (name : string) :=
-  (("settings",public_settings_schema) :: project_field_refinements name) ++
-  (if String.eqb name "create_card" || String.eqb name "update_card" then
-    [("attachments",attachment_array_schema)] else
-  if String.eqb name "configure_title_settings" then
-    [("task_prompt",title_prompt_schema);("agent_prompt",title_prompt_schema)] else
-  if String.eqb name "remote_grant" then
-    [("controller_id",controller_id_schema);("permissions",permissions_schema)] else
-  if String.eqb name "remote_revoke" then [("controller_id",controller_id_schema)] else connection_field_refinements name).
-Definition command_schema (specification : command_spec) :=
-  let declaration := Arguments.refine_fields (command_field_refinements (command_name specification))
-    (map public_content_argument (Commands.command_arguments specification)) in
-  JObject (SchemaJson.object_fields
-    (map (fun argument => (Arguments.argument_name argument,
-      Arguments.argument_json argument)) declaration)
-    (map Arguments.argument_name (filter Arguments.argument_required declaration))).
 Record command_binding := CommandBinding {
  binding_tool : string;
  binding_command : string;
@@ -162,21 +70,21 @@ Definition model_field (binding : command_binding) (argument : argument_spec) :=
     String.eqb (argument_name argument) "message" then Arguments.with_scalar KText true argument else
  if String.eqb (binding_command binding) "fork" && String.eqb (argument_name argument) "messages"
  then Arguments.with_scalar (KArray KText) false argument else argument.
+Definition natural_bounds (argument : argument_spec) :=
+ match argument_type_of argument with
+ | Scalar KNatural => match argument_bounds argument with
+   | Some _ => argument | None => Arguments.with_bounds (0,JsonSchema.maximum_natural) argument end
+ | _ => argument end.
 Definition binding_arguments (max_fork : N) (binding : command_binding) (specification : command_spec) :=
- Arguments.refine_fields
- (filter (fun entry => negb (String.eqb (fst entry) "settings"))
-    (command_field_refinements (binding_command binding)) ++
-  ContentDeclarations.native_argument_fields (binding_command binding) ++
-  TaskGraphDeclarations.native_argument_fields (JObject settings_schema) (binding_command binding))
- (map (fun field => let declared := Commands.command_argument (binding_command binding) field in
-   let argument := if field_omittable field then declared else model_field binding declared in
+ map (fun field =>
+   let argument := CommandDeclarations.refine_argument false (binding_command binding)
+     (Commands.command_argument (binding_command binding) field) in
+   let argument := model_field binding argument in
    if String.eqb (binding_command binding) "fork" && String.eqb (field_name field) "child_count"
-   then Arguments.with_bounds (1,max_fork) argument else
-   if String.eqb (field_name field) "settings" then Arguments.with_structure settings_schema argument else
-   natural_bounds argument)
+   then Arguments.with_bounds (1,max_fork) argument else natural_bounds argument)
    (filter (fun field => negb ((String.eqb (binding_command binding) "create" ||
      String.eqb (binding_command binding) "send") && String.eqb (field_name field) "images"))
-     (binding_schema binding specification))).
+     (binding_schema binding specification)).
 Definition binding_entry (max_fork : N) (binding : command_binding) : list tool :=
  match find (fun command => String.eqb (binding_command binding) (command_name command)) Selvedge.Kernel.Commands.command_specs with
  | None => []
@@ -227,7 +135,7 @@ Definition command (caller : N) (invocation : call) : option Selvedge.Generated.
    let fields := if String.eqb (binding_tool binding) "read_current_task" then
      Json.set_field "after" (Numbers.number 0) (Json.set_field "limit" (Numbers.number 1) fields)
      else fields in
-   Selvedge.Generated.Commands.decode (JObject (("op", JString (binding_command binding)) :: fields))
+   Selvedge.Generated.Commands.decode_admitted (JObject (("op", JString (binding_command binding)) :: fields))
  | _,_ => None end.
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].
 Definition arguments_valid (definition : tool) (invocation : call) :=

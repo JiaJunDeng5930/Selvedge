@@ -6,11 +6,19 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-5`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-7`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 
 These deliberate changes correct ambiguities or defects at the old boundaries:
+
+- Public commands keep omission, explicit null, nested structure and declared
+  numeric bounds distinct before business resolution. Host-observed guidance
+  and resource bindings have a separate admission stage. Internal tool calls
+  carry member-preserving argument text; public projections remain read-only.
+- Format 7 also records corrected frozen-result demand and explicit workspace
+  release outcomes. A released reservation has no checkout path; it is not
+  represented as an archived directory.
 
 - Managed-resource identity is retained in frozen task settings. Independent child
   tasks can inherit a cloud environment without a fork lineage. Execution uses
@@ -18,7 +26,9 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
 - The current journal rejects earlier Rocq journal formats. Journal rows replay
   inputs and compare decisions. Backend and resource bindings, and the corrected
   MCP argument admission, and corrected conversation classification change those
-  decisions. Model-issued history searches also record their results, so changes
+  decisions. Task births, archived result settlement and final plugin
+  notifications also have corrected decisions in format 7.
+  Model-issued history searches record their results, so changes
   to searchable message roles affect replay. Earlier formats cannot
   preserve the current replay contract.
 - MCP tools retain their server's JSON Schema, including numeric, nested and

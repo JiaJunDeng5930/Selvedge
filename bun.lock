@@ -9,6 +9,7 @@
         "gpt-tokenizer": "4.0.0",
         "impit": "0.14.6",
         "openid-client": "6.8.8",
+        "tencentcloud-sdk-nodejs-common": "4.1.220",
         "tencentcloud-sdk-nodejs-cvm": "4.1.316",
         "ws": "8.22.0",
       },
@@ -17,6 +18,7 @@
         "acorn": "8.19.0",
         "jose": "6.2.12",
         "playwright-core": "1.64.1",
+        "typescript": "5.9.3",
       },
     },
     "plugins/selvedge-chatgpt": {
@@ -42,6 +44,9 @@
         "ws": "8.22.0",
       },
     },
+  },
+  "patchedDependencies": {
+    "tencentcloud-sdk-nodejs-common@4.1.220": "patches/tencentcloud-sdk-nodejs-common@4.1.220.patch",
   },
   "packages": {
     "@cloudflare/kv-asset-handler": ["@cloudflare/kv-asset-handler@0.5.0", "", {}, "sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg=="],
@@ -445,6 +450,8 @@
     "tslib": ["tslib@1.13.0", "", {}, "sha512-i/6DQjL8Xf3be4K/E6Wgpekn5Qasl1usyw++dAA35Ue5orEn65VIxOA+YvNNl9HV3qv70T7CNwjODHZrLwvd1Q=="],
 
     "type-is": ["type-is@2.1.0", "", { "dependencies": { "content-type": "^2.0.0", "media-typer": "^1.1.0", "mime-types": "^3.0.0" } }, "sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA=="],
+
+    "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici": ["undici@7.29.1", "", {}, "sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q=="],
 

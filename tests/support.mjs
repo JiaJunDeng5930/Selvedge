@@ -1,20 +1,28 @@
 import assert from 'node:assert/strict';
+import { after } from 'node:test';
 import http from 'node:http';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+const temporaryHomes = new Set();
+// Test cleanup hooks run in registration order in Bun. Keep homes until the
+// suite ends so every per-test service can finish its journal before removal.
+after(async () => {
+  await Promise.all([...temporaryHomes].map(directory => rm(directory, { recursive: true, force: true })));
+});
+
 export async function home(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'selvedge-service-test-'));
-  t.after(() => rm(directory, { recursive: true, force: true }));
+  temporaryHomes.add(directory);
   return realpath(directory);
 }
 
-export async function taskIdle(service, taskId = 0) {
+export async function taskIdle(service, taskId = 0, timeoutMs = 20_000) {
   // These scenarios include multiple model/tool roundtrips before becoming idle;
   // their physical IO deadlines are asserted separately.
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + timeoutMs;
   let page;
   do {
     const result = await service.command({ op: 'read', task_id: taskId });

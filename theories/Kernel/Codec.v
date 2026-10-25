@@ -1,5 +1,6 @@
+From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8.
+From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8 CallWire.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
 Import ListNotations.
@@ -240,12 +241,13 @@ Fixpoint traverse {A B : Type} (f : A -> option B) (values : list A) : option (l
  match values with [] => Some [] | value :: rest =>
  match f value, traverse f rest with Some value, Some rest => Some (value :: rest) | _,_ => None end end.
 Definition call_json (value : call) := JObject [
- ("id", JString (call_id value)); ("name", JString (call_name value)); ("arguments", call_arguments value)].
-Definition parse_call (value : json) : option call :=
- match string_field "id" value, string_field "name" value, field "arguments" value with
- | Some id, Some name, Some (JObject arguments) =>
-   if nonempty id && nonempty name then Some (Call id name (JObject arguments) InitialAttempt) else None
- | _,_,_ => None end.
+ ("id", JString (call_id value)); ("name", JString (call_name value)); ("arguments", call_arguments value);
+ ("arguments_json", JString (TextJson.render_json (call_arguments value)))].
+Definition wire_call_json (value : call) := CallWire.encode (call_id value) (call_name value) (call_arguments value).
+Definition parse_call_at nesting value := option_map
+ (fun parsed => let '(id,name,arguments) := parsed in Call id name arguments InitialAttempt)
+ (CallWire.decode_at nesting value).
+Definition parse_call := parse_call_at CallWire.callback_argument_nesting.
 Definition content_json (value : content) := JArray (map Images.content_part_json value).
 Definition parse_model_item (value : json) : option model_item :=
  match string_field "type" value with
@@ -253,22 +255,19 @@ Definition parse_model_item (value : json) : option model_item :=
    | Some values => let part := head (tail values) in let text := head (tail (tail values)) in
       if Utf8.well_formed text then Some (TextItem part text) else None
    | None => None end
- | Some "call" => match Schema.decode [Field "type" (KEnum "call" []);Field "id" KText;Field "name" KText;Field "arguments" KJson] value with
-   | Some values => let identity := head (tail values) in let name := head (tail (tail values)) in
-     match head (tail (tail (tail values))) with
-     | JObject arguments => if nonempty identity && nonempty name then Some (CallItem (Call identity name (JObject arguments) InitialAttempt)) else None
-     | _ => None end
-   | None => None end
+ | Some "call" => option_map
+   (fun parsed => let '(id,name,arguments) := parsed in CallItem (Call id name arguments InitialAttempt))
+   (CallWire.decode_item_at CallWire.callback_argument_nesting value)
  | Some "context" => match Schema.decode [Field "type" (KEnum "context" []);Field "part" KNatural;Field "value" KJson] value with
    | Some values => match head (tail (tail values)) with JObject fields => Some (ContextItem (head (tail values)) (JObject fields)) | _ => None end
    | None => None end
  | _ => None end.
 Definition output_mode_name (mode : output_mode) :=
- match mode with PlainOutput => "plain" | InteractiveOutput => "interactive-v1" end.
+ match mode with PlainOutput => ModelDeclarations.plain_output_name | InteractiveOutput => ModelDeclarations.interactive_output_name end.
 Definition origin_json (origin : output_origin) := JObject [
  ("producer_task", number (origin_producer origin)); ("operation", number (origin_operation origin));
  ("part", number (origin_part origin)); ("mode", JString (output_mode_name (origin_mode origin)))].
-Definition message_json (owner : N) (value : message) :=
+Definition message_json_with (project_call : call -> json) (owner : N) (value : message) :=
  match value with
  | InstructionMessage source value => JObject [("role", JString source); ("content", value)]
  | EnvironmentNotice text => JObject [("role",JString "task_context"); ("type",JString "environment_notice"); ("content",JString text)]
@@ -276,7 +275,7 @@ Definition message_json (owner : N) (value : message) :=
  | SettingsMessage settings profile reasoning => JObject [("role",JString "task_context"); ("type",JString "settings"); ("content",settings_json settings); ("profile",JString profile); ("reasoning",JString reasoning)]
  | UserMessage parts => JObject [("role", JString "user"); ("content", content_json parts)]
  | AssistantMessage origin text => JObject [("role", JString "assistant"); ("origin", origin_json origin); ("content", JString text)]
- | FunctionCall call => JObject [("role", JString "function_call"); ("content", call_json call)]
+ | FunctionCall call => JObject [("role", JString "function_call"); ("content", project_call call)]
  | FunctionOutput id value error => JObject [("role", JString "function_output"); ("call_id", JString id); ("content", value); ("is_error", JBool error)]
  | OperationResult ticket call value error => JObject [("role", JString "operation_result"); ("operation_id", number ticket); ("call_id", JString (call_id call)); ("tool", JString (call_name call)); ("content", value); ("is_error", JBool error)]
  | FailureMessage text => JObject [("role", JString "error"); ("content", JString text)]
@@ -294,13 +293,16 @@ Definition message_json (owner : N) (value : message) :=
  | SpeechDelegation owner session delegation mode text => JObject [("role", JString "speech_delegation_receipt"); ("task_id", number owner);
    ("session_id", JString session); ("delegation_id", JString delegation); ("mode", JString mode); ("content", JString text)]
  | HookReceipt owner call plugin outcome => JObject [("role", JString "hook_record"); ("task_id", number owner); ("call_id", JString (call_id call)); ("plugin", plugin); ("content", outcome)]
- | ApprovalReceipt owner operation call reviewed_by outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", call_json call); ("reviewer", reviewer_json reviewed_by); ("content", outcome)]
+ | ApprovalReceipt owner operation call reviewed_by outcome => JObject [("role", JString "approval_record"); ("task_id", number owner); ("operation_id", number operation); ("call", project_call call); ("reviewer", reviewer_json reviewed_by); ("content", outcome)]
  | ToolReceipt owner operation invocation result error => JObject [("role",JString "tool_receipt");("task_id",number owner);
-   ("operation_id",number operation);("call",call_json invocation);("content",result);("is_error",JBool error)]
+   ("operation_id",number operation);("call",project_call invocation);("content",result);("is_error",JBool error)]
  | AfterReceipt owner operation plugin outcome => JObject [("role",JString "after_record");("task_id",number owner);("operation_id",number operation);("plugin",plugin);("content",outcome)]
  | ForkReceipt _ call child => JObject [("role", JString "function_output"); ("call_id", JString (call_id call));
    ("content", number child); ("is_error", JBool false); ("receipt_kind", JString "fork_result")]
  end.
+
+Definition message_json := message_json_with wire_call_json.
+Definition public_message_json := message_json_with call_json.
 
 Theorem fork_receipt_json_preserves_provider_result : forall owner invocation child,
  field "role" (message_json owner (ForkReceipt owner invocation child)) = Some (JString "function_output") /\

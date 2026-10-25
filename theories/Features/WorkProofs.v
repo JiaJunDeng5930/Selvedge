@@ -1,3 +1,4 @@
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import State Numbers LifecycleProofs.
@@ -19,33 +20,6 @@ Proof.
  - split; reflexivity.
 Qed.
 
-Lemma registry_replace_preserves_another_index : forall (A : Type) (values : list A) selected other replacement,
- selected <> other ->
- registry_at other (replace selected replacement values) = registry_at other values.
-Proof.
- intros A values; induction values as [|first rest IH]; intros selected other replacement Different; cbn.
- - reflexivity.
- - destruct (N.eqb selected 0) eqn:Selected; destruct (N.eqb other 0) eqn:Other.
-   + apply N.eqb_eq in Selected; apply N.eqb_eq in Other; congruence.
-   + cbn; rewrite Other; reflexivity.
-   + cbn; rewrite Other; reflexivity.
-   + cbn; rewrite Other; apply IH.
-     apply N.eqb_neq in Selected; apply N.eqb_neq in Other; lia.
-Qed.
-
-Lemma registry_append_selects_new_work : forall (A : Type) (values : list A) replacement,
- registry_at (N.of_nat (List.length values)) (values ++ [replacement]) = Some replacement.
-Proof.
- intros A values; induction values as [|first rest IH]; intros replacement; cbn [List.length List.app].
- - reflexivity.
- - rewrite Nat2N.inj_succ.
-   assert (Nonzero : N.eqb (N.succ (N.of_nat (List.length rest))) 0 = false)
-     by (apply N.eqb_neq; lia).
-   change ((if N.eqb (N.succ (N.of_nat (List.length rest))) 0 then Some first else
-     registry_at (N.pred (N.succ (N.of_nat (List.length rest)))) (rest ++ [replacement])) = Some replacement).
-   rewrite Nonzero, N.pred_succ; apply IH.
-Qed.
-
 Theorem admitted_creation_stores_the_new_work : forall value chosen name,
  let id := N.of_nat (List.length (F.feature_works (world_features value))) in
  name = (match chosen with
@@ -61,7 +35,7 @@ Proof.
  intros value chosen name id Name Available Valid; subst name.
  cbv zeta; unfold Work.create; cbv beta zeta; fold id; rewrite Available, Valid.
  cbn [decision_world decision_effects]; split.
- - unfold Work.lookup; cbn; apply registry_append_selects_new_work.
+ - unfold Work.lookup; cbn; apply Selvedge.Foundation.RegistryProofs.registry_lookup_at_appended_index.
  - repeat split; reflexivity.
 Qed.
 
@@ -85,7 +59,7 @@ Theorem rename_preserves_other_works : forall value id name other,
 Proof.
  intros value id name other Different; unfold Work.rename.
  destruct (Work.lookup id value); [destruct (Work.valid_name name)|]; try reflexivity.
- unfold Work.lookup; cbn; now apply registry_replace_preserves_another_index.
+ unfold Work.lookup; cbn; now apply Selvedge.Foundation.RegistryProofs.registry_replace_other.
 Qed.
 
 Theorem shared_ui_patch_preserves_other_works : forall value id patch expected other,
@@ -97,7 +71,7 @@ Proof.
  destruct (N.ltb (F.work_ui_revision previous) 4294967295); [|reflexivity].
  destruct (N.eqb expected (F.work_ui_revision previous)); [|reflexivity].
  destruct (WorkUIPatch.apply (F.work_ui_source previous) patch); [|reflexivity].
- unfold Work.lookup; cbn; now apply registry_replace_preserves_another_index.
+ unfold Work.lookup; cbn; now apply Selvedge.Foundation.RegistryProofs.registry_replace_other.
 Qed.
 
 Theorem shared_ui_patch_preserves_task_ownership : forall value id patch expected owner,
@@ -124,49 +98,29 @@ Theorem ui_requires_task_call : forall value patch expected,
  Work.apply_ui_patch None patch expected value =
  K.reject "task_call_required"%string "Edit the shared UI through a Task tool call."%string value.
 Proof. reflexivity. Qed.
-Theorem failed_owned_birth_rolls_back : forall owner original created,
- bool_field "ok"%string (decision_reply created) <> Some true ->
- decision_world (Work.own_created owner original created) = original /\
- decision_effects (Work.own_created owner original created) = [].
+Theorem own_birth_changes_only_ownership : forall owner task value,
+ with_features (Selvedge.Features.State.with_task_owners
+   (F.feature_task_owners (world_features value))
+   (world_features (Work.own_birth owner task value))) (Work.own_birth owner task value) = value.
+Proof. intros owner task [sequence tasks ticket environment projects features]; destruct features; reflexivity. Qed.
+
+Theorem accepted_root_creation_records_its_work : forall owner fresh value,
+ F.association fresh (F.feature_task_owners (world_features (Work.own_birth owner fresh value))) = Some owner.
 Proof.
- intros owner original created failed. unfold Work.own_created.
- destruct (bool_field "ok"%string (decision_reply created)) as [[|]|]; try (split;reflexivity).
- contradiction.
+ intros owner fresh value; unfold Work.own_birth.
+ change (F.association fresh ((fresh,owner)::F.feature_task_owners (world_features value)) = Some owner).
+ unfold F.association; cbn; now rewrite N.eqb_refl.
 Qed.
 
-Theorem accepted_root_creation_records_its_work : forall owner original created,
- bool_field "ok"%string (decision_reply created) = Some true ->
- F.association (next_task original)
-   (F.feature_task_owners (world_features (decision_world (Work.own_created owner original created)))) = Some owner.
+Theorem new_root_ownership_preserves_existing_roots : forall owner fresh value other,
+ other <> fresh ->
+ F.association other (F.feature_task_owners (world_features (Work.own_birth owner fresh value))) =
+ F.association other (F.feature_task_owners (world_features value)).
 Proof.
- intros owner original created Accepted; unfold Work.own_created; rewrite Accepted.
- change (F.association (next_task original)
-   ((next_task original,owner)::F.feature_task_owners (world_features (decision_world created))) = Some owner).
- change (option_map (@snd N N)
-   (if N.eqb (next_task original) (next_task original) then Some (next_task original,owner)
-    else find (fun entry => N.eqb (next_task original) (fst entry))
-      (F.feature_task_owners (world_features (decision_world created)))) = Some owner).
- now rewrite N.eqb_refl.
-Qed.
-
-Theorem new_root_ownership_preserves_existing_roots : forall owner original created other,
- bool_field "ok"%string (decision_reply created) = Some true ->
- other <> next_task original ->
- F.association other
-   (F.feature_task_owners (world_features (decision_world (Work.own_created owner original created)))) =
- F.association other (F.feature_task_owners (world_features (decision_world created))).
-Proof.
- intros owner original created other Accepted Different; unfold Work.own_created; rewrite Accepted.
- change (F.association other
-   ((next_task original,owner)::F.feature_task_owners (world_features (decision_world created))) =
-   F.association other (F.feature_task_owners (world_features (decision_world created)))).
- change (option_map (@snd N N)
-   (if N.eqb other (next_task original) then Some (next_task original,owner)
-    else find (fun entry => N.eqb other (fst entry))
-      (F.feature_task_owners (world_features (decision_world created)))) =
-   option_map (@snd N N) (find (fun entry => N.eqb other (fst entry))
-      (F.feature_task_owners (world_features (decision_world created))))).
- apply N.eqb_neq in Different; now rewrite Different.
+ intros owner fresh value other Different; unfold Work.own_birth.
+ change (F.association other ((fresh,owner)::F.feature_task_owners (world_features value)) =
+   F.association other (F.feature_task_owners (world_features value))).
+ unfold F.association; cbn. apply N.eqb_neq in Different; now rewrite Different.
 Qed.
 
 (** Explicit ownership wins; an unassociated fork inherits the closest

@@ -26,8 +26,9 @@ Fixpoint request_excerpt_end (count : nat) (text : string) (offset : nat) {struc
       | S count => request_excerpt_end count rest (S offset)
       end
   end.
-Definition request_excerpt (text : string) : string :=
-  String.substring O (request_excerpt_end request_scalars text O) text.
+Definition bounded_excerpt (count : nat) (text : string) : string :=
+  String.substring O (request_excerpt_end count text O) text.
+Definition request_excerpt := bounded_excerpt request_scalars.
 Definition user_requests (history : list message) : list json :=
   map (fun parts => JString (request_excerpt (request_plain_text parts)))
     (fold_left (fun requests message =>

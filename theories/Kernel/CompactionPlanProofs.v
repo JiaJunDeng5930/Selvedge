@@ -38,27 +38,22 @@ Proof.
 Qed.
 
 Theorem native_start_retains_history_and_rebuild_material :
- forall history raw input_tokens window reserve,
- contains_image history = false -> contains_image raw = false ->
- input_tokens + reserve <= window ->
- start history raw "chatgpt" Automatic input_tokens window reserve =
+ forall images history raw input_tokens window reserve,
+ images = false -> input_tokens + reserve <= window ->
+ start_with_images images history raw "chatgpt" Automatic input_tokens window reserve =
  Some (CompactionState (NativeSource history raw) 0 "" window window reserve).
 Proof.
- intros history raw input_tokens window reserve NoHistoryImage NoRawImage Fits.
- unfold start. rewrite NoHistoryImage, NoRawImage. cbn.
+ intros images history raw input_tokens window reserve NoImages Fits.
+ unfold start_with_images. rewrite NoImages.
  assert (Budget : (input_tokens + reserve <=? window) = true).
  { apply N.leb_le. exact Fits. }
  now rewrite Budget.
 Qed.
 
 Theorem images_force_portable_rebuilding : forall history raw provider method input_tokens window reserve,
- contains_image history || contains_image raw = true ->
- start history raw provider method input_tokens window reserve =
+ start_with_images true history raw provider method input_tokens window reserve =
  to_portable (CompactionState (NativeSource history raw) 0 "" window window reserve).
-Proof.
- intros history raw provider method input_tokens window reserve HasImage.
- unfold start. rewrite HasImage. reflexivity.
-Qed.
+Proof. intros; reflexivity. Qed.
 
 Theorem native_rebuilding_uses_raw_history :
  forall history raw cursor carry width window reserve rebuilt,

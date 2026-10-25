@@ -56,9 +56,11 @@ Definition public_message (message : message) := match message with
  | OperationResult _ call value error => Some (JObject [("role",JString "function_output");("call_id",JString (call_id call));
     ("name",JString (call_name call));("content",public_value 512 value);("is_error",JBool error)])
  | _ => None end.
-Definition preview_value value := let rendered := TextJson.render_json value in
- match Utf8.scalar_count rendered with Some count => if Nat.leb count 1024 then value else JString (excerpt rendered)
- | None => JString omission end.
+(* Public filtering precedes previewing. Text crosses the JS bridge without
+   collapsing object members; an existing excerpt must not be quoted a second time. *)
+Definition preview_value value := match value with
+ | JString text => JString (excerpt text)
+ | _ => JString (excerpt (TextJson.render_json value)) end.
 Definition preview_message message := match text_default "role" message "" with
  | "function_call" => JObject [("role",JString "function_call");("call_id",value_or_null "call_id" message);
     ("name",value_or_null "name" message);("arguments",preview_value (value_or_null "arguments" message))]

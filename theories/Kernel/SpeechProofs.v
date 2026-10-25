@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs Utf8.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -109,10 +110,10 @@ Proof.
  intros id session identity mode text value task Mode Found IdleTask NoQueued Session Identity Text Fresh.
  destruct Mode as [Mode|Mode]; subst mode.
  - unfold CommandExecution.speech_delegation; rewrite Found, Session, Identity, Text, Fresh.
-   cbn [String.eqb]. unfold Tasks.send; rewrite Found, IdleTask, Text. cbn.
+   cbn [String.eqb]. rewrite TaskChangesProofs.send_expression; rewrite Found, IdleTask, Text. cbn.
    rewrite (find_put_task id task (Tasks.receive [TextPart text] task) value Found).
    eexists; split; [apply find_put_task with (Tasks.receive [TextPart text] task); apply find_put_task with task; exact Found|].
-   unfold Tasks.receive; rewrite IdleTask, NoQueued.
+   rewrite TaskChangesProofs.receive_expression; rewrite IdleTask, NoQueued.
    repeat split; try reflexivity.
    change ((task_history task ++ [UserMessage [TextPart text]]) ++
      [SpeechDelegation id session identity "send" text] =
@@ -124,7 +125,7 @@ Proof.
            (with_lifecycle (Running WantsModel [])
              (append_history [UserMessage [TextPart text]] task)) value)
          (Selvedge.Kernel.State.success (JObject [("task_id", Numbers.number id)])) []).
-   { unfold Tasks.steer; rewrite Found, IdleTask, Text.
+   { rewrite TaskChangesProofs.steer_expression; rewrite Found, IdleTask, Text.
      unfold task_activity, task_operations; rewrite !IdleTask.
      cbn [History.interrupted_phase].
      unfold Tasks.inference_effects, task_activity; rewrite IdleTask.

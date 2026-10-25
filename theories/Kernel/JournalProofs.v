@@ -2,8 +2,8 @@ From Stdlib Require Import List Relations Relation_Operators PeanoNat NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import State Inputs InputDecoder Packet PacketProofs Journal
- WorldInvariant WorldInvariantProofs CommitAdmission.
-From Selvedge.Kernel Require Scheduler.
+ WorldInvariant WorldInvariantProofs CommitAdmission ForkCommit ForkCommitAuthorization.
+From Selvedge.Kernel Require Scheduler CreationCommit CreationCommitAuthorization DeferredCommitProofs.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 
@@ -24,24 +24,52 @@ Proof.
 Qed.
 
 Theorem every_actual_packet_preserves_global_state_relation_or_rolls_back : forall source before,
+ well_formed before ->
  let '(after, receipt) := Packet.packet source before in
  WorldInvariant.world_structure after = WorldInvariant.world_structure before \/
  exists input, CommitAdmission.world_evolution input source before after = true.
 Proof.
- intros source before; unfold Packet.packet.
+ intros source before Valid; unfold Packet.packet; cbv beta zeta;
+ fold (Packet.manual_fork source) (Packet.transition source before).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
- - destruct (Packet.transition source before) as [[[durable schedules] input] candidate] eqn:Transition.
+ - destruct (Packet.manual_fork source) as [request|].
+   { unfold ForkCommit.packet.
+     destruct (Delivery.deliver_with_status true (ForkCommit.candidate request before) before)
+       as [fits delivered] eqn:Outcome.
+     pose proof (a_delivered_fork_retains_or_constructs_its_cross_state_authority
+       (Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request))) source request before Valid) as Authority.
+     rewrite Outcome in Authority; cbn [snd] in Authority; cbn.
+     destruct Authority as [Retained|Evolved].
+     - left; rewrite domain_projection_erases_journal_sequence; exact Retained.
+     - right; exists (Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request))).
+       rewrite domain_relation_ignores_journal_sequence; exact Evolved. }
+   destruct (CreationCommit.input (InputDecoder.decode source)) as [request|].
+   { unfold CreationCommit.packet, Delivery.deliver_with_status.
+     destruct (Delivery.fits true (CreationCommit.candidate request before)); cbn [fst decision_world].
+     - right; exists (Some (UserCommand (Selvedge.Generated.Commands.Cmd_create request))).
+       rewrite domain_relation_ignores_journal_sequence.
+       apply CreationCommitAuthorization.every_creation_candidate_preserves_retained_execution_authority; exact Valid.
+     - left; apply domain_projection_erases_journal_sequence. }
+   destruct (Packet.deferred_candidate (InputDecoder.decode source) before) as [[input candidate]|].
+   { pose proof (DeferredCommitProofs.packet_preserves_global_state_relation_or_rolls_back (Some input) source before candidate) as Authority.
+     destruct (DeferredCommit.packet (Some input) source before candidate) as [after envelope] eqn:Committed.
+     cbn [fst] in Authority |- *.
+     destruct Authority as [Retained|Evolved].
+     - left; exact Retained.
+     - right; exists (Some input); exact Evolved. }
+   destruct (Packet.transition source before) as [[[durable schedules] input] candidate] eqn:Transition.
    set (prepared := if schedules then Runtime.finish
      (Scheduler.run Packet.execute_command Runtime.can_schedule_task candidate) else candidate).
-   set (admitted := Packet.admit durable input source before prepared).
+   destruct (Packet.admit_with_status durable input source before prepared) as [accepted admitted] eqn:Outcome.
    pose proof (PacketProofs.actual_commit_admission_satisfies_global_transition_or_rollback
      durable input source before prepared) as Admission.
+   rewrite (PacketProofs.admit_result_is_the_selected_outcome durable input source before prepared accepted admitted Outcome) in Admission.
    destruct Admission as [[RolledBack _] | [Evolution _]].
-   + left; fold admitted in RolledBack; destruct durable.
+   + left; destruct durable; cbn [fst].
      * rewrite RolledBack; reflexivity.
      * rewrite RolledBack; exact (domain_projection_erases_journal_sequence before
          (N.succ (world_sequence before))).
-   + right; fold admitted in Evolution; destruct durable.
+   + right; destruct durable; cbn [fst].
      * exists input; exact Evolution.
      * exists input; exact Evolution.
  - left; reflexivity.

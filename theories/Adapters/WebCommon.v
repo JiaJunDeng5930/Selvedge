@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Ascii.
-From Selvedge.Foundation Require Import Json JsonObjects TextJson Utf8.
+From Selvedge.Foundation Require Import Json JsonObjects TextJson Utf8 CallWire.
 From Selvedge.Adapters Require Export Common.
 Import ListNotations.
 Open Scope string_scope.
@@ -51,14 +51,54 @@ Definition replacement_suffix effect := if eq effect "kind" "model" then
 Definition successor_body id input := JObject [("previous_response_id",id);("input",JArray input);("stream",JBool true)].
 (* DEFENSE: Protocol JSON may contain duplicate members or unpaired Unicode
    escapes. These violate the domain contract even when JSON syntax parses. *)
-Definition domain_json_failure source :=
-  match TextJson.json_value (S (String.length source)) source with
+Definition domain_json_failure_at nesting source :=
+  match TextJson.json_value_at true (S (String.length source)) nesting source with
   | TextJson.Invalid reason => existsb (String.eqb reason)
       ["Duplicate object key";"Unpaired Unicode surrogate";"Invalid Unicode scalar"]
   | _ => false
   end.
+Definition domain_json_failure source :=
+  domain_json_failure_at (S (String.length source)) source.
 Definition decode_text source := match TextJson.parse_json source with
   | Some value => success value
   | None => if domain_json_failure source
+      then err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode"
+      else failure "SyntaxError" "Invalid ChatGPT Web JSON" end.
+
+(* Provider arguments are the only protocol subtree whose member occurrences
+   belong to the tool admission. Encode them before the host sees an object. *)
+Definition provider_arguments_valid resource := forallb (fun call =>
+  if eq call "type" "function_call" then
+    is_object (get call "arguments") && negb (has call "arguments_json")
+  else true) (items (get resource "output")).
+Definition provider_call_wire call :=
+  if eq call "type" "function_call" then JObject (map (fun field =>
+    if String.eqb (fst field) "arguments" then
+      ("arguments_json",JString (TextJson.render_json (snd field))) else field)
+    (object_fields call)) else call.
+Definition provider_resource_wire resource := JObject (map (fun field =>
+  if String.eqb (fst field) "output" then
+    (match snd field with JArray values => (fst field,JArray (map provider_call_wire values))
+      | _ => field end) else field)
+  (object_fields resource)).
+Definition provider_json_wire value :=
+  if eq value "object" "web.response" then
+    if provider_arguments_valid value then Some (provider_resource_wire value) else None
+  else if is_object (get value "response") then
+    if provider_arguments_valid (get value "response") then Some (JObject (map (fun field =>
+      if String.eqb (fst field) "response" then (fst field,provider_resource_wire (snd field)) else field)
+      (object_fields value))) else None
+  else Some value.
+(* SSE wraps the response in one additional object. The bounded raw parse
+   allows that envelope; tool admission applies the callback argument budget. *)
+Definition parse_provider_json source :=
+  match TextJson.parse_json_members_at (S TextJson.input_nesting) source with
+  | Some value => match provider_json_wire value with
+    | Some encoded => TextJson.parse_json (TextJson.render_json encoded)
+    | None => None end
+  | None => None end.
+Definition decode_provider_text source := match parse_provider_json source with
+  | Some value => success value
+  | None => if domain_json_failure_at (S TextJson.input_nesting) source
       then err "Invalid ChatGPT Web JSON: duplicate object field or malformed Unicode"
       else failure "SyntaxError" "Invalid ChatGPT Web JSON" end.

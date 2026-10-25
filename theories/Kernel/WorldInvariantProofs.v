@@ -25,16 +25,16 @@ Qed.
 Theorem an_admitted_world_satisfies_the_commit_requirements : forall before candidate,
  world_valid before = true -> world_valid (decision_world (validate before candidate)) = true.
 Proof.
- intros before candidate Before; unfold validate.
+ intros before candidate Before; unfold validate, validate_with_status.
  destruct (world_valid (decision_world candidate)) eqn:Checked; [exact Checked|exact Before].
 Qed.
 Theorem an_invalid_candidate_restores_the_world_and_discards_every_effect : forall before candidate,
  world_valid (decision_world candidate) = false ->
  decision_world (validate before candidate) = before /\ decision_effects (validate before candidate) = [].
-Proof. intros; unfold validate; rewrite H; split; reflexivity. Qed.
+Proof. intros; unfold validate, validate_with_status; rewrite H; split; reflexivity. Qed.
 Theorem a_valid_candidate_is_committed_without_substitution : forall before candidate,
  world_valid (decision_world candidate) = true -> validate before candidate = candidate.
-Proof. intros; unfold validate; rewrite H; reflexivity. Qed.
+Proof. intros; unfold validate, validate_with_status; rewrite H; reflexivity. Qed.
 
 
 Lemma deduplicating_tickets_never_increases_the_length : forall tickets,

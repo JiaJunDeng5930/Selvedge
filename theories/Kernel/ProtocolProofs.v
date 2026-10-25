@@ -134,7 +134,7 @@ Proof.
 Qed.
 Lemma declared_command_reaches_its_named_decoder : forall specification (values : fields (command_fields specification)),
  unique_names ("op" :: declared_names (command_fields specification)) = true ->
- G.decode (Schema.encode_declared specification values) =
+ G.decode_admitted (Schema.encode_declared specification values) =
  G.decode_named (command_name specification) (Schema.encode _ values).
 Proof.
  intros specification values Unique.

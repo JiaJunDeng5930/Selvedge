@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaProofs.
-From Selvedge.Kernel Require Import ProtocolProofs.
+From Selvedge.Kernel Require Import ProtocolProofs CommandDeclarations.
 From Selvedge.Generated Require Import Commands.
 Module G := Selvedge.Generated.Commands.
 
@@ -26,12 +26,14 @@ Ltac prove_payload_codec description to_fields from_fields constructor payload :
    rewrite Eta; unfold Schema.encode in Wire; injection Wire as Wire; exact Wire ].
 
 Theorem actual_command_codec_preserves_declared_payload : forall command,
+ CommandDeclarations.valid true (G.encode command) = true ->
  exists canonical,
  G.decode (G.encode command) = Some canonical /\
  G.declared_command canonical = G.declared_command command /\
  G.declared_payload canonical = G.declared_payload command.
 Proof.
- intros command; destruct command; G.command_payload_case prove_payload_codec.
+ intros command Admitted. rewrite G.decode_observed_declaration, Admitted.
+ destruct command; G.command_payload_case prove_payload_codec.
 Qed.
 
 (* This independently fixes the actual encoder to the declaration and original
@@ -53,7 +55,9 @@ Theorem accepted_command_uses_its_declared_field_decoder : forall source command
  string_field "op" source = Some (command_name (G.declared_command command)).
 Proof.
  intros source command Accepted; destruct source as [|boolean|number|text|array|source_fields]; try discriminate.
- unfold G.decode in Accepted.
+ rewrite G.decode_observed_declaration in Accepted.
+ destruct (CommandDeclarations.valid true (JObject source_fields)); try discriminate.
+ unfold G.decode_admitted in Accepted.
  destruct (unique_names (source_keys source_fields)); try discriminate.
  destruct (lookup "op" source_fields) as [tag|] eqn:Tag; try discriminate.
  destruct tag; try discriminate.

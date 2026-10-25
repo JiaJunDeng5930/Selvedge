@@ -1,5 +1,7 @@
+import { remoteControl } from '../remote/control-model.mjs';
 import { constants } from 'node:fs';
-import { link, mkdir, open, unlink } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
+import { publishBytes } from './file-io.mjs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { requestJson } from './network.mjs';
@@ -64,11 +66,9 @@ async function readIdentity(home, relayUrl) {
 export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLoopback = false }) {
   const relay_url = assertRelayUrl(relayUrl, { allowLoopback });
   // DEFENSE: remote init reads this credential from the user's environment; absent or invalid header bytes cannot authenticate enrollment.
-  if (typeof enrollmentToken !== 'string' || enrollmentToken.length < 32 || enrollmentToken.length > 512 ||
-      !/^[\x21-\x7e]+$/.test(enrollmentToken)) {
+  if (!remoteControl('enrollment_credential', enrollmentToken ?? null)) {
     throw remoteError('remote_enrollment_missing', 'Set SELVEDGE_RELAY_ENROLLMENT_TOKEN to the relay enrollment credential');
   }
-  await mkdir(home, { recursive: true, mode: 0o700 });
   let identity;
   try { identity = await readIdentity(home, relay_url); }
   catch (error) {
@@ -76,25 +76,11 @@ export async function provisionRemote({ home, relayUrl, enrollmentToken, allowLo
     if (error.code !== 'remote_identity_missing') throw error;
     const proposed = { format: identityFormat, host_id: randomUUID(), host_token: randomBytes(32).toString('base64url'), relay_url };
     const filename = path.join(home, identityName);
-    const temporary = `${filename}.${randomUUID()}.tmp`;
-    let file;
-    try {
-      file = await open(temporary, 'wx', 0o600);
-      await file.writeFile(JSON.stringify(proposed) + '\n');
-      await file.sync();
-      await file.close();
-      file = undefined;
-      try { await link(temporary, filename); }
-      // DEFENSE: Concurrent remote-init processes may publish first; the loser reads the winner's completed private identity.
-      catch (error) { if (error.code !== 'EEXIST') throw error; }
-      await unlink(temporary);
-      const directory = await open(home, 'r');
-      try { await directory.sync(); } finally { await directory.close(); }
-    } finally {
-      await file?.close();
-      // DEFENSE: Successful publication already removed this temporary file; every other cleanup failure remains visible.
-      await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
-    }
+    await publishBytes(filename, Buffer.from(JSON.stringify(proposed) + '\n'), {
+      mode: 'create-if-absent', permissions: 0o600,
+    });
+    // A concurrent initializer can win publication. Always admit the completed
+    // winner from disk before registering this installation's identity.
     identity = await readIdentity(home, relay_url);
   }
   let registered;
@@ -125,8 +111,10 @@ export class RemoteControl {
   #identity;
   #options;
   #connector;
-  #pending = new Map();
-  #pairingExpires = 0;
+  #pairingState = { expires_at: 0, pending: [] };
+  #pairingStep(kind, observation = {}) {
+    this.#pairingState = remoteControl('pairing', { state: this.#pairingState, event: { kind, now: Date.now(), ...observation } });
+  }
   #closed = false;
   #dirty = false;
   #reconciling;
@@ -182,8 +170,7 @@ export class RemoteControl {
 
   async disable() {
     unwrap(await this.#service.command({ op: 'remote_disable' }));
-    this.#pending.clear();
-    this.#pairingExpires = 0;
+    this.#pairingStep('clear');
     await this.reconcile();
     return this.status();
   }
@@ -192,25 +179,24 @@ export class RemoteControl {
     await this.#enabled();
     const code = randomBytes(32).toString('base64url');
     const expires_at = Date.now() + REMOTE_PAIRING_TTL_MS;
-    this.#pending.clear();
-    this.#pairingExpires = expires_at;
+    this.#pairingStep('begin', { expires_at });
     await this.#connector.pair(code, expires_at);
     return { code, expires_at, host_id: this.#identity.host_id, relay_url: this.#identity.relay_url };
   }
 
   pending() {
-    if (Date.now() >= this.#pairingExpires) this.#pending.clear();
-    return [...this.#pending.values()].map(request => ({ ...request }));
+    this.#pairingStep('observe');
+    return this.#pairingState.pending.map(request => ({ ...request }));
   }
 
   async approve(request_id, permissions) {
     await this.#enabled();
     this.pending();
-    const request = this.#pending.get(request_id);
+    const request = this.#pairingState.pending.find(request => request.request_id === request_id);
     // DEFENSE: A local approve request can name an expired, already-consumed, or nonexistent pairing request.
     if (!request) throw remoteError('remote_pairing_missing', 'This pairing request is unavailable or expired');
     const result = unwrap(await this.#service.command({ op: 'remote_grant', controller_id: request.controller_id, permissions }));
-    this.#pending.delete(request_id);
+    this.#pairingStep('consume', { request_id });
     await this.reconcile();
     return result;
   }
@@ -222,9 +208,8 @@ export class RemoteControl {
   }
 
   #pairRequested(request) {
-    // DEFENSE: A relay delivery can arrive after shutdown/expiry or repeat after the one-time pairing request was consumed.
-    if (this.#closed || Date.now() >= this.#pairingExpires || this.#pending.size >= 1) return;
-    this.#pending.set(request.request_id, { request_id: request.request_id, controller_id: request.controller_id, label: request.label });
+    if (this.#closed) return;
+    this.#pairingStep('receive', { request: { request_id: request.request_id, controller_id: request.controller_id, label: request.label } });
   }
 
   reconcile() {
@@ -255,13 +240,12 @@ export class RemoteControl {
       const connector = this.#connector;
       this.#connector = undefined;
       this.#grantsKey = undefined;
-      this.#pending.clear();
-      this.#pairingExpires = 0;
+      this.#pairingStep('clear');
       await connector?.close();
       return;
     }
     if (!this.#connector) {
-      this.#connector = new RemoteConnector({ relayUrl: this.#identity.relay_url, hostId: this.#identity.host_id,
+      this.#connector = new RemoteConnector({ ...this.#options, relayUrl: this.#identity.relay_url, hostId: this.#identity.host_id,
         hostToken: this.#identity.host_token, service: this.#service,
         allowLoopback: this.#options.allowLoopback === true,
         getGrants: async () => {
@@ -281,8 +265,7 @@ export class RemoteControl {
 
   async close() {
     this.#closed = true;
-    this.#pending.clear();
-    this.#pairingExpires = 0;
+    this.#pairingStep('clear');
     await this.#connector?.close();
     await this.#reconciling;
     this.#connector = undefined;

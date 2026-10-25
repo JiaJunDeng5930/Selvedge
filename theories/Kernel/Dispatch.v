@@ -3,8 +3,9 @@ From Selvedge.Kernel Require Import Domain State Reasoning.
 Import ListNotations.
 
 Definition request_coordinate (request : effect) := match request with
- | ObserveContext id ticket _ | RequestModel id ticket _ _ _ _
- | RequestReasoning id ticket _ _ | ExecuteTool id ticket _ _ _ _ _
+ | RequestModel request => Some (ModelRequest.owner request, ModelRequest.ticket request)
+ | ObserveContext id ticket _
+ | RequestReasoning id ticket _ | ExecuteTool id ticket _ _ _ _ _
  | RequestApproval id ticket _ _ _ | CheckTool id ticket _ _ _ => Some (id,ticket)
  | _ => None end.
 Definition cancelled (effects : list effect) (id ticket : N) :=
@@ -41,19 +42,22 @@ Definition capture_request (request : effect) (value : world) : world * effect :
         ObserveContext id ticket (with_history (task_history current) original)) else (value,request)
      | _ => (value,request) end
    | None => (value,request) end
- | RequestModel id ticket model original scope reserve => match side_task id value with
+ | RequestModel snapshot =>
+   let id := ModelRequest.owner snapshot in
+   let ticket := ModelRequest.ticket snapshot in
+   match side_task id value with
    | Some current => match task_activity current with
      | AskingModel expected _ _ => if N.eqb expected ticket then
        (put_task id (with_model_cursor (List.length (task_history current)) current) value,
-        RequestModel id ticket model (with_history (task_history current) original) scope reserve)
+        RequestModel (ModelRequest.with_history (task_history current) snapshot))
        else (value,request)
      | _ => (value,request) end
    | None => (value,request) end
- | RequestReasoning id ticket model original => match side_task id value with
+ | RequestReasoning id ticket original => match side_task id value with
    | Some current => match task_activity current with
      | EvaluatingReasoning expected _ => if N.eqb expected ticket then
        (put_task id (with_activity (EvaluatingReasoning ticket (List.length (task_history current))) current) value,
-        RequestReasoning id ticket model (with_history (task_history current) original)) else (value,request)
+        RequestReasoning id ticket (with_history (task_history current) original)) else (value,request)
      | _ => (value,request) end
    | None => (value,request) end
  | _ => (value,request) end.
@@ -63,6 +67,9 @@ Fixpoint capture_requests (effects : list effect) (value : world) :=
  | request :: rest => let '(value,request) := capture_request request value in
    let '(value,rest) := capture_requests rest value in (value,request :: rest)
  end.
-Definition prepare (value : world) (effects : list effect) :=
- let '(value,effects) := capture_requests effects value in
- (value,filter (live_request value effects) effects).
+Definition prepare (value : world) (effects : list effect) := capture_requests effects value.
+(** The single withdrawal point runs after all scheduling and feature postprocessing. *)
+Definition retain_live_effects (candidate : decision) :=
+ let effects := decision_effects candidate in
+ Decision (decision_world candidate) (decision_reply candidate)
+   (filter (live_request (decision_world candidate) effects) effects).

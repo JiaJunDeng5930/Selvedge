@@ -78,7 +78,7 @@ Proof.
    Some (false,false,result)).
  { eapply runtime_completion_uses_board_text; eauto. }
  assert (transition : Packet.transition source value=(false,false,None,result)).
- { unfold Packet.transition. rewrite (proj1 wire), (proj2 wire), completed. cbn. reflexivity. }
+ { unfold Packet.transition, Packet.transition_decoded. rewrite (proj1 wire), (proj2 wire), completed. cbn. reflexivity. }
  exists result. repeat split; assumption.
 Qed.
 
@@ -88,7 +88,7 @@ Lemma world_invariant_keeps_an_unchanged_empty_decision : forall value result,
  decision_effects (WorldInvariant.validate value result)=[].
 Proof.
  intros value result unchanged no_effects.
- unfold WorldInvariant.validate.
+ unfold WorldInvariant.validate, WorldInvariant.validate_with_status.
  destruct (WorldInvariant.world_valid (decision_world result)); cbn [decision_world decision_effects State.reject];
    split; try assumption; reflexivity.
 Qed.
@@ -101,9 +101,12 @@ Lemma packet_keeps_an_ignored_nondurable_result : forall source value result,
  field "durable" (snd (Packet.packet source value))=Some (JBool false).
 Proof.
  intros source value result transition unchanged no_effects.
- unfold Packet.packet. destruct (N.leb _ _) eqn:frame.
- - rewrite transition. cbn beta iota zeta.
-   assert (retained : CommitAdmission.retain_live_effects result=result).
+ unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source) (Packet.transition source value). destruct (N.leb _ _) eqn:frame.
+ - rewrite (PacketProofs.a_nondurable_transition_is_not_a_manual_fork source value result transition).
+   rewrite (PacketProofs.a_nondurable_transition_is_not_a_public_creation source value result transition).
+   rewrite (PacketProofs.a_nondurable_transition_is_not_a_deferred_transaction source value result transition).
+   rewrite transition. cbn beta iota zeta.
+   assert (retained : Dispatch.retain_live_effects result=result).
    { destruct result as [world reply effects]. cbn in no_effects.
      subst effects. reflexivity. }
    assert (admitted : decision_world (Packet.admit false None source value result)=value /\
@@ -111,10 +114,14 @@ Proof.
    { pose proof (PacketProofs.actual_commit_admission_is_authorized_or_rolled_back
        false None source value result) as [rollback|[_ kept]].
      - exact rollback.
-     - rewrite kept, retained. cbn [Notifications.decorate].
+     - rewrite kept, retained.
        apply world_invariant_keeps_an_unchanged_empty_decision; assumption. }
    destruct admitted as [admitted_world admitted_effects].
-   unfold Selvedge.Kernel.Observation.envelope.
+   destruct (Packet.admit_with_status false None source value result) as [accepted committed] eqn:Outcome.
+   pose proof (PacketProofs.admit_result_is_the_selected_outcome false None source value result accepted committed Outcome) as Selected.
+   rewrite Selected in admitted_world, admitted_effects.
+   unfold Notifications.envelope, Selvedge.Kernel.Observation.envelope.
+   cbn [andb].
    rewrite admitted_world, admitted_effects.
    cbn [Selvedge.Foundation.Json.field Selvedge.Foundation.Json.lookup].
    repeat split; reflexivity.

@@ -23,3 +23,9 @@ Proof.
  apply N.leb_le in Lower; apply N.leb_le in Upper.
  exists value; auto.
 Qed.
+
+
+Theorem structured_arguments_execute_their_declaration : forall declaration value,
+ Arguments.type_valid (Structured (ArgumentDeclaration.compile declaration)) value =
+ ArgumentDeclaration.check declaration value.
+Proof. reflexivity. Qed.

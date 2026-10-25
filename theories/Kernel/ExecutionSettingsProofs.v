@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Codec Tasks LifecycleProofs.
@@ -17,7 +18,7 @@ Theorem sandbox_update_keeps_frozen_execution : forall id before value patch san
    task_contract after = task_contract before.
 Proof.
  intros id before value patch sandbox Found Eligible Lease Parsed.
- unfold configure_execution, configure_execution_with.
+ unfold configure_execution; rewrite TaskChangesProofs.configure_execution_with_expression; cbv beta zeta.
  rewrite Found, Eligible, Lease. cbn [andb execution_reasoning selected_reasoning]. rewrite Parsed.
  match goal with |- context [if ?same then _ else _] => destruct same eqn:Same end.
  all: cbn -[put_task]; eexists; split;
@@ -37,7 +38,7 @@ Theorem default_effort_restores_frozen_configuration : forall id before value co
    task_contract after = task_contract before.
 Proof.
  intros id before value configured Found Eligible Lease Parsed.
- unfold configure_execution, configure_execution_with.
+ unfold configure_execution; rewrite TaskChangesProofs.configure_execution_with_expression; cbv beta zeta.
  rewrite Found, Eligible, Lease. cbn [andb execution_reasoning]. rewrite Parsed.
  match goal with |- context [if ?same then _ else _] => destruct same eqn:Same end.
  all: cbn -[put_task]; eexists; split;
@@ -46,12 +47,22 @@ Proof.
 Qed.
 
 Theorem a_recorded_reasoning_lease_blocks_execution_reconfiguration :
- forall normalize id before value effort remaining name reasoning sandbox approval,
+ forall normalize id before value effort remaining name reasoning sandbox approval
+   model chosen sandbox_settings approval_settings,
  find_task id value = Some before ->
  History.history_lease id (task_history before) = History.Lease effort remaining ->
+ (match name with None => Some (task_current_profile before)
+   | Some key => find_profile key (environment_profiles (world_environment value)) end) = Some model ->
+ execution_reasoning reasoning model = Some chosen ->
+ (match sandbox with None => Some (settings_sandbox (task_current_settings before))
+   | Some source => parse_sandbox_patch (settings_sandbox (task_current_settings before)) source end) = Some sandbox_settings ->
+ (match approval with None => Some (settings_approval (task_current_settings before))
+   | Some source => parse_approval model (environment_profiles (world_environment value)) source end) = Some approval_settings ->
  configure_execution_with normalize id name reasoning sandbox approval value =
  reject "task_busy" "Execution settings require a quiescent unarchived task without a live reasoning lease" value.
 Proof.
- intros normalize id before value effort remaining name reasoning sandbox approval Found Lease.
- unfold configure_execution_with. rewrite Found, Lease, andb_false_r. reflexivity.
+ intros normalize id before value effort remaining name reasoning sandbox approval
+  model chosen sandbox_settings approval_settings Found Lease Model Reasoning Sandbox Approval.
+ rewrite TaskChangesProofs.configure_execution_with_expression; cbv beta zeta. rewrite Found, Model; cbv beta zeta; rewrite Approval, Reasoning, Sandbox, Lease, andb_false_r.
+ reflexivity.
 Qed.

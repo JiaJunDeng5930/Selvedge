@@ -1,7 +1,9 @@
+From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 Schema.
-From Selvedge.Kernel Require Import Commands Workspace.
+From Selvedge.Kernel Require Import Commands Workspace CommandDeclarations.
 From Selvedge.Adapters Require Import Common Observation.
+From Selvedge.Host Require Import LocalResources.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -72,9 +74,15 @@ Definition plan (command : json) : workspace_plan :=
     let selected := graph_selections 0%nat (items (get command "nodes")) in
     WorkspacePlan (Commands.root_task_creation command) false selected
   else WorkspacePlan false false [].
-Definition plan_json (plan : workspace_plan) := JObject [("root_task",JBool plan.(root_task));("worktree",JBool plan.(worktree));
-  ("selections",JArray (map (fun selection => JObject [("value",selection.(selected_value));
-    ("resolve_project",JBool selection.(resolve_project))]) plan.(selections)))].
+Definition selection_fields (selection : selection) : fields ModelResultDeclarations.workspace_selection_fields :=
+ FCons (field:=Field "value" KJson) selection.(selected_value)
+ (FCons (field:=Field "resolve_project" KBool) selection.(resolve_project) FNil).
+Definition selection_json selection := JObject (Schema.encode_fields (selection_fields selection)).
+Definition command_plan_fields (plan : workspace_plan) : fields ModelResultDeclarations.workspace_command_fields :=
+ FCons (field:=Field "root_task" KBool) plan.(root_task)
+ (FCons (field:=Field "worktree" KBool) plan.(worktree)
+ (FCons (field:=Field "selections" (KArray KJson)) (map selection_json plan.(selections)) FNil)).
+Definition plan_json plan := JObject (Schema.encode_fields (command_plan_fields plan)).
 Definition workspace_settings (source : json) :=
   let value := get source "value" in
   (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
@@ -84,6 +92,14 @@ Definition workspace_settings (source : json) :=
     (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&
       bound (get value "project_id") 0 9007199254740991 then get value "project_id" else JNull);
       ("observe_workspace",JBool workspace_supplied)]) "Root guidance and workspace resources are observed by the service, not supplied by a client".
+Definition workspace_selection_plan (source : json) :=
+ let value := get source "value" in
+ let project := if boolean_field source "resolve_project" && negb (has value "workspace") &&
+   bound (get value "project_id") 0 9007199254740991 then natural (get value "project_id") else None in
+ let values : fields ModelResultDeclarations.workspace_settings_fields :=
+ FCons (field:=Field "project_id" (KOptional KNatural)) project
+ (FCons (field:=Field "observe_workspace" KBool) (has value "workspace") FNil) in
+ success (JObject (Schema.encode_fields values)).
 Definition observed_settings (selected observation : json) :=
   let workspace := if has observation "workspace" then set selected "workspace" (get observation "workspace") else selected in
   let selected := if has observation "workspace_binding" then set workspace "workspace_binding" (get observation "workspace_binding") else workspace in
@@ -105,6 +121,25 @@ Definition workspace_command_observed (source : json) :=
   let command := get source "command" in
   success (fold_left apply_observation (combine (plan command).(selections) (items (get source "observations"))) command).
 
+(* Raw command admission precedes every observation, including cloud and unknown-task paths. *)
+Definition raw_settings_valid (selection : selection) :=
+  is_null (get selection.(selected_value) "guidance") &&
+  is_null (get selection.(selected_value) "workspace_binding").
+Definition clear_observed_fields (value : json) := match value with
+  | JObject fields => JObject (remove_field "workspace_binding" (remove_field "guidance" fields))
+  | _ => value end.
+Definition workspace_command_raw (source : json) :=
+ match CommandDeclarations.admit_public (get source "command") with
+ | None => type_error "Command fields do not match their declared presence, shape or bounds"
+ | Some admitted =>
+  let command := CommandDeclarations.public_raw_source admitted in
+  let selections := (plan command).(selections) in
+  type_admit (forallb raw_settings_valid selections)
+    (fold_left (fun current selection => apply_observation current
+      (Selection selection.(selected_path) (clear_observed_fields selection.(selected_value)) selection.(resolve_project), JObject [])) selections command)
+    "Root guidance and workspace resources are observed by the service, not supplied by a client"
+ end.
+
 Definition child (parent leaf : string) :=
   if String.eqb (String.substring (Nat.pred (String.length parent)) 1 parent) "/"
   then parent ++ leaf else parent ++ "/" ++ leaf.
@@ -125,12 +160,24 @@ Definition worktree_path (source : json) :=
      (String.eqb op "copy" && contains_path (str source "source") (str source "repository") &&
        contains_path (str source "destination") (text root) && negb (equal (get source "destination") root))
   then success JNull else err "Managed worktree path must remain in its admitted repository or owned storage; service home must stay outside the source repository".
+Definition reservation_valid (value : json) (files : json) :=
+  plain_fields_only ["id";"canonical_root";"dev";"ino";"repository"] value &&
+  forallb (fun key => is_text (get value key) && negb (String.eqb (str value key) ""))
+    ["id";"dev";"ino";"repository"] &&
+  equal (get value "canonical_root") (get files "active") && path_valid (get value "repository").
+Definition worktree_receipt_fields := ["task_id";"source_root";"root";"workspace";"status";"local_phase";"reservation"].
+Definition worktree_receipt_encode (source : json) :=
+  let state := get source "state" in
+  success (JObject (map (fun key => (key,get state key)) worktree_receipt_fields)).
 Definition worktree_receipt (source : json) :=
   let value := get source "value" in let workspace := get value "workspace" in let root := get value "root" in
-  type_admit (plain_fields_only ["task_id";"source_root";"root";"workspace";"status"] value &&
+  let files := get source "files" in
+  let unreserved := String.eqb (str value "local_phase") "unreserved" && is_null (get value "reservation") in
+  type_admit (plain_fields_only worktree_receipt_fields value && LocalResources.receipt_stage_valid value &&
     equal (get value "task_id") (get source "task_id") && equal (get value "source_root") (get source "source_root") &&
-    ((String.eqb (str value "status") "ready" && equal root (get (get source "files") "active")) ||
-     (String.eqb (str value "status") "archived" && equal root (get (get source "files") "archived"))) &&
+    (unreserved || reservation_valid (get value "reservation") files) &&
+    ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving";"released";"needs_resolution";"destroy_pending"] && equal root (get files "active")) ||
+     (String.eqb (str value "status") "archived" && equal root (get files "archived"))) &&
     workspace_valid workspace && forallb path_valid (items (get workspace "roots")) &&
     existsb (fun root => String.eqb (text root) (str workspace "primary_root")) (items (get workspace "roots")) &&
     contains_path (str workspace "primary_root") (text root)) value "Invalid managed worktree receipt".

@@ -4,6 +4,7 @@ import { lstat, mkdir, open, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { parseJson, stringifyJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
+import { durableDirectory, syncDirectory, readBoundedRegularSnapshot } from './file-io.mjs';
 
 export const BOARD_FILE_LIMIT = 10 * 1024 * 1024;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -17,7 +18,7 @@ export function mediaType(bytes) {
 async function vault(home, { create }) {
   const canonicalHome = await realpath(home);
   const directory = path.join(canonicalHome, 'board-attachments');
-  if (create) await mkdir(directory, { recursive: true, mode: 0o700 });
+  if (create) await durableDirectory(directory);
   const stat = await lstat(directory);
   // DEFENSE: Replacing the attachment vault with a link must not redirect attachment reads or writes outside the service home.
   if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
@@ -27,16 +28,7 @@ async function vault(home, { create }) {
 }
 
 async function regularFile(file, maximum) {
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const stat = await handle.stat();
-    // DEFENSE: Stored attachment paths can be replaced by oversized or special files outside the upload API.
-    if (!stat.isFile() || stat.size > maximum) throw new RangeError('Attachment storage is not a bounded regular file');
-    const data = await handle.readFile();
-    // DEFENSE: An external write can grow the opened attachment after the initial stat.
-    if (data.length > maximum) throw new RangeError('Attachment storage changed beyond its byte budget');
-    return data;
-  } finally { await handle.close(); }
+  return (await readBoundedRegularSnapshot(file, { maximumBytes: maximum })).bytes;
 }
 
 export async function readBoardAttachment(home, id) {
@@ -79,11 +71,27 @@ export async function saveBoardAttachment(home, name, stream) {
       await metadata.writeFile(stringifyJson({ version: 1, id, name, mime: mediaType(data), bytes: size }));
       await metadata.sync();
     } finally { await metadata.close(); }
+    await syncDirectory(pending);
+    let existing = false;
     try { await rename(pending, target); }
     // DEFENSE: Repeated or concurrent uploads of identical bytes share the existing immutable hash directory.
-    catch (error) { if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error; }
+    catch (error) {
+      if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error;
+      existing = true;
+    }
     // Repeated bytes reuse immutable metadata, including its original name.
-    return (await readBoardAttachment(home, id)).attachment;
+    if (!existing) await syncDirectory(root);
+    const verified = await readBoardAttachment(home, id);
+    if (existing) {
+      // A concurrent winner may not have completed its barriers yet; establish them before acknowledging its reference.
+      for (const name of ['content', 'metadata.json']) {
+        const file = await open(path.join(target, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try { await file.sync(); } finally { await file.close(); }
+      }
+      await syncDirectory(target);
+    }
+    if (existing) await syncDirectory(root);
+    return verified.attachment;
   } finally { await rm(pending, { recursive: true, force: true }); }
 }
 

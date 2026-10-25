@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning CompactionPlan.
+From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning CompactionPlan ScopedRequestProofs.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
 Import ListNotations.
 Open Scope string_scope.
@@ -126,25 +126,29 @@ Theorem a_valid_checkpoint_preserves_its_original_records : forall id summary ca
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
  intros. split.
- - unfold A.command. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
+ - unfold A.command, A.handle_compact. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
  - apply supplied_history_is_an_append. assumption.
 Qed.
-Theorem measured_scope_and_reserve_reach_the_executed_request : forall id ticket model task scope tokens budget input value fallback_scope fallback_reserve,
- entry_measurement (A.current_entry id (A.registry value)) = Measured input scope tokens budget ->
- A.prepare_model_effects value [K.RequestModel id ticket model task fallback_scope fallback_reserve] =
- [K.RequestModel id ticket model task scope (reserve_tokens budget)].
+Theorem measured_scope_and_reserve_reach_the_executed_request : forall request scope tokens budget input value,
+ entry_measurement (A.current_entry (Selvedge.Kernel.ModelRequest.owner request) (A.registry value)) = Measured input scope tokens budget ->
+ A.prepare_model_effects value [K.RequestModel request] =
+ [K.RequestModel (Selvedge.Kernel.ModelRequest.with_context scope (reserve_tokens budget) request)].
 Proof. intros. unfold A.prepare_model_effects. cbn. now rewrite H. Qed.
 
 
 Theorem manual_compaction_captures_context_before_any_summary_request : forall id task value entry,
+ K.find_task id value = Some task ->
+ TicketedRequest.Scoped.can_observe false task value = true ->
  entry = A.current_entry id (A.registry value) ->
  A.job_pending (entry_job entry) = false ->
  K.decision_effects (A.manual id task value) =
  (map K.MaintainContext (A.cancellations id entry) ++
   [K.ObserveContext id (K.world_next_ticket value) task])%list.
 Proof.
- intros id task value entry Entry Ready. unfold A.manual. rewrite <- Entry, Ready.
- unfold Reasoning.observe_context, K.allocate_ticket, A.commit, A.acknowledged.
+ intros id task value entry Found ObserveAllowed Entry Ready. unfold A.manual. rewrite <- Entry, Ready.
+ unfold Reasoning.observe_context.
+ rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task false Found ObserveAllowed).
+ unfold A.commit, A.acknowledged.
  reflexivity.
 Qed.
 

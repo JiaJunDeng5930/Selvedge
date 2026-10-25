@@ -1,8 +1,10 @@
+From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Selvedge.Features Require Import WorkspaceBinding.
 From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs Utf8.
 From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain Codec ContextUpdates ContextProtocol State Tasks Callbacks LifecycleProofs.
+From Selvedge.Kernel Require Import ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -260,7 +262,7 @@ Qed.
 Local Lemma context_diagnostic_preserves_the_task_contract : forall message task,
  task_contract (Callbacks.record_context_diagnostic message task) = task_contract task.
 Proof.
- intros; unfold Callbacks.record_context_diagnostic.
+ intros; rewrite !record_context_diagnostic_expression.
  destruct (existsb _ _); reflexivity.
 Qed.
 
@@ -279,7 +281,7 @@ Proof. intros; unfold with_activity; destruct (task_lifecycle task); reflexivity
 Local Lemma actual_observations_preserve_the_task_contract : forall observations diagnostic task,
  task_contract (snd (Callbacks.observed_context observations diagnostic task)) = task_contract task.
 Proof.
- intros [observations|] diagnostic task; unfold Callbacks.observed_context.
+ intros [observations|] diagnostic task; rewrite !observed_context_expression.
  - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history task))) as [changes diagnostics].
    cbn [snd]. rewrite context_diagnostics_preserve_the_task_contract; reflexivity.
  - cbn [snd]. apply context_diagnostic_preserves_the_task_contract.
@@ -291,9 +293,9 @@ Local Lemma context_ready_preserves_the_frozen_contract : forall accepted id tas
  find_task id (decision_world (Callbacks.context_ready accepted id task value)) = Some after /\
  task_contract after = task_contract task.
 Proof.
- intros accepted id task value Found. unfold Callbacks.context_ready.
- cbn [decision_world accept]. eexists; split; [eapply find_put_task; exact Found|].
- apply observing_context_preserves_the_task_contract.
+ intros accepted id task value Found. rewrite context_ready_expression, Found.
+ cbn [decision_world Callbacks.context_response accept]. eexists; split; [eapply find_put_task; exact Found|].
+ apply task_changes_preserve_the_frozen_contract.
 Qed.
 
 Theorem actual_context_callbacks_preserve_the_frozen_contract :
@@ -304,20 +306,23 @@ Theorem actual_context_callbacks_preserve_the_frozen_contract :
  task_contract after = task_contract before.
 Proof.
  intros id ticket observations diagnostic value before Found.
- unfold Callbacks.context_completed; rewrite Found.
+ rewrite context_completed_expression, Found.
  destruct (task_activity before) as
    [ | | | expected revision | expected callable mode | expected source_length | calls |
      invocation pending calls | expected plugin invocation remaining calls];
    try (exists before; split; [exact Found|reflexivity]).
  destruct (N.eqb expected ticket); [|exists before; split; [exact Found|reflexivity]].
  destruct (Nat.eqb revision (List.length (task_history before))).
- - pose proof (actual_observations_preserve_the_task_contract observations diagnostic before) as Contract.
-   destruct (Callbacks.observed_context observations diagnostic before) as [accepted observed] eqn:Observed.
-   cbn [snd] in Contract. unfold Callbacks.context_ready. cbn [decision_world accept].
+ - destruct (Callbacks.observed_context_changes observations diagnostic before) as [accepted changes].
+   cbn [decision_world Callbacks.context_response accept].
    eexists; split; [eapply find_put_task; exact Found|].
-   rewrite observing_context_preserves_the_task_contract; exact Contract.
+   apply task_changes_preserve_the_frozen_contract.
  - destruct (task_lifecycle before).
-   + unfold Reasoning.observe_context, allocate_ticket. cbn [decision_world accept].
+   + unfold Reasoning.observe_context.
+     rewrite (ScopedRequestProofs.observing_resolves_the_current_task id value before false Found).
+     destruct (TicketedRequest.Scoped.can_observe false before value);
+       [|exists before; split; [exact Found|reflexivity]].
+     cbn [decision_world accept TicketedRequest.issue TicketedRequest.build].
      eexists; split; [eapply find_put_task; exact Found|].
      unfold Reasoning.capture; apply observing_context_preserves_the_task_contract.
    + apply context_ready_preserves_the_frozen_contract; exact Found.

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
+import { workspaceCommandResult, interpretWorkspaceSettings } from './model-api.ts';
 
 const contextDefinitions = boundary('config.context_definitions', {});
 
@@ -99,7 +100,11 @@ export async function snapshotGlobalInstructions(home, limits, options) {
  * selection and fork inheritance remain in the native command resolver.
  */
 export function workspaceCommandPlan(command) {
-  return boundary('effect.workspace_command', { command });
+  return workspaceCommandResult(boundary('effect.workspace_command', { command }));
+}
+
+export function admitRawWorkspaceCommand(command) {
+  return boundary('effect.workspace_command_raw', { command });
 }
 
 export async function observeWorkspaceCommand(command, limits, { projectWorkspace, workspaceEnvironment } = {}) {
@@ -112,29 +117,33 @@ export async function observeWorkspaceCommand(command, limits, { projectWorkspac
 }
 
 export function hasRootTaskCreation(command) {
-  return workspaceCommandPlan(command).root_task;
+  return workspaceCommandPlan(command).rootTask;
 }
 
 async function observeWorkspaceSettings(selected, limits, projectWorkspace, workspaceEnvironment) {
-  const plan = boundary('effect.workspace_settings', { value: selected, resolve_project: Boolean(projectWorkspace) });
-  if (plan.project_id !== null) {
-    const workspace = await projectWorkspace(plan.project_id);
-    // DEFENSE: A public project ID can name a deleted or unavailable Project; preserve it for native command rejection.
-    if (workspace === undefined) return {};
-    selected = { ...selected, workspace };
-  } else if (!plan.observe_workspace) return {};
-  const resolution = await workspaceEnvironment?.(plan.project_id === null
-    ? { workspace: selected.workspace } : { project_id: plan.project_id });
-  const environment = resolution?.environment;
-  try {
-    const canonical = await canonicalWorkspace(selected.workspace, { filesystem: environment?.filesystem });
-    if (environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
-    const observed = { workspace: { roots: canonical.roots } };
-    if (resolution) observed.workspace_binding = resolution.workspace_binding;
-    if (canonical.primary_root !== null) {
-      observed.workspace.primary_root = canonical.primary_root;
-      observed.guidance = await snapshotProject(canonical.primary_root, limits, { filesystem: environment?.filesystem });
-    }
-    return observed;
-  } finally { await environment?.filesystem.close(); }
+  return interpretWorkspaceSettings(boundary('effect.workspace_settings', { value: selected, resolve_project: Boolean(projectWorkspace) }), {
+    project: async projectId => {
+      const workspace = await projectWorkspace(projectId);
+      // DEFENSE: A public project ID can name a deleted or unavailable Project; preserve it for native command rejection.
+      if (workspace === undefined) return false;
+      selected = { ...selected, workspace };
+      return true;
+    },
+    observe: async projectId => {
+      const resolution = await workspaceEnvironment?.(projectId === null
+        ? { workspace: selected.workspace } : { project_id: projectId });
+      const environment = resolution?.environment;
+      try {
+        const canonical = await canonicalWorkspace(selected.workspace, { filesystem: environment?.filesystem });
+        if (environment) boundary('effect.workspace_environment_bound', { workspace: canonical, root: environment.root });
+        const observed = { workspace: { roots: canonical.roots } };
+        if (resolution) observed.workspace_binding = resolution.workspace_binding;
+        if (canonical.primary_root !== null) {
+          observed.workspace.primary_root = canonical.primary_root;
+          observed.guidance = await snapshotProject(canonical.primary_root, limits, { filesystem: environment?.filesystem });
+        }
+        return observed;
+      } finally { await environment?.filesystem.close(); }
+    },
+  });
 }

@@ -5,6 +5,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { tencentCvmBackend } from './tencent-cvm.mjs';
 import { boundary } from './public/model-boundary.mjs';
+import { snapshotProject } from './project.mjs';
+import { awaitCloudSsh } from './cloud-readiness.ts';
 
 const executeFile = promisify(execFile);
 export const shellQuote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -37,10 +39,10 @@ def request(value):
             with os.scandir(filename) as children:
                 for entry in children:
                     child = os.path.join(filename, entry.name)
-                    observation = observed(lambda: facts(entry.stat(follow_symlinks=False)))
+                    observation = dict(value=facts(entry.stat(follow_symlinks=False)))
                     result['lstat'][child] = observation
                     result['realpath'][child] = observed(lambda: (os.stat(child), os.path.realpath(child))[1])
-                    if 'value' in observation: entries.append(dict(name=entry.name, **observation['value']))
+                    entries.append(dict(name=entry.name, **observation['value']))
                     if len(entries) > value['maximum']: break
             return entries
         result['readdir'][filename] = observed(scan)
@@ -227,16 +229,14 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
     kind: 'cloud', backend: receipt.backend, task_id: receipt.task_id, root: receipt.root, filesystem, execute,
     readFile: (filename, options) => filesystem.readFile(filename, options),
     async ready({ signal, deadline }) {
-      while (Date.now() < deadline) {
-        signal?.throwIfAborted();
-        const result = await execute('command -v bash >/dev/null && command -v git >/dev/null && command -v setsid >/dev/null',
-          { signal, timeout: Math.min(15_000, Math.max(1, deadline - Date.now())) });
-        if (result.exit_code === 0) return;
-        // DEFENSE: RUNNING precedes SSH daemon/cloud-init readiness on a newly booting CVM image.
-        if (result.exit_code !== 255) throw new Error(`Cloud image requires bash, git and setsid: ${result.stderr}`);
-        await delay(Math.min(2000, Math.max(1, deadline - Date.now())), undefined, { signal });
-      }
-      throw new Error('Cloud SSH startup deadline exceeded');
+      await awaitCloudSsh(deadline, {
+        now: () => Date.now(),
+        probe: timeout => {
+          signal?.throwIfAborted();
+          return execute('command -v bash >/dev/null && command -v git >/dev/null && command -v setsid >/dev/null', { signal, timeout });
+        },
+        delay: milliseconds => delay(milliseconds, undefined, { signal }),
+      });
     },
     async prepareBash(arguments_, execution, { signal } = {}) {
       signal?.throwIfAborted();
@@ -273,21 +273,7 @@ export function cloudExecutionEnvironment(receipt, { knownHosts, signal }) {
         } };
     },
     async snapshotProject(limits, { signal } = {}) {
-      for (const name of ['AGENTS.override.md', 'AGENTS.md']) {
-        const filename = path.posix.join(receipt.workspace?.primary_root ?? receipt.root, name);
-        let bytes;
-        try { bytes = await filesystem.readFile(filename, { maximum: limits.project_context_bytes, noFollow: true }); }
-        catch (error) {
-          // DEFENSE: A repository may omit its optional project guidance file.
-          if (error.code === 'ENOENT') continue;
-          throw error;
-        }
-        signal?.throwIfAborted();
-        if (bytes.length > limits.project_context_bytes) throw new Error('Cloud project guidance exceeds the context byte limit');
-        return { workspace: receipt.workspace?.primary_root ?? receipt.root, path: filename,
-          revision: createHash('sha256').update(bytes).digest('hex'), instructions: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
-      }
-      return { workspace: receipt.workspace?.primary_root ?? receipt.root, path: '', revision: 'absent', instructions: '' };
+      return snapshotProject(receipt.workspace?.primary_root ?? receipt.root, limits, { filesystem, signal });
     },
   };
 }

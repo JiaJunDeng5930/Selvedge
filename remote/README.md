@@ -1,15 +1,19 @@
 # Remote wire protocol
 
-[protocol.mjs](protocol.mjs) owns the versioned JSON envelopes, frame bounds and
-endpoint URL rules shared by the host connector and the Cloudflare relay. It has
-no Node, Cloudflare or native-kernel dependency. Validators return the original
+[RemoteProtocol.v](../theories/Host/RemoteProtocol.v) owns the versioned JSON
+envelope schema shared by the host connector and the Cloudflare relay.
+[protocol.mjs](protocol.mjs) interprets UTF-8 transport bounds and endpoint URL
+rules and invokes the generated schema. Run `bun run build` before bundling the
+relay so both peers include the same generated host model. Validators return the original
 value or throw `RemoteProtocolError`; parsing and encoding apply the same UTF-8
 bound. Remote business authorization and durable request receipts belong to the
 native remote feature, not this transport module.
 
 `connection_id` and RPC `id` correlate one live transport session. A command's
 separate `request_id` passes unchanged to the service's native receipt boundary.
-The connector owns socket lifetime and discards stale deliveries; it does not
+The extracted [RemoteControl.v](../theories/Host/RemoteControl.v) transitions
+own generation, grant, pairing, queue and ticket decisions. The connector
+interprets socket lifetime and discards stale deliveries; it does not
 retry commands or maintain another receipt store.
 
 Production relay origins use HTTPS on TCP 443. Explicit test mode permits HTTP

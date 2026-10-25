@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool NArith Numbers.DecimalString.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Features Require Import Titles CompactionTypes.
 From Selvedge.Kernel Require Import Domain ChatgptArguments WorkspaceBackend.
+From Selvedge.Foundation Require Export RemoteIdentity.
 Import ListNotations.
 
 Inductive board_stage := Backlog | Todo | InProgress | InReview | Completed | Blocked.
@@ -55,9 +56,9 @@ Definition worktree_target_primary (value:worktree) := match worktree_phase valu
 Definition worktree_message (value:worktree) := match worktree_phase value with
  | TreeCreateFailed _ message | TreeArchiveFailed _ _ message=>message | _=>""%string end.
 Record rights := Rights { may_read : bool; may_control : bool; may_configure : bool; may_approve : bool }.
-Record remote_grant := RemoteGrant { grant_controller : string; grant_epoch : N; grant_rights : rights }.
-Record remote_receipt := RemoteReceipt { remote_controller : string; remote_epoch : N;
- remote_request : string; remote_intent : json; remote_reply : json }.
+Record remote_grant := RemoteGrant { grant_controller : controller_id; grant_epoch : RemoteIdentity.grant_epoch; grant_rights : rights }.
+Record remote_receipt := RemoteReceipt { remote_controller : controller_id; remote_epoch : RemoteIdentity.grant_epoch;
+ remote_request : RemoteIdentity.request_id; remote_intent : json; remote_reply : json }.
 Record remote := Remote { remote_enabled : bool; remote_grants : list remote_grant;
  remote_next_epoch : N; remote_receipts : list remote_receipt }.
 Record connection_grant := ConnectionGrant { connection_id : N; connection_projects : list N;

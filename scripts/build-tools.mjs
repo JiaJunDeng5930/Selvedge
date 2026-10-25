@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 export const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const buildDirectory = path.join(root, '.build');
 export const targets = {
+  schema: { module: 'Adapters.ModelSchema', model: 'SchemaModel', entry: ['call'], global: '__selvedgeSchema', exported: 'call' },
   commands: { module: 'Generated.Commands', model: 'CommandsModel', entry: ['decode','encode'], global: '__selvedgeCommands', exported: 'decode' },
   kernel: { module: 'Kernel.Packet', model: 'KernelModel', entry: ['initial', 'packet', 'world_json', 'assess'], global: '__selvedgeKernel' },
   host: { module: 'Adapters.Api', model: 'HostModel', entry: ['call'], global: '__selvedgeHost', exported: 'call' },

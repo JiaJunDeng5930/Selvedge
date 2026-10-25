@@ -1,6 +1,8 @@
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { encodeInput, parseJson } from './codec.mjs';
+import { boundary } from './public/model-boundary.mjs';
+import { naturalKey } from './public/json-tokens.mjs';
 
 const defaultModule = fileURLToPath(new URL('../.build/kernel-model.mjs', import.meta.url));
 class KernelInputError extends TypeError {}
@@ -11,6 +13,7 @@ export const isKernelInputRejection = error => error instanceof KernelInputError
 /** One serialized conversation with the extracted Rocq program worker. */
 export class Kernel {
   #worker;
+  #control = boundary('control.transaction.initial', {});
   #tail = Promise.resolve();
   #pending;
   #failure;
@@ -21,21 +24,28 @@ export class Kernel {
     this.maximum = 128 * 1024;
     this.#worker = new Worker(new URL('./kernel-worker.mjs', import.meta.url), { workerData: { module } });
     this.#worker.on('message', message => {
-      // DEFENSE: Timeout/abort clears the pending request before Worker termination completes; an already queued completion can still arrive.
-      if (this.#failure) return;
-      // DEFENSE: A compiled transition can throw in the Worker; retire its world and reject queued callers.
-      if (Object.hasOwn(message, 'error')) { this.#fail(new Error(message.error)); return; }
       const pending = this.#pending;
+      // DEFENSE: A completion queued before termination or for an earlier request cannot settle the current generation.
+      if (this.#failure || !pending || message.generation !== naturalKey(pending.generation)) return;
+      // DEFENSE: An extracted transition can throw after touching its Worker world; retire that generation.
+      if (Object.hasOwn(message, 'error')) { this.#fail(new Error(message.error)); return; }
       this.#pending = undefined;
       clearTimeout(pending.timer);
       if (message.inputError) {
+        this.#advance({ kind: 'input_rejected', generation: pending.generation });
         const ErrorType = inputErrors[message.inputError.name];
         pending.reject(new ErrorType(message.inputError.message));
         return;
       }
-      const { programText, ...result } = message;
-      pending.resolve({ ...result, value: parseJson(message.text),
-        ...(programText === undefined ? {} : { program: parseJson(programText) }) });
+      try {
+        const { programText, generation, ...result } = message;
+        const response = { ...result, value: parseJson(message.text),
+          ...(programText === undefined ? {} : { program: parseJson(programText) }) };
+        this.#advance({ kind: 'worker_result', generation: pending.generation, durable: false });
+        this.#advance({ kind: 'finish' });
+        pending.resolve(response);
+      // DEFENSE: An invalid Worker result cannot establish the state of its already executed transition.
+      } catch (error) { pending.reject(error); this.#fail(error); }
     });
     this.#worker.on('error', error => this.#fail(error));
     this.exited = new Promise(resolve => this.#worker.once('exit', code => {
@@ -53,9 +63,16 @@ export class Kernel {
     return this.description;
   }
 
+  #advance(observation) {
+    const transition = boundary('control.transaction.step', { state: this.#control, observation });
+    this.#control = transition.state;
+    return transition.effects;
+  }
+
   #fail(error) {
     // DEFENSE: Worker error, exit and timeout can report the same failure; settle the pending request once.
     if (this.#failure) return;
+    this.#advance({ kind: 'worker_failed' });
     this.#failure = error;
     const pending = this.#pending;
     this.#pending = undefined;
@@ -83,11 +100,12 @@ export class Kernel {
       // DEFENSE: A queued request can reach its turn after an earlier transition failed or shutdown started.
       if (this.#failure) throw this.#failure;
       if (this.#closing) throw new Error('Kernel is closed');
+      const [request] = this.#advance({ kind: 'begin', replay: !snapshot });
       return new Promise((resolve, reject) => {
         // DEFENSE: A stalled Worker must not hold an HTTP command or journal reopen indefinitely.
         const timer = setTimeout(() => this.#fail(new Error('Kernel transition timed out')), this.timeout);
-        this.#pending = { resolve, reject, timer };
-        this.#worker.postMessage({ text, snapshot, operation });
+        this.#pending = { resolve, reject, timer, generation: request.generation };
+        this.#worker.postMessage({ text, snapshot, operation, generation: naturalKey(request.generation) });
       });
     });
     // DEFENSE: The request's returned promise reports its failure; the queue must still admit close and reject later callers explicitly.
@@ -102,6 +120,7 @@ export class Kernel {
     if (this.#closing) return this.exited;
     this.#closing = true;
     await this.#tail;
+    this.#advance({ kind: 'close' });
     await this.#worker.terminate();
     return this.exited;
   }

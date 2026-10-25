@@ -34,7 +34,8 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.runtime_candidates",fun source => success (SandboxPolicy.runtime_candidates (str source "platform")));
   ("effect.executable_candidates",fun source => success (SandboxPolicy.executable_candidates (str source "platform")));
   ("effect.workspace_command",fun source => success (Workspaces.plan_json (Workspaces.plan (get source "command"))));
-  ("effect.workspace_settings",Workspaces.workspace_settings);
+  ("effect.workspace_command_raw",Workspaces.workspace_command_raw);
+  ("effect.workspace_settings",Workspaces.workspace_selection_plan);
   ("effect.workspace_command_observed",Workspaces.workspace_command_observed);
   ("effect.workspace_admit",fun source => Workspaces.workspace_admit (get source "value"));
   ("effect.root_admit",Workspaces.root_admit);
@@ -46,6 +47,7 @@ Definition handlers : list (string * (json -> json)) := [
   ("effect.worktree_locations",Workspaces.worktree_locations);
   ("effect.worktree_path",Workspaces.worktree_path);
   ("effect.worktree_receipt",Workspaces.worktree_receipt);
+  ("effect.worktree_receipt_encode",Workspaces.worktree_receipt_encode);
   ("effect.worktree_workspace",Workspaces.worktree_workspace);
   ("effect.worktree_recovery_effect",Workspaces.worktree_recovery_effect);
   ("effect.completion",EffectCallbacks.completion);

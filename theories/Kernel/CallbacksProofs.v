@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks History Callbacks
@@ -21,7 +22,7 @@ Proof.
    calls | invocation plugins calls | checking plugin invocation plugins calls ];
  try destruct calls as [|first_call other_calls];
  destruct queued as [|first rest];
- cbn [Tasks.wake_after_result Tasks.promote task_operations task_history task_queued
+ cbn [Tasks.wake_after_result Tasks.wake_after_result_changes Tasks.promote Tasks.promote_changes TaskChange.apply TaskChange.apply_edit task_operations task_history task_queued
    with_lifecycle with_queued append_history with_history].
  all: split.
  all: try reflexivity.
@@ -48,7 +49,7 @@ Theorem tool_completion_without_after_hooks_settles_the_exact_owned_result :
  (released = [] \/ released = task_queued task).
 Proof.
  intros id ticket result error value task operation Found Owned Hooks.
- unfold Callbacks.tool_completed, Callbacks.begin_result; rewrite Found, Owned, Hooks; cbn.
+ rewrite !tool_completed_expression; rewrite Found, Owned; rewrite !begin_result_expression, Hooks; cbn.
  split; [reflexivity|].
  set (settled := with_operations
    (Callbacks.remove_operation (operation_id operation) (task_operations task))
@@ -175,9 +176,74 @@ Proof.
  pose proof (tool_completion_without_after_hooks_settles_the_exact_owned_result
    id ticket result error value task operation Found Owned Hooks)
    as [_ [updated [released [Updated [Operations _]]]]].
- unfold completed; unfold Callbacks.tool_completed at 1; unfold Callbacks.begin_result; rewrite Updated, Operations.
+ unfold completed; rewrite tool_completed_expression at 1; rewrite Updated, Operations.
  rewrite no_execution_after_removing_the_ticket_owner with (operation := operation).
  - reflexivity.
  - eapply valid_world_execution_tickets_are_unique; eauto.
  - exact Owned.
+Qed.
+
+(* A result records demand while frozen; resuming uses that phase rather than
+   inferring pending work from the historical messages. *)
+Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
+ forall task operations,
+ task_lifecycle task = Frozen Idle operations ->
+ task_lifecycle (Tasks.wake_after_result task) = Frozen WantsModel operations /\
+ task_operations (Tasks.wake_after_result task) = operations.
+Proof.
+ intros task operations Frozen. rewrite waking_result_expression, Frozen.
+ split; reflexivity.
+Qed.
+
+Theorem freezing_settling_and_unfreezing_preserves_the_result_demand :
+ forall task operations operation result error,
+ task_lifecycle task = Running Idle operations ->
+ let settled := Callbacks.settle_operation operation result error
+   (Tasks.control_task Tasks.Freeze task) in
+ task_lifecycle settled = Frozen WantsModel (Callbacks.remove_operation (operation_id operation) operations) /\
+ task_lifecycle (Tasks.control_task Tasks.Unfreeze settled) =
+   Running WantsModel (Callbacks.remove_operation (operation_id operation) operations).
+Proof.
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed]
+  operations operation result error Idle; cbn in Idle; subst lifecycle.
+ split; reflexivity.
+Qed.
+
+Theorem an_owned_tool_completion_while_frozen_keeps_the_unfreeze_demand :
+ forall id ticket result error value task operations operation,
+ find_task id value = Some task ->
+ task_lifecycle task = Frozen Idle operations ->
+ find (Callbacks.operation_executing ticket) (task_operations task) = Some operation ->
+ Callbacks.after_plugins task = [] ->
+ exists settled,
+ find_task id (decision_world (Callbacks.tool_completed id ticket result error value)) = Some settled /\
+ task_lifecycle settled = Frozen WantsModel (Callbacks.remove_operation (operation_id operation) operations) /\
+ task_lifecycle (Tasks.control_task Tasks.Unfreeze settled) =
+   Running WantsModel (Callbacks.remove_operation (operation_id operation) operations).
+Proof.
+ intros id ticket result error value task operations operation Found Frozen Owned Hooks.
+ rewrite !tool_completed_expression; rewrite Found, Owned; rewrite !begin_result_expression, Hooks.
+ exists (Callbacks.settle_operation operation result error task); split.
+ - apply find_put_task with task; exact Found.
+ - destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   cbn in Frozen; subst lifecycle; split; reflexivity.
+Qed.
+
+Theorem an_owned_cancellation_while_frozen_keeps_the_unfreeze_demand :
+ forall id identity value task operations operation,
+ find_task id value = Some task ->
+ task_lifecycle task = Frozen Idle operations ->
+ find (fun pending => N.eqb identity (operation_id pending)) (task_operations task) = Some operation ->
+ exists settled,
+ find_task id (decision_world (Tasks.cancel_operation id identity value)) = Some settled /\
+ task_lifecycle settled = Frozen WantsModel
+   (filter (fun pending => negb (N.eqb identity (operation_id pending))) operations) /\
+ task_lifecycle (Tasks.control_task Tasks.Unfreeze settled) = Running WantsModel
+   (filter (fun pending => negb (N.eqb identity (operation_id pending))) operations).
+Proof.
+ intros id identity value task operations operation Found Frozen Owned.
+ rewrite TaskChangesProofs.cancel_operation_expression, Found, Owned.
+ eexists; split; [apply find_put_task with task; exact Found|].
+ destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ cbn in Frozen; subst lifecycle; split; reflexivity.
 Qed.

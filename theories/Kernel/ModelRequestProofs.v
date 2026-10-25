@@ -3,19 +3,44 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Observation ContextSelection ReasoningView.
 Import ListNotations.
 Open Scope string_scope.
-Theorem selected_model_request_uses_the_measured_scope : forall value id ticket model task scope reserve,
- (0 <? reserve)%N = true ->
- field "history" (Observation.effect_json value (RequestModel id ticket model task scope reserve)) =
- Some (JArray (ContextSelection.target_messages (ContextSelection.history_json id (task_history task)) scope)).
-Proof. intros; unfold Observation.effect_json; rewrite H; reflexivity. Qed.
-Theorem unselected_model_request_uses_portable_context : forall value id ticket model task scope,
- field "history" (Observation.effect_json value (RequestModel id ticket model task scope 0)) =
- Some (JArray (ContextSelection.portable_messages (ContextSelection.history_json id (task_history task)))).
+Theorem selected_model_request_uses_the_measured_scope : forall value request,
+ (0 <? ModelRequest.reserve request)%N = true ->
+ field "history" (Observation.effect_json value (RequestModel request)) =
+ Some (JArray (ContextSelection.target_messages
+   (ContextSelection.history_json (ModelRequest.owner request) (ModelRequest.history request))
+   (ModelRequest.scope request))).
+Proof.
+ intros value [owner [model [contract profile settings lifecycle original queued lineage parent cursor consumed] Selected]
+   ticket callable mode history scope reserve] Positive.
+ unfold Observation.effect_json, Observation.effect_fields; cbn in *; rewrite Positive; reflexivity.
+Qed.
+Theorem unselected_model_request_uses_portable_context : forall value request,
+ ModelRequest.reserve request = 0%N ->
+ field "history" (Observation.effect_json value (RequestModel request)) =
+ Some (JArray (ContextSelection.portable_messages
+   (ContextSelection.history_json (ModelRequest.owner request) (ModelRequest.history request)))).
+Proof.
+ intros value [owner [model [contract profile settings lifecycle original queued lineage parent cursor consumed] Selected]
+   ticket callable mode history scope reserve] Zero. cbn in Zero; subst reserve; reflexivity.
+Qed.
+Theorem model_request_preserves_the_frozen_reserve : forall value request,
+ field "output_reserve_tokens" (Observation.effect_json value (RequestModel request)) =
+ Some (Numbers.number (ModelRequest.reserve request)).
+Proof.
+ intros; unfold Observation.effect_json, Observation.effect_fields;
+ destruct (0 <? ModelRequest.reserve request)%N; reflexivity.
+Qed.
+Theorem model_request_uses_its_unique_sent_mode : forall value request,
+ field "output_mode" (Observation.effect_json value (RequestModel request)) =
+ Some (JString (Codec.output_mode_name (ModelRequest.mode request))).
 Proof. intros; reflexivity. Qed.
-Theorem model_request_preserves_the_frozen_reserve : forall value id ticket model task scope reserve,
- field "output_reserve_tokens" (Observation.effect_json value (RequestModel id ticket model task scope reserve)) =
- Some (Numbers.number reserve).
-Proof. intros; unfold Observation.effect_json; destruct (0 <? reserve)%N; reflexivity. Qed.
+Theorem model_request_uses_its_unique_callable_set : forall value request,
+ field "callable" (Observation.effect_json value (RequestModel request)) =
+ Some (JArray (map JString (ModelRequest.callable request))).
+Proof.
+ intros; unfold Observation.effect_json, Observation.effect_fields;
+ destruct (0 <? ModelRequest.reserve request)%N; reflexivity.
+Qed.
 Theorem evaluator_history_obeys_its_transport_budget : forall history,
  ReasoningView.fits (ReasoningView.history history) = true.
 Proof.

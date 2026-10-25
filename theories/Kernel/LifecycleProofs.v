@@ -1,19 +1,13 @@
+From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Kernel Require Import TaskChangesProofs.
+From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks History Recovery Inputs Callbacks.
 Import ListNotations.
 
-Lemma registry_replace_selected : forall (A : Type) (values : list A) index previous replacement,
- registry_at index values = Some previous -> registry_at index (replace index replacement values) = Some replacement.
-Proof.
- intros A values; induction values as [|head rest IH]; intros index previous replacement H; cbn in H; try discriminate.
- cbn; destruct (N.eqb index 0) eqn:E; cbn; rewrite E; [reflexivity|].
- apply IH with previous; exact H.
-Qed.
-Lemma registry_replace_length : forall (A : Type) (values : list A) index replacement,
- List.length (replace index replacement values) = List.length values.
-Proof. intros A values; induction values as [|head rest IH]; intros; cbn; [reflexivity|].
- destruct (N.eqb index 0); cbn; [reflexivity|rewrite IH; reflexivity]. Qed.
+Definition registry_replace_selected := @Selvedge.Foundation.RegistryProofs.registry_replace_selected.
+Definition registry_replace_length := @Selvedge.Foundation.RegistryProofs.registry_replace_length.
 Lemma find_put_task : forall id before after value,
  find_task id value = Some before -> find_task id (put_task id after value) = Some after.
 Proof. intros; unfold find_task, put_task, with_tasks; cbn; eapply registry_replace_selected; eauto. Qed.
@@ -49,7 +43,7 @@ Theorem inference_completion_requires_current_ticket : forall id ticket expected
  expected <> ticket -> Callbacks.model_completed id ticket outcome value = Callbacks.ignored value.
 Proof.
  intros id ticket expected allowed mode outcome value task Hfind Hphase Hticket.
- unfold Callbacks.model_completed; rewrite Hfind, Hphase.
+ rewrite CallbackChangesProofs.model_completed_expression; rewrite Hfind, Hphase.
  apply N.eqb_neq in Hticket; rewrite Hticket; reflexivity.
 Qed.
 Lemma find_none_when_rejected : forall (A : Type) (predicate : A -> bool) values,
@@ -65,7 +59,7 @@ Theorem tool_completion_requires_owned_execution : forall id ticket result error
  Callbacks.tool_completed id ticket result error value = Callbacks.ignored value.
 Proof.
  intros id ticket result error value task Hfind Howned.
- unfold Callbacks.tool_completed; rewrite Hfind.
+ rewrite CallbackChangesProofs.tool_completed_expression; rewrite Hfind.
  assert (Hnone : find (Callbacks.operation_executing ticket) (task_operations task) = None).
  { apply find_none_when_rejected. intros operation Hinside.
    specialize (Howned operation Hinside). unfold Callbacks.operation_executing.

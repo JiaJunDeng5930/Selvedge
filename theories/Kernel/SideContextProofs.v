@@ -42,41 +42,38 @@ Proof.
  unfold Dispatch.prepare in Prepared.
  destruct (Dispatch.capture_requests effects value) as [captured_world captured_effects] eqn:Capture.
  inversion Prepared; subst committed prepared.
- apply filter_In in Member as [Member _].
  eapply capture_requests_member_has_capture_origin; eauto.
 Qed.
 
-Theorem matching_side_model_capture_uses_full_history : forall value id ticket model original scope reserve current callable mode,
- Dispatch.side_task id value = Some current ->
- task_activity current = AskingModel ticket callable mode ->
- Dispatch.capture_request (RequestModel id ticket model original scope reserve) value =
- (put_task id (with_model_cursor (List.length (task_history current)) current) value,
-  RequestModel id ticket model (with_history (task_history current) original) scope reserve).
+Theorem matching_side_model_capture_uses_full_history : forall value request current callable mode,
+ Dispatch.side_task (ModelRequest.owner request) value = Some current ->
+ task_activity current = AskingModel (ModelRequest.ticket request) callable mode ->
+ Dispatch.capture_request (RequestModel request) value =
+ (put_task (ModelRequest.owner request) (with_model_cursor (List.length (task_history current)) current) value,
+  RequestModel (ModelRequest.with_history (task_history current) request)).
 Proof.
  intros; unfold Dispatch.capture_request; now rewrite H, H0, N.eqb_refl.
 Qed.
 
-Theorem matching_side_reasoning_capture_uses_full_history : forall value id ticket model original current source_length,
+Theorem matching_side_reasoning_capture_uses_full_history : forall value id ticket original current source_length,
  Dispatch.side_task id value = Some current ->
  task_activity current = EvaluatingReasoning ticket source_length ->
- Dispatch.capture_request (RequestReasoning id ticket model original) value =
+ Dispatch.capture_request (RequestReasoning id ticket original) value =
  (put_task id (with_activity (EvaluatingReasoning ticket (List.length (task_history current))) current) value,
-  RequestReasoning id ticket model (with_history (task_history current) original)).
+  RequestReasoning id ticket (with_history (task_history current) original)).
 Proof.
  intros; unfold Dispatch.capture_request; now rewrite H, H0, N.eqb_refl.
 Qed.
 
-Theorem nonmatching_side_model_capture_preserves_original_history : forall value id ticket model original scope reserve current,
- find_task id value = Some current ->
+Theorem nonmatching_side_model_capture_preserves_original_history : forall value request current,
+ find_task (ModelRequest.owner request) value = Some current ->
  (task_side_parent current = None \/
    exists parent, task_side_parent current = Some parent /\
-     forall callable mode, task_activity current <> AskingModel ticket callable mode) ->
- Dispatch.capture_request (RequestModel id ticket model original scope reserve) value =
- (value,RequestModel id ticket model original scope reserve).
+     forall callable mode, task_activity current <> AskingModel (ModelRequest.ticket request) callable mode) ->
+ Dispatch.capture_request (RequestModel request) value = (value,RequestModel request).
 Proof.
- intros value id ticket model original scope reserve current Found Mismatch.
- unfold Dispatch.capture_request, Dispatch.side_task.
- rewrite Found.
+ intros value request current Found Mismatch.
+ unfold Dispatch.capture_request, Dispatch.side_task. rewrite Found.
  destruct Mismatch as [NoParent|[parent [Parent WrongPhase]]].
  - rewrite NoParent; reflexivity.
  - rewrite Parent.
@@ -85,22 +82,20 @@ Proof.
       | reasoningTicket reasoningLength | pendingCalls
       | invocation pendingCalls' calls | hookTicket plugin invocation' remaining calls']
      eqn:Activity; try reflexivity.
-   destruct (N.eqb modelTicket ticket) eqn:TicketMatches; [|reflexivity].
-   apply N.eqb_eq in TicketMatches.
-   subst modelTicket.
-   specialize (WrongPhase callable mode).
-   exfalso; apply WrongPhase; reflexivity.
+   destruct (N.eqb modelTicket (ModelRequest.ticket request)) eqn:TicketMatches; [|reflexivity].
+   apply N.eqb_eq in TicketMatches. subst modelTicket.
+   specialize (WrongPhase callable mode). exfalso; apply WrongPhase; reflexivity.
 Qed.
 
-Theorem nonmatching_side_reasoning_capture_preserves_original_history : forall value id ticket model original current,
+Theorem nonmatching_side_reasoning_capture_preserves_original_history : forall value id ticket original current,
  find_task id value = Some current ->
  (task_side_parent current = None \/
    exists parent, task_side_parent current = Some parent /\
      forall source_length, task_activity current <> EvaluatingReasoning ticket source_length) ->
- Dispatch.capture_request (RequestReasoning id ticket model original) value =
- (value,RequestReasoning id ticket model original).
+ Dispatch.capture_request (RequestReasoning id ticket original) value =
+ (value,RequestReasoning id ticket original).
 Proof.
- intros value id ticket model original current Found Mismatch.
+ intros value id ticket original current Found Mismatch.
  unfold Dispatch.capture_request, Dispatch.side_task.
  rewrite Found.
  destruct Mismatch as [NoParent|[parent [Parent WrongPhase]]].

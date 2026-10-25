@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema JsonSchema Utf8.
-From Selvedge.Kernel Require Import Numbers Domain Codec Workspace NativeTools Limits State Capabilities PluginProtocol.
+From Selvedge.Kernel Require Import Numbers Domain Codec Workspace NativeTools Limits State Capabilities PluginProtocol ContextUpdates.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -22,8 +22,11 @@ Definition valid_global_instructions (source : json) := match source with
  | JNull => true
  | _ => match Schema.decode [Field "path" KText; Field "revision" KText; Field "content" KText] source with
    | None => false
-   | Some _ => Workspace.valid_path (text_default "path" source "") &&
-     Utf8.no_nul (text_default "content" source "") && Nat.leb (String.length (text_default "content" source "")) 32768
+   | Some _ => match ContextUpdates.global_guidance_snapshot source with
+     | None => false
+     | Some _ => Workspace.valid_path (text_default "path" source "") &&
+       Utf8.no_nul (text_default "content" source "") && Nat.leb (String.length (text_default "content" source "")) 32768
+     end
    end end.
 Definition valid_instructions (source : json) :=
  match Schema.decode [Field "configured" KText; Field "global" (KOptional KJson)] source with

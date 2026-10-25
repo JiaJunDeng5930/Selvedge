@@ -24,10 +24,11 @@ async function serviceFixture(t, respond) {
   t.after(() => { delete process.env[apiKey]; });
 
   const upstream = await responsesServer(t, respond);
+  const reviewer = await responsesServer(t, respond);
   const running = await startServer({ home: state, cwd: workspace, config: validateConfig({
     ...defaultConfig, chatgpt: false, port: 0, profiles: {
       worker: { provider: 'responses', model: workerModel, endpoint: upstream.endpoint, api_key_env: apiKey },
-      judge: { provider: 'responses', model: reviewerModel, endpoint: upstream.endpoint, api_key_env: apiKey },
+      judge: { provider: 'responses', model: reviewerModel, endpoint: reviewer.endpoint, api_key_env: apiKey },
     },
   }) });
   t.after(() => running.close());
@@ -63,7 +64,7 @@ async function serviceFixture(t, respond) {
     assert.fail(`${description}: ${JSON.stringify(value)}`);
   }
 
-  return { directory, workspace, marker, upstream, command, successful, create, read, until };
+  return { directory, workspace, marker, upstream, reviewer, command, successful, create, read, until };
 }
 
 function toolResponse(marker, state) {
@@ -72,7 +73,7 @@ function toolResponse(marker, state) {
     return answer(state.reviewerAnswer);
   }
   assert.equal(state.model, workerModel);
-  if (++state.workerCalls === state.toolCallAt) {
+  if (++state.workerCalls === 1) {
     return [{ type: 'function_call', call_id: 'approval-boundary-call', name: 'bash', arguments: JSON.stringify({
       command: `printf 'ran\\n' > ${shellQuote(marker)}`,
       sandbox_permissions: 'require_escalated', justification: 'Write the requested marker outside the workspace.', timeout_ms: 5000,
@@ -98,7 +99,7 @@ for (const [description, reviewerAnswer] of [
   ['an empty reason', '{"decision":"allow","reason":""}'],
 ]) {
   test(`a reviewer allow with ${description} cannot authorize an escalated command`, async t => {
-    const state = { model: '', body: null, reviewerAnswer, reviewerRequests: [], workerCalls: 0, toolCallAt: 1 };
+    const state = { model: '', body: null, reviewerAnswer, reviewerRequests: [], workerCalls: 0 };
     const fixture = await serviceFixture(t, body => {
       state.model = body.model;
       state.body = body;
@@ -120,62 +121,66 @@ for (const [description, reviewerAnswer] of [
     assert.equal(typeof records[0].content.reason, 'string');
     assert.ok(records[0].content.reason.length > 0);
     await assert.rejects(readFile(fixture.marker), { code: 'ENOENT' });
+    assert.deepEqual(fixture.reviewer.failures, []);
     assert.deepEqual(fixture.upstream.failures, []);
   });
 }
 
-test('the independent reviewer receives only the latest four user text requests, each bounded by 4096 Unicode code points', async t => {
+test('the configured reviewer receives the approval payload over HTTP before the command executes', async t => {
   const state = {
     model: '', body: null, reviewerAnswer: '{"decision":"deny","reason":"Inspect only."}',
-    reviewerRequests: [], workerCalls: 0, toolCallAt: 5,
+    reviewerRequests: [], workerCalls: 0,
   };
-  let fixture;
-  fixture = await serviceFixture(t, body => {
+  const fixture = await serviceFixture(t, async body => {
     state.model = body.model;
     state.body = body;
+    if (body.model === reviewerModel) {
+      await assert.rejects(readFile(fixture.marker), { code: 'ENOENT' });
+    }
     return toolResponse(fixture.marker, state);
   });
-  const edgeRequest = `${'界'.repeat(4095)}😀OMITTED_SUFFIX`;
-  const messages = [
-    'Omitted oldest request.',
-    'Second request 😀',
-    edgeRequest,
-    'Fourth request: inspect only.',
-    'Latest request: inspect the directory without changing files.',
-  ];
-  const { task_id } = await fixture.create(messages[0], {
-    mode: 'approval-for-me', reviewer_profile: 'judge',
-  });
-  await fixture.until(
+  const message = 'Inspect the directory “资料” 😀 without changing files.';
+  const approval = { mode: 'approval-for-me', reviewer_profile: 'judge' };
+  const { task_id } = await fixture.create(message, approval);
+  const page = await fixture.until(
     () => fixture.read(task_id),
     value => value.task.phase === 'idle' && value.task.operations.length === 0,
-    'The initial request must settle',
+    'The reviewed task must settle',
   );
-  for (const message of messages.slice(1)) {
-    await fixture.successful({ op: 'send', task_id, message });
-    await fixture.until(
-      () => fixture.read(task_id),
-      value => value.task.phase === 'idle' && value.task.operations.length === 0,
-      'The user request must settle',
-    );
-  }
 
-  assert.equal(state.reviewerRequests.length, 1, 'One escalated tool call must produce one actual reviewer request');
-  const request = state.reviewerRequests[0];
+  assert.equal(fixture.reviewer.requests.length, 1,
+    'The configured reviewer endpoint must receive the actual request');
+  const request = fixture.reviewer.requests[0];
+  assert.equal(request.model, reviewerModel);
+  assert.equal(fixture.upstream.requests.some(value => value.model === reviewerModel), false,
+    'Reviewer requests must use the reviewer endpoint');
   const userMessage = request.input.find(value => value.role === 'user');
   const content = typeof userMessage.content === 'string' ? userMessage.content
     : userMessage.content.filter(value => value.type === 'input_text').map(value => value.text).join('');
-  const excerpt = JSON.parse(content).recent_user_requests_newest_first;
-  assert.deepEqual(excerpt, [messages[4], messages[3], `${'界'.repeat(4095)}😀`, messages[1]]);
-  assert.equal(Array.from(excerpt[2]).length, 4096,
-    'The cap counts Unicode code points and keeps a supplementary character intact');
-  assert.equal(excerpt.some(value => value.includes('Omitted oldest request.')), false);
-  assert.equal(excerpt.some(value => value.includes('OMITTED_SUFFIX')), false);
-  assert.equal(request.model, reviewerModel);
+  const payload = JSON.parse(content);
+  assert.equal(payload.task_id, task_id);
+  assert.equal(typeof payload.request_id, 'number');
+  assert.deepEqual(payload.command, {
+    id: 'approval-boundary-call', name: 'bash', arguments: {
+      command: `printf 'ran\\n' > ${shellQuote(fixture.marker)}`,
+      sandbox_permissions: 'require_escalated',
+      justification: 'Write the requested marker outside the workspace.', timeout_ms: 5000,
+    },
+  });
+  assert.deepEqual(payload.task_settings, {
+    workspace: page.task.settings.workspace, sandbox: page.task.settings.sandbox,
+    approval, project_id: page.task.settings.project_id,
+    workspace_resource: page.task.settings.workspace_resource,
+  });
+  assert.deepEqual(payload.recent_user_requests_newest_first, [message],
+    'The generated text field must survive the HTTP encoding unchanged');
+  assert.equal(typeof payload.context_boundary, 'string');
+  await assert.rejects(readFile(fixture.marker), { code: 'ENOENT' });
+  assert.deepEqual(fixture.reviewer.failures, []);
   assert.deepEqual(fixture.upstream.failures, []);
 });
 
-test('the reviewer receives the latest four bounded user texts and no image data', async t => {
+test('an uploaded image reaches the worker and stays out of the reviewer request', async t => {
   const apiKey = `SELVEDGE_APPROVAL_IMAGE_BOUNDARY_${randomBytes(8).toString('hex').toUpperCase()}`;
   process.env[apiKey] = 'loopback-fixture-only';
   t.after(() => { delete process.env[apiKey]; });
@@ -184,14 +189,7 @@ test('the reviewer receives the latest four bounded user texts and no image data
     reviewerRequests.push(body);
     return answer('{"decision":"deny","reason":"Inspect only."}');
   });
-  const longMessage = `${'😀'.repeat(4095)}AOMITTED_SUFFIX`;
-  const messages = [
-    'Omitted oldest request.',
-    longMessage,
-    'Third request: inspect the directory.',
-    'Fourth request: inspect the current files.',
-    'Latest request: inspect this image and workspace without changing files.',
-  ];
+  const message = 'Inspect this image and workspace without changing files.';
   let workerCalls = 0;
   let marker;
   const fixture = await imagesFixture(t, {
@@ -199,7 +197,7 @@ test('the reviewer receives the latest four bounded user texts and no image data
     respond: body => {
       const bash = advertisedFunctions(body.tools).find(tool => tool.name === 'bash');
       assert.ok(bash, 'The public worker request must advertise its Bash tool');
-      if (++workerCalls !== messages.length) return answer('The reviewed command did not change the task request.');
+      if (++workerCalls !== 1) return answer('The reviewed command did not change the task request.');
       return [{ type: 'function_call', call_id: 'approval-image-call', name: bash.name,
         namespace: bash.namespace, arguments: JSON.stringify({
           command: `printf 'ran\\n' > ${shellQuote(marker)}`,
@@ -218,7 +216,7 @@ test('the reviewer receives the latest four bounded user texts and no image data
   marker = path.join(fixture.workspace, 'outside-workspace.txt');
   const uploaded = await fixture.upload('approval-boundary.png');
   const { task_id } = await fixture.command({
-    op: 'create', profile: fixture.profile, message: messages[0], settings: {
+    op: 'create', profile: fixture.profile, message, images: [uploaded], settings: {
       workspace: { roots: [workspace], primary_root: workspace },
       approval: { mode: 'approval-for-me', reviewer_profile: 'judge' },
     },
@@ -235,13 +233,6 @@ test('the reviewer receives the latest four bounded user texts and no image data
     assert.fail(`The reviewed task must settle: ${JSON.stringify(current)}`);
   }
   await untilIdle();
-  let page;
-  for (let index = 1; index < messages.length; index += 1) {
-    const request = { op: 'send', task_id, message: messages[index] };
-    if (index === messages.length - 1) request.images = [uploaded];
-    await fixture.command(request);
-    page = await untilIdle();
-  }
 
   assert.ok(fixture.requests.some(request => inputImages(request.input).length === 1),
     'The public task request must deliver its uploaded image to the worker model');
@@ -254,21 +245,8 @@ test('the reviewer receives the latest four bounded user texts and no image data
   const content = typeof userMessage.content === 'string' ? userMessage.content
     : userMessage.content.filter(value => value.type === 'input_text').map(value => value.text).join('');
   const excerpt = JSON.parse(content).recent_user_requests_newest_first;
-  const expectedExcerpt = [messages[4], messages[3], messages[2], Array.from(longMessage).slice(0, 4096).join('')];
-  assert.equal(excerpt.length, 4, 'The reviewer must receive the latest four user requests');
-  assert.ok(excerpt[0].startsWith(messages[4]), 'The newest request must appear first');
-  assert.deepEqual(excerpt.slice(1), expectedExcerpt.slice(1),
-    'The earlier included requests must be the preceding three user requests');
-  assert.ok(excerpt.every(value => Array.from(value).length <= 4096),
-    'Every included request must fit the 4096 Unicode code point limit');
-  assert.equal(Array.from(excerpt[3]).length, 4096,
-    'The supplementary character cap must count Unicode code points and keep the following ASCII character');
-  assert.equal(excerpt[3].endsWith('A'), true);
-  assert.equal(excerpt[3].includes('OMITTED_SUFFIX'), false);
-  assert.equal(excerpt.some(value => value.includes(messages[0])), false,
-    'The reviewer must receive only the latest four user requests');
-  assert.deepEqual(excerpt, expectedExcerpt,
-    'The reviewer must receive exactly the user text, with the image part removed');
+  assert.deepEqual(excerpt, [message],
+    'The reviewer receives the admitted text without an image placeholder or attachment data');
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
   assert.deepEqual(reviewer.failures, []);
   assert.deepEqual(fixture.upstream.failures, []);

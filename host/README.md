@@ -10,7 +10,7 @@ private to that worker.
 out transition. `journal.mjs` commits an accepted durable decision before
 publishing it or starting an effect. On reopen it verifies the hash chain and
 replays inputs through the current extracted kernel without executing effects.
-Only `selvedge-rocq-journal-5` is accepted. Other formats are rejected, without a
+Only `selvedge-rocq-journal-7` is accepted. Other formats are rejected, without a
 conversion path.
 
 `server.mjs` and `cli.mjs` expose the service. Browser snapshots use domain JSON

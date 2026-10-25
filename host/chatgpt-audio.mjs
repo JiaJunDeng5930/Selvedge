@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { interpretAudioTransport } from './model-api.ts';
 import { Impit } from 'impit';
 import WebSocket from 'ws';
 import { createAudioAccount } from './chatgpt-account.mjs';
@@ -110,155 +111,95 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     return boundary('audio.asr_response', { status: response.status, value });
   }
 
-  async function createSession({ connection: connectionId, task_id, sdp, id = randomUUID(), initial_items = [], signal }) {
+  async function createSession({ connection: connectionId, task_id, sdp, id = randomUUID(), generation = randomUUID(), initial_items = [], signal }) {
     const limits = contract();
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.connect_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
     const body = boundary('audio.session_request', { connection: connectionId, source: selected.source, authorized: true,
       task_id, sdp, id, initial_items });
-    const sessionHeaders = { 'OpenAI-Alpha': 'quicksilver=v2', 'Thread-Id': String(task_id), 'Session-Id': id };
+    const sessionHeaders = boundary('control.audio.headers', { task_id, id });
     const response = await authenticatedFetch(limits.calls_url, { method: 'POST', body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', ...sessionHeaders } }, selected, lifetime);
     const answer = boundary('audio.session_response', { status: response.status,
       sdp: await responseText(response, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
-    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id, closed: false,
-      tails: new Map(), turns: new Map(), pending: new Map(), sequence: 0, queue: Promise.resolve(), ready: false };
+    const activation = boundary('control.audio.transport_initial', { id, task_id, generation });
+    let finish;
+    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id,
+      state: activation.state, finished: new Promise(resolve => { finish = resolve; }) };
+    Object.defineProperties(record, {
+      closed: { get: () => record.state.phase !== 'live' },
+    });
     sessions.set(id, record);
-    const emit = event => onEvent({ session_id: id, task_id, ...event });
-    const transcript = (event, completion) => emit({ ...event, type: 'transcript',
-      item_id: event.item_id || `${id}:${++record.sequence}`, completion, final: true });
-    const markReady = async () => {
-      if (record.ready || record.closed) return;
-      record.ready = true;
-      lifetime.removeEventListener('abort', startupAbort);
-      await emit({ type: 'ready' });
+    // Every physical arrival installs its model state before any asynchronous
+    // primitive starts. Only the extracted FIFO chooses the next emission.
+    const observe = observation => {
+      const result = boundary('control.audio.transport_step', { state: record.state, observation });
+      record.state = result.state;
+      drive(result.actions);
+      if (record.state.phase === 'closed') finish();
     };
-    const enqueue = action => {
-      record.queue = record.queue.then(action).catch(error => {
-        // DEFENSE: A malformed provider event or a rejected journal commit ends this control connection; continuing would lose the correspondence between voice observations and accepted task input.
-        terminate(error);
-      });
-    };
-    function terminate(error) {
-      if (record.closed) return;
-      record.closed = true;
+    const cleanup = () => {
       signal?.removeEventListener('abort', abort);
       lifetime.removeEventListener('abort', startupAbort);
-      sessions.delete(id);
+      if (sessions.get(id) === record) sessions.delete(id);
       clearTimeout(record.retryTimer);
       const socket = record.socket;
-      if (socket?.readyState === 1) { socket.send(JSON.stringify({ type: 'session.close' })); socket.close(); }
+      if (socket?.readyState === 1) {
+        try { socket.send(JSON.stringify({ type: 'session.close' })); } finally { socket.close(); }
+      }
       else if (socket?.readyState === 0) socket.terminate();
-      record.queue = record.queue.then(async () => {
-        for (const [role, text] of record.tails) {
-          if (text) await transcript({ role, text, remaining: '' }, 'interrupted');
-        }
-        record.tails.clear();
-        for (const pending of record.pending.values()) await emit({ type: 'error', error: 'Voice delegation is missing its referenced user turn', item_id: pending.item?.id ?? pending.item_id });
-        record.pending.clear();
-        if (error) await emit({ type: 'error', error: error.message });
-        await emit({ type: 'closed' });
+    };
+    function drive(actions) {
+      for (const begin of actions) void interpretAudioTransport(begin, {
+        ready: () => lifetime.removeEventListener('abort', startupAbort),
+        emit: event => onEvent(event),
+        close: async () => { cleanup(); },
+        connect: attempt => connectSideband(attempt),
+        retry: (attempt, delay) => {
+          record.retryTimer = setTimeout(() => observe({ kind: 'retry', attempt }), Number(delay));
+        },
+        ack: token => observe({ kind: 'ack', token }),
+        failed: token => observe({ kind: 'failed', token }),
       });
     }
-    const abort = () => terminate(signal.reason ?? new Error('Voice cancelled'));
-    const startupAbort = () => { if (!record.ready) terminate(lifetime.reason); };
+    const terminate = error => observe({ kind: 'stop', message: error?.message ?? '' });
+    const abort = () => terminate(signal.reason);
+    const startupAbort = () => observe({ kind: 'startup_timeout', message: lifetime.reason?.message ?? '' });
     signal?.addEventListener('abort', abort, { once: true });
     lifetime.addEventListener('abort', startupAbort, { once: true });
     record.stop = terminate;
-    const receiveMessage = message => {
-      if (record.closed) return;
-      enqueue(async () => {
-        const raw = typeof message.data === 'string' ? message.data : new TextDecoder('utf-8', { fatal: true }).decode(message.data);
-        const value = parsedJson(raw);
-        if (value === null) throw new Error('ChatGPT voice control returned invalid JSON');
-        const source = () => ({ value, turns: [...record.turns].map(([turn_id, text]) => ({ turn_id, text })) });
-        const event = boundary('audio.event', source());
-        if (event === null) return;
-        switch (event.type) {
-          case 'ready':
-            await markReady();
-            break;
-          case 'delta':
-            record.tails.set(event.role, (record.tails.get(event.role) ?? '') + event.text);
-            await emit(event);
-            break;
-          case 'transcript': {
-            const remaining = boundary('audio.transcript_tail', {
-              pending: record.tails.get(event.role) ?? '', completed: event.text,
-            });
-            if (remaining) record.tails.set(event.role, remaining);
-            else record.tails.delete(event.role);
-            if (event.role === 'user' && event.item_id) record.turns.set(event.item_id, event.text);
-            await transcript({ ...event, remaining }, 'completed');
-            break;
-          }
-          case 'turn':
-            record.turns.set(event.turn_id, event.text);
-            record.tails.set('user', event.text);
-            break;
-          case 'delegation_pending':
-            record.pending.set(event.item_id, value);
-            break;
-          case 'delegation':
-            record.pending.delete(event.item_id);
-            await emit({ ...event, delegation_id: event.item_id });
-            break;
-          case 'error': throw new Error(event.error);
-        }
-        for (const [itemId, pending] of record.pending) {
-          const resolved = boundary('audio.event', { ...source(), value: pending });
-          if (resolved.type === 'delegation') {
-            record.pending.delete(itemId);
-            await emit({ ...resolved, delegation_id: resolved.item_id });
-          }
-        }
-      });
-    };
-    const activationDelays = [100, 300, 800];
-    let activationAttempt = 0;
-    function connectSideband() {
+    function connectSideband(attempt) {
       const socket = new WebSocketImpl(`${limits.sideband_base}${encodeURIComponent(answer.call_id)}`, {
         headers: { ...authHeaders(selected.authorization), ...sessionHeaders, 'x-session-id': id }, maxPayload: limits.event_max_bytes,
       });
       record.socket = socket;
-      let rejectedUpgrade = false;
       socket.on('unexpected-response', (_request, response) => {
-        rejectedUpgrade = true;
-        const status = response.statusCode;
-        response.destroy();
-        socket.terminate();
-        // DEFENSE: Instant Connect can return404 before Chrome ICE activates the call. Retry only this documented upgrade status, without waiting for the gateway error body (observed to delay six seconds).
-        if (status === 404 && activationAttempt < activationDelays.length) {
-          record.retryTimer = setTimeout(() => {
-            record.retryTimer = null;
-            if (!record.closed) connectSideband();
-          }, activationDelays[activationAttempt++]);
-          return;
-        }
-        terminate(new Error(`ChatGPT voice control connection failed (HTTP ${status})`));
+        observe({ kind: 'upgrade', attempt, status: response.statusCode });
+        response.destroy(); socket.terminate();
       });
-      // ExistingCall already has its media session configuration; the official controller returns after the successful upgrade without waiting for a replayed session.started.
-      socket.addEventListener('open', () => { if (!record.closed) enqueue(markReady); });
-      socket.addEventListener('message', receiveMessage);
-      socket.addEventListener('error', event => {
-        if (!rejectedUpgrade && !record.closed) terminate(new Error(`ChatGPT voice control connection failed${event.message ? `: ${event.message}` : ''}`));
+      socket.addEventListener('open', () => observe({ kind: 'open', attempt }));
+      socket.addEventListener('message', message => {
+        let value;
+        // DEFENSE: Provider frames are external UTF-8/JSON input. A malformed
+        // frame retires this call rather than entering the semantic event FIFO.
+        try {
+          const raw = typeof message.data === 'string' ? message.data : new TextDecoder('utf-8', { fatal: true }).decode(message.data);
+          value = parsedJson(raw);
+          if (value === null) throw new Error('ChatGPT voice control returned invalid JSON');
+        } catch (error) { observe({ kind: 'error', attempt, message: error.message }); return; }
+        observe({ kind: 'message', attempt, value });
       });
-      socket.addEventListener('close', event => {
-        if (!rejectedUpgrade) terminate(event.code === 1000 || record.closed ? undefined
-          : new Error(`ChatGPT voice control connection closed (${event.code})`));
-      });
+      socket.addEventListener('error', event => observe({ kind: 'error', attempt,
+        message: `ChatGPT voice control connection failed${event.message ? `: ${event.message}` : ''}` }));
+      socket.addEventListener('close', event => observe({ kind: 'close', attempt, code: event.code }));
     }
-    connectSideband();
+    drive(activation.actions);
     if (lifetime.aborted) {
-      startupAbort();
-      await record.queue;
-      throw lifetime.reason;
+      startupAbort(); await record.finished; throw lifetime.reason;
     }
     if (closed) {
       const error = new Error('Audio host is closed');
-      terminate(error);
-      await record.queue;
-      throw error;
+      terminate(error); await record.finished; throw error;
     }
     return { id, ...answer };
   }
@@ -293,7 +234,7 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     // A stop owns cancellation of its in-flight create; the create caller receives
     // that rejection while this caller waits for physical cleanup.
     if (pending) await Promise.allSettled([pending.promise]);
-    if (record) await record.queue;
+    if (record) await record.finished;
     return true;
   }
 

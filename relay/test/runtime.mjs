@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 export { default as WebSocket } from 'ws';
 
-export async function startRelay({ enrollmentToken = 'local-test-enrollment-secret' } = {}) {
+export async function startRelay({ enrollmentToken = 'local-test-enrollment-secret-for-relay' } = {}) {
   const configurationURL = new URL('../wrangler.jsonc', import.meta.url);
   const configuration = JSON.parse(await readFile(configurationURL, 'utf8'));
   const sqliteClasses = new Set(configuration.migrations.flatMap(migration => migration.new_sqlite_classes ?? []));

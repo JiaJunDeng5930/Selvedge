@@ -1,3 +1,5 @@
+import { boundary } from './model-boundary.mjs';
+
 /** Lossless JSON at the shared value boundary. Numeric lexemes survive the extraction boundary. */
 export class JsonNumber {
   constructor(source) {
@@ -26,4 +28,23 @@ export function stringifyJson(value) {
     return item;
   });
 }
+
+/** Decode bounded wire integers by their mathematical value, without rounding. */
+export function safeInteger(value) {
+  const lexeme = value instanceof JsonNumber ? value.source
+    : typeof value === 'number' ? Object.is(value, -0) ? '-0' : String(value)
+    : undefined;
+  if (lexeme === undefined) return undefined;
+  const decoded = boundary('control.remote.safe_integer', lexeme);
+  return decoded === null ? undefined : Number(decoded);
+}
+
+/** Domain naturals use canonical decimal tokens; unlike wire integers their lexical contract is strict. */
+export function naturalKey(value) {
+  const token = value instanceof JsonNumber ? value.source : typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : '';
+  if (!/^(0|[1-9]\d*)$/.test(token)) throw new TypeError('Expected a canonical domain natural');
+  return token;
+}
+
+export const sameNatural = (left, right) => naturalKey(left) === naturalKey(right);
 

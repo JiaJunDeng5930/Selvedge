@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import EffectEncoding ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context Commands State Tasks ContextUpdates Reasoning ReasoningView ApprovalProtocol ContextSelection WorkspaceBackend Workspace.
@@ -6,7 +7,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition indexed {A B : Type} := @Numbers.indexed A B.
+Definition indexed {A B : Type} := @Selvedge.Foundation.Registry.indexed A B.
 Definition association := Selvedge.Features.Domain.association.
 (* Auxiliary text generation reuses the connection, without the Task's effort
    or adaptive evaluator. The provider resolves its ordinary default effort. *)
@@ -88,7 +89,7 @@ Definition task_snapshot (id : N) (value : task) (features : Selvedge.Features.D
  ("lineage", JArray (map number (task_lineage value)));
  ("queued_messages", JArray (map content_json (task_queued value)));
  ("guidance",settings_guidance (task_current_settings value));
- ("history", JArray (map (message_json id) (task_history value)));
+ ("history", JArray (map (public_message_json id) (task_history value)));
  ("context", JArray (map Context.snapshot_json (ContextUpdates.bindings (task_history value))));
  ("model_pending", match task_activity value with AskingModel ticket callable mode =>
   JObject [("operation_id",number ticket);("ticket",number ticket);("mode",JString (output_mode_name mode));("callable",JArray (map JString callable))]
@@ -131,7 +132,7 @@ Definition graph_snapshot id graph features :=
   [("work_id",optional_number(association id (Selvedge.Features.Domain.feature_graph_owners features)))])
  |other=>other end.
 Definition fork_observation (id:N)(task:task)(value:world):json:=JObject[
- ("parent_ready",JBool(Tasks.fork_parent_ready false task));
+ ("parent_ready",JBool(Tasks.fork_parent_ready Tasks.ManualFork task));
  ("capacities",JArray(map(fun ancestor=>match Tasks.ancestor_capacity value ancestor with
   |None=>JNull|Some(descendants,limit)=>JObject[("descendants",number descendants);("limit",number limit)]end)
   (id::task_lineage task)))].
@@ -153,20 +154,26 @@ Definition world_json (value : world) :=
  ("board", Selvedge.Features.Observation.board_json_in_world value);
  ("worktrees", JArray (map worktree_json (Selvedge.Features.Domain.feature_worktrees features)));
  ("remote", remote_json (Selvedge.Features.Domain.feature_remote features))].
-Definition history_json (id : N) (task : task) := JArray (map (message_json id) (task_history task)).
-Definition effect_json (state : world) (value : effect) : json :=
+Definition history_json (id : N) (task : task) := JArray (map (public_message_json id) (task_history task)).
+Definition effect_fields (state : world) (value : effect) : list (string * json) :=
  match value with
- | ObserveContext id ticket task => JObject [
-   ("kind", JString "observe_context"); ("task_id", number id); ("ticket", number ticket);
+ | ObserveContext id ticket task => [
+   ("task_id", number id); ("ticket", number ticket);
    ("settings", settings_json (task_current_settings task));
    ("resource", WorkspaceBinding.execution (task_current_settings task) state); ("definitions", definitions_json);
    ("bindings", JArray (map Context.snapshot_json (ContextUpdates.bindings (task_history task))))]
- | RequestModel id ticket model task scope reserve =>
+ | RequestModel request =>
+   let id := ModelRequest.owner request in
+   let ticket := ModelRequest.ticket request in
+   let model := ModelRequest.model (ModelRequest.selection request) in
+   let task := ModelRequest.context_task request in
+   let scope := ModelRequest.scope request in
+   let reserve := ModelRequest.reserve request in
    let source := ContextSelection.history_json id (task_history task) in
    let selected := ContextSelection.latest source (if (0 <? reserve)%N then scope else "") 0 ContextSelection.Original in
-   JObject [
-   ("kind", JString "model"); ("task_id", number id); ("ticket", number ticket);
-   ("model", model_json model); ("output_mode", JString (match task_activity task with AskingModel _ _ mode => output_mode_name mode | _ => "plain" end));
+   [
+   ("task_id", number id); ("ticket", number ticket);
+   ("model", model_json model); ("output_mode", JString (output_mode_name (ModelRequest.mode request)));
    ("settings", settings_json (task_current_settings task));
    ("resource", WorkspaceBinding.execution (task_current_settings task) state); ("sampling", Reasoning.sampling model (task_current_profile task));
    ("history", JArray (if (0 <? reserve)%N then ContextSelection.assemble selected source scope else ContextSelection.portable_messages source));
@@ -175,53 +182,56 @@ Definition effect_json (state : world) (value : effect) : json :=
      | ContextSelection.Replacement length _ => number length | _ => JNull end);
    ("output_reserve_tokens", number reserve); ("source_length", number (N.of_nat (List.length (task_history task))));
    ("tools", JArray (map tool_json (contract_tools (task_contract task))));
-   ("callable", JArray (map JString (match task_activity task with AskingModel _ callable _ => callable | _ => [] end)))]
- | RequestReasoning id ticket model task => JObject [
-   ("kind", JString "reasoning"); ("task_id", number id); ("ticket", number ticket);
+   ("callable", JArray (map JString (ModelRequest.callable request)))]
+ | RequestReasoning id ticket task => let model := task_current_profile task in [
+   ("task_id", number id); ("ticket", number ticket);
    ("model", model_json model); ("history", JArray (Reasoning.evaluator_history id task));
    ("project_context", Reasoning.evaluator_project_context task);
    ("history_preview", JBool true); ("history_preview_bytes", number (N.of_nat ReasoningView.maximum_bytes))]
- | ExecuteTool id ticket operation tool call settings access => JObject [
-   ("kind", JString "tool"); ("task_id", number id); ("ticket", number ticket);
-   ("operation_id", number operation); ("tool", tool_json tool); ("call", call_json call);
+ | ExecuteTool id ticket operation tool call settings access => [
+   ("task_id", number id); ("ticket", number ticket);
+   ("operation_id", number operation); ("tool", tool_json tool); ("call", wire_call_json call);
    ("execution", JObject [("workspace", workspace_json (settings_workspace settings));
       ("resource", WorkspaceBinding.execution settings state);
       ("sandbox", sandbox_json (settings_sandbox settings)); ("access", JString (match access with DefaultAccess => "sandboxed" | ElevatedAccess => "unrestricted" end))])]
- | RequestApproval id ticket profile call task => JObject [
-   ("kind", JString "approval"); ("task_id", number id); ("ticket", number ticket);
-   ("model", model_json profile); ("call", call_json call);
+ | RequestApproval id ticket profile call task => [
+   ("task_id", number id); ("ticket", number ticket);
+   ("model", model_json profile); ("call", wire_call_json call);
    ("settings", settings_json (task_current_settings task));
    ("instructions", JString ApprovalProtocol.instructions);
    ("user_requests", JArray (ApprovalProtocol.user_requests (task_history task)))]
- | CheckTool id ticket plugin tool call => JObject [
-   ("kind", JString "hook"); ("task_id", number id); ("ticket", number ticket);
-   ("plugin", plugin); ("tool", tool_json tool); ("call", call_json call)]
- | CheckResult id ticket operation plugin call value error => JObject [
-   ("kind", JString "after_hook"); ("task_id", number id); ("ticket", number ticket);
-   ("operation_id", number operation); ("plugin", plugin); ("call", call_json call);
+ | CheckTool id ticket plugin tool call => [
+   ("task_id", number id); ("ticket", number ticket);
+   ("plugin", plugin); ("tool", tool_json tool); ("call", wire_call_json call)]
+ | CheckResult id ticket operation plugin call value error => [
+   ("task_id", number id); ("ticket", number ticket);
+   ("operation_id", number operation); ("plugin", plugin); ("call", wire_call_json call);
    ("value", value); ("error", JBool error)]
- | NotifyPlugins events => JObject [("kind", JString "plugin_events"); ("events", JArray events)]
- | ResetModelSession id => JObject [("kind", JString "reset_model_session"); ("task_id", number id)]
- | CancelTask id => JObject [("kind", JString "cancel"); ("task_id", number id)]
- | CancelTicket id ticket => JObject [("kind", JString "cancel_ticket"); ("task_id", number id); ("ticket", number ticket)]
- | ContinueScheduling => JObject [("kind", JString "continue")]
- | CreateWorktree id root workspace backend => JObject [("kind", JString "worktree_create"); ("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id);
+ | ResetModelSession id => [("task_id", number id)]
+ | CancelTask id => [("task_id", number id)]
+ | CancelTicket id ticket => [("task_id", number id); ("ticket", number ticket)]
+ | ContinueScheduling => []
+ | CreateWorktree id root workspace backend => [("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id);
    ("source_root", JString root); ("workspace", workspace_json workspace)]
- | ArchiveWorktree id source root backend => JObject [("kind", JString "worktree_archive"); ("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id); ("root", JString root); ("source_root", JString source)]
- | SuggestTitle id ticket profile prompt => JObject [
-   ("kind", JString "task_title"); ("task_id", number id); ("ticket", number ticket);
+ | ArchiveWorktree id source root backend => [("backend",JString (WorkspaceBackend.name backend)); ("task_id", number id); ("root", JString root); ("source_root", JString source)]
+ | SuggestTitle id ticket profile prompt => [
+   ("task_id", number id); ("ticket", number ticket);
    ("model", task_text_model_json profile); ("prompt", JString prompt)]
- | SuggestCard id ticket revision profile prompt draft retitle => JObject [
-   ("kind", JString "board_text"); ("card_id", number id); ("ticket", number ticket);
+ | SuggestCard id ticket revision profile prompt draft retitle => [
+   ("card_id", number id); ("ticket", number ticket);
    ("model", task_text_model_json profile); ("prompt", JString prompt); ("retitle", JBool retitle)]
- | RunConnectionJob id job => JObject [
-   ("kind", JString "chatgpt_exec"); ("operation_id", number id);
+ | RunConnectionJob id job => [
+   ("operation_id", number id);
    ("arguments", Selvedge.Features.Domain.job_arguments_json job); ("execution", JObject [
     ("workspace",workspace_json (Selvedge.Features.Domain.job_workspace job));("resource",WorkspaceBinding.reference_execution (Selvedge.Features.Domain.job_resource job) state);("sandbox",sandbox_json (Selvedge.Features.Domain.job_sandbox job));
     ("access",JString "sandboxed");("scope",JString "project")])]
- | CancelConnectionJob id => JObject [("kind", JString "chatgpt_cancel"); ("operation_id", number id)]
- | MaintainContext request => Selvedge.Features.CompactionCodec.effect_json request
+ | CancelConnectionJob id => [("operation_id", number id)]
+ | MaintainContext request => Selvedge.Features.CompactionCodec.effect_fields request
  end.
-Definition envelope (durable : bool) (value : decision) := JObject [
- ("durable", JBool durable); ("reply", decision_reply value);
- ("effects", JArray (map (effect_json (decision_world value)) (decision_effects value)))].
+Definition effect_json (state : world) (value : effect) : json :=
+ JObject (("kind", ModelDeclarations.tag_value (EffectEncoding.declaration value)) :: effect_fields state value).
+Definition envelope_with_effects (durable : bool) (reply : json) (effects : list json) := JObject [
+ ("durable", JBool durable); ("reply", reply); ("effects", JArray effects)].
+Definition envelope (durable : bool) (value : decision) :=
+ envelope_with_effects durable (decision_reply value)
+   (map (effect_json (decision_world value)) (decision_effects value)).

@@ -254,6 +254,40 @@ test('Web shutdown detaches a durable original request and restart does not repo
   assert.deepEqual(web.failures, []);
 });
 
+test('explicit Web Interrupt cancels its durable remote request without reposting it', async t => {
+  const directory = await home(t);
+  const key = `SELVEDGE_WEB_INTERRUPT_${randomBytes(8).toString('hex')}`;
+  process.env[key] = 'loopback-web'; t.after(() => { delete process.env[key]; });
+  const web = await webPeer(t, (entry, peer) => {
+    if (entry.body.text?.format?.name === 'task_title') return answer('{"title":"Interrupt original work"}');
+    peer.start();
+    peer.event('response.in_progress', { response_id: peer.id, previous_response_id: null });
+  });
+  const service = await Service.open({ home: directory, cwd: directory, config: validateConfig({
+    ...defaultConfig, chatgpt: false, profiles: {
+      web: { provider: 'chatgpt-web', model: 'chatgpt-web/high', endpoint: web.endpoint, api_key_env: key },
+    },
+  }) });
+  t.after(() => service.close());
+  const created = await service.command({ op: 'create', profile: 'web', message: 'Interrupt this original request.' });
+  assert.equal(created.reply.ok, true, JSON.stringify(created.reply));
+  const original = await eventually(() => web.requests.find(entry => entry.body.tools.length > 0),
+    'The original Web request did not arrive');
+  const db = new DatabaseSync(path.join(directory, 'providers/chatgpt-web/requests.sqlite'), { readOnly: true });
+  let responseId;
+  try {
+    responseId = await eventually(() => db.prepare('SELECT response_id FROM requests WHERE request_key=?').get(original.key)?.response_id,
+      'The remote response identity was not persisted before explicit Interrupt');
+  } finally { db.close(); }
+  const stopped = await service.command({ op: 'interrupt', task_id: created.reply.result.task_id });
+  assert.equal(stopped.reply.ok, true, JSON.stringify(stopped.reply));
+  await service.close();
+  assert.ok(web.controls.includes(`${new URL(web.endpoint).pathname}/${responseId}/cancel`),
+    `Explicit Interrupt must issue the provider cancellation request; observed ${JSON.stringify(web.controls)}`);
+  assert.equal(web.requests.filter(entry => entry.body.tools.length > 0).length, 1);
+  assert.deepEqual(web.failures, []);
+});
+
 test('one browser owns one live voice session and can reconnect after disconnect', async t => {
   const directory = await home(t), requests = [], stopped = [];
   const service = await Service.open({ home: directory, cwd: directory,

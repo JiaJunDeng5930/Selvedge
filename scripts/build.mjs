@@ -4,13 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { root, run, targets, jsonEntries } from './build-tools.mjs';
 import { auditAssumptions } from './assumptions.mjs';
+import { generateModelSchema } from './generate-model-schema.mjs';
 export { root, run, targets, jsonEntries } from './build-tools.mjs';
 
 const buildDirectory = path.join(root, '.build');
 const digest = value => createHash('sha256').update(value).digest('hex');
 const stateFile = path.join(buildDirectory, 'build-state.json');
 const flags = ['-w', '-register-all,-extraction-default-directory', '-Q', 'theories', 'Selvedge'];
-const productionTargets = ['kernel', 'host', 'browser', 'interaction'];
+const productionTargets = ['schema', 'kernel', 'host', 'browser', 'interaction'];
 export async function compilerVersions() {
   return Promise.all([
     run('rocq', ['--version']), run('ocamlc', ['-version']), run('js_of_ocaml', ['--version']),
@@ -112,7 +113,6 @@ export async function build(options = {}) {
   const versions = await compilerVersions();
   const inputFingerprints = new Map();
   let inputsStable = true;
-  let buildSucceeded = false;
   let checkedSourceFiles = null;
   async function readInput(filename) {
     const bytes = await readFile(path.join(root, filename));
@@ -170,6 +170,7 @@ export async function build(options = {}) {
   const extraction = await readInput('runtime/Extraction.v');
   const buildTools = await readInput('scripts/build-tools.mjs');
   const assumptionAudit = await readInput('scripts/assumptions.mjs');
+  if (selected.includes('schema')) await readInput('scripts/generate-model-schema.mjs');
   const extractionIdentity = digest(JSON.stringify([identity, versions.slice(1), pins, buildScript, buildTools, assumptionAudit, extraction]));
   const state = await exists('.build/build-state.json') ? JSON.parse(await readFile(stateFile, 'utf8')) : {};
   const next = {};
@@ -198,7 +199,10 @@ export async function build(options = {}) {
         const imported = graph.get(filename) ?? [];
         await Promise.all(imported.map(compile));
         const source = (await readInput(filename)).toString('utf8');
-        const key = digest(JSON.stringify([identity, source, imported.map(file => next[file])]));
+        // Rocq records imported object identities, including objects rebuilt outside this cache.
+        const key = digest(JSON.stringify([identity, source, imported.map(file => [
+          next[file], next[`artifact:${file.slice(0, -1)}vo`]
+        ])]));
         const artifact = filename.slice(0, -1) + 'vo';
         const actual = await fingerprint(artifact);
         // DEFENSE: A direct rocq compilation followed by restoring the source can leave a different .vo behind the cached source key.
@@ -321,6 +325,7 @@ export async function build(options = {}) {
     // No executable asset is published until every selected target and captured input has passed.
     await assertInputsUnchanged();
     for (const [filename, bundle] of publications) await writeChanged(filename, bundle);
+    if (selected.includes('schema')) await generateModelSchema(root);
     console.log(`Rocq: ${compiled} checked module${compiled === 1 ? '' : 's'}; ${selected.length} executable target${selected.length === 1 ? '' : 's'}`);
     const provenance = Object.fromEntries(selected.map(name => {
       const target = targets[name];
@@ -346,13 +351,15 @@ export async function build(options = {}) {
       targets: Object.freeze([...selected]),
       provenance: Object.freeze(provenance),
     });
-    buildSucceeded = true;
     return result;
   } finally {
     // DEFENSE: A failed dependency can reject its consumer while other scheduled checks are still running.
     await Promise.allSettled([...pending.values()]);
     if (publicationDirectory) await rm(publicationDirectory, { recursive: true, force: true });
-    if (buildSucceeded) await persistState();
+    // Cache completed checks even when an independent module fails. Source and
+    // object fingerprints invalidate these entries on the next build; executable
+    // publication still requires every selected check and input guard to pass.
+    await persistState();
   }
 }
 

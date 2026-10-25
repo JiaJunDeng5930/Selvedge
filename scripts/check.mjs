@@ -15,6 +15,7 @@ async function sources(directory) {
 export async function check(buildResult) {
   const completed = buildResult ?? await build({ check: true });
   if (!completed.checked) throw new Error('Repository check requires a complete checked production build');
+  await run('bun', ['node_modules/typescript/bin/tsc', '--noEmit', '-p', 'host/tsconfig.model-boundary.json']);
   await run('bash', ['-n', 'scripts/bootstrap.sh']);
   await run('bun', ['scripts/check-web-vendor.mjs']);
   const scripts = (await Promise.all(['host', 'scripts', 'remote', 'relay', 'plugins', 'examples', 'tests'].map(sources))).flat();

@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { settings } from '../src/client.mjs';
+import { publishBytes } from '../generated/file-io.mjs';
 import { requirePackagedModel, packagedModelFiles } from '../scripts/build-model.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
@@ -22,14 +23,11 @@ export async function saveConnection(directory, env = process.env) {
   // DEFENSE: The setup CLI can receive a relative data path; credentials must be written to an explicitly selected directory.
   if (!path.isAbsolute(directory)) throw new Error('Use an absolute plugin data directory');
   const config = settings(env);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
   const filename = path.join(directory, 'connection.json');
-  const file = await open(filename, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try {
-    await file.writeFile(JSON.stringify({ SELVEDGE_URL: config.endpoint, SELVEDGE_CONNECTION_ID: config.connection,
-      SELVEDGE_CONNECTION_TOKEN: config.token }) + '\n');
-    await file.sync();
-  } finally { await file.close(); }
+  const result = await publishBytes(filename, JSON.stringify({ SELVEDGE_URL: config.endpoint, SELVEDGE_CONNECTION_ID: config.connection,
+    SELVEDGE_CONNECTION_TOKEN: config.token }) + '\n', { mode: 'create-if-absent' });
+  // DEFENSE: Setup must preserve an existing saved credential rather than replace it.
+  if (result === 'already-exists') throw Object.assign(new Error('Connection file already exists'), { code: 'EEXIST' });
   return filename;
 }
 
