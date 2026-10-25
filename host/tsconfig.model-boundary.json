@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "lib": ["ESNext", "DOM"],
+    "allowImportingTsExtensions": true
+  },
+  "include": ["generated/model-schema.ts", "model-api.ts", "effect-dispatch.ts"]
+}

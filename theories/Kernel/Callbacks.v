@@ -5,7 +5,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Definition ignored (value : world) := accept (JObject [("ignored",JBool true)]) value [].
+Definition ignored := State.ignored.
 Definition acknowledged (value : world) := accept (JObject [("accepted",JBool true)]) value [].
 Definition matching_activity (ticket : N) (phase : activity) := match phase with
  | ObservingContext expected _ | AskingModel expected _ _ | EvaluatingReasoning expected _
@@ -95,7 +95,7 @@ Definition context_completed (id ticket : N) (observations : option (list contex
        let '(accepted,task) := observed_context observations diagnostic task in
        context_ready accepted id task value
      else match task_lifecycle task with
-       | Running _ _ => Reasoning.observe_context id task value
+       | Running _ _ => Reasoning.observe_context id value
        | _ => context_ready false id task value end
      else ignored value
    | _ => ignored value end
@@ -108,8 +108,8 @@ Definition operation_matches (ticket : N) (value : operation) := match operation
 Definition operation_executing (ticket : N) (value : operation) := match operation_stage value with
  | Executing expected | Elevated expected _ => N.eqb expected ticket | _ => false end.
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
-Definition replace_operation (replacement : operation) (values : list operation) :=
- map (fun operation => if N.eqb (operation_id replacement) (operation_id operation) then replacement else operation) values.
+Definition replace_operation := TicketedRequest.replace_operation.
+
 Definition settle_operation (operation : operation) (result : json) (error : bool) (task : task) :=
  Tasks.wake_after_result (with_operations (remove_operation (operation_id operation) (task_operations task))
  (append_history [History.operation_result operation result error] task)).

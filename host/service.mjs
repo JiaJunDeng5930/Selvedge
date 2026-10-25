@@ -1,15 +1,19 @@
 import { cloneJson } from './codec.mjs';
 import { boundary } from './public/model-boundary.mjs';
+import { requireAudioAdmission, interpretBrowserObservation, browseDirectoryLocation, dispatchControlResult, interpretAudioControl } from './model-api.ts';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createChatGPTAudio } from './chatgpt-audio.mjs';
 import { realpath } from 'node:fs/promises';
-import { Journal } from './journal.mjs';
+import { Journal, isDefiniteRejection, transactionOutcome } from './journal.mjs';
+import { naturalKey, sameNatural } from './public/json-tokens.mjs';
+import { dispatchEffect, performEffect, modelEffect, workspaceOperation, compactionOperation, workspaceEffect, clockDelay } from './effect-dispatch.ts';
 import { Mcp } from './mcp.mjs';
 import { Plugin } from './plugins.mjs';
 import { runBash, startBash, runReadImage } from './process.mjs';
-import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, hasRootTaskCreation, workspaceCommandPlan } from './project.mjs';
+import { ProcessRegistry } from './process-registry.mjs';
+import { snapshotProject, snapshotGlobalInstructions, observeWorkspaceCommand, admitRawWorkspaceCommand, hasRootTaskCreation, workspaceCommandPlan } from './project.mjs';
 import { observeContextSources, observeSkillCatalog } from './context-sources.mjs';
 import { requestApproval } from './approvals.mjs';
 import { requestTaskText } from './task-text.mjs';
@@ -41,8 +45,8 @@ export class CommandNotSubmitted extends Error {
 
 export class Service extends EventEmitter {
   #running = new Map();
-  #processSessions = new Map();
-  #completedProcesses = new Set();
+  #dispatchState = boundary('control.dispatch.initial', {});
+  #processRegistry = new ProcessRegistry();
   #providerCancellations = new Set();
   #servers = new Map();
   #catalog = new Map();
@@ -79,11 +83,11 @@ export class Service extends EventEmitter {
         service.remote?.reconcile();
         let ordinal = 0;
         for (const effect of decision.effects) {
-          service.#dispatch(effect, decision.sequence, ordinal);
-          if (effect.kind === 'plugin_events') ordinal += effect.events.length;
+          ordinal += service.#dispatch(effect, decision.sequence, ordinal);
         }
       });
       service.journal.on('observerFailure', error => service.#fatal(error));
+      service.journal.on('retired', error => service.#fatal(error));
       await Promise.all(Object.entries(config.mcp).map(async ([name, settings]) => {
         const client = new Mcp(name, settings, service.limits, { home: service.home });
         service.#servers.set(name, client);
@@ -145,7 +149,7 @@ export class Service extends EventEmitter {
     if (this.#failure || this.#closing) return;
     this.#failure = error;
     this.notify({ type: 'fatal', message: error.message });
-    for (const active of this.#running.values()) active.controller.abort(error);
+    this.#cancelRunning({ kind: 'shutdown' }, error);
     this.journal.kernel.abort(error);
   }
 
@@ -181,86 +185,83 @@ export class Service extends EventEmitter {
     }).catch(error => this.#fatal(error));
   }
 
+  #dispatchControl(observation) {
+    const transition = dispatchControlResult(boundary('control.dispatch.step', { state: this.#dispatchState, observation }));
+    this.#dispatchState = transition.state;
+    return transition;
+  }
+
+  #cancelRunning(observation, reason) {
+    for (const action of this.#dispatchControl(observation).cancellations) {
+      const active = this.#running.get(naturalKey(action.generation));
+      // DEFENSE: A promise can finish after cancellation was planned and before its AbortController is visited.
+      if (!active) continue;
+      if (action.provider) this.#cancelProvider(active.effect);
+      active.controller.abort(reason);
+    }
+  }
+
   #dispatch(effect, sequence, firstOrdinal = 0) {
-    // DEFENSE: A commit observer can reach later effects after an earlier effect made the service fatal or started shutdown.
-    if (this.#closing || this.#failure) return;
-    if (effect.kind === 'reset_model_session') {
-      try { WebRequestStore.resetExisting(this.home, effect.task_id); }
-      // DEFENSE: Resetting persisted Web receipts can fail in SQLite; the committed reset cannot be silently skipped.
-      catch (error) { this.#fatal(error); }
-      return;
-    }
-    if (effect.kind === 'plugin_events') {
-      effect.events.forEach(({ recipients, ...event }, index) => {
-        for (const reference of recipients) {
-          const client = this.#plugins.get(reference.name);
-          // DEFENSE: A frozen task can still name a plugin removed from current configuration or whose process has exited.
-          if (client?.matches(reference)) client.enqueue({ sequence, ordinal: firstOrdinal + index, ...event });
-          else this.notify({ type: 'diagnostic', message: `Plugin ${reference.name} notification route is unavailable`, event_id: { sequence, ordinal: firstOrdinal + index } });
+    // DEFENSE: A commit observer can reach later effects after an earlier effect retired the service.
+    if (this.#closing || this.#failure) return 0;
+    return dispatchEffect(effect, {
+      reset: effect => {
+        try { WebRequestStore.resetExisting(this.home, effect.task_id); }
+        // DEFENSE: The committed reset must surface a SQLite failure.
+        catch (error) { this.#fatal(error); }
+      },
+      notifyPlugins: effect => {
+        effect.events.forEach(({ recipients, ...event }, index) => {
+          for (const reference of recipients) {
+            const client = this.#plugins.get(reference.name);
+            // DEFENSE: A frozen task can name a plugin removed from the current configuration.
+            if (client?.matches(reference)) client.enqueue({ sequence, ordinal: firstOrdinal + index, ...event });
+            else this.notify({ type: 'diagnostic', message: `Plugin ${reference.name} notification route is unavailable`, event_id: { sequence, ordinal: firstOrdinal + index } });
+          }
+        });
+      },
+      cancelTask: effect => {
+        this.#cancelProvider(effect.task_id);
+        this.#cancelRunning({ kind: 'cancel_task', effect }, new Error('Task work cancelled'));
+      },
+      cancelKey: effect => this.#cancelRunning({ kind: 'cancel_key', effect }, new Error('Operation cancelled')),
+      continue: () => {
+        this.#continuation ??= setImmediate(() => {
+          this.#continuation = undefined;
+          // DEFENSE: Shutdown can retire this scheduled observation before it runs.
+          if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'continue' }).then(result => {
+            // DEFENSE: A full resulting decision can exceed the kernel output budget.
+            if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
+          }).catch(error => this.#fatal(error));
+        });
+      },
+      clock: effect => {
+        if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
+        this.#compactionTimer = setTimeout(() => {
+          this.#compactionTimer = undefined;
+          // DEFENSE: Shutdown can retire this clock observation before it runs.
+          if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'compaction_clock', now: Date.now() })
+            .then(result => {
+              // DEFENSE: Clock-triggered work can exceed the complete-decision budget.
+              if (!result.reply.ok) throw new Error(`Clock observation rejected: ${result.reply.error.message}`);
+            }).catch(error => this.#fatal(error));
+        }, clockDelay(effect, Date.now()));
+        this.#compactionTimer.unref();
+      },
+      start: effect => {
+        for (const generation of this.#dispatchControl({ kind: 'launch', effect }).starts) {
+          const key = naturalKey(generation);
+          const controller = new AbortController();
+          const active = { task: effect.task_id, effect, controller };
+          this.#running.set(key, active);
+          // DEFENSE: A failed interpreter/settlement retires the service; completion removes only its own generation.
+          active.promise = this.#perform(effect, controller.signal, generation).catch(error => this.#fatal(error)).finally(() => {
+            this.#dispatchControl({ kind: 'complete', generation });
+            this.#running.delete(key);
+          });
         }
-      });
-      return;
-    }
-    if (effect.kind === 'cancel') {
-      this.#cancelProvider(effect.task_id);
-      for (const active of this.#running.values()) if (active.task === effect.task_id && !active.effect.kind.startsWith('worktree_')) {
-        if (['approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
-        active.controller.abort(new Error('Task work cancelled'));
-      }
-      return;
-    }
-    if (effect.kind === 'cancel_ticket') {
-      const active = this.#running.get(`${effect.task_id}:${effect.ticket}`);
-      // DEFENSE: The physical operation may already have completed when its native cancellation is dispatched.
-      if (active && ['model', 'approval'].includes(active.effect.kind)) this.#cancelProvider(active.effect);
-      active?.controller.abort(new Error('Operation or model request cancelled'));
-      return;
-    }
-    if (effect.kind === 'continue') {
-      this.#continuation ??= setImmediate(() => {
-        this.#continuation = undefined;
-        // DEFENSE: Shutdown or a concurrent external failure can retire this scheduled callback before it runs.
-        if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'continue' }).then(result => {
-          // DEFENSE: Advancing pending work can produce an output-limit rejection; report it instead of silently dropping scheduling.
-          if (!result.reply.ok) throw new Error(`Scheduling could not advance: ${result.reply.error.message}`);
-        }).catch(error => this.#fatal(error));
-      });
-      return;
-    }
-    if (effect.kind === 'compaction_clock') {
-      if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
-      // The committed deadline is the scheduling decision. The timer supplies
-      // only a clock observation, including after suspension or a delayed wake.
-      this.#compactionTimer = setTimeout(() => {
-        this.#compactionTimer = undefined;
-        // DEFENSE: A clock callback queued before shutdown must not submit another journal input afterward.
-        if (!this.#closing && !this.#failure) this.journal.execute({ kind: 'compaction_clock', now: Date.now() })
-          .then(result => {
-            // DEFENSE: Clock-triggered compaction can exceed the complete-decision budget; surface the native rejection.
-            if (!result.reply.ok) throw new Error(`Clock observation rejected: ${result.reply.error.message}`);
-          })
-          .catch(error => this.#fatal(error));
-      }, Math.min(2_147_483_647, Math.max(0, effect.deadline - Date.now())));
-      this.#compactionTimer.unref();
-      return;
-    }
-    if (effect.kind === 'compaction_cancel') {
-      // DEFENSE: The compaction's physical request can already have finished before its cancellation effect is dispatched.
-      this.#running.get(`${effect.task_id}:${effect.ticket}`)?.controller.abort(new Error('Compaction cancelled'));
-      return;
-    }
-    if (effect.kind === 'chatgpt_cancel') {
-      // DEFENSE: A ChatGPT subprocess can already have exited when the native cancellation arrives.
-      this.#running.get(`chatgpt:${effect.operation_id}`)?.controller.abort(new Error('ChatGPT operation cancelled'));
-      return;
-    }
-    const key = effect.kind.startsWith('worktree_') ? `${effect.kind}:${effect.task_id}` : effect.kind === 'chatgpt_exec' ? `chatgpt:${effect.operation_id}` :
-      effect.kind === 'board_text' ? `board:${effect.card_id}:${effect.ticket}` : `${effect.task_id}:${effect.ticket}`;
-    const controller = new AbortController();
-    const active = { task: effect.task_id, effect, controller };
-    this.#running.set(key, active);
-    // DEFENSE: Journal settlement or an external interpreter can fail after dispatch; retire the service rather than execute further uncommitted work.
-    active.promise = this.#perform(effect, controller.signal).catch(error => this.#fatal(error)).finally(() => this.#running.delete(key));
+      },
+    });
   }
 
   #cancelProvider(task) {
@@ -272,26 +273,22 @@ export class Service extends EventEmitter {
   }
 
   async #runProcess(effect, signal) {
-    const key = `${effect.task_id}:${effect.operation_id}`;
-    const session = { mode: effect.call.arguments.mode ?? 'pipe' };
+    const key = `${naturalKey(effect.task_id)}:${naturalKey(effect.operation_id)}`;
     // Register before observing the checkout or preparing the sandbox: a sibling
     // read/write effect can run while the original process is still starting.
-    this.#processSessions.set(key, session);
+    const session = this.#processRegistry.register(key, effect.call.arguments.mode ?? 'pipe');
     const prepared = this.#resourceWorkspace(effect.execution.resource, signal).then(({ managedWorktreeRoot, environment }) =>
       startBash(effect.call.arguments, this.limits, { signal, execution: effect.execution, managedWorktreeRoot, environment,
         readOnlyPaths: [this.home], ...(environment ? {} : { artifactDirectory: path.join(this.home, 'artifacts') }) }));
     session.ready = prepared.then(({ read, write }) => { session.read = read; session.write = write; },
-      error => { session.failure = { code: error.code ?? 'command_start_failed', message: error.message }; });
+      error => {
+        this.#processRegistry.failed(key, { code: error.code ?? 'command_start_failed', message: error.message });
+      });
     try {
       const runtime = await prepared;
       return await runtime.result;
     } finally {
-      this.#completedProcesses.add(key);
-      while (this.#completedProcesses.size > 64) {
-        const retired = this.#completedProcesses.values().next().value;
-        this.#completedProcesses.delete(retired);
-        this.#processSessions.delete(retired);
-      }
+      this.#processRegistry.complete(key);
     }
   }
 
@@ -299,24 +296,14 @@ export class Service extends EventEmitter {
     const reading = effect.tool.source.program.kind === 'ProcessRead';
     const arguments_ = boundary(reading ? 'effect.process_read_arguments' : 'effect.process_write_arguments',
       { arguments: effect.call.arguments });
-    const session = this.#processSessions.get(`${effect.task_id}:${arguments_.operation_id}`);
-    // DEFENSE: A caller can name another task's operation, an evicted completed
-    // process, or an operation from before this service was restarted.
-    if (!session) return { error: true, value: { error: { code: 'unknown_process',
-      message: 'No retained Bash process exists for this task and operation_id' } } };
     try {
+      const { session, pending } = this.#processRegistry.lookup(`${naturalKey(effect.task_id)}:${naturalKey(arguments_.operation_id)}`);
       if (reading) {
-        const value = session.read ? session.read(arguments_.cursor) : {
-          status: session.failure ? 'completed' : 'starting', mode: session.mode, output: '',
-          start_cursor: '0', next_cursor: '0', omitted_characters: 0,
-          ...(session.failure ? { completion: { error: true, exit_code: null, signal: null, reason: session.failure } } : {}),
-        };
+        const value = session.read ? session.read(arguments_.cursor) : pending;
         return { error: false, value: { operation_id: arguments_.operation_id, ...value } };
       }
       await session.ready;
-      // DEFENSE: Checkout observation or sandbox preparation can fail before a
-      // writable process session is available to this already accepted call.
-      if (session.failure) return { error: true, value: { error: session.failure } };
+      this.#processRegistry.admitWrite(`${naturalKey(effect.task_id)}:${naturalKey(arguments_.operation_id)}`);
       const { operation_id, ...input } = arguments_;
       return { error: false, value: { operation_id, ...await session.write(input) } };
     } catch (error) {
@@ -326,125 +313,113 @@ export class Service extends EventEmitter {
     }
   }
 
-  async #perform(effect, signal) {
-    if (effect.kind.startsWith('worktree_')) {
-      if (effect.kind === 'worktree_archive') {
-        // Committed cancellation can precede the underlying process or filesystem operation finishing.
-        const running = [...this.#running.values()].filter(active => !active.effect.kind.startsWith('worktree_'));
-        const resources = await Promise.all(running.map(active => active.effect.execution
-          ? active.effect.execution.resource
-          : Object.hasOwn(active.effect, 'resource') ? active.effect.resource
-          : active.task === undefined ? undefined : this.#worktree(active.task)));
-        await Promise.all(running.filter((active, index) => {
-          const resource = resources[index];
-          const sameResource = resource?.task_id === effect.task_id && resource.backend === effect.backend;
-          const localExecution = effect.backend === 'local' && active.effect.execution && !resource &&
-            active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root));
-          return active.task === effect.task_id || sameResource || localExecution;
-        }).map(active => active.promise));
-      }
-      const completion = await (effect.kind === 'worktree_create' ? createTaskWorkspace : archiveTaskWorkspace)(effect,
-        this.#workspaceOptions(signal));
-      // DEFENSE: Shutdown can finish before the physical operation; preserve its receipt for recovery.
-      if (!this.#closing && !this.#failure) await this.#settleWorkspaceCompletion(effect, completion);
-      return;
+  async #performWorkspace(effect, signal, generation) {
+    if (workspaceOperation(effect) === 'archive') {
+      // Committed cancellation can precede the underlying process or filesystem operation finishing.
+      const running = [...this.#running.values()].filter(active => !workspaceEffect(active.effect));
+      const resources = await Promise.all(running.map(active => active.effect.execution
+        ? active.effect.execution.resource
+        : Object.hasOwn(active.effect, 'resource') ? active.effect.resource
+        : active.task === undefined ? undefined : this.#worktree(active.task)));
+      await Promise.all(running.filter((active, index) => {
+        const resource = resources[index];
+        const sameResource = resource && sameNatural(resource.task_id, effect.task_id) && resource.backend === effect.backend;
+        const localExecution = effect.backend === 'local' && active.effect.execution && !resource &&
+          active.effect.execution.workspace.roots.some(root => directoriesOverlap(root, effect.root));
+        return (active.task !== undefined && sameNatural(active.task, effect.task_id)) || sameResource || localExecution;
+      }).map(active => active.promise));
     }
+    const completion = await (workspaceOperation(effect) === 'create' ? createTaskWorkspace : archiveTaskWorkspace)(effect,
+      this.#workspaceOptions(signal));
+    // DEFENSE: Shutdown can finish before the physical operation; preserve its receipt for recovery.
+    if (!this.#closing && !this.#failure) await this.#settleWorkspaceCompletion(effect, completion, generation);
+  }
+
+
+  async #perform(effect, signal, generation) {
     let input;
     let observation;
+    const model = modelEffect(effect);
     const cancelPreview = () => this.notify({ type: 'stream_cancel', task_id: effect.task_id, ticket: effect.ticket });
-    if (effect.kind === 'model') {
-      this.notify({ type: 'stream_start', task_id: effect.task_id, ticket: effect.ticket });
-      signal.addEventListener('abort', cancelPreview, { once: true });
-    }
     try {
-      if (effect.kind === 'observe_context') {
-        const { environment } = await this.#resourceWorkspace(effect.resource, signal);
-        const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
-          onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
-        input = boundary('effect.completion', { effect, result: { observations } });
-      } else if (effect.kind === 'chatgpt_exec') {
-        const resource = await this.#resourceWorkspace(effect.execution.resource, signal);
-        const result = await runBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] });
-        input = boundary('effect.completion', { effect, result });
-      } else if (effect.kind === 'board_text' || effect.kind === 'task_title') {
-        input = boundary('effect.completion', { effect, result: await requestTaskText(effect, this.config, this.home, this.limits, { signal }) });
-      } else if (effect.kind === 'approval') {
-        input = boundary('effect.completion', { effect, result: await requestApproval(effect, this.config, this.home, this.limits, { signal }) });
-      } else if (effect.kind === 'reasoning') {
-        // A live native lease bypasses this branch entirely. The tokenizer and
-        // evaluator are loaded only for a committed external observation.
-        const { requestReasoning } = await import('./jev.mjs');
-        const selected = await requestReasoning(effect, this.config, this.limits, { signal });
-        input = boundary('effect.completion', { effect, result: selected });
-      } else if (effect.kind === 'context_scope' || effect.kind === 'context_measure' || effect.kind === 'context_compaction') {
-        const result = effect.kind === 'context_measure' || effect.kind === 'context_scope'
-          ? await observeModelRequest(effect, this.config, this.home, this.limits, { signal })
-          : await requestCompaction(effect, this.config, this.home, this.limits, { signal });
-        input = boundary('effect.completion', { effect, result });
-      } else if (effect.kind === 'model') {
-        const items = await requestModel(effect, this.config, this.home, this.limits, {
-          signal, onObservation: value => { observation = value; }, onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
-          onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
-          onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
-        });
-        input = boundary('effect.completion', { effect, result: items });
-      } else if (effect.kind === 'hook') {
-        const client = this.#plugins.get(effect.plugin.name);
-        // DEFENSE: A saved task can retain a required plugin whose configured process was removed on restart.
-        if (!client) throw new Error('Required plugin route is unavailable');
-        const outcome = await client.before(effect, { signal });
-        input = boundary('effect.completion', { effect, result: outcome });
-      } else if (effect.kind === 'after_hook') {
-        const client = this.#plugins.get(effect.plugin.name);
-        // DEFENSE: A saved after-hook can refer to a plugin removed from current configuration.
-        if (!client) throw new Error('Required plugin route is unavailable');
-        const outcome = await client.after(effect, { signal });
-        input = boundary('effect.completion', { effect, result: outcome });
-      } else {
-        let result;
-        if (effect.tool.source.kind === 'native') {
-          if (effect.tool.source.program.kind === 'Process') result = await this.#runProcess(effect, signal);
-          else if (effect.tool.source.program.kind === 'ReadImage') {
-            const executionOptions = { signal, execution: effect.execution,
-              ...await this.#resourceWorkspace(effect.execution.resource, signal),
-              readOnlyPaths: [this.home], home: this.home };
-            result = await runReadImage(effect.call.arguments, this.limits, executionOptions);
-          } else result = await this.#processTool(effect);
-        } else if (effect.tool.source.plugin) {
-          const client = this.#plugins.get(effect.tool.source.plugin.name);
-          // DEFENSE: A frozen plugin tool contract can outlive that plugin's configured process.
-          if (!client) throw new Error('Plugin tool route is unavailable');
-          result = await client.call(effect, { signal });
-        } else {
+      const performed = await performEffect(effect, {
+        workspace: effect => this.#performWorkspace(effect, signal, generation),
+        context: async effect => {
+          const { environment } = await this.#resourceWorkspace(effect.resource, signal);
+          const observations = await observeContextSources(effect, { home: this.home, config: this.declaredConfig, limits: this.limits, signal, environment,
+            onDiagnostic: message => this.notify({ type: 'diagnostic', message }) });
+          return { observations };
+        },
+        chatgpt: async effect => {
+          const resource = await this.#resourceWorkspace(effect.execution.resource, signal);
+          return runBash(effect.arguments, this.limits, { signal, execution: effect.execution, ...resource, readOnlyPaths: [this.home] });
+        },
+        text: effect => requestTaskText(effect, this.config, this.home, this.limits, { signal }),
+        approval: effect => requestApproval(effect, this.config, this.home, this.limits, { signal }),
+        reasoning: async effect => {
+          const { requestReasoning } = await import('./jev.mjs');
+          return requestReasoning(effect, this.config, this.limits, { signal });
+        },
+        compaction: effect => compactionOperation(effect) === 'observe'
+          ? observeModelRequest(effect, this.config, this.home, this.limits, { signal })
+          : requestCompaction(effect, this.config, this.home, this.limits, { signal }),
+        model: async effect => {
+          this.notify({ type: 'stream_start', task_id: effect.task_id, ticket: effect.ticket });
+          signal.addEventListener('abort', cancelPreview, { once: true });
+          return requestModel(effect, this.config, this.home, this.limits, {
+            signal, onObservation: value => { observation = value; },
+            onDelta: (text, output_index) => this.notify({ type: 'delta', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
+            onSnapshot: (text, output_index) => this.notify({ type: 'snapshot', task_id: effect.task_id, ticket: effect.ticket, output_index, text }),
+            onRetry: retry => this.notify({ type: 'retry', task_id: effect.task_id, ticket: effect.ticket, ...retry }),
+          });
+        },
+        hook: async effect => {
+          const client = this.#plugins.get(effect.plugin.name);
+          // DEFENSE: A frozen hook can outlive its configured plugin process.
+          if (!client) throw new Error('Required plugin route is unavailable');
+          return client.before(effect, { signal });
+        },
+        afterHook: async effect => {
+          const client = this.#plugins.get(effect.plugin.name);
+          // DEFENSE: A frozen after-hook can outlive its configured plugin process.
+          if (!client) throw new Error('Required plugin route is unavailable');
+          return client.after(effect, { signal });
+        },
+        tool: async effect => {
+          if (effect.tool.source.kind === 'native') {
+            if (effect.tool.source.program.kind === 'Process') return this.#runProcess(effect, signal);
+            if (effect.tool.source.program.kind === 'ReadImage') {
+              const executionOptions = { signal, execution: effect.execution,
+                ...await this.#resourceWorkspace(effect.execution.resource, signal), readOnlyPaths: [this.home], home: this.home };
+              return runReadImage(effect.call.arguments, this.limits, executionOptions);
+            }
+            return this.#processTool(effect);
+          }
+          if (effect.tool.source.plugin) {
+            const client = this.#plugins.get(effect.tool.source.plugin.name);
+            // DEFENSE: A frozen tool can outlive its configured plugin process.
+            if (!client) throw new Error('Plugin tool route is unavailable');
+            return client.call(effect, { signal });
+          }
           const client = this.#servers.get(effect.tool.source.server);
-          // DEFENSE: A frozen MCP tool contract can name a server removed from configuration on restart.
+          // DEFENSE: A frozen tool can name a server removed from configuration.
           if (!client) throw new Error('MCP route is unavailable');
-          result = await client.call(effect.tool.source.name, effect.call.arguments, { signal });
-        }
-        input = boundary('effect.completion', { effect, result });
-      }
-    // DEFENSE: Filesystem/process/provider/plugin operations can fail or be cancelled; settle the committed effect with its typed error input.
+          return client.call(effect.tool.source.name, effect.call.arguments, { signal });
+        },
+      });
+      if (performed.kind === 'settled') return;
+      input = performed.input;
+    // DEFENSE: External IO can fail; resource settlement errors retain their receipt and must not become a second callback.
     } catch (error) {
+      if (workspaceEffect(effect)) throw error;
       input = this.#failureInput(effect, error.message, error instanceof ContextLimitError);
-    }
-    signal.removeEventListener('abort', cancelPreview);
+    } finally { signal.removeEventListener('abort', cancelPreview); }
     // DEFENSE: Shutdown can abort an operation while its external failure/success continuation is resuming.
     if (this.#closing || this.#failure) return;
-    let result;
-    try { result = await this.journal.execute(input); }
-    catch (error) {
-      // DEFENSE: An external result can exceed the frame limit before the kernel runs; settle that live ticket as a bounded error.
-      if (!(error instanceof RangeError)) throw error;
-      result = await this.journal.execute(this.#failureInput(effect, 'External result cannot fit the input contract'));
-    }
-    // DEFENSE: A result can fit the input frame but exceed the budget of its complete resulting decision.
-    if (!result.reply.ok && result.reply.error.code === 'output_limit') {
-      result = await this.journal.execute(this.#failureInput(effect, 'External result cannot fit the complete decision'));
-    }
-    // DEFENSE: Even the reduced failure completion can exceed a full world's output budget; surface the rejected settlement.
-    if (!result.reply.ok) throw new Error(`Effect settlement rejected: ${result.reply.error.message}`);
+    const result = await this.#settleCompletion(input, () => this.#failureInput(effect,
+      'External result cannot fit the kernel boundary'), generation);
     this.#queueAudioProgress(effect.task_id);
-    if (effect.kind === 'model') {
+    if (model) {
       // DEFENSE: Cancellation may occur while model completion is committing; do not record stale cache activity after the request was aborted.
       if (observation && !signal.aborted) {
         const activity = await this.journal.execute({ kind: 'compaction_activity', task_id: effect.task_id,
@@ -461,40 +436,54 @@ export class Service extends EventEmitter {
     return boundary('effect.failure', { effect, message: message.toWellFormed(), context_limit });
   }
 
-  async #worktree(taskId) {
+  async #workspaceTask(taskId) {
     const result = await this.journal.execute({ kind: 'command', command: { op: 'read_worktree', task_id: taskId } });
     if (!result.reply.ok) {
-      if (result.reply.error.code === 'not_found') return undefined;
+      if (result.reply.error.code === 'not_found') return { kind: 'local' };
+      if (result.reply.error.code === 'task_not_found') return { kind: 'unknown' };
       throw new Error(`Task workspace lookup rejected: ${result.reply.error.message}`);
     }
-    return result.reply.result;
+    return { kind: result.reply.result.backend === 'tencent_cvm' ? 'cloud' : 'local', entry: result.reply.result };
+  }
+
+  async #worktree(taskId) {
+    return (await this.#workspaceTask(taskId)).entry;
   }
 
   #workspaceOptions(signal) {
     return { home: this.home, limits: this.limits, namespace: this.journal.namespace, cloud: this.config.cloud, signal };
   }
 
-  async #settleWorkspaceCompletion(effect, completion) {
-    let failed;
-    const submitFailure = async () => {
-      failed ??= effect.kind === 'worktree_create' && effect.backend === 'tencent_cvm' && completion.ok
+  async #settleCompletion(input, failure, generation) {
+    for (;;) {
+      let result;
+      let error;
+      let outcome;
+      try {
+        result = await this.journal.execute(input);
+        outcome = result.reply.ok ? 'accepted' : result.reply.error.code === 'output_limit' ? 'output_limit' : 'rejected';
+      } catch (caught) {
+        error = caught;
+        outcome = isDefiniteRejection(caught) && caught instanceof RangeError ? 'input_limit'
+          : transactionOutcome(caught) === 'unknown' ? 'uncertain' : 'rejected';
+      }
+      const actions = this.#dispatchControl({ kind: 'settlement', generation, outcome });
+      if (actions.settled) return result;
+      if (actions.retryFailure) {
+        input = await failure();
+        continue;
+      }
+      // DEFENSE: A rejected reduced callback or uncertain commit must retire its world without dispatching a second completion.
+      throw error ?? new Error(result?.reply.ok === false ? `Effect settlement rejected: ${result.reply.error.message}` : 'Effect settlement was retired');
+    }
+  }
+
+  async #settleWorkspaceCompletion(effect, completion, generation) {
+    return this.#settleCompletion(completion, () =>
+      workspaceOperation(effect) === 'create' && effect.backend === 'tencent_cvm' && completion.ok
         ? rollbackTaskWorkspaceCreation(effect, { ...this.#workspaceOptions(), message: 'Cloud workspace completion exceeds the kernel boundary' })
         : boundary('effect.completion', { effect, result: { ok: false, root: completion.root ?? null,
-          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } });
-      return this.journal.execute(await failed);
-    };
-    let result;
-    try { result = await this.journal.execute(completion); }
-    // DEFENSE: Filesystem observations can exceed the input-frame budget after setup has allocated a resource.
-    catch (error) {
-      if (!(error instanceof RangeError)) throw error;
-      result = await submitFailure();
-    }
-    // DEFENSE: A completion can fit the input budget while its complete decision exceeds the output budget.
-    if (!result.reply.ok && result.reply.error.code === 'output_limit') result = await submitFailure();
-    // DEFENSE: Even the reduced failure can exceed the output budget; do not hide a rejected settlement.
-    if (!result.reply.ok) throw new Error(`Managed worktree settlement rejected: ${result.reply.error.message}`);
-    return result;
+          message: 'Managed worktree completion exceeds the kernel boundary; the checkout has been retained' } }), generation);
   }
 
   async #resourceWorkspace(resource, signal) {
@@ -503,9 +492,9 @@ export class Service extends EventEmitter {
     // Read ownership by ID rather than re-resolving the owner's current execution binding.
     const result = await this.journal.execute({ kind: 'command', command: { op: 'list_worktrees' } });
     if (!result.reply.ok) throw new Error(`Task resource lookup rejected: ${result.reply.error.message}`);
-    const entry = result.reply.result.worktrees.find(entry => entry.task_id === resource.task_id);
+    const entry = result.reply.result.worktrees.find(entry => sameNatural(entry.task_id, resource.task_id));
     // DEFENSE: A frozen effect can race managed-resource archival; never substitute the host filesystem.
-    if (!entry || entry.task_id !== resource.task_id || entry.backend !== resource.backend || entry.status !== 'ready') {
+    if (!entry || !sameNatural(entry.task_id, resource.task_id) || entry.backend !== resource.backend || entry.status !== 'ready') {
       throw new Error('The committed task workspace binding is unavailable');
     }
     return entry.backend === 'local' ? { managedWorktreeRoot: entry.root }
@@ -611,7 +600,7 @@ export class Service extends EventEmitter {
     let configuration;
     let rootFacts;
     try {
-      command = await observeBoardCommand(envelope.intent, this.home);
+      command = await observeBoardCommand(admitRawWorkspaceCommand(envelope.intent), this.home);
       command = await observeMessageImages(command, this.home);
       command = await this.#observeCommandWorkspace(command);
       if (hasRootTaskCreation(envelope.intent)) {
@@ -642,11 +631,12 @@ export class Service extends EventEmitter {
   async #observeCommandWorkspace(command) {
     const plan = workspaceCommandPlan(command);
     // DEFENSE: A stale task command needs domain rejection, not an unrelated workspace lookup failure.
-    if (plan.selections.length === 0 && !plan.worktree) return structuredClone(command);
+    if (!plan.observe) return cloneJson(command);
     // Cloud tasks inherit a fixed workspace. Core admits or rejects their options;
     // local repository observations cannot establish facts about that environment.
-    if (command.task_id !== undefined && (await this.#worktree(command.task_id))?.backend === 'tencent_cvm') {
-      return structuredClone(command);
+    if (command.task_id !== undefined) {
+      const task = await this.#workspaceTask(command.task_id);
+      if (task.kind === 'cloud' || task.kind === 'unknown') return cloneJson(command);
     }
     const selectedSettings = command.settings;
     let observed = await observeWorkspaceCommand(command, this.limits, {
@@ -704,7 +694,7 @@ export class Service extends EventEmitter {
 
   async #observeCommandInput(command) {
     try {
-      const imagesObserved = await observeMessageImages(command, this.home);
+      const imagesObserved = await observeMessageImages(admitRawWorkspaceCommand(command), this.home);
       const boardObserved = await observeBoardCommand(imagesObserved, this.home);
       return await this.#observeCommandWorkspace(boardObserved);
     // DEFENSE: Client-supplied paths or image references can fail their trusted host observation before domain submission.
@@ -740,10 +730,7 @@ export class Service extends EventEmitter {
   }
 
   #audioAdmission(kind, observations) {
-    const plan = boundary('http.audio', { kind, ...observations });
-    // DEFENSE: Authenticated clients can exceed the native audio resource contract or name another browser's live session.
-    if (!plan.allowed) throw new TypeError(plan.error);
-    return plan;
+    return requireAudioAdmission(boundary('http.audio', { kind, ...observations }));
   }
 
   audioCapabilities(options) {
@@ -766,11 +753,12 @@ export class Service extends EventEmitter {
   async audioCreate({ browser_id, connection, task_id, sdp }, { signal } = {}) {
     // DEFENSE: Browser requests can race a previous connect before its upstream call is ready; reserve ownership before awaiting the call.
     const task = await this.command({ op: 'read', task_id });
-    const session_count = [...this.#audioSessions.values()].filter(session => session.browser_id === browser_id).length;
+    const session_count = [...this.#audioSessions.values()].filter(session => session.control.owner === browser_id).length;
     const plan = this.#audioAdmission('create', { browser_id, session_count, task_valid: task.reply.ok });
     const id = randomUUID();
-    const session = { id, browser_id, task_id, started: Date.now(), cursor: task.reply.result.cursor,
-      progress: Promise.resolve(), delegations: new Set(), state: 'connecting', maximum: plan.session_max_ms };
+    const generation = randomUUID();
+    const session = { id, task_id, generation, started: Date.now(), progress: Promise.resolve(), maximum: plan.session_max_ms,
+      control: boundary('control.audio.session_initial', { id, task_id, generation, browser_id, cursor: task.reply.result.cursor }) };
     this.#audioSessions.set(id, session);
     try {
       const contextPlan = boundary('audio.initial_context_plan', { cursor: task.reply.result.cursor });
@@ -778,14 +766,14 @@ export class Service extends EventEmitter {
       if (!observed.reply.ok) throw new Error(observed.reply.error.message);
       const page = observed.reply.result;
       const initial_items = boundary('audio.initial_context', { messages: page.messages, task: page.task });
-      session.cursor = page.after + page.messages.length;
-      const result = await this.audio.createSession({ id, connection, task_id, sdp, initial_items, signal });
+      await this.#applyAudio(session, { kind: 'cursor', page, generation });
+      const result = await this.audio.createSession({ id, generation, connection, task_id, sdp, initial_items, signal });
       // DEFENSE: A page can disappear after receiving the SDP response but before opening its owner event stream.
-      this.#audioTimer(session, plan.connect_timeout_ms);
+      session.connectMaximum = plan.connect_timeout_ms;
+      await this.#applyAudio(session, { kind: 'connected', generation });
       return result;
     } catch (error) {
-      clearTimeout(session.timer);
-      this.#audioSessions.delete(id);
+      await this.#applyAudio(session, { kind: 'creation_failed', generation });
       throw error;
     }
   }
@@ -798,8 +786,8 @@ export class Service extends EventEmitter {
 
   #ownedAudio(id, browser_id) {
     const session = this.#audioSessions.get(id);
-    this.#audioAdmission('session', { browser_id, owner: session?.browser_id ?? null, exists: Boolean(session),
-      elapsed_ms: session ? Date.now() - session.started : 0 });
+    const ownership = session ? boundary('control.audio.owner', { state: session.control }) : { owner: null, exists: false };
+    this.#audioAdmission('session', { browser_id, ...ownership, elapsed_ms: session ? Date.now() - session.started : 0 });
     return session;
   }
 
@@ -808,7 +796,7 @@ export class Service extends EventEmitter {
     this.#audioTimer(session, session.maximum - (Date.now() - session.started));
     const receive = event => { if (event.type === 'account_changed' || event.session_id === id) observer(event); };
     this.on('audio', receive);
-    observer({ type: session.state, session_id: id, task_id: session.task_id });
+    observer({ type: session.control.phase, session_id: id, task_id: session.task_id });
     return () => this.off('audio', receive);
   }
 
@@ -829,19 +817,51 @@ export class Service extends EventEmitter {
     const session = this.#audioSessions.get(id);
     // DEFENSE: The SSE connection and explicit stop request can close the same physical session concurrently.
     if (!session) return;
-    session.stopping ??= (async () => {
-      await this.audio.stopSession(id);
-      await session.progress;
-      clearTimeout(session.timer);
-      this.#audioSessions.delete(id);
-      this.emit('audio', { type: 'stopped', session_id: id, task_id: session.task_id });
-    })();
-    return session.stopping;
+    session.stopping ??= this.#applyAudio(session, { kind: 'stop', generation: session.generation });
+    await session.stopping;
+    await session.progress;
   }
 
   #speechCommand(command) {
     // The live connection fixes Task/session identity. These observations need no filesystem work and may flush while Service.close is releasing audio.
     return this.journal.execute({ kind: 'command', command });
+  }
+
+  async #applyAudio(session, observation) {
+    return interpretAudioControl(boundary('control.audio.session_step', { state: session.control, observation }), {
+      state: state => { session.control = state; },
+      emit: event => { this.emit('audio', event); },
+      journal: async (token, command) => {
+        let result;
+        try { result = await this.#speechCommand(command); }
+        // DEFENSE: A journal failure leaves the speech commit outcome unresolved; retire this session instead of acknowledging or retrying it.
+        catch (error) {
+          await this.#applyAudio(session, { kind: 'journal_failed', generation: observation.generation, message: error.message });
+          throw error;
+        }
+        await this.#applyAudio(session, { kind: 'ack', generation: observation.generation, token, reply: result.reply });
+      },
+      context: context => this.audio.appendContext(session.id, context),
+      timer: () => this.#audioTimer(session, session.maximum - (Date.now() - session.started)),
+      connectTimer: () => this.#audioTimer(session, session.connectMaximum),
+      stop: async () => {
+        await this.audio.stopSession(session.id);
+        await this.#applyAudio(session, { kind: 'event', generation: observation.generation, event: { type: 'closed' } });
+      },
+      release: () => {
+        clearTimeout(session.timer);
+        if (this.#audioSessions.get(session.id) === session) this.#audioSessions.delete(session.id);
+      },
+      read: after => {
+        session.progress = session.progress.then(async () => {
+          // DEFENSE: A queued progress read can outlive service shutdown; shutdown owns cancellation of physical IO.
+          if (this.#closing || this.#failure) return;
+          const result = await this.command({ op: 'read', task_id: session.task_id, after, limit: 100 });
+          if (!result.reply.ok) throw new Error(result.reply.error.message);
+          await this.#applyAudio(session, { kind: 'page', generation: observation.generation, page: result.reply.result });
+        }).catch(error => this.#applyAudio(session, { kind: 'progress_failed', generation: observation.generation, message: error.message }));
+      },
+    });
   }
 
   async #audioEvent(event) {
@@ -852,63 +872,15 @@ export class Service extends EventEmitter {
       return;
     }
     const session = this.#audioSessions.get(event.session_id);
-    // DEFENSE: A socket can deliver a final close notification after its physical session was released.
+    // DEFENSE: A physical callback can arrive after the matching session has been released.
     if (!session) return;
-    if (event.type === 'ready') {
-      session.state = 'ready';
-      this.emit('audio', { type: 'ready', session_id: session.id, task_id: session.task_id });
-      this.#queueAudioProgress(session.task_id);
-    } else if (event.type === 'transcript' && event.final) {
-      const result = await this.#speechCommand({ op: 'record_speech_transcript', task_id: session.task_id,
-        session_id: session.id, item_id: event.item_id, speaker: event.role, text: event.text,
-        completion: event.completion ?? 'completed' });
-      // DEFENSE: The trusted upstream can send conflicting item content or a Task may already have been removed.
-      if (!result.reply.ok) throw new Error(result.reply.error.message);
-      this.emit('audio', { ...event, task_id: session.task_id });
-    } else if (event.type === 'delegation') {
-      const result = await this.#speechCommand({ op: 'accept_speech_delegation', task_id: session.task_id,
-        session_id: session.id, delegation_id: event.delegation_id, message: event.text, mode: event.mode ?? 'send' });
-      // The durable receipt and queued Task input have committed before the sideband is told that work was accepted.
-      await this.audio.appendContext(session.id, { delegation_item_id: event.delegation_id, channel: 'commentary',
-        text: result.reply.ok ? `Task #${session.task_id} accepted the requested work.` : `The work was rejected: ${result.reply.error.message}` });
-      if (result.reply.ok) {
-        session.delegations.add(event.delegation_id);
-        this.#queueAudioProgress(session.task_id);
-      }
-    } else if (event.type === 'delta') {
-      this.emit('audio', { ...event, type: 'transcript', final: false, task_id: session.task_id });
-    } else if (event.type === 'error') {
-      this.emit('audio', { ...event, message: event.error ?? event.message, task_id: session.task_id });
-    } else if (event.type === 'closed' || event.type === 'stopped') {
-      clearTimeout(session.timer);
-      this.emit('audio', { type: 'stopped', session_id: session.id, task_id: session.task_id, reason: event.reason });
-      this.#audioSessions.delete(session.id);
-    }
+    await this.#applyAudio(session, { kind: 'event', event, generation: event.generation });
   }
 
   #queueAudioProgress(task_id) {
     for (const session of this.#audioSessions.values()) {
-      if (session.task_id !== task_id || session.state !== 'ready' || session.stopping) continue;
-      session.progress = session.progress.then(async () => {
-        // DEFENSE: A queued progress read can outlive the voice connection or service shutdown.
-        if (!this.#audioSessions.has(session.id) || this.#closing || this.#failure) return;
-        const delegations = [...session.delegations];
-        let page;
-        do {
-          const result = await this.command({ op: 'read', task_id, after: session.cursor, limit: 100 });
-          if (!result.reply.ok) throw new Error(result.reply.error.message);
-          page = result.reply.result;
-          const updates = boundary('audio.task_progress', { messages: page.messages, task: page.task });
-          session.cursor = page.after + page.messages.length;
-          for (const update of updates) for (const delegation_item_id of delegations.length ? delegations : [undefined]) await this.audio.appendContext(session.id, {
-            delegation_item_id, channel: update.channel,
-            text: `Task #${task_id} progress (accepted requests can be combined): ${update.text}` });
-        } while (page.has_more);
-        if (page.task.phase === 'idle') for (const id of delegations) session.delegations.delete(id);
-      }).catch(error => {
-        // DEFENSE: An upstream close during delivery or a rejected native read must remain visible while ordinary Task execution continues.
-        this.emit('audio', { type: 'error', session_id: session.id, task_id, message: error.message });
-      });
+      if (!boundary('control.audio.task_matches', { state: session.control, task_id })) continue;
+      void this.#applyAudio(session, { kind: 'progress', generation: session.generation });
     }
   }
 
@@ -932,68 +904,62 @@ export class Service extends EventEmitter {
     // DEFENSE: Browser requests already in flight can reach this method after the service stops.
     if (this.#failure) throw this.#failure;
     if (this.#closing) throw new Error('Service is stopping');
-    const plan = boundary('browser.observation', {
+    return interpretBrowserObservation(boundary('browser.observation', {
       phase: 'plan', observation, cwd: this.cwd, project_root: this.project.workspace
-    });
-    if (plan.kind === 'streams') {
-      return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
-    }
-    if (plan.kind === 'workspace-git') {
-      const environment = await this.#observationEnvironment(plan);
-      try {
-        const available = await observeWorkspaceGit(plan.primary, { environment });
-        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, available });
-      }
-      finally { await environment?.filesystem.close(); }
-    }
-    if (plan.kind === 'browse-directories') {
-      let environment;
-      let outcome;
-      try {
-        environment = await this.#observationEnvironment(plan);
-        let location = plan.path;
-        if (plan.default_path) {
-          const resolved = boundary('browser.observation', {
-            phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
-          });
-          location = resolved.path;
-          if (resolved.canonicalize) location = (await canonicalWorkspace({ roots: [location] })).primary_root;
+    }), {
+      streams: () => {
+        return { kind: 'streams', namespace: this.journal.namespace, streams: this.browserStreams() };
+      },
+      workspaceGit: async plan => {
+        const environment = await this.#observationEnvironment(plan);
+        try {
+          const available = await observeWorkspaceGit(plan.primary, { environment });
+          return boundary('browser.observation', { phase: 'complete', kind: plan.kind, available });
         }
-        const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
-        outcome = result.ok ? { ok: true, value: result } : { ok: false, error: result.error };
-      // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
-      } catch (error) {
-        outcome = { ok: false, error: error.message };
-      } finally { await environment?.filesystem.close(); }
-      return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
-    }
-    if (plan.kind === 'directories') {
-      const environment = await this.#observationEnvironment(plan);
-      try {
-        const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
-        const primary = workspace.primary_root ?? workspace.roots[0];
-        const guidance = primary ? await snapshotProject(primary, this.limits, { filesystem: environment?.filesystem }) : null;
-        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, value: { workspace, guidance } });
-      } finally { await environment?.filesystem.close(); }
-    }
-    if (plan.kind === 'skill-catalog') {
-      let environment;
-      let outcome;
-      try {
-        environment = await this.#observationEnvironment(plan);
-        const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
-        const skills = await observeSkillCatalog(workspace,
-          { home: this.home, config: this.declaredConfig, limits: this.limits, environment });
-        outcome = { ok: true, value: skills };
-      // DEFENSE: A selected workspace, configuration or discovered skill file
-      // can disappear or deny access while the user is opening the skill menu.
-      } catch (error) {
-        outcome = { ok: false, error: error.message };
-      } finally { await environment?.filesystem.close(); }
-      return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
-    }
-    // DEFENSE: The extracted plan admits only the four host-executed observation variants and the streams query.
-    throw new TypeError('Unknown browser observation');
+        finally { await environment?.filesystem.close(); }
+      },
+      browseDirectories: async plan => {
+        let environment;
+        let outcome;
+        try {
+          environment = await this.#observationEnvironment(plan);
+          const location = await browseDirectoryLocation(plan, () => boundary('browser.observation', {
+            phase: 'resolve', plan, task_environment_present: Boolean(environment), task_root: environment?.root
+          }), async location => (await canonicalWorkspace({ roots: [location] })).primary_root);
+          const result = await browseDirectories(location, this.limits.frame_bytes, { filesystem: environment?.filesystem });
+          outcome = result.ok ? { ok: true, value: result } : { ok: false, error: result.error };
+        // DEFENSE: A browser's selected directory can disappear or deny access while it is being listed; return the browsing error to that form.
+        } catch (error) {
+          outcome = { ok: false, error: error.message };
+        } finally { await environment?.filesystem.close(); }
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
+      },
+      directories: async plan => {
+        const environment = await this.#observationEnvironment(plan);
+        try {
+          const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
+          const primary = workspace.primary_root ?? workspace.roots[0];
+          const guidance = primary ? await snapshotProject(primary, this.limits, { filesystem: environment?.filesystem }) : null;
+          return boundary('browser.observation', { phase: 'complete', kind: plan.kind, value: { workspace, guidance } });
+        } finally { await environment?.filesystem.close(); }
+      },
+      skillCatalog: async plan => {
+        let environment;
+        let outcome;
+        try {
+          environment = await this.#observationEnvironment(plan);
+          const workspace = await canonicalWorkspace(plan.workspace, { filesystem: environment?.filesystem });
+          const skills = await observeSkillCatalog(workspace,
+            { home: this.home, config: this.declaredConfig, limits: this.limits, environment });
+          outcome = { ok: true, value: skills };
+        // DEFENSE: A selected workspace, configuration or discovered skill file
+        // can disappear or deny access while the user is opening the skill menu.
+        } catch (error) {
+          outcome = { ok: false, error: error.message };
+        } finally { await environment?.filesystem.close(); }
+        return boundary('browser.observation', { phase: 'complete', kind: plan.kind, ...outcome });
+      },
+    });
   }
 
   close() {
@@ -1010,10 +976,9 @@ export class Service extends EventEmitter {
     settled.push(...await Promise.allSettled([this.audio?.close()]));
     if (this.#continuation) clearImmediate(this.#continuation);
     if (this.#compactionTimer) clearTimeout(this.#compactionTimer);
-    for (const active of this.#running.values()) active.controller.abort(new Error('Server stopped'));
+    this.#cancelRunning({ kind: 'shutdown' }, new Error('Server stopped'));
     settled.push(...await Promise.allSettled([...this.#running.values()].map(active => active.promise)));
-    this.#processSessions.clear();
-    this.#completedProcesses.clear();
+    this.#processRegistry.clear();
     settled.push(...await Promise.allSettled([...this.#providerCancellations]));
     settled.push(...await Promise.allSettled([...this.#servers.values(), ...this.#plugins.values()].map(client => client.close())));
     settled.push(...await Promise.allSettled([this.#catalogTail]));

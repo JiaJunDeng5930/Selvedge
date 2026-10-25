@@ -1,29 +1,23 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Conversation Tasks History ReasoningView ReasoningProtocol Context ContextUpdates ReasoningPlan TicketedRequest.
 Import ListNotations.
 Open Scope string_scope.
 
 Definition capture (ticket : N) (task : task) :=
  with_activity (ObservingContext ticket (List.length (task_history task))) task.
-Definition observe_context (id : N) (task : task) (value : world) :=
- let '(ticket, allocated) := allocate_ticket value in
- accept (JObject [("accepted",JBool true)])
-  (put_task id (capture ticket task) allocated) [ObserveContext id ticket task].
+Definition observe_context (id : N) (value : world) :=
+ TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id false value).
+Definition observe_scheduled_context (id : N) (value : world) :=
+ TicketedRequest.Scoped.run (TicketedRequest.Scoped.observe id true value).
 
-Definition allowed (policy : adaptive_reasoning) (effort : string) := existsb (String.eqb effort) (reasoning_efforts policy).
-Inductive plan := Fixed (model : profile) | Reuse (model : profile) (remaining : N) | Evaluate.
-Definition next (owner : N) (task : task) :=
- let profile := task_current_profile task in
- match profile_policy profile with
- | FixedReasoning => Fixed profile
- | AdaptivePolicy policy =>
-   match history_lease owner (task_history task) with
-   | Lease effort remaining => if allowed policy effort && N.ltb 0 remaining then
-      Reuse (with_reasoning effort profile) remaining else Evaluate
-   | NoLease => Evaluate
-   end
- end.
+
+Definition allowed := ReasoningPlan.allowed.
+Definition plan := ReasoningPlan.plan.
+Definition Fixed := ReasoningPlan.Fixed.
+Definition Reuse := ReasoningPlan.Reuse.
+Definition Evaluate := ReasoningPlan.Evaluate.
+Definition next := ReasoningPlan.next.
 Inductive outcome := Chosen (effort : string) (generations : N) | EvaluationFailed (reason : string).
 Definition failed (reason : string) (task : task) :=
  Tasks.promote (with_activity Idle (append_history [FailureMessage ("Automatic reasoning: " ++ reason)] task)).
@@ -42,26 +36,9 @@ Definition complete (owner : N) (outcome : outcome) (task : task) :=
    | EvaluationFailed reason => failed reason task
    end
  end.
-Definition last_configuration (history : list message) :=
- fold_left (fun previous entry => match entry with
- | ReasoningConfigurationMessage effort => Some effort | _ => previous end) history None.
-Definition trailing_configuration (history : list message) :=
- fold_left (fun previous entry => match entry with
- | ReasoningConfigurationMessage _ => true
- | ReasoningRecord _ _ _ _ | AfterReceipt _ _ _ _
- | ApprovalReceipt _ _ _ _ _ | ToolReceipt _ _ _ _ _ => previous
- | _ => false end) history false.
-Definition generation (owner : N) (model : profile) (remaining : N) (task : task) :=
- let effort := profile_reasoning model in
- let emit := match profile_policy (task_current_profile task) with
- | AdaptivePolicy policy => match reasoning_transport_mode policy with
-   | RequestEffort => false | ConfigurationUpdates =>
-     match last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous effort) end end
- | FixedReasoning => false end in
- let task := if emit && trailing_configuration (task_history task) then
-  append_history [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."] task else task in
- let task := append_history [ReasoningRecord owner effort (N.pred remaining) true] task in
- if emit then append_history [ReasoningConfigurationMessage effort] task else task.
+Definition last_configuration := TicketedRequest.last_configuration.
+Definition trailing_configuration := TicketedRequest.trailing_configuration.
+Definition generation := TicketedRequest.generation.
 Definition sampling (model : profile) (requested : profile) :=
  let effective := profile_reasoning model in
  JObject [("effective_effort",JString effective);

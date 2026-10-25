@@ -1,6 +1,6 @@
 From Selvedge.Features Require Import WorkspaceBinding.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require Import Json Utf8 FreshNames.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
 Import ListNotations.
 Open Scope string_scope.
@@ -246,11 +246,18 @@ Definition ancestor_capacity (value:world)(ancestor:N):option(N*N):=
  |None=>None end.
 Definition ancestors_fit (parents : list N) (count : N) (value : world) :=
  TaskConstraints.fork_capacities_valid count(map(ancestor_capacity value)parents).
-Definition fork_parent_ready (invoked:bool)(task:task) :=
- match task_lifecycle task with
- |Running phase queued=>quiescent task || (invoked && match phase,queued with
-   |PendingCalls _,[]|ReadyForHooks _ _ _,[]=>true|_,_=>false end)
- |_=>false end.
+Record native_call := NativeCall {
+ native_owner : N; native_invocation : call; native_remaining : list call
+}.
+Inductive fork_entry := ManualFork | AcceptedNativeFork (invocation : call) (remaining : list call).
+Definition fork_parent_ready (entry : fork_entry) (task : task) :=
+ match entry, task_lifecycle task with
+ | ManualFork, Running Idle _ => true
+ | AcceptedNativeFork _ _, Running (PendingCalls _) _
+ | AcceptedNativeFork _ _, Running (ReadyForHooks _ _ _) _
+ | AcceptedNativeFork _ _, Stopped (PendingCalls _) _
+ | AcceptedNativeFork _ _, Stopped (ReadyForHooks _ _ _) _ => true
+ | _, _ => false end.
 Definition context_selected (selected : workspace) (key : context_key) :=
  match definition_scope (key_definition key) with
  | Global => true
@@ -301,15 +308,23 @@ Definition fork_child (owner parent_id : N) (parent : task) (contents : content)
  (parent_id :: task_lineage parent)
  (if side then Some parent_id else None)
  (if side then N.of_nat (List.length (fork_child_history owner parent_id parent settings side)) else 0) 0.
+Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation : call) (child : task) :=
+ let child := with_history (History.fork_receipt_history
+   (ForkReceipt owner invocation (N.succ (owner-start)%N)) (task_history child)) child in
+ with_activity (match entry with
+ | ManualFork => WantsModel
+ | AcceptedNativeFork _ remaining => match remaining with
+   | [] => WantsModel | _ => PendingCalls (map Domain.recovery_call remaining) end end) child.
 Fixpoint fork_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (value : world) : world :=
+ (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
  match count with
  | O => value
  | S count =>
    let message := match messages with [] => [] | first :: _ => first end in
    let owner := next_task value in
-   fork_children count id parent (tl messages) settings
-      (append_task (fork_child owner id parent message settings false) value)
+   let child := fork_child_receipt entry start owner invocation
+     (fork_child owner id parent message settings false) in
+   fork_children count id parent (tl messages) settings entry start invocation (append_task child value)
  end.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
@@ -319,50 +334,85 @@ Definition same_approval (left right : approval_policy) :=
 
 Inductive fork_settings_origin := ParentSettings | EnvironmentSettings.
 Definition fork_settings_base origin (parent:task) (value:world) := match origin with
-|ParentSettings=>task_current_settings parent
-|EnvironmentSettings=>creation_defaults(world_environment value)end.
-(* Resetting effort uses the captured definition, even after the catalog changes.
-   An omitted effort still retains the task's current selection. *)
-Definition fork_with_caller (invoked : bool) (origin:fork_settings_origin) (id count : N) (messages : list content) (settings : option json) (value : world) :=
+ | ParentSettings => task_current_settings parent
+ | EnvironmentSettings =>
+   let defaults := creation_defaults (world_environment value) in
+   if match WorkspaceBinding.resolve (task_current_settings parent) value with
+     | Some tree => WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) | None => false end then
+     let fixed := task_current_settings parent in
+     Settings (settings_workspace fixed) (settings_project fixed) (settings_sandbox defaults)
+       (settings_approval defaults) (settings_guidance fixed) (settings_worktree defaults) (settings_resource fixed)
+   else defaults end.
+Definition fork_selection_fixed (parent : task) (selected : task_settings) (value : world) :=
+ match WorkspaceBinding.resolve (task_current_settings parent) value with
+ | Some tree => if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
+     Workspace.same_resource (settings_resource selected) (Some (Selvedge.Features.Domain.worktree_task tree)) &&
+     Json.equal (workspace_json (settings_workspace selected)) (workspace_json (settings_workspace (task_current_settings parent))) &&
+     Workspace.same_resource (settings_project selected) (settings_project (task_current_settings parent))
+   else true
+ | None => true end.
+Record admitted_fork_selection (parent : task) (value : world) := AdmittedForkSelection {
+ fork_selected : task_settings;
+ fork_environment_fixed : fork_selection_fixed parent fork_selected value = true
+}.
+Definition admit_fork_selection (parent : task) (value : world) (selected : task_settings)
+ : option (admitted_fork_selection parent value) :=
+ match fork_selection_fixed parent selected value as allowed return
+   fork_selection_fixed parent selected value = allowed -> option (admitted_fork_selection parent value) with
+ | true => fun proof => Some (AdmittedForkSelection parent value selected proof)
+ | false => fun _ => None end eq_refl.
+(* A fork selects child settings; the retained parent's execution contract and operations stay its own. *)
+Definition fork_message_call_ids (message : Domain.message) : list string :=
+ match message with
+ | FunctionCall invocation | OperationResult _ invocation _ _
+ | HookReceipt _ invocation _ _ | ApprovalReceipt _ _ invocation _ _
+ | ToolReceipt _ _ invocation _ _ | ForkReceipt _ invocation _ => [call_id invocation]
+ | FunctionOutput identity _ _ => [identity]
+ | _ => [] end.
+Definition fork_call_ids (task : Domain.task) : list string :=
+ flat_map fork_message_call_ids (task_history task) ++
+ map call_id (History.pending_invocations (task_activity task)) ++
+ map (fun operation => call_id (operation_call operation)) (task_operations task).
+Definition manual_fork_identity (ticket : N) (task : Domain.task) : string :=
+ FreshNames.fresh_name ("manual-fork-" ++ number_text ticket ++ "-") (fork_call_ids task).
+
+Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
+ (messages : list content) (settings : option json) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value
  | Some task =>
-   if fork_parent_ready invoked task &&
+   if fork_parent_ready entry task &&
     TaskConstraints.fork_count_valid count (contract_max_fork (task_contract task)) &&
     TaskConstraints.fork_messages_valid count (List.length messages) &&
     ancestors_fit (id :: task_lineage task) count value then
     match resolve_settings (task_current_profile task) settings (fork_settings_base origin task value) value with
     | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
-    | Some selected =>
-      if invoked && negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) then
+    | Some selected => match admit_fork_selection task value selected with
+      | None => reject "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment" value
+      | Some selection =>
+      let selected := fork_selected task value selection in
+      if match entry with ManualFork => false | AcceptedNativeFork _ _ =>
+        negb (Workspace.may_delegate selected (task_current_settings task) && no_resource_observation settings) end then
        reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value else
-      let settings := selected in
       let '(ticket, allocated) := allocate_ticket value in
-      let invocation := Call ("manual-fork-" ++ number_text ticket) "fork_task"
-        (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt in
-      let parent := if invoked then task else
-        let previous := task_current_settings task in
-        let selected_parent := if Json.equal (settings_json settings) (settings_json previous) &&
-          Json.equal (settings_guidance settings) (settings_guidance previous) &&
-          Bool.eqb (settings_worktree settings) (settings_worktree previous) &&
-          same_approval (settings_approval settings) (settings_approval previous) then task else
-          with_history (selected_context_history settings task (task_history task))
-            (with_execution (task_current_profile task) settings task) in
-        append_history [FunctionCall invocation] selected_parent in
-      let children := fork_children (N.to_nat count) id parent messages settings
-        (if invoked then value else allocated) in
-      let children := if invoked then children else
-        with_tasks (Numbers.indexed (fun child task =>
-          if N.leb (next_task value) child then with_activity WantsModel
-           (with_history (History.fork_receipt_history
-             (ForkReceipt child invocation (N.succ (child-next_task value)%N)) (task_history task)) task)
-          else if N.eqb child id then with_activity WantsModel (append_history [ForkReceipt id invocation 0] parent)
-          else task) 0 (world_tasks children)) children in
+      let invocation := match entry with
+       | AcceptedNativeFork invocation _ => invocation
+       | ManualFork => Call (manual_fork_identity ticket task) "fork_task"
+         (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt end in
+      let parent := match entry with
+       | AcceptedNativeFork _ _ => task
+       | ManualFork => with_activity WantsModel (append_history
+           [FunctionCall invocation; ForkReceipt id invocation 0] task) end in
+      let retained := match entry with ManualFork => put_task id parent allocated | _ => value end in
+      let children := fork_children (N.to_nat count) id
+        (match entry with ManualFork => append_history [FunctionCall invocation] task | _ => task end)
+        messages selected entry (next_task value) invocation retained in
       accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children []
+      end
     end
    else reject "fork_unavailable" "Forking requires an eligible task, a positive count within its fork limit, no messages or exactly one per child, and capacity within every ancestor's descendant limit" value
  end.
-Definition fork := fork_with_caller false ParentSettings.
+Definition fork := fork_with_caller ManualFork ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value

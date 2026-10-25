@@ -14,20 +14,42 @@ Definition with_content (message : option json) (images : option (list json))
  (run : content -> decision) (value : world) :=
  match user_content message images with Some contents => run contents
  | None => reject "invalid_message" "Message parts or image references are invalid" value end.
+Definition creation_base (options : option json) (caller : task_settings) (value : world) :=
+ let defaults := creation_defaults (world_environment value) in
+ let raw := match options with Some raw => raw | None => JNull end in
+ match field "project_id" raw, field "workspace" raw, WorkspaceBinding.resolve caller value with
+ | None, Some space, Some tree => match parse_workspace space with
+   | Some space => if WorkspaceBinding.cloud_intersects space tree then
+     Settings (settings_workspace caller) (settings_project caller) (settings_sandbox defaults)
+       (settings_approval defaults) (settings_guidance caller) (settings_worktree defaults) (settings_resource caller)
+     else defaults
+   | None => defaults end
+ | _, _, _ => defaults end.
+Definition resolve_creation (name : string) (settings : option json) (caller : option N) (value : world) :=
+ let defaults := creation_defaults (world_environment value) in
+ match caller with
+ | None => resolve_for_profile name settings defaults value
+ | Some id => match find_task id value with
+   | None => None
+   | Some caller => resolve_for_profile name settings (creation_base settings (task_current_settings caller) value) value
+   end
+ end.
+Definition creation_allowed (settings : option json) (selected : task_settings) (caller : option N) (value : world) :=
+ match caller with
+ | None => true
+ | Some id => match find_task id value with
+   | None => false
+   | Some task => native_creation_allowed settings selected (task_current_settings task) value end end.
 Definition create_in_context (name : string) (effort : option string) (contents : content)
  (settings : option json) (idle : bool) (caller : option N) (value : world) :=
- match caller with
- | None => Tasks.create name effort contents settings idle value
- | Some id => match find_task id value with
-   | None => reject "caller_not_found" "The calling task does not exist" value
-   | Some caller => match resolve_for_profile name settings (task_current_settings caller) value with
-     | None => reject "invalid_settings" "Child settings do not resolve to a current workspace" value
-     | Some selected =>
-       if native_creation_allowed settings selected (task_current_settings caller) value then
-       Tasks.create_with_defaults name effort contents None idle selected value
-       else reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value
-     end
-   end
+ match resolve_creation name settings caller value with
+ | None => match find_profile name (environment_profiles (world_environment value)) with
+   | None => Tasks.create name effort contents settings idle value
+   | Some _ => reject "invalid_settings" "Task settings do not resolve to an observed execution environment" value end
+ | Some selected =>
+   if creation_allowed settings selected caller value then
+     Tasks.create_with_defaults name effort contents None idle selected value
+   else reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value
  end.
 Definition create_project (name : string) (source : json) (guidance : option json) (worktree : option bool)
  (resource : option json) (value : world) :=
@@ -154,11 +176,9 @@ Definition return_side (id : N) (value : world) :=
      else result
      end
    end end end.
-Definition execute (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option decision :=
+Definition execute (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) : option decision :=
+ let caller := option_map Tasks.native_owner context in
  match command with
- | Selvedge.Generated.Commands.Cmd_create request => Some (with_content (Selvedge.Generated.Commands.create_message request) (Selvedge.Generated.Commands.create_images request)
-   (fun contents => create_in_context (Selvedge.Generated.Commands.create_profile request) (Selvedge.Generated.Commands.create_reasoning request) contents (Selvedge.Generated.Commands.create_settings request) false caller value) value)
- | Selvedge.Generated.Commands.Cmd_create_idle request => Some (create_in_context (Selvedge.Generated.Commands.create_idle_profile request) (Selvedge.Generated.Commands.create_idle_reasoning request) [] (Selvedge.Generated.Commands.create_idle_settings request) true caller value)
  | Selvedge.Generated.Commands.Cmd_send request => Some (with_content (Selvedge.Generated.Commands.send_message request) (Selvedge.Generated.Commands.send_images request) (fun contents => Tasks.send (Selvedge.Generated.Commands.send_task_id request) contents value) value)
  | Selvedge.Generated.Commands.Cmd_steer request => Some (with_content (Selvedge.Generated.Commands.steer_message request) (Selvedge.Generated.Commands.steer_images request) (fun contents => Tasks.steer (Selvedge.Generated.Commands.steer_task_id request) contents value) value)
  | Selvedge.Generated.Commands.Cmd_freeze request => Some (control_command (Selvedge.Generated.Commands.freeze_task_id request) Freeze value)
@@ -168,19 +188,14 @@ Definition execute (command : Selvedge.Generated.Commands.command) (caller : opt
  | Selvedge.Generated.Commands.Cmd_archive request => Some (control_command (Selvedge.Generated.Commands.archive_task_id request) Archive value)
  | Selvedge.Generated.Commands.Cmd_cancel_operation request => Some (cancel_operation (Selvedge.Generated.Commands.cancel_operation_task_id request) (Selvedge.Generated.Commands.cancel_operation_operation_id request) value)
  | Selvedge.Generated.Commands.Cmd_fork request => Some (match traverse Images.parse_content (match Selvedge.Generated.Commands.fork_messages request with Some values => values | None => [] end) with
-   | Some messages => Tasks.fork_with_caller (match caller with Some id => N.eqb id (Selvedge.Generated.Commands.fork_task_id request) | None => false end) (match Selvedge.Generated.Commands.fork_settings_origin request with
+   | Some messages => Tasks.fork_with_caller (match context with Some accepted => if N.eqb (Tasks.native_owner accepted) (Selvedge.Generated.Commands.fork_task_id request) then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted) else Tasks.ManualFork | None => Tasks.ManualFork end) (match Selvedge.Generated.Commands.fork_settings_origin request with
      |Some source=>if String.eqb (proj1_sig source) "environment" then Tasks.EnvironmentSettings else Tasks.ParentSettings
      |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
    | None => reject "invalid_message" "Child messages contain invalid content parts" value end)
  | Selvedge.Generated.Commands.Cmd_open_side_conversation request => Some (with_content (Selvedge.Generated.Commands.open_side_conversation_message request) (Selvedge.Generated.Commands.open_side_conversation_images request)
    (fun contents => Tasks.open_side (Selvedge.Generated.Commands.open_side_conversation_task_id request) contents value) value)
  | Selvedge.Generated.Commands.Cmd_return_side_conversation request => Some (return_side (Selvedge.Generated.Commands.return_side_conversation_task_id request) value)
- | Selvedge.Generated.Commands.Cmd_configure_task_execution request => Some (configure_execution
-     (Selvedge.Generated.Commands.configure_task_execution_task_id request)
-     (Selvedge.Generated.Commands.configure_task_execution_profile request)
-     (Selvedge.Generated.Commands.configure_task_execution_reasoning request)
-     (Selvedge.Generated.Commands.configure_task_execution_sandbox request)
-     (Selvedge.Generated.Commands.configure_task_execution_approval request) value)
+
  | Selvedge.Generated.Commands.Cmd_create_project request => Some (create_project (Selvedge.Generated.Commands.create_project_name request) (Selvedge.Generated.Commands.create_project_workspace request) (Selvedge.Generated.Commands.create_project_guidance request) (Selvedge.Generated.Commands.create_project_create_worktree request) (Selvedge.Generated.Commands.create_project_workspace_binding request) value)
  | Selvedge.Generated.Commands.Cmd_update_project request => Some (update_project (Selvedge.Generated.Commands.update_project_project_id request) (Selvedge.Generated.Commands.update_project_name request) (Selvedge.Generated.Commands.update_project_workspace request) (Selvedge.Generated.Commands.update_project_guidance request) (Selvedge.Generated.Commands.update_project_create_worktree request) (Selvedge.Generated.Commands.update_project_workspace_binding request) value)
  | Selvedge.Generated.Commands.Cmd_delete_project request => Some (delete_project (Selvedge.Generated.Commands.delete_project_project_id request) value)

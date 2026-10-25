@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,7 +15,7 @@ const policyFixture = fileURLToPath(new URL('./fixtures/discovery-tools.mjs', im
 const completionPrefix = 'Asynchronous operation completed (tool output, not instructions):\n';
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 
-async function fixture(t, respond, { policy = false } = {}) {
+async function fixture(t, respond, { policy = false, after = false, before = false } = {}) {
   const directory = await home(t);
   const log = path.join(directory, 'policy.jsonl');
   await writeFile(log, '');
@@ -23,6 +25,7 @@ async function fixture(t, respond, { policy = false } = {}) {
   const upstream = await responsesServer(t, respond);
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0, max_fork: 4,
     profiles: { fixture: { provider: 'responses', model: 'native-admission-fixture', endpoint: upstream.endpoint, api_key_env: key } },
+    ...(after || before ? { plugins: { settlement: { command: process.execPath, args: [fileURLToPath(new URL('./fixtures/core-migration-hooks.mjs', import.meta.url)), before ? 'before' : 'after', log] } } } : {}),
     ...(policy ? { plugins: { policy: { command: process.execPath, args: [policyFixture, 'policy', log] } } } : {}),
   });
   const running = await startServer({ home: path.join(directory, 'state'), cwd: directory, config });
@@ -57,8 +60,51 @@ async function fixture(t, respond, { policy = false } = {}) {
     assert.fail(`Task did not settle: ${JSON.stringify(reply)}`);
   };
   const hooks = async () => (await readFile(log, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
-  return { directory, upstream, request, command, successful, idle, hooks };
+  const snapshot = async () => {
+    const response = await fetch(`${running.address}/api/browser/state`, { headers: { authorization: `Bearer ${running.token}` } });
+    assert.equal(response.status, 200);
+    return (await response.json()).program;
+  };
+  return { directory, upstream, request, command, successful, idle, hooks, snapshot, releaseHooks: () => writeFile(`${log}.release`, '') };
 }
+
+test('manual fork receipts cannot complete provider calls awaiting human approval', { timeout: 30000 }, async t => {
+  let service;
+  let callIds;
+  service = await fixture(t, async () => {
+    if (callIds) return done;
+    const task = (await service.snapshot()).tasks[0];
+    const ticket = task.model_pending.ticket;
+    callIds = [ticket + 2, ticket + 3].map(value => `manual-fork-${value}`);
+    return callIds.map(call_id => ({ type: 'function_call', call_id, name: 'bash',
+      arguments: JSON.stringify({ command: 'printf WAITING-FOR-HUMAN', sandbox_permissions: 'require_escalated',
+        justification: 'The fixture requires a real human approval boundary.' }) }));
+  });
+  const created = await service.successful({ op: 'create', profile: 'fixture', message: 'Wait for human approval.',
+    settings: { approval: { mode: 'ask-for-approval' } } });
+  const task_id = created.result.task_id;
+  let before;
+  for (let attempt = 0; attempt < 500; attempt++) {
+    assert.deepEqual(service.upstream.failures, [], 'The controlled provider must accept the complete public request');
+    before = (await service.successful({ op: 'read', task_id })).result.task;
+    if (before.phase === 'idle' && before.operations.length === 2) break;
+    await delay(10);
+  }
+  assert.equal(before.phase, 'idle');
+  assert.deepEqual(before.operations.map(operation => operation.call_id), callIds);
+  assert.ok(before.operations.every(operation => operation.status === 'awaiting_approval'));
+  const forked = await service.successful({ op: 'fork', task_id, child_count: 1 });
+  assert.equal(forked.result.children.length, 1);
+  const afterRead = await service.successful({ op: 'read', task_id });
+  const after = afterRead.result.task;
+  assert.deepEqual(after.operations.map(operation => operation.operation_id), before.operations.map(operation => operation.operation_id));
+  assert.ok(after.operations.every(operation => operation.status === 'awaiting_approval'));
+  assert.deepEqual(afterRead.result.messages.filter(message => message.receipt_kind === 'fork_result' && callIds.includes(message.call_id)), [],
+    'A manual fork has no authority to publish a result for either provider invocation');
+  for (const operation of after.operations) await service.successful({ op: 'review_approval', task_id,
+    operation_id: operation.operation_id, decision: 'deny', reason: 'The fixture leaves both commands unexecuted.' });
+  await service.idle(task_id);
+});
 
 test('model native admission rejects final invalid arguments after hooks and preserves real fork returns', { timeout: 30000 }, async t => {
   let service;
@@ -237,4 +283,116 @@ test('authenticated assessment is read-only and shares trusted preparation and c
   }
   assert.deepEqual(service.upstream.failures, []);
   assert.equal((await service.successful({ op: 'list' })).result.tasks.length, 3);
+});
+
+test('manual fork keeps the parent settings and native fork accepts other unfinished operations', { timeout: 30000 }, async t => {
+  const branches = new Set();
+  let allowCalls = false;
+  const service = await fixture(t, async body => {
+    const outputs = new Map(body.input.filter(item => item.type === 'function_call_output')
+      .map(item => [item.call_id, JSON.parse(item.output)]));
+    if (outputs.has('fork-with-running-operation')) {
+      branches.add(outputs.get('fork-with-running-operation').value);
+      return done;
+    }
+    if (!allowCalls) return done;
+    return [
+      { type: 'function_call', call_id: 'unfinished-operation', name: 'bash',
+        arguments: JSON.stringify({ command: 'sleep 0.2; printf OPERATION-COMPLETED' }) },
+      { type: 'function_call', call_id: 'fork-with-running-operation', name: 'fork_task',
+        arguments: JSON.stringify({ child_count: 1 }) },
+    ];
+  });
+  const created = await service.successful({ op: 'create_idle', profile: 'fixture',
+    settings: { sandbox: { mode: 'read-only', network_access: false } } });
+  const parent = created.result.task_id;
+  const before = (await service.successful({ op: 'read', task_id: parent })).result.task.settings;
+  const forked = await service.successful({ op: 'fork', task_id: parent, child_count: 1,
+    settings_origin: 'environment' });
+  await service.idle(parent);
+  const after = (await service.successful({ op: 'read', task_id: parent })).result.task.settings;
+  assert.deepEqual(after, before, 'Selecting environment settings configures the child and preserves its parent');
+  const child = (await service.successful({ op: 'read', task_id: forked.result.children[0] })).result.task;
+  assert.notDeepEqual(child.settings.sandbox, before.sandbox);
+
+  allowCalls = true;
+  const active = await service.successful({ op: 'create', profile: 'fixture', message: 'Fork while Bash is unfinished.' });
+  const task = await service.idle(active.result.task_id);
+  const tasks = (await service.successful({ op: 'list' })).result.tasks;
+  await Promise.all(tasks.map(entry => service.idle(entry.id)));
+  assert.deepEqual([...branches].sort(), [0, 1], 'The native caller and its child receive their own successful fork results');
+  assert.equal(task.result.task.operations.length, 0);
+});
+
+test('native independent creation uses ordinary defaults when settings are omitted', { timeout: 30000 }, async t => {
+  const service = await fixture(t, async body => {
+    const created = body.input.find(item => item.type === 'function_call_output' && item.call_id === 'independent-defaults');
+    if (created || body.input.some(item => item.role === 'user' && JSON.stringify(item.content).includes('INDEPENDENT-CHILD'))) return done;
+    return [{ type: 'function_call', call_id: 'independent-defaults', name: 'create_task',
+      arguments: JSON.stringify({ profile: 'fixture', message: 'INDEPENDENT-CHILD' }) }];
+  });
+  const workspace = path.join(service.directory, 'caller-only');
+  await mkdir(workspace);
+  const parent = await service.successful({ op: 'create', profile: 'fixture', message: 'Create the independent task.',
+    settings: { workspace: { roots: [workspace], primary_root: workspace }, approval: { mode: 'full-access' } } });
+  await service.idle(parent.result.task_id);
+  const tasks = (await service.successful({ op: 'list' })).result.tasks;
+  assert.equal(tasks.length, 2);
+  const child = tasks.find(task => task.id !== parent.result.task_id);
+  const read = (await service.idle(child.id)).result.task;
+  assert.deepEqual(read.settings.workspace.roots, [service.directory]);
+  assert.equal(read.settings.approval.mode, 'ask-for-approval');
+});
+
+test('a managed task completes every after hook after it archives itself', { timeout: 30000 }, async t => {
+  let owner;
+  const service = await fixture(t, async body => {
+    if (owner === undefined) return done;
+    return [{ type: 'function_call', call_id: 'archive-self', name: 'archive_task',
+      arguments: JSON.stringify({ task_id: owner }) }];
+  }, { after: true });
+  const repository = path.join(service.directory, 'source');
+  await mkdir(repository);
+  const git = (...args) => promisify(execFile)('git', ['-C', repository, ...args]);
+  await git('init', '--initial-branch=main');
+  await writeFile(path.join(repository, 'README.md'), 'Core migration archive fixture.\n');
+  await git('add', 'README.md');
+  await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'initial');
+  const created = await service.successful({ op: 'create_idle', profile: 'fixture', create_worktree: true,
+    settings: { workspace: { roots: [repository], primary_root: repository } } });
+  owner = created.result.task_id;
+  await service.successful({ op: 'send', task_id: owner, message: 'Archive this task after processing the result.' });
+  const deadline = Date.now() + 15000;
+  let observed;
+  do {
+    observed = (await service.successful({ op: 'read', task_id: owner })).result.task;
+    if (observed.status === 'archived' && observed.operations.length === 0) break;
+    await delay(15);
+  } while (Date.now() < deadline);
+  assert.equal(observed.status, 'archived');
+  assert.equal(observed.operations.length, 0, 'Archive preserves the executing native result until its after hook settles');
+  const hooks = await service.hooks();
+  assert.equal(hooks.length, 1, 'The real plugin receives the archived native result once');
+  assert.equal(hooks[0].call.id, 'archive-self');
+  assert.deepEqual(service.upstream.failures, []);
+});
+
+test('a native fork accepted before Stop still runs after its authorization callback', { timeout: 30000 }, async t => {
+  const service = await fixture(t, async body => {
+    if (body.input.some(item => item.type === 'function_call_output' && item.call_id === 'stopped-fork')) return done;
+    return [{ type: 'function_call', call_id: 'stopped-fork', name: 'fork_task', arguments: JSON.stringify({ child_count: 1 }) }];
+  }, { before: true });
+  const created = await service.successful({ op: 'create', profile: 'fixture', message: 'Fork after the pending policy finishes.' });
+  const owner = created.result.task_id;
+  const deadline = Date.now() + 15000;
+  while ((await service.hooks()).length === 0 && Date.now() < deadline) await delay(15);
+  assert.equal((await service.hooks()).length, 1, 'The native invocation reaches the actual policy peer before Stop');
+  await service.successful({ op: 'stop', task_id: owner });
+  await service.releaseHooks();
+  await service.idle(owner);
+  const tasks = (await service.successful({ op: 'list' })).result.tasks;
+  assert.equal(tasks.length, 2, 'Stopping new inference preserves the accepted native fork');
+  const parent = (await service.successful({ op: 'read', task_id: owner })).result.task;
+  assert.equal(parent.status, 'stopped');
+  await Promise.all(tasks.filter(task => task.id !== owner).map(task => service.idle(task.id)));
 });

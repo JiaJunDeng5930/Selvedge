@@ -100,6 +100,13 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
   map (fun command => line (concat ["| [payload : "; command_name command;
     "_payload |- _] => handler "; command_name command; "_schema "; command_name command;
     "_to_fields "; command_name command; "_from_fields Cmd_"; command_name command; " payload"])) commands ++
+  [line "end.";
+   line "Record handler_table (A : Type) := Handlers {"] ++
+  map (fun command => line (concat [" handle_"; command_name command; " : "; command_name command; "_payload -> A;"])) commands ++
+  [line "}."; line "Arguments Handlers {A}."] ++
+  map (fun command => line (concat ["Arguments handle_"; command_name command; " {A}."])) commands ++
+  [line "Definition dispatch {A : Type} (handlers : handler_table A) (value : command) : A := match value with"] ++
+  map (fun command => line (concat ["| Cmd_"; command_name command; " payload => handle_"; command_name command; " handlers payload"])) commands ++
   [line "end."].
 
 Fixpoint emit_chunks (chunks : list String.string) : TemplateMonad unit :=

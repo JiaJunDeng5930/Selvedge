@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { boundary } from './public/model-boundary.mjs';
+import { interpretHttpPlan, requireAudioAdmission, httpReplyStatus } from './model-api.ts';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -133,11 +134,8 @@ export async function startServer(options) {
     const started = Date.now();
     const mime = request.headers['content-type'] ?? '';
     const admit = body_bytes => {
-      const plan = boundary('http.audio', { kind: 'transcribe', browser_id, mime,
-        body_bytes, elapsed_ms: Date.now() - started });
-      // DEFENSE: A microphone upload can exceed its native byte/time contract while streaming without Content-Length.
-      if (!plan.allowed) throw new RangeError(plan.message);
-      return plan;
+      return requireAudioAdmission(boundary('http.audio', { kind: 'transcribe', browser_id, mime,
+        body_bytes, elapsed_ms: Date.now() - started }), 'range');
     };
     const plan = admit(Number(request.headers['content-length'] ?? 0));
     const chunks = [];
@@ -175,45 +173,48 @@ export async function startServer(options) {
     let bodyObserved = false;
     let connectionId;
     for (;;) {
-      switch (plan.action) {
-        case 'respond': json(response, plan.status, plan.value); return;
-        case 'throw':
-          if (plan.kind === 'RangeError') throw new RangeError(plan.message);
-          throw new TypeError(plan.message);
-        case 'observe_host':
+      const next = await interpretHttpPlan(plan, bodyObserved, service.limits.frame_bytes, {
+        respond: (status, value) => json(response, status, value),
+        observe_host: () => {
           source.expected_host = address ? new URL(address).host : null;
-          plan = decide('http.preflight');
-          break;
-        case 'parse_url':
+          return decide('http.preflight');
+        },
+        parse_url: () => {
           url = new URL(request.url, address);
           Object.assign(source, { pathname: url.pathname, search: url.search,
             query: [...url.searchParams.entries()], asset: assets.has(url.pathname) });
-          plan = decide('http.route');
-          break;
-        case 'observe_connection_authorization':
+          return decide('http.route');
+        },
+        observe_connection_authorization: () => {
           connectionId = url.pathname.slice('/api/chatgpt/'.length);
           source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
           source.authorized = connectionAuthorized(connections, connectionId, request.headers.authorization);
-          plan = decide('http.connection_authorization');
-          break;
-        case 'connection_method_origin':
-          plan = decide('http.connection_method_origin');
-          break;
-        case 'observe_local_authorization':
+          return decide('http.connection_authorization');
+        },
+        connection_method_origin: () => {
+          return decide('http.connection_method_origin');
+        },
+        observe_local_authorization: () => {
           source.authorization = { present: request.headers.authorization !== undefined, type: typeof request.headers.authorization };
           source.cookie = { present: request.headers.cookie !== undefined, type: typeof request.headers.cookie };
           source.authorized = authorized(request);
-          plan = decide('http.local_authorization');
-          break;
-        case 'local_origin':
-          plan = decide('http.local_origin');
-          break;
-        case 'observe_content_type':
-          source.target = plan.target;
+          return decide('http.local_authorization');
+        },
+        local_origin: () => {
+          return decide('http.local_origin');
+        },
+        observe_content_type: target => {
+          source.target = target;
           source.content_type = request.headers['content-type']?.toLowerCase() ?? null;
-          plan = decide('http.content_type');
-          break;
-        case 'asset': {
+          return decide('http.content_type');
+        },
+        readBody: async (target, maximum) => {
+          const text = await readText(request, maximum);
+          Object.assign(source, { text, target });
+          bodyObserved = true;
+          return decide('http.body');
+        },
+        asset: async () => {
           const [file, contentType] = assets.get(url.pathname);
           const data = await readFile(new URL(`./public/${file}`, import.meta.url));
           response.writeHead(200, { 'content-type': contentType, 'cache-control': url.pathname === '/' ? 'no-store' : 'no-cache',
@@ -223,14 +224,14 @@ export async function startServer(options) {
             'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
           response.end(data);
           return;
-        }
-        case 'audio_capabilities': {
+        },
+        audio_capabilities: async () => {
           const operation = requestSignal(request, response);
           try { json(response, 200, await service.audioCapabilities({ signal: operation.signal })); }
           finally { operation.close(); }
           return;
-        }
-        case 'audio_transcribe': {
+        },
+        audio_transcribe: async () => {
           const operation = requestSignal(request, response);
           try {
             const browser_id = url.searchParams.get('browser_id');
@@ -239,8 +240,8 @@ export async function startServer(options) {
               connection: url.searchParams.get('connection'), language: url.searchParams.get('language'), signal: operation.signal }));
           } finally { operation.close(); }
           return;
-        }
-        case 'audio_events': {
+        },
+        audio_events: async () => {
           const id = url.pathname.split('/')[4];
           // Validate and register before sending headers: the callback's first ready observation is sent below.
           const pending = [];
@@ -261,16 +262,17 @@ export async function startServer(options) {
             service.audioDisconnect(id, url.searchParams.get('browser_id')).catch(error => service.notify({ type: 'diagnostic', message: error.message }));
           });
           return;
-        }
-        case 'audio_stop':
+        },
+        audio_stop: async () => {
           json(response, 200, await service.audioStop(url.pathname.split('/')[4], url.searchParams.get('browser_id')));
           return;
-        case 'attachment_upload': {
+        },
+        attachment_upload: async () => {
           const attachment = await saveBoardAttachment(service.home, url.searchParams.get('name'), request);
           json(response, 201, { ok: true, result: attachment });
           return;
-        }
-        case 'attachment_download': {
+        },
+        attachment_download: async () => {
           const { attachment, data } = await readBoardAttachment(service.home, url.pathname.slice('/api/board/attachments/'.length));
           response.writeHead(200, {
             'content-type': attachment.mime, 'content-length': data.length, 'cache-control': 'no-store',
@@ -279,101 +281,25 @@ export async function startServer(options) {
           });
           response.end(data);
           return;
-        }
-        case 'account_refresh':
-        case 'audio_create':
-        case 'audio_login':
-        case 'remote_pair':
-        case 'remote_enable':
-        case 'remote_disable':
-        case 'remote_approve':
-        case 'remote_revoke':
-        case 'browser_command':
-        case 'browser_observation':
-        case 'command':
-        case 'assess':
-        case 'connection_command': {
-          if (!bodyObserved) {
-            const maximum = ['account_refresh', 'audio_login'].includes(plan.action) ? 1024 : plan.action.startsWith('remote_') ? 8192 : service.limits.frame_bytes;
-            const text = await readText(request, maximum);
-            Object.assign(source, { text, target: plan.action });
-            bodyObserved = true;
-            plan = decide('http.body');
-            break;
-          }
-          const body = plan.body;
-          switch (plan.action) {
-            case 'audio_login': {
-              const operation = requestSignal(request, response);
-              try { json(response, 200, await service.audioLogin(body, { signal: operation.signal })); }
-              finally { operation.close(); }
-              return;
-            }
-            case 'audio_create': {
-              const operation = requestSignal(request, response);
-              try { json(response, 200, await service.audioCreate(body, { signal: operation.signal })); }
-              finally { operation.close(); }
-              return;
-            }
-            case 'remote_pair':
-              json(response, 200, { ok: true, result: await service.remote.pair() });
-              return;
-            case 'remote_enable':
-              json(response, 200, { ok: true, result: await service.remote.enable() });
-              return;
-            case 'remote_disable':
-              json(response, 200, { ok: true, result: await service.remote.disable() });
-              return;
-            case 'remote_approve':
-              json(response, 200, { ok: true, result: await service.remote.approve(body.request_id, body.permissions) });
-              return;
-            case 'remote_revoke':
-              json(response, 200, { ok: true, result: await service.remote.revoke(body.controller_id) });
-              return;
-            case 'account_refresh':
-              json(response, 200, { ok: true, result: await service.refreshAccounts() });
-              return;
-            case 'browser_observation':
-              json(response, 200, await service.browserObservation(body));
-              return;
-            case 'browser_command': {
-              const result = await service.browserCommand(body.command);
-              json(response, boundary('http.reply_status', { reply: result.reply }), { ...result, program: result.program });
-              return;
-            }
-            case 'command': {
-              // Public commands are resolved by the service's native command boundary.
-              const result = await service.command(body);
-              json(response, boundary('http.reply_status', { reply: result.reply }), { sequence: result.sequence, ...result.reply });
-              return;
-            }
-            case 'assess': {
-              json(response, 200, await service.assess(body));
-              return;
-            }
-            case 'connection_command': {
-              const result = await service.command(connectionCommand(Number(connectionId), body));
-              json(response, boundary('http.reply_status', { reply: result.reply }), { sequence: result.sequence, ...result.reply });
-              return;
-            }
-          }
-          break;
-        }
-        case 'browser_state': {
+        },
+        browser_state: async () => {
           const snapshot = service.browserSnapshot();
           json(response, 200, { ...snapshot, program: snapshot.program });
           return;
-        }
-        case 'describe':
+        },
+        describe: async () => {
           json(response, 200, { ok: true, result: service.description });
           return;
-        case 'remote_status':
+        },
+        remote_status: async () => {
           json(response, 200, { ok: true, result: await service.remote.status() });
           return;
-        case 'remote_pending':
+        },
+        remote_pending: async () => {
           json(response, 200, { ok: true, result: await service.remote.pending() });
           return;
-        case 'events': {
+        },
+        events: async () => {
           const supplied = request.headers['last-event-id'] ?? url.searchParams.get('after');
           const after = supplied === null || supplied === undefined ? service.journal.sequence : Number(supplied);
           service.journal.events(after, 1); // Validate before sending response headers.
@@ -386,14 +312,78 @@ export async function startServer(options) {
           // Reconnection needs the current durable revision, not historical invalidations.
           sendEvent(response, { type: 'commit', namespace: service.journal.namespace, sequence: service.journal.sequence });
           return;
-        }
-        case 'event_page':
+        },
+        event_page: async () => {
           json(response, 200, { ok: true, result: service.journal.events(Number(url.searchParams.get('after') ?? 0), Number(url.searchParams.get('limit') ?? 100)) });
           return;
-        case 'health':
+        },
+        health: async () => {
           json(response, 200, { ok: true, result: { sequence: service.journal.sequence } });
           return;
-      }
+        },
+        account_refresh: async (body) => {
+          json(response, 200, { ok: true, result: await service.refreshAccounts() });
+          return;
+        },
+        audio_create: async (body) => {
+          const operation = requestSignal(request, response);
+          try { json(response, 200, await service.audioCreate(body, { signal: operation.signal })); }
+          finally { operation.close(); }
+          return;
+        },
+        audio_login: async (body) => {
+          const operation = requestSignal(request, response);
+          try { json(response, 200, await service.audioLogin(body, { signal: operation.signal })); }
+          finally { operation.close(); }
+          return;
+        },
+        remote_pair: async (body) => {
+          json(response, 200, { ok: true, result: await service.remote.pair() });
+          return;
+        },
+        remote_enable: async (body) => {
+          json(response, 200, { ok: true, result: await service.remote.enable() });
+          return;
+        },
+        remote_disable: async (body) => {
+          json(response, 200, { ok: true, result: await service.remote.disable() });
+          return;
+        },
+        remote_approve: async (requestId, permissions) => {
+          json(response, 200, { ok: true, result: await service.remote.approve(requestId, permissions) });
+          return;
+        },
+        remote_revoke: async (controllerId) => {
+          json(response, 200, { ok: true, result: await service.remote.revoke(controllerId) });
+          return;
+        },
+        browser_command: async (command) => {
+          const result = await service.browserCommand(command);
+          json(response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), { ...result, program: result.program });
+          return;
+        },
+        browser_observation: async (body) => {
+          json(response, 200, await service.browserObservation(body));
+          return;
+        },
+        command: async (body) => {
+          // Public commands are resolved by the service's native command boundary.
+          const result = await service.command(body);
+          json(response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), { sequence: result.sequence, ...result.reply });
+          return;
+        },
+        assess: async (body) => {
+          json(response, 200, await service.assess(body));
+          return;
+        },
+        connection_command: async (body) => {
+          const result = await service.command(connectionCommand(Number(connectionId), body));
+          json(response, httpReplyStatus(boundary('http.reply_status', { reply: result.reply })), { sequence: result.sequence, ...result.reply });
+          return;
+        },
+      });
+      if (next === null) return;
+      plan = next;
     }
   }
 

@@ -1,7 +1,9 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Reasoning ReasoningProtocol ReasoningView ContextUpdates Callbacks Scheduler Dispatch WorldInvariant LifecycleProofs.
+From Selvedge.Kernel Require Import ReasoningPlan TicketedRequest ScopedRequestProofs.
 Import ListNotations.
+Open Scope list_scope.
 
 Theorem nonzero_process_exit_invalidates_the_reasoning_lease :
  forall owner history identity result code,
@@ -106,32 +108,48 @@ Proof. intros; unfold History.history_lease; rewrite fold_left_app; reflexivity.
 Theorem a_before_hook_receipt_breaks_the_trailing_configuration_frame :
  forall history owner invocation plugin outcome,
  Reasoning.trailing_configuration (history ++ [HookReceipt owner invocation plugin outcome]) = false.
-Proof. intros; unfold Reasoning.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
+Proof. intros; unfold Reasoning.trailing_configuration, TicketedRequest.trailing_configuration, ReasoningPlan.trailing_configuration; rewrite fold_left_app; reflexivity. Qed.
 
 Theorem a_fixed_profile_bypasses_the_evaluator : forall id task value,
+ find_task id value = Some task ->
  profile_policy (task_current_profile task) = FixedReasoning ->
- Scheduler.ready_model id task value = Scheduler.emit_model id (task_current_profile task) task value.
-Proof. intros id task value Fixed; unfold Scheduler.ready_model, Reasoning.next; rewrite Fixed; reflexivity. Qed.
+ Scheduler.ready_model id value = TicketedRequest.issue id
+   (TicketedRequest.Infer task) value.
+Proof.
+ intros id task value Found Fixed. unfold Scheduler.ready_model.
+ rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found).
+ reflexivity.
+Qed.
 
 Theorem an_adaptive_profile_without_a_lease_requests_its_evaluator : forall id task value policy,
+ find_task id value = Some task ->
  profile_policy (task_current_profile task) = AdaptivePolicy policy ->
  History.history_lease id (task_history task) = History.NoLease ->
- decision_effects (Scheduler.ready_model id task value) =
- [RequestReasoning id (world_next_ticket value) (task_current_profile task) task].
+ decision_effects (Scheduler.ready_model id value) =
+ [RequestReasoning id (world_next_ticket value) task].
 Proof.
- intros id task value policy Policy Lease.
- unfold Scheduler.ready_model, Reasoning.next; rewrite Policy, Lease; reflexivity.
+ intros id task value policy Found Policy Lease. unfold Scheduler.ready_model.
+ rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found).
+ assert (Selected : ModelRequest.Plans.next id task = ModelRequest.Plans.Evaluate).
+ { unfold ModelRequest.Plans.next; rewrite Policy, Lease; reflexivity. }
+ pose proof (ModelRequestConstructionProofs.choosing_an_evaluator id task Selected) as Chosen.
+ unfold ScopedRequestProofs.computed_model, TicketedRequest.issue, TicketedRequest.build.
+ rewrite Chosen; reflexivity.
 Qed.
 
 Theorem actual_model_requests_retain_the_complete_committed_history : forall id model task value,
+ find_task id value = Some task ->
+ ReasoningPlan.next id task = ReasoningPlan.Fixed model ->
  exists request,
- decision_effects (Scheduler.emit_model id model task value) =
- [RequestModel id (world_next_ticket value) model request ""%string 0] /\
- task_history request = task_history task /\ task_contract request = task_contract task.
+ decision_effects (Scheduler.ready_model id value) = [RequestModel request] /\
+ ModelRequest.history request = task_history task /\
+ task_contract (ModelRequest.context_task request) = task_contract task.
 Proof.
- intros id model [contract profile settings lifecycle history queued lineage parent cursor consumed] value.
- unfold Scheduler.emit_model, allocate_ticket. eexists; split; [reflexivity|].
- destruct lifecycle; split; reflexivity.
+ intros id model task value Found Fixed. unfold Scheduler.ready_model.
+ rewrite (ScopedRequestProofs.model_selection_uses_the_current_task id value task Found).
+ destruct (TicketedRequestProofs.fixed_inference_freezes_its_complete_context id task value model Fixed)
+   as [request [Effects [Owner [Ticket [Model [History [Cursor Contract]]]]]]].
+ exists request; repeat split; assumption.
 Qed.
 
 Theorem actual_model_generation_consumes_one_lease_step : forall owner model remaining task,
@@ -142,13 +160,13 @@ Theorem actual_model_generation_consumes_one_lease_step : forall owner model rem
   prefix = task_history task ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]) /\
  (suffix = [] \/ suffix = [ReasoningConfigurationMessage (profile_reasoning model)]).
 Proof.
- intros owner model remaining task. unfold Reasoning.generation.
+ intros owner model remaining task. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation.
  destruct (match profile_policy (task_current_profile task) with
  | AdaptivePolicy policy => match reasoning_transport_mode policy with
    | RequestEffort => false | ConfigurationUpdates =>
-     match Reasoning.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
+     match ReasoningPlan.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
  | FixedReasoning => false end);
- destruct (Reasoning.trailing_configuration (task_history task));
+ destruct (ReasoningPlan.trailing_configuration (task_history task));
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed];
  cbn [append_history with_history task_history].
  - exists (history ++ [FailureMessage "The previous generation has no retained output after its configuration update; continuing from the committed request prefix."]),
@@ -162,15 +180,17 @@ Qed.
 
 Theorem context_requests_capture_the_current_history_revision : forall id task value phase operations,
  find_task id value = Some task -> task_lifecycle task = Running phase operations ->
- decision_effects (Reasoning.observe_context id task value) =
+ decision_effects (Reasoning.observe_context id value) =
  [ObserveContext id (world_next_ticket value) task] /\
  exists waiting,
- find_task id (decision_world (Reasoning.observe_context id task value)) = Some waiting /\
+ find_task id (decision_world (Reasoning.observe_context id value)) = Some waiting /\
  task_activity waiting = ObservingContext (world_next_ticket value) (List.length (task_history task)) /\
  task_history waiting = task_history task /\ task_contract waiting = task_contract task.
 Proof.
  intros id task value phase operations Found RunningTask.
- unfold Reasoning.observe_context, allocate_ticket. split; [reflexivity|].
+ unfold Reasoning.observe_context.
+ rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task false Found).
+ split; [reflexivity|].
  eexists; split; [eapply find_put_task; exact Found|].
  unfold Reasoning.capture, with_activity. rewrite RunningTask. repeat split; reflexivity.
 Qed.
@@ -179,7 +199,7 @@ Theorem the_actual_scheduler_observes_before_preparing_a_model : forall execute 
  task_lifecycle task = Running WantsModel operations ->
  Scheduler.ready_operation operations = None ->
  Scheduler.task_step execute id task value =
- Some (Reasoning.observe_context id (Scheduler.publish_operations (Tasks.promote task)) value).
+ Some (Reasoning.observe_scheduled_context id value).
 Proof.
  intros execute id task value operations RunningTask NoOperation.
  unfold Scheduler.task_step; rewrite RunningTask, NoOperation; reflexivity.
@@ -196,7 +216,7 @@ Theorem an_actual_stale_context_result_restarts_from_the_current_prefix :
  find_task id value = Some task -> task_activity task = ObservingContext ticket revision ->
  task_lifecycle task = Running phase operations ->
  Nat.eqb revision (List.length (task_history task)) = false ->
- Callbacks.context_completed id ticket observations diagnostic value = Reasoning.observe_context id task value.
+ Callbacks.context_completed id ticket observations diagnostic value = Reasoning.observe_context id value.
 Proof.
  intros id ticket revision observations diagnostic value task phase operations Found Phase RunningTask Stale.
  unfold Callbacks.context_completed; rewrite Found, Phase, N.eqb_refl, Stale, RunningTask; reflexivity.
@@ -301,13 +321,13 @@ Proof. intros; unfold ReasoningView.excerpt; now rewrite H, H0. Qed.
 Theorem generation_preserves_the_frozen_task_contract : forall owner model remaining task,
  task_contract (Reasoning.generation owner model remaining task) = task_contract task.
 Proof.
- intros. unfold Reasoning.generation.
+ intros. unfold Reasoning.generation, TicketedRequest.generation, ReasoningPlan.generation.
  destruct (match profile_policy (task_current_profile task) with
  | AdaptivePolicy policy => match reasoning_transport_mode policy with
    | RequestEffort => false | ConfigurationUpdates =>
-     match Reasoning.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
+     match ReasoningPlan.last_configuration (task_history task) with None => true | Some previous => negb (String.eqb previous (profile_reasoning model)) end end
  | FixedReasoning => false end);
- destruct (Reasoning.trailing_configuration (task_history task)); destruct task; reflexivity.
+ destruct (ReasoningPlan.trailing_configuration (task_history task)); destruct task; reflexivity.
 Qed.
 
 Theorem configuration_transport_keeps_the_request_baseline : forall model requested policy,

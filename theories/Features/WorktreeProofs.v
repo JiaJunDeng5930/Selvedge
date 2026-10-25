@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs Tasks.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
 Import ListNotations.
 Module F:=Selvedge.Features.Domain.
@@ -310,18 +310,20 @@ Proof. intros; unfold Worktree.query; now rewrite H. Qed.
 
 (** Cloud fork admission runs before the ordinary settings selection. Both
     workspace and project overrides are rejected by the actual feature guard. *)
-Theorem cloud_fork_cannot_override_environment : forall payload caller value selected,
- WorkspaceBinding.cloud_task (Selvedge.Generated.Commands.fork_task_id payload) value=true ->
- Selvedge.Generated.Commands.fork_settings payload=Some selected ->
- (Json.equal (value_or_null "workspace" selected) JNull=false \/
-  Json.equal (value_or_null "project_id" selected) JNull=false) ->
- Runtime.guard_command (Selvedge.Generated.Commands.Cmd_fork payload) caller value=
- Some (reject "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment" value).
+Theorem cloud_fork_selection_retains_its_environment : forall parent value selected,
+ WorkspaceBinding.resolve (task_current_settings parent) value = Some selected ->
+ WorkspaceBackend.cloud (F.worktree_backend selected) = true ->
+ forall admission : Tasks.admitted_fork_selection parent value,
+ Workspace.same_resource (settings_resource (Tasks.fork_selected parent value admission)) (Some (F.worktree_task selected)) = true /\
+ Json.equal (workspace_json (settings_workspace (Tasks.fork_selected parent value admission)))
+   (workspace_json (settings_workspace (task_current_settings parent))) = true /\
+ Workspace.same_resource (settings_project (Tasks.fork_selected parent value admission))
+   (settings_project (task_current_settings parent)) = true.
 Proof.
- intros payload caller value selected cloud settings override.
- unfold Runtime.guard_command, Runtime.or_else, Worktree.guard_command, Worktree.cloud_options_allowed.
- rewrite cloud,settings. cbn [negb orb].
- destruct override as [workspace|project]; rewrite ?workspace,?project,?Bool.andb_false_r; reflexivity.
+ intros parent value selected Found Cloud admission.
+ pose proof (Tasks.fork_environment_fixed parent value admission) as Fixed.
+ unfold Tasks.fork_selection_fixed in Fixed. rewrite Found, Cloud in Fixed.
+ repeat rewrite andb_true_iff in Fixed. tauto.
 Qed.
 Theorem archiving_local_workspace_is_unavailable : forall space value tree root target,
  In tree (F.feature_worktrees (world_features value)) ->
@@ -472,3 +474,36 @@ Proof.
  rewrite Running,Resource in Jobs. unfold Workspace.same_resource in Jobs.
  rewrite N.eqb_refl in Jobs. discriminate.
 Qed.
+
+Lemma ordinary_task_creation_has_no_resource_effects : forall name effort contents options idle settings before,
+ decision_effects (Tasks.create_with_defaults name effort contents options idle settings before) = [].
+Proof.
+ intros name effort contents options idle settings before.
+ unfold Tasks.create_with_defaults.
+ destruct (find_profile name (environment_profiles (world_environment before))); [|reflexivity].
+ destruct (selected_reasoning effort p); [|reflexivity].
+ destruct (Tasks.resolve_for_profile name options settings before); [|reflexivity].
+ destruct (idle || Tasks.content_nonempty contents); reflexivity.
+Qed.
+Theorem reusing_a_binding_never_provisions_another_resource :
+ forall name effort contents idle before settings owner tree observed,
+ decision_effects (Worktree.consume_creation_plan name effort contents idle before
+   (Worktree.ReuseBinding settings owner tree observed)) = [].
+Proof.
+ intros name effort contents idle before settings owner tree observed.
+ cbn [Worktree.consume_creation_plan Worktree.plan_settings].
+ destruct (WorkspaceBackend.cloud (F.worktree_backend tree) &&
+   bool_default "ok" (decision_reply (Tasks.create_with_defaults name effort contents None idle settings before)) false);
+   [destruct (find_task (next_task before) (decision_world (Tasks.create_with_defaults name effort contents None idle settings before)))|];
+   cbn [decision_effects]; apply ordinary_task_creation_has_no_resource_effects.
+Qed.
+Theorem an_observed_binding_takes_priority_over_automatic_worktree_preference :
+ forall before settings owner,
+ settings_resource settings = Some owner ->
+ Worktree.select_creation_plan before settings None None = Worktree.reuse_plan before settings owner.
+Proof. intros before settings owner Bound. unfold Worktree.select_creation_plan; rewrite Bound; reflexivity. Qed.
+Theorem explicit_provision_rejects_an_observed_cloud_source : forall before backend settings tree,
+ WorkspaceBinding.resolve settings before = Some tree ->
+ WorkspaceBackend.cloud (F.worktree_backend tree) = true ->
+ Worktree.provision_plan before backend settings = None.
+Proof. intros before backend settings tree Observed Cloud. unfold Worktree.provision_plan; rewrite Observed, Cloud; reflexivity. Qed.

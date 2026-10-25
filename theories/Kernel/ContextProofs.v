@@ -3,6 +3,7 @@ From Selvedge.Kernel Require Import WorkspaceBackend.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs Utf8.
 From Selvedge.Kernel Require Import Numbers ContextTypes Context Domain Codec ContextUpdates ContextProtocol State Tasks Callbacks LifecycleProofs.
+From Selvedge.Kernel Require Import ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -317,7 +318,9 @@ Proof.
    eexists; split; [eapply find_put_task; exact Found|].
    rewrite observing_context_preserves_the_task_contract; exact Contract.
  - destruct (task_lifecycle before).
-   + unfold Reasoning.observe_context, allocate_ticket. cbn [decision_world accept].
+   + unfold Reasoning.observe_context.
+     rewrite (ScopedRequestProofs.observing_uses_the_current_task id value before false Found).
+     cbn [decision_world accept TicketedRequest.issue TicketedRequest.build].
      eexists; split; [eapply find_put_task; exact Found|].
      unfold Reasoning.capture; apply observing_context_preserves_the_task_contract.
    + apply context_ready_preserves_the_frozen_contract; exact Found.

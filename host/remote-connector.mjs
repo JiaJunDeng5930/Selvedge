@@ -1,13 +1,13 @@
+import { remoteControl } from '../remote/control-model.mjs';
 import { randomUUID } from 'node:crypto';
 import {
-  REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES, MAX_REMOTE_CONTROLLERS,
+  REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
   assertRelayUrl, parseRemoteFrame, encodeRemoteFrame,
   validateRelayFrame,
 } from '../remote/protocol.mjs';
 
-const MAX_CONNECTION_QUEUE = 32;
-const MAX_CONNECTOR_QUEUE = 256;
 const MAX_BUFFERED_BYTES = MAX_REMOTE_FRAME_BYTES * 2;
+
 
 /** Outbound relay transport only; disconnecting never cancels a native task. */
 export class RemoteConnector {
@@ -17,13 +17,18 @@ export class RemoteConnector {
   #onStatus;
   #hostToken;
   #hostUrl;
-  #running = false;
+  #control = { running: false, generation: 0 };
+  get #running() { return this.#control.running; }
+  get #generation() { return this.#control.generation; }
+  #step(kind, observation = {}) {
+    const result = remoteControl('connector', { state: this.#control, event: { kind, ...observation } });
+    this.#control = result.state;
+    return result.action;
+  }
   #session;
   #retryTimer;
   #probe;
   #attempt = 0;
-  #generation = 0;
-  #pairing;
   #grantTail = Promise.resolve();
   #noticeSequence = 0;
   #incarnation = randomUUID();
@@ -50,7 +55,7 @@ export class RemoteConnector {
 
   start() {
     if (this.#running) return this.status();
-    this.#running = true;
+    this.#step('enable');
     this.#attempt = 0;
     this.#service.on('notice', this.#noticeListener);
     this.#connect();
@@ -58,13 +63,11 @@ export class RemoteConnector {
   }
 
   close() {
-    this.#running = false;
-    ++this.#generation;
+    this.#step('stop');
     clearTimeout(this.#retryTimer);
     this.#retryTimer = undefined;
     this.#probe?.abort();
     this.#probe = undefined;
-    this.#pairing = undefined;
     this.#service.off('notice', this.#noticeListener);
     this.#retireSession();
     this.#setStatus('stopped');
@@ -72,8 +75,8 @@ export class RemoteConnector {
 
   pair(code, expiresAt) {
     const frame = { type: 'pairing', code, expires_at: expiresAt };
-    this.#pairing = frame;
-    if (this.#session?.ready) this.#send(this.#session, frame);
+    const action = this.#step('pair', { generation: this.#generation, now: Date.now(), frame });
+    if (action === 'pairing') this.#send(this.#session, frame);
   }
 
   syncGrants() {
@@ -85,10 +88,11 @@ export class RemoteConnector {
       // DEFENSE: Grant observation can complete after a reconnect or shutdown retired this socket.
       if (!this.#current(session)) return;
       const frame = { type: 'grants', grants };
-      const active = new Map(grants.map(grant => [grant.controller_id, grant.grant_epoch]));
+      this.#step('grants', { generation: session.generation, grants });
+      const active = new Set(this.#control.connections.map(connection => connection.connection_id));
       for (const [id, connection] of session.connections) {
         // DEFENSE: A grant update may revoke or replace a controller already connected to this transport.
-        if (active.get(connection.controllerId) !== connection.grantEpoch) this.#forgetConnection(session, id);
+        if (!active.has(id)) this.#forgetConnection(session, id);
       }
       this.#send(session, frame);
     });
@@ -104,7 +108,8 @@ export class RemoteConnector {
 
   async #connect() {
     if (!this.#running) return;
-    const generation = ++this.#generation;
+    this.#step('start');
+    const generation = this.#generation;
     this.#setStatus('connecting');
     const probe = new AbortController();
     this.#probe = probe;
@@ -129,8 +134,7 @@ export class RemoteConnector {
       const url = new URL(this.#hostUrl);
       url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
       const socket = this.#settings.createWebSocket(url.href, { headers: { authorization: `Bearer ${this.#hostToken}` } });
-      const session = { socket, generation, connections: new Map(), ready: false, negotiated: false,
-        queued: 0, queuedBytes: 0, lastPong: Date.now() };
+      const session = { socket, generation, connections: new Map(), ready: false, negotiated: false, lastPong: Date.now() };
       this.#session = session;
       session.timeout = setTimeout(() => this.#disconnect(session, 'negotiation_timeout'), this.#settings.connectTimeoutMs);
       session.timeout.unref();
@@ -155,11 +159,10 @@ export class RemoteConnector {
     }
   }
 
-  #current(session) { return this.#running && this.#session === session && session.generation === this.#generation; }
+  #current(session) { return this.#session === session && remoteControl('current', { state: this.#control, event: { generation: session.generation } }); }
 
   #stopForAuth() {
-    this.#running = false;
-    ++this.#generation;
+    this.#step('stop');
     clearTimeout(this.#retryTimer);
     this.#service.off('notice', this.#noticeListener);
     this.#retireSession();
@@ -170,9 +173,9 @@ export class RemoteConnector {
     const session = this.#session;
     this.#session = undefined;
     if (!session) return;
+    this.#step('retire', { generation: session.generation });
     // A consumed pair_request might have been lost with this connection. A new
     // connection needs a fresh local code, never a replay of the previous code.
-    this.#pairing = undefined;
     clearTimeout(session.timeout);
     clearInterval(session.heartbeat);
     for (const connection of session.connections.values()) connection.active = false;
@@ -226,18 +229,18 @@ export class RemoteConnector {
     try { frame = parseRemoteFrame(data, validateRelayFrame); }
     // DEFENSE: Relay frames can contain malformed JSON, unsupported types, or invalid fields.
     catch { this.#disconnect(session, 'relay_frame_rejected'); return; }
-    if (frame.type === 'ready') {
-      // DEFENSE: A relay may send ready twice; a second negotiation must not install another heartbeat or resynchronize grants.
-      if (session.negotiated) { this.#disconnect(session, 'duplicate_negotiation'); return; }
+    const action = this.#step('frame', { generation: session.generation, frame });
+    if (action === 'ignore') return;
+    if (action === 'disconnect') { this.#disconnect(session, 'relay_session_rejected'); return; }
+    if (action === 'ready') {
       session.negotiated = true;
       session.ready = true;
       this.syncGrants().then(() => {
         // DEFENSE: Grant synchronization can finish after disconnection or replacement.
         if (!this.#current(session)) return;
-        if (this.#pairing?.expires_at > Date.now()) {
-          if (!this.#send(session, this.#pairing)) return;
+        if (this.#step('pairing_current', { generation: session.generation, now: Date.now() }) === 'pairing') {
+          if (!this.#send(session, this.#control.pairing)) return;
         }
-        else this.#pairing = undefined;
         clearTimeout(session.timeout);
         this.#attempt = 0;
         this.#setStatus('online');
@@ -251,32 +254,21 @@ export class RemoteConnector {
       }).catch(() => this.#disconnect(session, 'grant_sync_failed'));
       return;
     }
-    // DEFENSE: A relay may send requests before protocol negotiation has completed.
-    if (!session.ready) { this.#disconnect(session, 'negotiation_required'); return; }
     if (frame.type === 'pong') { session.lastPong = Date.now(); return; }
     if (frame.type === 'pair_request') {
       // The relay spent the one-time code. Reconnection must never republish it.
-      this.#pairing = undefined;
       this.#onPairRequest(frame);
       return;
     }
     if (frame.type === 'controller_close') { this.#forgetConnection(session, frame.connection_id); return; }
     if (frame.type === 'controller_open') {
-      // DEFENSE: A relay may reuse a live connection id or exceed the negotiated controller bound.
-      if (session.connections.has(frame.connection_id) || session.connections.size >= MAX_REMOTE_CONTROLLERS) {
-        this.#disconnect(session, 'controller_limit_exceeded'); return;
-      }
-      session.connections.set(frame.connection_id, { controllerId: frame.controller_id, grantEpoch: frame.grant_epoch,
-        active: true, subscribed: false, queued: 0, tail: Promise.resolve() });
+      session.connections.set(frame.connection_id, { id: frame.connection_id, controllerId: frame.controller_id, grantEpoch: frame.grant_epoch,
+        active: true, subscribed: false, tail: Promise.resolve() });
       this.#setStatus('online');
       return;
     }
     if (frame.type === 'request') {
       const connection = session.connections.get(frame.connection_id);
-      // DEFENSE: Requests from an unopened, replaced, or mismatched controller must not inherit another session's grant.
-      if (!connection || connection.controllerId !== frame.controller_id || connection.grantEpoch !== frame.grant_epoch) {
-        this.#disconnect(session, 'controller_identity_mismatch'); return;
-      }
       this.#enqueue(session, connection, Buffer.byteLength(data), () => this.#request(session, frame.connection_id, connection, frame.request));
     }
   }
@@ -291,23 +283,16 @@ export class RemoteConnector {
   #enqueue(session, connection, bytes, operation) {
     // DEFENSE: A controller may close while a notice is being delivered or its prior request is queued.
     if (!connection.active || !this.#current(session)) return;
-    // DEFENSE: Controllers can submit faster than the kernel commits; disconnect before retained request bytes exceed the transport budget.
-    if (connection.queued >= MAX_CONNECTION_QUEUE || session.queued >= MAX_CONNECTOR_QUEUE
-        || session.queuedBytes + bytes > MAX_BUFFERED_BYTES) {
-      this.#disconnect(session, 'request_queue_full'); return;
-    }
-    ++connection.queued;
-    ++session.queued;
-    session.queuedBytes += bytes;
+    const action = this.#step('enqueue', { generation: session.generation, connection_id: connection.id, bytes });
+    if (action === 'disconnect') { this.#disconnect(session, 'request_queue_full'); return; }
+    if (action !== 'enqueue') return;
     connection.tail = connection.tail.then(async () => {
       if (connection.active && this.#current(session)) await operation();
     // DEFENSE: A queued kernel command can fail after the worker or journal stops; retire its transport instead of replaying it.
     }).catch(() => {
       this.#disconnect(session, 'request_processing_failed');
     }).finally(() => {
-      --connection.queued;
-      --session.queued;
-      session.queuedBytes -= bytes;
+      this.#step('dequeue', { generation: session.generation, connection_id: connection.id, bytes });
     });
   }
 

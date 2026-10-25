@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs Callbacks Scheduler.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs Callbacks Scheduler HookRules.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -11,15 +11,10 @@ Definition hook_completed (id ticket : N) (outcome : hook_outcome) (value : worl
    | CheckingHook expected plugin invocation pending remaining =>
      if N.eqb expected ticket then
      let task := append_history [HookReceipt id invocation plugin (hook_json outcome)] task in
-     match outcome with
-     | HookAllow => acknowledged (put_task id (with_activity (ReadyForHooks invocation pending remaining) task) value)
-     | HookRewrite arguments =>
-       let rewritten := Call (call_id invocation) (call_name invocation) (JObject arguments) (call_origin invocation) in
-       (* Later hooks may complete a partial rewrite. The frozen schema is
-          checked after the entire before chain, immediately before dispatch. *)
-       acknowledged (put_task id (with_activity (ReadyForHooks rewritten pending remaining) task) value)
-     | HookDeny reason => call_error id invocation "hook_denied" reason remaining task value
-     | HookFailure reason => call_error id invocation "hook_failed" reason remaining task value
+     match HookRules.before_apply invocation outcome with
+     | HookRules.Proceed invocation =>
+       acknowledged (put_task id (with_activity (ReadyForHooks invocation pending remaining) task) value)
+     | HookRules.Refuse code reason => call_error id invocation code reason remaining task value
      end
      else ignored value
    | _ => ignored value
@@ -36,11 +31,9 @@ Definition after_completed (id operation ticket : N) (outcome : after_outcome) (
        let task := append_history [AfterReceipt id (operation_id operation) plugin (after_json outcome)] task in
        let failed := fun code reason => acknowledged
          (put_task id (settle_operation operation (State.failure code reason) true task) value) in
-       match outcome with
-       | DenyResult reason => failed "after_hook_denied" reason
-       | AfterFailure reason => failed "after_hook_failed" reason
-       | KeepResult | RewriteResult _ =>
-         let result := match outcome with RewriteResult value => value | _ => result end in
+       match HookRules.after_apply result outcome with
+       | HookRules.RefuseResult code reason => failed code reason
+       | HookRules.ContinueResult result =>
          match pending with
          | [] => acknowledged (put_task id (settle_operation operation result error task) value)
          | _ => let waiting := Operation (operation_id operation) (operation_call operation)

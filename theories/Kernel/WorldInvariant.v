@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema Utf8 TextJson.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Configuration Workspace
- Tasks Context ContextSelection ContextUpdates Inputs Callbacks Scheduler Capabilities Limits PluginProtocol ChatgptArguments.
+ Tasks Context ContextSelection ContextUpdates Inputs Callbacks Scheduler Capabilities Limits PluginProtocol ChatgptArguments HookRules.
 From Selvedge.Features Require Import Domain Titles TitleRuntime Board Remote Chatgpt TaskGraph Work Compaction CompactionTypes.
 Module F := Selvedge.Features.Domain.
 Module C := Selvedge.Features.CompactionTypes.
@@ -119,10 +119,11 @@ Definition hook_step (owner : N) (identity : string) (chain : list json)
    match progress with
    | HookWaiting expected (first :: rest) =>
      if same_call invocation expected && same_reference first plugin then
-     match text_default "decision" outcome "" with
-     | "allow" => HookWaiting invocation rest
-     | "rewrite" => HookWaiting (Call (call_id invocation) (call_name invocation) (value_or_null "arguments" outcome) (call_origin invocation)) rest
-     | _ => HookRefused end else HookRefused
+     match HookRules.parse_hook outcome with
+     | Some outcome => match HookRules.before_apply invocation outcome with
+       | HookRules.Proceed updated => HookWaiting updated rest
+       | HookRules.Refuse _ _ => HookRefused end
+     | None => HookRefused end else HookRefused
    | _ => HookRefused end else progress
  | _ => progress end.
 Definition hooks_correspond (owner : N) (value : Domain.task) (invocation : Domain.call) (pending : list json) :=
@@ -196,10 +197,11 @@ Definition after_step (owner : N) (operation : Domain.operation) (chain : list j
  | AfterReceipt actual identity plugin outcome =>
    if N.eqb actual owner && N.eqb identity (operation_id operation) then
    match progress with ResultWaiting value error (first :: rest) =>
-     if same_reference first plugin then match text_default "decision" outcome "" with
-     | "allow" => ResultWaiting value error rest
-     | "rewrite" => ResultWaiting (value_or_null "value" outcome) error rest
-     | _ => ResultRefused end else ResultRefused
+     if same_reference first plugin then match HookRules.parse_after outcome with
+     | Some outcome => match HookRules.after_apply value outcome with
+       | HookRules.ContinueResult updated => ResultWaiting updated error rest
+       | HookRules.RefuseResult _ _ => ResultRefused end
+     | None => ResultRefused end else ResultRefused
    | _ => ResultRefused end else progress
  | _ => progress end.
 Definition results_correspond (owner : N) (value : Domain.task) (operation : Domain.operation)
@@ -401,9 +403,11 @@ Record well_formed (value : world) : Prop := WellFormed {
  tickets_requirement : tickets_valid (world_structure value) = true;
  features_requirement : features_valid (world_structure value) = true
 }.
-Definition validate (before : world) (candidate : decision) :=
+Definition validate_with_status (before : world) (candidate : decision) :=
  (* DEFENSE: User commands and external callbacks can propose a candidate whose
     references, correlation ownership or execution certificates violate the
     commit contract. Reject its complete state and effects before delivery. *)
- if world_valid (decision_world candidate) then candidate else
- reject "invariant_violation" "The candidate violates a world invariant; no state change or effect was committed" before.
+ if world_valid (decision_world candidate) then (true,candidate) else
+ (false,reject "invariant_violation" "The candidate violates a world invariant; no state change or effect was committed" before).
+Definition validate (before : world) (candidate : decision) :=
+ snd (validate_with_status before candidate).

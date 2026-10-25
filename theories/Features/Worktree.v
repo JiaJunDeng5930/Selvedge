@@ -108,12 +108,6 @@ Definition initialize_backend (backend : WorkspaceBackend.backend) (before : wor
  (decision_reply result) (decision_effects result ++ [Selvedge.Kernel.State.CreateWorktree id (primary space) space backend]) end
  else result.
 Definition initialize := initialize_backend WorkspaceBackend.Local.
-Definition create_backend (backend : WorkspaceBackend.backend) (name : string) (effort : option string)
- (contents : content) (settings : option json) (caller : option N) (value : world) :=
- initialize_backend backend value (CommandExecution.create_in_context name effort contents settings false caller value).
-Definition create (name:string) (effort:option string) (contents:content) (settings:option json) (caller:option N) (managed:bool) (value:world) :=
- let result:=CommandExecution.create_in_context name effort contents settings false caller value in
- if managed then initialize value result else result.
 Definition effective := WorkspaceBinding.for_task.
 Definition resolve_workspace (space : option json) (project_id : option N) (value : world) :=
  let selected := match space with
@@ -152,23 +146,89 @@ Definition retry (id:N) (value:world) :=
  else Selvedge.Kernel.State.reject "worktree_archive_not_retryable" "Only a failed worktree archive with a retained root can be retried" value
  | _=>Selvedge.Kernel.State.reject "worktree_archive_not_retryable" "Only a failed worktree archive with a retained root can be retried" value end
  | _,_=>Selvedge.Kernel.State.reject "worktree_archive_not_retryable" "Only a failed worktree archive with a retained root can be retried" value end.
+Inductive creation_plan (before : world) :=
+ | UseWorkspace (settings : task_settings)
+ | ReuseBinding (settings : task_settings) (owner : N) (tree : Selvedge.Features.Domain.worktree)
+     (observed : lookup owner before = Some tree)
+ | ProvisionLocal (settings : task_settings)
+ | ProvisionCloud (settings : task_settings).
+Arguments UseWorkspace {before}.
+Arguments ReuseBinding {before}.
+Arguments ProvisionLocal {before}.
+Arguments ProvisionCloud {before}.
+Definition provision_plan (before : world) (backend : WorkspaceBackend.backend) (settings : task_settings)
+ : option (creation_plan before) :=
+ match WorkspaceBinding.resolve settings before with
+ | Some tree => if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then None
+   else Some (if WorkspaceBackend.cloud backend then ProvisionCloud settings else ProvisionLocal settings)
+ | None => Some (if WorkspaceBackend.cloud backend then ProvisionCloud settings else ProvisionLocal settings) end.
+Definition reuse_plan (before : world) (settings : task_settings) (owner : N) : option (creation_plan before) :=
+ match lookup owner before as found return lookup owner before = found -> option (creation_plan before) with
+ | Some tree => fun observed =>
+   match Selvedge.Features.Domain.worktree_phase tree with
+   | Selvedge.Features.Domain.TreeReady _ _ | Selvedge.Features.Domain.TreeCreating _ =>
+     Some (ReuseBinding settings owner tree observed)
+   | _ => None end
+ | None => fun _ => None end eq_refl.
+Definition select_creation_plan (before : world) (selected : task_settings)
+ (managed : option bool) (backend : option WorkspaceBackend.backend) : option (creation_plan before) :=
+ match backend with
+ | Some backend => provision_plan before backend selected
+ | None => match managed with
+   | Some true => provision_plan before WorkspaceBackend.Local selected
+   | _ => match settings_resource selected with
+     | Some owner => reuse_plan before selected owner
+     | None => if match managed with Some false => false | _ => settings_worktree selected end
+       then provision_plan before WorkspaceBackend.Local selected else Some (UseWorkspace selected)
+     end end end.
+Definition plan_settings {before} (plan : creation_plan before) := match plan with
+ | UseWorkspace settings | ReuseBinding settings _ _ _ | ProvisionLocal settings | ProvisionCloud settings => settings end.
+Definition consume_creation_plan (name : string) (effort : option string) (contents : content) (idle : bool)
+ (before : world) (plan : creation_plan before) :=
+ let result := Tasks.create_with_defaults name effort contents None idle (plan_settings plan) before in
+ match plan with
+ | UseWorkspace _ => result
+ | ReuseBinding _ _ tree _ =>
+   if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) && bool_default "ok" (decision_reply result) false then
+     match find_task (next_task before) (decision_world result) with
+     | Some task => Decision (put_task (next_task before) (append_history [EnvironmentNotice environment_notice] task)
+         (decision_world result)) (decision_reply result) (decision_effects result)
+     | None => result end
+   else result
+ | ProvisionLocal _ => initialize_backend WorkspaceBackend.Local before result
+ | ProvisionCloud _ => initialize_backend WorkspaceBackend.TencentCvm before result
+ end.
+Definition create_planned (name : string) (effort : option string) (contents : content) (settings : option json)
+ (idle : bool) (caller : option N) (managed : option bool) (backend : option WorkspaceBackend.backend) (value : world) :=
+ match CommandExecution.resolve_creation name settings caller value with
+ | None => CommandExecution.create_in_context name effort contents settings idle caller value
+ | Some selected =>
+   if CommandExecution.creation_allowed settings selected caller value then
+     match select_creation_plan value selected managed backend with
+     | Some plan => consume_creation_plan name effort contents idle value plan
+     | None => reject "workspace_unavailable" "Resource creation requires an observed local source; reuse requires an available saved binding" value end
+   else reject "settings_forbidden" "Task tools cannot expand the caller's workspace, sandbox or approval authority" value
+ end.
 Definition create_selected (name:string) (effort:option string) (contents:content) (settings:option json) (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
- let result:=CommandExecution.create_in_context name effort contents settings idle caller value in
- let needs_tree:=match managed with Some choice=>choice | None=>
- match Selvedge.Kernel.State.find_task (Selvedge.Kernel.State.next_task value) (decision_world result) with Some task=>settings_worktree (task_current_settings task) | None=>false end end in
- if needs_tree then initialize value result else result.
+ create_planned name effort contents settings idle caller managed None value.
+Definition create_backend (backend : WorkspaceBackend.backend) (name : string) (effort : option string)
+ (contents : content) (settings : option json) (caller : option N) (value : world) :=
+ create_planned name effort contents settings false caller None (Some backend) value.
+Definition create (name:string) (effort:option string) (contents:content) (settings:option json) (caller:option N) (managed:bool) (value:world) :=
+ create_planned name effort contents settings false caller (Some managed) None value.
 Definition create_in_work (work:option N) (run:world->decision) (value:world) :=
  match work with Some id=>Work.create_owned id run value | None=>run value end.
+Definition configure_task_execution (payload : Selvedge.Generated.Commands.configure_task_execution_payload) (value : world) :=
+ Tasks.configure_execution_with
+   (if WorkspaceBinding.cloud_task (Selvedge.Generated.Commands.configure_task_execution_task_id payload) value
+    then WorkspaceBinding.cloud_settings else fun settings => settings)
+   (Selvedge.Generated.Commands.configure_task_execution_task_id payload)
+   (Selvedge.Generated.Commands.configure_task_execution_profile payload)
+   (Selvedge.Generated.Commands.configure_task_execution_reasoning payload)
+   (Selvedge.Generated.Commands.configure_task_execution_sandbox payload)
+   (Selvedge.Generated.Commands.configure_task_execution_approval payload) value.
 Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>
-   if WorkspaceBinding.cloud_task (Selvedge.Generated.Commands.configure_task_execution_task_id p) value then
-   Some (Tasks.configure_execution_with WorkspaceBinding.cloud_settings
-      (Selvedge.Generated.Commands.configure_task_execution_task_id p)
-      (Selvedge.Generated.Commands.configure_task_execution_profile p)
-      (Selvedge.Generated.Commands.configure_task_execution_reasoning p)
-      (Selvedge.Generated.Commands.configure_task_execution_sandbox p)
-      (Selvedge.Generated.Commands.configure_task_execution_approval p) value)
-   else None
+ | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>Some (configure_task_execution p value)
  | Selvedge.Generated.Commands.Cmd_create p=>Some (CommandExecution.with_content (Selvedge.Generated.Commands.create_message p) (Selvedge.Generated.Commands.create_images p)
    (fun contents=>create_selected (Selvedge.Generated.Commands.create_profile p) (Selvedge.Generated.Commands.create_reasoning p) contents (Selvedge.Generated.Commands.create_settings p) false caller None value) value)
  | Selvedge.Generated.Commands.Cmd_create_idle p=>Some (create_in_work (Selvedge.Generated.Commands.create_idle_work_id p)
@@ -268,13 +328,6 @@ Definition archive_after (tree:Selvedge.Features.Domain.worktree) (result:decisi
  | _=>result end else result | None=>result end.
 Definition after_transition (_before:world) (result:decision) := fold_left (fun current tree=>archive_after tree current) (Selvedge.Features.Domain.feature_worktrees (world_features (decision_world result))) result.
 Definition recover (value:world) := value.
-Definition cloud_options_allowed (id : N) (settings : option json) (value : world) :=
- negb (WorkspaceBinding.cloud_task id value) ||
- (* DEFENSE: A supplied observation could otherwise change a cloud fork's
-    environment without a workspace or project override. Forks inherit it. *)
- (Tasks.no_resource_observation settings && match settings with
- | None=>true | Some settings=>Json.equal (value_or_null "workspace" settings) JNull &&
-  Json.equal (value_or_null "project_id" settings) JNull end).
 Definition failed_execution (value : world) := Selvedge.Kernel.State.reject "worktree_creation_failed"
  "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace." value.
 Definition execution_guard (id : N) (value : world) : option decision :=
@@ -319,10 +372,7 @@ Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:
      | None=>None end
    | None=>None end
  | Selvedge.Generated.Commands.Cmd_fork p=>
-   if cloud_options_allowed (Selvedge.Generated.Commands.fork_task_id p) (Selvedge.Generated.Commands.fork_settings p) value then
-     if execution_allowed (Selvedge.Generated.Commands.fork_task_id p) value then None
-     else Some (failed_execution value)
-   else Some (Selvedge.Kernel.State.reject "cloud_workspace_fixed" "A cloud task keeps its bound workspace; forks inherit that environment" value)
+   execution_guard (Selvedge.Generated.Commands.fork_task_id p) value
  | _=>
  let request:=match command with
  | Selvedge.Generated.Commands.Cmd_freeze p=>Some (Selvedge.Generated.Commands.freeze_task_id p,Tasks.Freeze) | Selvedge.Generated.Commands.Cmd_unfreeze p=>Some (Selvedge.Generated.Commands.unfreeze_task_id p,Tasks.Unfreeze)

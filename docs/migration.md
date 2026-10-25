@@ -6,7 +6,7 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-5`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-6`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 
@@ -18,7 +18,9 @@ These deliberate changes correct ambiguities or defects at the old boundaries:
 - The current journal rejects earlier Rocq journal formats. Journal rows replay
   inputs and compare decisions. Backend and resource bindings, and the corrected
   MCP argument admission, and corrected conversation classification change those
-  decisions. Model-issued history searches also record their results, so changes
+  decisions. Task births, archived result settlement and final plugin
+  notifications also have corrected decisions in format 6.
+  Model-issued history searches record their results, so changes
   to searchable message roles affect replay. Earlier formats cannot
   preserve the current replay contract.
 - MCP tools retain their server's JSON Schema, including numeric, nested and

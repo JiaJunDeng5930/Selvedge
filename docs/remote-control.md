@@ -141,7 +141,8 @@ WebSocket ticket, then speaks the shared `command`, `snapshot`, `subscribe` and
 `unsubscribe` protocol. Retain a command's `request_id` when retrying after a
 lost response. The native receipt is committed with the command decision;
 WebSocket delivery alone is not a commit acknowledgment. Protocol constants and
-shape checks in [protocol.mjs](../remote/protocol.mjs) are authoritative.
+frame definitions in [RemoteProtocol.v](../theories/Host/RemoteProtocol.v) are
+authoritative; [protocol.mjs](../remote/protocol.mjs) invokes their extracted decoder.
 
 The [focused regression suite](../tests/README.md) exercises the actual
 WebSocket transport, service journal and local Cloudflare Worker runtime. The

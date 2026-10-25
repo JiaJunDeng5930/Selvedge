@@ -1,24 +1,30 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits.
+From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
 Theorem model_approval_captures_queued_requests : forall owner tool invocation task value reviewer phase operations,
+ find_task owner value = Some task ->
+ task_activity task = ReadyForHooks invocation [] [] ->
+ find_tool (call_name invocation) (contract_tools (task_contract task)) = Some tool ->
  task_lifecycle task = Running phase operations ->
  settings_approval (task_current_settings task) = ReviewWith reviewer ->
  (String.eqb (call_name invocation) "bash" &&
   String.eqb (Codec.text_default "sandbox_permissions" (call_arguments invocation) "use_default") "require_escalated") = true ->
  N.ltb (N.of_nat (List.length (task_operations task))) Limits.operation_limit = true ->
  exists captured,
- decision_effects (Scheduler.start_external owner tool invocation [] task value) =
+ decision_effects (Scheduler.start_external owner value) =
   [RequestApproval owner (world_next_ticket value) reviewer invocation captured] /\
  task_history captured = task_history task ++ map UserMessage (task_queued task) /\
  task_queued captured = [].
 Proof.
- intros owner tool invocation task value reviewer phase operations Running Review Elevated Room.
- unfold Scheduler.start_external; rewrite Room; cbn; rewrite Review, Elevated.
+ intros owner tool invocation task value reviewer phase operations Found Ready Known Running Review Elevated Room.
+ rewrite (ScopedRequestProofs.starting_uses_the_current_call owner value task tool invocation []
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
+ 2: { unfold TicketedRequest.Scoped.call_action; rewrite Ready, Known; reflexivity. }
+ rewrite Room. unfold TicketedRequest.Scoped.external_authority_for; rewrite Review, Elevated.
  eexists; split; [reflexivity|].
  unfold Scheduler.append_operation, Tasks.promote.
  destruct task as [contract profile settings lifecycle history queued lineage parent cursor model_cursor].

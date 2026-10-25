@@ -7,13 +7,13 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-Theorem actual_fork_parent_is_running invoked parent:
- Tasks.fork_parent_ready invoked parent=true ->
- exists phase queued,task_lifecycle parent=Running phase queued.
+Theorem manual_fork_parent_is_running_idle parent :
+ Tasks.fork_parent_ready Tasks.ManualFork parent=true ->
+ exists operations, task_lifecycle parent=Running Idle operations.
 Proof.
  unfold Tasks.fork_parent_ready.
- destruct(task_lifecycle parent)eqn:Lifecycle;try discriminate.
- intros _. eauto.
+ destruct (task_lifecycle parent) as [phase operations|phase operations|phase operations|operations]; try discriminate.
+ destruct phase; try discriminate; intros _; eauto.
 Qed.
 
 Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count messages requested value parent:
@@ -154,21 +154,22 @@ Proof.
  - exists suffix. rewrite app_nil_r. reflexivity.
 Qed.
 
-Theorem invoked_fork_rejects_unpermitted_settings : forall origin id count messages requested value parent selected,
+Theorem invoked_fork_rejects_unpermitted_settings : forall invocation remaining origin id count messages requested value parent selected selection,
  find_task id value = Some parent ->
- (Tasks.fork_parent_ready true parent &&
+ (Tasks.fork_parent_ready (Tasks.AcceptedNativeFork invocation remaining) parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
    Tasks.ancestors_fit (id :: task_lineage parent) count value) = true ->
  Tasks.resolve_settings (task_current_profile parent) requested
    (Tasks.fork_settings_base origin parent value) value = Some selected ->
- Workspace.may_delegate selected (task_current_settings parent) = false ->
- Tasks.fork_with_caller true origin id count messages requested value =
+ Tasks.admit_fork_selection parent value selected = Some selection ->
+ Workspace.may_delegate (Tasks.fork_selected parent value selection) (task_current_settings parent) = false ->
+ Tasks.fork_with_caller (Tasks.AcceptedNativeFork invocation remaining) origin id count messages requested value =
    reject "settings_forbidden"
      "Task tools cannot expand the caller's workspace, sandbox or approval authority" value.
 Proof.
- intros origin id count messages requested value parent selected Hfind Heligible Hresolved Hdelegate.
- unfold Tasks.fork_with_caller. rewrite Hfind, Heligible, Hresolved.
+ intros invocation remaining origin id count messages requested value parent selected selection Hfind Heligible Hresolved Hselection Hdelegate.
+ unfold Tasks.fork_with_caller. rewrite Hfind, Heligible, Hresolved, Hselection.
  cbn. rewrite Hdelegate. reflexivity.
 Qed.
 

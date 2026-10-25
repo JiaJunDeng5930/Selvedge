@@ -1,16 +1,17 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { access, lstat, mkdir, open, realpath, rename, rm } from 'node:fs/promises';
+import { access, lstat, open, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { boundary } from './public/model-boundary.mjs';
-import { readControlRecord } from './control-records.mjs';
+import { naturalKey } from './codec.mjs';
+import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { createManagedWorktree, archiveManagedWorktree, reconcileManagedWorktree } from './worktrees.mjs';
 import { cloudEnvironmentBackend, cloudExecutionEnvironment, shellQuote } from './cloud-environments.mjs';
 
 const execute = promisify(execFile);
-const receiptFormat = 'selvedge-cloud-workspace-1';
+const receiptFormat = 'selvedge-cloud-workspace-2';
 
 async function git(primary, arguments_, { signal } = {}) {
   // DEFENSE: A host GIT_DIR/GIT_WORK_TREE selector must not redirect the project's observed repository.
@@ -44,31 +45,23 @@ export async function observeCloudRepository(primary, { signal } = {}) {
 }
 
 function tokenFor(namespace, taskId) {
-  return createHash('sha256').update(`selvedge-cloud\0${namespace}\0${taskId}`).digest('hex');
+  return createHash('sha256').update(`selvedge-cloud\0${namespace}\0${naturalKey(taskId)}`).digest('hex');
 }
 
 async function locations({ home, namespace }, taskId) {
+  const identity = naturalKey(taskId);
   const canonicalHome = await realpath(home);
   const storage = path.join(canonicalHome, 'cloud-workspaces', namespace);
   for (const directory of [path.dirname(storage), storage]) {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await durableDirectory(directory);
     // DEFENSE: Replaced service storage must not redirect cloud receipts, logs or SSH host-key writes through a symlink.
     if ((await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) {
       throw new Error('Cloud workspace storage must not contain symbolic links');
     }
   }
-  return { receipt: path.join(storage, `task-${taskId}.json`), log: path.join(storage, `task-${taskId}.log`),
-    knownHosts: path.join(storage, `task-${taskId}.known_hosts`), token: tokenFor(namespace, taskId),
-    root: `/workspace/selvedge/${taskId}/repository`, namespace };
-}
-
-async function saveReceipt(filename, receipt) {
-  const temporary = `${filename}.${randomUUID()}.tmp`;
-  const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try { await file.writeFile(JSON.stringify(receipt)); await file.sync(); }
-  finally { await file.close(); }
-  try { await rename(temporary, filename); }
-  finally { await rm(temporary, { force: true }); }
+  return { receipt: path.join(storage, `task-${identity}.json`), log: path.join(storage, `task-${identity}.log`),
+    knownHosts: path.join(storage, `task-${identity}.known_hosts`), token: tokenFor(namespace, taskId),
+    root: `/workspace/selvedge/${identity}/repository`, namespace };
 }
 
 async function readReceipt(files, entry) {
@@ -98,38 +91,97 @@ async function recordCleanupOperation(errors, description, operation) {
   catch (error) { errors.push(`${description}: ${error.message}`); }
 }
 
-async function destroyReceipt(receipt, files) {
-  const backend = cloudEnvironmentBackend({ backend: receipt.backend, [receipt.backend]: receipt.settings });
-  const signal = AbortSignal.timeout(120_000);
-  const recordingErrors = [];
-  // DEFENSE: Allocation can commit while its response or the service is lost; its persisted request recovers the same environment.
-  if (!receipt.instance_id && receipt.allocation_unknown) {
-    receipt.instance_id = await backend.create(receipt.request, { signal });
-    await recordCleanupOperation(recordingErrors, 'Could not record recovered instance', () => saveReceipt(files.receipt, receipt));
+const resource = (operation, source) => boundary(`control.resource.${operation}`, source);
+
+/** Interpret only physical operations; the extracted resource step chooses their order and outcome. */
+async function runResource(plan, { files, backend, signal, prepare, errors = [] }) {
+  let cleanupSignal;
+  while (true) {
+    const state = plan.state;
+    let observation;
+    switch (plan.effects[0]) {
+      case 'finish': return { receipt: state, errors };
+      case 'persist':
+        try {
+          const { guidance, recording_failed, ...durable } = state;
+          await saveReceipt(files.receipt, durable);
+          observation = { kind: 'persisted' };
+        } catch (error) {
+          // DEFENSE: Disk exhaustion after allocation must not prevent exact-ID reclamation.
+          errors.push(`Could not persist cloud resource: ${error.message}`);
+          observation = { kind: 'persistence_failed' };
+        }
+        break;
+      case 'allocate':
+        try { observation = { kind: 'allocated', ...await backend.create(state.request, { signal }) }; }
+        catch (error) {
+          errors.push(`Allocation outcome unknown: ${error.message}`);
+          observation = { kind: 'allocation_failed' };
+        }
+        break;
+      case 'prepare':
+        try { observation = { kind: 'prepared', ...await prepare(state) }; }
+        catch (error) {
+          errors.push(`Cloud preparation failed: ${error.message}`);
+          observation = { kind: 'preparation_failed' };
+        }
+        break;
+      case 'credentials':
+        cleanupSignal = AbortSignal.timeout(120_000);
+        try {
+          backend = recoveredBackend(state);
+          observation = { kind: 'credentials', scope: await backend.scope({ signal: cleanupSignal }) };
+        }
+        catch (error) {
+          errors.push(`Cloud recovery needs credentials: ${error.message}`);
+          observation = { kind: 'credentials_failed' };
+        }
+        break;
+      case 'scan':
+        try { observation = { kind: 'scan_page', ...await backend.scan(state.token, state.scan_offset, { signal: cleanupSignal }) }; }
+        catch (error) {
+          errors.push(`Cloud allocation reconciliation incomplete: ${error.message}`);
+          observation = { kind: 'scan_failed' };
+        }
+        break;
+      case 'terminate': {
+        const id = state.instance_ids[0];
+        try {
+          await backend.destroy(id, { signal: cleanupSignal });
+          observation = { kind: 'terminated', id };
+        } catch (error) {
+          errors.push(`Cloud destruction failed (${id}): ${error.message}`);
+          observation = { kind: 'termination_failed', id };
+        }
+        break;
+      }
+      default: throw new Error(`Unknown resource primitive: ${plan.effects[0]}`);
+    }
+    plan = resource('step', { state, observation });
   }
-  try { if (receipt.instance_id) await backend.destroy(receipt.instance_id, { signal }); }
-  catch (error) { throw new Error([error.message, ...recordingErrors].join('; ')); }
-  receipt.status = 'destroyed'; receipt.allocation_unknown = false;
-  await recordCleanupOperation(recordingErrors, 'Could not record destroyed environment', () => saveReceipt(files.receipt, receipt));
-  await recordCleanupOperation(recordingErrors, 'Could not write destruction log', () => log(files, 'Cloud environment destroyed'));
-  return recordingErrors;
 }
 
-async function failCloudCreation(effect, error, { files, receipt, allocationAttempted }) {
-  let retained = null;
-  const failures = [error.message];
-  if (files) await recordCleanupOperation(failures, 'Could not write startup failure log', () => log(files, `Startup failed: ${error.message}`));
-  // DEFENSE: Allocation or setup can fail after creating a billable instance; cleanup is independent of the cancelled startup signal.
-  if (allocationAttempted) {
-    try { failures.push(...await destroyReceipt(receipt, files)); }
-    catch (cleanupError) {
-      retained = receipt.root;
-      failures.push(`Cloud destruction failed: ${cleanupError.message}`);
-      receipt.status = 'destroy_failed';
-      await recordCleanupOperation(failures, 'Could not record destruction failure', () => saveReceipt(files.receipt, receipt));
-      await recordCleanupOperation(failures, 'Could not write destruction failure log', () => log(files, `Destruction failed: ${cleanupError.message}`));
-    }
+function recoveredBackend(receipt) {
+  return cloudEnvironmentBackend({ backend: receipt.backend, [receipt.backend]: receipt.settings });
+}
+
+async function destroyReceipt(receipt, files, errors = []) {
+  const result = await runResource(resource('recover', receipt), { files, errors });
+  if (result.receipt.status !== 'destroyed') {
+    result.errors.push(`Cloud resource retained for ${result.receipt.status}; no allocation request was repeated`);
   }
+  if (result.receipt.recording_failed && !result.errors.length) result.errors.push('Cloud cleanup completion was not durably recorded');
+  return result;
+}
+
+async function reportFailure(effect, result, files, message) {
+  const failures = [...(message ? [message] : []), ...result.errors];
+  if (result.receipt.status !== 'destroyed' && result.receipt.status !== 'no_attempt') {
+    failures.push(`Cloud resource retained for ${result.receipt.status}`);
+  }
+  await recordCleanupOperation(failures, 'Could not write failure log', () => log(files, failures.join('; ')));
+  const retained = result.receipt.status === 'no_attempt' ||
+    (result.receipt.status === 'destroyed' && !result.receipt.recording_failed) ? null : result.receipt.root;
   return failed(effect, new Error(failures.join('; ')), retained, files);
 }
 
@@ -152,7 +204,7 @@ function initializationScript(source, root) {
 
 export async function createTaskWorkspace(effect, options = {}) {
   if (effect.backend === 'local') return createManagedWorktree(effect, options);
-  let files, receipt, environment, allocationAttempted = false;
+  let files, environment;
   try {
     files = await locations(options, effect.task_id);
     const backend = cloudEnvironmentBackend(options.cloud);
@@ -161,38 +213,33 @@ export async function createTaskWorkspace(effect, options = {}) {
     const source = await observeCloudRepository(effect.source_root, options);
     if (!source) throw new Error('Cloud workspace requires a GitHub remote on the project primary workspace');
     const workspace = cloudWorkspace(effect, source, files.root);
-    receipt = { format: receiptFormat, namespace: options.namespace, task_id: effect.task_id, backend: effect.backend,
-      source_root: effect.source_root, root: files.root, workspace, token: files.token, settings,
-      request: backend.request(files.token, effect.task_id), status: 'requested', allocation_unknown: true };
+    const scope = await backend.scope({ signal: options.signal });
+    const receipt = { format: receiptFormat, namespace: options.namespace, task_id: effect.task_id, backend: effect.backend,
+      source_root: effect.source_root, root: files.root, workspace, token: files.token, settings, scope,
+      request: backend.request(files.token, effect.task_id) };
     await log(files, `Requesting cloud environment (${effect.backend})`);
-    // Persist authority to recover an allocation before the first billable API call.
-    await saveReceipt(files.receipt, receipt);
-    allocationAttempted = true;
-    try { receipt.instance_id = await backend.create(receipt.request, { signal: options.signal }); }
-    catch (error) {
-      // DEFENSE: The backend can establish a rejected allocation; transport failure leaves its outcome unknown.
-      if (error.allocationRejected) { receipt.allocation_unknown = false; await saveReceipt(files.receipt, receipt); }
-      throw error;
-    }
-    receipt.status = 'allocated'; await saveReceipt(files.receipt, receipt);
-    const deadline = Date.now() + (settings.startup_timeout_ms ?? 600_000);
-    Object.assign(receipt, await backend.ready(receipt.instance_id, { signal: options.signal, deadline }));
-    await saveReceipt(files.receipt, receipt);
-    environment = cloudExecutionEnvironment(receipt, { ...files, signal: options.signal });
-    await environment.ready({ signal: options.signal, deadline });
-    await log(files, 'Cloning GitHub repository and running .selvedge/env.sh');
-    const result = await environment.execute(`bash -c ${shellQuote(initializationScript(source, files.root))}`, {
-      signal: options.signal, timeout: Math.max(1, deadline - Date.now()),
-      input: process.env.GITHUB_TOKEN ? `${process.env.GITHUB_TOKEN}\n` : undefined,
+    const result = await runResource(resource('start', receipt), {
+      files, backend, signal: options.signal,
+      async prepare(state) {
+        const deadline = Date.now() + (settings.startup_timeout_ms ?? 600_000);
+        const connection = await backend.ready(state.instance_id, { signal: options.signal, deadline });
+        environment = cloudExecutionEnvironment({ ...state, ...connection }, { ...files, signal: options.signal });
+        await environment.ready({ signal: options.signal, deadline });
+        await log(files, 'Cloning GitHub repository and running .selvedge/env.sh');
+        const setup = await environment.execute(`bash -c ${shellQuote(initializationScript(source, files.root))}`, {
+          cwd: '/', signal: options.signal, timeout: Math.max(1, deadline - Date.now()),
+          input: process.env.GITHUB_TOKEN ? `${process.env.GITHUB_TOKEN}\n` : undefined,
+        });
+        await log(files, setup.stdout + setup.stderr);
+        if (setup.exit_code !== 0) throw new Error(`Project environment initialization exited with code ${setup.exit_code}`);
+        return { host: connection.host, guidance: await environment.snapshotProject(options.limits, { signal: options.signal }) };
+      },
     });
-    await log(files, result.stdout + result.stderr);
-    if (result.exit_code !== 0) throw new Error(`Project environment initialization exited with code ${result.exit_code}`);
-    const guidance = await environment.snapshotProject(options.limits, { signal: options.signal });
-    receipt.status = 'ready'; await saveReceipt(files.receipt, receipt);
-    await log(files, 'Cloud workspace ready');
-    return completion(effect, { ok: true, root: files.root, workspace, guidance });
+    if (result.receipt.status !== 'ready' || result.errors.length) return reportFailure(effect, result, files);
+    await recordCleanupOperation([], 'Could not write readiness log', () => log(files, 'Cloud workspace ready'));
+    return completion(effect, { ok: true, root: files.root, workspace, guidance: result.receipt.guidance });
   } catch (error) {
-    return failCloudCreation(effect, error, { files, receipt, allocationAttempted });
+    return failed(effect, error, null, files);
   } finally { environment?.filesystem.close(); }
 }
 
@@ -207,7 +254,8 @@ export async function rollbackTaskWorkspaceCreation(effect, options = {}) {
     if (files) await recordCleanupOperation(failures, 'Could not write rollback failure log', () => log(files, failures.join('; ')));
     return failed(effect, new Error(failures.join('; ')), files?.root ?? null, files);
   }
-  return failCloudCreation(effect, new Error(options.message), { files, receipt, allocationAttempted: true });
+  const result = await destroyReceipt(receipt, files);
+  return reportFailure(effect, result, files, options.message);
 }
 
 export async function archiveTaskWorkspace(effect, options = {}) {
@@ -216,8 +264,8 @@ export async function archiveTaskWorkspace(effect, options = {}) {
   try {
     files = await locations(options, effect.task_id);
     const receipt = await readReceipt(files, effect);
-    const recordingErrors = await destroyReceipt(receipt, files);
-    if (recordingErrors.length) throw new Error(`Cloud environment was destroyed; ${recordingErrors.join('; ')}`);
+    const result = await destroyReceipt(receipt, files);
+    if (result.errors.length) return reportFailure(effect, result, files);
     return completion(effect, { ok: true, root: effect.root });
   } catch (error) {
     const failures = [error.message];
@@ -241,20 +289,26 @@ export async function reconcileTaskWorkspace(entry, options = {}) {
       throw error;
     }
     if (effect.kind === 'worktree_create' && entry.status !== 'creating_archived' && receipt.status === 'ready') {
-      environment = cloudExecutionEnvironment(receipt, files);
-      const guidance = await environment.snapshotProject(options.limits);
-      return completion(effect, { ok: true, root: receipt.root, workspace: receipt.workspace, guidance });
+      const result = await runResource(resource('step', { state: receipt, observation: { kind: 'resume' } }), {
+        files,
+        async prepare(state) {
+          environment = cloudExecutionEnvironment(state, files);
+          return { host: state.host, guidance: await environment.snapshotProject(options.limits) };
+        },
+      });
+      if (result.receipt.status === 'ready' && !result.errors.length) {
+        return completion(effect, { ok: true, root: receipt.root, workspace: receipt.workspace, guidance: result.receipt.guidance });
+      }
+      return reportFailure(effect, result, files);
     }
-    const recordingErrors = await destroyReceipt(receipt, files);
-    if (recordingErrors.length) {
-      return failed(effect, new Error(`Cloud environment was destroyed; ${recordingErrors.join('; ')}`), null, files);
-    }
+    const result = await destroyReceipt(receipt, files);
+    if (result.errors.length) return reportFailure(effect, result, files);
     if (effect.kind === 'worktree_archive') return completion(effect, { ok: true, root: receipt.root });
-    return failed(effect, new Error('Cloud workspace preparation interrupted; environment destroyed'), null, files);
+    return reportFailure(effect, result, files, 'Cloud workspace preparation interrupted; environment destroyed');
   } catch (error) {
     const failures = [error.message];
     if (files) await recordCleanupOperation(failures, 'Could not write recovery failure log', () => log(files, `Recovery failed: ${error.message}`));
-    return failed(effect, new Error(failures.join('; ')), receipt?.root ?? entry.root ?? null, files);
+    return failed(effect, new Error(failures.join('; ')), receipt?.root ?? entry.root ?? files?.root ?? null, files);
   } finally { environment?.filesystem.close(); }
 }
 

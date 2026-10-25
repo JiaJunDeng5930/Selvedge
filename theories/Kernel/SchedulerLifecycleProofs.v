@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks Scheduler Reasoning TicketedRequest ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -39,6 +39,7 @@ Proof. intros; unfold Scheduler.task_step; rewrite H; reflexivity. Qed.
    excludes a scheduler that preserves safety by never doing any work. *)
 Theorem a_runnable_task_requests_context_before_inference :
  forall execute id task value,
+ find_task id value = Some task ->
  task_lifecycle task = Running WantsModel [] ->
  exists result,
  Scheduler.task_step execute id task value = Some result /\
@@ -46,7 +47,9 @@ Theorem a_runnable_task_requests_context_before_inference :
    (decision_effects result) /\
  world_next_ticket (decision_world result) = N.succ (world_next_ticket value).
 Proof.
- intros execute id task value Lifecycle.
+ intros execute id task value Found Lifecycle.
  unfold Scheduler.task_step; rewrite Lifecycle; cbn [Scheduler.ready_operation].
- eexists; split; [reflexivity|]; split; [left; reflexivity|reflexivity].
+ eexists; split; [reflexivity|]. unfold Reasoning.observe_scheduled_context.
+ rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task true Found).
+ split; [left; reflexivity|reflexivity].
 Qed.

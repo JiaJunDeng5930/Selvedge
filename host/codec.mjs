@@ -1,9 +1,9 @@
-import { JsonNumber, parseJson, stringifyJson } from './public/json-tokens.mjs';
+import { parseJson, stringifyJson, safeInteger } from './public/json-tokens.mjs';
 
-export { JsonNumber, parseJson, stringifyJson } from './public/json-tokens.mjs';
+export { JsonNumber, parseJson, stringifyJson, safeInteger, naturalKey, sameNatural } from './public/json-tokens.mjs';
 
 export function integer(value, name = 'integer') {
-  const number = value instanceof JsonNumber ? Number(value.source) : value;
+  const number = safeInteger(value);
   // DEFENSE: HTTP event cursors and page sizes can be fractional, negative or outside JavaScript's exact integer range.
   if (!Number.isSafeInteger(number) || number < 0) throw new TypeError(`${name} must be a nonnegative safe integer`);
   return number;

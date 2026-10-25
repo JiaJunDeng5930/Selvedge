@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json JsonObjects Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Codec ContextSelection
- Dispatch Notifications Inputs Workspace WorkspaceBackend WorldInvariant CompactionPlan Reasoning SideContext.
+ Dispatch Inputs Workspace WorkspaceBackend WorldInvariant CompactionPlan Reasoning SideContext.
 From Selvedge.Features Require Import Domain State Observation Titles
  CompactionTypes Compaction Worktree TitleRuntime Remote.
 Import ListNotations.
@@ -198,7 +198,6 @@ Definition worktree_contract_update (owner : N) (before after : F.state)
 Definition execution_configuration_target (command : G.command) (owner : N) :=
  match command with
  | G.Cmd_configure_task_execution payload => N.eqb owner (G.configure_task_execution_task_id payload)
- | G.Cmd_fork payload => N.eqb owner (G.fork_task_id payload)
  | _ => false
  end.
 Definition task_is_configurable (old : D.task) :=
@@ -387,8 +386,9 @@ Definition world_evolution (source : option input) (raw_source : Json.json) (bef
 
 Definition effect_ticket (value : K.effect) : option N :=
  match value with
- | K.ObserveContext _ ticket _ | K.RequestModel _ ticket _ _ _ _
- | K.RequestReasoning _ ticket _ _ | K.ExecuteTool _ ticket _ _ _ _ _
+ | K.RequestModel request => Some (ModelRequest.ticket request)
+ | K.ObserveContext _ ticket _
+ | K.RequestReasoning _ ticket _ | K.ExecuteTool _ ticket _ _ _ _ _
  | K.RequestApproval _ ticket _ _ _ | K.CheckTool _ ticket _ _ _
  | K.CheckResult _ ticket _ _ _ _ _ | K.SuggestTitle _ ticket _ _
  | K.SuggestCard _ ticket _ _ _ _ _ => Some ticket
@@ -454,36 +454,26 @@ Definition observe_effect_valid (owner ticket : N) (snapshot : D.task) (after : 
    | _ => false end
  | None => false
  end.
-Definition model_profile_matches (owner : N) (model : D.profile) (snapshot : D.task) :=
- let requested := D.task_current_profile snapshot in
- match D.profile_policy requested with
- | D.FixedReasoning => same_profile model requested
- | D.AdaptivePolicy policy =>
-   match History.history_lease owner (D.task_history snapshot) with
-   | History.Lease effort _ =>
-     Reasoning.allowed policy effort && same_profile model (Codec.with_reasoning effort requested)
-   | History.NoLease => false
-   end
- end.
-Definition model_effect_valid (owner ticket : N) (model : D.profile) (snapshot : D.task) (after : K.world) :=
+Definition model_effect_valid (request : ModelRequest.t) (after : K.world) :=
+ let owner := ModelRequest.owner request in
+ let snapshot := ModelRequest.context_task request in
  match K.find_task owner after with
  | Some current => task_is_running current && task_context_matches snapshot current &&
    task_history_matches snapshot current &&
-   model_profile_matches owner model snapshot &&
    same_profile (D.task_current_profile snapshot) (D.task_current_profile current) &&
    same_contract (D.task_contract snapshot) (D.task_contract current) &&
-   match D.task_activity current, D.task_activity snapshot with
-   | D.AskingModel expected allowed mode, D.AskingModel sent sent_allowed sent_mode =>
-     N.eqb ticket expected && N.eqb expected sent && same_strings allowed sent_allowed &&
-     same_output_mode mode sent_mode
-   | _, _ => false end
+   match D.task_activity current with
+   | D.AskingModel expected allowed mode =>
+     N.eqb (ModelRequest.ticket request) expected && same_strings allowed (ModelRequest.callable request) &&
+     same_output_mode mode (ModelRequest.mode request)
+   | _ => false end
  | None => false
  end.
-Definition reasoning_effect_valid (owner ticket : N) (model : D.profile) (snapshot : D.task) (after : K.world) :=
+Definition reasoning_effect_valid (owner ticket : N) (snapshot : D.task) (after : K.world) :=
  match K.find_task owner after with
  | Some current => task_is_running current && task_context_matches snapshot current &&
-   task_history_matches snapshot current && same_profile model (D.task_current_profile current) &&
-   same_profile model (D.task_current_profile snapshot) &&
+   task_history_matches snapshot current &&
+   same_profile (D.task_current_profile snapshot) (D.task_current_profile current) &&
    match D.task_activity current with
    | D.EvaluatingReasoning expected length =>
      N.eqb ticket expected && Nat.eqb length (List.length (D.task_history snapshot)) &&
@@ -540,7 +530,7 @@ Definition hook_effect_valid (owner ticket : N) (plugin : Json.json) (tool : D.t
 Definition after_effect_valid (owner ticket operation_id : N) (plugin : Json.json) (call : D.call)
  (value : Json.json) (error : bool) (after : K.world) :=
  (* Result-processing authority belongs to the retained operation and ticket.
-    Interrupt/archive remove old rights; freezing alone does not revoke them. *)
+    A native self-archive installs its new result continuation after cancellation. *)
  match K.find_task owner after with
  | Some task =>
    match operation_at operation_id task with
@@ -763,8 +753,8 @@ Definition effect_authorized (source : option input) (raw_source : Json.json)
  (effect : K.effect) (before after : K.world) :=
  match effect with
  | K.ObserveContext owner ticket snapshot => observe_effect_valid owner ticket snapshot after
- | K.RequestModel owner ticket model snapshot _ _ => model_effect_valid owner ticket model snapshot after
- | K.RequestReasoning owner ticket model snapshot => reasoning_effect_valid owner ticket model snapshot after
+ | K.RequestModel request => model_effect_valid request after
+ | K.RequestReasoning owner ticket snapshot => reasoning_effect_valid owner ticket snapshot after
  | K.ExecuteTool owner ticket operation tool call settings access =>
    tool_effect_valid owner ticket operation tool call settings access after
  | K.RequestApproval owner ticket profile call snapshot =>
@@ -780,7 +770,6 @@ Definition effect_authorized (source : option input) (raw_source : Json.json)
      (negb (same_profile (D.task_current_profile old) (D.task_current_profile next)) ||
       negb (same_settings (D.task_current_settings old) (D.task_current_settings next)))
    | _, _ => false end
- | K.NotifyPlugins _ => true
  | _ => feature_effect_valid effect before after
  end.
 Fixpoint effects_authorized (source : option input) (raw_source : Json.json)
@@ -790,76 +779,17 @@ Fixpoint effects_authorized (source : option input) (raw_source : Json.json)
  | effect :: rest => effect_authorized source raw_source effect before after &&
    effects_authorized source raw_source before after rest
  end.
-Definition effect_notifications_valid (durable : bool) (source : option input)
- (before : K.world) (candidate : K.decision) :=
- let effects := K.decision_effects candidate in
- let without_trailing := match List.last effects K.ContinueScheduling with
-   | K.NotifyPlugins _ => removelast effects | _ => effects end in
- let expected := if durable then
-   (Notifications.input_events source before (K.decision_world candidate) ++
-    List.concat (Numbers.indexed (fun id task =>
-      Notifications.task_events before id task (K.decision_world candidate)) 0
-      (K.world_tasks (K.decision_world candidate))) ++
-    flat_map (Notifications.effect_events (K.decision_world candidate)) without_trailing)%list
-   else [] in
- match List.last effects K.ContinueScheduling with
- | K.NotifyPlugins events =>
-   negb (existsb (fun effect => match effect with K.NotifyPlugins _ => true | _ => false end) without_trailing) &&
-   negb (Nat.eqb (List.length expected) 0) && Json.equal (JArray events) (JArray expected)
- | _ => negb (existsb (fun effect => match effect with K.NotifyPlugins _ => true | _ => false end) effects)
- end.
-
-Fixpoint explicitly_cancelled (effects : list K.effect) (owner ticket : N) :=
- match effects with
- | [] => false
- | K.CancelTask cancelled_owner :: rest =>
-   N.eqb owner cancelled_owner || explicitly_cancelled rest owner ticket
- | K.CancelTicket cancelled_owner cancelled_ticket :: rest =>
-   (N.eqb owner cancelled_owner && N.eqb ticket cancelled_ticket) ||
-   explicitly_cancelled rest owner ticket
- | _ :: rest => explicitly_cancelled rest owner ticket
- end.
-Definition archived_after (owner : N) (after : K.world) :=
- match K.find_task owner after with
- | Some task => match D.task_lifecycle task with D.Archived _ => true | _ => false end
- | None => false
- end.
-Definition after_ticket_pending (owner operation ticket : N) (after : K.world) :=
- match K.find_task owner after with
- | Some task => match operation_at operation task with
-   | Some value => match D.operation_stage value with
-     | D.AwaitingAfterHook expected _ _ _ _ => N.eqb ticket expected
-     | _ => false end
-   | None => false end
- | None => false
- end.
-Definition live_effect (after : K.world) (effects : list K.effect) (effect : K.effect) :=
- match effect with
- | K.ObserveContext owner ticket _ | K.RequestModel owner ticket _ _ _ _
- | K.RequestReasoning owner ticket _ _ | K.ExecuteTool owner ticket _ _ _ _ _
- | K.RequestApproval owner ticket _ _ _ | K.CheckTool owner ticket _ _ _ =>
-   negb (archived_after owner after) && negb (explicitly_cancelled effects owner ticket)
- | K.CheckResult owner ticket operation _ _ _ _ =>
-   after_ticket_pending owner operation ticket after
- | _ => true
- end.
-(** A later cancellation in the same scheduled decision withdraws earlier
-    provider work before notification construction or delivery. *)
-Definition retain_live_effects (candidate : K.decision) :=
- let effects := K.decision_effects candidate in
- K.Decision (K.decision_world candidate) (K.decision_reply candidate)
-   (List.filter (live_effect (K.decision_world candidate) effects) effects).
-
 Definition transition_authorized (durable : bool) (source : option input) (raw_source : Json.json)
  (before : K.world) (candidate : K.decision) :=
  world_evolution source raw_source before (K.decision_world candidate) &&
  effect_tickets_fresh (K.world_next_ticket before) (K.world_next_ticket (K.decision_world candidate))
    (K.decision_effects candidate) &&
- effects_authorized source raw_source before (K.decision_world candidate) (K.decision_effects candidate) &&
- effect_notifications_valid durable source before candidate.
+ effects_authorized source raw_source before (K.decision_world candidate) (K.decision_effects candidate).
+Definition validate_with_status (durable : bool) (source : option input) (raw_source : Json.json)
+ (before : K.world) (candidate : K.decision) :=
+ if transition_authorized durable source raw_source before candidate then (true,candidate)
+ else (false,K.reject "invalid_transition"
+   "The candidate state change or emitted effect is not authorized" before).
 Definition validate (durable : bool) (source : option input) (raw_source : Json.json)
  (before : K.world) (candidate : K.decision) :=
- if transition_authorized durable source raw_source before candidate then candidate
- else K.reject "invalid_transition"
-   "The candidate state change or emitted effect is not authorized" before.
-
+ snd (validate_with_status durable source raw_source before candidate).

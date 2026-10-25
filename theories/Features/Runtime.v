@@ -4,21 +4,6 @@ From Selvedge.Kernel Require Import Domain State Scheduler.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Work Board Worktree TaskGraph Remote Chatgpt Compaction TitleRuntime.
 Definition or_else {A:Type} (first:option A) (next:unit->option A) := match first with Some value=>Some value | None=>next tt end.
-Definition query (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option json :=
- or_else (Work.query command caller value) (fun _=>
- or_else (Board.query command caller value) (fun _=>
- or_else (TaskGraph.query command caller value) (fun _=>
- or_else (Worktree.query command caller value) (fun _=>
- or_else (Remote.query command caller value) (fun _=>
- or_else (Chatgpt.query command caller value) (fun _=>TitleRuntime.query command caller value)))))).
-Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision :=
- or_else (Work.command command caller value) (fun _=>
- or_else (Board.command command caller value) (fun _=>
- or_else (TaskGraph.command command caller value) (fun _=>
- or_else (Worktree.command command caller value) (fun _=>
- or_else (Remote.command command caller value) (fun _=>
- or_else (Chatgpt.command command caller value) (fun _=>
- or_else (Compaction.command command caller value) (fun _=>TitleRuntime.command command caller value))))))).
 Definition completion (execute:Scheduler.executor) (source:json) (value:world) :option (bool*bool*decision) :=
  or_else (Remote.completion execute source value) (fun _=>
  or_else (Worktree.completion source value) (fun _=>

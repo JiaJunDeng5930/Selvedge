@@ -1,0 +1,14 @@
+diff --git a/tencentcloud/common/http/fetch.js b/tencentcloud/common/http/fetch.js
+index d913c87..a01eb31 100644
+--- a/tencentcloud/common/http/fetch.js
++++ b/tencentcloud/common/http/fetch.js
+@@ -6,6 +6,9 @@ const node_fetch_1 = tslib_1.__importDefault(require("node-fetch"));
+ const https_proxy_agent_1 = tslib_1.__importDefault(require("https-proxy-agent"));
+ function default_1(url, options) {
+     const instanceOptions = options || {};
++    // A redirected allocation has an unknown outcome; never dispatch it again.
++    // Keep signing and response parsing in the pinned SDK transport.
++    instanceOptions.redirect = "error";
+     const proxy = options.proxy || process.env.http_proxy;
+     if (!options.agent && proxy) {
+         instanceOptions.agent = new https_proxy_agent_1.default(proxy);

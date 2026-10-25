@@ -21,84 +21,107 @@ Definition connection_operation := connection_project ++ [req "operation_id" KNa
 
 (** These declarations own public command names and fields. The schema
     interpreter and MetaRocq derivation consume this same list. *)
-Definition command_specs : list command_spec := [
-  Command "configure_task_execution" (task_identity ++ [opt "profile" KText; opt "reasoning" KText; opt "sandbox" KJson; opt "approval" KJson]);
-  Command "create" creation_fields;
-  Command "create_idle" ([req "profile" KText; opt "reasoning" KText; opt "settings" KJson; opt "work_id" KNatural; opt "create_worktree" KBool]);
-  Command "send" (task_identity ++ content_fields);
-  Command "steer" (task_identity ++ content_fields);
-  Command "cancel_operation" (task_identity ++ [req "operation_id" KNatural]);
-  Command "freeze" task_identity;
-  Command "unfreeze" task_identity;
-  Command "stop" task_identity;
-  Command "interrupt" task_identity;
-  Command "archive" task_identity;
-  Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson; opt "settings_origin" (KEnum "parent" ["environment"])]);
-  Command "open_side_conversation" (task_identity ++ content_fields);
-  Command "return_side_conversation" task_identity;
-  Command "compact" (task_identity ++ [opt "summary" KText]);
-  Command "read" (task_identity ++ [opt "after" KNatural; opt "limit" KNatural]);
-  Command "search_history" [req "query" KText; opt "project_id" KNatural; opt "work_id" KNatural; opt "after" KNatural; opt "limit" KNatural];
-  Command "list" [];
-  Command "describe" [];
-  Command "create_project" [req "name" KText; req "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson];
-  Command "update_project" [req "project_id" KNatural; opt "name" KText; opt "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson];
-  Command "delete_project" [req "project_id" KNatural];
-  Command "list_projects" [];
-  Command "read_project" [req "project_id" KNatural];
-  Command "review_approval" (task_identity ++ [req "operation_id" KNatural; req "decision" (KEnum "allow" ["deny"]); opt "reason" KText]);
-  Command "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]);
-  Command "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]);
-  Command "create_card" (opt "observed_at" KText :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]);
-  Command "update_card" (card_identity ++ card_metadata);
-  Command "move_card" (card_identity ++ [opt "status" KText; opt "before_card" KText]);
-  Command "archive_card" card_identity;
-  Command "restore_card" card_identity;
-  Command "delete_card" card_identity;
-  Command "run_card" card_identity;
-  Command "link_card" (card_identity ++ [opt "task_id" KNatural]);
-  Command "regenerate_card_title" (card_identity ++ [opt "draft_profile" KText]);
-  Command "pin_card" (card_identity ++ [opt "pinned" KBool]);
-  Command "board_settings" [req "automatic" KBool; req "draft_profile" KText];
-  Command "save_board_agent" [req "agent" KText; req "revision" KNatural; req "name" KText; req "profile" KText; req "reasoning" KText; req "instructions" KText; opt "settings" KJson; req "concurrency" KNatural];
-  Command "delete_board_agent" [req "agent_id" KNatural; req "revision" KNatural];
-  Command "list_cards" [];
-  Command "read_card" [req "card_id" KNatural];
-  Command "list_board_agents" [];
-  Command "configure_chatgpt_connections" [req "connections" (KArray KJson)];
-  Command "chatgpt_exec" (connection_project ++ [req "request_id" KText; req "arguments" KJson]);
-  Command "chatgpt_cancel" connection_operation;
-  Command "chatgpt_forget" connection_operation;
-  Command "chatgpt_projects" [req "connection_id" KNatural];
-  Command "chatgpt_project" connection_project;
-  Command "chatgpt_operation" connection_operation;
-  Command "chatgpt_operations" connection_project;
-  Command "remote_enable" [];
-  Command "remote_disable" [];
-  Command "remote_grant" [req "controller_id" KText; req "permissions" KJson];
-  Command "remote_revoke" [req "controller_id" KText];
-  Command "remote_status" [];
-  Command "create_task_graph" (opt "work_id" KNatural :: graph_fields);
-  Command "update_task_graph" (req "graph_id" KNatural :: graph_fields);
-  Command "delete_task_graph" [req "graph_id" KNatural];
-  Command "list_task_graphs" [];
-  Command "read_task_graph" [req "graph_id" KNatural];
-  Command "read_title_settings" [];
-  Command "configure_title_settings" [req "revision" KNatural; req "task_prompt" KText; req "agent_prompt" KText];
-  Command "create_work" [opt "name" KText];
-  Command "rename_work" [req "work_id" KNatural; req "name" KText];
-  Command "create_work_task" (req "work_id" KNatural :: creation_fields ++ [opt "create_worktree" KBool]);
-  Command "list_works" [];
-  Command "read_work" [req "work_id" KNatural];
-  Command "read_work_ui" [];
-  Command "apply_work_ui_patch" [req "patch" KText; req "revision" KNatural];
-  Command "create_worktree_task" creation_fields;
-  Command "create_workspace_task" (req "backend" WorkspaceBackend.declaration :: creation_fields ++ [opt "work_id" KNatural]);
-  Command "list_worktrees" [];
-  Command "read_worktree" task_identity;
-  Command "retry_worktree_archive" task_identity;
-  Command "resolve_workspace" [opt "workspace" KJson; opt "project_id" KNatural]
+Inductive command_owner :=
+ KernelQuery | WorkQuery | BoardQuery | TaskGraphQuery | WorktreeQuery | RemoteQuery | ChatgptQuery | TitleQuery | WorkChange | BoardChange | TaskGraphChange | WorktreeChange | RemoteChange | ChatgptChange | CompactionChange | TitleChange | KernelChange.
+Definition owner_name (owner : command_owner) := match owner with
+ | KernelQuery => "KernelQuery"
+ | WorkQuery => "WorkQuery"
+ | BoardQuery => "BoardQuery"
+ | TaskGraphQuery => "TaskGraphQuery"
+ | WorktreeQuery => "WorktreeQuery"
+ | RemoteQuery => "RemoteQuery"
+ | ChatgptQuery => "ChatgptQuery"
+ | TitleQuery => "TitleQuery"
+ | WorkChange => "WorkChange"
+ | BoardChange => "BoardChange"
+ | TaskGraphChange => "TaskGraphChange"
+ | WorktreeChange => "WorktreeChange"
+ | RemoteChange => "RemoteChange"
+ | ChatgptChange => "ChatgptChange"
+ | CompactionChange => "CompactionChange"
+ | TitleChange => "TitleChange"
+ | KernelChange => "KernelChange"
+ end.
+Record command_declaration := DeclareCommand { declared_owner : command_owner; declared_schema : command_spec }.
+Definition command_declarations : list command_declaration := [
+  DeclareCommand WorktreeChange (Command "configure_task_execution" (task_identity ++ [opt "profile" KText; opt "reasoning" KText; opt "sandbox" KJson; opt "approval" KJson]));
+  DeclareCommand WorktreeChange (Command "create" creation_fields);
+  DeclareCommand WorktreeChange (Command "create_idle" ([req "profile" KText; opt "reasoning" KText; opt "settings" KJson; opt "work_id" KNatural; opt "create_worktree" KBool]));
+  DeclareCommand KernelChange (Command "send" (task_identity ++ content_fields));
+  DeclareCommand KernelChange (Command "steer" (task_identity ++ content_fields));
+  DeclareCommand KernelChange (Command "cancel_operation" (task_identity ++ [req "operation_id" KNatural]));
+  DeclareCommand KernelChange (Command "freeze" task_identity);
+  DeclareCommand KernelChange (Command "unfreeze" task_identity);
+  DeclareCommand KernelChange (Command "stop" task_identity);
+  DeclareCommand KernelChange (Command "interrupt" task_identity);
+  DeclareCommand KernelChange (Command "archive" task_identity);
+  DeclareCommand KernelChange (Command "fork" (task_identity ++ [req "child_count" KNatural; opt "messages" (KArray KJson); opt "settings" KJson; opt "settings_origin" (KEnum "parent" ["environment"])]));
+  DeclareCommand KernelChange (Command "open_side_conversation" (task_identity ++ content_fields));
+  DeclareCommand KernelChange (Command "return_side_conversation" task_identity);
+  DeclareCommand CompactionChange (Command "compact" (task_identity ++ [opt "summary" KText]));
+  DeclareCommand KernelQuery (Command "read" (task_identity ++ [opt "after" KNatural; opt "limit" KNatural]));
+  DeclareCommand KernelQuery (Command "search_history" [req "query" KText; opt "project_id" KNatural; opt "work_id" KNatural; opt "after" KNatural; opt "limit" KNatural]);
+  DeclareCommand KernelQuery (Command "list" []);
+  DeclareCommand KernelQuery (Command "describe" []);
+  DeclareCommand KernelChange (Command "create_project" [req "name" KText; req "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson]);
+  DeclareCommand KernelChange (Command "update_project" [req "project_id" KNatural; opt "name" KText; opt "workspace" KJson; opt "guidance" KJson; opt "create_worktree" KBool; opt "workspace_binding" KJson]);
+  DeclareCommand KernelChange (Command "delete_project" [req "project_id" KNatural]);
+  DeclareCommand KernelQuery (Command "list_projects" []);
+  DeclareCommand KernelQuery (Command "read_project" [req "project_id" KNatural]);
+  DeclareCommand KernelChange (Command "review_approval" (task_identity ++ [req "operation_id" KNatural; req "decision" (KEnum "allow" ["deny"]); opt "reason" KText]));
+  DeclareCommand KernelChange (Command "record_speech_transcript" (task_identity ++ [req "session_id" KText; req "item_id" KText; req "speaker" (KEnum "user" ["assistant"]); req "completion" (KEnum "completed" ["interrupted"]); req "text" KText]));
+  DeclareCommand KernelChange (Command "accept_speech_delegation" (task_identity ++ [req "session_id" KText; req "delegation_id" KText; req "message" KText; req "mode" (KEnum "send" ["steer"])]));
+  DeclareCommand BoardChange (Command "create_card" (opt "observed_at" KText :: card_metadata ++ [opt "assisted" KBool; opt "draft_profile" KText]));
+  DeclareCommand BoardChange (Command "update_card" (card_identity ++ card_metadata));
+  DeclareCommand BoardChange (Command "move_card" (card_identity ++ [opt "status" KText; opt "before_card" KText]));
+  DeclareCommand BoardChange (Command "archive_card" card_identity);
+  DeclareCommand BoardChange (Command "restore_card" card_identity);
+  DeclareCommand BoardChange (Command "delete_card" card_identity);
+  DeclareCommand BoardChange (Command "run_card" card_identity);
+  DeclareCommand BoardChange (Command "link_card" (card_identity ++ [opt "task_id" KNatural]));
+  DeclareCommand BoardChange (Command "regenerate_card_title" (card_identity ++ [opt "draft_profile" KText]));
+  DeclareCommand BoardChange (Command "pin_card" (card_identity ++ [opt "pinned" KBool]));
+  DeclareCommand BoardChange (Command "board_settings" [req "automatic" KBool; req "draft_profile" KText]);
+  DeclareCommand BoardChange (Command "save_board_agent" [req "agent" KText; req "revision" KNatural; req "name" KText; req "profile" KText; req "reasoning" KText; req "instructions" KText; opt "settings" KJson; req "concurrency" KNatural]);
+  DeclareCommand BoardChange (Command "delete_board_agent" [req "agent_id" KNatural; req "revision" KNatural]);
+  DeclareCommand BoardQuery (Command "list_cards" []);
+  DeclareCommand BoardQuery (Command "read_card" [req "card_id" KNatural]);
+  DeclareCommand BoardQuery (Command "list_board_agents" []);
+  DeclareCommand ChatgptChange (Command "configure_chatgpt_connections" [req "connections" (KArray KJson)]);
+  DeclareCommand ChatgptChange (Command "chatgpt_exec" (connection_project ++ [req "request_id" KText; req "arguments" KJson]));
+  DeclareCommand ChatgptChange (Command "chatgpt_cancel" connection_operation);
+  DeclareCommand ChatgptChange (Command "chatgpt_forget" connection_operation);
+  DeclareCommand ChatgptQuery (Command "chatgpt_projects" [req "connection_id" KNatural]);
+  DeclareCommand ChatgptQuery (Command "chatgpt_project" connection_project);
+  DeclareCommand ChatgptQuery (Command "chatgpt_operation" connection_operation);
+  DeclareCommand ChatgptQuery (Command "chatgpt_operations" connection_project);
+  DeclareCommand RemoteChange (Command "remote_enable" []);
+  DeclareCommand RemoteChange (Command "remote_disable" []);
+  DeclareCommand RemoteChange (Command "remote_grant" [req "controller_id" KText; req "permissions" KJson]);
+  DeclareCommand RemoteChange (Command "remote_revoke" [req "controller_id" KText]);
+  DeclareCommand RemoteQuery (Command "remote_status" []);
+  DeclareCommand TaskGraphChange (Command "create_task_graph" (opt "work_id" KNatural :: graph_fields));
+  DeclareCommand TaskGraphChange (Command "update_task_graph" (req "graph_id" KNatural :: graph_fields));
+  DeclareCommand TaskGraphChange (Command "delete_task_graph" [req "graph_id" KNatural]);
+  DeclareCommand TaskGraphQuery (Command "list_task_graphs" []);
+  DeclareCommand TaskGraphQuery (Command "read_task_graph" [req "graph_id" KNatural]);
+  DeclareCommand TitleQuery (Command "read_title_settings" []);
+  DeclareCommand TitleChange (Command "configure_title_settings" [req "revision" KNatural; req "task_prompt" KText; req "agent_prompt" KText]);
+  DeclareCommand WorkChange (Command "create_work" [opt "name" KText]);
+  DeclareCommand WorkChange (Command "rename_work" [req "work_id" KNatural; req "name" KText]);
+  DeclareCommand WorktreeChange (Command "create_work_task" (req "work_id" KNatural :: creation_fields ++ [opt "create_worktree" KBool]));
+  DeclareCommand WorkQuery (Command "list_works" []);
+  DeclareCommand WorkQuery (Command "read_work" [req "work_id" KNatural]);
+  DeclareCommand WorkQuery (Command "read_work_ui" []);
+  DeclareCommand WorkChange (Command "apply_work_ui_patch" [req "patch" KText; req "revision" KNatural]);
+  DeclareCommand WorktreeChange (Command "create_worktree_task" creation_fields);
+  DeclareCommand WorktreeChange (Command "create_workspace_task" (req "backend" WorkspaceBackend.declaration :: creation_fields ++ [opt "work_id" KNatural]));
+  DeclareCommand WorktreeQuery (Command "list_worktrees" []);
+  DeclareCommand WorktreeQuery (Command "read_worktree" task_identity);
+  DeclareCommand WorktreeChange (Command "retry_worktree_archive" task_identity);
+  DeclareCommand WorktreeQuery (Command "resolve_workspace" [opt "workspace" KJson; opt "project_id" KNatural])
 ].
+Definition command_specs := map declared_schema command_declarations.
 
 Definition command_field_description (command field : string) :=
   if String.eqb field "profile" then "Key of a configured model profile." else

@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
-From Selvedge.Kernel Require Import Numbers Domain Codec State Observation Inputs Delivery.
+From Selvedge.Kernel Require Import HookRules Numbers Domain Codec State Observation Inputs Delivery.
+From Selvedge.Kernel Require ModelDeclarations.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -26,9 +27,11 @@ Definition authorized_call (identity : string) (history : list message) :=
  fold_left (fun previous message => match message with
  | FunctionCall invocation => if String.eqb identity (call_id invocation) then call_json invocation else previous
  | HookReceipt _ invocation _ outcome =>
-   if String.eqb identity (call_id invocation) then match string_field "decision" outcome with
-   | Some "rewrite" => call_json (Call identity (call_name invocation) (value_or_null "arguments" outcome) (call_origin invocation))
-   | Some "allow" => call_json invocation | _ => JNull end else previous
+   if String.eqb identity (call_id invocation) then match HookRules.parse_hook outcome with
+   | Some outcome => match HookRules.before_apply invocation outcome with
+     | HookRules.Proceed updated => call_json updated
+     | HookRules.Refuse _ _ => JNull end
+   | None => JNull end else previous
  | _ => previous end) history JNull.
 Definition settled (id : N) (value : task) (cursor : N) (identity : string) (result : json) (error : bool)
  (seen : list string) :=
@@ -88,20 +91,31 @@ Definition input_events (source : option input) (before after : world) := match 
 Definition effect_events (after : world) (output : effect) :=
  let emit id kind payload := match find_task id after with Some value => task_event id value kind None payload | None => [] end in
  match output with
- | RequestModel id ticket model _ _ _ => emit id "model_started"
+ | RequestModel request =>
+   let id := ModelRequest.owner request in
+   let ticket := ModelRequest.ticket request in
+   let model := ModelRequest.model (ModelRequest.selection request) in
+   emit id "model_started"
    (JObject [("ticket",number ticket);("kind",JString "model");("model",model_json model)])
  | ExecuteTool id ticket _ tool invocation _ _ => emit id "tool_dispatched"
    (JObject [("ticket",number ticket);("tool",tool_json tool);("call",call_json invocation)])
  | _ => [] end.
-(** Notifications are optional observations: omit their batch when it would
-    displace a committed reply or executable effect from the frame budget. *)
-Definition decorate (durable : bool) (source : option input) (before : world) (result : decision) :=
- if durable then
+Definition batch (source : option input) (before : world) (result : decision) :=
  let after := decision_world result in
- let notices := input_events source before after ++
+ input_events source before after ++
   concat (Numbers.indexed (fun id task => task_events before id task after) 0 (world_tasks after)) ++
-  flat_map (effect_events after) (decision_effects result) in
- match notices with [] => result | _ =>
-   let enriched := Decision after (decision_reply result) (decision_effects result ++ [NotifyPlugins notices]) in
-   if Delivery.fits durable enriched then enriched else result end
- else result.
+  flat_map (effect_events after) (decision_effects result).
+Definition enriched_envelope (durable : bool) (result : decision) (notices : list json) :=
+ Observation.envelope_with_effects durable (decision_reply result)
+   (map (Observation.effect_json (decision_world result)) (decision_effects result) ++
+     [JObject [(ModelDeclarations.tag_field ModelDeclarations.plugin_events,ModelDeclarations.tag_value ModelDeclarations.plugin_events);("events",JArray notices)]]).
+(** Only the final public receipt can contain notifications. The admission flag
+    records global rollback independently of a business reply's success flag. *)
+Definition envelope (durable admitted : bool) (source : option input) (before : world) (result : decision) :=
+ let base := Observation.envelope durable result in
+ if durable && admitted then
+ match batch source before result with
+ | [] => base
+ | notices => let enriched := enriched_envelope durable result notices in
+   if Delivery.fits_json enriched then enriched else base
+ end else base.

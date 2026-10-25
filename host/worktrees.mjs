@@ -1,14 +1,13 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { cp, lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { shellQuote } from './cloud-environments.mjs';
-import { readControlRecord } from './control-records.mjs';
+import { readControlRecord, writeControlRecord as saveReceipt, durableDirectory } from './control-records.mjs';
 import { canonicalWorkspace } from './sandbox.mjs';
 import { snapshotProject } from './project.mjs';
 import { boundary } from './public/model-boundary.mjs';
+import { naturalKey } from './codec.mjs';
 
 const execute = promisify(execFile);
 const maximumGitOutput = 64 * 1024 * 1024;
@@ -70,7 +69,7 @@ export async function observeWorkspaceGit(primary, { signal, environment } = {})
 async function locations(home, taskId) {
   const files = boundary('effect.worktree_locations', { home: await realpath(home), task_id: taskId });
   for (const directory of [files.storage, path.dirname(files.archived), path.dirname(files.receipt)]) {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await durableDirectory(directory);
     // DEFENSE: Replaced storage directories must not redirect managed worktree writes through symbolic links.
     if ((await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) {
       throw new Error('Managed worktree storage must not contain symbolic links');
@@ -82,15 +81,6 @@ async function locations(home, taskId) {
 async function readReceipt(files, taskId, sourceRoot) {
   const value = await readControlRecord(files.receipt, { maximumBytes: maximumReceiptBytes, label: 'managed worktree receipt' });
   return boundary('effect.worktree_receipt', { files, value, task_id: taskId, source_root: sourceRoot });
-}
-
-async function saveReceipt(filename, value) {
-  const temporary = `${filename}.${randomUUID()}.tmp`;
-  const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try { await file.writeFile(JSON.stringify(value)); await file.sync(); }
-  finally { await file.close(); }
-  try { await rename(temporary, filename); }
-  finally { await rm(temporary, { force: true }); }
 }
 
 async function verifyTree(root) {
@@ -117,65 +107,99 @@ function failure(effect, error, root) {
     message: `Managed worktree operation failed: ${String(error.message).toWellFormed()}` });
 }
 
-/** Interpret only an earlier committed worktree_create effect. */
+const control = (operation, source) => boundary(`control.resource.${operation}`, source);
+
+async function runLocalResource(plan, files, operations) {
+  const errors = [];
+  while (true) {
+    const state = plan.state;
+    let observation;
+    const action = plan.effects[0];
+    if (action === 'finish') return { receipt: state, errors };
+    if (action === 'persist') {
+      try {
+        const { task_id, source_root, root, workspace, status } = state;
+        await saveReceipt(files.receipt, { task_id, source_root, root, workspace, status });
+        observation = { kind: 'persisted' };
+      } catch (error) {
+        // DEFENSE: A failed durable intent must prevent a new Git mutation; known reserved paths remain removable.
+        errors.push(error);
+        observation = { kind: 'persistence_failed' };
+      }
+    } else {
+      try { observation = await operations[action](state); }
+      catch (error) {
+        errors.push(error);
+        observation = { kind: action === 'local_remove' ? 'local_remove_failed' : 'local_failed',
+          reserved: action === 'local_create' && operations.reserved() };
+      }
+    }
+    plan = control('step', { state, observation });
+  }
+}
+
+/** The durable resource step grants the one physical checkout attempt. */
 export async function createManagedWorktree(effect, { home, limits, signal } = {}) {
-  let root;
-  let repository;
-  let created = false;
+  let root, repository, files;
+  let reserved = false;
   try {
-    const files = await locations(home, effect.task_id);
+    files = await locations(home, effect.task_id);
     root = files.active;
     const primary = await realpath(effect.source_root);
-    // DEFENSE: The source repository or HEAD can disappear after the command's initial eligibility observation.
+    // DEFENSE: The source repository or HEAD can disappear after the command's eligibility observation.
     if (!await observeWorkspaceGit(primary, { signal })) throw new Error('The primary workspace must have a Git commit');
     repository = await realpath((await git(primary, ['rev-parse', '--show-toplevel'], { signal })).trim());
     boundary('effect.worktree_path', { operation: 'source', home: files.home, primary, repository });
     const commit = (await git(repository, ['rev-parse', '--verify', 'HEAD^{commit}'], { signal })).trim();
     const configuration = await worktreeGitConfiguration(repository, signal);
-    // Snapshot tracked edits before checkout; ignored files stay in the source workspace.
     const patch = await git(repository, [...configuration, 'diff', '--binary', '--no-ext-diff', '--no-textconv', commit, '--'], { signal, encoding: 'buffer' });
     const untracked = (await git(repository, ['ls-files', '--others', '--exclude-standard', '-z'], { signal })).split('\0').filter(Boolean);
-    // Reserve ownership before Git can partially register or populate this path.
-    // A pre-existing path is never ours to remove on failure.
-    await mkdir(root, { mode: 0o700 });
-    created = true;
-    await git(repository, [...configuration, 'worktree', 'add', '--detach', '--', root, commit], { signal });
-    if (patch.length) {
-      const patchFile = path.join(files.storage, `.task-${effect.task_id}.patch`);
-      await writeFile(patchFile, patch, { mode: 0o600, flag: 'wx' });
-      try { await git(root, [...configuration, 'apply', '--binary', '--', patchFile], { signal }); }
-      finally { await rm(patchFile, { force: true }); }
+    const receipt = { task_id: effect.task_id, source_root: effect.source_root, root,
+      workspace: { roots: [root], primary_root: root } };
+    const result = await runLocalResource(control('local', { operation: 'create', receipt }), files, {
+      reserved: () => reserved,
+      async local_create() {
+        // Exclusive reservation establishes the only path this operation may remove on failure.
+        await mkdir(root, { mode: 0o700 });
+        reserved = true;
+        await git(repository, [...configuration, 'worktree', 'add', '--detach', '--', root, commit], { signal });
+        if (patch.length) {
+          const patchFile = path.join(files.storage, `.task-${naturalKey(effect.task_id)}.patch`);
+          await writeFile(patchFile, patch, { mode: 0o600, flag: 'wx' });
+          try { await git(root, [...configuration, 'apply', '--binary', '--', patchFile], { signal }); }
+          finally { await rm(patchFile, { force: true }); }
+        }
+        for (const name of untracked) {
+          signal?.throwIfAborted();
+          const source = path.resolve(repository, name);
+          const destination = path.resolve(root, name);
+          boundary('effect.worktree_path', { operation: 'copy', repository, root, source, destination });
+          await mkdir(path.dirname(destination), { recursive: true });
+          await cp(source, destination, { recursive: true, dereference: false, verbatimSymlinks: true, force: false, errorOnExist: true });
+        }
+        const nextPrimary = path.join(root, path.relative(repository, primary));
+        await mkdir(nextPrimary, { recursive: true });
+        const workspace = await canonicalWorkspace(boundary('effect.worktree_workspace', {
+          workspace: effect.workspace, previous: primary, next: nextPrimary, descendants: false,
+        }));
+        const guidance = await snapshotProject(workspace.primary_root, limits, { signal });
+        return { kind: 'local_created', root, workspace, guidance, status: 'ready' };
+      },
+      async local_remove() {
+        try { await git(repository, ['worktree', 'remove', '--force', '--', root]); root = null; }
+        catch (error) {
+          // DEFENSE: Git can remove a partial checkout while unwinding; only absence proves it gone.
+          try { await lstat(root); } catch (observed) { if (observed.code === 'ENOENT') root = null; else throw observed; }
+          if (root) throw error;
+        }
+        return { kind: 'local_removed' };
+      },
+    });
+    if (result.errors.length || result.receipt.status !== 'ready') {
+      return failure(effect, result.errors[0] ?? new Error('Worktree preparation interrupted'), reserved ? root : null);
     }
-    for (const name of untracked) {
-      signal?.throwIfAborted();
-      const source = path.resolve(repository, name);
-      const destination = path.resolve(root, name);
-      boundary('effect.worktree_path', { operation: 'copy', repository, root, source, destination });
-      await mkdir(path.dirname(destination), { recursive: true });
-      await cp(source, destination, { recursive: true, dereference: false, verbatimSymlinks: true, force: false, errorOnExist: true });
-    }
-    const nextPrimary = path.join(root, path.relative(repository, primary));
-    // NOTE: Git does not track empty directories or directories containing only ignored files.
-    await mkdir(nextPrimary, { recursive: true });
-    const workspace = await canonicalWorkspace(boundary('effect.worktree_workspace', {
-      workspace: effect.workspace, previous: primary, next: nextPrimary, descendants: false,
-    }));
-    const guidance = await snapshotProject(workspace.primary_root, limits, { signal });
-    await saveReceipt(files.receipt, { task_id: effect.task_id, source_root: effect.source_root, root, workspace, status: 'ready' });
-    return completion(effect, { ok: true, root, workspace, guidance });
-  } catch (error) {
-    // DEFENSE: Checkout/copy/receipt failures can leave a partially registered tree; remove only the path reserved here.
-    if (created) {
-      try { await git(repository, ['worktree', 'remove', '--force', '--', root]); root = null; }
-      catch {
-        // DEFENSE: Git may already have removed its partial checkout while unwinding.
-        // Every other failure retains the reserved path and original diagnostic.
-        try { await lstat(root); }
-        catch (error) { if (error.code === 'ENOENT') root = null; }
-      }
-    } else root = null;
-    return failure(effect, error, root);
-  }
+    return completion(effect, { ok: true, root, workspace: result.receipt.workspace, guidance: result.receipt.guidance });
+  } catch (error) { return failure(effect, error, reserved ? root : null); }
 }
 
 /** Archive by moving the checkout, preserving tracked and untracked changes. */
@@ -186,30 +210,34 @@ export async function archiveManagedWorktree(effect, { home, signal } = {}) {
     let receipt;
     try { receipt = await readReceipt(files, effect.task_id, effect.source_root); }
     catch (error) {
-      // DEFENSE: A failed checkout can retain a registered tree before its ready receipt exists.
+      // DEFENSE: A failed checkout may retain its reserved root before its first receipt is written.
       if (error.code !== 'ENOENT') throw error;
-      receipt = { task_id: effect.task_id, source_root: effect.source_root, root: effect.root, status: 'ready',
+      receipt = { task_id: effect.task_id, source_root: effect.source_root, root: effect.root,
         workspace: { roots: [effect.root], primary_root: effect.root } };
     }
-    let currentRoot = effect.root;
-    try { await lstat(currentRoot); }
-    catch (error) {
-      // DEFENSE: A prior move can complete before receipt persistence; inspect the archive when the active path is absent.
-      if (error.code !== 'ENOENT' || currentRoot !== files.active) throw error;
-      currentRoot = files.archived;
-    }
-    await verifyTree(currentRoot);
-    if (currentRoot !== files.archived) await git(currentRoot, ['worktree', 'move', '--', currentRoot, files.archived], { signal });
-    const workspace = boundary('effect.worktree_workspace', {
-      workspace: receipt.workspace, previous: effect.root, next: files.archived, descendants: true,
+    const result = await runLocalResource(control('local', { operation: 'archive', receipt }), files, {
+      async local_archive(state) {
+        let currentRoot = effect.root;
+        try { await lstat(currentRoot); }
+        catch (error) {
+          // DEFENSE: A completed move can precede its receipt write; inspect the owned archive.
+          if (error.code !== 'ENOENT' || currentRoot !== files.active) throw error;
+          currentRoot = files.archived;
+        }
+        await verifyTree(currentRoot);
+        if (currentRoot !== files.archived) await git(currentRoot, ['worktree', 'move', '--', currentRoot, files.archived], { signal });
+        const workspace = boundary('effect.worktree_workspace', {
+          workspace: state.workspace, previous: effect.root, next: files.archived, descendants: true,
+        });
+        return { kind: 'local_archived', root: files.archived, workspace, status: 'archived' };
+      },
     });
-    await saveReceipt(files.receipt, { ...receipt, root: files.archived, workspace, status: 'archived' });
-    return completion(effect, { ok: true, root: files.archived });
-  // DEFENSE: Git moves and receipt writes can fail; publish the committed archive operation's failure completion.
+    if (result.errors.length) throw result.errors[0];
+    return completion(effect, { ok: true, root: result.receipt.root });
   } catch (error) { return failure(effect, error); }
 }
 
-/** Recovery observes receipts and Git links; it never repeats a checkout or move. */
+/** Recovery observes receipts and Git links; it never repeats checkout or move. */
 export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
   const effect = boundary('effect.worktree_recovery_effect', { entry });
   const creating = effect.kind === 'worktree_create';
@@ -218,23 +246,33 @@ export async function reconcileManagedWorktree(entry, { home, limits } = {}) {
     const files = await locations(home, entry.task_id);
     root = creating ? files.active : entry.root;
     const receipt = await readReceipt(files, entry.task_id, entry.source_root);
-    let observedRoot = receipt.root;
-    // DEFENSE: A move may have completed just before the receipt was persisted.
-    if (!creating && receipt.root === files.active) {
-      try { await lstat(files.active); }
-      catch (error) { if (error.code !== 'ENOENT') throw error; observedRoot = files.archived; }
-    }
-    await verifyTree(observedRoot);
-    if (!creating) {
-      // DEFENSE: Restart may observe an interrupted move; recovery must not claim success or repeat that external operation.
-      if (observedRoot !== files.archived) throw new Error('Worktree archive did not complete before restart; retry archiving');
-      return completion(effect, { ok: true, root: observedRoot });
-    }
-    const workspace = await canonicalWorkspace(receipt.workspace);
-    const guidance = await snapshotProject(workspace.primary_root, limits);
-    return completion(effect, { ok: true, root: receipt.root, workspace, guidance });
+    const result = await runLocalResource(control('local', { operation: 'recover', receipt, creating }), files, {
+      async local_observe(state) {
+        let observedRoot = state.root;
+        // DEFENSE: A move can complete immediately before the archived receipt reaches disk.
+        if (!creating && state.root === files.active) {
+          try { await lstat(files.active); }
+          catch (error) { if (error.code !== 'ENOENT') throw error; observedRoot = files.archived; }
+        }
+        await verifyTree(observedRoot);
+        if (!creating) {
+          if (observedRoot !== files.archived) throw new Error('Worktree archive did not complete before restart; retry archiving');
+          const workspace = boundary('effect.worktree_workspace', {
+            workspace: state.workspace, previous: state.root, next: observedRoot, descendants: true,
+          });
+          return { kind: 'local_observed', root: observedRoot, workspace, status: 'archived' };
+        }
+        const workspace = await canonicalWorkspace(state.workspace);
+        return { kind: 'local_observed', root: state.root, workspace,
+          guidance: await snapshotProject(workspace.primary_root, limits), status: 'ready' };
+      },
+    });
+    if (result.errors.length) throw result.errors[0];
+    if (result.receipt.recovery_failed) throw new Error('Worktree preparation did not complete before restart');
+    return completion(effect, { ok: true, root: result.receipt.root,
+      ...(creating ? { workspace: result.receipt.workspace, guidance: result.receipt.guidance } : {}) });
   } catch (error) {
-    // DEFENSE: Recovery failures retain an existing owned checkout; only ENOENT establishes that its path is gone.
+    // DEFENSE: Recovery retains existing owned paths; only ENOENT establishes absence.
     if (root) {
       try { await lstat(root); }
       catch (observationError) {

@@ -6,8 +6,18 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { Kernel, isKernelInputRejection } from './kernel.mjs';
 import { parseJson, stringifyJson, integer } from './codec.mjs';
+import { durableDirectory } from './control-records.mjs';
+import { boundary } from './public/model-boundary.mjs';
 
-export const journalFormat = 'selvedge-rocq-journal-5';
+const outcomes = new WeakMap();
+export const transactionOutcome = error => outcomes.get(error) ?? 'unknown';
+export const isDefiniteRejection = error => transactionOutcome(error) === 'rejected';
+function rejected(error, outcome) {
+  outcomes.set(error, outcome);
+  return error;
+}
+
+export const journalFormat = 'selvedge-rocq-journal-6';
 
 const schema = {
   meta: 'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT',
@@ -30,6 +40,7 @@ function closeJournalDatabase(database) {
 
 /** A serialized, durable input journal. It deliberately stores no task table. */
 export class Journal extends EventEmitter {
+  #control = boundary('control.transaction.initial', {});
   #database;
   #lock;
   #tail = Promise.resolve();
@@ -42,7 +53,7 @@ export class Journal extends EventEmitter {
     journal.filename = filename;
     journal.sequence = 0;
     try {
-      await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
+      await durableDirectory(path.dirname(filename));
       // DEFENSE: Two service processes can open the same home; SQLite excludes a second world writer and releases ownership on process death.
       journal.#lock = new DatabaseSync(`${filename}.lock`, { timeout: 0 });
       journal.#lock.exec('PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS owner (id INTEGER PRIMARY KEY); BEGIN EXCLUSIVE');
@@ -60,7 +71,10 @@ export class Journal extends EventEmitter {
             row.digest !== digest(row.previous, row.seq, row.input, row.decision)) {
           throw new Error(`Journal integrity failure at sequence ${row.seq}`);
         }
+        const [request] = journal.#advance({ kind: 'begin', replay: true });
         const replayed = await journal.kernel.replay(parseJson(row.input));
+        journal.#advance({ kind: 'worker_result', generation: request.generation, durable: true });
+        journal.#advance({ kind: 'finish' });
         // DEFENSE: Saved decisions from a different kernel contract must fail reopen without executing their effects.
         if (!replayed.value.durable || !isDeepStrictEqual(replayed.value, parseJson(row.decision))) {
           throw new Error(`Committed decision incompatibility at sequence ${row.seq}: current kernel replay disagrees with the saved decision`);
@@ -102,14 +116,25 @@ export class Journal extends EventEmitter {
     throw new Error('The database does not have the current Selvedge Rocq journal format');
   }
 
-  #poison(error) {
+  #advance(observation) {
+    const transition = boundary('control.transaction.step', { state: this.#control, observation });
+    this.#control = transition.state;
+    return transition.effects;
+  }
+
+  #poison(error, observation = 'worker_failed') {
+    const actions = this.#advance({ kind: observation });
+    rejected(error, observation === 'commit_unknown' ? 'unknown' : 'rejected');
     this.#failure = error;
-    this.kernel?.abort(error);
+    if (actions.some(action => action.kind === 'retire')) {
+      this.kernel?.abort(error);
+      this.emit('retired', error);
+    }
   }
 
   assess(candidate) {
     // DEFENSE: An assessment may be queued just before the journal closes.
-    if (this.#closing) return Promise.reject(new Error('Journal is closed'));
+    if (this.#closing) return Promise.reject(rejected(new Error('Journal is closed'), 'rejected'));
     const result = this.#tail.then(async () => {
       // DEFENSE: A failed prior commit leaves no authoritative world for a read-only assessment.
       if (this.#failure) throw this.#failure;
@@ -125,40 +150,60 @@ export class Journal extends EventEmitter {
 
   execute(input) {
     // DEFENSE: Requests already in flight at shutdown can still reach the journal.
-    if (this.#closing) return Promise.reject(new Error('Journal is closed'));
+    if (this.#closing) return Promise.reject(rejected(new Error('Journal is closed'), 'rejected'));
     const result = this.#tail.then(async () => {
       // DEFENSE: A prior SQLite/Worker failure leaves the in-memory world ahead of durable storage; never execute another input.
       if (this.#failure) throw this.#failure;
-      const inputText = stringifyJson(input);
-      // Encoding failures occur before this returns a promise and cannot change
-      // the kernel. A worker input rejection also precedes every transition.
-      const request = this.kernel.request(input);
+      let inputText;
+      try { inputText = stringifyJson(input); }
+      // DEFENSE: Invalid external JSON is rejected before any kernel transition or durable write.
+      catch (error) { throw rejected(error, 'rejected'); }
+      const [request] = this.#advance({ kind: 'begin', replay: false });
       let response;
-      try { response = await request; }
-      // DEFENSE: An asynchronous Worker failure can occur after its state advanced; this journal cannot keep accepting inputs.
-      catch (error) { if (!isKernelInputRejection(error)) this.#poison(error); throw error; }
-      if (!response.value.durable) {
+      let pending;
+      try { pending = this.kernel.request(input); }
+      // DEFENSE: Encoding validates the input before the Worker receives its request.
+      catch (error) {
+        this.#advance({ kind: 'input_rejected', generation: request.generation });
+        throw rejected(error, 'rejected');
+      }
+      try { response = await pending; }
+      catch (error) {
+        if (isKernelInputRejection(error)) {
+          this.#advance({ kind: 'input_rejected', generation: request.generation });
+        } else this.#poison(error);
+        // No journal write has started, including when the Worker failed after advancing its private world.
+        throw rejected(error, 'rejected');
+      }
+      const actions = this.#advance({ kind: 'worker_result', generation: request.generation, durable: response.value.durable });
+      if (!actions.some(action => action.kind === 'commit')) {
         this.program = response.program;
+        this.#advance({ kind: 'finish' });
         return { sequence: this.sequence, program: this.program, ...response.value };
       }
       const sequence = this.sequence + 1;
       const hash = digest(this.#previous, sequence, inputText, response.text);
+      let committing = false;
       try {
         this.#database.exec('BEGIN IMMEDIATE');
         this.#database.prepare('INSERT INTO journal (seq, input, decision, previous, digest) VALUES (?, ?, ?, ?, ?)')
           .run(sequence, inputText, response.text, this.#previous, hash);
+        committing = true;
         this.#database.exec('COMMIT');
-      // DEFENSE: SQLite can fail after the kernel advances; poison that world before any later input and release its remaining transaction during close.
+      // DEFENSE: A write before COMMIT is definitely uncommitted; an error during COMMIT leaves its durable outcome unknown.
       } catch (error) {
-        this.#poison(error);
-        throw error;
+        const outcome = committing ? 'unknown' : 'rejected';
+        this.#poison(error, committing ? 'commit_unknown' : 'commit_rejected');
+        throw rejected(error, outcome);
       }
+      const publication = this.#advance({ kind: 'commit_ack' });
       this.program = response.program;
       this.sequence = sequence;
       this.#previous = hash;
       const committed = { sequence, input, program: this.program, ...response.value };
+      this.#advance({ kind: 'finish' });
       // DEFENSE: A delivery observer can throw after COMMIT; report the delivery failure without making the durable input appear uncommitted.
-      for (const observer of this.listeners('commit')) {
+      for (const observer of publication.some(action => action.kind === 'publish') ? this.listeners('commit') : []) {
         try { observer(committed); }
         catch (error) { this.emit('observerFailure', error); }
       }
@@ -183,6 +228,7 @@ export class Journal extends EventEmitter {
     if (this.#closing) return;
     this.#closing = true;
     await this.#tail;
+    this.#advance({ kind: 'close' });
     await this.kernel?.close();
     try { closeJournalDatabase(this.#database); }
     finally { closeJournalDatabase(this.#lock); }

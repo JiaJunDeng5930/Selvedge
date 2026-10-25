@@ -3,30 +3,27 @@ From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecoder Queries CommandExecution
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits WorldInvariant.
-From Selvedge.Kernel Require Import CommitAdmission.
+From Selvedge.Kernel Require Import CommitAdmission CommandHandlers ForkCommit.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
 Definition initial := State.initial.
 Definition world_json := Observation.world_json.
-Definition query (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) :=
- match Queries.answer command value with Some reply => Some reply | None => Selvedge.Features.Runtime.query command caller value end.
+Definition query := CommandHandlers.query.
 Definition command_schedules (command : Selvedge.Generated.Commands.command) (result : decision) :=
  bool_default "ok" (decision_reply result) false &&
  match command with
  | Selvedge.Generated.Commands.Cmd_create_idle _ | Selvedge.Generated.Commands.Cmd_record_speech_transcript _ => false
  | Selvedge.Generated.Commands.Cmd_accept_speech_delegation _ => negb (bool_default "replayed" (value_or_null "result" (decision_reply result)) false)
  | _ => Selvedge.Features.Runtime.schedules command end.
-Definition execute_domain (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : decision :=
+Definition execute_domain (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) : decision :=
+ let caller := option_map Tasks.native_owner context in
  match query command caller value with
  | Some reply => Decision value reply []
  | None => match Selvedge.Features.Runtime.guard_command command caller value with
    | Some refused => refused
    | None =>
-     let result := match Selvedge.Features.Runtime.command command caller value with
-     | Some result => result | None => match CommandExecution.execute command caller value with
-       | Some result => result
-       | None => reject "unknown_command" "The command has no domain interpreter" value end end in
+     let result := CommandHandlers.execute command context value in
      Selvedge.Features.Runtime.guard_result value result
    end
  end.
@@ -41,8 +38,8 @@ Definition assess (source : json) (value : world) : json :=
  JObject [("editor",value_or_null "editor" source);("revision",value_or_null "revision" source);
    ("sequence",number (world_sequence value));("admitted",JBool admitted);
    ("refusal",if admitted then JNull else value_or_null "error" candidate)].
-Definition execute_command (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) :=
- let result := execute_domain command caller value in
+Definition execute_command (command : Selvedge.Generated.Commands.command) (context : option Tasks.native_call) (value : world) :=
+ let result := execute_domain command context value in
  if command_schedules command result then Selvedge.Features.Runtime.after_transition value result else result.
 Definition core_transition (source : input) (value : world) :=
  match source with
@@ -60,8 +57,9 @@ Definition core_transition (source : input) (value : world) :=
  | Recover => Selvedge.Features.Runtime.after_transition value (Recovery.recover (Selvedge.Features.Runtime.recover value))
  | Continue => Selvedge.Features.Runtime.after_transition value (accept JNull value [])
  end.
-Definition transition (source : json) (value : world) : bool * bool * option input * decision :=
- match InputDecoder.decode source with
+Definition transition_decoded (decoded : option input) (source : json) (value : world)
+ : bool * bool * option input * decision :=
+ match decoded with
  | Some (UserCommand command) => match query command None value with
    | Some reply => (false,false,Some (UserCommand command),Decision value reply [])
    | None => let result := execute_command command None value in
@@ -74,18 +72,34 @@ Definition transition (source : json) (value : world) : bool * bool * option inp
      | None => (false,false,None,reject "invalid_input" "Unknown input kind or malformed domain callback" value)
      end
  end.
-Definition admit (durable : bool) (source : option input) (raw_source : json)
+Definition transition (source : json) (value : world) :=
+ transition_decoded (InputDecoder.decode source) source value.
+Definition admit_with_status (durable : bool) (source : option input) (raw_source : json)
  (before : world) (result : decision) :=
- let result := CommitAdmission.retain_live_effects result in
- Delivery.deliver durable
-  (CommitAdmission.validate durable source raw_source before
-    (WorldInvariant.validate before (Notifications.decorate durable source before result))) before.
+ let result := Dispatch.retain_live_effects result in
+ let '(valid,result) := WorldInvariant.validate_with_status before result in
+ let '(authorized,result) := CommitAdmission.validate_with_status durable source raw_source before result in
+ let '(fits,result) := Delivery.deliver_with_status durable result before in
+ (valid && authorized && fits,result).
+Definition admit (durable : bool) (source : option input) (raw_source : json)
+ (before : world) (result : decision) := snd (admit_with_status durable source raw_source before result).
+Definition manual_fork_input (decoded : option input) : option Selvedge.Generated.Commands.fork_payload :=
+ match decoded with
+ | Some (UserCommand (Selvedge.Generated.Commands.Cmd_fork request)) => Some request
+ | _ => None
+ end.
+Definition manual_fork (source : json) := manual_fork_input (InputDecoder.decode source).
 Definition packet (source : json) (value : world) : world * json :=
  if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
- let '(durable,schedules,input,result) := transition source value in
+ let decoded := InputDecoder.decode source in
+ match manual_fork_input decoded with
+ | Some request => ForkCommit.packet request value
+ | None =>
+ let '(durable,schedules,input,result) := transition_decoded decoded source value in
  let result := if schedules then Selvedge.Features.Runtime.finish (Scheduler.run execute_command Selvedge.Features.Runtime.can_schedule_task result) else result in
- let result := admit durable input source value result in
+ let '(admitted,result) := admit_with_status durable input source value result in
  let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
    else decision_world result in
- (committed,Observation.envelope durable result)
+ (committed,Notifications.envelope durable admitted input value result)
+ end
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).

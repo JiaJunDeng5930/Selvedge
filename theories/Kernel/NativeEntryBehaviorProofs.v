@@ -31,13 +31,13 @@ Theorem a_successful_native_fork_returns_the_parent_branch :
  NativeTools.command id invocation = Some command ->
  Scheduler.internal_result_available task = true ->
  call_name invocation = "fork_task" ->
- execute command (Some id) (put_task id (with_activity (PendingCalls remaining) task) value) = result ->
+ execute command (Some (Tasks.NativeCall id invocation remaining)) (put_task id (with_activity (PendingCalls remaining) task) value) = result ->
  bool_default "ok" (decision_reply result) false = true ->
- find_task id (Scheduler.fork_receipts (next_task value) invocation remaining (decision_world result)) = Some caller ->
+ find_task id (decision_world result) = Some caller ->
  Callbacks.after_plugins caller = [] ->
  decision_world (Scheduler.execute_checked_call execute id definition invocation remaining task value) =
  put_task id (Scheduler.call_result invocation (number 0) false remaining caller)
-   (Scheduler.fork_receipts (next_task value) invocation remaining (decision_world result)).
+   (decision_world result).
 Proof.
  intros execute id definition invocation remaining task value command result caller
    Available Valid Command Room Name Executed Success Found NoHooks.

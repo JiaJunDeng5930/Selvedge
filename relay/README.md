@@ -32,6 +32,7 @@ Deploy with an authenticated Cloudflare account:
 
 ```bash
 bun install --frozen-lockfile
+bun run build
 cd relay
 bun x --no-install wrangler secret put RELAY_ENROLLMENT_TOKEN
 bun run deploy

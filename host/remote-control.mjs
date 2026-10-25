@@ -1,3 +1,4 @@
+import { remoteControl } from '../remote/control-model.mjs';
 import { constants } from 'node:fs';
 import { link, mkdir, open, unlink } from 'node:fs/promises';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -125,8 +126,10 @@ export class RemoteControl {
   #identity;
   #options;
   #connector;
-  #pending = new Map();
-  #pairingExpires = 0;
+  #pairingState = { expires_at: 0, pending: [] };
+  #pairingStep(kind, observation = {}) {
+    this.#pairingState = remoteControl('pairing', { state: this.#pairingState, event: { kind, now: Date.now(), ...observation } });
+  }
   #closed = false;
   #dirty = false;
   #reconciling;
@@ -182,8 +185,7 @@ export class RemoteControl {
 
   async disable() {
     unwrap(await this.#service.command({ op: 'remote_disable' }));
-    this.#pending.clear();
-    this.#pairingExpires = 0;
+    this.#pairingStep('clear');
     await this.reconcile();
     return this.status();
   }
@@ -192,25 +194,24 @@ export class RemoteControl {
     await this.#enabled();
     const code = randomBytes(32).toString('base64url');
     const expires_at = Date.now() + REMOTE_PAIRING_TTL_MS;
-    this.#pending.clear();
-    this.#pairingExpires = expires_at;
+    this.#pairingStep('begin', { expires_at });
     await this.#connector.pair(code, expires_at);
     return { code, expires_at, host_id: this.#identity.host_id, relay_url: this.#identity.relay_url };
   }
 
   pending() {
-    if (Date.now() >= this.#pairingExpires) this.#pending.clear();
-    return [...this.#pending.values()].map(request => ({ ...request }));
+    this.#pairingStep('observe');
+    return this.#pairingState.pending.map(request => ({ ...request }));
   }
 
   async approve(request_id, permissions) {
     await this.#enabled();
     this.pending();
-    const request = this.#pending.get(request_id);
+    const request = this.#pairingState.pending.find(request => request.request_id === request_id);
     // DEFENSE: A local approve request can name an expired, already-consumed, or nonexistent pairing request.
     if (!request) throw remoteError('remote_pairing_missing', 'This pairing request is unavailable or expired');
     const result = unwrap(await this.#service.command({ op: 'remote_grant', controller_id: request.controller_id, permissions }));
-    this.#pending.delete(request_id);
+    this.#pairingStep('consume', { request_id });
     await this.reconcile();
     return result;
   }
@@ -222,9 +223,8 @@ export class RemoteControl {
   }
 
   #pairRequested(request) {
-    // DEFENSE: A relay delivery can arrive after shutdown/expiry or repeat after the one-time pairing request was consumed.
-    if (this.#closed || Date.now() >= this.#pairingExpires || this.#pending.size >= 1) return;
-    this.#pending.set(request.request_id, { request_id: request.request_id, controller_id: request.controller_id, label: request.label });
+    if (this.#closed) return;
+    this.#pairingStep('receive', { request: { request_id: request.request_id, controller_id: request.controller_id, label: request.label } });
   }
 
   reconcile() {
@@ -255,8 +255,7 @@ export class RemoteControl {
       const connector = this.#connector;
       this.#connector = undefined;
       this.#grantsKey = undefined;
-      this.#pending.clear();
-      this.#pairingExpires = 0;
+      this.#pairingStep('clear');
       await connector?.close();
       return;
     }
@@ -281,8 +280,7 @@ export class RemoteControl {
 
   async close() {
     this.#closed = true;
-    this.#pending.clear();
-    this.#pairingExpires = 0;
+    this.#pairingStep('clear');
     await this.#connector?.close();
     await this.#reconciling;
     this.#connector = undefined;

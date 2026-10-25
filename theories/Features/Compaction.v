@@ -387,7 +387,7 @@ Definition supplied (id : N) (task : task) (summary : string) (value : Selvedge.
 Definition manual (id : N) (task : task) (value : Selvedge.Kernel.State.world) :=
  let entry := current_entry id (registry value) in
  if job_pending (entry_job entry) then acknowledged false value [] else
- let observation := Reasoning.observe_context id task value in
+ let observation := Reasoning.observe_context id value in
  let result := commit id (with_measurement Unmeasured (with_job (Resuming (capture_task task value) Manual) entry))
   (Selvedge.Kernel.State.decision_world observation) (cancellations id entry) in
  Selvedge.Kernel.State.Decision (Selvedge.Kernel.State.decision_world result) (Selvedge.Kernel.State.decision_reply result)
@@ -421,10 +421,11 @@ Definition completion (source : json) (value : Selvedge.Kernel.State.world) : op
  | None => None end.
 Definition prepare_model_effects (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  map (fun effect => match effect with
- | Selvedge.Kernel.State.RequestModel id ticket model task fallback_scope fallback_reserve =>
+ | Selvedge.Kernel.State.RequestModel request =>
+   let id := Selvedge.Kernel.ModelRequest.owner request in
    match entry_measurement (current_entry id (registry value)) with
    | Measured _ scope _ budget | Oversized _ scope budget =>
-     Selvedge.Kernel.State.RequestModel id ticket model task scope (reserve_tokens budget)
+     Selvedge.Kernel.State.RequestModel (Selvedge.Kernel.ModelRequest.with_context scope (reserve_tokens budget) request)
    | _ => effect end
  | _ => effect end) effects.
 Definition attach (result : Selvedge.Kernel.State.decision) :=

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Kernel Require Import Numbers Codec Compaction CompactionPlan ContextSelection.
@@ -7,7 +8,7 @@ Open Scope string_scope.
 Open Scope N_scope.
 
 Definition compact_metadata (id ticket : N) (input : capture) (target : target) (scope : string) := [
- ("kind", JString "context_compaction"); ("task_id", number id); ("ticket", number ticket);
+ ("kind", ModelDeclarations.tag_value ModelDeclarations.context_compaction); ("task_id", number id); ("ticket", number ticket);
  ("model", Codec.model_json (captured_profile input)); ("context_selected", JBool true);
  ("context_scope", JString scope); ("method", JString (method_name (target_method target)));
  ("window_tokens", number (window_tokens (target_budget target)));
@@ -16,20 +17,27 @@ Definition compact_json (id ticket : N) (input : capture) (target : target) (pro
  JObject (compact_metadata id ticket input target scope ++ [("plan", CompactionPlan.plan_json progress)])%list.
 Definition compact_metadata_bytes (id ticket : N) (input : capture) (target : target) (scope : string) :=
  N.of_nat (String.length (TextJson.render_json (JObject (compact_metadata id ticket input target scope)))) + 8.
-Definition effect_json (value : effect) := match value with
- | Scope id ticket input => JObject [("kind", JString "context_scope"); ("task_id", number id);
+Definition effect_fields (value : effect) := match value with
+ | Scope id ticket input => [("task_id", number id);
    ("ticket", number ticket); ("model", Codec.model_json (captured_profile input))]
- | Measure id ticket input scope validating => JObject [
-   ("kind", JString "context_measure"); ("task_id", number id); ("ticket", number ticket);
+ | Measure id ticket input scope validating => [
+   ("task_id", number id); ("ticket", number ticket);
    ("model", Codec.model_json (captured_profile input));
    ("history", JArray (ContextSelection.target_messages (ContextSelection.history_json id (captured_history input)) scope));
    ("context_selected", JBool true); ("context_scope", JString scope);
    ("tools", JArray (map Codec.tool_json (captured_tools input)));
    ("settings", Codec.settings_json (captured_settings input));
    ("callable", JArray (map JString (captured_callable input))); ("validating", JBool validating)]
- | Compact id ticket input target progress scope => compact_json id ticket input target progress scope
- | ArmClock deadline => JObject [("kind", JString "compaction_clock"); ("deadline", number deadline)]
- | Cancel id ticket => JObject [("kind", JString "compaction_cancel"); ("task_id", number id); ("ticket", number ticket)] end.
+ | Compact id ticket input target progress scope => (tl (compact_metadata id ticket input target scope) ++ [("plan", CompactionPlan.plan_json progress)])%list
+ | ArmClock deadline => [("deadline", number deadline)]
+ | Cancel id ticket => [("task_id", number id); ("ticket", number ticket)] end.
+
+Definition effect_json (value : effect) := JObject (("kind", match value with
+ | Scope _ _ _ => ModelDeclarations.tag_value ModelDeclarations.context_scope
+ | Measure _ _ _ _ _ => ModelDeclarations.tag_value ModelDeclarations.context_measure
+ | Compact _ _ _ _ _ _ => ModelDeclarations.tag_value ModelDeclarations.context_compaction
+ | ArmClock _ => ModelDeclarations.tag_value ModelDeclarations.compaction_clock
+ | Cancel _ _ => ModelDeclarations.tag_value ModelDeclarations.compaction_cancel end) :: effect_fields value).
 
 Definition target_json (value : target) := JObject [
  ("profile", JString (target_key value)); ("window_tokens", number (window_tokens (target_budget value)));

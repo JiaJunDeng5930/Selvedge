@@ -117,17 +117,13 @@ Lemma board_lookup_after_create_context : forall card_id name effort contents se
 Proof.
  intros card_id name effort contents settings idle caller value.
  unfold Selvedge.Kernel.CommandExecution.create_in_context.
- destruct caller as [caller|].
- - destruct (Selvedge.Kernel.State.find_task caller value) as [parent|];
-     cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; try reflexivity.
-   destruct (Selvedge.Kernel.Tasks.resolve_for_profile name settings
-     (Selvedge.Kernel.Domain.task_current_settings parent) value) as [selected|];
-     cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; try reflexivity.
-   destruct (Selvedge.Kernel.Tasks.native_creation_allowed settings selected
-     (Selvedge.Kernel.Domain.task_current_settings parent) value);
+ destruct (Selvedge.Kernel.CommandExecution.resolve_creation name settings caller value) as [selected|].
+ - destruct (Selvedge.Kernel.CommandExecution.creation_allowed settings selected caller value);
      cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject];
      [apply board_lookup_after_create_with_defaults|reflexivity].
- - apply board_lookup_after_create_with_defaults.
+ - destruct (find_profile name (environment_profiles (world_environment value)));
+     cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; try reflexivity.
+   unfold Selvedge.Kernel.Tasks.create. apply board_lookup_after_create_with_defaults.
 Qed.
 
 Lemma board_lookup_after_worktree_store : forall card_id tree value,
@@ -138,27 +134,28 @@ Proof.
  cbv [set]. reflexivity.
 Qed.
 
-Lemma board_lookup_after_worktree_initialize : forall card_id before result,
+Lemma board_lookup_after_worktree_initialize : forall backend card_id before result,
  Board.lookup card_id (Selvedge.Kernel.State.decision_world result)=Board.lookup card_id before ->
  Board.lookup card_id
-   (Selvedge.Kernel.State.decision_world (Selvedge.Features.Worktree.initialize before result))=
+   (Selvedge.Kernel.State.decision_world (Selvedge.Features.Worktree.initialize_backend backend before result))=
  Board.lookup card_id before.
 Proof.
- intros card_id before result unchanged.
- unfold Selvedge.Features.Worktree.initialize, Selvedge.Features.Worktree.initialize_backend.
+ intros backend card_id before result unchanged.
+ unfold Selvedge.Features.Worktree.initialize_backend.
  destruct (bool_default "ok" (Selvedge.Kernel.State.decision_reply result) false) eqn:created;
    cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; [|exact unchanged].
  cbn zeta.
  destruct (Selvedge.Kernel.State.find_task (Selvedge.Kernel.State.next_task before)
    (Selvedge.Kernel.State.decision_world result)) as [task|] eqn:found;
    cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; [|exact unchanged].
- cbn [WorkspaceBackend.cloud andb].
+ destruct (WorkspaceBackend.cloud backend && negb (project_primary_matches (task_current_settings task) before));
+   cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; [reflexivity|].
  destruct (negb (Workspace.valid_workspace (settings_workspace (task_current_settings (resource_task
-   (Selvedge.Kernel.State.next_task before) WorkspaceBackend.Local task))) &&
+   (Selvedge.Kernel.State.next_task before) backend task))) &&
    Workspace.valid_path (primary (settings_workspace (task_current_settings (resource_task
-     (Selvedge.Kernel.State.next_task before) WorkspaceBackend.Local task)))) &&
+     (Selvedge.Kernel.State.next_task before) backend task)))) &&
    workspace_available (settings_workspace (task_current_settings (resource_task
-     (Selvedge.Kernel.State.next_task before) WorkspaceBackend.Local task))) before)) eqn:space_ok;
+     (Selvedge.Kernel.State.next_task before) backend task))) before)) eqn:space_ok;
    cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject]; [reflexivity|].
  rewrite board_lookup_after_worktree_store, board_lookup_after_task_put.
  exact unchanged.
@@ -171,16 +168,25 @@ Lemma board_lookup_after_create_selected : forall card_id name effort contents s
  Board.lookup card_id value.
 Proof.
  intros card_id name effort contents settings idle caller managed value.
- unfold Selvedge.Features.Worktree.create_selected.
- remember (Selvedge.Kernel.CommandExecution.create_in_context name effort contents settings idle caller value)
-   as created_result eqn:created_equation.
- assert (unchanged : Board.lookup card_id (Selvedge.Kernel.State.decision_world created_result)=Board.lookup card_id value).
- { subst created_result. apply board_lookup_after_create_context. }
- destruct managed as [choice|].
- - destruct choice; cbn; [apply board_lookup_after_worktree_initialize; exact unchanged|exact unchanged].
- - destruct (Selvedge.Kernel.State.find_task (Selvedge.Kernel.State.next_task value)
-     (Selvedge.Kernel.State.decision_world created_result)) as [task|] eqn:found; cbn.
-   + destruct (settings_worktree (Selvedge.Kernel.Domain.task_current_settings task)); cbn;
-       [apply board_lookup_after_worktree_initialize; exact unchanged|exact unchanged].
-   + exact unchanged.
+ unfold Selvedge.Features.Worktree.create_selected, Selvedge.Features.Worktree.create_planned.
+ destruct (Selvedge.Kernel.CommandExecution.resolve_creation name settings caller value) as [selected|].
+ - destruct (Selvedge.Kernel.CommandExecution.creation_allowed settings selected caller value);
+     [|reflexivity].
+   destruct (Selvedge.Features.Worktree.select_creation_plan value selected managed None) as [plan|];
+     cbn [Selvedge.Kernel.State.decision_world Selvedge.Kernel.State.reject];
+     [|reflexivity].
+   destruct plan as [chosen|chosen owner tree observed|chosen|chosen];
+     cbn [Selvedge.Features.Worktree.consume_creation_plan Selvedge.Features.Worktree.plan_settings].
+   + apply board_lookup_after_create_with_defaults.
+   + destruct (WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) &&
+       bool_default "ok" (Selvedge.Kernel.State.decision_reply
+         (Selvedge.Kernel.Tasks.create_with_defaults name effort contents None idle chosen value)) false).
+     * destruct (find_task (next_task value) (Selvedge.Kernel.State.decision_world
+         (Selvedge.Kernel.Tasks.create_with_defaults name effort contents None idle chosen value)));
+         cbn [Selvedge.Kernel.State.decision_world];
+         try rewrite board_lookup_after_task_put; apply board_lookup_after_create_with_defaults.
+     * apply board_lookup_after_create_with_defaults.
+   + apply board_lookup_after_worktree_initialize. apply board_lookup_after_create_with_defaults.
+   + apply board_lookup_after_worktree_initialize. apply board_lookup_after_create_with_defaults.
+ - apply board_lookup_after_create_context.
 Qed.

@@ -2192,3 +2192,469 @@ Ltac command_payload_case handler := match goal with
 | [payload : resolve_workspace_payload |- _] => handler resolve_workspace_schema resolve_workspace_to_fields resolve_workspace_from_fields Cmd_resolve_workspace payload
 
 end.
+
+Record handler_table (A : Type) := Handlers {
+
+ handle_configure_task_execution : configure_task_execution_payload -> A;
+
+ handle_create : create_payload -> A;
+
+ handle_create_idle : create_idle_payload -> A;
+
+ handle_send : send_payload -> A;
+
+ handle_steer : steer_payload -> A;
+
+ handle_cancel_operation : cancel_operation_payload -> A;
+
+ handle_freeze : freeze_payload -> A;
+
+ handle_unfreeze : unfreeze_payload -> A;
+
+ handle_stop : stop_payload -> A;
+
+ handle_interrupt : interrupt_payload -> A;
+
+ handle_archive : archive_payload -> A;
+
+ handle_fork : fork_payload -> A;
+
+ handle_open_side_conversation : open_side_conversation_payload -> A;
+
+ handle_return_side_conversation : return_side_conversation_payload -> A;
+
+ handle_compact : compact_payload -> A;
+
+ handle_read : read_payload -> A;
+
+ handle_search_history : search_history_payload -> A;
+
+ handle_list : list_payload -> A;
+
+ handle_describe : describe_payload -> A;
+
+ handle_create_project : create_project_payload -> A;
+
+ handle_update_project : update_project_payload -> A;
+
+ handle_delete_project : delete_project_payload -> A;
+
+ handle_list_projects : list_projects_payload -> A;
+
+ handle_read_project : read_project_payload -> A;
+
+ handle_review_approval : review_approval_payload -> A;
+
+ handle_record_speech_transcript : record_speech_transcript_payload -> A;
+
+ handle_accept_speech_delegation : accept_speech_delegation_payload -> A;
+
+ handle_create_card : create_card_payload -> A;
+
+ handle_update_card : update_card_payload -> A;
+
+ handle_move_card : move_card_payload -> A;
+
+ handle_archive_card : archive_card_payload -> A;
+
+ handle_restore_card : restore_card_payload -> A;
+
+ handle_delete_card : delete_card_payload -> A;
+
+ handle_run_card : run_card_payload -> A;
+
+ handle_link_card : link_card_payload -> A;
+
+ handle_regenerate_card_title : regenerate_card_title_payload -> A;
+
+ handle_pin_card : pin_card_payload -> A;
+
+ handle_board_settings : board_settings_payload -> A;
+
+ handle_save_board_agent : save_board_agent_payload -> A;
+
+ handle_delete_board_agent : delete_board_agent_payload -> A;
+
+ handle_list_cards : list_cards_payload -> A;
+
+ handle_read_card : read_card_payload -> A;
+
+ handle_list_board_agents : list_board_agents_payload -> A;
+
+ handle_configure_chatgpt_connections : configure_chatgpt_connections_payload -> A;
+
+ handle_chatgpt_exec : chatgpt_exec_payload -> A;
+
+ handle_chatgpt_cancel : chatgpt_cancel_payload -> A;
+
+ handle_chatgpt_forget : chatgpt_forget_payload -> A;
+
+ handle_chatgpt_projects : chatgpt_projects_payload -> A;
+
+ handle_chatgpt_project : chatgpt_project_payload -> A;
+
+ handle_chatgpt_operation : chatgpt_operation_payload -> A;
+
+ handle_chatgpt_operations : chatgpt_operations_payload -> A;
+
+ handle_remote_enable : remote_enable_payload -> A;
+
+ handle_remote_disable : remote_disable_payload -> A;
+
+ handle_remote_grant : remote_grant_payload -> A;
+
+ handle_remote_revoke : remote_revoke_payload -> A;
+
+ handle_remote_status : remote_status_payload -> A;
+
+ handle_create_task_graph : create_task_graph_payload -> A;
+
+ handle_update_task_graph : update_task_graph_payload -> A;
+
+ handle_delete_task_graph : delete_task_graph_payload -> A;
+
+ handle_list_task_graphs : list_task_graphs_payload -> A;
+
+ handle_read_task_graph : read_task_graph_payload -> A;
+
+ handle_read_title_settings : read_title_settings_payload -> A;
+
+ handle_configure_title_settings : configure_title_settings_payload -> A;
+
+ handle_create_work : create_work_payload -> A;
+
+ handle_rename_work : rename_work_payload -> A;
+
+ handle_create_work_task : create_work_task_payload -> A;
+
+ handle_list_works : list_works_payload -> A;
+
+ handle_read_work : read_work_payload -> A;
+
+ handle_read_work_ui : read_work_ui_payload -> A;
+
+ handle_apply_work_ui_patch : apply_work_ui_patch_payload -> A;
+
+ handle_create_worktree_task : create_worktree_task_payload -> A;
+
+ handle_create_workspace_task : create_workspace_task_payload -> A;
+
+ handle_list_worktrees : list_worktrees_payload -> A;
+
+ handle_read_worktree : read_worktree_payload -> A;
+
+ handle_retry_worktree_archive : retry_worktree_archive_payload -> A;
+
+ handle_resolve_workspace : resolve_workspace_payload -> A;
+
+}.
+
+Arguments Handlers {A}.
+
+Arguments handle_configure_task_execution {A}.
+
+Arguments handle_create {A}.
+
+Arguments handle_create_idle {A}.
+
+Arguments handle_send {A}.
+
+Arguments handle_steer {A}.
+
+Arguments handle_cancel_operation {A}.
+
+Arguments handle_freeze {A}.
+
+Arguments handle_unfreeze {A}.
+
+Arguments handle_stop {A}.
+
+Arguments handle_interrupt {A}.
+
+Arguments handle_archive {A}.
+
+Arguments handle_fork {A}.
+
+Arguments handle_open_side_conversation {A}.
+
+Arguments handle_return_side_conversation {A}.
+
+Arguments handle_compact {A}.
+
+Arguments handle_read {A}.
+
+Arguments handle_search_history {A}.
+
+Arguments handle_list {A}.
+
+Arguments handle_describe {A}.
+
+Arguments handle_create_project {A}.
+
+Arguments handle_update_project {A}.
+
+Arguments handle_delete_project {A}.
+
+Arguments handle_list_projects {A}.
+
+Arguments handle_read_project {A}.
+
+Arguments handle_review_approval {A}.
+
+Arguments handle_record_speech_transcript {A}.
+
+Arguments handle_accept_speech_delegation {A}.
+
+Arguments handle_create_card {A}.
+
+Arguments handle_update_card {A}.
+
+Arguments handle_move_card {A}.
+
+Arguments handle_archive_card {A}.
+
+Arguments handle_restore_card {A}.
+
+Arguments handle_delete_card {A}.
+
+Arguments handle_run_card {A}.
+
+Arguments handle_link_card {A}.
+
+Arguments handle_regenerate_card_title {A}.
+
+Arguments handle_pin_card {A}.
+
+Arguments handle_board_settings {A}.
+
+Arguments handle_save_board_agent {A}.
+
+Arguments handle_delete_board_agent {A}.
+
+Arguments handle_list_cards {A}.
+
+Arguments handle_read_card {A}.
+
+Arguments handle_list_board_agents {A}.
+
+Arguments handle_configure_chatgpt_connections {A}.
+
+Arguments handle_chatgpt_exec {A}.
+
+Arguments handle_chatgpt_cancel {A}.
+
+Arguments handle_chatgpt_forget {A}.
+
+Arguments handle_chatgpt_projects {A}.
+
+Arguments handle_chatgpt_project {A}.
+
+Arguments handle_chatgpt_operation {A}.
+
+Arguments handle_chatgpt_operations {A}.
+
+Arguments handle_remote_enable {A}.
+
+Arguments handle_remote_disable {A}.
+
+Arguments handle_remote_grant {A}.
+
+Arguments handle_remote_revoke {A}.
+
+Arguments handle_remote_status {A}.
+
+Arguments handle_create_task_graph {A}.
+
+Arguments handle_update_task_graph {A}.
+
+Arguments handle_delete_task_graph {A}.
+
+Arguments handle_list_task_graphs {A}.
+
+Arguments handle_read_task_graph {A}.
+
+Arguments handle_read_title_settings {A}.
+
+Arguments handle_configure_title_settings {A}.
+
+Arguments handle_create_work {A}.
+
+Arguments handle_rename_work {A}.
+
+Arguments handle_create_work_task {A}.
+
+Arguments handle_list_works {A}.
+
+Arguments handle_read_work {A}.
+
+Arguments handle_read_work_ui {A}.
+
+Arguments handle_apply_work_ui_patch {A}.
+
+Arguments handle_create_worktree_task {A}.
+
+Arguments handle_create_workspace_task {A}.
+
+Arguments handle_list_worktrees {A}.
+
+Arguments handle_read_worktree {A}.
+
+Arguments handle_retry_worktree_archive {A}.
+
+Arguments handle_resolve_workspace {A}.
+
+Definition dispatch {A : Type} (handlers : handler_table A) (value : command) : A := match value with
+
+| Cmd_configure_task_execution payload => handle_configure_task_execution handlers payload
+
+| Cmd_create payload => handle_create handlers payload
+
+| Cmd_create_idle payload => handle_create_idle handlers payload
+
+| Cmd_send payload => handle_send handlers payload
+
+| Cmd_steer payload => handle_steer handlers payload
+
+| Cmd_cancel_operation payload => handle_cancel_operation handlers payload
+
+| Cmd_freeze payload => handle_freeze handlers payload
+
+| Cmd_unfreeze payload => handle_unfreeze handlers payload
+
+| Cmd_stop payload => handle_stop handlers payload
+
+| Cmd_interrupt payload => handle_interrupt handlers payload
+
+| Cmd_archive payload => handle_archive handlers payload
+
+| Cmd_fork payload => handle_fork handlers payload
+
+| Cmd_open_side_conversation payload => handle_open_side_conversation handlers payload
+
+| Cmd_return_side_conversation payload => handle_return_side_conversation handlers payload
+
+| Cmd_compact payload => handle_compact handlers payload
+
+| Cmd_read payload => handle_read handlers payload
+
+| Cmd_search_history payload => handle_search_history handlers payload
+
+| Cmd_list payload => handle_list handlers payload
+
+| Cmd_describe payload => handle_describe handlers payload
+
+| Cmd_create_project payload => handle_create_project handlers payload
+
+| Cmd_update_project payload => handle_update_project handlers payload
+
+| Cmd_delete_project payload => handle_delete_project handlers payload
+
+| Cmd_list_projects payload => handle_list_projects handlers payload
+
+| Cmd_read_project payload => handle_read_project handlers payload
+
+| Cmd_review_approval payload => handle_review_approval handlers payload
+
+| Cmd_record_speech_transcript payload => handle_record_speech_transcript handlers payload
+
+| Cmd_accept_speech_delegation payload => handle_accept_speech_delegation handlers payload
+
+| Cmd_create_card payload => handle_create_card handlers payload
+
+| Cmd_update_card payload => handle_update_card handlers payload
+
+| Cmd_move_card payload => handle_move_card handlers payload
+
+| Cmd_archive_card payload => handle_archive_card handlers payload
+
+| Cmd_restore_card payload => handle_restore_card handlers payload
+
+| Cmd_delete_card payload => handle_delete_card handlers payload
+
+| Cmd_run_card payload => handle_run_card handlers payload
+
+| Cmd_link_card payload => handle_link_card handlers payload
+
+| Cmd_regenerate_card_title payload => handle_regenerate_card_title handlers payload
+
+| Cmd_pin_card payload => handle_pin_card handlers payload
+
+| Cmd_board_settings payload => handle_board_settings handlers payload
+
+| Cmd_save_board_agent payload => handle_save_board_agent handlers payload
+
+| Cmd_delete_board_agent payload => handle_delete_board_agent handlers payload
+
+| Cmd_list_cards payload => handle_list_cards handlers payload
+
+| Cmd_read_card payload => handle_read_card handlers payload
+
+| Cmd_list_board_agents payload => handle_list_board_agents handlers payload
+
+| Cmd_configure_chatgpt_connections payload => handle_configure_chatgpt_connections handlers payload
+
+| Cmd_chatgpt_exec payload => handle_chatgpt_exec handlers payload
+
+| Cmd_chatgpt_cancel payload => handle_chatgpt_cancel handlers payload
+
+| Cmd_chatgpt_forget payload => handle_chatgpt_forget handlers payload
+
+| Cmd_chatgpt_projects payload => handle_chatgpt_projects handlers payload
+
+| Cmd_chatgpt_project payload => handle_chatgpt_project handlers payload
+
+| Cmd_chatgpt_operation payload => handle_chatgpt_operation handlers payload
+
+| Cmd_chatgpt_operations payload => handle_chatgpt_operations handlers payload
+
+| Cmd_remote_enable payload => handle_remote_enable handlers payload
+
+| Cmd_remote_disable payload => handle_remote_disable handlers payload
+
+| Cmd_remote_grant payload => handle_remote_grant handlers payload
+
+| Cmd_remote_revoke payload => handle_remote_revoke handlers payload
+
+| Cmd_remote_status payload => handle_remote_status handlers payload
+
+| Cmd_create_task_graph payload => handle_create_task_graph handlers payload
+
+| Cmd_update_task_graph payload => handle_update_task_graph handlers payload
+
+| Cmd_delete_task_graph payload => handle_delete_task_graph handlers payload
+
+| Cmd_list_task_graphs payload => handle_list_task_graphs handlers payload
+
+| Cmd_read_task_graph payload => handle_read_task_graph handlers payload
+
+| Cmd_read_title_settings payload => handle_read_title_settings handlers payload
+
+| Cmd_configure_title_settings payload => handle_configure_title_settings handlers payload
+
+| Cmd_create_work payload => handle_create_work handlers payload
+
+| Cmd_rename_work payload => handle_rename_work handlers payload
+
+| Cmd_create_work_task payload => handle_create_work_task handlers payload
+
+| Cmd_list_works payload => handle_list_works handlers payload
+
+| Cmd_read_work payload => handle_read_work handlers payload
+
+| Cmd_read_work_ui payload => handle_read_work_ui handlers payload
+
+| Cmd_apply_work_ui_patch payload => handle_apply_work_ui_patch handlers payload
+
+| Cmd_create_worktree_task payload => handle_create_worktree_task handlers payload
+
+| Cmd_create_workspace_task payload => handle_create_workspace_task handlers payload
+
+| Cmd_list_worktrees payload => handle_list_worktrees handlers payload
+
+| Cmd_read_worktree payload => handle_read_worktree handlers payload
+
+| Cmd_retry_worktree_archive payload => handle_retry_worktree_archive handlers payload
+
+| Cmd_resolve_workspace payload => handle_resolve_workspace handlers payload
+
+end.

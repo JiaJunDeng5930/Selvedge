@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
@@ -264,7 +265,7 @@ Definition parse_model_item (value : json) : option model_item :=
    | None => None end
  | _ => None end.
 Definition output_mode_name (mode : output_mode) :=
- match mode with PlainOutput => "plain" | InteractiveOutput => "interactive-v1" end.
+ match mode with PlainOutput => ModelDeclarations.plain_output_name | InteractiveOutput => ModelDeclarations.interactive_output_name end.
 Definition origin_json (origin : output_origin) := JObject [
  ("producer_task", number (origin_producer origin)); ("operation", number (origin_operation origin));
  ("part", number (origin_part origin)); ("mode", JString (output_mode_name (origin_mode origin)))].

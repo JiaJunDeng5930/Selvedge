@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Tasks Capabilities Inputs Callbacks Scheduler HookCallbacks.
+From Selvedge.Kernel Require Import Domain Codec State Tasks Capabilities Inputs Callbacks Scheduler HookCallbacks TicketedRequest ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -16,6 +16,9 @@ Qed.
 
 Theorem before_hook_dispatches_the_first_pending_plugin :
  forall execute id tool invocation plugin rest remaining task value,
+ find_task id value = Some task ->
+ task_activity task = ReadyForHooks invocation (plugin :: rest) remaining ->
+ find_tool (call_name invocation) (contract_tools (task_contract task)) = Some tool ->
  Capabilities.hook_available Capabilities.BeforeTool plugin
    (environment_plugins (world_environment value)) = true ->
  let '(ticket, allocated) := allocate_ticket value in
@@ -23,21 +26,28 @@ Theorem before_hook_dispatches_the_first_pending_plugin :
    (plugin :: rest) remaining task value) =
    [CheckTool id ticket plugin tool invocation].
 Proof.
- intros execute id tool invocation plugin rest remaining task value Available.
- unfold Scheduler.before_hook_step; rewrite Available; reflexivity.
+ intros execute id tool invocation plugin rest remaining task value Found Ready Known Available.
+ unfold Scheduler.before_hook_step; rewrite Available.
+ rewrite (ScopedRequestProofs.authorizing_uses_the_current_call id value task plugin tool invocation rest remaining Found).
+ 2: { unfold TicketedRequest.Scoped.call_action; rewrite Ready, Known; reflexivity. }
+ reflexivity.
 Qed.
 
 Theorem after_hook_dispatches_the_first_pending_plugin_for_its_operation :
  forall id current task value plugin rest result error,
  operation_stage current = AfterHooksReady (plugin :: rest) result error ->
+ find_task id value = Some task ->
+ TicketedRequest.Scoped.operation_at (operation_id current) task = Some current ->
  Capabilities.hook_available Capabilities.AfterTool plugin
    (environment_plugins (world_environment value)) = true ->
  let '(ticket, allocated) := allocate_ticket value in
  decision_effects (Scheduler.after_hooks_step id current task value) =
    [CheckResult id ticket (operation_id current) plugin (operation_call current) result error].
 Proof.
- intros id current task value plugin rest result error Stage Available.
- unfold Scheduler.after_hooks_step; rewrite Stage, Available; reflexivity.
+ intros id operation task value plugin pending result error Stage Found Owned Available.
+ unfold Scheduler.after_hooks_step; rewrite Stage, Available.
+ rewrite (ScopedRequestProofs.after_uses_the_current_operation id value task operation plugin pending result error Found Owned Stage).
+ reflexivity.
 Qed.
 
 Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :

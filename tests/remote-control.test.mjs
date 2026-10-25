@@ -84,6 +84,10 @@ test('private identity publication and lost remote command receipts survive rest
   const options = { home: directory, cwd: workspace, config, remoteOptions: { allowLoopback: true } };
   service = await Service.open(options);
   await service.remote.enable();
+  const malformedGrant = await service.command({ op: 'remote_grant', controller_id: 'a',
+    permissions: { read: true, control: false, configure: false, approve: false } });
+  assert.equal(malformedGrant.reply.ok, false);
+  assert.equal(malformedGrant.reply.error.code, 'remote_invalid_controller');
   await until(async () => (await service.remote.status()).connection.connected);
   await service.remote.pair();
   await until(() => service.remote.pending().some(request => request.request_id === pairing_id));

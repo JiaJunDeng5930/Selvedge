@@ -110,145 +110,107 @@ export function createChatGPTAudio({ home, fetchImpl = fetch,
     return boundary('audio.asr_response', { status: response.status, value });
   }
 
-  async function createSession({ connection: connectionId, task_id, sdp, id = randomUUID(), initial_items = [], signal }) {
+  async function createSession({ connection: connectionId, task_id, sdp, id = randomUUID(), generation = randomUUID(), initial_items = [], signal }) {
     const limits = contract();
     const lifetime = AbortSignal.any([signal, AbortSignal.timeout(limits.connect_timeout_ms)].filter(Boolean));
     const selected = await connection(connectionId, lifetime);
     const body = boundary('audio.session_request', { connection: connectionId, source: selected.source, authorized: true,
       task_id, sdp, id, initial_items });
-    const sessionHeaders = { 'OpenAI-Alpha': 'quicksilver=v2', 'Thread-Id': String(task_id), 'Session-Id': id };
+    const sessionHeaders = boundary('control.audio.headers', { task_id, id });
     const response = await authenticatedFetch(limits.calls_url, { method: 'POST', body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', ...sessionHeaders } }, selected, lifetime);
     const answer = boundary('audio.session_response', { status: response.status,
       sdp: await responseText(response, limits.response_max_bytes), call_id: callIdentity(response.headers.get('location')) });
-    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id, closed: false,
-      tails: new Map(), turns: new Map(), pending: new Map(), sequence: 0, queue: Promise.resolve(), ready: false };
+    const activation = boundary('control.audio.connection_initial', {});
+    const record = { id, task_id, socket: null, retryTimer: null, call_id: answer.call_id, connection: activation.state,
+      state: boundary('control.audio.stream_initial', { id, task_id, generation }), queue: Promise.resolve() };
+    Object.defineProperties(record, {
+      closed: { get: () => record.state.phase === 'closed' },
+    });
     sessions.set(id, record);
-    const emit = event => onEvent({ session_id: id, task_id, ...event });
-    const transcript = (event, completion) => emit({ ...event, type: 'transcript',
-      item_id: event.item_id || `${id}:${++record.sequence}`, completion, final: true });
-    const markReady = async () => {
-      if (record.ready || record.closed) return;
-      record.ready = true;
-      lifetime.removeEventListener('abort', startupAbort);
-      await emit({ type: 'ready' });
+    const transition = observation => {
+      const result = boundary('control.audio.stream_step', { state: record.state,
+        observation: { generation, ...observation } });
+      record.state = result.state;
+      return result.actions;
     };
+    const interpret = async actions => {
+      for (const action of actions) switch (action.type) {
+        case 'ready': lifetime.removeEventListener('abort', startupAbort); break;
+        case 'emit': await onEvent(action.event); break;
+        case 'close': {
+          connectionTransition({ kind: 'stop' });
+          signal?.removeEventListener('abort', abort);
+          lifetime.removeEventListener('abort', startupAbort);
+          if (sessions.get(id) === record) sessions.delete(id);
+          clearTimeout(record.retryTimer);
+          const socket = record.socket;
+          if (socket?.readyState === 1) { socket.send(JSON.stringify({ type: 'session.close' })); socket.close(); }
+          else if (socket?.readyState === 0) socket.terminate();
+          break;
+        }
+        default: throw new TypeError(`Unknown audio transport effect: ${action.type}`);
+      }
+    };
+    const markReady = () => interpret(transition({ kind: 'open' }));
     const enqueue = action => {
       record.queue = record.queue.then(action).catch(error => {
         // DEFENSE: A malformed provider event or a rejected journal commit ends this control connection; continuing would lose the correspondence between voice observations and accepted task input.
         terminate(error);
       });
     };
-    function terminate(error) {
-      if (record.closed) return;
-      record.closed = true;
-      signal?.removeEventListener('abort', abort);
-      lifetime.removeEventListener('abort', startupAbort);
-      sessions.delete(id);
-      clearTimeout(record.retryTimer);
-      const socket = record.socket;
-      if (socket?.readyState === 1) { socket.send(JSON.stringify({ type: 'session.close' })); socket.close(); }
-      else if (socket?.readyState === 0) socket.terminate();
-      record.queue = record.queue.then(async () => {
-        for (const [role, text] of record.tails) {
-          if (text) await transcript({ role, text, remaining: '' }, 'interrupted');
-        }
-        record.tails.clear();
-        for (const pending of record.pending.values()) await emit({ type: 'error', error: 'Voice delegation is missing its referenced user turn', item_id: pending.item?.id ?? pending.item_id });
-        record.pending.clear();
-        if (error) await emit({ type: 'error', error: error.message });
-        await emit({ type: 'closed' });
-      });
+    function terminate(error, kind = 'stop') {
+      const actions = transition({ kind, message: error?.message ?? '' });
+      record.queue = record.queue.then(() => interpret(actions));
     }
-    const abort = () => terminate(signal.reason ?? new Error('Voice cancelled'));
-    const startupAbort = () => { if (!record.ready) terminate(lifetime.reason); };
+    const abort = () => terminate(signal.reason);
+    const startupAbort = () => terminate(lifetime.reason, 'startup_timeout');
     signal?.addEventListener('abort', abort, { once: true });
     lifetime.addEventListener('abort', startupAbort, { once: true });
     record.stop = terminate;
-    const receiveMessage = message => {
-      if (record.closed) return;
-      enqueue(async () => {
-        const raw = typeof message.data === 'string' ? message.data : new TextDecoder('utf-8', { fatal: true }).decode(message.data);
-        const value = parsedJson(raw);
-        if (value === null) throw new Error('ChatGPT voice control returned invalid JSON');
-        const source = () => ({ value, turns: [...record.turns].map(([turn_id, text]) => ({ turn_id, text })) });
-        const event = boundary('audio.event', source());
-        if (event === null) return;
-        switch (event.type) {
-          case 'ready':
-            await markReady();
-            break;
-          case 'delta':
-            record.tails.set(event.role, (record.tails.get(event.role) ?? '') + event.text);
-            await emit(event);
-            break;
-          case 'transcript': {
-            const remaining = boundary('audio.transcript_tail', {
-              pending: record.tails.get(event.role) ?? '', completed: event.text,
-            });
-            if (remaining) record.tails.set(event.role, remaining);
-            else record.tails.delete(event.role);
-            if (event.role === 'user' && event.item_id) record.turns.set(event.item_id, event.text);
-            await transcript({ ...event, remaining }, 'completed');
-            break;
-          }
-          case 'turn':
-            record.turns.set(event.turn_id, event.text);
-            record.tails.set('user', event.text);
-            break;
-          case 'delegation_pending':
-            record.pending.set(event.item_id, value);
-            break;
-          case 'delegation':
-            record.pending.delete(event.item_id);
-            await emit({ ...event, delegation_id: event.item_id });
-            break;
-          case 'error': throw new Error(event.error);
-        }
-        for (const [itemId, pending] of record.pending) {
-          const resolved = boundary('audio.event', { ...source(), value: pending });
-          if (resolved.type === 'delegation') {
-            record.pending.delete(itemId);
-            await emit({ ...resolved, delegation_id: resolved.item_id });
-          }
-        }
-      });
+    const connectionTransition = observation => {
+      const result = boundary('control.audio.connection_step', { state: record.connection, observation });
+      record.connection = result.state;
+      return result.actions;
     };
-    const activationDelays = [100, 300, 800];
-    let activationAttempt = 0;
-    function connectSideband() {
+    const interpretConnection = async actions => {
+      for (const action of actions) switch (action.type) {
+        case 'connect': connectSideband(action.attempt); break;
+        case 'retry':
+          record.retryTimer = setTimeout(() => enqueue(() => interpretConnection(connectionTransition({ kind: 'retry', attempt: action.attempt }))), action.delay);
+          break;
+        case 'open': await markReady(); break;
+        case 'stop': terminate(action.message ? new Error(action.message) : undefined); break;
+        case 'provider': {
+          const value = parsedJson(action.raw);
+          if (value === null) throw new Error('ChatGPT voice control returned invalid JSON');
+          await interpret(transition({ kind: 'event', value }));
+          break;
+        }
+        default: throw new TypeError(`Unknown audio connection effect: ${action.type}`);
+      }
+    };
+    function connectSideband(attempt) {
       const socket = new WebSocketImpl(`${limits.sideband_base}${encodeURIComponent(answer.call_id)}`, {
         headers: { ...authHeaders(selected.authorization), ...sessionHeaders, 'x-session-id': id }, maxPayload: limits.event_max_bytes,
       });
       record.socket = socket;
-      let rejectedUpgrade = false;
       socket.on('unexpected-response', (_request, response) => {
-        rejectedUpgrade = true;
-        const status = response.statusCode;
+        const actions = connectionTransition({ kind: 'upgrade', attempt, status: response.statusCode });
         response.destroy();
         socket.terminate();
-        // DEFENSE: Instant Connect can return404 before Chrome ICE activates the call. Retry only this documented upgrade status, without waiting for the gateway error body (observed to delay six seconds).
-        if (status === 404 && activationAttempt < activationDelays.length) {
-          record.retryTimer = setTimeout(() => {
-            record.retryTimer = null;
-            if (!record.closed) connectSideband();
-          }, activationDelays[activationAttempt++]);
-          return;
-        }
-        terminate(new Error(`ChatGPT voice control connection failed (HTTP ${status})`));
+        enqueue(() => interpretConnection(actions));
       });
-      // ExistingCall already has its media session configuration; the official controller returns after the successful upgrade without waiting for a replayed session.started.
-      socket.addEventListener('open', () => { if (!record.closed) enqueue(markReady); });
-      socket.addEventListener('message', receiveMessage);
-      socket.addEventListener('error', event => {
-        if (!rejectedUpgrade && !record.closed) terminate(new Error(`ChatGPT voice control connection failed${event.message ? `: ${event.message}` : ''}`));
-      });
-      socket.addEventListener('close', event => {
-        if (!rejectedUpgrade) terminate(event.code === 1000 || record.closed ? undefined
-          : new Error(`ChatGPT voice control connection closed (${event.code})`));
-      });
+      socket.addEventListener('open', () => enqueue(() => interpretConnection(connectionTransition({ kind: 'open', attempt }))));
+      socket.addEventListener('message', message => enqueue(() => {
+        const raw = typeof message.data === 'string' ? message.data : new TextDecoder('utf-8', { fatal: true }).decode(message.data);
+        return interpretConnection(connectionTransition({ kind: 'message', attempt, raw }));
+      }));
+      socket.addEventListener('error', event => enqueue(() => interpretConnection(connectionTransition({ kind: 'error', attempt,
+        message: `ChatGPT voice control connection failed${event.message ? `: ${event.message}` : ''}` }))));
+      socket.addEventListener('close', event => enqueue(() => interpretConnection(connectionTransition({ kind: 'close', attempt, code: event.code }))));
     }
-    connectSideband();
+    await interpretConnection(activation.actions);
     if (lifetime.aborted) {
       startupAbort();
       await record.queue;

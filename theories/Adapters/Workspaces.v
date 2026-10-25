@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Utf8 Schema.
 From Selvedge.Kernel Require Import Commands Workspace.
@@ -72,9 +73,15 @@ Definition plan (command : json) : workspace_plan :=
     let selected := graph_selections 0%nat (items (get command "nodes")) in
     WorkspacePlan (Commands.root_task_creation command) false selected
   else WorkspacePlan false false [].
-Definition plan_json (plan : workspace_plan) := JObject [("root_task",JBool plan.(root_task));("worktree",JBool plan.(worktree));
-  ("selections",JArray (map (fun selection => JObject [("value",selection.(selected_value));
-    ("resolve_project",JBool selection.(resolve_project))]) plan.(selections)))].
+Definition selection_fields (selection : selection) : fields ModelResultDeclarations.workspace_selection_fields :=
+ FCons (field:=Field "value" KJson) selection.(selected_value)
+ (FCons (field:=Field "resolve_project" KBool) selection.(resolve_project) FNil).
+Definition selection_json selection := JObject (Schema.encode_fields (selection_fields selection)).
+Definition command_plan_fields (plan : workspace_plan) : fields ModelResultDeclarations.workspace_command_fields :=
+ FCons (field:=Field "root_task" KBool) plan.(root_task)
+ (FCons (field:=Field "worktree" KBool) plan.(worktree)
+ (FCons (field:=Field "selections" (KArray KJson)) (map selection_json plan.(selections)) FNil)).
+Definition plan_json plan := JObject (Schema.encode_fields (command_plan_fields plan)).
 Definition workspace_settings (source : json) :=
   let value := get source "value" in
   (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
@@ -84,6 +91,14 @@ Definition workspace_settings (source : json) :=
     (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&
       bound (get value "project_id") 0 9007199254740991 then get value "project_id" else JNull);
       ("observe_workspace",JBool workspace_supplied)]) "Root guidance and workspace resources are observed by the service, not supplied by a client".
+Definition workspace_selection_plan (source : json) :=
+ let value := get source "value" in
+ let project := if boolean_field source "resolve_project" && negb (has value "workspace") &&
+   bound (get value "project_id") 0 9007199254740991 then natural (get value "project_id") else None in
+ let values : fields ModelResultDeclarations.workspace_settings_fields :=
+ FCons (field:=Field "project_id" (KOptional KNatural)) project
+ (FCons (field:=Field "observe_workspace" KBool) (has value "workspace") FNil) in
+ success (JObject (Schema.encode_fields values)).
 Definition observed_settings (selected observation : json) :=
   let workspace := if has observation "workspace" then set selected "workspace" (get observation "workspace") else selected in
   let selected := if has observation "workspace_binding" then set workspace "workspace_binding" (get observation "workspace_binding") else workspace in
@@ -104,6 +119,21 @@ Definition apply_observation (command : json) (entry : selection * json) :=
 Definition workspace_command_observed (source : json) :=
   let command := get source "command" in
   success (fold_left apply_observation (combine (plan command).(selections) (items (get source "observations"))) command).
+
+(* Raw command admission precedes every observation, including cloud and unknown-task paths. *)
+Definition raw_settings_valid (selection : selection) :=
+  is_null (get selection.(selected_value) "guidance") &&
+  is_null (get selection.(selected_value) "workspace_binding").
+Definition clear_observed_fields (value : json) := match value with
+  | JObject fields => JObject (remove_field "workspace_binding" (remove_field "guidance" fields))
+  | _ => value end.
+Definition workspace_command_raw (source : json) :=
+  let command := get source "command" in
+  let selections := (plan command).(selections) in
+  type_admit (forallb raw_settings_valid selections)
+    (fold_left (fun current selection => apply_observation current
+      (Selection selection.(selected_path) (clear_observed_fields selection.(selected_value)) selection.(resolve_project), JObject [])) selections command)
+    "Root guidance and workspace resources are observed by the service, not supplied by a client".
 
 Definition child (parent leaf : string) :=
   if String.eqb (String.substring (Nat.pred (String.length parent)) 1 parent) "/"
@@ -129,7 +159,7 @@ Definition worktree_receipt (source : json) :=
   let value := get source "value" in let workspace := get value "workspace" in let root := get value "root" in
   type_admit (plain_fields_only ["task_id";"source_root";"root";"workspace";"status"] value &&
     equal (get value "task_id") (get source "task_id") && equal (get value "source_root") (get source "source_root") &&
-    ((String.eqb (str value "status") "ready" && equal root (get (get source "files") "active")) ||
+    ((existsb (String.eqb (str value "status")) ["creating";"ready";"archiving"] && equal root (get (get source "files") "active")) ||
      (String.eqb (str value "status") "archived" && equal root (get (get source "files") "archived"))) &&
     workspace_valid workspace && forallb path_valid (items (get workspace "roots")) &&
     existsb (fun root => String.eqb (text root) (str workspace "primary_root")) (items (get workspace "roots")) &&

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import ModelResultDeclarations.
 From Stdlib Require Import String List Bool Arith.
 From Selvedge.Adapters Require Import Common.
 Import ListNotations.
@@ -20,21 +21,21 @@ Definition request_plan (source : json) : json :=
   let request := get source "observation" in
   if negb (is_object request) then type_error "Expected an observation request"
   else if String.eqb (observation_kind request) "streams" && field_count_is 1 request then
-    success (JObject [("kind",JString "streams")])
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_streams])
   else if String.eqb (observation_kind request) "workspace-git" &&
       request_count_is 2 request && is_text (get request "primary") then
-    success (JObject ([ ("kind",JString "workspace-git");
+    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;
       ("primary",if String.eqb (str request "primary") "" then get source "cwd" else get request "primary") ] ++
       task_id_field request))
   else if String.eqb (observation_kind request) "browse-directories" && request_count_is 2 request then
-    success (JObject ([ ("kind",JString "browse-directories");
+    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;
       ("path",get request "path");
       ("default_path",JBool (empty_requested_path request));
       ("project_root",get source "project_root") ] ++ task_id_field request))
   else if String.eqb (observation_kind request) "directories" && request_count_is 2 request && truthy (get request "workspace") then
-    success (JObject ([ ("kind",JString "directories");("workspace",get request "workspace") ] ++ task_id_field request))
+    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_directories;("workspace",get request "workspace") ] ++ task_id_field request))
   else if String.eqb (observation_kind request) "skill-catalog" && request_count_is 2 request && truthy (get request "workspace") then
-    success (JObject ([ ("kind",JString "skill-catalog");("workspace",get request "workspace") ] ++ task_id_field request))
+    success (JObject ([ModelResultDeclarations.tag ModelResultDeclarations.browser_skill_catalog;("workspace",get request "workspace") ] ++ task_id_field request))
   else type_error "Unknown browser observation".
 
 Definition resolve_browse_path (source : json) : json :=
@@ -49,16 +50,16 @@ Definition completion (source : json) : json :=
   let kind := str source "kind" in
   let value := get source "value" in
   if String.eqb kind "workspace-git" then
-    success (JObject [("kind",JString "workspace-git");("available",get source "available")])
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("available",get source "available")])
   else if String.eqb kind "browse-directories" then
     if boolean_field source "ok" then success value
     else success (JObject [("ok",JBool false);("error",get source "error")])
   else if String.eqb kind "directories" then
-    success (JObject [("kind",JString "directories");("workspace",get value "workspace");("guidance",get value "guidance")])
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_directories;("workspace",get value "workspace");("guidance",get value "guidance")])
   else if String.eqb kind "skill-catalog" then
     if boolean_field source "ok" then
-      success (JObject [("kind",JString "skill-catalog");("ok",JBool true);("skills",value)])
-    else success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",get source "error")])
+      success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_skill_catalog;("ok",JBool true);("skills",value)])
+    else success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_skill_catalog;("ok",JBool false);("error",get source "error")])
   else type_error "Unknown browser observation result".
 
 Definition call (operation : string) (source : json) : json :=
@@ -70,38 +71,38 @@ Definition call (operation : string) (source : json) : json :=
   else err ("Unknown browser observation operation: " ++ operation).
 
 Theorem workspace_git_plan_defaults_to_cwd : forall observation cwd,
-  observation = JObject [("kind",JString "workspace-git");("primary",JString "")] ->
+  observation = JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("primary",JString "")] ->
   request_plan (JObject [("observation",observation);("cwd",cwd)]) =
-    success (JObject [("kind",JString "workspace-git");("primary",cwd)]).
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_workspace_git;("primary",cwd)]).
 Proof. intros observation cwd equal;subst observation;reflexivity. Qed.
 
 Theorem browse_empty_path_selects_default : forall observation,
-  observation = JObject [("kind",JString "browse-directories");("path",JString "")] ->
+  observation = JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;("path",JString "")] ->
   request_plan (JObject [("observation",observation)]) =
-    success (JObject [("kind",JString "browse-directories");("path",JString "");
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;("path",JString "");
       ("default_path",JBool true);("project_root",JNull)]).
 Proof. intros observation equal;subst observation;reflexivity. Qed.
 
 Theorem browse_default_prefers_an_observed_task_root : forall task_root project_root,
-  resolve_browse_path (JObject [("plan",JObject [("kind",JString "browse-directories");("path",JString "");
+  resolve_browse_path (JObject [("plan",JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;("path",JString "");
     ("default_path",JBool true);("project_root",project_root)]);
     ("task_environment_present",JBool true);("task_root",task_root)]) =
     success (JObject [("path",task_root);("canonicalize",JBool false)]).
 Proof. reflexivity. Qed.
 
 Theorem browse_default_uses_canonical_project_root_without_task_environment : forall project_root,
-  resolve_browse_path (JObject [("plan",JObject [("kind",JString "browse-directories");("path",JString "");
+  resolve_browse_path (JObject [("plan",JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;("path",JString "");
     ("default_path",JBool true);("project_root",project_root)]);
     ("task_environment_present",JBool false)]) =
     success (JObject [("path",project_root);("canonicalize",JBool true)]).
 Proof. reflexivity. Qed.
 
 Theorem browse_failure_has_the_public_error_shape : forall message,
-  completion (JObject [("kind",JString "browse-directories");("ok",JBool false);("error",JString message)]) =
+  completion (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_browse_directories;("ok",JBool false);("error",JString message)]) =
     success (JObject [("ok",JBool false);("error",JString message)]).
 Proof. intros;reflexivity. Qed.
 
 Theorem skill_catalog_failure_has_the_public_error_shape : forall message,
-  completion (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]) =
-    success (JObject [("kind",JString "skill-catalog");("ok",JBool false);("error",JString message)]).
+  completion (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_skill_catalog;("ok",JBool false);("error",JString message)]) =
+    success (JObject [ModelResultDeclarations.tag ModelResultDeclarations.browser_skill_catalog;("ok",JBool false);("error",JString message)]).
 Proof. intros;reflexivity. Qed.

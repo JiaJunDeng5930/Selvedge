@@ -27,7 +27,9 @@ export async function runTests(buildResult, selected = process.argv.slice(2)) {
     return [signal, handler];
   });
   try {
-    const result = await runTestProcess('Selvedge end-to-end tests', [process.execPath, 'test', '--timeout', '30000', ...tests.map(name => `tests/${name}`)], { cwd: root, active });
+    // Bound a hung test without treating a complete browser workflow as a
+    // 30-second performance requirement. Individual waits keep their deadlines.
+    const result = await runTestProcess('Selvedge end-to-end tests', [process.execPath, 'test', '--timeout', '120000', ...tests.map(name => `tests/${name}`)], { cwd: root, active });
     const output = `${result.out}\n${result.err}`;
     const passes = [...output.matchAll(/^\s*(\d+) pass\s*$/gm)];
     const failures = [...output.matchAll(/^\s*(\d+) fail\s*$/gm)];

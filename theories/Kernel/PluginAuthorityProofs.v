@@ -1,6 +1,6 @@
 From Stdlib Require Import String List NArith Bool.
 From Selvedge.Foundation Require Import Json JsonProofs.
-From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Scheduler.
+From Selvedge.Kernel Require Import Domain State Codec Capabilities Configuration Tasks Scheduler TicketedRequest ScopedRequestProofs.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -22,6 +22,9 @@ Proof. reflexivity. Qed.
    obligation rules out an implementation that accepts MCP calls but drops them. *)
 Theorem admitted_mcp_calls_dispatch : forall execute id name description schema server remote invocation remaining task value,
  let advertised := Tool name description (McpToolSource schema server remote) in
+ find_task id value = Some task ->
+ task_activity task = ReadyForHooks invocation [] remaining ->
+ find_tool (call_name invocation) (contract_tools (task_contract task)) = Some advertised ->
  Capabilities.available (environment_tools (world_environment value)) advertised = true ->
  (exists fields, call_arguments invocation = JObject fields) ->
  NativeTools.command id invocation = None ->
@@ -35,12 +38,15 @@ Theorem admitted_mcp_calls_dispatch : forall execute id name description schema 
     | FullAccess => ElevatedAccess | _ => DefaultAccess end)].
 Proof.
  intros execute id name description schema server remote invocation remaining task value advertised
-   Available [fields Arguments] NoNative NoDiscover NoBash Room.
+   Found Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
  unfold Scheduler.execute_checked_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
  rewrite Arguments; cbn. rewrite NoNative, NoDiscover.
- unfold Scheduler.start_external. rewrite Room, NoBash.
- destruct (settings_approval (task_current_settings task)); reflexivity.
+ rewrite (ScopedRequestProofs.starting_uses_the_current_call id value task advertised invocation remaining
+   (TicketedRequest.Scoped.external_authority_for task invocation) Found).
+ 2: { unfold TicketedRequest.Scoped.call_action; rewrite Ready, Known; reflexivity. }
+ rewrite Room. unfold TicketedRequest.Scoped.external_authority_for.
+ rewrite NoBash. destruct (settings_approval (task_current_settings task)); reflexivity.
 Qed.
 
 Lemma same_reference_preserves_identity : forall left right,

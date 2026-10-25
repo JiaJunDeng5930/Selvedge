@@ -1,6 +1,6 @@
 From Stdlib Require Import List Bool NArith.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks SideContext Scheduler TicketedRequest ScopedRequestProofs.
 Import ListNotations.
 
 Local Lemma lifecycle_after_with_lifecycle : forall state task,
@@ -29,7 +29,7 @@ Theorem publishing_live_operations_only_marks_them_announced :
  task_operations (Scheduler.publish_operations task) = map Scheduler.announce_operation operations.
 Proof.
  intros task phase operations RunningTask.
- unfold Scheduler.publish_operations, Domain.with_operations.
+ unfold Scheduler.publish_operations, TicketedRequest.publish_operations, Domain.with_operations.
  rewrite lifecycle_after_history_append, RunningTask.
  rewrite operations_after_running_lifecycle.
  unfold Domain.task_operations; rewrite RunningTask; reflexivity.
@@ -54,7 +54,7 @@ Qed.
 
 Theorem exhausted_schedule_requests_another_step : forall execute permitted value effects,
  existsb (fun entry => let '(id, task) := entry in
-   permitted id (SideContext.reconcile value) && Scheduler.task_has_work task)
+   match Scheduler.next_runnable_step permitted id task (SideContext.reconcile value) with Some _ => true | None => false end)
    (Numbers.indexed (fun id task => (id, task)) 0 (world_tasks (SideContext.reconcile value))) = true ->
  Scheduler.schedule 0 execute permitted value effects =
    (SideContext.reconcile value, effects ++ [ContinueScheduling]).
@@ -93,4 +93,31 @@ Proof.
  { unfold Domain.with_activity; destruct Promoted as [Promoted|Promoted];
      rewrite Promoted; apply operations_after_running_lifecycle. }
  rewrite NextPhase, NextOperations; split; [reflexivity|exact Member].
+Qed.
+
+Theorem a_blocked_environment_still_admits_archived_settlement :
+ forall permitted owner task value operations pending,
+ permitted owner value = false ->
+ task_lifecycle task = Archived operations ->
+ Scheduler.ready_settlement operations = Some pending ->
+ Scheduler.next_runnable_step permitted owner task value = Some (Scheduler.SettlementStep pending).
+Proof.
+ intros permitted owner task value operations pending Blocked ArchivedTask Pending.
+ unfold Scheduler.next_runnable_step; rewrite Blocked.
+ unfold task_operations; rewrite ArchivedTask, Pending; reflexivity.
+Qed.
+Theorem archived_after_hook_dispatches_its_retained_result :
+ forall owner task value operations pending plugin remaining result error,
+ find_task owner value = Some task ->
+ TicketedRequest.Scoped.operation_at (operation_id pending) task = Some pending ->
+ task_lifecycle task = Archived operations ->
+ operation_stage pending = AfterHooksReady (plugin :: remaining) result error ->
+ Capabilities.hook_available Capabilities.AfterTool plugin
+   (environment_plugins (world_environment value)) = true ->
+ Scheduler.after_hooks_step owner pending task value =
+ TicketedRequest.issue owner (TicketedRequest.After pending plugin remaining result error task) value.
+Proof.
+ intros owner task value operations pending plugin remaining result error Found Owned ArchivedTask Stage Available.
+ unfold Scheduler.after_hooks_step; rewrite Stage, Available.
+ now apply ScopedRequestProofs.after_uses_the_current_operation.
 Qed.

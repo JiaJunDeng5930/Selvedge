@@ -1,3 +1,5 @@
+From Selvedge.Kernel Require Import CommandHandlers.
+From Selvedge.Foundation Require Import RemoteIdentity.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonProofs JsonObjectsProofs.
 From Selvedge.Kernel Require Import Domain State Numbers Tasks Packet.
@@ -24,7 +26,7 @@ Proof.
  { unfold Worktree.control_allowed in Allowed.
    apply andb_true_iff in Allowed; exact (proj1 Allowed). }
  cbn [Packet.execute_domain Packet.query Selvedge.Kernel.Queries.answer
-   Selvedge.Features.Runtime.query Selvedge.Features.Runtime.or_else
+   CommandHandlers.query G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler Selvedge.Features.Runtime.or_else
    Selvedge.Features.Work.query Selvedge.Features.Board.query
    Selvedge.Features.TaskGraph.query Worktree.query Remote.query
    Selvedge.Features.Chatgpt.query Selvedge.Features.TitleRuntime.query
@@ -32,7 +34,7 @@ Proof.
  unfold Selvedge.Features.Runtime.guard_command, Worktree.guard_command.
  cbn [G.stop_task_id]. unfold Worktree.execution_guard.
  rewrite Executable, Allowed. cbn [Selvedge.Features.Runtime.or_else].
- cbn [Selvedge.Features.Runtime.command Selvedge.Features.Runtime.or_else
+ cbn [CommandHandlers.execute G.handle_stop Selvedge.Generated.Commands.dispatch CommandHandlers.handlers CommandHandlers.require_handler Selvedge.Features.Runtime.or_else
    Selvedge.Features.Work.command Selvedge.Features.Board.command
    Selvedge.Features.TaskGraph.command Worktree.command
    Remote.command Selvedge.Features.Chatgpt.command Selvedge.Features.Compaction.command

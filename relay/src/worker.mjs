@@ -1,6 +1,7 @@
+import { remoteControl } from '../../remote/control-model.mjs';
 import {
-  REMOTE_PROTOCOL_VERSION, MAX_REMOTE_HTTP_BYTES, MAX_REMOTE_CONTROLLERS,
-  MAX_REMOTE_TICKETS, REMOTE_TICKET_TTL_MS, REMOTE_PAIRING_TTL_MS,
+  REMOTE_PROTOCOL_VERSION, MAX_REMOTE_HTTP_BYTES,
+  REMOTE_TICKET_TTL_MS,
   isHostId, isRemoteToken, parseRemoteFrame, encodeRemoteFrame, protocolError, RemoteProtocolError,
   validateHostFrame, validateControllerRequest,
 } from '../../remote/protocol.mjs';
@@ -140,8 +141,7 @@ export class RemoteHostRelay {
   host(ready = true) {
     return this.ctx.getWebSockets('host').find(socket => {
       const state = socket.deserializeAttachment();
-      return state.role === 'host' && state.generation === this.generation
-        && (!ready || (state.negotiated && state.synced));
+      return remoteControl('host_current', { connection: state, generation: this.generation, ready });
     });
   }
 
@@ -152,9 +152,14 @@ export class RemoteHostRelay {
   }
 
   controllerCurrent(state) {
-    // DEFENSE: Hibernated controller sockets can outlive host replacement and persisted grant revocation.
-    return state.role === 'controller' && state.generation === this.generation
-      && this.grants.get(state.controller_id) === state.grant_epoch && Boolean(this.host());
+    return state.role === 'controller' && remoteControl('delivery', { connection: state,
+      generation: this.generation, grants: [...this.grants].map(([controller_id, grant_epoch]) => ({ controller_id, grant_epoch })),
+      host_ready: Boolean(this.host()) });
+  }
+
+  step(state, event) {
+    return remoteControl('relay', { state, event: { now: Date.now(),
+      grants: [...this.grants].map(([controller_id, grant_epoch]) => ({ controller_id, grant_epoch })), ...event } });
   }
 
   async fetch(request) {
@@ -197,13 +202,13 @@ export class RemoteHostRelay {
     if (!upgrade(request)) return failure('websocket_required', 426);
     // DEFENSE: Persist the generation before accepting its socket so a replaced
     // host cannot forward delayed responses after a Durable Object restart.
-    this.generation++;
+    const nextHost = this.step({ generation: this.generation }, { kind: 'host_new' }).state;
+    this.generation = nextHost.generation;
     await this.ctx.storage.put('generation', this.generation);
     for (const socket of this.ctx.getWebSockets()) socket.close(1012, 'Remote host connection replaced');
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    server.serializeAttachment({ role: 'host', generation: this.generation, negotiated: false,
-      synced: false, pairing: null, pairing_revision: 0, tickets: [] });
+    server.serializeAttachment(nextHost);
     this.ctx.acceptWebSocket(server, ['host']);
     send(server, { type: 'ready', version: REMOTE_PROTOCOL_VERSION });
     return new Response(null, { status: 101, webSocket: client });
@@ -225,14 +230,15 @@ export class RemoteHostRelay {
     if (!supplied) return failure('invalid_pairing_code', 401);
     const suppliedDigest = await digest(supplied);
     const state = host.deserializeAttachment();
-    // DEFENSE: Pairing codes can be missing, expired, previously consumed, or unrelated to the active host.
-    if (!state.pairing || state.pairing.expires_at <= Date.now()
-        || !sameDigest(state.pairing.digest, suppliedDigest)) return failure('invalid_pairing_code', 401);
-    state.pairing = null;
-    host.serializeAttachment(state);
+    const consumed = this.step(state, { kind: 'pair_consume', digest: suppliedDigest });
+    if (!consumed.allowed) return failure('invalid_pairing_code', 401);
+    host.serializeAttachment(consumed.state);
     const controllerId = await digest(body.controller_token);
     // DEFENSE: Hashing yields; a replacement host must not receive an already-consumed code from the prior generation.
-    if (this.host() !== host || state.generation !== this.generation) return failure('host_offline', 503);
+    if (this.host() !== host) return failure('host_offline', 503);
+    const delivery = this.step(host.deserializeAttachment(), { kind: 'pair_delivery',
+      revision: state.pairing_revision, expires_at: state.pairing.expires_at });
+    if (!delivery.allowed) return failure('invalid_pairing_code', 401);
     const requestId = crypto.randomUUID();
     send(host, { type: 'pair_request', request_id: requestId, controller_id: controllerId, label: body.label });
     return result({ request_id: requestId, controller_id: controllerId, status: 'pending' });
@@ -254,24 +260,15 @@ export class RemoteHostRelay {
     const host = this.host();
     // DEFENSE: A controller can pair, request a ticket, or connect while its host is offline; never queue commands.
     if (!host) return failure('host_offline', 503);
-    const state = host.deserializeAttachment();
-    const now = Date.now();
-    state.tickets = state.tickets.filter(entry => entry[3] > now);
-    // DEFENSE: A granted controller can request tickets faster than they expire; cap the hibernation attachment.
-    if (state.tickets.length >= MAX_REMOTE_TICKETS) return failure('ticket_limit', 429);
     const secretTicket = token();
     const ticketDigest = await digest(secretTicket);
-    // DEFENSE: The host can disconnect or revoke this grant while ticket hashing yields.
-    if (this.host() !== host || this.grants.get(controllerId) !== grantEpoch) return failure('host_offline', 503);
-    // DEFENSE: Read again after hashing to avoid dropping a concurrently issued
-    // ticket or restoring one that another request has already consumed.
-    const current = host.deserializeAttachment();
-    current.tickets = current.tickets.filter(entry => entry[3] > Date.now());
-    // DEFENSE: Concurrent ticket requests may fill the attachment while this request hashes its token.
-    if (current.tickets.length >= MAX_REMOTE_TICKETS) return failure('ticket_limit', 429);
-    const expiresAt = now + REMOTE_TICKET_TTL_MS;
-    current.tickets.push([ticketDigest, controllerId, grantEpoch, expiresAt]);
-    host.serializeAttachment(current);
+    // DEFENSE: Hashing yields; a ticket must belong to the still-current host connection.
+    if (this.host() !== host) return failure('host_offline', 503);
+    const expiresAt = Date.now() + REMOTE_TICKET_TTL_MS;
+    const issued = this.step(host.deserializeAttachment(), { kind: 'ticket_issue',
+      ticket: { digest: ticketDigest, controller_id: controllerId, grant_epoch: grantEpoch, expires_at: expiresAt } });
+    host.serializeAttachment(issued.state);
+    if (!issued.allowed) return failure(issued.reason, issued.reason === 'host_offline' ? 503 : 429);
     return result({ ticket: secretTicket, expires_at: expiresAt });
   }
 
@@ -285,16 +282,12 @@ export class RemoteHostRelay {
     const host = this.host();
     // DEFENSE: A controller can pair, request a ticket, or connect while its host is offline; never queue commands.
     if (!host) return failure('host_offline', 503);
-    const state = host.deserializeAttachment();
-    const index = state.tickets.findIndex(entry => sameDigest(entry[0], secretDigest));
-    // DEFENSE: Tickets are single-use; forged or previously consumed values must not open another socket.
-    if (index < 0) return failure('invalid_ticket', 401);
-    const [, controllerId, grantEpoch, expiresAt] = state.tickets.splice(index, 1)[0];
-    host.serializeAttachment(state);
-    // DEFENSE: A once-valid ticket can expire or lose its grant before the controller connects.
-    if (expiresAt <= Date.now() || this.grants.get(controllerId) !== grantEpoch) return failure('invalid_ticket', 401);
-    // DEFENSE: Granted devices can open many sockets; cap retained controller connections.
-    if (this.controllers().length >= MAX_REMOTE_CONTROLLERS) return failure('connection_limit', 429);
+    const consumed = this.step(host.deserializeAttachment(), { kind: 'ticket_consume',
+      digest: secretDigest, controller_count: this.controllers().length });
+    // Consumption is published atomically before a socket or authorization is issued.
+    host.serializeAttachment(consumed.state);
+    if (!consumed.allowed) return failure(consumed.reason, consumed.reason === 'connection_limit' ? 429 : 401);
+    const { controller_id: controllerId, grant_epoch: grantEpoch } = consumed.ticket;
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const connectionId = crypto.randomUUID();
@@ -311,18 +304,16 @@ export class RemoteHostRelay {
       const state = socket.deserializeAttachment();
       if (state.role === 'host') {
         // DEFENSE: A replaced host may deliver queued frames after the new socket has been accepted.
-        if (state.generation !== this.generation || this.host(false) !== socket) {
+        if (this.host(false) !== socket) {
           socket.close(1012, 'Remote host connection replaced');
           return;
         }
         const frame = parseRemoteFrame(message, validateHostFrame);
+        if (!remoteControl('relay_frame_allowed', { state, frame })) throw protocolError('Remote protocol negotiation required');
         if (frame.type === 'hello') {
-          state.negotiated = true;
-          socket.serializeAttachment(state);
+          socket.serializeAttachment(this.step(state, { kind: 'hello' }).state);
           return;
         }
-        // DEFENSE: An authenticated host can send frames before announcing its supported protocol version.
-        if (!state.negotiated) throw protocolError('Remote protocol negotiation required');
         await this.hostFrame(socket, state, frame);
       } else if (this.controllerCurrent(state)) {
         const request = parseRemoteFrame(message, validateControllerRequest);
@@ -346,12 +337,10 @@ export class RemoteHostRelay {
         const next = new Map(frame.grants.map(grant => [grant.controller_id, grant.grant_epoch]));
         await this.ctx.storage.put('grants', [...next]);
         // DEFENSE: Storage writes and hashing yield; a replaced host must not publish stale grants or pairing codes.
-        if (this.host(false) !== socket || state.generation !== this.generation) return;
+        if (this.host(false) !== socket) return;
         this.grants = next;
         const current = socket.deserializeAttachment();
-        current.synced = true;
-        current.tickets = current.tickets.filter(entry => next.get(entry[1]) === entry[2]);
-        socket.serializeAttachment(current);
+        socket.serializeAttachment(this.step(current, { kind: 'grants' }).state);
         for (const controller of this.controllers()) {
           const attachment = controller.deserializeAttachment();
           // DEFENSE: A grant update can revoke an already connected controller; close its socket immediately.
@@ -360,24 +349,16 @@ export class RemoteHostRelay {
         break;
       }
       case 'pairing': {
-        const now = Date.now();
-        // DEFENSE: A host may send an expired code or exceed the protocol's five-minute pairing lifetime.
-        if (frame.expires_at <= now || frame.expires_at > now + REMOTE_PAIRING_TTL_MS) {
-          throw protocolError('Remote pairing expiry rejected');
-        }
-        const pending = socket.deserializeAttachment();
-        pending.pairing_revision++;
-        pending.pairing = null;
+        const pending = this.step(socket.deserializeAttachment(), { kind: 'pairing_begin' }).state;
         socket.serializeAttachment(pending);
         const revision = pending.pairing_revision;
         const codeDigest = await digest(frame.code);
-        // DEFENSE: Storage writes and hashing yield; a replaced host must not publish stale grants or pairing codes.
-        if (this.host(false) !== socket || state.generation !== this.generation) return;
-        const current = socket.deserializeAttachment();
-        // DEFENSE: A later pairing code can replace this one while hashing yields.
-        if (current.pairing_revision !== revision) return;
-        current.pairing = { digest: codeDigest, expires_at: frame.expires_at };
-        socket.serializeAttachment(current);
+        // DEFENSE: Hashing may complete after this socket was replaced.
+        if (this.host(false) !== socket) return;
+        const installed = this.step(socket.deserializeAttachment(), { kind: 'pairing_install', revision,
+          expires_at: frame.expires_at, pairing: { digest: codeDigest, expires_at: frame.expires_at } });
+        socket.serializeAttachment(installed.state);
+        if (!installed.allowed && revision === installed.state.pairing_revision) throw protocolError('Remote pairing expiry rejected');
         break;
       }
       case 'response':

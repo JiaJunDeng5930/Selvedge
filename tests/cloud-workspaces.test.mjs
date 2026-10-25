@@ -4,7 +4,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { imagesFixture } from './fixtures/images.mjs';
@@ -32,7 +32,7 @@ async function until(observe, predicate, description) {
   assert.fail(`${description}: ${JSON.stringify(value)}`);
 }
 
-async function fixture(t, respond, { failSetup = false } = {}) {
+async function fixture(t, respond, { failSetup = false, guidance = 'CLOUD-COMMITTED-GUIDANCE\n', overrideGuidance, allocation = 'normal', count = 1, ambiguous = false, accountId = () => '100000000001', onAllocation = async () => {}, rejectTermination = () => false } = {}) {
   const directory = await realpath(await home(t));
   const source = path.join(directory, 'project');
   const repository = path.join(directory, 'pushed.git');
@@ -52,7 +52,8 @@ async function fixture(t, respond, { failSetup = false } = {}) {
   await git('add', '.');
   await git('commit', '-m', 'Fixture repository');
   await git('checkout', '-b', 'task-snapshot');
-  await writeFile(path.join(source, 'AGENTS.md'), 'CLOUD-COMMITTED-GUIDANCE\n');
+  await writeFile(path.join(source, 'AGENTS.md'), guidance);
+  if (overrideGuidance !== undefined) await writeFile(path.join(source, 'AGENTS.override.md'), overrideGuidance);
   await writeFile(path.join(source, 'marker.txt'), 'CLOUD-COMMITTED-FILE\n');
   await git('add', '.');
   await git('commit', '-m', 'Pushed task snapshot');
@@ -87,15 +88,43 @@ async function fixture(t, respond, { failSetup = false } = {}) {
       const action = request.headers['x-tc-action'];
       requests.push({ action, body, authorization: request.headers.authorization });
       let result;
-      if (action === 'RunInstances') {
-        const id = `ins-fixture-${instances.size}`;
-        instances.set(id, { InstanceId: id, InstanceState: 'RUNNING', PublicIpAddresses: ['127.0.0.1'], PrivateIpAddresses: ['10.0.0.1'] });
-        result = { InstanceIdSet: [id] };
+      if (action === 'GetCallerIdentity') {
+        result = { AccountId: accountId(), Uin: accountId(), UserId: 'fixture' };
+      } else if (action === 'RunInstances') {
+        const ids = [];
+        for (let index = 0; index < count; index++) {
+          const id = `ins-fixture-${index}`;
+          ids.push(id);
+          instances.set(id, { InstanceId: id, InstanceState: 'RUNNING', PublicIpAddresses: ['127.0.0.1'],
+            PrivateIpAddresses: ['10.0.0.1'], ImageId: ambiguous ? 'img-other' : body.ImageId,
+            InstanceType: body.InstanceType, Placement: body.Placement, VirtualPrivateCloud: body.VirtualPrivateCloud,
+            Tags: body.TagSpecification[0].Tags });
+        }
+        await onAllocation();
+        if (allocation === 'disconnect') {
+          response.writeHead(200, { 'content-type': 'application/json', 'content-length': 10000 });
+          response.write('{"Response":{"RequestId":"lost-response",');
+          setTimeout(() => response.destroy(new Error('Fixture response body disconnected')), 10);
+          return;
+        }
+        if (allocation === 'redirect') {
+          response.writeHead(307, { location: `http://127.0.0.1:${server.address().port}/redirected` });
+          response.end();
+          return;
+        }
+        result = { InstanceIdSet: ids };
       } else if (action === 'DescribeInstances') {
-        result = { InstanceSet: [...instances.values()].filter(instance => !body.InstanceIds || body.InstanceIds.includes(instance.InstanceId)), TotalCount: instances.size };
+        let found = [...instances.values()].filter(instance => !body.InstanceIds || body.InstanceIds.includes(instance.InstanceId));
+        if (body.Filters) found = found.filter(instance => instance.Tags.some(tag => tag.Key === 'selvedge-task' &&
+          body.Filters[0].Values.includes(tag.Value)));
+        result = { InstanceSet: body.InstanceIds ? found : found.slice(body.Offset ?? 0, (body.Offset ?? 0) + (body.Limit ?? 20)), TotalCount: found.length };
       } else if (action === 'TerminateInstances') {
+        if (body.InstanceIds.some(rejectTermination)) {
+          result = { Error: { Code: 'OperationDenied', Message: 'Fixture refused this termination' } };
+        } else {
         for (const id of body.InstanceIds) instances.delete(id);
         result = {};
+        }
       } else throw new Error(`Unexpected CVM action: ${action}`);
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ Response: { RequestId: 'request-fixture', ...result } }));
@@ -117,7 +146,7 @@ async function fixture(t, respond, { failSetup = false } = {}) {
   const upstream = { requests: account.requests, failures: account.upstream.failures };
   const project = await service().command({ op: 'create_project', name: 'Cloud fixture', workspace: { roots: [source] } });
   assert.equal(project.reply.ok, true, JSON.stringify(project.reply));
-  return { directory, state, source, requests, upstream, instances, get service() { return service(); },
+  return { directory, state, source, requests, upstream, instances, profile: account.profile, projectId: project.reply.result.project_id, get service() { return service(); },
     create: () => service().command({ op: 'create_workspace_task', backend: 'tencent_cvm', profile: account.profile,
       message: 'Use the prepared task workspace.', settings: { project_id: project.reply.result.project_id } }),
     reopen: () => account.restart(),
@@ -263,9 +292,17 @@ test('cloud tasks and inherited forks use the prepared remote repository and arc
   const entry = await worktree(fixture_.service, id);
   assert.equal(entry.backend, 'tencent_cvm');
   assert.equal(entry.root, `/workspace/selvedge/${id}/repository`);
+  await assert.rejects(() => fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
+    messages: ['Reject caller-supplied root guidance on the ready cloud path.'],
+    settings: { guidance: { instructions: 'UNTRUSTED-CLIENT-GUIDANCE' } } }), /Root guidance and workspace resources/);
+  const rejected = await fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
+    messages: ['Reject an environment-origin cloud workspace override.'], settings_origin: 'environment',
+    settings: { workspace: { roots: [fixture_.source], primary_root: fixture_.source } } });
+  assert.equal(rejected.reply.ok, false);
+  assert.equal(rejected.reply.error.code, 'cloud_workspace_fixed');
   inherit = true;
   const forked = await fixture_.service.command({ op: 'fork', task_id: id, child_count: 1,
-    messages: ['Read the committed marker from the inherited cloud workspace.'] });
+    settings_origin: 'environment', settings: {}, messages: ['Read the committed marker from the inherited cloud workspace.'] });
   assert.equal(forked.reply.ok, true, JSON.stringify(forked.reply));
   const [child] = forked.reply.result.children;
   await until(async () => {
@@ -315,4 +352,189 @@ test('a failing project environment script prevents model execution, destroys th
   assert.equal(fixture_.upstream.requests.length, 0, 'Rejecting the failed resource must not start a task model request');
   assert.deepEqual(fixture_.upstream.failures, []);
   spotRequest(fixture_.requests);
+});
+
+test('a disconnected allocation response is reconciled with paginated reads and all owned instances are reclaimed', async t => {
+  const fixture_ = await fixture(t, () => assert.fail('An unknown allocation cannot start a model'),
+    { allocation: 'disconnect', count: 101 });
+  const created = await fixture_.create();
+  const id = created.reply.result.task_id;
+  const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+    'Unknown allocation must finish recovery before publishing its failure');
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  const pages = fixture_.requests.filter(value => value.action === 'DescribeInstances' && value.body.Filters);
+  assert.deepEqual(pages.map(value => value.body.Offset), [0, 100]);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 101);
+  assert.equal(fixture_.instances.size, 0);
+  assert.equal(entry.root, null);
+  const receipt = JSON.parse(await readFile(path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.json`)));
+  assert.equal(receipt.status, 'destroyed');
+  assert.equal(receipt.scope.account_id, '100000000001');
+  assert.equal(receipt.dispatch_count, 1);
+  assert.equal(receipt.destroyed_ids.length, 101);
+});
+
+test('allocation redirects are not followed and reconciliation retains resources whose ownership is ambiguous', async t => {
+  const fixture_ = await fixture(t, () => assert.fail('An ambiguous allocation cannot start a model'),
+    { allocation: 'redirect', ambiguous: true });
+  const created = await fixture_.create();
+  const id = created.reply.result.task_id;
+  const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+    'Ambiguous allocation must remain recoverable');
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
+  assert.equal(fixture_.instances.size, 1);
+  assert.ok(entry.root);
+  const receipt = JSON.parse(await readFile(path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.json`)));
+  assert.equal(receipt.status, 'needs_resolution');
+  assert.deepEqual(receipt.candidate_ids, ['ins-fixture-0']);
+});
+
+test('cloud guidance rejects the same NUL source as local guidance and reclaims the already allocated instance', async t => {
+  const fixture_ = await fixture(t, () => assert.fail('Invalid guidance cannot reach the model'),
+    { guidance: 'before\0after' });
+  const created = await fixture_.create();
+  const id = created.reply.result.task_id;
+  const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+    'Invalid cloud guidance must fail preparation');
+  assert.match(entry.message, /NUL|nul|text/i);
+  assert.equal(fixture_.instances.size, 0);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 1);
+});
+
+test('failed allocation recording still reclaims its exact returned ID and retains the durable unknown intent', async t => {
+  let storage;
+  const fixture_ = await fixture(t, () => assert.fail('Unrecorded allocations cannot reach a model'), {
+    onAllocation: async () => chmod(storage, 0o500),
+  });
+  storage = path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace);
+  try {
+    const created = await fixture_.create();
+    const id = created.reply.result.task_id;
+    const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+      'Cleanup must complete even when its progress cannot be recorded');
+    assert.ok(entry.root, 'The durable unknown receipt must remain associated for reconciliation');
+    assert.equal(fixture_.instances.size, 0);
+    assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances').map(value => value.body.InstanceIds),
+      [['ins-fixture-0']]);
+    assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+    const receipt = JSON.parse(await readFile(path.join(storage, `task-${id}.json`)));
+    assert.equal(receipt.allocation_unknown, true);
+    assert.equal(receipt.status, 'persist_pending');
+  } finally { await chmod(storage, 0o700); }
+});
+
+test('cleanup refuses a different owning account and resumes through the public archive command after credentials are corrected', async t => {
+  let current = '100000000001';
+  const fixture_ = await fixture(t, () => assert.fail('Failed setup cannot reach a model'), {
+    failSetup: true, accountId: () => current, onAllocation: async () => { current = '100000000002'; },
+  });
+  const created = await fixture_.create();
+  const id = created.reply.result.task_id;
+  const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+    'Account mismatch must retain the allocation');
+  assert.ok(entry.root);
+  assert.equal(fixture_.requests.filter(value => value.action === 'TerminateInstances').length, 0);
+  const receipt = JSON.parse(await readFile(path.join(fixture_.state, 'cloud-workspaces', fixture_.service.journal.namespace, `task-${id}.json`)));
+  assert.equal(receipt.status, 'needs_credential');
+  current = '100000000001';
+  const archived = await fixture_.service.command({ op: 'archive', task_id: id });
+  assert.equal(archived.reply.ok, true, JSON.stringify(archived.reply));
+  await until(() => worktree(fixture_.service, id), value => value.status === 'archived',
+    'Corrected account credentials must permit exact-ID cleanup');
+  assert.equal(fixture_.instances.size, 0);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+});
+
+test('cloud guidance uses the shared override priority and preserves the leading UTF-8 BOM', async t => {
+  let observed = false;
+  const fixture_ = await fixture(t, body => {
+    const context = JSON.stringify({ instructions: body.instructions, input: body.input });
+    assert.ok(context.includes('\ufeffSELECTED-OVERRIDE'), 'The selected cloud bytes must retain their BOM');
+    assert.equal(context.includes('CLOUD-COMMITTED-GUIDANCE'), false, 'The lower priority file must not enter task context');
+    observed = true;
+    return done;
+  }, { overrideGuidance: '\ufeffSELECTED-OVERRIDE\n' });
+  const created = await fixture_.create();
+  const id = created.reply.result.task_id;
+  await until(async () => {
+    const read = await fixture_.service.command({ op: 'read', task_id: id });
+    return read.reply.result.task;
+  }, task => observed && task.phase === 'idle' && task.operations.length === 0, 'The selected cloud guidance must reach the model');
+  assert.deepEqual(fixture_.upstream.failures, []);
+  const archived = await fixture_.service.command({ op: 'archive', task_id: id });
+  assert.equal(archived.reply.ok, true);
+  await until(() => worktree(fixture_.service, id), value => value.status === 'archived', 'The guidance fixture must release its cloud resource');
+});
+
+test('native independent creation reuses the caller cloud resource despite the project worktree preference and receives its environment notice', async t => {
+  let owner;
+  let childObserved = false;
+  const fixture_ = await fixture(t, body => {
+    const context = JSON.stringify({ instructions: body.instructions, input: body.input });
+    if (body.input.some(item => item.role === 'user' && JSON.stringify(item.content).includes('INDEPENDENT-CLOUD') &&
+        !(typeof item.content === 'string' && item.content.startsWith(completionPrefix)))) {
+      assert.ok(context.includes('Bash runs in the task cloud environment with Full Access.'));
+      childObserved = true;
+      return done;
+    }
+    if (outputs(body).has('create-independent-cloud')) return done;
+    const root = `/workspace/selvedge/${owner}/repository`;
+    return tool(body, 'create-independent-cloud', 'create_task', {
+      profile: fixture_.profile, message: 'INDEPENDENT-CLOUD', settings: {
+        workspace: { roots: [root], primary_root: root },
+      },
+    });
+  });
+  const updated = await fixture_.service.command({ op: 'update_project', project_id: fixture_.projectId,
+    create_worktree: true });
+  assert.equal(updated.reply.ok, true);
+  const created = await fixture_.create();
+  owner = created.reply.result.task_id;
+  const tasks = await until(async () => {
+    const listed = await fixture_.service.command({ op: 'list' });
+    return listed.reply.result.tasks;
+  }, values => childObserved && values.length === 2 && values.every(value => value.phase === 'idle'),
+  'The independent cloud task must start with the retained environment context');
+  const child = tasks.find(value => value.id !== owner);
+  const read = await fixture_.service.command({ op: 'read', task_id: child.id });
+  assert.equal(read.reply.result.task.parent, null);
+  assert.equal(read.reply.result.task.side_parent, null);
+  assert.equal(read.reply.result.task.settings.workspace_resource, owner);
+  const effective = await worktree(fixture_.service, child.id);
+  assert.equal(effective.task_id, owner);
+  assert.equal(effective.backend, 'tencent_cvm');
+  const registered = await fixture_.service.command({ op: 'list_worktrees' });
+  assert.equal(registered.reply.result.worktrees.length, 1);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
+  assert.deepEqual(fixture_.upstream.failures, []);
+  for (const taskId of [child.id, owner]) {
+    const archived = await fixture_.service.command({ op: 'archive', task_id: taskId });
+    assert.equal(archived.reply.ok, true, JSON.stringify(archived.reply));
+  }
+  await until(() => worktree(fixture_.service, owner), value => value.status === 'archived',
+    'The owner must release its resource after the independent borrower is archived');
+});
+
+test('one failed candidate termination does not prevent other confirmed resources from being reclaimed', async t => {
+  let reject = true;
+  const fixture_ = await fixture(t, () => assert.fail('A multiple-ID allocation cannot start a model'), {
+    count: 2, rejectTermination: id => reject && id === 'ins-fixture-0',
+  });
+  const created = await fixture_.create();
+  const id = created.reply.result.task_id;
+  const entry = await until(() => worktree(fixture_.service, id), value => value.status === 'create_failed',
+    'Every confirmed candidate must receive its independent cleanup attempt');
+  assert.ok(entry.root);
+  assert.deepEqual([...fixture_.instances.keys()], ['ins-fixture-0']);
+  assert.deepEqual(fixture_.requests.filter(value => value.action === 'TerminateInstances').map(value => value.body.InstanceIds),
+    [['ins-fixture-0'], ['ins-fixture-1']]);
+  reject = false;
+  const archived = await fixture_.service.command({ op: 'archive', task_id: id });
+  assert.equal(archived.reply.ok, true);
+  await until(() => worktree(fixture_.service, id), value => value.status === 'archived',
+    'Retry must reclaim the remaining failed ID without another allocation');
+  assert.equal(fixture_.instances.size, 0);
+  assert.equal(fixture_.requests.filter(value => value.action === 'RunInstances').length, 1);
 });
