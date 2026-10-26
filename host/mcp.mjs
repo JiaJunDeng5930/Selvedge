@@ -5,8 +5,8 @@ import { storeImageContent } from './files.mjs';
 /** MCP vocabulary over the shared transport; task policy remains in the extracted semantics. */
 export class Mcp extends StdioRpc {
   constructor(name, config, limits, { home } = {}) {
-    super(name, config, limits, { label: 'MCP', timeoutMs: limits.mcp_timeout_ms,
-      prepareIncoming: message => prepareMcpImages(message, home) });
+    super(name, config, limits, { label: 'MCP', timeoutMs: limits.mcp_timeout_ms });
+    this.mediaHome = home;
     this.on('notification', message => { if (message.method === 'notifications/tools/list_changed') this.emit('toolsChanged'); });
   }
 
@@ -28,26 +28,32 @@ export class Mcp extends StdioRpc {
   }
 
   async call(name, arguments_, options) {
-    const value = await this.request('tools/call', boundary('plugin.mcp_call_request', { name, arguments: arguments_ }), options);
+    const value = await this.request('tools/call', boundary('plugin.mcp_call_request', { name, arguments: arguments_ }), {
+      ...options, prepareIncoming: (result, { signal }) => prepareMcpImages(result, this.mediaHome, this.limits, signal),
+    });
     return boundary('plugin.mcp_result', { result: value });
   }
 }
 
-// Decode and freeze opaque media before the RPC adapter inspects the JSON envelope.
-async function prepareMcpImages(message, home) {
-  if (message?.jsonrpc !== '2.0' || !Object.hasOwn(message, 'id') || !Array.isArray(message.result?.content)) return message;
-  try {
-    const content = await Promise.all(message.result.content.map(async part => {
-      if (part?.type !== 'image') return part;
-      // DEFENSE: An MCP server can return malformed base64 in its declared image content.
-      if (typeof part.data !== 'string') throw new TypeError('MCP image data must be base64 text');
-      const bytes = Buffer.from(part.data, 'base64');
-      if (bytes.toString('base64') !== part.data) throw new TypeError('MCP image data must use canonical base64');
-      return storeImageContent(home, 'mcp-image', bytes);
-    }));
-    return { ...message, result: { ...message.result, content } };
-  } catch (error) {
-    // DEFENSE: Invalid or unwritable MCP image data is this call's RPC failure, never a successful text-only tool result.
-    return { jsonrpc: message.jsonrpc, id: message.id, error: { code: -32603, message: error.message } };
+// Only an admitted tools/call response can hold this RPC materialization token.
+// Decode every opaque byte string and admit the complete plan before any write.
+async function prepareMcpImages(result, home, limits, signal) {
+  signal.throwIfAborted();
+  const parts = Array.isArray(result?.content) ? result.content : [];
+  const decoded = new Map();
+  const observations = parts.map((part, index) => {
+    if (part?.type !== 'image' || typeof part.data !== 'string') return null;
+    const bytes = Buffer.from(part.data, 'base64');
+    decoded.set(index, bytes);
+    return { canonical: bytes.toString('base64') === part.data, bytes: bytes.length,
+      prefix: Array.from(bytes.subarray(0, 12)) };
+  });
+  const plan = boundary('plugin.mcp_media_plan', { result, observations, maximum: limits.frame_bytes });
+  if (!plan.indices.length) return result;
+  const content = [...parts];
+  for (const index of plan.indices) {
+    signal.throwIfAborted();
+    content[index] = await storeImageContent(home, 'mcp-image', decoded.get(index), 'auto', { signal });
   }
+  return { ...result, content };
 }

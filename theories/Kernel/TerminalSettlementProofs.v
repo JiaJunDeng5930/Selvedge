@@ -41,7 +41,9 @@ Proof.
  try (destruct pending; try discriminate).
  all: destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
    cbn in ArchivedTask; subst lifecycle;
-   cbv [TaskChange.apply TaskChange.apply_edit List.fold_left Callbacks.settle_operation_changes Tasks.wake_after_result_changes Tasks.promote_changes
+   cbv [HookCallbacks.after_result_plan Tasks.apply_result Tasks.result_changes Tasks.prefix_result
+     Tasks.mark_context_wake Callbacks.settle_operation_plan
+     TaskChange.apply TaskChange.apply_edit List.fold_left Callbacks.settle_operation_changes Tasks.wake_after_result_changes Tasks.promote_changes
      append_history with_history with_operations with_lifecycle task_operations task_lifecycle task_activity RecordSet.set]; cbn;
    repeat rewrite <- app_assoc; reflexivity.
 Qed.

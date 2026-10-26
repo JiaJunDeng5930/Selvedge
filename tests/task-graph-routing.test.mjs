@@ -77,7 +77,7 @@ test('task graphs route nonempty assistant replies in every output mode', { time
   const emptySendBaseline = await rawCommand({ op: 'send', task_id: emptySendTarget.task_id, message: '' });
   assert.equal(emptySendBaseline.status, 400);
   assert.equal(emptySendBaseline.body.ok, false);
-  assert.equal(emptySendBaseline.body.error.code, 'invalid_message');
+  assert.equal(emptySendBaseline.body.error.code, 'invalid_arguments');
   assert.equal(userTexts(await command({ op: 'read', task_id: emptySendTarget.task_id })).length, 0,
     'The public send contract rejects an empty message without adding Task input');
   const graph = await command({ op: 'create_task_graph', name: 'Provider output routing', nodes: [

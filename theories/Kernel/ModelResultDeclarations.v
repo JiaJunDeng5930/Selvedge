@@ -157,15 +157,20 @@ Definition remote_authorization_states := map (fun phase => variant "phase" phas
  ["first";"second";"third";"last";"authorized";"denied";"revision_changed"].
 Definition remote_authorization_actions := map (fun action => variant "kind" action [] []) ["check";"capture";"deny";"disconnect"].
 Definition remote_connector_actions := KEnum "ignore" ["installed";"retire";"pairing";"pending";"expired";
- "grants";"enqueue";"dequeue";"disconnect";"ready";"controller_open";"controller_close";"request";"pair_request";"pong"].
-Definition remote_connector_states := [remote_state "offline" [Field "pairing" KJson];
- remote_state "negotiating" [Field "pairing" KJson];remote_state "ready" [Field "pairing" KJson;
+ "grants";"enqueue";"dequeue";"disconnect";"ready";"controller_open";"controller_close";"request";"pair_request";"pong";
+ "notice";"snapshot";"unsubscribed";"deliver"].
+Definition remote_notice_sequence := Field "notice_sequence" KNatural.
+Definition remote_connector_states := [remote_state "offline" [Field "pairing" KJson;remote_notice_sequence];
+ remote_state "negotiating" [Field "pairing" KJson;remote_notice_sequence];remote_state "ready" [Field "pairing" KJson;remote_notice_sequence;
  Field "grants" (KArray KJson);Field "connections" (KArray KJson);Field "pending" (KArray KJson)]].
 Definition remote_connector_observations := [remote_observation "install" [remote_generation];
  remote_observation "retire" [remote_generation];remote_observation "pair" (remote_timed++[Field "frame" KJson]);
  remote_observation "pairing_current" remote_timed;remote_observation "grants" [remote_generation;Field "grants" (KArray KJson)];
- remote_observation "enqueue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural];
- remote_observation "dequeue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural];
+ remote_observation "enqueue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural;Field "notice_sequence" KJson];
+ remote_observation "dequeue" [remote_generation;Field "connection_id" KText;Field "bytes" KNatural;Field "notice_sequence" KJson];
+ remote_observation "notice" [];
+ remote_observation "capture" [remote_generation;Field "connection_id" KText;Field "method" (KEnum "snapshot" ["subscribe";"unsubscribe"])];
+ remote_observation "deliver" [remote_generation;Field "connection_id" KText;remote_notice_sequence];
  remote_observation "frame" [remote_generation;Field "frame" KJson]].
 Definition unions := [("RemoteConnectorSessionState",remote_connector_states);("RemoteConnectorSessionObservation",remote_connector_observations);("CloudReadinessAction",cloud_readiness_actions);("RemoteTransportState",remote_transport_states);("RemoteTransportAction",remote_transport_actions);
  ("RemoteTransportObservation",remote_transport_observations);("RemoteAuthorizationState",remote_authorization_states);
@@ -176,7 +181,8 @@ Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_pro
 Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
 Definition http_permissions_fields := [Field "read" KBool;Field "control" KBool;Field "configure" KBool;Field "approve" KBool].
 Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
- "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe"].
+ "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe";
+ "local_sync_registration";"local_sync_ready";"local_sync_archive";"local_sync_release"].
 Definition resource_transition_fields := [Field "state" KJson;Field "effects" (KArray resource_action_name)].
 Definition records : list (string * schema) := [
  ("RemoteConnectorSessionTransition",[Field "state" KJson;Field "action" remote_connector_actions]);("CloudReadinessTransition",cloud_readiness_transition);

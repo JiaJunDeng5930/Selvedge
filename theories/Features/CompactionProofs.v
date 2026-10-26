@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning CompactionPlan ScopedRequestProofs.
+From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
 Import ListNotations.
 Open Scope string_scope.
@@ -121,12 +121,12 @@ Theorem a_valid_checkpoint_preserves_its_original_records : forall id summary ca
  K.find_task id value = Some task -> A.alive task = true -> A.idle task = true ->
  (negb (String.eqb summary "") && (N.of_nat (String.length summary) <=? Selvedge.Kernel.Compaction.summary_limit_bytes) &&
  ContextSelection.settled_calls (task_history task) (task_history task)) = true ->
- A.command (G.Cmd_compact (G.Build_compact id (Some summary))) caller value = Some (A.supplied id task summary value) /\
+ A.handle_compact (G.Build_compact id (Some summary)) caller value = A.supplied id task summary value /\
  exists stored, K.find_task id (K.decision_world (A.supplied id task summary value)) = Some stored /\
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
  intros. split.
- - unfold A.command, A.handle_compact. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
+ - unfold A.handle_compact. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
  - apply supplied_history_is_an_append. assumption.
 Qed.
 Theorem measured_scope_and_reserve_reach_the_executed_request : forall request scope tokens budget input value,
@@ -138,26 +138,29 @@ Proof. intros. unfold A.prepare_model_effects. cbn. now rewrite H. Qed.
 
 Theorem manual_compaction_captures_context_before_any_summary_request : forall id task value entry,
  K.find_task id value = Some task ->
- TicketedRequest.Scoped.can_observe false task value = true ->
+ TicketedRequest.Scoped.can_observe_maintenance task value = true ->
  entry = A.current_entry id (A.registry value) ->
  A.job_pending (entry_job entry) = false ->
  K.decision_effects (A.manual id task value) =
  (map K.MaintainContext (A.cancellations id entry) ++
   [K.ObserveContext id (K.world_next_ticket value) task])%list.
 Proof.
- intros id task value entry Found ObserveAllowed Entry Ready. unfold A.manual. rewrite <- Entry, Ready.
- unfold Reasoning.observe_context.
- rewrite (ScopedRequestProofs.observing_uses_the_current_task id value task false Found ObserveAllowed).
- unfold A.commit, A.acknowledged.
- reflexivity.
+ intros id task value entry Found ObserveAllowed Entry Ready.
+ destruct (maintenance_observation_uses_the_current_task id task (Some Manual) entry value Found ObserveAllowed)
+   as [request [Selected Effects]].
+ unfold A.manual. rewrite <- Entry, Ready. unfold A.wait_for_context. rewrite Found, Selected.
+ cbn [K.decision_effects]. now rewrite Effects.
 Qed.
 
 Theorem suspended_manual_context_completion_cancels_its_job :
- forall id ticket revision input before result previous task operations,
+ forall id ticket revision before result previous task operations,
  K.find_task id before = Some previous ->
  task_activity previous = ObservingContext ticket revision ->
  K.find_task id (K.decision_world result) = Some task ->
- entry_job (A.current_entry id (A.registry (K.decision_world result))) = Resuming input Manual ->
+ entry_job (A.current_entry id (A.registry before)) = AwaitingContext ticket (Some Manual) false ->
+ entry_job (A.current_entry id (A.registry (K.decision_world result))) = AwaitingContext ticket (Some Manual) false ->
+ A.cancelled_task id (K.decision_effects result) = false ->
+ A.cancelled_ticket id ticket (K.decision_effects result) = false ->
  (task_lifecycle task = Frozen WantsModel operations \/ task_lifecycle task = Stopped WantsModel operations) ->
  let cancelled := Tasks.promote (with_activity Idle (append_history
    [FailureMessage "Context summary was not sent because the task is frozen or stopped; original history retained"] task)) in
@@ -167,8 +170,9 @@ Theorem suspended_manual_context_completion_cancels_its_job :
  task_activity cancelled = Idle /\
  entry_job (A.clear_entry cancelled (A.current_entry id (A.registry (K.decision_world result)))) = NoJob.
 Proof.
- intros id ticket revision input before result previous task operations Previous Phase Found Job Paused cancelled.
- unfold A.observe_manual; rewrite Previous, Found, Job, Phase.
+ intros id ticket revision before result previous task operations Previous Phase Found Job CurrentJob NotCancelled NotSteered Paused cancelled.
+ unfold A.observe_manual; rewrite Previous, Found, NotCancelled, Phase, Job, N.eqb_refl, NotSteered.
+ unfold A.awaiting_context_demand; rewrite CurrentJob, N.eqb_refl; cbn [A.same_context_purpose].
  destruct Paused as [FrozenTask|StoppedTask].
  - assert (Activity : task_activity task = WantsModel) by (unfold task_activity; rewrite FrozenTask; reflexivity).
    rewrite Activity, FrozenTask. split; [reflexivity|]. split; [|reflexivity].
@@ -178,6 +182,127 @@ Proof.
    rewrite Activity, StoppedTask. split; [reflexivity|]. split; [|reflexivity].
    unfold cancelled. destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
    cbn in StoppedTask; subst lifecycle; destruct queued; reflexivity.
+Qed.
+
+Theorem a_suspended_observation_preserves_exactly_its_model_demand :
+ forall purpose demand current operations,
+ (task_lifecycle current = Frozen WantsModel operations \/ task_lifecycle current = Stopped WantsModel operations) ->
+ task_activity (A.suspended_context_task purpose demand current) = if demand then WantsModel else Idle.
+Proof.
+ intros purpose demand [contract profile settings lifecycle history queued lineage parent cursor consumed] operations Status.
+ cbn in Status. destruct Status as [Status|Status]; subst lifecycle;
+   unfold A.suspended_context_task; destruct purpose as [purpose|]; try destruct purpose;
+   destruct demand; destruct queued; reflexivity.
+Qed.
+
+Theorem a_replaced_context_never_consumes_the_new_task_demand :
+ forall id ticket revision purpose resume_model before result previous current,
+ K.find_task id before = Some previous ->
+ task_activity previous = ObservingContext ticket revision ->
+ K.find_task id (K.decision_world result) = Some current ->
+ entry_job (A.current_entry id (A.registry before)) = AwaitingContext ticket purpose resume_model ->
+ A.cancelled_ticket id ticket (K.decision_effects result) = true ->
+ K.world_tasks (K.decision_world (A.observe_manual before id result)) = K.world_tasks (K.decision_world result) /\
+ K.decision_effects (A.observe_manual before id result) = K.decision_effects result.
+Proof.
+ intros id ticket revision purpose resume_model before result previous current Previous Phase Current Job Cancelled.
+ unfold A.observe_manual; rewrite Previous, Current.
+ destruct (A.cancelled_task id (K.decision_effects result)).
+ 2: { rewrite Phase, Job, N.eqb_refl.
+      destruct (A.awaiting_context_demand ticket purpose
+        (A.current_entry id (A.registry (K.decision_world result)))); [rewrite Cancelled|];
+      split; try reflexivity;
+      cbn [A.combine A.commit A.acknowledged K.accept K.decision_effects]; apply app_nil_r. }
+ split; [reflexivity|cbn [A.combine A.commit A.acknowledged K.accept K.decision_effects]; apply app_nil_r].
+Qed.
+
+Lemma matching_context_purposes_are_equal : forall first second,
+ A.same_context_purpose first second = true -> first = second.
+Proof.
+ intros [first|] [second|]; try destruct first; try destruct second;
+   cbn [A.same_context_purpose]; intros Equal; try discriminate; reflexivity.
+Qed.
+
+Theorem a_current_context_demand_names_its_exact_receiver : forall ticket purpose entry demand,
+ A.awaiting_context_demand ticket purpose entry = Some demand ->
+ entry_job entry = AwaitingContext ticket purpose demand.
+Proof.
+ intros ticket purpose entry demand Present; unfold A.awaiting_context_demand in Present.
+ destruct (entry_job entry) as [|waiting|actual current demanded|input resumed|
+   actual input resumed stage|actual input resumed progress scope|actual input resumed candidate preview stage]
+   eqn:Job; try discriminate.
+ destruct (N.eqb actual ticket && A.same_context_purpose current purpose) eqn:Matches; [|discriminate].
+ inversion Present; subst demand. apply andb_true_iff in Matches as [Ticket Purpose].
+ apply N.eqb_eq in Ticket; apply matching_context_purposes_are_equal in Purpose.
+ now subst actual current.
+Qed.
+
+Theorem a_retired_context_receiver_preserves_the_entire_decision :
+ forall id ticket revision purpose resume_model before result previous current,
+ K.find_task id before = Some previous ->
+ task_activity previous = ObservingContext ticket revision ->
+ entry_job (A.current_entry id (A.registry before)) = AwaitingContext ticket purpose resume_model ->
+ K.find_task id (K.decision_world result) = Some current ->
+ A.cancelled_task id (K.decision_effects result) = false ->
+ A.awaiting_context_demand ticket purpose (A.current_entry id (A.registry (K.decision_world result))) = None ->
+ A.observe_manual before id result = result.
+Proof.
+ intros id ticket revision purpose resume_model before result previous current Previous Phase Job Current NotCancelled Retired.
+ unfold A.observe_manual; now rewrite Previous, Current, NotCancelled, Phase, Job, N.eqb_refl, Retired.
+Qed.
+
+Theorem recovering_a_context_retires_its_receiver : forall entry ticket purpose demand,
+ entry_job entry = AwaitingContext ticket purpose demand ->
+ entry_job (A.recover_entry entry) = NoJob.
+Proof.
+ intros; unfold A.recover_entry, A.with_observation, A.with_measurement, A.with_job, set; cbn.
+ unfold A.resume; now rewrite H.
+Qed.
+
+Theorem recovery_of_pending_operations_creates_the_retained_frozen_demand :
+ forall state id current ticket revision purpose operations,
+ entry_job (A.current_entry id state) = AwaitingContext ticket purpose false ->
+ task_lifecycle current = Frozen (ObservingContext ticket revision) operations ->
+ operations <> [] ->
+ task_activity (Recovery.recover_task id (A.recover_context_task state id current)) = WantsModel.
+Proof.
+ intros state id current ticket revision purpose operations Job Lifecycle Pending.
+ assert (Phase : task_activity current = ObservingContext ticket revision)
+   by (unfold task_activity; now rewrite Lifecycle).
+ unfold A.recover_context_task; rewrite Job, Phase, N.eqb_refl.
+ destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ cbn in Lifecycle; subst lifecycle; destruct operations; [contradiction|reflexivity].
+Qed.
+
+Theorem manual_context_recovery_does_not_invent_model_demand :
+ forall state id task ticket revision,
+ entry_job (A.current_entry id state) = AwaitingContext ticket (Some Manual) false ->
+ task_activity task = ObservingContext ticket revision ->
+ A.recover_context_task state id task = with_activity Idle task.
+Proof.
+ intros. unfold A.recover_context_task. now rewrite H, H0, N.eqb_refl.
+Qed.
+
+Theorem manual_compaction_waits_without_resource_io : forall id task value entry,
+ K.find_task id value = Some task ->
+ TicketedRequest.Scoped.resources_available task value = false ->
+ entry = A.current_entry id (A.registry value) ->
+ A.job_pending (entry_job entry) = false ->
+ K.decision_effects (A.manual id task value) = map K.MaintainContext (A.cancellations id entry) /\
+ entry_job (A.current_entry id (A.registry (K.decision_world (A.manual id task value)))) = WaitingForResource (Some Manual).
+Proof.
+ intros id task value entry Found Unavailable Entry Ready.
+ assert (NoObservation : TicketedRequest.Scoped.can_observe_maintenance task value = false).
+ { unfold TicketedRequest.Scoped.can_observe_maintenance. now rewrite Unavailable. }
+ pose proof (unavailable_maintenance_observation_has_no_plan id task (Some Manual) entry value Found NoObservation) as NoPlan.
+ unfold A.manual. rewrite <- Entry, Ready.
+ unfold A.wait_for_context. rewrite Found, NoPlan, Unavailable.
+ split.
+ - cbn [A.commit A.acknowledged K.accept K.decision_effects]. apply app_nil_r.
+ - cbn [A.commit A.acknowledged K.accept K.decision_world].
+   unfold A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, A.with_observation,
+     A.with_measurement, A.with_job, K.with_features,
+     Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
 Qed.
 
 (** The feature callback forwards recovered progress with its captured input,

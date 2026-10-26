@@ -56,3 +56,23 @@ undo an already accepted journal commit. Shutdown can occur while the promise
 for that commit is returning. Its still-active handle may acknowledge the
 accepted result once while preserving the retired dispatcher, so waiting for
 physical cleanup does not turn a successful commit into a shutdown failure.
+
+Provider cancellation preserves the registered effect rather than reducing it
+to a task number. A ticket cancellation selects that invocation's owner and
+ticket; whole-task cancellation retires the task-wide owner and then the
+applicable independent approval owners. Receipt retirement selects the exact
+request key synchronously before asynchronous Stop transport can run. The
+dispatcher distinguishes task and independent provider scopes so this does not
+duplicate task-wide Stop or change shutdown's detach-only policy.
+
+Stdio response admission precedes media persistence. `Adapters.Rpc` first
+validates a JSON-RPC response, correlates its pending request and consumes that
+pending identity into a materialization reservation. Only a `tools/call`
+request carries the MCP media continuation. `plugin.mcp_media_plan` admits all
+observed image bytes and the complete byte budget before the continuation
+writes any attachment. A repeated response cannot reserve the same request
+again. Cancellation retires the reservation and aborts its staging interpreter;
+late completion cannot settle a retired request. Physical work remains counted
+against capacity until its Promise actually ends, and close waits for those
+bounded operations. This separates request authority from an already admitted
+file operation that is still completing its durability barrier.

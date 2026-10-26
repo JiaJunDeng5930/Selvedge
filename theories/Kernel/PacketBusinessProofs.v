@@ -127,7 +127,7 @@ Fixpoint fork_births (count : nat) (owner : N) (parent : task) (messages : list 
  match count with
  | O => []
  | S rest =>
-   let message := match messages with [] => [] | first :: _ => first end in
+   let message := hd_error messages in
    Tasks.fork_child_receipt entry start next invocation
      (Tasks.fork_child next owner parent message settings false) ::
    fork_births rest owner parent (tl messages) settings entry start (N.succ next) invocation

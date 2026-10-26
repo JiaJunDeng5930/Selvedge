@@ -29,7 +29,8 @@ Theorem every_actual_packet_preserves_global_state_relation_or_rolls_back : fora
  WorldInvariant.world_structure after = WorldInvariant.world_structure before \/
  exists input, CommitAdmission.world_evolution input source before after = true.
 Proof.
- intros source before Valid; unfold Packet.packet; cbv beta zeta;
+ intros source before Valid; unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result; cbv beta zeta;
  fold (Packet.manual_fork source) (Packet.transition source before).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
  - destruct (Packet.manual_fork source) as [request|].

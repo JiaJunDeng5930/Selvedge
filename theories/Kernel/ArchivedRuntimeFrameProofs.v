@@ -108,11 +108,13 @@ Proof.
  intros owner ticket result error value task original operations Found ArchivedTask Owned Hooks.
  rewrite CallbackChangesProofs.tool_completed_expression, Found.
  unfold task_operations; rewrite ArchivedTask, Owned.
- rewrite CallbackChangesProofs.begin_result_expression, Hooks.
+ unfold Callbacks.begin_result_plan; rewrite Hooks.
  cbn [Callbacks.acknowledged State.accept decision_reply decision_world].
  split; [reflexivity|]. exists (Callbacks.settle_operation original result error task).
  split.
- - unfold find_task, put_task; rewrite writing_tasks_installs_the_registry.
+ - unfold Tasks.apply_result, Callbacks.settle_operation_plan.
+   rewrite TaskWakeProofs.context_wake_preserves_every_task_lookup.
+   unfold find_task, put_task; rewrite writing_tasks_installs_the_registry.
    eapply registry_replace_selected; exact Found.
  - apply settling_an_archived_operation_keeps_the_result; exact ArchivedTask.
 Qed.

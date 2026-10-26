@@ -9,7 +9,7 @@ import { home, responsesServer, taskIdle } from './support.mjs';
 
 const done = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Done.' }] }];
 
-test('native and public title settings execute the advertised UTF-8 argument declaration', async t => {
+test('public title settings cross the UTF-8 boundary while model requests exclude owner management', async t => {
   const directory = await home(t);
   const key = `SELVEDGE_ARGUMENT_DECLARATION_${randomBytes(8).toString('hex')}`;
   process.env[key] = 'loopback-fixture-only';
@@ -22,10 +22,7 @@ test('native and public title settings execute the advertised UTF-8 argument dec
     if (sent) return done;
     sent = true;
     advertised = body.tools.find(tool => tool.name === 'configure_title_settings');
-    assert.ok(advertised, 'The real model request exposes the native title settings tool');
-    assert.equal(advertised.parameters.properties.task_prompt['x-maxUtf8Bytes'], 4096);
-    assert.equal(advertised.parameters.properties.task_prompt['x-noNul'], true);
-    assert.equal(advertised.parameters.properties.task_prompt['x-nonblank'], true);
+    assert.equal(advertised, undefined, 'The real model request excludes owner title management');
     return [{ type: 'function_call', call_id: 'native-title-settings', name: 'configure_title_settings',
       arguments: JSON.stringify({ revision: 1, task_prompt: taskPrompt, agent_prompt: agentPrompt }) }];
   });
@@ -50,8 +47,8 @@ test('native and public title settings execute the advertised UTF-8 argument dec
   assert.equal(created.ok, true, JSON.stringify(created));
   await taskIdle(service, created.result.task_id);
   assert.deepEqual(upstream.failures, []);
-  assert.ok(advertised);
-  assert.deepEqual(await read(), { revision: 2, task_prompt: taskPrompt, agent_prompt: agentPrompt });
+  assert.equal(advertised, undefined);
+  assert.deepEqual(await read(), { revision: 1, task_prompt: publicTaskPrompt, agent_prompt: agentPrompt });
 
   const remote = service.description.commands.find(command => command.name === 'remote_grant');
   assert.ok(remote, 'The public command vocabulary declares remote controller grants');
@@ -63,7 +60,7 @@ test('native and public title settings execute the advertised UTF-8 argument dec
 });
 
 
-test('registered extension schemas preserve signed integers and default open objects', async t => {
+test('extension registration and invocation share the closed bounded natural dialect', async t => {
   const directory = await home(t);
   const peer = path.join(directory, 'argument-declaration-peer.mjs');
   const log = path.join(directory, 'arguments.json');
@@ -77,8 +74,8 @@ createInterface({ input: process.stdin }).on('line', line => {
   const result = request.method === 'initialize'
     ? { protocolVersion: request.params.protocolVersion, revision: 'argument-declaration-1',
         beforeTool: false, afterTool: false, events: [], tools: [{ name: 'echo',
-          description: 'Record a signed integer and caller-defined extra properties.',
-          inputSchema: { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] } }] }
+          description: 'Record an integer admitted by a maximum-only extension declaration.',
+          inputSchema: { type: 'object', properties: { count: { type: 'integer', maximum: 9 } }, required: ['count'] } }] }
     : (writeFileSync(log, JSON.stringify(request.params.arguments)), { error: false, value: 'RECORDED' });
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\n');
 });
@@ -86,7 +83,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   const key = `SELVEDGE_EXTERNAL_DECLARATION_${randomBytes(8).toString('hex')}`;
   process.env[key] = 'loopback-fixture-only';
   t.after(() => { delete process.env[key]; });
-  const arguments_ = { count: -7, extra: { text: '保留调用方的额外字段。' } };
+  const arguments_ = { count: 7 };
   let sent = false;
   const upstream = await responsesServer(t, () => {
     if (sent) return done;

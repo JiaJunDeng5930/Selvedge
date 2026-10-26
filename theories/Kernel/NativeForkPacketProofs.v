@@ -71,7 +71,9 @@ Proof.
  pose proof (every_admissible_native_fork_plan_constructs_its_actual_settlement before accepted messages parent selected Parsed Admissible Workspace) as Constructed.
  destruct (every_authorized_native_fork_has_its_actual_commit_admission raw before accepted messages parent selected Valid Admissible Hooks Historical)
    as [World [Authority Retained]].
- unfold Packet.packet; fold (Delivery.fits_json raw); rewrite InputFits,Decoded.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result.
+ fold (Delivery.fits_json raw); rewrite InputFits,Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input
    Packet.native_fork_input].
  rewrite Selected; cbn.

@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Foundation Require Import Json Numbers Utf8 Schema TextMetrics.
 Import ListNotations.
 Open Scope string_scope.
@@ -75,9 +76,8 @@ Definition decode_key (source : json) := match integer (value source "task_id"),
   | Some task,Some ticket => Some (StreamKey task ticket) | _,_ => None end.
 Definition decode_part (source : json) := match integer (value source "output_index"),as_string (value source "text") with
   | Some index,Some text => if Utf8.well_formed text then Some (StreamPart index text) else None | _,_ => None end.
-Fixpoint traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
-  match values with [] => Some [] | value::rest => match parse value,traverse parse rest with
-    Some value,Some rest => Some (value::rest) | _,_ => None end end.
+Definition traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
+ OptionList.traverse parse values.
 Definition decode_stream (source : json) := match decode_key source,as_array (value source "parts") with
   | Some key,Some parts => option_map (Stream key) (traverse decode_part parts) | _,_ => None end.
 Fixpoint unique_by {A : Type} (equal : A -> A -> bool) (values : list A) :=

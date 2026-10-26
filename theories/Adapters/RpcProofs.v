@@ -39,11 +39,29 @@ Theorem response_consumes_exactly_its_correlated_identity : forall state source 
 Proof.
   intros state source message id. unfold response.
   destruct (Bool.eqb (has message "result") (has message "error")); [reflexivity|].
-  destruct (has message "result"); [reflexivity|].
+  destruct (has message "result"); [destruct (contains id (preparable state)); reflexivity|].
   destruct (is_object (get message "error")); [|reflexivity].
   destruct (has (get message "error") "message"); [|reflexivity].
   destruct (as_string (get (get message "error") "message")); reflexivity.
 Qed.
+
+Theorem materialization_reserves_and_removes_its_pending_identity state id value :
+  ~ In id (action_pending (reserve_materialization state id value)) /\
+  In id (action_materializing (reserve_materialization state id value)).
+Proof.
+  split; [apply consumed_identity_cannot_remain_pending|cbn; auto].
+Qed.
+
+Theorem unreserved_materialization_cannot_settle state source :
+  contains (nat_value (get source "id")) (materializing state) = false ->
+  prepared state source = encode_action (unchanged "ignore" state []).
+Proof.
+  intro H. unfold prepared. rewrite H, andb_false_r. reflexivity.
+Qed.
+
+Theorem consumed_materialization_cannot_remain_active state id kind payload :
+  ~ In id (action_materializing (consume kind state id payload)).
+Proof. apply consumed_identity_cannot_remain_pending. Qed.
 
 (** This constrains the decoded entry used by the extracted dispatcher, rather
     than a second specification function with identical implementation. *)

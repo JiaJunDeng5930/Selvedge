@@ -44,12 +44,17 @@ Inductive measurement :=
 | MeasurementFailed (input : capture).
 Inductive job :=
 | NoJob
+| WaitingForResource (purpose : option reason)
+| AwaitingContext (ticket : N) (purpose : option reason) (resume_model : bool)
 | Resuming (input : capture) (purpose : reason)
 | Preparing (ticket : N) (input : capture) (purpose : reason) (stage : inspection_stage)
 | Compacting (ticket : N) (input : capture) (purpose : reason) (progress : compaction_state) (scope : string)
 | Validating (ticket : N) (input : capture) (purpose : reason) (candidate : artifact)
     (preview : list message) (stage : inspection_stage).
 Record entry := Entry {
+ (* This is the actual completed workspace observation. It is not reconstructed
+    from the existence of a compaction job or a current task snapshot. *)
+ entry_observation : option capture;
  entry_measurement : measurement;
  entry_job : job;
  entry_useful : N;
@@ -60,7 +65,7 @@ Record entry := Entry {
  entry_cache_history : list message;
  entry_cache_scope : string
 }.
-Definition empty_entry := Entry Unmeasured NoJob 0 0 0 0 0 [] ""%string.
+Definition empty_entry := Entry None Unmeasured NoJob 0 0 0 0 0 [] ""%string.
 Record state := MaintenanceState {
  maintenance_policy : policy;
  maintenance_entries : list (N * entry);

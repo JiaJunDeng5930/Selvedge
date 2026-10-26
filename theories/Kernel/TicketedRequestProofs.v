@@ -8,8 +8,9 @@ Import ListNotations.
 
 Definition registry_replace_other := @Selvedge.Foundation.RegistryProofs.registry_replace_other.
 
-(* The only writable world components are one selected registry entry and the
-   fresh-ticket counter. This lift applies to every request variant. *)
+(* A resumed operation additionally records its actual wake in an existing
+   maintenance receiver. The other task entries and the remaining frame are
+   unchanged; the receiver update is specified exactly below. *)
 Theorem issue_preserves_other_tasks : forall owner source before other,
  owner <> other ->
  find_task other (decision_world (TicketedRequest.issue owner source before)) = find_task other before.
@@ -18,23 +19,30 @@ Proof.
  unfold TicketedRequest.issue; cbn [allocate_identity next_identity].
  destruct (TicketedRequest.build owner (world_next_ticket before) (world_environment before) source).
  cbn [decision_world accept].
+ destruct source; cbn; rewrite ?TaskWakeProofs.context_wake_preserves_every_task_lookup;
  unfold find_task, put_task, with_tasks, with_ticket; cbn.
- apply registry_replace_other; exact Different.
+ all: apply registry_replace_other; exact Different.
 Qed.
 Theorem issue_preserves_world_frame : forall owner source before,
  let after := decision_world (TicketedRequest.issue owner source before) in
  world_sequence after = world_sequence before /\
  world_environment after = world_environment before /\
  world_projects after = world_projects before /\
- world_features after = world_features before /\
+ world_features after = (match source with
+   | TicketedRequest.Resume _ _ _ current =>
+     world_features (Tasks.mark_context_wake owner current before)
+   | _ => world_features before end) /\
  world_next_ticket after = N.succ (world_next_ticket before) /\
  List.length (world_tasks after) = List.length (world_tasks before).
 Proof.
  intros owner source before. unfold TicketedRequest.issue; cbn [allocate_identity next_identity].
  destruct (TicketedRequest.build owner (world_next_ticket before) (world_environment before) source).
  cbn [decision_world accept].
- unfold put_task, with_tasks, with_ticket; cbn.
- repeat split; try reflexivity. apply registry_replace_length.
+ destruct source; cbn; try (unfold Tasks.mark_context_wake;
+   destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|operations];
+   try destruct phase);
+ unfold put_task, with_tasks, with_ticket, with_features; cbn;
+ repeat split; try reflexivity; apply registry_replace_length.
 Qed.
 Definition coordinate (request : effect) : option (N*N) := match request with
  | RequestModel request => Some (ModelRequest.owner request, ModelRequest.ticket request)

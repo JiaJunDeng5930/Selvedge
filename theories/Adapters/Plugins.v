@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import CallWire Json Utf8 TextJson.
 From Selvedge.Kernel Require Import ChatgptProtocol ChatgptArguments.
-From Selvedge.Adapters Require Import Common Observation PluginConnections PluginCatalog.
+From Selvedge.Adapters Require Import Common Observation PluginConnections PluginCatalog Attachments.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -43,6 +43,26 @@ Definition call_result source := let value := get source "result" in
 Definition mcp_result source := let value := get source "result" in
   if is_object value then success (JObject [("value",value);("error",JBool (boolean_field value "isError"))])
   else err "MCP returned a malformed tool result".
+Definition mcp_media_part (part observation : json) :=
+  if String.eqb (str part "type") "image" then
+    is_text (get part "data") && boolean_field observation "canonical" &&
+    bound (get observation "bytes") 1 Images.image_byte_limit &&
+    existsb (String.eqb (str (attachment_media_type observation) "value")) Images.mime_types
+  else true.
+Definition mcp_media_pairs source := combine (items (get (get source "result") "content")) (items (get source "observations")).
+Definition mcp_media_images source := filter (fun pair => String.eqb (str (fst (snd pair)) "type") "image")
+  (combine (seq 0 (List.length (items (get (get source "result") "content")))) (mcp_media_pairs source)).
+Definition mcp_media_bytes source := fold_left (fun total pair => total + num (snd (snd pair)) "bytes") (mcp_media_images source) 0.
+Definition mcp_media_admitted source :=
+  Nat.eqb (List.length (items (get (get source "result") "content"))) (List.length (items (get source "observations"))) &&
+  forallb (fun pair => mcp_media_part (fst pair) (snd pair)) (mcp_media_pairs source) &&
+  (mcp_media_bytes source <=? num source "maximum").
+Definition mcp_media_plan source :=
+  if negb (is_object (get source "result")) then err "MCP returned a malformed tool result"
+  else if mcp_media_admitted source
+  then success (JObject [("indices",JArray (map (fun pair => number (N.of_nat (fst pair))) (mcp_media_images source)));
+    ("bytes",number (mcp_media_bytes source))])
+  else type_error "MCP image content must use canonical base64, supported image bytes and the response byte budget".
 Definition client_info := JObject [("name",JString "selvedge-rocq");("version",JString "0.1.0")].
 Definition initialize_request source := let definition := get source "definition" in let limits := get source "limits" in
   JObject [("protocolVersion",get definition "protocolVersion");("clientInfo",client_info);("workspace",get source "workspace");
@@ -99,6 +119,7 @@ Definition handlers : list (string * (json -> json)) := [
  ("plugin.manifest",manifest);("plugin.before_request",fun s => hook_request s false);("plugin.after_request",fun s => hook_request s true);
  ("plugin.call_request",call_request);("plugin.before_result",fun s => hook_result s false);("plugin.after_result",fun s => hook_result s true);
  ("plugin.call_result",call_result);("plugin.mcp_result",mcp_result);("plugin.mcp_page",mcp_page);("plugin.mcp_version",mcp_version);
+ ("plugin.mcp_media_plan",mcp_media_plan);
  ("plugin.tools",fun _ => success tools);("plugin.instructions",fun _ => success instructions);
  ("plugin.connection_failure",fun _ => connection_failure);("plugin.http_response",http_response)].
 Definition call operation source := match find (fun handler => String.eqb operation (fst handler)) handlers with

@@ -95,7 +95,9 @@ Theorem actual_query_preserves_world_and_emits_no_effect : forall source command
  field "durable" (snd (Packet.packet source value)) = Some (JBool false).
 Proof.
  intros source command reply value Decoded Query.
- unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source); destruct (N.leb _ _).
+ unfold Packet.packet, Packet.packet_admitted;
+ rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ cbv beta zeta; fold (Packet.manual_fork source); destruct (N.leb _ _).
  - cbv beta zeta; fold (Packet.manual_fork source).
    rewrite (a_query_is_not_a_manual_fork source command reply value Decoded Query).
    rewrite (a_query_is_not_a_public_creation source command reply value Decoded Query).
@@ -142,7 +144,9 @@ Proof. exact DeferredCommitProofs.actual_commit_refusal_restores_the_world_and_d
 Theorem every_actual_packet_preserves_world_requirements : forall source before,
  world_valid before = true -> world_valid (fst (Packet.packet source before)) = true.
 Proof.
- intros source before Before; unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source).
+ intros source before Before; unfold Packet.packet, Packet.packet_admitted;
+ rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ cbv beta zeta; fold (Packet.manual_fork source).
  destruct (N.leb _ _); [|exact Before].
  destruct (Packet.manual_fork source) as [request|].
  { apply manual_fork_packets_preserve_world_requirements; exact Before. }
@@ -219,7 +223,9 @@ Theorem every_actual_packet_binds_its_emitted_inference_history : forall source 
  Forall (CommitAdmissionProofs.inference_history_bound (fst (Packet.packet source before)))
    (decision_effects committed).
 Proof.
- intros source before; unfold Packet.packet; cbv beta zeta; fold (Packet.manual_fork source).
+ intros source before; unfold Packet.packet, Packet.packet_admitted;
+ rewrite !InputDecoder.admitted_input_is_its_decoder_result;
+ cbv beta zeta; fold (Packet.manual_fork source).
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
  - destruct (Packet.manual_fork source) as [request|] eqn:Manual.
    { unfold ForkCommit.packet.

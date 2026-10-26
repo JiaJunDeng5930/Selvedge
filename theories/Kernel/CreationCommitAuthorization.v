@@ -141,14 +141,24 @@ Proof.
  unfold CreationCommit.candidate, Worktree.handle_create, CommandExecution.with_content.
  destruct (CommandExecution.user_content _ _) as [contents|];
    [|apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
- unfold Worktree.create_selected, Worktree.create_planned, Worktree.create_intent,
-   Worktree.consume_start_resolution.
- destruct (CommandExecution.resolve_context_start _ _ _ _ _ _ _ _) as [cause|start];
+ unfold Worktree.create_selected, Worktree.create_selected_result,
+   Worktree.create_intent_result, Worktree.resolve_start_birth.
+ destruct (CommandExecution.resolve_context_start
+   (Worktree.creation_entry Worktree.ImplicitCreation None)
+   (Commands.create_profile request) (Commands.create_reasoning request) contents
+   (Commands.create_settings request) false None before) as [cause|start];
    [apply an_unchanged_world_preserves_cross_state_authority; exact Valid|].
- destruct (Worktree.start_allowed _ _ _ _);
-   [|apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
- destruct (Worktree.prepare_resolved _ _ _ _ _) as [plan|reply];
-   [|cbn [decision_reply]; destruct (bool_default "ok" reply false); apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
+ cbn [Worktree.start_allowed CommandExecution.creation_allowed].
+ unfold Worktree.prepare_scoped.
+ destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before) as [plan|reply];
+   [|cbn [Worktree.creation_decision decision_reply]; destruct (bool_default "ok" reply false); apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
+ cbn [Worktree.final_authority].
+ change (CommitAdmission.world_evolution source raw before
+   (decision_world (let born := Worktree.consume_planned_start plan before in
+    if bool_default "ok" (decision_reply born) false then
+      Decision (decision_world born) (decision_reply born) (decision_effects born ++ [ContinueScheduling])
+    else born)) = true).
+ cbv zeta.
  destruct (bool_default "ok" (decision_reply (Worktree.consume_planned_start plan before)) false);
    apply every_planned_birth_preserves_cross_state_authority; exact Valid.
 Qed.
@@ -169,13 +179,24 @@ Proof.
  intros request before after.
  unfold CreationCommit.candidate, Worktree.handle_create, CommandExecution.with_content.
  destruct (CommandExecution.user_content _ _) as [contents|]; [|repeat constructor].
- unfold Worktree.create_selected, Worktree.create_planned, Worktree.create_intent,
-   Worktree.consume_start_resolution.
- destruct (CommandExecution.resolve_context_start _ _ _ _ _ _ _ _) as [cause|start]; [repeat constructor|].
- destruct (Worktree.start_allowed _ _ _ _); [|repeat constructor].
- destruct (Worktree.prepare_resolved _ _ _ _ _) as [plan|reply].
- - destruct (bool_default "ok" (decision_reply (Worktree.consume_planned_start plan before)) false); cbn.
+ unfold Worktree.create_selected, Worktree.create_selected_result,
+   Worktree.create_intent_result, Worktree.resolve_start_birth.
+ destruct (CommandExecution.resolve_context_start
+   (Worktree.creation_entry Worktree.ImplicitCreation None)
+   (Commands.create_profile request) (Commands.create_reasoning request) contents
+   (Commands.create_settings request) false None before) as [cause|start]; [repeat constructor|].
+ cbn [Worktree.start_allowed CommandExecution.creation_allowed].
+ unfold Worktree.prepare_scoped.
+ destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before) as [plan|reply].
+ - cbn [Worktree.final_authority].
+   change (Forall (CommitAdmissionProofs.inference_history_bound after)
+     (decision_effects (let born := Worktree.consume_planned_start plan before in
+      if bool_default "ok" (decision_reply born) false then
+        Decision (decision_world born) (decision_reply born) (decision_effects born ++ [ContinueScheduling])
+      else born))).
+   cbv zeta.
+   destruct (bool_default "ok" (decision_reply (Worktree.consume_planned_start plan before)) false); cbn.
    + apply Forall_app; split; [apply every_planned_birth_effect_has_its_inference_history_bound|repeat constructor].
    + apply every_planned_birth_effect_has_its_inference_history_bound.
- - cbn [decision_reply]; destruct (bool_default "ok" reply false); repeat constructor.
+ - cbn [Worktree.creation_decision decision_reply]; destruct (bool_default "ok" reply false); repeat constructor.
 Qed.

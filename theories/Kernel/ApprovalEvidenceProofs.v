@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs.
+From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks Callbacks ApprovalProtocol Scheduler Limits TicketedRequest ScopedRequestProofs LifecycleProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -140,14 +140,27 @@ Theorem model_approval_completion_records_its_captured_reviewer :
    | ModelReviewer _ => N.eqb ticket expected | HumanReviewer => false end)
    (task_operations task) = Some (pending,ModelReviewer profile) ->
  exists updated,
- decision_world (Callbacks.approval_completed owner ticket outcome value) = put_task owner updated value /\
+ decision_world (Callbacks.approval_completed owner ticket outcome value) =
+   (match Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task with
+    | Tasks.KeepDemand _ => put_task owner updated value
+    | Tasks.WakeDemand _ => Tasks.mark_context_wake owner task (put_task owner updated value) end) /\
+ find_task owner (decision_world (Callbacks.approval_completed owner ticket outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) (ModelReviewer profile)
    (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
 Proof.
  intros owner ticket pending profile outcome task value Found Selected.
  rewrite !approval_completed_expression; rewrite Found, Selected.
- eexists; split; [reflexivity|apply a_decision_keeps_its_reviewer_record].
+ exists (Callbacks.approval_decision owner pending (ModelReviewer profile) outcome task).
+ cbn [Callbacks.acknowledged accept decision_world]. split.
+ - unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+   destruct (Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task); reflexivity.
+ - split.
+   + unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+     destruct (Callbacks.approval_decision_plan owner pending (ModelReviewer profile) outcome task);
+       rewrite ?TaskWakeProofs.context_wake_preserves_every_task_lookup;
+       eapply find_put_task; exact Found.
+   + apply a_decision_keeps_its_reviewer_record.
 Qed.
 
 Theorem human_approval_command_records_its_actual_reviewer :
@@ -157,14 +170,27 @@ Theorem human_approval_command_records_its_actual_reviewer :
    match actor with HumanReviewer => true | ModelReviewer _ => false end)
    (task_operations task) = Some (pending,HumanReviewer) ->
  exists updated,
- decision_world (Callbacks.review_approval owner operation outcome value) = put_task owner updated value /\
+ decision_world (Callbacks.review_approval owner operation outcome value) =
+   (match Callbacks.approval_decision_plan owner pending HumanReviewer outcome task with
+    | Tasks.KeepDemand _ => put_task owner updated value
+    | Tasks.WakeDemand _ => Tasks.mark_context_wake owner task (put_task owner updated value) end) /\
+ find_task owner (decision_world (Callbacks.review_approval owner operation outcome value)) = Some updated /\
  exists suffix, task_history updated = task_history task ++
  ApprovalReceipt owner (operation_id pending) (operation_call pending) HumanReviewer
    (Inputs.approval_json (ApprovalProtocol.normalize_outcome outcome)) :: suffix.
 Proof.
  intros owner operation pending outcome task value Found Selected.
  rewrite !review_approval_expression; rewrite Found, Selected.
- eexists; split; [reflexivity|apply a_decision_keeps_its_reviewer_record].
+ exists (Callbacks.approval_decision owner pending HumanReviewer outcome task).
+ cbn [Callbacks.acknowledged accept decision_world]. split.
+ - unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+   destruct (Callbacks.approval_decision_plan owner pending HumanReviewer outcome task); reflexivity.
+ - split.
+   + unfold Tasks.apply_result, Callbacks.approval_decision, Callbacks.approval_decision_changes.
+     destruct (Callbacks.approval_decision_plan owner pending HumanReviewer outcome task);
+       rewrite ?TaskWakeProofs.context_wake_preserves_every_task_lookup;
+       eapply find_put_task; exact Found.
+   + apply a_decision_keeps_its_reviewer_record.
 Qed.
 
 Theorem public_approval_history_exposes_the_recorded_reviewer : forall owner operation invocation actor outcome,

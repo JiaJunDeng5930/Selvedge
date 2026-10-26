@@ -49,82 +49,88 @@ export function decodeJson(value: unknown): JsonValue {
   if (isArray(value)) return value.map(decodeJson);
   const object = decodeObject(value); return Object.fromEntries(Object.entries(object).map(([key,item]) => [key,decodeJson(item)]));
 }
-function decodeEnum0(value: unknown): "TypeError" | "RangeError" {
+function decodeEnum0(value: unknown): "snapshot" | "subscribe" | "unsubscribe" {
+ switch (value) { case "snapshot": return "snapshot"; case "subscribe": return "subscribe"; case "unsubscribe": return "unsubscribe";
+ // DEFENSE: A model enum must contain one of its declared wire values.
+ default: throw new TypeError('Unknown model enum'); }
+}
+
+function decodeEnum1(value: unknown): "TypeError" | "RangeError" {
  switch (value) { case "TypeError": return "TypeError"; case "RangeError": return "RangeError";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum1(value: unknown): "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" {
+function decodeEnum2(value: unknown): "account_refresh" | "audio_create" | "audio_login" | "remote_pair" | "remote_enable" | "remote_disable" | "remote_approve" | "remote_revoke" | "browser_command" | "browser_observation" | "command" | "assess" | "connection_command" {
  switch (value) { case "account_refresh": return "account_refresh"; case "audio_create": return "audio_create"; case "audio_login": return "audio_login"; case "remote_pair": return "remote_pair"; case "remote_enable": return "remote_enable"; case "remote_disable": return "remote_disable"; case "remote_approve": return "remote_approve"; case "remote_revoke": return "remote_revoke"; case "browser_command": return "browser_command"; case "browser_observation": return "browser_observation"; case "command": return "command"; case "assess": return "assess"; case "connection_command": return "connection_command";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum2(value: unknown): "ignore" | "installed" | "retire" | "pairing" | "pending" | "expired" | "grants" | "enqueue" | "dequeue" | "disconnect" | "ready" | "controller_open" | "controller_close" | "request" | "pair_request" | "pong" {
- switch (value) { case "ignore": return "ignore"; case "installed": return "installed"; case "retire": return "retire"; case "pairing": return "pairing"; case "pending": return "pending"; case "expired": return "expired"; case "grants": return "grants"; case "enqueue": return "enqueue"; case "dequeue": return "dequeue"; case "disconnect": return "disconnect"; case "ready": return "ready"; case "controller_open": return "controller_open"; case "controller_close": return "controller_close"; case "request": return "request"; case "pair_request": return "pair_request"; case "pong": return "pong";
+function decodeEnum3(value: unknown): "ignore" | "installed" | "retire" | "pairing" | "pending" | "expired" | "grants" | "enqueue" | "dequeue" | "disconnect" | "ready" | "controller_open" | "controller_close" | "request" | "pair_request" | "pong" | "notice" | "snapshot" | "unsubscribed" | "deliver" {
+ switch (value) { case "ignore": return "ignore"; case "installed": return "installed"; case "retire": return "retire"; case "pairing": return "pairing"; case "pending": return "pending"; case "expired": return "expired"; case "grants": return "grants"; case "enqueue": return "enqueue"; case "dequeue": return "dequeue"; case "disconnect": return "disconnect"; case "ready": return "ready"; case "controller_open": return "controller_open"; case "controller_close": return "controller_close"; case "request": return "request"; case "pair_request": return "pair_request"; case "pong": return "pong"; case "notice": return "notice"; case "snapshot": return "snapshot"; case "unsubscribed": return "unsubscribed"; case "deliver": return "deliver";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum3(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" {
- switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe";
+function decodeEnum4(value: unknown): "persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "local_sync_registration" | "local_sync_ready" | "local_sync_archive" | "local_sync_release" {
+ switch (value) { case "persist": return "persist"; case "allocate": return "allocate"; case "prepare": return "prepare"; case "credentials": return "credentials"; case "scan": return "scan"; case "terminate": return "terminate"; case "finish": return "finish"; case "local_reserve": return "local_reserve"; case "local_create": return "local_create"; case "local_prepare": return "local_prepare"; case "local_classify": return "local_classify"; case "local_release": return "local_release"; case "local_remove": return "local_remove"; case "local_archive": return "local_archive"; case "local_observe": return "local_observe"; case "local_sync_registration": return "local_sync_registration"; case "local_sync_ready": return "local_sync_ready"; case "local_sync_archive": return "local_sync_archive"; case "local_sync_release": return "local_sync_release";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum4(value: unknown): "plain" | "interactive-v1" {
+function decodeEnum5(value: unknown): "plain" | "interactive-v1" {
  switch (value) { case "plain": return "plain"; case "interactive-v1": return "interactive-v1";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum5(value: unknown): "local" | "tencent_cvm" {
+function decodeEnum6(value: unknown): "local" | "tencent_cvm" {
  switch (value) { case "local": return "local"; case "tencent_cvm": return "tencent_cvm";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum6(value: unknown): "parent" | "environment" {
+function decodeEnum7(value: unknown): "parent" | "environment" {
  switch (value) { case "parent": return "parent"; case "environment": return "environment";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum7(value: unknown): "allow" | "deny" {
+function decodeEnum8(value: unknown): "allow" | "deny" {
  switch (value) { case "allow": return "allow"; case "deny": return "deny";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum8(value: unknown): "user" | "assistant" {
+function decodeEnum9(value: unknown): "user" | "assistant" {
  switch (value) { case "user": return "user"; case "assistant": return "assistant";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum9(value: unknown): "completed" | "interrupted" {
+function decodeEnum10(value: unknown): "completed" | "interrupted" {
  switch (value) { case "completed": return "completed"; case "interrupted": return "interrupted";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 
-function decodeEnum10(value: unknown): "send" | "steer" {
+function decodeEnum11(value: unknown): "send" | "steer" {
  switch (value) { case "send": return "send"; case "steer": return "steer";
  // DEFENSE: A model enum must contain one of its declared wire values.
  default: throw new TypeError('Unknown model enum'); }
 }
 export function decodeHttpReplyStatus(input: unknown): number { return decodeSafeNatural(input); }
 export type RemoteConnectorSessionState =
-  | {"phase": "offline"; "generation": number; "pairing": JsonValue}
-  | {"phase": "negotiating"; "generation": number; "pairing": JsonValue}
-  | {"phase": "ready"; "generation": number; "pairing": JsonValue; "grants": Array<JsonValue>; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
+  | {"phase": "offline"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
+  | {"phase": "negotiating"; "generation": number; "pairing": JsonValue; "notice_sequence": number}
+  | {"phase": "ready"; "generation": number; "pairing": JsonValue; "notice_sequence": number; "grants": Array<JsonValue>; "connections": Array<JsonValue>; "pending": Array<JsonValue>};
 export function decodeRemoteConnectorSessionState(input: unknown): RemoteConnectorSessionState {
   const source = decodeObject(input);
   switch (source["phase"]) {
-    case "offline": exactFields(source, ["phase","generation","pairing"]); return {"phase": "offline", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"])};
-    case "negotiating": exactFields(source, ["phase","generation","pairing"]); return {"phase": "negotiating", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"])};
-    case "ready": exactFields(source, ["phase","generation","pairing","grants","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "grants": decodeArray(source["grants"], item => decodeJson(item)), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
+    case "offline": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "offline", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
+    case "negotiating": exactFields(source, ["phase","generation","pairing","notice_sequence"]); return {"phase": "negotiating", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
+    case "ready": exactFields(source, ["phase","generation","pairing","notice_sequence","grants","connections","pending"]); return {"phase": "ready", "generation": decodeSafeNatural(source["generation"]), "pairing": decodeJson(source["pairing"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"]), "grants": decodeArray(source["grants"], item => decodeJson(item)), "connections": decodeArray(source["connections"], item => decodeJson(item)), "pending": decodeArray(source["pending"], item => decodeJson(item))};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionState variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionState discriminant');
   }
@@ -136,8 +142,11 @@ export type RemoteConnectorSessionObservation =
   | {"kind": "pair"; "generation": number; "now": number; "frame": JsonValue}
   | {"kind": "pairing_current"; "generation": number; "now": number}
   | {"kind": "grants"; "generation": number; "grants": Array<JsonValue>}
-  | {"kind": "enqueue"; "generation": number; "connection_id": string; "bytes": number}
-  | {"kind": "dequeue"; "generation": number; "connection_id": string; "bytes": number}
+  | {"kind": "enqueue"; "generation": number; "connection_id": string; "bytes": number; "notice_sequence": JsonValue}
+  | {"kind": "dequeue"; "generation": number; "connection_id": string; "bytes": number; "notice_sequence": JsonValue}
+  | {"kind": "notice"; }
+  | {"kind": "capture"; "generation": number; "connection_id": string; "method": "snapshot" | "subscribe" | "unsubscribe"}
+  | {"kind": "deliver"; "generation": number; "connection_id": string; "notice_sequence": number}
   | {"kind": "frame"; "generation": number; "frame": JsonValue};
 export function decodeRemoteConnectorSessionObservation(input: unknown): RemoteConnectorSessionObservation {
   const source = decodeObject(input);
@@ -147,8 +156,11 @@ export function decodeRemoteConnectorSessionObservation(input: unknown): RemoteC
     case "pair": exactFields(source, ["kind","generation","now","frame"]); return {"kind": "pair", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"]), "frame": decodeJson(source["frame"])};
     case "pairing_current": exactFields(source, ["kind","generation","now"]); return {"kind": "pairing_current", "generation": decodeSafeNatural(source["generation"]), "now": decodeSafeNatural(source["now"])};
     case "grants": exactFields(source, ["kind","generation","grants"]); return {"kind": "grants", "generation": decodeSafeNatural(source["generation"]), "grants": decodeArray(source["grants"], item => decodeJson(item))};
-    case "enqueue": exactFields(source, ["kind","generation","connection_id","bytes"]); return {"kind": "enqueue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"])};
-    case "dequeue": exactFields(source, ["kind","generation","connection_id","bytes"]); return {"kind": "dequeue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"])};
+    case "enqueue": exactFields(source, ["kind","generation","connection_id","bytes","notice_sequence"]); return {"kind": "enqueue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"]), "notice_sequence": decodeJson(source["notice_sequence"])};
+    case "dequeue": exactFields(source, ["kind","generation","connection_id","bytes","notice_sequence"]); return {"kind": "dequeue", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "bytes": decodeSafeNatural(source["bytes"]), "notice_sequence": decodeJson(source["notice_sequence"])};
+    case "notice": exactFields(source, ["kind"]); return {"kind": "notice"};
+    case "capture": exactFields(source, ["kind","generation","connection_id","method"]); return {"kind": "capture", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "method": decodeEnum0(source["method"])};
+    case "deliver": exactFields(source, ["kind","generation","connection_id","notice_sequence"]); return {"kind": "deliver", "generation": decodeSafeNatural(source["generation"]), "connection_id": decodeText(source["connection_id"]), "notice_sequence": decodeSafeNatural(source["notice_sequence"])};
     case "frame": exactFields(source, ["kind","generation","frame"]); return {"kind": "frame", "generation": decodeSafeNatural(source["generation"]), "frame": decodeJson(source["frame"])};
     // DEFENSE: External boundary values must name a declared RemoteConnectorSessionObservation variant.
     default: throw new TypeError('Unknown RemoteConnectorSessionObservation discriminant');
@@ -328,8 +340,8 @@ export function decodeHttpPlan(input: unknown): HttpPlan {
   const source = decodeObject(input);
   switch (source["action"]) {
     case "respond": exactFields(source, ["action","status","value"]); return {"action": "respond", "status": decodeSafeNatural(source["status"]), "value": decodeJson(source["value"])};
-    case "throw": exactFields(source, ["action","kind","message"]); return {"action": "throw", "kind": decodeEnum0(source["kind"]), "message": decodeText(source["message"])};
-    case "observe_content_type": exactFields(source, ["action","target"]); return {"action": "observe_content_type", "target": decodeEnum1(source["target"])};
+    case "throw": exactFields(source, ["action","kind","message"]); return {"action": "throw", "kind": decodeEnum1(source["kind"]), "message": decodeText(source["message"])};
+    case "observe_content_type": exactFields(source, ["action","target"]); return {"action": "observe_content_type", "target": decodeEnum2(source["target"])};
     case "observe_host": exactFields(source, ["action"]); return {"action": "observe_host"};
     case "parse_url": exactFields(source, ["action"]); return {"action": "parse_url"};
     case "observe_connection_authorization": exactFields(source, ["action"]); return {"action": "observe_connection_authorization"};
@@ -459,9 +471,9 @@ export function decodeAudioTransportAction(input: unknown): AudioTransportAction
     default: throw new TypeError('Unknown AudioTransportAction discriminant');
   }
 }
-export type RemoteConnectorSessionTransition = {"state": JsonValue; "action": "ignore" | "installed" | "retire" | "pairing" | "pending" | "expired" | "grants" | "enqueue" | "dequeue" | "disconnect" | "ready" | "controller_open" | "controller_close" | "request" | "pair_request" | "pong"};
+export type RemoteConnectorSessionTransition = {"state": JsonValue; "action": "ignore" | "installed" | "retire" | "pairing" | "pending" | "expired" | "grants" | "enqueue" | "dequeue" | "disconnect" | "ready" | "controller_open" | "controller_close" | "request" | "pair_request" | "pong" | "notice" | "snapshot" | "unsubscribed" | "deliver"};
 export function decodeRemoteConnectorSessionTransition(input: unknown): RemoteConnectorSessionTransition {
- const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeEnum2(source["action"])};
+ const source = decodeObject(input); exactFields(source, ["state","action"]); return {"state": decodeJson(source["state"]), "action": decodeEnum3(source["action"])};
 }
 
 export type CloudReadinessTransition = {"state": JsonValue; "actions": Array<JsonValue>};
@@ -469,9 +481,9 @@ export function decodeCloudReadinessTransition(input: unknown): CloudReadinessTr
  const source = decodeObject(input); exactFields(source, ["state","actions"]); return {"state": decodeJson(source["state"]), "actions": decodeArray(source["actions"], item => decodeJson(item))};
 }
 
-export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe">};
+export type ResourceTransition = {"state": JsonValue; "effects": Array<"persist" | "allocate" | "prepare" | "credentials" | "scan" | "terminate" | "finish" | "local_reserve" | "local_create" | "local_prepare" | "local_classify" | "local_release" | "local_remove" | "local_archive" | "local_observe" | "local_sync_registration" | "local_sync_ready" | "local_sync_archive" | "local_sync_release">};
 export function decodeResourceTransition(input: unknown): ResourceTransition {
- const source = decodeObject(input); exactFields(source, ["state","effects"]); return {"state": decodeJson(source["state"]), "effects": decodeArray(source["effects"], item => decodeEnum3(item))};
+ const source = decodeObject(input); exactFields(source, ["state","effects"]); return {"state": decodeJson(source["state"]), "effects": decodeArray(source["effects"], item => decodeEnum4(item))};
 }
 
 export type RemoteTransportTransition = {"state": JsonValue; "actions": Array<JsonValue>};
@@ -567,7 +579,7 @@ export function decodeEffect(input: unknown): Effect {
   const source = decodeObject(input);
   switch (source["kind"]) {
     case "observe_context": exactFields(source, ["kind","task_id","ticket","settings","resource","definitions","bindings"]); return {"kind": "observe_context", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "settings": decodeJson(source["settings"]), "resource": decodeJson(source["resource"]), "definitions": decodeArray(source["definitions"], item => decodeJson(item)), "bindings": decodeArray(source["bindings"], item => decodeJson(item))};
-    case "model": exactFields(source, ["kind","task_id","ticket","model","output_mode","settings","resource","sampling","history","context_selected","context_scope","context_replacement_source","output_reserve_tokens","source_length","tools","callable"]); return {"kind": "model", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "output_mode": decodeEnum4(source["output_mode"]), "settings": decodeJson(source["settings"]), "resource": decodeJson(source["resource"]), "sampling": decodeJson(source["sampling"]), "history": decodeArray(source["history"], item => decodeJson(item)), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), ...(source["context_replacement_source"] === undefined ? {} : {"context_replacement_source": source["context_replacement_source"] === null ? null : decodeNatural(source["context_replacement_source"])}), "output_reserve_tokens": decodeNatural(source["output_reserve_tokens"]), "source_length": decodeNatural(source["source_length"]), "tools": decodeArray(source["tools"], item => decodeJson(item)), "callable": decodeArray(source["callable"], item => decodeText(item))};
+    case "model": exactFields(source, ["kind","task_id","ticket","model","output_mode","settings","resource","sampling","history","context_selected","context_scope","context_replacement_source","output_reserve_tokens","source_length","tools","callable"]); return {"kind": "model", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "output_mode": decodeEnum5(source["output_mode"]), "settings": decodeJson(source["settings"]), "resource": decodeJson(source["resource"]), "sampling": decodeJson(source["sampling"]), "history": decodeArray(source["history"], item => decodeJson(item)), "context_selected": decodeBoolean(source["context_selected"]), "context_scope": decodeText(source["context_scope"]), ...(source["context_replacement_source"] === undefined ? {} : {"context_replacement_source": source["context_replacement_source"] === null ? null : decodeNatural(source["context_replacement_source"])}), "output_reserve_tokens": decodeNatural(source["output_reserve_tokens"]), "source_length": decodeNatural(source["source_length"]), "tools": decodeArray(source["tools"], item => decodeJson(item)), "callable": decodeArray(source["callable"], item => decodeText(item))};
     case "reasoning": exactFields(source, ["kind","task_id","ticket","model","history","project_context","history_preview","history_preview_bytes"]); return {"kind": "reasoning", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "history": decodeArray(source["history"], item => decodeJson(item)), "project_context": decodeJson(source["project_context"]), "history_preview": decodeBoolean(source["history_preview"]), "history_preview_bytes": decodeNatural(source["history_preview_bytes"])};
     case "tool": exactFields(source, ["kind","task_id","ticket","operation_id","tool","call","execution"]); return {"kind": "tool", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "operation_id": decodeNatural(source["operation_id"]), "tool": decodeJson(source["tool"]), "call": decodeJson(source["call"]), "execution": decodeJson(source["execution"])};
     case "approval": exactFields(source, ["kind","task_id","ticket","model","settings","call","instructions","user_requests"]); return {"kind": "approval", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "settings": decodeJson(source["settings"]), "call": decodeJson(source["call"]), "instructions": decodeText(source["instructions"]), "user_requests": decodeArray(source["user_requests"], item => decodeText(item))};
@@ -578,8 +590,8 @@ export function decodeEffect(input: unknown): Effect {
     case "cancel": exactFields(source, ["kind","task_id"]); return {"kind": "cancel", "task_id": decodeNatural(source["task_id"])};
     case "cancel_ticket": exactFields(source, ["kind","task_id","ticket"]); return {"kind": "cancel_ticket", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"])};
     case "continue": exactFields(source, ["kind"]); return {"kind": "continue"};
-    case "worktree_create": exactFields(source, ["kind","task_id","backend","source_root","workspace"]); return {"kind": "worktree_create", "task_id": decodeNatural(source["task_id"]), "backend": decodeEnum5(source["backend"]), "source_root": decodeText(source["source_root"]), "workspace": decodeJson(source["workspace"])};
-    case "worktree_archive": exactFields(source, ["kind","task_id","backend","source_root","root"]); return {"kind": "worktree_archive", "task_id": decodeNatural(source["task_id"]), "backend": decodeEnum5(source["backend"]), "source_root": decodeText(source["source_root"]), "root": decodeText(source["root"])};
+    case "worktree_create": exactFields(source, ["kind","task_id","backend","source_root","workspace"]); return {"kind": "worktree_create", "task_id": decodeNatural(source["task_id"]), "backend": decodeEnum6(source["backend"]), "source_root": decodeText(source["source_root"]), "workspace": decodeJson(source["workspace"])};
+    case "worktree_archive": exactFields(source, ["kind","task_id","backend","source_root","root"]); return {"kind": "worktree_archive", "task_id": decodeNatural(source["task_id"]), "backend": decodeEnum6(source["backend"]), "source_root": decodeText(source["source_root"]), "root": decodeText(source["root"])};
     case "task_title": exactFields(source, ["kind","task_id","ticket","model","prompt"]); return {"kind": "task_title", "task_id": decodeNatural(source["task_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "prompt": decodeText(source["prompt"])};
     case "board_text": exactFields(source, ["kind","card_id","ticket","model","prompt","retitle"]); return {"kind": "board_text", "card_id": decodeNatural(source["card_id"]), "ticket": decodeNatural(source["ticket"]), "model": decodeJson(source["model"]), "prompt": decodeText(source["prompt"]), "retitle": decodeBoolean(source["retitle"])};
     case "chatgpt_exec": exactFields(source, ["kind","operation_id","arguments","execution"]); return {"kind": "chatgpt_exec", "operation_id": decodeNatural(source["operation_id"]), "arguments": decodeJson(source["arguments"]), "execution": decodeJson(source["execution"])};
@@ -698,7 +710,7 @@ export function decodeCommand(input: unknown): Command {
     case "stop": exactFields(source, ["op","task_id"]); return {"op": "stop", "task_id": decodeNatural(source["task_id"])};
     case "interrupt": exactFields(source, ["op","task_id"]); return {"op": "interrupt", "task_id": decodeNatural(source["task_id"])};
     case "archive": exactFields(source, ["op","task_id"]); return {"op": "archive", "task_id": decodeNatural(source["task_id"])};
-    case "fork": exactFields(source, ["op","task_id","child_count","messages","settings","settings_origin"]); return {"op": "fork", "task_id": decodeNatural(source["task_id"]), "child_count": decodeNatural(source["child_count"]), ...(source["messages"] === undefined ? {} : {"messages": decodeArray(source["messages"], item => decodeJson(item))}), ...(source["settings"] === undefined ? {} : {"settings": decodeJson(source["settings"])}), ...(source["settings_origin"] === undefined ? {} : {"settings_origin": source["settings_origin"] === null ? null : decodeEnum6(source["settings_origin"])})};
+    case "fork": exactFields(source, ["op","task_id","child_count","messages","settings","settings_origin"]); return {"op": "fork", "task_id": decodeNatural(source["task_id"]), "child_count": decodeNatural(source["child_count"]), ...(source["messages"] === undefined ? {} : {"messages": decodeArray(source["messages"], item => decodeJson(item))}), ...(source["settings"] === undefined ? {} : {"settings": decodeJson(source["settings"])}), ...(source["settings_origin"] === undefined ? {} : {"settings_origin": source["settings_origin"] === null ? null : decodeEnum7(source["settings_origin"])})};
     case "open_side_conversation": exactFields(source, ["op","task_id","message","images"]); return {"op": "open_side_conversation", "task_id": decodeNatural(source["task_id"]), ...(source["message"] === undefined ? {} : {"message": decodeJson(source["message"])}), ...(source["images"] === undefined ? {} : {"images": decodeArray(source["images"], item => decodeJson(item))})};
     case "return_side_conversation": exactFields(source, ["op","task_id"]); return {"op": "return_side_conversation", "task_id": decodeNatural(source["task_id"])};
     case "compact": exactFields(source, ["op","task_id","summary"]); return {"op": "compact", "task_id": decodeNatural(source["task_id"]), ...(source["summary"] === undefined ? {} : {"summary": decodeText(source["summary"])})};
@@ -711,9 +723,9 @@ export function decodeCommand(input: unknown): Command {
     case "delete_project": exactFields(source, ["op","project_id"]); return {"op": "delete_project", "project_id": decodeNatural(source["project_id"])};
     case "list_projects": exactFields(source, ["op"]); return {"op": "list_projects"};
     case "read_project": exactFields(source, ["op","project_id"]); return {"op": "read_project", "project_id": decodeNatural(source["project_id"])};
-    case "review_approval": exactFields(source, ["op","task_id","operation_id","decision","reason"]); return {"op": "review_approval", "task_id": decodeNatural(source["task_id"]), "operation_id": decodeNatural(source["operation_id"]), "decision": decodeEnum7(source["decision"]), ...(source["reason"] === undefined ? {} : {"reason": decodeText(source["reason"])})};
-    case "record_speech_transcript": exactFields(source, ["op","task_id","session_id","item_id","speaker","completion","text"]); return {"op": "record_speech_transcript", "task_id": decodeNatural(source["task_id"]), "session_id": decodeText(source["session_id"]), "item_id": decodeText(source["item_id"]), "speaker": decodeEnum8(source["speaker"]), "completion": decodeEnum9(source["completion"]), "text": decodeText(source["text"])};
-    case "accept_speech_delegation": exactFields(source, ["op","task_id","session_id","delegation_id","message","mode"]); return {"op": "accept_speech_delegation", "task_id": decodeNatural(source["task_id"]), "session_id": decodeText(source["session_id"]), "delegation_id": decodeText(source["delegation_id"]), "message": decodeText(source["message"]), "mode": decodeEnum10(source["mode"])};
+    case "review_approval": exactFields(source, ["op","task_id","operation_id","decision","reason"]); return {"op": "review_approval", "task_id": decodeNatural(source["task_id"]), "operation_id": decodeNatural(source["operation_id"]), "decision": decodeEnum8(source["decision"]), ...(source["reason"] === undefined ? {} : {"reason": decodeText(source["reason"])})};
+    case "record_speech_transcript": exactFields(source, ["op","task_id","session_id","item_id","speaker","completion","text"]); return {"op": "record_speech_transcript", "task_id": decodeNatural(source["task_id"]), "session_id": decodeText(source["session_id"]), "item_id": decodeText(source["item_id"]), "speaker": decodeEnum9(source["speaker"]), "completion": decodeEnum10(source["completion"]), "text": decodeText(source["text"])};
+    case "accept_speech_delegation": exactFields(source, ["op","task_id","session_id","delegation_id","message","mode"]); return {"op": "accept_speech_delegation", "task_id": decodeNatural(source["task_id"]), "session_id": decodeText(source["session_id"]), "delegation_id": decodeText(source["delegation_id"]), "message": decodeText(source["message"]), "mode": decodeEnum11(source["mode"])};
     case "create_card": exactFields(source, ["op","observed_at","title","description","status","priority","assignee","project","labels","attachments","assisted","draft_profile"]); return {"op": "create_card", ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])}), ...(source["title"] === undefined ? {} : {"title": decodeText(source["title"])}), ...(source["description"] === undefined ? {} : {"description": decodeText(source["description"])}), ...(source["status"] === undefined ? {} : {"status": decodeText(source["status"])}), ...(source["priority"] === undefined ? {} : {"priority": decodeText(source["priority"])}), ...(source["assignee"] === undefined ? {} : {"assignee": decodeText(source["assignee"])}), ...(source["project"] === undefined ? {} : {"project": decodeText(source["project"])}), ...(source["labels"] === undefined ? {} : {"labels": decodeArray(source["labels"], item => decodeText(item))}), ...(source["attachments"] === undefined ? {} : {"attachments": decodeArray(source["attachments"], item => decodeJson(item))}), ...(source["assisted"] === undefined ? {} : {"assisted": decodeBoolean(source["assisted"])}), ...(source["draft_profile"] === undefined ? {} : {"draft_profile": decodeText(source["draft_profile"])})};
     case "update_card": exactFields(source, ["op","card_id","revision","observed_at","title","description","status","priority","assignee","project","labels","attachments"]); return {"op": "update_card", "card_id": decodeNatural(source["card_id"]), "revision": decodeNatural(source["revision"]), ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])}), ...(source["title"] === undefined ? {} : {"title": decodeText(source["title"])}), ...(source["description"] === undefined ? {} : {"description": decodeText(source["description"])}), ...(source["status"] === undefined ? {} : {"status": decodeText(source["status"])}), ...(source["priority"] === undefined ? {} : {"priority": decodeText(source["priority"])}), ...(source["assignee"] === undefined ? {} : {"assignee": decodeText(source["assignee"])}), ...(source["project"] === undefined ? {} : {"project": decodeText(source["project"])}), ...(source["labels"] === undefined ? {} : {"labels": decodeArray(source["labels"], item => decodeText(item))}), ...(source["attachments"] === undefined ? {} : {"attachments": decodeArray(source["attachments"], item => decodeJson(item))})};
     case "move_card": exactFields(source, ["op","card_id","revision","observed_at","status","before_card"]); return {"op": "move_card", "card_id": decodeNatural(source["card_id"]), "revision": decodeNatural(source["revision"]), ...(source["observed_at"] === undefined ? {} : {"observed_at": decodeText(source["observed_at"])}), ...(source["status"] === undefined ? {} : {"status": decodeText(source["status"])}), ...(source["before_card"] === undefined ? {} : {"before_card": decodeText(source["before_card"])})};
@@ -758,7 +770,7 @@ export function decodeCommand(input: unknown): Command {
     case "read_work_ui": exactFields(source, ["op"]); return {"op": "read_work_ui"};
     case "apply_work_ui_patch": exactFields(source, ["op","patch","revision"]); return {"op": "apply_work_ui_patch", "patch": decodeText(source["patch"]), "revision": decodeNatural(source["revision"])};
     case "create_worktree_task": exactFields(source, ["op","profile","reasoning","message","images","settings"]); return {"op": "create_worktree_task", "profile": decodeText(source["profile"]), ...(source["reasoning"] === undefined ? {} : {"reasoning": decodeText(source["reasoning"])}), ...(source["message"] === undefined ? {} : {"message": decodeJson(source["message"])}), ...(source["images"] === undefined ? {} : {"images": decodeArray(source["images"], item => decodeJson(item))}), ...(source["settings"] === undefined ? {} : {"settings": decodeJson(source["settings"])})};
-    case "create_workspace_task": exactFields(source, ["op","backend","profile","reasoning","message","images","settings","work_id"]); return {"op": "create_workspace_task", "backend": decodeEnum5(source["backend"]), "profile": decodeText(source["profile"]), ...(source["reasoning"] === undefined ? {} : {"reasoning": decodeText(source["reasoning"])}), ...(source["message"] === undefined ? {} : {"message": decodeJson(source["message"])}), ...(source["images"] === undefined ? {} : {"images": decodeArray(source["images"], item => decodeJson(item))}), ...(source["settings"] === undefined ? {} : {"settings": decodeJson(source["settings"])}), ...(source["work_id"] === undefined ? {} : {"work_id": decodeNatural(source["work_id"])})};
+    case "create_workspace_task": exactFields(source, ["op","backend","profile","reasoning","message","images","settings","work_id"]); return {"op": "create_workspace_task", "backend": decodeEnum6(source["backend"]), "profile": decodeText(source["profile"]), ...(source["reasoning"] === undefined ? {} : {"reasoning": decodeText(source["reasoning"])}), ...(source["message"] === undefined ? {} : {"message": decodeJson(source["message"])}), ...(source["images"] === undefined ? {} : {"images": decodeArray(source["images"], item => decodeJson(item))}), ...(source["settings"] === undefined ? {} : {"settings": decodeJson(source["settings"])}), ...(source["work_id"] === undefined ? {} : {"work_id": decodeNatural(source["work_id"])})};
     case "list_worktrees": exactFields(source, ["op"]); return {"op": "list_worktrees"};
     case "read_worktree": exactFields(source, ["op","task_id"]); return {"op": "read_worktree", "task_id": decodeNatural(source["task_id"])};
     case "retry_worktree_archive": exactFields(source, ["op","task_id"]); return {"op": "retry_worktree_archive", "task_id": decodeNatural(source["task_id"])};

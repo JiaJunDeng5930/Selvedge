@@ -152,3 +152,9 @@ Proof.
   intros settings value owner tree reference found.
   unfold resolve. rewrite reference, found. reflexivity.
 Qed.
+
+Definition workspace_available (space:workspace) (value:world) := forallb
+ (fun tree=>WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) ||
+ match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeReady _ _=>true | _=>
+ match Selvedge.Features.Domain.worktree_root tree with Some root=>negb (existsb (fun path => String.eqb root path || String.prefix (String.append root "/") path) (workspace_roots space)) | None=>true end end)
+ (Selvedge.Features.Domain.feature_worktrees (world_features value)).

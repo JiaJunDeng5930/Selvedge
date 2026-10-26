@@ -74,18 +74,6 @@ Definition handle_remote_grant (payload : Selvedge.Generated.Commands.remote_gra
 Definition handle_remote_revoke (payload : Selvedge.Generated.Commands.remote_revoke_payload)
  (caller : option N) (value : world) : decision :=
  admin_command (revoke (Selvedge.Generated.Commands.remote_revoke_controller_id payload)) caller value.
-Definition query (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option json :=
- match command with
- | Selvedge.Generated.Commands.Cmd_remote_status payload => Some (handle_remote_status payload caller value)
- | _ => None end.
-Definition command (command : Selvedge.Generated.Commands.command) (caller : option N) (value : world) : option decision :=
- match command with
- | Selvedge.Generated.Commands.Cmd_remote_enable payload => Some (handle_remote_enable payload caller value)
- | Selvedge.Generated.Commands.Cmd_remote_disable payload => Some (handle_remote_disable payload caller value)
- | Selvedge.Generated.Commands.Cmd_remote_grant payload => Some (handle_remote_grant payload caller value)
- | Selvedge.Generated.Commands.Cmd_remote_revoke payload => Some (handle_remote_revoke payload caller value)
- | _ => None end.
-
 Definition selected_settings settings := match settings with None | Some JNull | Some (JObject [])=>false | _=>true end.
 Definition read_rights := Selvedge.Features.Domain.Rights true false false false.
 Definition control_rights := Selvedge.Features.Domain.Rights false true false false.
@@ -197,8 +185,8 @@ Definition execute_remote (execute:Scheduler.executor) source request original v
  | Denied code reason=>denied code reason
  | Replay reply=>(negb query,false,Decision value reply [])
  | Admitted=>match field "command" source with
-   | Some prepared=>match Selvedge.Generated.Commands.decode prepared with
-     | Some command=>if configuration_allowed command source then
+   | Some prepared=>match Selvedge.Generated.Commands.admit prepared with
+     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if configuration_allowed command source then
        (* DEFENSE: Host preparation adds workspace/image observations; it must not change the requested operation or increase its required rights. *)
        if String.eqb (command_name (Selvedge.Generated.Commands.declared_command original)) (command_name (Selvedge.Generated.Commands.declared_command command)) then
        match authorize_command true command request (registry value) with
@@ -232,9 +220,9 @@ Definition completion (execute:Scheduler.executor) source value : option (bool*b
  else if String.eqb kind "remote_probe" || String.eqb kind "remote_command" then
    Some (match parse_request (String.eqb kind "remote_command") source with
    | None=>(false,false,reject "invalid_input" "Malformed remote request" value)
-   | Some request=>match Selvedge.Generated.Commands.decode (intent request) with
+   | Some request=>match Selvedge.Generated.Commands.admit (intent request) with
      | None=>(false,false,reject "invalid_input" "Malformed original remote command" value)
-     | Some command=>if String.eqb kind "remote_probe" then
+     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if String.eqb kind "remote_probe" then
        (false,false,probe_reply (authorize_command true command request (registry value)) value)
        else execute_remote execute source request command value
      end end) else None

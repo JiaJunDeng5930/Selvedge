@@ -123,7 +123,9 @@ Proof.
  destruct (Tasks.fork_parent_ready entry parent &&
    TaskConstraints.fork_count_valid count (contract_max_fork (task_contract parent)) &&
    TaskConstraints.fork_messages_valid count (List.length messages) &&
-   Tasks.ancestors_fit (owner :: task_lineage parent) count before) eqn:Business; [|left; reflexivity].
+   Tasks.ancestors_fit (owner :: task_lineage parent) count before) eqn:Business.
+ 2: { left; unfold Tasks.fork_refusal; destruct entry;
+      try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity. }
  destruct (Tasks.resolve_settings (task_current_profile parent) requested (Tasks.fork_settings_base origin parent before) before)
    as [selected|] eqn:Resolved; [|left; reflexivity].
  destruct (Tasks.admit_fork_selection parent before selected) as [selection|] eqn:Selection; [|left; reflexivity].

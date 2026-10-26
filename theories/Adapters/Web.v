@@ -18,7 +18,8 @@ Definition continuation_source source := same (get (get (position source) "value
   is_array (get (get source "request") "history") && is_array (get source "tools").
 Definition stream_source source := let state := get source "state" in is_object state &&
   strings state ["pending";"name"] && is_array (get state "data") && forallb is_text (items (get state "data")) &&
-  natural (get state "size") && strings source ["chunk"] && natural (get source "maximum") && Json.is_bool (get source "eof").
+  natural (get state "size") && Json.is_bool (get state "after_cr") &&
+  strings source ["chunk"] && natural (get source "maximum") && Json.is_bool (get source "eof").
 Definition options source := let model := eq (get source "effect") "kind" "model" in
   success (JObject [("snapshots",JBool model);("receipt",JBool model);("stages",number 2)]).
 Definition contract source := success (JObject (("model",get (get (get source "effect") "model") "name")::

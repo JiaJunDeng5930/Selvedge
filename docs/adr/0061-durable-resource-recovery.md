@@ -76,3 +76,37 @@ path. Recovery may acknowledge that a durable reservation is already absent; it
 never repeats a release or Git move. A crash before reservation identity reaches
 disk leaves an explicit ownership resolution requirement rather than authorizing
 a deletion from the directory name alone.
+
+Git command completion is an observation of a mutation, not its durability
+acknowledgement. `LocalResources.RegistrationSyncing` and
+`LocalResources.TerminalSyncing` select the corresponding barrier before a
+registration, ready, archive or release receipt can be published. The checked
+`resource-runtime.ts` interpreter emits `local_synchronized` only after the
+physical operation has completed. `worktrees.mjs` owns the write sets:
+
+- Registration synchronizes the checkout's `.git` file, its Git administrative
+  directory and files, the checkout directory, and the repository's `worktrees`
+  administrative parent and common directory.
+- Initial readiness also synchronizes the prepared initial checkout files and
+  directories, including the checkout's parent entry.
+- Archive synchronizes the relocated Git links and administrative files plus
+  both the active and archive parent directories.
+- Release synchronizes both managed path parents and the repository's Git
+  administrative parent after removal.
+
+These barriers cover the service's managed registration, path and initial
+snapshot operations. Later arbitrary commands do not acquire an implicit
+whole-filesystem durability guarantee. Symlink targets outside a managed tree
+are not followed by synchronization. Recovery can finish a barrier on observed
+owned facts but still cannot repeat checkout, move or removal. A failed barrier
+preserves uncertainty instead of publishing a stable terminal fact. The single
+current local receipt format is `selvedge-local-workspace-2`; earlier receipts
+do not establish the new acknowledgement contract and are rejected.
+
+Git supports both absolute and relative worktree linking files. Backlink
+observations resolve relative paths against their canonical Git administrative
+directory before the model compares them with the owned checkout's `.git` path.
+The same observation validates creation, archive and recovery, including the
+reservation's device/inode and repository common directory. New managed Git
+operations request absolute links explicitly, without changing repository
+configuration or narrowing admission of already valid relative links.

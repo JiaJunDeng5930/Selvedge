@@ -11,7 +11,7 @@ Theorem each_planned_start_appends_exactly_its_one_fresh_task :
    world_tasks before ++ [created].
 Proof.
  intros before [intent start resource admitted].
- unfold Worktree.consume_planned_start; cbn [Worktree.planned_task Worktree.planned_resource].
+ unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; cbn [Worktree.planned_task Worktree.planned_resource].
  destruct resource; eexists; reflexivity.
 Qed.
 

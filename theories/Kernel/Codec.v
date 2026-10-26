@@ -1,5 +1,6 @@
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Foundation Require Import Json Schema JsonSchema Arguments Utf8 CallWire.
 From Selvedge.Kernel Require Import Numbers Domain Context Workspace ModelCapabilities PluginProtocol.
 From Selvedge.Kernel Require Export Images.
@@ -225,9 +226,10 @@ Definition parse_tool (value : json) : option tool :=
  | Some name, Some description, Some schema, Some remote =>
    if nonempty name then
      match field "plugin" value with
-     | Some (JObject plugin) => if JsonSchema.definition schema then
-       Some (Tool name description
-         (ExtensionToolSource schema (PluginProtocol.reference_json (JObject plugin)) remote)) else None
+     | Some (JObject plugin) => match JsonSchema.register schema with
+       | Some registered => Some (Tool name description
+         (ExtensionToolSource registered (PluginProtocol.reference_json (JObject plugin)) remote))
+       | None => None end
      | None | Some JNull =>
        (* MCP requires an object schema; validating its full dialect belongs to
           the server. In particular, number/$ref/anyOf are not extension rules. *)
@@ -237,9 +239,8 @@ Definition parse_tool (value : json) : option tool :=
      | _ => None end
    else None
  | _,_,_,_ => None end.
-Fixpoint traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
- match values with [] => Some [] | value :: rest =>
- match f value, traverse f rest with Some value, Some rest => Some (value :: rest) | _,_ => None end end.
+Definition traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
+ OptionList.traverse f values.
 Definition call_json (value : call) := JObject [
  ("id", JString (call_id value)); ("name", JString (call_name value)); ("arguments", call_arguments value);
  ("arguments_json", JString (TextJson.render_json (call_arguments value)))].

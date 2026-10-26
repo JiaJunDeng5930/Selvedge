@@ -16,6 +16,11 @@ Definition owner (name:string) :option Selvedge.Features.Domain.owner :=
  else if String.prefix "agent/" name then option_map Selvedge.Features.Domain.AgentOwner (text_id (String.substring 6 (String.length name) name)) else None.
 Definition optional_project (text:string) :option (option N) := if String.eqb text "" then Some None else option_map (@Some N) (text_id text).
 Definition attachment_schema := [Field "id" KText;Field "name" KText;OmittableField "mime" KText;Field "path" KText;OmittableField "bytes" KText].
+(** Before vault observation only the immutable attachment identity is required.
+    Optional metadata is checked against that identity by Adapters.Attachments. *)
+Definition attachment_reference_schema := map (fun field =>
+ if String.eqb (field_name field) "id" then field
+ else OmittableField (field_name field) (field_kind field)) attachment_schema.
 Definition attachment (source:json) :option Selvedge.Features.Domain.attachment :=
  match Schema.decode attachment_schema source with
  | None=>None | Some values=>

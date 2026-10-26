@@ -47,11 +47,13 @@ export async function readBoardAttachment(home, id) {
   return { attachment, data };
 }
 
-export async function saveBoardAttachment(home, name, stream) {
+export async function saveBoardAttachment(home, name, stream, { signal } = {}) {
+  signal?.throwIfAborted();
   filename(name);
   const chunks = [];
   let size = 0;
   for await (const part of stream) {
+    signal?.throwIfAborted();
     const bytes = Buffer.from(part);
     size += bytes.length;
     boundary('effect.attachment_budget', { home, name, size });
@@ -59,11 +61,14 @@ export async function saveBoardAttachment(home, name, stream) {
   }
   const data = Buffer.concat(chunks, size);
   const id = hash(data);
+  signal?.throwIfAborted();
   const root = await vault(home, { create: true });
   const target = path.join(root, id);
   const pending = path.join(root, `.upload-${randomBytes(16).toString('hex')}`);
+  signal?.throwIfAborted();
   await mkdir(pending, { mode: 0o700 });
   try {
+    signal?.throwIfAborted();
     const content = await open(path.join(pending, 'content'), 'wx', 0o400);
     try { await content.writeFile(data); await content.sync(); } finally { await content.close(); }
     const metadata = await open(path.join(pending, 'metadata.json'), 'wx', 0o400);
@@ -72,6 +77,7 @@ export async function saveBoardAttachment(home, name, stream) {
       await metadata.sync();
     } finally { await metadata.close(); }
     await syncDirectory(pending);
+    signal?.throwIfAborted();
     let existing = false;
     try { await rename(pending, target); }
     // DEFENSE: Repeated or concurrent uploads of identical bytes share the existing immutable hash directory.

@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool Ascii NArith.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Foundation Require Import Json Numbers Schema.
 From Selvedge.Kernel Require Import Domain.
 Import ListNotations.
@@ -63,9 +64,8 @@ Definition parse_content_part (value : json) : option content_part :=
         end end
     end
   | _ => None end.
-Fixpoint traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
-  match values with [] => Some [] | value::rest =>
-    match parse value,traverse parse rest with Some value,Some rest => Some (value::rest) | _,_ => None end end.
+Definition traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
+ OptionList.traverse parse values.
 Definition image_count (parts : content) := List.length (filter (fun part => match part with ImagePart _ => true | _ => false end) parts).
 (* DEFENSE: Both fork message arrays and message-plus-attachment requests can
    exceed the per-message image limit at their public JSON input boundaries. *)

@@ -5,70 +5,10 @@ import { Service } from '../host/service.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home, responsesServer } from './support.mjs';
 
-test('graph declarations resolve existing tasks before allocating any spawned tasks', async t => {
-  const directory = await home(t);
-  const service = await Service.open({ home: directory, cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }) });
-  t.after(() => service.close());
-  const command = async request => (await service.command(request)).reply;
-  const first = await command({ op: 'create_idle', profile: 'demo' });
-  assert.equal(first.ok, true);
-  const next = first.result.task_id + 1;
-  const spawn = { key: 'new', profile: 'demo', message: 'A fresh graph task' };
-  const guessed = { key: 'guessed', task_id: next };
-  for (const nodes of [[spawn, guessed], [guessed, spawn]]) {
-    const refused = await command({ op: 'create_task_graph', name: 'No guessed identities', nodes, rules: [] });
-    assert.equal(refused.error.code, 'task_not_found');
-    assert.equal((await command({ op: 'read', task_id: next })).error.code, 'task_not_found');
-    assert.deepEqual((await command({ op: 'list_task_graphs' })).result.graphs, []);
-  }
-  const work = await command({ op: 'create_work', name: 'Original Work membership' });
-  assert.equal(work.ok, true);
-  for (const nodes of [[spawn, guessed], [guessed, spawn]]) {
-    const refused = await command({ op: 'create_task_graph', work_id: work.result.work_id,
-      name: 'No provisional Work members', nodes, rules: [] });
-    assert.equal(refused.error.code, 'task_not_found');
-    const unchanged = await command({ op: 'read_work', work_id: work.result.work_id });
-    assert.deepEqual(unchanged.result.task_ids, []);
-    assert.deepEqual(unchanged.result.graph_ids, []);
-  }
-  const secondFailure = await command({ op: 'create_task_graph', name: 'All starts are resolved first',
-    nodes: [spawn, { key: 'invalid', profile: 'absent', message: 'Unavailable profile' }], rules: [] });
-  assert.equal(secondFailure.error.code, 'unknown_profile');
-  assert.equal((await command({ op: 'read', task_id: next })).error.code, 'task_not_found');
-  const created = await command({ op: 'create_task_graph', name: 'Shared existing task', nodes: [
-    { key: 'left', task_id: first.result.task_id }, { key: 'right', task_id: first.result.task_id }, spawn,
-  ], rules: [] });
-  assert.equal(created.ok, true, JSON.stringify(created));
-  const saved = await command({ op: 'read_task_graph', graph_id: created.result.graph_id });
-  assert.equal(saved.result.nodes[0].task_id, first.result.task_id);
-  assert.equal(saved.result.nodes[1].task_id, first.result.task_id);
-  assert.equal(saved.result.nodes[2].task_id, next);
-  const update = await command({ op: 'update_task_graph', graph_id: created.result.graph_id,
-    name: 'Still cannot guess', nodes: [spawn, { key: 'future', task_id: next + 1 }], rules: [] });
-  assert.equal(update.error.code, 'task_not_found');
-  assert.deepEqual((await command({ op: 'read_task_graph', graph_id: created.result.graph_id })).result, saved.result);
-});
-
-test('graph domain errors preserve Work, capacity and declaration priority', async t => {
-  const directory = await home(t);
-  const service = await Service.open({ home: directory, cwd: directory,
-    config: validateConfig({ ...defaultConfig, chatgpt: false }) });
-  t.after(() => service.close());
-  const command = async request => (await service.command(request)).reply;
-  const invalid = { op: 'create_task_graph', work_id: 42, name: '',
-    nodes: [{ key: 'same', task_id: 0 }, { key: 'same', task_id: 0 }], rules: [] };
-  assert.equal((await command(invalid)).error.code, 'work_not_found');
-  for (let index = 0; index < 32; index++) {
-    assert.equal((await command({ op: 'create_task_graph', name: `Graph ${index}`, nodes: [], rules: [] })).ok, true);
-  }
-  assert.equal((await command(invalid)).error.code, 'work_not_found');
-  assert.equal((await command({ op: 'create_task_graph', name: 'Overflow', nodes: [], rules: [] })).error.code,
-    'invalid_task_graph');
-  assert.equal((await command({ op: 'create_idle', profile: 'absent', work_id: 42 })).error.code, 'unknown_profile');
-  assert.equal((await command({ op: 'create_idle', profile: 'demo', work_id: 42 })).error.code, 'invalid_arguments');
-});
-
+// Pure graph construction, failure atomicity, original-world references and
+// Work/capacity/declaration priority are universally owned by
+// theories/Features/GraphConstructionProofs.v at the production handlers.
+// The provider/native function-call and output bridge below remains an IO check.
 
 test('native Work and Graph authority gates defer failed ordinary starts until the domain phase', async t => {
   const calls = [

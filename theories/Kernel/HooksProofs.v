@@ -66,7 +66,8 @@ Theorem tool_completion_enters_the_ordered_after_hooks_with_its_error :
      (TaskChange.apply [TaskChange.ChangeOperationStage (operation_id current) (AfterHooksReady (plugin :: rest) result error)] recorded) value).
 Proof.
  intros id ticket result error value task current plugin rest Found Owned Hooks.
- rewrite !tool_completed_expression; rewrite Found, Owned; rewrite !begin_result_expression, Hooks; reflexivity.
+ rewrite !tool_completed_expression; rewrite Found, Owned.
+ unfold Callbacks.begin_result_plan; rewrite Hooks; reflexivity.
 Qed.
 
 Theorem allowed_before_hook_resumes_the_same_call_before_its_suffix :
@@ -165,10 +166,10 @@ Theorem denied_after_hook_ends_the_operation_chain :
  operation_stage current = AwaitingAfterHook expected plugin pending result error ->
  ticket = expected ->
  HookCallbacks.after_completed id identity ticket (DenyResult reason) value =
-   acknowledged (put_task id
+   acknowledged (Tasks.mark_context_wake id task (put_task id
      (Callbacks.settle_operation current (State.failure "after_hook_denied" reason) true
        (append_history [AfterReceipt id (operation_id current) plugin
-         (Inputs.after_json (DenyResult reason))] task)) value) /\
+         (Inputs.after_json (DenyResult reason))] task)) value)) /\
  decision_effects (HookCallbacks.after_completed id identity ticket (DenyResult reason) value) = [].
 Proof.
  intros id identity ticket expected plugin pending result error reason value task current

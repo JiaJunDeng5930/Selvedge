@@ -32,8 +32,8 @@ Definition execute_domain (command : Selvedge.Generated.Commands.command) (conte
 (* Assess against the worker's authoritative immutable world. The hypothetical
    decision is discarded: no world, scheduler work or IO effect is committed. *)
 Definition assess (source : json) (value : world) : json :=
- let candidate := match Selvedge.Generated.Commands.decode (value_or_null "command" source) with
- | Some command => decision_reply (execute_domain command None value)
+ let candidate := match Selvedge.Generated.Commands.admit (value_or_null "command" source) with
+ | Some admitted => decision_reply (execute_domain (Selvedge.Generated.Commands.admitted_value admitted) None value)
  | None => State.failure "invalid_input" (InputDecoder.command_diagnostic (value_or_null "command" source))
  end in
  let admitted := bool_default "ok" candidate false in
@@ -106,9 +106,9 @@ Definition deferred_candidate (decoded : option Inputs.input) (value : world)
  | Some accepted => Some (TerminalSettlement.source accepted, TerminalSettlement.candidate accepted)
  | None => None
  end end end end end end.
-Definition packet (source : json) (value : world) : world * json :=
- if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
- let decoded := InputDecoder.decode source in
+Definition packet_admitted (source : json) (admission : InputDecoder.admitted_input source)
+ (value : world) : world * json :=
+ let decoded := InputDecoder.admitted_value admission in
  match manual_fork_input decoded with
  | Some request => ForkCommit.packet request value
  | None => match CreationCommit.input decoded with
@@ -122,5 +122,15 @@ Definition packet (source : json) (value : world) : world * json :=
  let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
    else decision_world result in
  (committed,Notifications.envelope durable admitted input value result)
- end end end
+ end end end.
+Definition packet (source : json) (value : world) : world * json :=
+ if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
+ packet_admitted source (InputDecoder.admit source) value
  else (value,Observation.envelope false (reject "invalid_input" "The complete input exceeds the native frame bound" value)).
+Theorem actual_packet_uses_complete_input_admission : forall source admission value,
+ packet_admitted source admission value =
+ packet_admitted source (InputDecoder.admit source) value.
+Proof.
+ intros source admission value; unfold packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result; reflexivity.
+Qed.

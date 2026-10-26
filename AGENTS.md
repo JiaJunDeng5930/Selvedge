@@ -28,10 +28,15 @@ Use a focused branch; do not commit directly to main. Protect other work.
 Use Conventional Commits: type(scope): description, with type feat, fix, docs,
 refactor, test or chore and an English lowercase imperative description.
 
-Choose assurance proportional to the actual risk. Prefer domain construction,
-types and proofs, then public end-to-end tests for behavior outside those
-mechanisms. Do not retain implementation-mirroring tests. Temporary experiments
-and the private migration file ledger belong in ignored .workpad/.
+Choose the earliest sufficient assurance owner for each property: domain
+construction and language design, then types and proofs, then focused unit or
+component tests, and finally public end-to-end tests when the property crosses
+real boundaries that a smaller check cannot cover. Record the property and its
+quantifier, its actual production binding, and the remaining boundary failure a
+test detects. Do not repeat a proved domain property in enumerated tests; do not
+remove an integration check merely because a helper proves a similar statement.
+Temporary experiments and the private migration file ledger belong in ignored
+.workpad/.
 
 Keep one current persistent data format. Do not add obsolete-format fallbacks,
 migrations or old-runtime adapters without an explicit requirement.

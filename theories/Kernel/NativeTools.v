@@ -16,20 +16,6 @@ Record command_binding := CommandBinding {
  binding_caller_field : option string;
  binding_description : string
 }.
-Definition feature_commands := [
- "archive_card"; "board_settings"; "chatgpt_cancel"; "chatgpt_exec";
- "chatgpt_forget"; "chatgpt_operation"; "chatgpt_operations"; "chatgpt_project";
- "chatgpt_projects"; "configure_chatgpt_connections"; "configure_title_settings";
- "create_card"; "create_workspace_task"; "create_worktree_task"; "delete_board_agent";
- "delete_card"; "link_card"; "list_board_agents"; "list_cards"; "list_worktrees";
- "move_card"; "pin_card"; "read_card"; "read_title_settings"; "read_worktree";
- "regenerate_card_title"; "remote_disable"; "remote_enable"; "remote_grant";
- "remote_revoke"; "remote_status"; "restore_card"; "retry_worktree_archive";
- "run_card"; "save_board_agent"; "update_card"].
-Definition feature_bindings := map (fun entry =>
- CommandBinding (fst entry) (fst entry) None (snd entry))
- (filter (fun entry => existsb (String.eqb (fst entry)) feature_commands)
-   Commands.command_descriptions).
 Definition bindings := [
   CommandBinding "create_task" "create" None "Create an independent task with a configured model. Settings obey the caller's workspace and permission bounds.";
   CommandBinding "fork_task" "fork" (Some "task_id") "Fork this task within every ancestor's descendant limit. The caller receives 0 and each child receives its one-based branch number. Supply no messages or exactly one message per child.";
@@ -55,7 +41,7 @@ Definition bindings := [
 *** Add File: work-ui.dsl
 +<ui id=""work""><metric id=""progress"" label=""Progress"" value={0} /></ui>
 *** End Patch. Source is raw selvedge-ui DSL without fences. Concurrent edits reject stale revisions; read again before revising the patch."
-] ++ feature_bindings.
+].
 Definition binding_schema (binding : command_binding) (specification : command_spec) :=
  if String.eqb (binding_tool binding) "read_current_task" then [] else
  match binding_caller_field binding with
@@ -86,12 +72,13 @@ Definition binding_arguments (max_fork : N) (binding : command_binding) (specifi
      String.eqb (binding_command binding) "send") && String.eqb (field_name field) "images"))
      (binding_schema binding specification)).
 Definition binding_entry (max_fork : N) (binding : command_binding) : list tool :=
+ if Commands.task_command_allowed (binding_command binding) then
  match find (fun command => String.eqb (binding_command binding) (command_name command)) Selvedge.Kernel.Commands.command_specs with
  | None => []
   | Some specification => [Tool (binding_tool binding) (binding_description binding)
      (NativeToolSource (binding_arguments max_fork binding specification)
        (JObject [("kind", JString "Command"); ("command", JString (binding_command binding))]))]
- end.
+ end else [].
 Definition primitive_kind (value : native_tool) := match value with
  | Bash => "Process" | ReadProcess => "ProcessRead" | WriteProcess => "ProcessWrite" | ReadImage => "ReadImage" end.
 Definition primitive_entry (value : native_tool) :=
@@ -123,7 +110,7 @@ Definition discover_entry := Tool "discover_tools"
 Definition catalog (max_fork : N) := discover_entry ::
   map primitive_entry [Bash; ReadProcess; WriteProcess; ReadImage] ++ flat_map (binding_entry max_fork) bindings.
 Definition find_binding (name : string) := find (fun binding => String.eqb name (binding_tool binding)) bindings.
-Definition command (caller : N) (invocation : call) : option Selvedge.Generated.Commands.command :=
+Definition admit_command (caller : N) (invocation : call) : option Selvedge.Generated.Commands.admitted_command :=
  match find_binding (call_name invocation), call_arguments invocation with
  | Some binding, JObject fields =>
    let fields := match binding_caller_field binding with
@@ -135,8 +122,12 @@ Definition command (caller : N) (invocation : call) : option Selvedge.Generated.
    let fields := if String.eqb (binding_tool binding) "read_current_task" then
      Json.set_field "after" (Numbers.number 0) (Json.set_field "limit" (Numbers.number 1) fields)
      else fields in
-   Selvedge.Generated.Commands.decode_admitted (JObject (("op", JString (binding_command binding)) :: fields))
+   Selvedge.Generated.Commands.admit (JObject (("op", JString (binding_command binding)) :: fields))
  | _,_ => None end.
+(** Internal specifications may inspect this projection. Dispatch keeps the
+    admitted command until it hands the same value to the command interpreter. *)
+Definition command (caller : N) (invocation : call) :=
+ option_map Selvedge.Generated.Commands.admitted_value (admit_command caller invocation).
 Definition primitive (name : string) := find (fun value => String.eqb name (ToolArguments.tool_name value)) [Bash;ReadProcess;WriteProcess;ReadImage].
 Definition arguments_valid (definition : tool) (invocation : call) :=
  match tool_origin definition with

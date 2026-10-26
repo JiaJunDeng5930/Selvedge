@@ -27,6 +27,6 @@ Definition finish (result:decision) := TitleCommit.enqueue (Selvedge.Features.Co
 Definition guard_command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :=
  or_else (Worktree.guard_command command caller value) (fun _=>match command with
  | Selvedge.Generated.Commands.Cmd_delete_project p=>if Board.project_used (Selvedge.Generated.Commands.delete_project_project_id p) value || Chatgpt.project_used (Selvedge.Generated.Commands.delete_project_project_id p) value
- then Some (reject "project_in_use"%string "A project referenced by a board card or ChatGPT grant cannot be deleted"%string value) else None
+ then Some (reject "project_not_empty"%string "A project referenced by a board card or ChatGPT grant cannot be deleted"%string value) else None
  | _=>None end).
 Definition guard_result := Worktree.guard_result.

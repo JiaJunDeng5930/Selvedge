@@ -98,27 +98,34 @@ Theorem ui_requires_task_call : forall value patch expected,
  Work.apply_ui_patch None patch expected value =
  K.reject "task_call_required"%string "Edit the shared UI through a Task tool call."%string value.
 Proof. reflexivity. Qed.
-Theorem own_birth_changes_only_ownership : forall owner task value,
+Theorem own_birth_changes_only_ownership : forall origin before
+ (owner : Work.owner_scope origin) (birth : Tasks.birth_result before) value tasks works,
  with_features (Selvedge.Features.State.with_task_owners
    (F.feature_task_owners (world_features value))
-   (world_features (Work.own_birth owner task value))) (Work.own_birth owner task value) = value.
-Proof. intros owner task [sequence tasks ticket environment projects features]; destruct features; reflexivity. Qed.
-
-Theorem accepted_root_creation_records_its_work : forall owner fresh value,
- F.association fresh (F.feature_task_owners (world_features (Work.own_birth owner fresh value))) = Some owner.
+   (world_features (Work.own_birth owner birth value tasks works)))
+   (Work.own_birth owner birth value tasks works) = value.
 Proof.
- intros owner fresh value; unfold Work.own_birth.
- change (F.association fresh ((fresh,owner)::F.feature_task_owners (world_features value)) = Some owner).
+ intros origin before owner birth [sequence tasks ticket environment projects features] TasksFrame WorksFrame.
+ destruct features; reflexivity.
+Qed.
+Theorem witnessed_root_birth_records_its_work : forall origin before
+ (owner : Work.owner_scope origin) (birth : Tasks.birth_result before) value tasks works,
+ F.association (Tasks.birth_id birth) (F.feature_task_owners
+   (world_features (Work.own_birth owner birth value tasks works))) = Some (Work.owner_identity owner).
+Proof.
+ intros; unfold Work.own_birth.
+ change (F.association (Tasks.birth_id birth)
+   ((Tasks.birth_id birth,Work.owner_identity owner)::F.feature_task_owners (world_features value)) = Some (Work.owner_identity owner)).
  unfold F.association; cbn; now rewrite N.eqb_refl.
 Qed.
-
-Theorem new_root_ownership_preserves_existing_roots : forall owner fresh value other,
- other <> fresh ->
- F.association other (F.feature_task_owners (world_features (Work.own_birth owner fresh value))) =
+Theorem new_root_ownership_preserves_existing_roots : forall origin before
+ (owner : Work.owner_scope origin) (birth : Tasks.birth_result before) value tasks works other,
+ other <> Tasks.birth_id birth ->
+ F.association other (F.feature_task_owners (world_features (Work.own_birth owner birth value tasks works))) =
  F.association other (F.feature_task_owners (world_features value)).
 Proof.
- intros owner fresh value other Different; unfold Work.own_birth.
- change (F.association other ((fresh,owner)::F.feature_task_owners (world_features value)) =
+ intros origin before owner birth value tasks works other Different; unfold Work.own_birth.
+ change (F.association other ((Tasks.birth_id birth,Work.owner_identity owner)::F.feature_task_owners (world_features value)) =
    F.association other (F.feature_task_owners (world_features value))).
  unfold F.association; cbn. apply N.eqb_neq in Different; now rewrite Different.
 Qed.

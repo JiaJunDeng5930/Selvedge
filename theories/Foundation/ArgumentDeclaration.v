@@ -1,4 +1,5 @@
 From Stdlib Require Import String List Bool NArith Ascii.
+From Selvedge.Foundation Require OptionList.
 From Selvedge.Foundation Require Import Json Numbers Schema Utf8.
 Import ListNotations.
 Open Scope string_scope.
@@ -141,9 +142,8 @@ Definition enum_choices (value : option json) : option (option (list string)) :=
  | Some (JArray ((_ :: _) as values)) => match strings values with Some names =>
    if unique_names names && Nat.leb (List.length names) 256 then Some (Some names) else None | None => None end
  | _ => None end.
-Fixpoint traverse {A B} (f : A -> option B) (values : list A) : option (list B) :=
- match values with [] => Some [] | value::rest => match f value, traverse f rest with
- | Some value,Some rest => Some (value::rest) | _,_ => None end end.
+Definition traverse {A B : Type} (f : A -> option B) (values : list A) : option (list B) :=
+ OptionList.traverse f values.
 Definition parse_text (source : json) :=
  let lower := bound_or (field "minLength" source) 0 in
  let upper := bound_or (field "maxLength" source) maximum_natural in

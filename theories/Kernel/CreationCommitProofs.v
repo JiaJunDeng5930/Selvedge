@@ -22,7 +22,7 @@ Lemma every_planned_start_has_its_exact_positive_reply : forall before (plan : W
    success (JObject [("task_id",number (next_task before))]).
 Proof.
  intros before [intent start resource admitted].
- unfold Worktree.consume_planned_start; cbn [Worktree.planned_task Worktree.planned_resource].
+ unfold Worktree.consume_planned_start, Worktree.interpret_planned_birth, Worktree.born_decision, Worktree.born_world, Worktree.born_effects, Worktree.born_identity; cbn [Worktree.planned_task Worktree.planned_resource].
  destruct resource; reflexivity.
 Qed.
 
@@ -35,10 +35,18 @@ Theorem every_resolved_public_create_constructs_its_planned_result :
 Proof.
  intros request contents before start plan Parsed Resolved Prepared.
  unfold CreationCommit.candidate, Worktree.handle_create, CommandExecution.with_content.
- rewrite Parsed. unfold Worktree.create_selected, Worktree.create_planned, Worktree.create_intent.
- unfold Worktree.consume_start_resolution. fold (requested_start request contents before).
+ rewrite Parsed. unfold Worktree.create_selected, Worktree.create_selected_result,
+   Worktree.create_intent_result, Worktree.resolve_start_birth.
+ fold (requested_start request contents before).
  rewrite Resolved. cbn [Worktree.start_allowed CommandExecution.creation_allowed].
- rewrite Prepared. rewrite every_planned_start_has_its_exact_positive_reply.
+ unfold Worktree.prepare_scoped. rewrite Prepared.
+ cbn [Worktree.final_authority].
+ change ((let born := Worktree.consume_planned_start plan before in
+   if bool_default "ok" (decision_reply born) false
+   then Decision (decision_world born) (decision_reply born)
+     (decision_effects born ++ [ContinueScheduling]) else born) = planned_decision plan).
+ cbv zeta.
+ rewrite every_planned_start_has_its_exact_positive_reply.
  reflexivity.
 Qed.
 

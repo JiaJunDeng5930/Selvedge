@@ -59,11 +59,7 @@ Definition control_allowed (request:Tasks.control) (id:N) (value:world) := match
  | Tasks.Archive=>archive_allowed id value
  | Tasks.Freeze=>execution_allowed id value
  | _=>execution_allowed id value && match lookup id value with Some tree=>negb (pending tree) | None=>true end end.
-Definition workspace_available (space:workspace) (value:world) := forallb
- (fun tree=>WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) ||
- match Selvedge.Features.Domain.worktree_phase tree with Selvedge.Features.Domain.TreeReady _ _=>true | _=>
- match Selvedge.Features.Domain.worktree_root tree with Some root=>negb (any_inside root (workspace_roots space)) | None=>true end end)
- (Selvedge.Features.Domain.feature_worktrees (world_features value)).
+Definition workspace_available := WorkspaceBinding.workspace_available.
 Definition primary_workspace (space : workspace) :=
  match workspace_primary space with Some root=>Workspace [root] (Some root) | None=>default_workspace end.
 Definition resource_settings (id : N) (backend : WorkspaceBackend.backend) (settings : task_settings) :=
@@ -113,11 +109,6 @@ Definition handle_list_worktrees (payload:Selvedge.Generated.Commands.list_workt
  Selvedge.Kernel.State.success (JObject [("worktrees",JArray (map Observation.worktree_json (Selvedge.Features.Domain.feature_worktrees (world_features value))))]).
 Definition handle_read_worktree (payload:Selvedge.Generated.Commands.read_worktree_payload) (caller:option N) (value:world) :json :=
  match Selvedge.Kernel.State.find_task (Selvedge.Generated.Commands.read_worktree_task_id payload) value with None=>Selvedge.Kernel.State.failure "task_not_found" "Task does not exist." | Some _=>match effective (Selvedge.Generated.Commands.read_worktree_task_id payload) value with Some tree=>Selvedge.Kernel.State.success (Observation.worktree_json tree) | None=>Selvedge.Kernel.State.failure "not_found" "Task worktree does not exist." end end.
-Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_resolve_workspace request=>Some (handle_resolve_workspace request _caller value)
- | Selvedge.Generated.Commands.Cmd_list_worktrees payload=>Some (handle_list_worktrees payload _caller value)
- | Selvedge.Generated.Commands.Cmd_read_worktree p=>Some (handle_read_worktree p _caller value)
- | _=>None end.
 Definition archive_tree (tree:Selvedge.Features.Domain.worktree) (value:world) :decision :=
  let id:=Selvedge.Features.Domain.worktree_task tree in let source:=Selvedge.Features.Domain.worktree_source tree in
  match Selvedge.Features.Domain.worktree_root tree with None=>Selvedge.Kernel.State.accept (JObject [("accepted",JBool true)]) value [] | Some root=>
@@ -214,71 +205,248 @@ Proof.
  - exact (PlanningFailed (failure (Tasks.failure_code (creation_entry intent None) Tasks.WorkspaceUnavailable)
      (Tasks.failure_message Tasks.WorkspaceUnavailable))).
 Defined.
-Definition consume_planned_start {before:world} (plan:planned_start before) (current:world) :=
- let start:=planned_task plan in
- let id:=next_task current in
- let task:=Tasks.start_task start in
- let '(prepared,resource):=match planned_resource plan with
- | UseWorkspace=>(task,None)
- | ReuseBinding _ tree _=>
+(** The resource interpreter retains Task birth's actual fresh reference. The
+    only decoration it may add is that reference's pending resource and effect. *)
+Record born_start (before : world) := BornStart {
+ born_task : Tasks.birth_result before;
+ born_resource : option WorkspaceBackend.backend
+}.
+Arguments BornStart {before}.
+Arguments born_task {before}.
+Arguments born_resource {before}.
+Definition born_identity {before} (birth : born_start before) := Tasks.birth_id (born_task birth).
+Definition born_world {before} (birth : born_start before) :=
+ let core := born_task birth in
+ match born_resource birth with
+ | None => Tasks.birth_world core
+ | Some backend => let space := settings_workspace (task_current_settings (Tasks.birth_task core)) in
+   store (Selvedge.Features.Domain.Worktree (Tasks.birth_id core) (primary space)
+     (Selvedge.Features.Domain.TreeCreating false) backend) (Tasks.birth_world core)
+ end.
+Definition born_effects {before} (birth : born_start before) :=
+ match born_resource birth with
+ | None => []
+ | Some backend => let space := settings_workspace (task_current_settings (Tasks.birth_task (born_task birth))) in
+   [CreateWorktree (born_identity birth) (primary space) space backend]
+ end.
+Definition interpret_planned_birth {before : world} (plan : planned_start before) (current : world) :=
+ let start := planned_task plan in
+ let fresh := next_task current in
+ let task := Tasks.start_task start in
+ let '(prepared,resource) := match planned_resource plan with
+ | UseWorkspace => (task,None)
+ | ReuseBinding _ tree _ =>
    (if WorkspaceBackend.cloud (Selvedge.Features.Domain.worktree_backend tree) then
      append_history [EnvironmentNotice environment_notice] task else task,None)
- | ProvisionLocal=>(resource_task id WorkspaceBackend.Local task,Some WorkspaceBackend.Local)
- | ProvisionCloud=>(resource_task id WorkspaceBackend.TencentCvm task,Some WorkspaceBackend.TencentCvm) end in
- let birth:=Tasks.birth_prepared prepared current in
- let born:=Tasks.birth_world birth in
- let '(value,effects):=match resource with
- | None=>(born,[])
- | Some backend=>let space:=settings_workspace (task_current_settings prepared) in
-   (store (Selvedge.Features.Domain.Worktree id (primary space) (Selvedge.Features.Domain.TreeCreating false) backend) born,
-    [CreateWorktree id (primary space) space backend]) end in
- accept (JObject [("task_id",number id)]) value effects.
+ | ProvisionLocal => (resource_task fresh WorkspaceBackend.Local task,Some WorkspaceBackend.Local)
+ | ProvisionCloud => (resource_task fresh WorkspaceBackend.TencentCvm task,Some WorkspaceBackend.TencentCvm) end in
+ BornStart (Tasks.birth_prepared prepared current) resource.
+Definition born_decision {before} (birth : born_start before) :=
+ accept (JObject [("task_id",number (born_identity birth))]) (born_world birth) (born_effects birth).
+(** This pure interpreter is the shared meaning used by the closed batch
+    language below and by its proofs. Production consumes scoped plans. *)
+Definition consume_planned_start {before : world} (plan : planned_start before) (current : world) :=
+ born_decision (interpret_planned_birth plan current).
+Lemma born_world_preserves_tasks : forall before (birth : born_start before),
+ world_tasks (born_world birth) = world_tasks (Tasks.birth_world (born_task birth)).
+Proof. intros before [birth resource]; destruct resource; reflexivity. Qed.
+Lemma born_world_preserves_works : forall before (birth : born_start before),
+ Selvedge.Features.Domain.feature_works (world_features (born_world birth)) =
+ Selvedge.Features.Domain.feature_works (world_features before).
+Proof.
+ intros before [birth resource]; destruct resource;
+ change (Selvedge.Features.Domain.feature_works (world_features (Tasks.birth_world birth)) =
+   Selvedge.Features.Domain.feature_works (world_features before));
+ rewrite (Tasks.birth_features before birth); reflexivity.
+Qed.
+Definition final_settings {before} (plan : planned_start before) :=
+ let selected := Tasks.start_settings (planned_task plan) in
+ match planned_resource plan with
+ | ProvisionLocal => resource_settings (next_task before) WorkspaceBackend.Local selected
+ | ProvisionCloud => resource_settings (next_task before) WorkspaceBackend.TencentCvm selected
+ | _ => selected end.
+Definition final_authority {before} (caller : option N) (plan : planned_start before) :=
+ match caller with None => true | Some owner =>
+ match find_task owner before with
+ | Some task => Workspace.may_delegate (final_settings plan) (task_current_settings task)
+ | None => false end end.
+Record scoped_start (before : world) := ScopedStart {
+ scoped_caller : option N;
+ scoped_plan : planned_start before;
+ scoped_authorized : final_authority scoped_caller scoped_plan = true
+}.
+Arguments ScopedStart {before}.
+Arguments scoped_caller {before}.
+Arguments scoped_plan {before}.
+Inductive scoped_plan_result (before : world) :=
+ | ScopedPlanned (plan : scoped_start before) | ScopedPlanningFailed (reply : json).
+Arguments ScopedPlanned {before}.
+Arguments ScopedPlanningFailed {before}.
+Definition prepare_scoped (intent : creation_intent) (caller : option N)
+ (managed : option bool) (backend : option WorkspaceBackend.backend)
+ (start : Tasks.resolved_start) (before : world) : scoped_plan_result before.
+Proof.
+ destruct (prepare_resolved intent managed backend start before) as [plan|reply].
+ - destruct (Bool.bool_dec (final_authority caller plan) true) as [Authorized|Refused].
+   + exact (ScopedPlanned (ScopedStart caller plan Authorized)).
+   + exact (ScopedPlanningFailed (failure (Tasks.failure_code (creation_entry intent caller) Tasks.AuthorityExpansion)
+       (Tasks.failure_message Tasks.AuthorityExpansion))).
+ - exact (ScopedPlanningFailed reply).
+Defined.
+Definition attach_born {origin before} (owner : option (Work.owner_scope origin))
+ (birth : born_start before)
+ (works : Selvedge.Features.Domain.feature_works (world_features (born_world birth)) =
+   Selvedge.Features.Domain.feature_works (world_features origin)) :=
+ match owner with None => born_world birth
+ | Some owner => Work.own_birth owner (born_task birth) (born_world birth)
+   (born_world_preserves_tasks before birth) works end.
+(** A batch frame is a closed sequence of admitted births. It can append several
+    Graph tasks, but cannot replace an old task, change projects/environment,
+    or inject an unrelated resource observation between plan and consumption. *)
+Inductive birth_frame (origin : world) : world -> Type :=
+ | InitialFrame : birth_frame origin origin
+ | AdvanceFrame : forall current, birth_frame origin current ->
+   forall (plan : scoped_start origin) (owner : option (Work.owner_scope origin))
+   (works : Selvedge.Features.Domain.feature_works
+      (world_features (born_world (interpret_planned_birth (scoped_plan plan) current))) =
+      Selvedge.Features.Domain.feature_works (world_features origin)),
+   birth_frame origin (attach_born owner (interpret_planned_birth (scoped_plan plan) current) works).
+Arguments InitialFrame {origin}.
+Arguments AdvanceFrame {origin current}.
+Lemma frame_preserves_works : forall origin current (frame : birth_frame origin current),
+ Selvedge.Features.Domain.feature_works (world_features current) =
+ Selvedge.Features.Domain.feature_works (world_features origin).
+Proof.
+ intros origin current frame; destruct frame as [|current frame plan owner works]; [reflexivity|].
+ destruct owner; exact works.
+Qed.
+Record start_transition (origin before : world) := StartTransition {
+ transition_birth : born_start before;
+ transition_owner : option (Work.owner_scope origin);
+ transition_works : Selvedge.Features.Domain.feature_works (world_features (born_world transition_birth)) =
+   Selvedge.Features.Domain.feature_works (world_features origin);
+ transition_frame : birth_frame origin (attach_born transition_owner transition_birth transition_works)
+}.
+Arguments StartTransition {origin before}.
+Arguments transition_birth {origin before}.
+Arguments transition_owner {origin before}.
+Arguments transition_works {origin before}.
+Arguments transition_frame {origin before}.
+Definition transition_world {origin before} (created : start_transition origin before) :=
+ attach_born (transition_owner created) (transition_birth created) (transition_works created).
+Definition transition_identity {origin before} (created : start_transition origin before) :=
+ born_identity (transition_birth created).
+Definition transition_effects {origin before} (created : start_transition origin before) :=
+ born_effects (transition_birth created).
+Definition transition_decision {origin before} (created : start_transition origin before) :=
+ accept (JObject [("task_id",number (transition_identity created))])
+   (transition_world created) (transition_effects created).
+Definition consume_scoped_start {origin current} (plan : scoped_start origin)
+ (frame : birth_frame origin current) (owner : option (Work.owner_scope origin))
+ : start_transition origin current.
+Proof.
+ pose (birth := interpret_planned_birth (scoped_plan plan) current).
+ assert (works : Selvedge.Features.Domain.feature_works (world_features (born_world birth)) =
+   Selvedge.Features.Domain.feature_works (world_features origin)).
+ { rewrite born_world_preserves_works. exact (frame_preserves_works origin current frame). }
+ exact (StartTransition birth owner works (AdvanceFrame frame plan owner works)).
+Defined.
+Theorem scoped_birth_uses_its_actual_identity : forall origin current
+ (plan : scoped_start origin) (frame : birth_frame origin current) owner,
+ transition_identity (consume_scoped_start plan frame owner) =
+ Tasks.birth_id (born_task (transition_birth (consume_scoped_start plan frame owner))).
+Proof. reflexivity. Qed.
+Theorem transition_tasks_are_the_witnessed_birth : forall origin before
+ (created : start_transition origin before),
+ world_tasks (transition_world created) = world_tasks before ++
+   [Tasks.birth_task (born_task (transition_birth created))].
+Proof.
+ intros origin before [birth owner works frame].
+ unfold transition_world; cbn [transition_birth transition_owner transition_works].
+ destruct owner;
+ change (world_tasks (born_world birth) = world_tasks before ++ [Tasks.birth_task (born_task birth)]);
+ rewrite born_world_preserves_tasks; apply Tasks.birth_tasks.
+Qed.
+Theorem transition_identity_is_fresh : forall origin before (created : start_transition origin before),
+ transition_identity created = next_task before.
+Proof. intros; apply Tasks.birth_fresh. Qed.
+Theorem transition_preserves_board : forall origin before (created : start_transition origin before),
+ Selvedge.Features.Domain.feature_board (world_features (transition_world created)) =
+ Selvedge.Features.Domain.feature_board (world_features before).
+Proof.
+ intros origin before [[birth resource] owner works frame].
+ unfold transition_world,attach_born,born_world; cbn [transition_birth transition_owner transition_works born_task born_resource].
+ destruct owner; destruct resource;
+ change (Selvedge.Features.Domain.feature_board (world_features (Tasks.birth_world birth)) =
+   Selvedge.Features.Domain.feature_board (world_features before));
+ rewrite (Tasks.birth_features before birth); reflexivity.
+Qed.
+Theorem scoped_plan_bounds_final_authority : forall before (plan : scoped_start before),
+ final_authority (scoped_caller plan) (scoped_plan plan) = true.
+Proof. intros before [caller plan Authorized]; exact Authorized. Qed.
 Definition start_allowed (settings:option json) (caller:option N) (before:world)
  (cached:Tasks.start_resolution) := match cached with
  | Tasks.StartRefused _=>true
  | Tasks.StartResolved start=>CommandExecution.creation_allowed settings (Tasks.start_settings start) caller before end.
+Inductive creation_result (before : world) :=
+ | Created (birth : start_transition before before) | CreationRejected (reply : json).
+Arguments Created {before}.
+Arguments CreationRejected {before}.
+Definition creation_decision {before} (result : creation_result before) :=
+ match result with Created birth => transition_decision birth
+ | CreationRejected reply => Decision before reply [] end.
+Definition resolve_start_birth (intent:creation_intent) (settings:option json)
+ (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
+ (cached:Tasks.start_resolution) (before:world) : creation_result before :=
+ let entry:=creation_entry intent caller in
+ match cached with
+ | Tasks.StartRefused cause=>CreationRejected (failure (Tasks.failure_code entry cause) (Tasks.failure_message cause))
+ | Tasks.StartResolved start=>if start_allowed settings caller before cached then
+   match prepare_scoped intent caller managed backend start before with
+   | ScopedPlanningFailed reply=>CreationRejected reply
+   | ScopedPlanned plan=>Created (consume_scoped_start plan InitialFrame None) end
+   else CreationRejected (failure (Tasks.failure_code entry Tasks.AuthorityExpansion)
+     (Tasks.failure_message Tasks.AuthorityExpansion)) end.
 Definition consume_start_resolution (intent:creation_intent) (settings:option json)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (before:world) :=
- let entry:=creation_entry intent caller in
- match cached with
- | Tasks.StartRefused cause=>Tasks.refuse_start entry cause before
- | Tasks.StartResolved start=>if start_allowed settings caller before cached then
-   match prepare_resolved intent managed backend start before with
-   | PlanningFailed reply=>Decision before reply []
-   | Planned plan=>consume_planned_start plan before end
-   else Tasks.refuse_start entry Tasks.AuthorityExpansion before end.
-Definition create_intent (intent:creation_intent) (name:string) (effort:option string)
+ creation_decision (resolve_start_birth intent settings caller managed backend cached before).
+Definition create_intent_result (intent:creation_intent) (name:string) (effort:option string)
  (contents:content) (settings:option json) (idle:bool) (caller:option N)
  (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
  let entry:=creation_entry intent caller in
- consume_start_resolution intent settings caller managed backend
+ resolve_start_birth intent settings caller managed backend
  (CommandExecution.resolve_context_start entry name effort contents settings idle caller value) value.
+Definition create_intent (intent:creation_intent) (name:string) (effort:option string)
+ (contents:content) (settings:option json) (idle:bool) (caller:option N)
+ (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
+ creation_decision (create_intent_result intent name effort contents settings idle caller managed backend value).
 Definition create_planned (name:string) (effort:option string) (contents:content) (settings:option json)
  (idle:bool) (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
  create_intent (if idle then IdleTaskCreation else ImplicitCreation) name effort contents settings idle caller managed backend value.
+Definition create_selected_result (name:string) (effort:option string) (contents:content) (settings:option json)
+ (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
+ create_intent_result (if idle then IdleTaskCreation else ImplicitCreation) name effort contents settings idle caller managed None value.
 Definition create_selected (name:string) (effort:option string) (contents:content) (settings:option json) (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
- create_planned name effort contents settings idle caller managed None value.
+ creation_decision (create_selected_result name effort contents settings idle caller managed value).
 Definition create_backend (backend:WorkspaceBackend.backend) (name:string) (effort:option string)
  (contents:content) (settings:option json) (caller:option N) (value:world) :=
  create_intent WorkspaceTaskCreation name effort contents settings false caller None (Some backend) value.
 Definition create (name:string) (effort:option string) (contents:content) (settings:option json) (caller:option N) (managed:bool) (value:world) :=
  create_intent WorktreeTaskCreation name effort contents settings false caller (Some managed) None value.
-Definition attach_planned_birth (owner:option N) {before:world} (plan:planned_start before) (value:world) :=
- let created:=consume_planned_start plan value in
- let fresh:=next_task value in
- Decision (match owner with None=>decision_world created
-   | Some owner=>Work.own_birth owner fresh (decision_world created) end)
-   (decision_reply created) (decision_effects created).
+Definition attach_planned_birth {before:world} (owner : Work.owner_scope before)
+ (plan : scoped_start before) :=
+ transition_decision (consume_scoped_start plan InitialFrame (Some owner)).
 Definition consume_owned_start (owner:option N) (intent:creation_intent) (settings:option json)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
  (cached:Tasks.start_resolution) (value:world) :=
  match owner with
- | Some id=>match Work.lookup id value with None=>reject "work_not_found" "The Work does not exist." value
-   | Some _=>match cached with
+ | Some id=>match Work.select_owner id value with None=>reject "work_not_found" "The Work does not exist." value
+   | Some owner=>match cached with
      | Tasks.StartRefused cause=>Tasks.refuse_start (creation_entry intent caller) cause value
-     | Tasks.StartResolved start=>match prepare_resolved intent managed backend start value with
-       | PlanningFailed reply=>Decision value reply [] | Planned plan=>attach_planned_birth owner plan value end end end
+     | Tasks.StartResolved start=>match prepare_scoped intent caller managed backend start value with
+       | ScopedPlanningFailed reply=>Decision value reply []
+       | ScopedPlanned plan=>attach_planned_birth owner plan end end end
  | None=>consume_start_resolution intent settings caller managed backend cached value end.
 Definition create_owned_cached (owner:N) (intent:creation_intent) (settings:option json)
  (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend)
@@ -341,15 +509,6 @@ Definition handle_create_work_task (payload:Selvedge.Generated.Commands.create_w
      contents settings false caller value) value) value.
 Definition handle_retry_worktree_archive (payload:Selvedge.Generated.Commands.retry_worktree_archive_payload) (caller:option N) (value:world) :decision :=
  retry (Selvedge.Generated.Commands.retry_worktree_archive_task_id payload) value.
-Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_configure_task_execution p=>Some (handle_configure_task_execution p caller value)
- | Selvedge.Generated.Commands.Cmd_create p=>Some (handle_create p caller value)
- | Selvedge.Generated.Commands.Cmd_create_idle p=>Some (handle_create_idle p caller value)
- | Selvedge.Generated.Commands.Cmd_create_workspace_task p=>Some (handle_create_workspace_task p caller value)
- | Selvedge.Generated.Commands.Cmd_create_worktree_task p=>Some (handle_create_worktree_task p caller value)
- | Selvedge.Generated.Commands.Cmd_create_work_task p=>Some (handle_create_work_task p caller value)
- | Selvedge.Generated.Commands.Cmd_retry_worktree_archive p=>Some (handle_retry_worktree_archive p caller value)
- | _=>None end.
 Definition selected_workspace (target:string) (space:workspace) := match workspace_primary space with
  | None=>space | Some source=>Workspace (map (fun root=>if String.eqb root source then target else root) (workspace_roots space)) (Some target) end.
 Definition selected_settings (space:workspace) (guidance:json) (settings:task_settings) := Settings space (settings_project settings)

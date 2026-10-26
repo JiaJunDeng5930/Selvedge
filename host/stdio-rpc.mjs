@@ -13,12 +13,18 @@ export class StdioRpc extends EventEmitter {
   #bytes = 0;
   #failure;
   #closing = false;
+  #closePromise;
+  #materializations = new Set();
 
   #decide(operation, observation = {}) {
     return boundary(operation, {
       label: this.label, name: this.name,
       state: {
-        pending: [...this.#pending.keys()], nextId: this.#nextId,
+        pending: [...this.#pending].filter(([, entry]) => entry.phase === 'pending').map(([id]) => id),
+        preparable: [...this.#pending].filter(([, entry]) => entry.phase === 'pending' && entry.prepareIncoming).map(([id]) => id),
+        materializing: [...this.#pending].filter(([, entry]) => entry.phase === 'materializing').map(([id]) => id),
+        working: [...this.#materializations].map(work => work.id),
+        nextId: this.#nextId,
         failure: this.#failure === undefined ? null : { message: this.#failure.message },
         closing: this.#closing,
       },
@@ -28,14 +34,17 @@ export class StdioRpc extends EventEmitter {
 
   #apply(decision) {
     this.#nextId = decision.nextId;
-    this.#pending = new Map(decision.nextPending.map(id => [id, this.#pending.get(id)]));
+    this.#pending = new Map([
+      ...decision.nextPending.map(id => [id, Object.assign(this.#pending.get(id), { phase: 'pending' })]),
+      ...decision.nextMaterializing.map(id => [id, Object.assign(this.#pending.get(id), { phase: 'materializing' })]),
+    ]);
   }
 
   get available() { return this.#decide('rpc.available'); }
 
-  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128, prepareIncoming } = {}) {
+  constructor(name, config, limits, { label = 'RPC', timeoutMs = 30_000, maxPending = 128 } = {}) {
     super();
-    Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending, prepareIncoming });
+    Object.assign(this, { name, config, limits, label, timeoutMs: config.timeout_ms ?? timeoutMs, maxPending });
     this.stderr = capture(limits.tool_output_bytes);
     this.#child = spawn(config.command, config.args ?? [], {
       cwd: config.cwd ?? process.cwd(), env: { ...process.env, ...config.env }, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
@@ -63,7 +72,7 @@ export class StdioRpc extends EventEmitter {
     const retiring = decision.retired.map(id => this.#pending.get(id));
     this.#failure = error;
     this.#apply(decision);
-    for (const pending of retiring) pending.reject(error);
+    for (const pending of retiring) { pending.materialization?.controller.abort(error); pending.reject(error); }
     killGroup(this.#child);
     this.emit('unavailable', error);
   }
@@ -119,19 +128,30 @@ export class StdioRpc extends EventEmitter {
   }
 
   #message(message) {
-    if (this.prepareIncoming) {
-      this.prepareIncoming(message).then(value => this.#admitMessage(value)).catch(error => this.#fail(error));
-      return;
-    }
-    this.#admitMessage(message);
+    this.#interpret(this.#decide('rpc.message', { message }));
   }
 
-  #admitMessage(message) {
-    const decision = this.#decide('rpc.message', { message });
+  #materialize(id, value, pending) {
+    const work = { id, controller: new AbortController(), promise: undefined };
+    pending.materialization = work;
+    // Install the admitted operation before its asynchronous interpreter starts.
+    work.promise = Promise.resolve().then(() => pending.prepareIncoming(value, { signal: work.controller.signal }))
+      .then(result => this.#interpret(this.#decide('rpc.prepared', { id, ok: true, value: result })),
+        error => this.#interpret(this.#decide('rpc.prepared', { id, ok: false, error: String(error?.message ?? error).toWellFormed() })))
+      .catch(error => this.#fail(error)).finally(() => this.#materializations.delete(work));
+    this.#materializations.add(work);
+  }
+
+  #interpret(decision) {
     const execute = {
       ignore: () => {},
       notify: () => this.emit('notification', decision.message),
       write: () => this.#write(decision.message),
+      prepare: () => {
+        const pending = this.#pending.get(decision.id);
+        this.#apply(decision);
+        this.#materialize(decision.id, decision.value, pending);
+      },
       resolve: () => {
         const pending = this.#pending.get(decision.id);
         this.#apply(decision);
@@ -146,9 +166,10 @@ export class StdioRpc extends EventEmitter {
     execute[decision.action]();
   }
 
-  request(method, params, { signal, timeoutMs = this.timeoutMs } = {}) {
+  request(method, params, { signal, timeoutMs = this.timeoutMs, prepareIncoming } = {}) {
     let decision;
-    try { decision = this.#decide('rpc.request', { method, params, maxPending: this.maxPending, aborted: signal?.aborted ?? false }); }
+    try { decision = this.#decide('rpc.request', { method, params, maxPending: this.maxPending,
+      prepare: Boolean(prepareIncoming), aborted: signal?.aborted ?? false }); }
     // DEFENSE: Queue pressure, exhausted request identities or a closed process can reject a new RPC call; report it through the request promise.
     catch (error) { return Promise.reject(error); }
     // DEFENSE: The task may have been cancelled or the process may have failed before this RPC starts.
@@ -168,6 +189,7 @@ export class StdioRpc extends EventEmitter {
         if (retirement.action === 'ignore') return;
         const pending = this.#pending.get(retirement.id);
         this.#apply(retirement);
+        pending.materialization?.controller.abort(signal?.reason ?? new Error(retirement.error));
         try { this.#write(retirement.message); }
         // DEFENSE: A full or failed pipe can prevent the cancellation notification; withdraw the connection and keep the request's cancellation/timeout result.
         catch (error) { this.#fail(error); }
@@ -175,7 +197,7 @@ export class StdioRpc extends EventEmitter {
       };
       const cancel = () => retire('cancel');
       const timer = setTimeout(() => retire('timeout'), timeoutMs);
-      this.#pending.set(id, { resolve: finish(resolve), reject: finish(reject) });
+      this.#pending.set(id, { phase: 'pending', prepareIncoming, resolve: finish(resolve), reject: finish(reject) });
       this.#apply(decision);
       signal?.addEventListener('abort', cancel, { once: true });
       try { this.#write(decision.message); }
@@ -189,18 +211,30 @@ export class StdioRpc extends EventEmitter {
     });
   }
 
-  async close() {
+  close() {
+    this.#closePromise ??= this.#close();
+    return this.#closePromise;
+  }
+
+  async #close() {
     const decision = this.#decide('rpc.lifecycle', { event: 'close' });
     // DEFENSE: Initialization cleanup and service shutdown may both close the same transport.
     if (decision.action === 'ignore') return this.closed;
     const retiring = decision.retired.map(id => this.#pending.get(id));
     this.#closing = true;
     this.#apply(decision);
-    for (const pending of retiring) pending.reject(new Error(decision.error));
+    for (const pending of retiring) {
+      const error = new Error(decision.error);
+      pending.materialization?.controller.abort(error);
+      pending.reject(error);
+    }
     killGroup(this.#child);
     // DEFENSE: Descendants can retain inherited stdout/stderr after the parent exits; bound shutdown's wait for those pipes.
     const timer = setTimeout(() => { this.#child.stdout.destroy(); this.#child.stderr.destroy(); }, 2000);
     await this.closed;
     clearTimeout(timer);
+    // Already admitted staging work owns its physical promise even after its
+    // RPC token retires. Closing returns only after those bounded writes stop.
+    await Promise.all([...this.#materializations].map(work => work.promise));
   }
 }

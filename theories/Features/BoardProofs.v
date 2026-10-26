@@ -2,8 +2,9 @@ From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Foundation Require Import RegistryProofs Json Schema Utf8.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks TaskChangesProofs.
-From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree Titles TitleRuntime.
+From Selvedge.Features Require Import Domain Board BoardParameters BoardRelations Worktree WorktreeProofs Titles TitleRuntime FeatureScopeProofs.
 Import ListNotations.
+Open Scope list_scope.
 Module F:=Selvedge.Features.Domain.
 
 Definition current_board_lease (ticket:N) (card:F.card) : Prop :=
@@ -52,41 +53,41 @@ Qed.
 
 (** Launch writes the identifier allocated by the shared Task creator and
     forwards that creator's complete effect list unchanged. *)
-Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card agent now,
+Theorem launch_links_and_preserves_created_task : forall id revision observed caller value card agent now
+ (birth : Worktree.start_transition value value),
  Board.lookup id value=Some card ->
  Board.clock observed=Some now ->
  revision=F.card_revision card ->
  Board.runnable card value=true ->
  Board.owner_agent (F.draft_owner (F.card_contents card)) value=Some agent ->
  let settings:=Board.launch_settings agent (F.card_contents card) in
- let created:=Worktree.create_selected (F.agent_profile agent) (Some (F.agent_reasoning agent))
+ Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
    (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
-   (Some settings) false caller None value in
- bool_default "ok" (decision_reply created) false=true ->
+   (Some settings) false caller None value = Worktree.Created birth ->
  let launched:=Board.run id revision observed caller value in
  exists updated,
    Board.lookup id (decision_world launched)=Some updated /\
-   F.card_task updated=Some (Selvedge.Kernel.State.next_task value) /\
-   Selvedge.Kernel.State.find_task (Selvedge.Kernel.State.next_task value) (decision_world launched)=
-     Selvedge.Kernel.State.find_task (Selvedge.Kernel.State.next_task value) (decision_world created) /\
-   world_tasks (decision_world launched)=world_tasks (decision_world created) /\
-   decision_effects launched=decision_effects created.
+   F.card_task updated=Some (Worktree.transition_identity birth) /\
+   Selvedge.Kernel.State.find_task (Worktree.transition_identity birth) (decision_world launched)=
+     Selvedge.Kernel.State.find_task (Worktree.transition_identity birth) (Worktree.transition_world birth) /\
+   world_tasks (decision_world launched)=world_tasks (Worktree.transition_world birth) /\
+   decision_effects launched=Worktree.transition_effects birth.
 Proof.
- intros id revision observed caller value card agent now found clock current runnable assigned settings created create_ok launched.
+ intros id revision observed caller value card agent now birth found clock current runnable assigned settings Created launched.
  subst revision.
- unfold launched, Board.run, Board.at_clock. rewrite clock. unfold Board.with_card. rewrite found,N.eqb_refl,runnable,assigned.
- fold settings. fold created. rewrite create_ok. cbn zeta.
- assert (created_keeps_card : Board.lookup id (decision_world created)=Some card).
- { unfold created. rewrite BoardRelations.board_lookup_after_create_selected. exact found. }
+ unfold launched, Board.run, Board.at_clock. rewrite clock. unfold Board.with_card.
+ rewrite found,N.eqb_refl,runnable,assigned. fold settings. rewrite Created. cbn zeta.
+ assert (created_keeps_card : Board.lookup id (Worktree.transition_world birth)=Some card).
+ { unfold Board.lookup,Board.registry. rewrite Worktree.transition_preserves_board. exact found. }
  exists (F.Card (N.succ (F.card_revision card))
    (Board.with_stage F.InProgress (F.card_contents card))
-   (Some (Selvedge.Kernel.State.next_task value)) false (F.card_created card) now
+   (Some (Worktree.transition_identity birth)) false (F.card_created card) now
    F.NoEnrichment "" (F.card_pinned card)).
  split.
  - eapply BoardRelations.board_lookup_after_put_selected. exact created_keeps_card.
  - split; [reflexivity|]. split.
    + apply BoardRelations.task_lookup_after_board_put.
-   + split; [reflexivity|reflexivity].
+   + split; reflexivity.
 Qed.
 
 Lemma interrupt_is_authorized_for_nonarchived_task : forall target task value,
@@ -213,7 +214,7 @@ Proof.
  exists updated.
  assert (interrupt_rejected : Tasks.control_command target Tasks.Interrupt
    (Board.put id updated value)=
-   Selvedge.Kernel.State.reject "invalid_control" "This lifecycle control is unavailable for the task"
+   Selvedge.Kernel.State.reject "invalid_transition" "This lifecycle control is unavailable for the task"
      (Board.put id updated value)).
  { rewrite TaskChangesProofs.control_command_expression.
    rewrite BoardRelations.task_lookup_after_board_put, task_found.
@@ -287,6 +288,16 @@ Proof.
  unfold Board.with_card. rewrite found,N.eqb_refl,idle. reflexivity.
 Qed.
 
+Lemma observed_board_clock_is_bounded : forall observed now,
+ Board.clock observed = Some now -> N.leb now 4294967295 = true.
+Proof.
+ intros [text|] now Clock; unfold Board.clock in Clock.
+ - destruct (BoardParameters.text_id text) as [found|]; [|discriminate].
+   destruct (N.leb found 4294967295) eqn:Bound; [|discriminate].
+   inversion Clock; subst now; exact Bound.
+ - inversion Clock; reflexivity.
+Qed.
+
 (** An existing ordinary endpoint and a current editable card suffice to emit
     the real request. The effect freezes identity, lease, profile, prompt and
     draft; model success or request acceptance is not assumed. *)
@@ -310,10 +321,18 @@ Proof.
  { apply N.leb_le. unfold Board.lookup in found.
    destruct (registry_at id (F.board_cards (Board.registry value))) as [[existing|]|] eqn:At; try discriminate.
    pose proof (registry_lookup_implies_position_bound _ _ _ _ At); lia. }
+ assert (Slot : registry_at id (F.board_cards (F.feature_board (world_features value))) = Some (Some card)).
+ { unfold Board.lookup in found.
+   destruct (registry_at id (F.board_cards (Board.registry value))) as [[stored|]|] eqn:At; try discriminate.
+   inversion found; subst stored; exact At. }
+ assert (Member : In selected (environment_profiles (world_environment value))).
+ { pose proof available as Registered; unfold Tasks.find_profile in Registered; apply find_some in Registered; tauto. }
+ pose proof (retitle_scope_from_current_card id card value selected now Slot editable Member ordinary
+   (observed_board_clock_is_bounded observed now clock)) as Scope.
  unfold Board.request_text. rewrite available,ordinary.
  unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
  destruct (Bool.bool_dec _ true) as [Valid|Invalid]; [reflexivity|].
- exfalso; apply Invalid; exact Within.
+ exfalso; apply Invalid. apply andb_true_iff; split; [exact Within|exact Scope].
 Qed.
 
 (** A title result retains the linked Task identifier in the saved card. *)
@@ -481,16 +500,16 @@ Proof.
  destruct (negb (Board.runnable card value)); [discriminate|].
  destruct (Board.owner_agent (F.draft_owner (F.card_contents card)) value) as [agent|]; [|discriminate].
  cbn zeta in accepted |- *.
- lazymatch type of accepted with
- | bool_default "ok" (decision_reply (if bool_default "ok" (decision_reply ?created) false then _ else _)) false=true =>
-   set (created_result:=created) in *
- end.
- destruct (bool_default "ok" (decision_reply created_result) false) eqn:create_ok.
- - cbn [decision_world]. eexists. split.
+ destruct (Worktree.create_selected_result (F.agent_profile agent) (Some (F.agent_reasoning agent))
+   (Board.task_contents id (F.card_contents card) (F.agent_instructions agent))
+   (Some (Board.launch_settings agent (F.card_contents card))) false caller None value)
+   as [birth|reply] eqn:Created.
+ - cbn [decision_world Worktree.transition_decision accept]. eexists. split.
    + eapply BoardRelations.board_lookup_after_put_selected.
-     unfold created_result. rewrite BoardRelations.board_lookup_after_create_selected. exact found.
-   + reflexivity.
- - rewrite create_ok in accepted. discriminate.
+     unfold Board.lookup,Board.registry. rewrite Worktree.transition_preserves_board. exact found.
+   + cbn. rewrite Worktree.transition_identity_is_fresh. reflexivity.
+ - apply rejected_selected_creation_has_a_failure_reply in Created.
+   cbn [decision_reply] in accepted. congruence.
 Qed.
 
 (** A real one-attempt batch removes its selected card from the runnable

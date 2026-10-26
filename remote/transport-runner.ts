@@ -86,7 +86,35 @@ export function interpretConnectorFrame(action: SessionAction, io: ConnectorFram
     case 'pong': io.pong(); return;
     // DEFENSE: The session ABI only emits frame actions for a relay-frame observation.
     case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired':
-    case 'grants': case 'enqueue': case 'dequeue': throw new TypeError('Unexpected connector frame action');
+    case 'grants': case 'enqueue': case 'dequeue': case 'notice': case 'snapshot':
+    case 'unsubscribed': case 'deliver': throw new TypeError('Unexpected connector frame action');
+  }
+  const exhaustive: never = action;
+  throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
+}
+export function interpretConnectorCapture(action: SessionAction, io: {snapshot(): void; unsubscribed(): void}): void {
+  switch (action) {
+    case 'ignore': return;
+    case 'snapshot': io.snapshot(); return;
+    case 'unsubscribed': io.unsubscribed(); return;
+    // DEFENSE: A capture observation cannot authorize a transport or notice action.
+    case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired': case 'grants':
+    case 'enqueue': case 'dequeue': case 'disconnect': case 'ready': case 'controller_open':
+    case 'controller_close': case 'request': case 'pair_request': case 'pong': case 'notice':
+    case 'deliver': throw new TypeError('Unexpected connector capture action');
+  }
+  const exhaustive: never = action;
+  throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
+}
+export function interpretConnectorDelivery(action: SessionAction, deliver: () => void): void {
+  switch (action) {
+    case 'ignore': return;
+    case 'deliver': deliver(); return;
+    // DEFENSE: Only the model's queued, fresh cursor decision authorizes delivery.
+    case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired': case 'grants':
+    case 'enqueue': case 'dequeue': case 'disconnect': case 'ready': case 'controller_open':
+    case 'controller_close': case 'request': case 'pair_request': case 'pong': case 'notice':
+    case 'snapshot': case 'unsubscribed': throw new TypeError('Unexpected connector delivery action');
   }
   const exhaustive: never = action;
   throw new TypeError(`Unknown connector action: ${String(exhaustive)}`);
@@ -112,7 +140,8 @@ export function enqueueRemoteOperation(connection: RemoteOperationQueue, bytes: 
     // DEFENSE: The queue ABI must acknowledge admission before a physical operation is chained.
     case 'installed': case 'retire': case 'pairing': case 'pending': case 'expired': case 'grants':
     case 'dequeue': case 'ready': case 'controller_open': case 'controller_close': case 'request':
-    case 'pair_request': case 'pong': throw new TypeError('Unexpected connector queue action');
+    case 'pair_request': case 'pong': case 'notice': case 'snapshot': case 'unsubscribed':
+    case 'deliver': throw new TypeError('Unexpected connector queue action');
     default: { const exhaustive: never = action; throw new TypeError(String(exhaustive)); }
   }
   connection.tail = connection.tail.then(async () => {

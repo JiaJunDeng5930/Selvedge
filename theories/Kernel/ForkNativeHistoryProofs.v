@@ -123,7 +123,7 @@ Proof.
  destruct (operation_call operation); cbn in Different |- *; exact Different.
 Qed.
 
-Definition native_child (parent_id owner start : N) (parent : task) (contents : content)
+Definition native_child (parent_id owner start : N) (parent : task) (contents : option content)
  (settings : task_settings) (invocation : call) (remaining : list call) :=
  Tasks.fork_child_receipt (Tasks.AcceptedNativeFork invocation remaining) start owner invocation
   (Tasks.fork_child owner parent_id parent contents settings false).
@@ -185,21 +185,21 @@ Proof.
  change (existsb (call_declaration (call_id pending))
    (History.fork_receipt_history (ForkReceipt owner invocation (N.succ (owner - start)))
     (Tasks.selected_context_history settings parent (History.snapshot_operations parent_id parent) ++
-      if content_nonempty contents then [UserMessage contents] else [])) &&
+      Tasks.optional_input contents)) &&
   negb (existsb (call_result (call_id pending))
    (History.fork_receipt_history (ForkReceipt owner invocation (N.succ (owner - start)))
     (Tasks.selected_context_history settings parent (History.snapshot_operations parent_id parent) ++
-      if content_nonempty contents then [UserMessage contents] else []))) = true).
+      Tasks.optional_input contents))) = true).
  rewrite !fork_receipt_keeps_call_observation.
  2: destruct invocation; cbn [call_result] in *; now apply String.eqb_neq.
  2: reflexivity.
- assert (Neutral : forall observe, observe (UserMessage contents) = false ->
+ assert (Neutral : forall observe, (forall parts, observe (UserMessage parts) = false) ->
    existsb observe (Tasks.selected_context_history settings parent (History.snapshot_operations parent_id parent) ++
-     if content_nonempty contents then [UserMessage contents] else []) =
+     Tasks.optional_input contents) =
    existsb observe (Tasks.selected_context_history settings parent (History.snapshot_operations parent_id parent))).
  { intros observe User. apply existsb_neutral_append.
-   destruct (content_nonempty contents); [constructor; [exact User|constructor]|constructor]. }
- rewrite !Neutral by reflexivity.
+   destruct contents; cbn [Tasks.optional_input]; [constructor; [apply User|constructor]|constructor]. }
+ rewrite !Neutral by (intros; reflexivity).
  rewrite !selected_context_keeps_call_observation by reflexivity.
  rewrite snapshot_keeps_pending_declarations, snapshot_keeps_unowned_call_results by exact Apart.
  exact Open.

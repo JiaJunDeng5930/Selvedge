@@ -29,12 +29,7 @@ Definition parse_patch (input:patch) (old:Selvedge.Features.Domain.card_draft) :
  | Some stage,Some priority,Some owner,Some project,Some files=>Some (Selvedge.Features.Domain.CardDraft
  (retained (patch_title input) (Selvedge.Features.Domain.draft_title old)) (retained (patch_description input) (Selvedge.Features.Domain.draft_description old)) stage priority owner project
  (retained (patch_labels input) (Selvedge.Features.Domain.draft_labels old)) files) | _,_,_,_,_=>None end.
-Definition valid_draft (draft:Selvedge.Features.Domain.card_draft) (value:world) :=
- nonempty (Selvedge.Features.Domain.draft_title draft) && limited (Selvedge.Features.Domain.draft_title draft) 2000 && limited (Selvedge.Features.Domain.draft_description draft) 400000 &&
- Nat.leb (List.length (Selvedge.Features.Domain.draft_labels draft)) 32 && forallb (fun label=>nonempty label && limited label 128) (Selvedge.Features.Domain.draft_labels draft) &&
- Nat.leb (List.length (Selvedge.Features.Domain.draft_attachments draft)) 4 &&
- (match Selvedge.Features.Domain.draft_owner draft with Selvedge.Features.Domain.AgentOwner id=>match lookup_agent id value with Some _=>true | None=>false end | _=>true end) &&
- (match Selvedge.Features.Domain.draft_project draft with None=>true | Some id=>match registry_at id (world_projects value) with Some project=>negb (project_deleted project) | None=>false end end).
+Definition valid_draft := BoardFacts.valid_draft.
 Definition empty_draft := Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Todo Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [].
 Definition linked_task := BoardFacts.linked_task.
 Definition busy_task := BoardFacts.busy_task.
@@ -42,7 +37,7 @@ Definition busy := BoardFacts.busy.
 Definition pending := BoardFacts.pending.
 Definition mutable := BoardFacts.mutable.
 Definition unlinked := BoardFacts.unlinked.
-Definition revised (draft:Selvedge.Features.Domain.card_draft) (now:N) (card:Selvedge.Features.Domain.card) := (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_contents (fun _=>draft) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card)))).
+Definition revised := BoardFacts.revised.
 Definition with_stage (stage:Selvedge.Features.Domain.board_stage) (draft:Selvedge.Features.Domain.card_draft) := (set Selvedge.Features.Domain.draft_stage (fun _=>stage) (draft)).
 Definition owner_agent := BoardFacts.owner_agent.
 Definition active_for := BoardFacts.active_for.
@@ -57,10 +52,6 @@ Definition handle_read_card (p:Selvedge.Generated.Commands.read_card_payload) (c
  match lookup (Selvedge.Generated.Commands.read_card_card_id p) value with Some card=>Selvedge.Kernel.State.success (card_json (Selvedge.Generated.Commands.read_card_card_id p) card value) | None=>Selvedge.Kernel.State.failure "card_not_found" "The board card does not exist" end.
 Definition handle_list_board_agents (p:Selvedge.Generated.Commands.list_board_agents_payload) (caller:option N) (value:world) :json :=
  Selvedge.Kernel.State.success (JObject [("agents",JArray (Observation.agents_json_in_world value))]).
-Definition query (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_list_cards p=>Some (handle_list_cards p _caller value)
- | Selvedge.Generated.Commands.Cmd_read_card p=>Some (handle_read_card p _caller value)
- | Selvedge.Generated.Commands.Cmd_list_board_agents p=>Some (handle_list_board_agents p _caller value) | _=>None end.
 Definition with_card (id revision:N) (value:world) (run:Selvedge.Features.Domain.card->decision) := match lookup id value with
  | None=>Selvedge.Kernel.State.reject "card_not_found" "The board card does not exist" value
  | Some card=>if N.eqb revision (Selvedge.Features.Domain.card_revision card) then run card else Selvedge.Kernel.State.reject "card_conflict" "The card changed in another view or during execution. Refresh its current values before applying this edit." value end.
@@ -154,10 +145,12 @@ Definition run (id revision:N) (supplied:option string) (caller:option N) (value
  if negb (runnable card value) then Selvedge.Kernel.State.reject "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit" value else
  match owner_agent (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value with None=>Selvedge.Kernel.State.reject "agent_required" "Assign a configured endpoint or board agent before starting this card" value | Some agent=>
  let settings:=launch_settings agent (Selvedge.Features.Domain.card_contents card) in
- let created:=Worktree.create_selected (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value in
- if bool_default "ok" (decision_reply created) false then
- let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Selvedge.Kernel.State.next_task value))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card)))))))) in
- Selvedge.Kernel.State.Decision (put id updated (decision_world created)) (Selvedge.Kernel.State.success (JObject [("card_id",number id);("task_id",number (Selvedge.Kernel.State.next_task value));("revision",number (N.succ revision))])) (decision_effects created) else created end)).
+ match Worktree.create_selected_result (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value with
+ | Worktree.Created birth=>
+ let created:=Worktree.transition_decision birth in
+ let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card)))))))) in
+ Selvedge.Kernel.State.Decision (put id updated (decision_world created)) (Selvedge.Kernel.State.success (JObject [("card_id",number id);("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))])) (decision_effects created)
+ | Worktree.CreationRejected reply=>Decision value reply [] end end)).
 Definition agent_name_valid (name:string) := nonempty name && limited name 160.
 Definition agent_profile_valid (profile:string) := nonempty profile && limited profile 1024.
 Definition agent_reasoning_valid (reasoning:string) := nonempty reasoning && limited reasoning 64.
@@ -228,21 +221,6 @@ Definition handle_save_board_agent (p:Selvedge.Generated.Commands.save_board_age
  save_agent (Selvedge.Generated.Commands.save_board_agent_agent p) (Selvedge.Generated.Commands.save_board_agent_revision p) (Selvedge.Generated.Commands.save_board_agent_name p) (Selvedge.Generated.Commands.save_board_agent_profile p) (Selvedge.Generated.Commands.save_board_agent_reasoning p) (Selvedge.Generated.Commands.save_board_agent_instructions p) (Selvedge.Generated.Commands.save_board_agent_settings p) (Selvedge.Generated.Commands.save_board_agent_concurrency p) value.
 Definition handle_delete_board_agent (p:Selvedge.Generated.Commands.delete_board_agent_payload) (caller:option N) (value:world) :decision :=
  delete_agent (Selvedge.Generated.Commands.delete_board_agent_agent_id p) (Selvedge.Generated.Commands.delete_board_agent_revision p) value.
-Definition command (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_create_card p=>Some (handle_create_card p caller value)
- | Selvedge.Generated.Commands.Cmd_update_card p=>Some (handle_update_card p caller value)
- | Selvedge.Generated.Commands.Cmd_move_card p=>Some (handle_move_card p caller value)
- | Selvedge.Generated.Commands.Cmd_archive_card p=>Some (handle_archive_card p caller value)
- | Selvedge.Generated.Commands.Cmd_restore_card p=>Some (handle_restore_card p caller value)
- | Selvedge.Generated.Commands.Cmd_run_card p=>Some (handle_run_card p caller value)
- | Selvedge.Generated.Commands.Cmd_link_card p=>Some (handle_link_card p caller value)
- | Selvedge.Generated.Commands.Cmd_regenerate_card_title p=>Some (handle_regenerate_card_title p caller value)
- | Selvedge.Generated.Commands.Cmd_pin_card p=>Some (handle_pin_card p caller value)
- | Selvedge.Generated.Commands.Cmd_delete_card p=>Some (handle_delete_card p caller value)
- | Selvedge.Generated.Commands.Cmd_board_settings p=>Some (handle_board_settings p caller value)
- | Selvedge.Generated.Commands.Cmd_save_board_agent p=>Some (handle_save_board_agent p caller value)
- | Selvedge.Generated.Commands.Cmd_delete_board_agent p=>Some (handle_delete_board_agent p caller value)
- | _=>None end.
 Definition failure_text (source:string) := match Utf8.chunks source with Some chunks=>Utf8.render_chunks (firstn 1000 chunks) | None=>"Invalid UTF-8 drafting failure" end.
 Definition valid_completion_payload (source:json) (ok:bool) :=
  if ok then Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "title" KText;Field "description" KText] source && limited (text_default "title" source "") Titles.response_title_bytes

@@ -1,4 +1,4 @@
-import { initialTransport, observeTransport, transportRunning, transportCurrent, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
+import { initialTransport, observeTransport, transportRunning, transportCurrent, initialConnectorSession, observeConnectorSession, interpretConnectorFrame, interpretConnectorCapture, interpretConnectorDelivery, enqueueRemoteOperation, authorizeRemoteCapture } from '../remote/transport-runner.ts';
 import { randomUUID } from 'node:crypto';
 import {
   REMOTE_PROTOCOL_VERSION, MAX_REMOTE_FRAME_BYTES,
@@ -58,7 +58,6 @@ export class RemoteConnector {
   #probe;
   #lastError;
   #grantTail = Promise.resolve();
-  #noticeSequence = 0;
   #incarnation = randomUUID();
   #status = { state: 'stopped', connected: false, controller_count: 0 };
   #settings;
@@ -251,7 +250,7 @@ export class RemoteConnector {
       closed: () => this.#forgetConnection(session, frame.connection_id),
       opened: () => {
         session.connections.set(frame.connection_id, { id: frame.connection_id, controllerId: frame.controller_id, grantEpoch: frame.grant_epoch,
-          active: true, subscribed: false, tail: Promise.resolve() });
+          active: true, tail: Promise.resolve() });
         this.#setStatus('online');
       },
       request: () => {
@@ -282,10 +281,11 @@ export class RemoteConnector {
     if (this.#current(session) && this.#status.state === 'online') this.#setStatus('online');
   }
 
-  #enqueue(session, connection, bytes, operation) {
+  #enqueue(session, connection, bytes, operation, noticeSequence = null) {
     enqueueRemoteOperation(connection, bytes, operation, {
       current: () => this.#current(session),
-      observe: (kind, size) => this.#step(kind, { generation: session.generation, connection_id: connection.id, bytes: size }),
+      observe: (kind, size) => this.#step(kind, { generation: session.generation, connection_id: connection.id,
+        bytes: size, notice_sequence: noticeSequence }),
       disconnect: reason => this.#disconnect(session, reason),
     });
   }
@@ -296,7 +296,7 @@ export class RemoteConnector {
       active: () => this.#current(session) && connection.active,
       currentSequence: () => this.#service.browserSnapshot().sequence,
       capture: authorized,
-      deny: () => { connection.subscribed = false; },
+      deny: () => { this.#step('capture', { generation: session.generation, connection_id: connection.id, method: 'unsubscribe' }); },
       disconnect: () => this.#disconnect(session, 'authorization_revision_changed'),
     });
   }
@@ -304,7 +304,7 @@ export class RemoteConnector {
   #snapshot() {
     const snapshot = this.#service.browserSnapshot();
     return { incarnation: this.#incarnation, namespace: snapshot.namespace, sequence: snapshot.sequence, program: snapshot.program,
-      streams: this.#service.browserStreams(), notice_sequence: this.#noticeSequence };
+      streams: this.#service.browserStreams(), notice_sequence: this.#control.notice_sequence };
   }
 
   async #request(session, id, connection, request) {
@@ -315,18 +315,9 @@ export class RemoteConnector {
         return;
       }
       const allowed = await this.#authorize(session, connection, () => {
-        let result;
-        if (request.method === 'unsubscribe') {
-          connection.subscribed = false;
-          result = { subscribed: false };
-        } else {
-          result = this.#snapshot();
-          if (request.method === 'subscribe') {
-            connection.subscribed = true;
-            connection.after = result.notice_sequence;
-          }
-        }
-        this.#send(session, { type: 'response', connection_id: id, response: { id: request.id, result } });
+        const action = this.#step('capture', { generation: session.generation, connection_id: id, method: request.method });
+        const reply = result => this.#send(session, { type: 'response', connection_id: id, response: { id: request.id, result } });
+        interpretConnectorCapture(action, { snapshot: () => reply(this.#snapshot()), unsubscribed: () => reply({ subscribed: false }) });
       });
       if (!allowed) {
         if (connection.active) this.#send(session, { type: 'response', connection_id: id,
@@ -341,7 +332,8 @@ export class RemoteConnector {
   }
 
   #notice(notice) {
-    const sequence = ++this.#noticeSequence;
+    this.#step('notice');
+    const sequence = this.#control.notice_sequence;
     const session = this.#session;
     if (!session?.ready) return;
     let event;
@@ -352,14 +344,12 @@ export class RemoteConnector {
     // DEFENSE: A committed notice can exceed the remote frame budget; close instead of buffering an undeliverable observation.
     } catch { this.#disconnect(session, 'observation_frame_rejected'); return; }
     for (const [id, connection] of session.connections) {
-      if (!connection.subscribed || sequence <= connection.after) continue;
       this.#enqueue(session, connection, bytes, async () => {
-        if (!connection.subscribed || sequence <= connection.after) return;
         await this.#authorize(session, connection, () => {
-          connection.after = sequence;
-          this.#send(session, { type: 'event', connection_id: id, event });
+          interpretConnectorDelivery(this.#step('deliver', { generation: session.generation, connection_id: id, notice_sequence: sequence }),
+            () => this.#send(session, { type: 'event', connection_id: id, event }));
         });
-      });
+      }, sequence);
     }
   }
 }

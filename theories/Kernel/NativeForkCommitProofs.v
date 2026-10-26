@@ -66,9 +66,13 @@ Proof.
  destruct (a_ready_native_fork_carries_its_final_dispatch_gate
    (Scheduler.native_fork_owner step) (TaskScope.selected (NativeForkCommit.planned_target accepted))
    before step Ready) as [Admitted [Decoded [Room [Name Owner]]]].
+ unfold NativeTools.command in Decoded.
+ destruct (NativeTools.admit_command (Scheduler.native_fork_owner step)
+   (Scheduler.native_fork_invocation step)) as [native|] eqn:Native; [|discriminate].
+ cbn [option_map] in Decoded; injection Decoded as Decoded.
  unfold NativeForkCommit.candidate,NativeForkCommit.interpret,requested_decision.
  fold step; fold request.
- unfold Scheduler.execute_checked_call; rewrite Admitted,Decoded,Room.
+ unfold Scheduler.execute_checked_call; rewrite Admitted,Native,Decoded,Room.
  fold (started_world accepted).
  unfold NativeForkCommit.execute.
  change (Scheduler.commit_changes (Scheduler.native_fork_owner step)

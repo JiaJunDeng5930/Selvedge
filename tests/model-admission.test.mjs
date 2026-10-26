@@ -4,7 +4,7 @@ import { startServer } from '../host/server.mjs';
 import { defaultConfig, validateConfig } from '../host/config.mjs';
 import { home } from './support.mjs';
 
-test('public command preparation preserves exact task IDs and rejects client workspace observations', async t => {
+test('public command preparation enforces the task ID wire bound and rejects client workspace observations', async t => {
   const directory = await home(t);
   const config = validateConfig({ ...defaultConfig, chatgpt: false, port: 0 });
   const running = await startServer({ home: directory, cwd: directory, config });
@@ -17,10 +17,9 @@ test('public command preparation preserves exact task IDs and rejects client wor
   const ordinary = await post('{"op":"fork","task_id":7000,"child_count":1,"settings":{}}');
   const exact = await post('{"op":"fork","task_id":9007199254740993,"child_count":1,"settings":{}}');
   assert.equal(ordinary.body.error.code, 'task_not_found');
-  assert.equal(exact.body.error.code, ordinary.body.error.code);
-  assert.equal(exact.status, ordinary.status);
+  assert.equal(exact.body.error.code, 'invalid_input');
   const noSelection = await post('{"op":"read","task_id":9007199254740993}');
-  assert.equal(noSelection.body.error.code, 'task_not_found');
+  assert.equal(noSelection.body.error.code, 'invalid_input');
 
   const guidance = { workspace: directory, path: `${directory}/AGENTS.md`, revision: 'a'.repeat(64), instructions: 'Client supplied text' };
   for (const command of [

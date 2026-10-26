@@ -1,5 +1,6 @@
 From Selvedge.Kernel Require Import TaskScope TaskChange.
-From Selvedge.Features Require Import WorkspaceBinding.
+From Selvedge.Features Require Import WorkspaceBinding State.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 FreshNames.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context ContextUpdates State History ModelCapabilities TaskConstraints.
@@ -230,10 +231,10 @@ Definition send (id : N) (contents : content) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some target => let task := TaskScope.selected target in match task_lifecycle task with
-   | Archived _ => reject "task_archived" "Archived tasks cannot accept input" value
+   | Archived _ => reject "invalid_arguments" "Archived tasks cannot accept input" value
    | _ => if content_nonempty contents then
       accept (JObject [("task_id", number id)]) (TaskChange.interpret (TaskChange.Plan value target (receive_changes contents task))) []
-     else reject "invalid_message" input_required_message value
+     else reject "invalid_arguments" input_required_message value
    end
  end.
 Definition inference_effects (id : N) (task : task) :=
@@ -286,7 +287,7 @@ Definition control_command (id : N) (command : control) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some target => let task := TaskScope.selected target in match control_target command task with
-   | None => reject "invalid_control" "This lifecycle control is unavailable for the task" value
+   | None => reject "invalid_transition" "This lifecycle control is unavailable for the task" value
    | Some _ => accept (JObject [("task_id", number id)])
       (TaskChange.interpret (TaskChange.Plan value target (control_changes command task))) (control_effects id command task)
    end end.
@@ -294,7 +295,7 @@ Definition steer (id : N) (contents : content) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
  | Some target => let task := TaskScope.selected target in match task_lifecycle task with
-   | Archived _ => reject "task_archived" "Archived tasks cannot accept input" value
+   | Archived _ => reject "invalid_arguments" "Archived tasks cannot accept input" value
    | current => if content_nonempty contents then
      let changes := [TaskChange.AppendHistory
        (History.interrupted_phase (task_activity task) ++ [UserMessage contents]);
@@ -303,7 +304,7 @@ Definition steer (id : N) (contents : content) (value : world) :=
      accept (JObject [("task_id", number id)])
       (TaskChange.interpret (TaskChange.Plan value target changes))
       (inference_effects id task)
-     else reject "invalid_message" input_required_message value
+     else reject "invalid_arguments" input_required_message value
    end end.
 Definition promote_changes (task : task) : list TaskChange.edit :=
  match task_lifecycle task, task_queued task with
@@ -321,6 +322,44 @@ Definition wake_after_result_changes (task : task) : list TaskChange.edit :=
  | Running Idle _ | Frozen Idle _ => [TaskChange.ChangePhase WantsModel]
  | _ => promote_changes task end.
 Definition wake_after_result (task : task) := TaskChange.apply (wake_after_result_changes task) task.
+(* A result transition records whether it calls the shared wake operation.
+   Its interpreter also preserves that demand when maintenance temporarily
+   owns the task's ObservingContext phase. Callers cannot separate those two
+   consequences of an actual wake. *)
+Inductive result_update := KeepDemand (changes : list TaskChange.edit) | WakeDemand (changes : list TaskChange.edit).
+Definition result_changes (update : result_update) (current : task) := match update with
+ | KeepDemand changes => changes
+ | WakeDemand changes => changes ++ wake_after_result_changes (TaskChange.apply changes current) end.
+Definition prefix_result (prefix : list TaskChange.edit) (update : result_update) := match update with
+ | KeepDemand changes => KeepDemand (prefix ++ changes)
+ | WakeDemand changes => WakeDemand (prefix ++ changes) end.
+Definition wake_context_entry (owner ticket : N) (pair : N * Selvedge.Features.CompactionTypes.entry) :=
+ let '(id,entry) := pair in
+ if N.eqb owner id then match Selvedge.Features.CompactionTypes.entry_job entry with
+   | Selvedge.Features.CompactionTypes.AwaitingContext expected purpose demand =>
+     if N.eqb ticket expected then (id, set Selvedge.Features.CompactionTypes.entry_job
+       (fun _ => Selvedge.Features.CompactionTypes.AwaitingContext expected purpose true) entry) else pair
+   | _ => pair end else pair.
+Definition mark_context_wake (owner : N) (current : task) (value : world) :=
+ match task_lifecycle current with
+ | Running (ObservingContext ticket _) _ | Frozen (ObservingContext ticket _) _ =>
+   let features := world_features value in
+   let state := Selvedge.Features.Domain.feature_compaction features in
+   let entries := map (wake_context_entry owner ticket) (Selvedge.Features.CompactionTypes.maintenance_entries state) in
+   with_features (Selvedge.Features.State.with_compaction
+     (set Selvedge.Features.CompactionTypes.maintenance_entries (fun _ => entries) state) features) value
+ | _ => value end.
+Definition apply_result (owner : N) (current : task) (update : result_update) (before : world) :=
+ let value := put_task owner (TaskChange.apply (result_changes update current) current) before in
+ match update with
+ | KeepDemand _ => value
+ | WakeDemand _ => mark_context_wake owner current value end.
+Definition interpret_result {before} (target : TaskScope.task_reference before) (update : result_update) :=
+ apply_result (TaskScope.owner target) (TaskScope.selected target) update before.
+Definition commit_result (id : N) (update : task -> result_update) (before : world) :=
+ match TaskScope.select id before with
+ | Some target => interpret_result target (update (TaskScope.selected target))
+ | None => before end.
 Definition cancel_operation (id operation_id : N) (value : world) :=
  match TaskScope.select id value with
  | None => reject "task_not_found" "The target task does not exist" value
@@ -331,8 +370,7 @@ Definition cancel_operation (id operation_id : N) (value : world) :=
      let changes := [TaskChange.AppendHistory [History.cancelled_operation operation];
        TaskChange.RemoveOperation operation_id] in
      accept (JObject [("task_id", number id); ("operation_id", number operation_id)])
-      (TaskChange.interpret (TaskChange.Plan value target
-       (changes ++ wake_after_result_changes (TaskChange.apply changes task))))
+      (interpret_result target (WakeDemand changes))
       (match operation_stage operation with
        | Executing ticket | Elevated ticket _ | AwaitingApproval ticket _ | AwaitingAfterHook ticket _ _ _ _ => [CancelTicket id ticket]
        | Granted _ | AfterHooksReady _ _ _ => [] end)
@@ -396,16 +434,18 @@ Definition fork_child_history (owner parent_id : N) (parent : task) (settings : 
  (* Keep birth guidance in provider history, outside the side return cursor. *)
  if side then inherited ++ [SideConversationBirth owner parent_id
    (N.succ (N.of_nat (List.length inherited)))] else inherited.
-Definition fork_child (owner parent_id : N) (parent : task) (contents : content) (settings : task_settings)
+Definition optional_input (contents : option content) :=
+ match contents with Some contents => [UserMessage contents] | None => [] end.
+Definition side_input (contents : content) := if content_nonempty contents then Some contents else None.
+Definition fork_child (owner parent_id : N) (parent : task) (contents : option content) (settings : task_settings)
  (side : bool) :=
  let chosen := task_current_profile parent in
  let contract := Contract chosen (contract_tools (task_contract parent)) settings
   (contract_max_fork (task_contract parent)) (contract_max_descendants (task_contract parent))
   (contract_plugins (task_contract parent)) (contract_reviewers (task_contract parent)) in
  Task contract chosen settings
- (Running (if content_nonempty contents then WantsModel else Idle) [])
- (fork_child_history owner parent_id parent settings side ++
-  if content_nonempty contents then [UserMessage contents] else []) []
+ (Running (match contents with Some _ => WantsModel | None => Idle end) [])
+ (fork_child_history owner parent_id parent settings side ++ optional_input contents) []
  (parent_id :: task_lineage parent)
  (if side then Some parent_id else None)
  (if side then N.of_nat (List.length (fork_child_history owner parent_id parent settings side)) else 0) 0.
@@ -421,7 +461,7 @@ Fixpoint fork_children (count : nat) (id : N) (parent : task) (messages : list c
  match count with
  | O => value
  | S count =>
-   let message := match messages with [] => [] | first :: _ => first end in
+   let message := hd_error messages in
    let owner := next_task value in
    let child := fork_child_receipt entry start owner invocation
      (fork_child owner id parent message settings false) in
@@ -477,6 +517,14 @@ Definition fork_call_ids (task : Domain.task) : list string :=
 Definition manual_fork_identity (ticket : N) (task : Domain.task) : string :=
  FreshNames.fresh_name ("manual-fork-" ++ number_text ticket ++ "-") (fork_call_ids task).
 
+Definition fork_refusal (entry : fork_entry) (id count : N) (parent : task) (value : world) :=
+ match entry with
+ | ManualFork => if fork_parent_ready entry parent then
+     reject "resource_limit" "Fork count, aligned messages, or an ancestor descendant limit is invalid" value
+   else reject "task_busy" "A manual fork requires an active, idle task" value
+ | AcceptedNativeFork _ _ => refuse_start NativeForkEntry
+     (if ancestors_fit (id :: task_lineage parent) count value then InvalidForkRequest else DescendantCapacity) value
+ end.
 Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (id count : N)
  (messages : list content) (settings : option json) (value : world) :=
  match TaskScope.select id value with
@@ -514,21 +562,18 @@ Definition fork_with_caller (entry : fork_entry) (origin:fork_settings_origin) (
       accept (JObject [("children", JArray (map (fun offset => number (next_task value + N.of_nat offset)) (seq 0 (N.to_nat count))))]) children []
       end
     end
-   else refuse_start NativeForkEntry (match entry with
-    | AcceptedNativeFork _ _ => if ancestors_fit (id :: task_lineage task) count value
-      then InvalidForkRequest else DescendantCapacity
-    | ManualFork => InvalidForkRequest end) value
+   else fork_refusal entry id count task value
  end.
 Definition fork := fork_with_caller ManualFork ParentSettings.
 Definition open_side (id : N) (contents : content) (value : world) :=
  match find_task id value with
  | None => reject "task_not_found" "The parent task does not exist" value
  | Some task => if String.eqb (task_status task) "archived" then
-   reject "task_archived" "Archived tasks cannot create a side conversation" value
+   reject "side_unavailable" "Archived tasks cannot create a side conversation" value
    else if ancestors_fit (id :: task_lineage task) 1 value then
    accept (JObject [("task_id", number (next_task value)); ("parent_task_id", number id)])
-    (append_task (fork_child (next_task value) id task contents (task_current_settings task) true) value) []
-   else reject "descendant_limit" "The parent task has no remaining descendant capacity" value
+    (append_task (fork_child (next_task value) id task (side_input contents) (task_current_settings task) true) value) []
+   else reject "side_unavailable" "The parent task has no remaining descendant capacity" value
  end.
 (* The wire approval DTO names its reviewer. An explicit selection can replace
    the frozen profile behind that same key, so wire equality is insufficient. *)

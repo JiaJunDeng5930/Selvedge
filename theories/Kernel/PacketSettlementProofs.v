@@ -160,7 +160,9 @@ Theorem an_archived_result_is_committed_by_the_exported_packet :
     (TerminalSettlement.candidate accepted)).
 Proof.
  intros raw before accepted Decoded Resolved InputBudget Valid OutputBudget.
- unfold Packet.packet; rewrite InputBudget; cbv beta zeta; rewrite Decoded.
+ unfold Packet.packet, Packet.packet_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result.
+ rewrite InputBudget; cbv beta zeta; rewrite Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
   ConnectionCommit.input TitleCommit.input Packet.native_fork_input
   NativeForkCommit.resolve Packet.terminal_settlement_input TerminalSettlement.source].

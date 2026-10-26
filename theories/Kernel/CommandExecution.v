@@ -112,11 +112,11 @@ Definition update_project (id : N) (name : option string) (workspace_source guid
  end.
 Definition delete_project (id : N) (value : world) :=
  match registry_at id (world_projects value) with
- | None => reject "project_not_found" "The project does not exist" value
- | Some project => if project_deleted project then reject "project_not_found" "The project does not exist" value else
+ | None => reject "project_not_empty" "The project must exist and have no references before it can be deleted" value
+ | Some project => if project_deleted project then reject "project_not_empty" "The project must exist and have no references before it can be deleted" value else
    if existsb (fun task => match settings_project (task_current_settings task) with
      | Some current => N.eqb id current | None => false end) (world_tasks value)
-   then reject "project_in_use" "A project referenced by a task cannot be deleted" value
+   then reject "project_not_empty" "A project referenced by a task cannot be deleted" value
    else accept (JObject [("project_id",number id)])
     (with_projects (replace id (Project "" (Workspace [] None) JNull false (project_order project) true None) (world_projects value)) value) []
  end.

@@ -95,8 +95,9 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
  (remaining : list call) (task : task) (value : world) :=
  match call_admission tool invocation value with
  | Some (code,reason) => call_error id invocation code reason remaining task value
- | None => match NativeTools.command id invocation with
- | Some command =>
+ | None => match NativeTools.admit_command id invocation with
+ | Some admitted =>
+   let command := Commands.admitted_value admitted in
    if internal_result_available task then
    (* The native action owns this invocation now. A self-archive may cancel
       remaining calls, but must not also close this executing call as pending. *)
@@ -144,8 +145,8 @@ Definition granted_operation (id : N) (operation : operation) (task : task) (val
  | Granted reviewer, Some tool =>
    if Capabilities.available (environment_tools (world_environment value)) tool then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.resume id (operation_id operation) value)
-   else acknowledged (commit_changes id (Callbacks.begin_result_changes id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true) value)
- | Granted _, None => acknowledged (commit_changes id (Callbacks.begin_result_changes id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true) value)
+   else acknowledged (Tasks.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The tool capability changed before the one-operation grant could be used") true) value)
+ | Granted _, None => acknowledged (Tasks.commit_result id (Callbacks.begin_result_plan id operation (State.failure "tool_unavailable" "The granted tool is not in the frozen task contract") true) value)
  | _,_ => acknowledged value
  end.
 Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pending : list json) (remaining : list call) (task : task) (value : world) :=
@@ -155,16 +156,16 @@ Definition ready_hooks (execute : executor) (id : N) (invocation : call) (pendin
  end.
 Definition after_hooks_step (id : N) (operation : operation) (task : task) (value : world) :=
  match operation_stage operation with
- | AfterHooksReady [] result error => acknowledged (commit_changes id (Callbacks.settle_operation_changes operation result error) value)
+ | AfterHooksReady [] result error => acknowledged (Tasks.commit_result id (fun _ => Callbacks.settle_operation_plan operation result error) value)
  | AfterHooksReady (plugin :: rest) result error =>
    if Capabilities.hook_available Capabilities.AfterTool plugin (environment_plugins (world_environment value)) then
    TicketedRequest.Scoped.run (TicketedRequest.Scoped.after id (operation_id operation) value)
-   else acknowledged (commit_changes id (fun task =>
+   else acknowledged (Tasks.commit_result id (fun task =>
      let receipt := TaskChange.AppendHistory [AfterReceipt id (operation_id operation) plugin
        (Inputs.after_json (Inputs.AfterFailure "The frozen result-processing plugin revision is unavailable"))] in
-     [receipt] ++ Callbacks.settle_operation_changes operation
+     Tasks.prefix_result [receipt] (Callbacks.settle_operation_plan operation
        (State.failure "after_hook_unavailable" "The frozen result-processing plugin revision is unavailable; the tool has already completed") true
-       (TaskChange.apply_edit receipt task)) value)
+       )) value)
  | _ => acknowledged value
  end.
 Definition ready_operation (operations : list operation) := find (fun operation =>

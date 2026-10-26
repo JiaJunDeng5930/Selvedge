@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8.
-From Selvedge.Kernel Require Import Numbers Domain State.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks.
 From Selvedge.Features Require Import Domain State WorkUIPatch.
 Import ListNotations.
 Open Scope string_scope.
@@ -55,11 +55,40 @@ Definition patch_work (id:N) (patch:string) (expected:N) (value:world) := match 
 Definition apply_ui_patch (caller:option N) (patch:string) (expected:N) (value:world) := match caller with
  | None=>Selvedge.Kernel.State.reject "task_call_required" "Edit the shared UI through a Task tool call." value
  | Some caller=>match task_owner caller value with None=>Selvedge.Kernel.State.reject "no_work" "This Task does not belong to a Work." value | Some id=>patch_work id patch expected value end end.
-(* Ownership consumes the fresh reference returned by Task birth; it cannot
-   invoke a callback that mutates unrelated world components. *)
-Definition own_birth (work_id task_id:N) (value:world) :=
+(** Ownership is attached only to a witnessed fresh Task and a Work observed
+    in the plan's original world. The decoration frame cannot replace tasks or
+    the Work registry while attaching resource metadata. *)
+Record owner_scope (before : world) := OwnerScope {
+ owner_identity : N;
+ owner_value : Selvedge.Features.Domain.work;
+ owner_observed : lookup owner_identity before = Some owner_value
+}.
+Arguments OwnerScope {before}.
+Arguments owner_identity {before}.
+Definition select_owner_decoded (id : N) (before : world)
+ (found : option Selvedge.Features.Domain.work) (Found : lookup id before = found)
+ : option (owner_scope before) :=
+ match found as result return lookup id before = result -> option (owner_scope before) with
+ | Some owner => fun Found => Some (OwnerScope id owner Found)
+ | None => fun _ => None end Found.
+Definition select_owner (id : N) (before : world) : option (owner_scope before) :=
+ select_owner_decoded id before (lookup id before) eq_refl.
+Theorem select_missing_owner : forall id before,
+ lookup id before = None -> select_owner id before = None.
+Proof.
+ intros id before Missing.
+ assert (Absent : forall found (Evidence : lookup id before = found),
+   found = None -> select_owner_decoded id before found Evidence = None).
+ { intros [owner|] Evidence Empty; [discriminate|reflexivity]. }
+ unfold select_owner; apply Absent; exact Missing.
+Qed.
+Definition own_birth {origin before : world} (owner : owner_scope origin)
+ (birth : Tasks.birth_result before) (value : world)
+ (_tasks : world_tasks value = world_tasks (Tasks.birth_world birth))
+ (_works : Selvedge.Features.Domain.feature_works (world_features value) =
+   Selvedge.Features.Domain.feature_works (world_features origin)) :=
  with_features (Selvedge.Features.State.with_task_owners
-   ((task_id,work_id)::Selvedge.Features.Domain.feature_task_owners (world_features value))
+   ((Tasks.birth_id birth,owner_identity owner)::Selvedge.Features.Domain.feature_task_owners (world_features value))
    (world_features value)) value.
 From Selvedge.Generated Require Import Commands.
 Definition handle_list_works (payload:Selvedge.Generated.Commands.list_works_payload) (caller:option N) (value:world) :json :=
@@ -68,19 +97,9 @@ Definition handle_read_work (payload:Selvedge.Generated.Commands.read_work_paylo
  read (Selvedge.Generated.Commands.read_work_work_id payload) value.
 Definition handle_read_work_ui (payload:Selvedge.Generated.Commands.read_work_ui_payload) (caller:option N) (value:world) :json :=
  read_ui caller value.
-Definition query (command:Selvedge.Generated.Commands.command) (caller:option N) (value:world) :option json := match command with
- | Selvedge.Generated.Commands.Cmd_list_works payload=>Some (handle_list_works payload caller value)
- | Selvedge.Generated.Commands.Cmd_read_work payload=>Some (handle_read_work payload caller value)
- | Selvedge.Generated.Commands.Cmd_read_work_ui payload=>Some (handle_read_work_ui payload caller value)
- | _=>None end.
 Definition handle_create_work (payload:Selvedge.Generated.Commands.create_work_payload) (caller:option N) (value:world) :decision :=
  create (Selvedge.Generated.Commands.create_work_name payload) value.
 Definition handle_rename_work (payload:Selvedge.Generated.Commands.rename_work_payload) (caller:option N) (value:world) :decision :=
  rename (Selvedge.Generated.Commands.rename_work_work_id payload) (Selvedge.Generated.Commands.rename_work_name payload) value.
 Definition handle_apply_work_ui_patch (payload:Selvedge.Generated.Commands.apply_work_ui_patch_payload) (caller:option N) (value:world) :decision :=
  apply_ui_patch caller (Selvedge.Generated.Commands.apply_work_ui_patch_patch payload) (Selvedge.Generated.Commands.apply_work_ui_patch_revision payload) value.
-Definition command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision := match command with
- | Selvedge.Generated.Commands.Cmd_create_work payload=>Some (handle_create_work payload _caller value)
- | Selvedge.Generated.Commands.Cmd_rename_work payload=>Some (handle_rename_work payload _caller value)
- | Selvedge.Generated.Commands.Cmd_apply_work_ui_patch payload=>Some (handle_apply_work_ui_patch payload _caller value)
- | _=>None end.

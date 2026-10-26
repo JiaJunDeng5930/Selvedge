@@ -13,7 +13,7 @@ Definition matching_activity (ticket : N) (phase : activity) := match phase with
 Definition model_call_arguments_valid (tool : tool) (invocation : call) :=
   match tool_origin tool with
   | NativeToolSource _ _ => NativeTools.arguments_valid tool invocation
-  | ExtensionToolSource parameters _ _ => JsonSchema.valid parameters (call_arguments invocation)
+  | ExtensionToolSource parameters _ _ => JsonSchema.check_registered parameters (call_arguments invocation)
   | McpToolSource _ _ _ => match call_arguments invocation with JObject _ => true | _ => false end
   end.
 Definition call_known (id : string) (history : list message) :=
@@ -121,7 +121,7 @@ Definition context_completed (id ticket : N) (observations : option (list contex
        context_response accepted (TaskChange.interpret (TaskChange.Plan value target
          (changes ++ [TaskChange.ChangePhase (context_phase task)])))
      else match task_lifecycle task with
-       | Running _ _ => Reasoning.observe_context id value
+       | Running _ _ => Reasoning.context_retry id value
        | _ => context_ready false id task value end
      else ignored value
    | _ => ignored value end
@@ -136,21 +136,24 @@ Definition operation_executing (ticket : N) (value : operation) := match operati
 Definition remove_operation (id : N) (values : list operation) := filter (fun operation => negb (N.eqb id (operation_id operation))) values.
 Definition replace_operation := TicketedRequest.replace_operation.
 
+Definition settle_operation_plan (operation : operation) (result : json) (error : bool) :=
+ Tasks.WakeDemand [TaskChange.AppendHistory [History.operation_result operation result error];
+   TaskChange.RemoveOperation (operation_id operation)].
 Definition settle_operation_changes (operation : operation) (result : json) (error : bool) (task : task) :=
- let initial := [TaskChange.AppendHistory [History.operation_result operation result error];
-   TaskChange.RemoveOperation (operation_id operation)] in
- initial ++ Tasks.wake_after_result_changes (TaskChange.apply initial task).
+ Tasks.result_changes (settle_operation_plan operation result error) task.
 Definition settle_operation (operation : operation) (result : json) (error : bool) (task : task) :=
  TaskChange.apply (settle_operation_changes operation result error task) task.
 Definition after_plugins (task : task) :=
  Capabilities.hook_references Capabilities.AfterTool (contract_plugins (task_contract task)).
-Definition begin_result_changes (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
+Definition begin_result_plan (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  match after_plugins task with
- | [] => settle_operation_changes operation result error task
+ | [] => settle_operation_plan operation result error
  | pending =>
-   [TaskChange.AppendHistory [ToolReceipt owner (operation_id operation) (operation_call operation) result error];
+   Tasks.KeepDemand [TaskChange.AppendHistory [ToolReceipt owner (operation_id operation) (operation_call operation) result error];
     TaskChange.ChangeOperationStage (operation_id operation) (AfterHooksReady pending result error)]
  end.
+Definition begin_result_changes (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
+ Tasks.result_changes (begin_result_plan owner operation result error task) task.
 Definition begin_result (owner : N) (operation : operation) (result : json) (error : bool) (task : task) :=
  TaskChange.apply (begin_result_changes owner operation result error task) task.
 Definition tool_completed (id ticket : N) (result : json) (error : bool) (value : world) :=
@@ -160,7 +163,7 @@ Definition tool_completed (id ticket : N) (result : json) (error : bool) (value 
  | None => ignored value
  | Some target => let task := TaskScope.selected target in match find (operation_executing ticket) (task_operations task) with
    | None => ignored value
-   | Some operation => acknowledged (TaskChange.interpret (TaskChange.Plan value target (begin_result_changes id operation result error task)))
+   | Some operation => acknowledged (Tasks.interpret_result target (begin_result_plan id operation result error task))
    end
  end.
 Definition find_pending_approval (selected : N -> N -> reviewer -> bool) (operations : list operation)
@@ -169,17 +172,20 @@ Definition find_pending_approval (selected : N -> N -> reviewer -> bool) (operat
  | AwaitingApproval ticket actor =>
    if selected (operation_id pending) ticket actor then Some (pending,actor) else rest
  | _ => rest end) None operations.
-Definition approval_decision_changes (owner : N) (operation : operation) (reviewed_by : reviewer)
+Definition approval_decision_plan (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
  let outcome := ApprovalProtocol.normalize_outcome outcome in
  let receipt := [ApprovalReceipt owner (operation_id operation) (operation_call operation)
    reviewed_by (Inputs.approval_json outcome)] in
- TaskChange.AppendHistory receipt ::
+ Tasks.prefix_result [TaskChange.AppendHistory receipt]
  match outcome with
- | Approved _ => [TaskChange.ChangeOperationStage (operation_id operation) (Granted reviewed_by)]
- | Denied reason | ApprovalFailed reason => begin_result_changes owner operation
+ | Approved _ => Tasks.KeepDemand [TaskChange.ChangeOperationStage (operation_id operation) (Granted reviewed_by)]
+ | Denied reason | ApprovalFailed reason => begin_result_plan owner operation
    (State.failure "approval_denied" ("Bash was not started. " ++ reason)) true (append_history receipt task)
  end.
+Definition approval_decision_changes (owner : N) (operation : operation) (reviewed_by : reviewer)
+ (outcome : approval_outcome) (task : task) :=
+ Tasks.result_changes (approval_decision_plan owner operation reviewed_by outcome task) task.
 Definition approval_decision (owner : N) (operation : operation) (reviewed_by : reviewer)
  (outcome : approval_outcome) (task : task) :=
  TaskChange.apply (approval_decision_changes owner operation reviewed_by outcome task) task.
@@ -189,7 +195,7 @@ Definition approval_completed (id ticket : N) (outcome : approval_outcome) (valu
  | Some target => let task := TaskScope.selected target in match find_pending_approval (fun _ expected actor => match actor with
    | ModelReviewer _ => N.eqb ticket expected | HumanReviewer => false end) (task_operations task) with
    | None => ignored value
-   | Some (operation,actor) => acknowledged (TaskChange.interpret (TaskChange.Plan value target (approval_decision_changes id operation actor outcome task)))
+   | Some (operation,actor) => acknowledged (Tasks.interpret_result target (approval_decision_plan id operation actor outcome task))
    end end.
 Definition review_approval (id operation : N) (outcome : approval_outcome) (value : world) :=
  let stale := reject "approval_not_pending"
@@ -199,7 +205,7 @@ Definition review_approval (id operation : N) (outcome : approval_outcome) (valu
  | Some target => let task := TaskScope.selected target in match find_pending_approval (fun candidate _ actor => N.eqb operation candidate &&
    match actor with HumanReviewer => true | ModelReviewer _ => false end) (task_operations task) with
    | None => stale
-   | Some (operation,actor) => acknowledged (TaskChange.interpret (TaskChange.Plan value target (approval_decision_changes id operation actor outcome task)))
+   | Some (operation,actor) => acknowledged (Tasks.interpret_result target (approval_decision_plan id operation actor outcome task))
    end end.
 Definition reasoning_completed (id ticket : N) (outcome : Reasoning.outcome) (value : world) :=
  match TaskScope.select id value with
