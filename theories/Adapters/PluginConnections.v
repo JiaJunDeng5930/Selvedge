@@ -1,5 +1,6 @@
 From Stdlib Require Import String List Bool NArith Ascii.
 From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Kernel Require Codec.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
@@ -27,10 +28,10 @@ Definition connection_settings id source :=
     if negb (is_array ids && (N.of_nat (List.length (items ids)) <=? 32) && forallb uint32 (items ids) && unique_values (items ids))
     then err "Invalid ChatGPT project_ids" else
     let sandbox := default_value (get source "sandbox") default_sandbox in
-    if negb (keys sandbox ["mode";"network_access"]) then err "Invalid ChatGPT sandbox"
-    else if negb ((String.eqb (str sandbox "mode") "workspace-write" || String.eqb (str sandbox "mode") "read-only") && is_bool (get sandbox "network_access"))
-      then err "A ChatGPT connection requires an explicit restricted sandbox mode and network_access"
-    else success (JObject [("token_env",get source "token_env");("project_ids",ids);("sandbox",sandbox)]).
+    (* DEFENSE: External connection settings can contain unknown sandbox fields, unsupported modes or a missing Boolean network_access. *)
+    match Codec.parse_sandbox sandbox with
+    | None => err "A ChatGPT connection requires an explicit restricted sandbox mode and network_access"
+    | Some sandbox => success (JObject [("token_env",get source "token_env");("project_ids",ids);("sandbox",Codec.sandbox_json sandbox)]) end.
 Fixpoint connection_entries entries := match entries with
   | [] => success (JObject [])
   | (id,settings)::rest => if negb (uint32_text id) then err "Invalid ChatGPT connection ID" else

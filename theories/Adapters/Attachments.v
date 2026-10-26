@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Foundation Require Import Utf8 Schema.
 From Selvedge.Kernel Require Import Images.
+From Selvedge.Features Require BoardParameters.
 From Selvedge.Adapters Require Import Common Observation.
 Import ListNotations.
 Open Scope string_scope.
@@ -53,7 +54,7 @@ Definition board_command (source : json) :=
     (observe && has command "attachments" && existsb (String.eqb (str command "op")) ["create_card";"update_card"]))]).
 Fixpoint reference_shapes (seen : list string) (references : list json) :=
   match references with [] => true | reference::rest =>
-    plain_fields_only ["id";"name";"mime";"path";"bytes"] reference && is_text (get reference "id") &&
+    plain_fields_only (map field_name BoardParameters.attachment_reference_schema) reference && is_text (get reference "id") &&
     negb (existsb (String.eqb (str reference "id")) seen) && reference_shapes (str reference "id"::seen) rest end.
 Definition board_references (source : json) :=
   let references := get (get source "command") "attachments" in

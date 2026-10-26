@@ -11,7 +11,7 @@ Open Scope N_scope.
 Definition type_admit (accepted : bool) (value : json) (message : string) :=
   if accepted then success value else type_error message.
 Definition path_valid (value : json) := is_text value && Utf8.well_formed (text value) && Utf8.no_nul (text value).
-Definition workspace_valid (value : json) := plain_fields_only ["roots";"primary_root"] value &&
+Definition workspace_valid (value : json) := plain_fields_only (map field_name Workspace.workspace_schema) value &&
   is_array (get value "roots") && (N.of_nat (List.length (items (get value "roots"))) <=? 32).
 Definition workspace_admit (value : json) := type_admit (workspace_valid value) value
   "A workspace requires at most 32 roots and an optional primary_root".
