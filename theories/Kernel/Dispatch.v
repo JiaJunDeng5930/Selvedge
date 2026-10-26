@@ -32,10 +32,13 @@ Definition side_task (id : N) (value : world) := match find_task id value with
  | Some task => match task_side_parent task with Some _ => Some task | None => None end
  | None => None end.
 (* Only requests produced by this decision are refreshed. Already dispatched
-   requests retain their captured history and correlation ticket. *)
+   requests retain their captured history and correlation ticket. An ordinary
+   task can also receive a native operation cancellation later in this decision;
+   its unstarted context read must capture that final history and source length.
+   Model and reasoning selection are frozen at Scheduler's commit boundary. *)
 Definition capture_request (request : effect) (value : world) : world * effect :=
  match request with
- | ObserveContext id ticket original => match side_task id value with
+ | ObserveContext id ticket original => match find_task id value with
    | Some current => match task_activity current with
      | ObservingContext expected _ => if N.eqb expected ticket then
        (put_task id (Reasoning.capture ticket current) value,

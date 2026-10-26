@@ -51,7 +51,8 @@ Proof.
    [|reflexivity].
  rewrite Manual, Creation, Deferred. unfold Packet.transition, Packet.transition_decoded. rewrite decoded.
  destruct (Packet.query command None value) as [reply|] eqn:queried.
- - destruct (Packet.admit_with_status false (Some (UserCommand command)) source value
+ - cbn [Packet.prepare].
+   destruct (Packet.admit_with_status false (Some (UserCommand command)) source value
      (Decision value reply [])) as [admitted result] eqn:Outcome.
    cbn [fst].
    assert (World : decision_world result = value).
@@ -63,6 +64,7 @@ Proof.
      by reflexivity.
    rewrite does_not_schedule. cbn beta iota zeta.
    rewrite does_not_schedule. cbn beta iota zeta.
+   cbn [Packet.prepare].
    destruct (Packet.admit_with_status true (Some (UserCommand command)) source value
      (reject code reason value)) as [admitted result] eqn:Outcome.
    cbn [fst].

@@ -300,7 +300,9 @@ Definition record_receipt (graph:N) (receipt:Selvedge.Features.Domain.graph_rece
  let combined:=Selvedge.Features.Domain.graph_receipts graph_value++[receipt] in
  store graph (Selvedge.Features.Domain.TaskGraph (Selvedge.Features.Domain.graph_name graph_value) (Selvedge.Features.Domain.graph_nodes graph_value) (Selvedge.Features.Domain.graph_rules graph_value) (skipn (List.length combined-256) combined)) value end.
 Definition send_delivery (source:N) (item:delivery) (result:decision) :=
- let sent:=Tasks.send (delivery_target item) [TextPart (delivery_text item)] (decision_world result) in
+ let sent:=match Worktree.execution_guard (delivery_target item) (decision_world result) with
+ | Some refused=>refused
+ | None=>Tasks.send (delivery_target item) [TextPart (delivery_text item)] (decision_world result) end in
  Selvedge.Kernel.State.Decision (record_receipt (delivery_graph item) (Selvedge.Features.Domain.GraphReceipt source (delivery_rule item) (delivery_target item) (decision_reply sent)) (decision_world sent))
  (decision_reply result) (decision_effects result++decision_effects sent).
 Definition react_output (source:N) (output:string) (result:decision) :=

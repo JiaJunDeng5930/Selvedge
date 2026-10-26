@@ -49,6 +49,82 @@ Proof.
  unfold A.can_schedule_task. now rewrite found, running, ready.
 Qed.
 
+Theorem synchronization_preserves_the_operation_reply : forall result,
+ K.decision_reply (A.synchronize_all result) = K.decision_reply result.
+Proof.
+ assert (Step : forall id current,
+   K.decision_reply (A.synchronize_task id current) = K.decision_reply current).
+ { intros; unfold A.synchronize_task, A.combine.
+   repeat match goal with
+   | |- context [match ?term with _ => _ end] => destruct term eqn:?
+   end; reflexivity. }
+ assert (Clock : forall current,
+   K.decision_reply (A.arm_clock current) = K.decision_reply current).
+ { intros; unfold A.arm_clock, A.combine.
+   repeat match goal with
+   | |- context [match ?term with _ => _ end] => destruct term eqn:?
+   end; reflexivity. }
+ assert (Fold : forall identities current,
+   K.decision_reply (fold_left (fun result id => A.synchronize_task id result) identities current) =
+   K.decision_reply current).
+ { induction identities; intros; cbn; [reflexivity|]. now rewrite IHidentities, Step. }
+ intros; unfold A.synchronize_all; now rewrite Clock, Fold.
+Qed.
+
+(** A new side-parent observation can invalidate a previously completed count.
+    The shared synchronization step starts a request for that actual current
+    capture; it does not leave the ready model waiting on the old count. *)
+Theorem a_stale_ready_measurement_is_planned_again :
+ forall id value task operations target entry input scope tokens budget reply effects,
+ K.find_task id value = Some task ->
+ task_lifecycle task = Running ReadyForModel operations ->
+ TicketedRequest.Scoped.resources_available task value = true ->
+ A.enabled_target task (A.registry value) = Some target ->
+ entry = A.synchronized_entry task (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry_job entry = NoJob ->
+ entry_measurement entry = Measured input scope tokens budget ->
+ A.fresh (entry_measurement entry) task value = false ->
+ A.synchronize_task id (K.Decision value reply effects) =
+ A.combine (K.Decision value reply effects)
+   (A.begin_scope id (A.capture_task task value) None entry value).
+Proof.
+ intros id value task operations target entry input scope tokens budget reply effects
+   Found Lifecycle Available Enabled Entry Job Measured Stale.
+ assert (Phase : task_activity task = ReadyForModel)
+   by (unfold task_activity; now rewrite Lifecycle).
+ assert (NotIdle : A.idle_due task entry (A.registry value) = false).
+ { unfold A.idle_due, A.idle; rewrite Phase. now rewrite !andb_false_r. }
+ unfold A.synchronize_task; cbn [K.decision_world]; rewrite Found.
+ unfold A.synchronize; cbv beta zeta; rewrite <- Entry.
+ unfold A.alive, A.running; rewrite Lifecycle, Available; cbn.
+ rewrite Phase, Job, Enabled, Measured.
+ cbn [A.validating A.pending_measurement]. rewrite NotIdle.
+ rewrite Measured in Stale; now rewrite Stale.
+Qed.
+
+Theorem an_admitted_current_scope_has_its_exact_pending_receiver :
+ forall id input entry value,
+ TicketedRequest.Scoped.maintenance_ready id input value = true ->
+ let result := A.begin_scope id input None entry value in
+ K.decision_effects result = [K.MaintainContext (Scope id (K.world_next_ticket value) input)] /\
+ entry_measurement (A.current_entry id (A.registry (K.decision_world result))) =
+   Measuring (K.world_next_ticket value) input InspectScope.
+Proof.
+ intros id input entry value Ready; cbn zeta.
+ unfold A.begin_scope, A.run_request, TicketedRequest.Scoped.feature.
+ cbn [TicketedRequest.Scoped.feature_valid].
+ destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id input value) true)
+   as [Admitted|Refused]; [|contradiction].
+ cbn [TicketedRequest.Scoped.feature_issue TicketedRequest.Scoped.feature_intent
+   TicketedRequest.Scoped.feature_space TicketedRequest.allocate_identity TicketedRequest.next_identity
+   TicketedRequest.Scoped.feature_build TicketedRequest.Scoped.maintenance_build
+   K.accept K.decision_world K.decision_effects].
+ split; [reflexivity|].
+ unfold A.current_entry, A.find_entry, A.registry, TicketedRequest.Scoped.put_compaction,
+   K.with_features, Selvedge.Features.State.with_compaction, set; cbn.
+ now rewrite N.eqb_refl.
+Qed.
+
 Lemma printed_natural_is_admitted : forall value, natural (number value) = Some value.
 Proof. exact natural_print_parse. Qed.
 Definition completed_input (id ticket : N) (fields : list (string * json)) := JObject [
@@ -281,6 +357,100 @@ Theorem manual_context_recovery_does_not_invent_model_demand :
  A.recover_context_task state id task = with_activity Idle task.
 Proof.
  intros. unfold A.recover_context_task. now rewrite H, H0, N.eqb_refl.
+Qed.
+
+Lemma cancellations_name_exact_pending_tickets : forall owner id ticket entry,
+ In (Cancel owner ticket) (A.cancellations id entry) <->
+ owner = id /\ (A.measurement_ticket (entry_measurement entry) = Some ticket \/
+   A.job_ticket (entry_job entry) = Some ticket).
+Proof.
+ intros; unfold A.cancellations.
+ destruct (A.measurement_ticket (entry_measurement entry));
+ destruct (A.job_ticket (entry_job entry)); cbn; intuition congruence.
+Qed.
+
+Lemma registry_cancellations_name_exact_pending_tickets : forall state id ticket,
+ In (Cancel id ticket) (A.pending_cancellations state) <->
+ exists entry, In (id, entry) (maintenance_entries state) /\
+   (A.measurement_ticket (entry_measurement entry) = Some ticket \/
+    A.job_ticket (entry_job entry) = Some ticket).
+Proof.
+ intros; unfold A.pending_cancellations; rewrite in_flat_map; split.
+ - intros [[owner entry] [Present Pending]]; cbn in Pending.
+   apply cancellations_name_exact_pending_tickets in Pending as [Same Pending].
+   subst owner; exists entry; now split.
+ - intros [entry [Present Pending]]; exists (id,entry); split; [exact Present|].
+   apply cancellations_name_exact_pending_tickets; now split.
+Qed.
+
+Theorem live_reconfiguration_cancels_exactly_the_retired_requests : forall value id ticket,
+ In (K.MaintainContext (Cancel id ticket)) (K.decision_effects (A.reconfigure value)) <->
+ exists entry, In (id,entry) (maintenance_entries (A.registry value)) /\
+   (A.measurement_ticket (entry_measurement entry) = Some ticket \/
+    A.job_ticket (entry_job entry) = Some ticket).
+Proof.
+ intros; cbn [A.reconfigure A.acknowledged K.accept K.decision_effects].
+ rewrite <- registry_cancellations_name_exact_pending_tickets.
+ split.
+ - intros Present; apply in_map_iff in Present as [request [Same Present]].
+   inversion Same; subst request; exact Present.
+ - apply in_map.
+Qed.
+
+Theorem live_reconfiguration_uses_the_existing_recovery_state : forall value,
+ K.decision_world (A.reconfigure value) = A.recover value.
+Proof. reflexivity. Qed.
+
+Lemma recovered_entries_retain_no_pending_ticket : forall entry,
+ A.measurement_ticket (entry_measurement (A.recover_entry entry)) = None /\
+ A.job_ticket (entry_job (A.recover_entry entry)) = None.
+Proof.
+ intros; unfold A.recover_entry, A.with_observation, A.with_measurement, A.with_job, set; cbn.
+ split; [reflexivity|]. unfold A.resume, A.job_ticket.
+ destruct (entry_job entry); reflexivity.
+Qed.
+
+Lemma live_reconfiguration_recovers_the_selected_task : forall value id task,
+ K.find_task id value = Some task ->
+ K.find_task id (K.decision_world (A.reconfigure value)) =
+ Some (A.recover_context_task (A.registry value) id task).
+Proof.
+ intros value id task Found; rewrite live_reconfiguration_uses_the_existing_recovery_state.
+ unfold A.recover; rewrite storing_maintenance_preserves_tasks.
+ unfold A.recover_context_tasks, K.find_task, K.with_tasks, set; cbn.
+ replace id with (0 + id) at 2 by reflexivity.
+ apply registry_lookup_at_numbered_map; exact Found.
+Qed.
+
+Theorem live_reconfiguration_retains_the_saved_inference_demand :
+ forall value id task ticket revision purpose resume_model,
+ K.find_task id value = Some task ->
+ entry_job (A.current_entry id (A.registry value)) = AwaitingContext ticket purpose resume_model ->
+ task_activity task = ObservingContext ticket revision ->
+ K.find_task id (K.decision_world (A.reconfigure value)) =
+ Some (with_activity (if resume_model then WantsModel else Idle) task).
+Proof.
+ intros; rewrite (live_reconfiguration_recovers_the_selected_task value id task H).
+ unfold A.recover_context_task; now rewrite H0, H1, N.eqb_refl.
+Qed.
+
+Theorem live_reconfiguration_preserves_an_unrelated_context_receiver :
+ forall value id task ticket revision,
+ K.find_task id value = Some task ->
+ task_activity task = ObservingContext ticket revision ->
+ (forall purpose demand,
+   entry_job (A.current_entry id (A.registry value)) <> AwaitingContext ticket purpose demand) ->
+ K.find_task id (K.decision_world (A.reconfigure value)) = Some task.
+Proof.
+ intros value id task ticket revision Found Phase Unrelated.
+ rewrite (live_reconfiguration_recovers_the_selected_task value id task Found).
+ unfold A.recover_context_task; rewrite Phase.
+ destruct (entry_job (A.current_entry id (A.registry value))) as
+   [|waiting|expected purpose demand|input resumed|expected input resumed stage|
+    expected input resumed progress scope|expected input resumed candidate preview stage] eqn:Job;
+   try reflexivity.
+ destruct (N.eqb expected ticket) eqn:Same; [|reflexivity].
+ apply N.eqb_eq in Same; subst expected; exfalso; apply (Unrelated purpose demand); reflexivity.
 Qed.
 
 Theorem manual_compaction_waits_without_resource_io : forall id task value entry,

@@ -170,18 +170,23 @@ function tokenCredential(tokens, metadata, clientId, { previous, subject, audio 
     now, now_date: dateObservation(now, true) });
 }
 
-async function resolveCredential(profile, home, { signal, rejectedToken, audio = false } = {}) {
+async function resolveCredential(profile, home, { signal, rejectedToken, requestCredential, audio = false } = {}) {
   const filename = path.resolve(home, profile.auth_file);
   return locked(filename, async () => {
     const current = validateCredential(await readRecord(filename), audio);
     boundary('account.issuer_admission', { profile, home, value: current, issuer: profile.issuer });
     const registered = audio ? { client_id: contract.audio.client_id, subject: current.subject }
       : registration(await readRecord(`${filename}.registration.json`), profile.issuer);
-    boundary('account.refresh_registration', { profile, home, value: current, registered, rejectedToken });
-    const staleNow = Date.now();
-    const source = { profile, home, ...credentialObservations(current, audio), registered, issuer: profile.issuer,
-      staleNow, threshold: dateObservation(staleNow + 300_000, true),
+    const binding = { profile, home, value: current, registered,
+      ...(requestCredential === undefined ? {} : { requestCredential }),
       ...(rejectedToken === undefined ? {} : { rejectedToken }) };
+    // DEFENSE: A sign-in can replace the account while an earlier HTTP request
+    // is awaiting its 401. Admit its captured identity before reusing or
+    // refreshing the newly read credential.
+    boundary('account.refresh_registration', binding);
+    const staleNow = Date.now();
+    const source = { ...binding, ...credentialObservations(current, audio), issuer: profile.issuer,
+      staleNow, threshold: dateObservation(staleNow + 300_000, true) };
     const initial = boundary('account.refresh_initial', source);
     if (initial === 'keep') return current;
     if (initial === 'earliest') {
@@ -202,8 +207,10 @@ function authorizationView(credential, connection, home, audio = false) {
   return Object.freeze({
     ...view, headers: Object.freeze(view.headers),
     async refreshAfterRejection({ signal } = {}) {
-      // Keep the rejected token private so concurrent refreshes can reuse a newer credential.
-      const next = await resolveCredential(connection, home, { signal, rejectedToken: credential.access_token, audio });
+      // Reuse a concurrent token rotation only for this request's principal.
+      const next = await resolveCredential(connection, home, {
+        signal, rejectedToken: credential.access_token, requestCredential: credential, audio,
+      });
       return authorizationView(next, connection, home, audio);
     },
   });

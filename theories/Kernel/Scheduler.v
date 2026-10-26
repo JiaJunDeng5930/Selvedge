@@ -274,19 +274,49 @@ Fixpoint find_step (execute : executor) (permitted : N -> world -> bool) (id : N
  | Some step => match interpret_step execute id task value step with
    | Some decision => Some decision | None => find_step execute permitted (N.succ id) rest value end
  | None => find_step execute permitted (N.succ id) rest value end end.
-Fixpoint schedule (fuel : nat) (execute : executor) (permitted : N -> world -> bool) (value : world) (effects : list effect) : world * list effect :=
- let value := SideContext.reconcile value in
+Definition has_runnable_work (permitted : N -> world -> bool) (value : world) :=
+ existsb (fun entry => let '(id,task) := entry in
+   match next_runnable_step permitted id task value with Some _ => true | None => false end)
+   (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)).
+Definition continue_runnable (permitted : N -> world -> bool) (value : world) (effects : list effect) :=
+ if has_runnable_work permitted value then effects ++ [ContinueScheduling] else effects.
+Definition frozen_inference (request : effect) := match request with
+ | RequestModel _ | RequestReasoning _ _ _ => true | _ => false end.
+(* A frozen model/evaluator request is committed before another native command
+   can change its input. Replacing its history here would reuse a measurement
+   or adaptive selection that did not observe that input. The durable
+   continuation runs the remaining work in the next ordinary transaction. *)
+Definition advancement := world -> list effect -> option (world * list effect).
+Definition unrestricted : advancement := fun value effects => Some (value,effects).
+(* Admission observes each proposed prefix before another step may depend on it.
+   A refused next step stays runnable in the retained prefix; the durable
+   continuation therefore advances a batch without discarding earlier work. *)
+Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
+ (permitted : N -> world -> bool) (value : world) (effects : list effect) : world * list effect :=
+ if existsb frozen_inference effects then (value,continue_runnable permitted value effects) else
+ match advance (SideContext.reconcile value) effects with
+ | None => (value,effects ++ [ContinueScheduling])
+ | Some (value,effects) =>
  match fuel with
- | O => (value,if existsb (fun entry => let '(id,task) := entry in match next_runnable_step permitted id task value with Some _ => true | None => false end) (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (world_tasks value)) then effects ++ [ContinueScheduling] else effects)
+ | O => (value,continue_runnable permitted value effects)
  | S fuel => match first_native_fork permitted 0 (world_tasks value) value with
    | Some _ => (value,effects ++ [ContinueScheduling])
    | None => match find_step execute permitted 0 (world_tasks value) value with
      | None => (value,effects)
-     | Some decision => schedule fuel execute permitted (decision_world decision) (effects ++ decision_effects decision)
+     | Some decision =>
+       match advance (decision_world decision) (effects ++ decision_effects decision) with
+       | None => (value,effects ++ [ContinueScheduling])
+       | Some (next,emitted) => schedule_with advance fuel execute permitted next emitted
+       end
      end
    end
- end.
-Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
- let '(value,effects) := schedule Limits.schedule_steps execute permitted (decision_world decision) (decision_effects decision) in
+ end end.
+Definition schedule := schedule_with unrestricted.
+Definition run_with (advance : advancement) (execute : executor)
+ (permitted : N -> world -> bool) (decision : decision) :=
+ let '(value,effects) := schedule_with advance Limits.schedule_steps execute permitted
+   (decision_world decision) (decision_effects decision) in
  let '(value,effects) := Dispatch.prepare value effects in
  Decision value (decision_reply decision) effects.
+Definition run (execute : executor) (permitted : N -> world -> bool) (decision : decision) :=
+ run_with unrestricted execute permitted decision.

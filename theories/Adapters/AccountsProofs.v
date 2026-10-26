@@ -43,7 +43,50 @@ Theorem public_refresh_rejects_another_registered_client : forall source,
   same (get (get source "registered") "client_id") (get (get source "value") "client_id") = false ->
   Api.call "account.refresh_registration" source = err identity_failure.
 Proof. intros source different;change (refresh_registration source = err identity_failure).
- unfold refresh_registration,same_registration;now rewrite different. Qed.
+ unfold refresh_registration,refresh_admission,same_registration;now rewrite different. Qed.
+Theorem public_refresh_cannot_replace_the_request_identity : forall source,
+  same_registration source = true ->
+  has source "requestCredential" = true ->
+  same_request_identity (get source "requestCredential") (get source "value") = false ->
+  Api.call "account.refresh_registration" source = err request_identity_failure /\
+  Api.call "account.refresh_initial" source = err request_identity_failure.
+Proof.
+ intros source registered bound different;split;
+ [change (refresh_registration source = err request_identity_failure)
+ |change (refresh_initial source = err request_identity_failure)];
+ unfold refresh_registration,refresh_initial,refresh_admission,request_identity_retained;
+ now rewrite registered,bound,different.
+Qed.
+Theorem public_refresh_keeps_the_same_request_identity : forall source,
+  same_registration source = true ->
+  same_request_identity (get source "requestCredential") (get source "value") = true ->
+  Api.call "account.refresh_registration" source = success JNull /\
+  Api.call "account.refresh_initial" source =
+    success (JString (refresh_action_name (initial_action source))).
+Proof.
+ intros source registered retained;split;
+ [change (refresh_registration source = success JNull)
+ |change (refresh_initial source = success (JString (refresh_action_name (initial_action source))))];
+ unfold refresh_registration,refresh_initial,refresh_admission,request_identity_retained;
+ rewrite registered,retained,orb_true_r;reflexivity.
+Qed.
+Theorem public_refresh_identity_binds_each_principal_field : forall source,
+  has source "requestCredential" = true ->
+  Api.call "account.refresh_registration" source = success JNull ->
+  forall field, In field ["issuer";"client_id";"subject";"account_id"] ->
+    same (get (get source "requestCredential") field) (get (get source "value") field) = true.
+Proof.
+ intros source bound accepted field member.
+ change (refresh_registration source = success JNull) in accepted.
+ unfold refresh_registration,refresh_admission in accepted.
+ destruct (same_registration source);try discriminate.
+ unfold request_identity_retained in accepted;rewrite bound in accepted.
+ change ((if same_request_identity (get source "requestCredential") (get source "value")
+   then success JNull else err request_identity_failure) = success JNull) in accepted.
+ destruct (same_request_identity (get source "requestCredential") (get source "value")) eqn:retained;
+   try discriminate.
+ unfold same_request_identity in retained;rewrite forallb_forall in retained;now apply retained.
+Qed.
 Theorem public_issuer_is_checked_before_refresh : forall source,
   same (get (get source "value") "issuer") (get source "issuer") = false ->
   Api.call "account.refresh" source = err "ChatGPT credential belongs to a different issuer; sign in again".

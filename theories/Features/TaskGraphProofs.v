@@ -346,10 +346,55 @@ Proof.
  unfold TaskGraph.store. reflexivity.
 Qed.
 
+(** A handoff uses the public input gate. A failed workspace is a rejected
+    delivery, recorded in the graph without changing the recipient or causing
+    unrelated scheduling effects. *)
+Theorem failed_workspace_delivery_records_rejection : forall source item result,
+ Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=false ->
+ TaskGraph.send_delivery source item result =
+ Decision
+   (TaskGraph.record_receipt (TaskGraph.delivery_graph item)
+     (F.GraphReceipt source (TaskGraph.delivery_rule item) (TaskGraph.delivery_target item)
+       (decision_reply (Worktree.failed_execution (decision_world result))))
+     (decision_world result))
+   (decision_reply result) (decision_effects result).
+Proof.
+ intros source item result unavailable.
+ unfold TaskGraph.send_delivery, Worktree.execution_guard. rewrite unavailable.
+ cbn [Worktree.failed_execution reject decision_world decision_reply decision_effects].
+ now rewrite app_nil_r.
+Qed.
+
+Theorem failed_workspace_delivery_preserves_every_task : forall source item result,
+ Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=false ->
+ world_tasks (decision_world (TaskGraph.send_delivery source item result)) =
+ world_tasks (decision_world result).
+Proof.
+ intros source item result unavailable.
+ rewrite failed_workspace_delivery_records_rejection by exact unavailable.
+ cbn [decision_world]. apply recording_receipt_preserves_tasks.
+Qed.
+
+Theorem available_workspace_delivery_records_the_ordinary_send_result : forall source item result,
+ Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=true ->
+ let sent := Tasks.send (TaskGraph.delivery_target item)
+   [TextPart (TaskGraph.delivery_text item)] (decision_world result) in
+ TaskGraph.send_delivery source item result =
+ Decision
+   (TaskGraph.record_receipt (TaskGraph.delivery_graph item)
+     (F.GraphReceipt source (TaskGraph.delivery_rule item) (TaskGraph.delivery_target item)
+       (decision_reply sent)) (decision_world sent))
+   (decision_reply result) (decision_effects result ++ decision_effects sent).
+Proof.
+ intros source item result available.
+ unfold TaskGraph.send_delivery, Worktree.execution_guard. now rewrite available.
+Qed.
+
 (** The actual dispatcher writes the delivered text through the ordinary Task
     input operation. This is a state-update guarantee; it makes no assumption
     about an external model eventually producing a reply. *)
 Theorem actual_delivery_reaches_idle_task : forall source item result task,
+ Worktree.execution_allowed (TaskGraph.delivery_target item) (decision_world result)=true ->
  K.find_task (TaskGraph.delivery_target item) (decision_world result)=Some task ->
  task_lifecycle task=Running Idle [] ->
  content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->
@@ -360,8 +405,9 @@ Theorem actual_delivery_reaches_idle_task : forall source item result task,
    map UserMessage (task_queued task ++ [[TextPart (TaskGraph.delivery_text item)]]) /\
  task_lifecycle received=Running WantsModel [].
 Proof.
- intros source item result task found idle nonempty.
- unfold TaskGraph.send_delivery. rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
+ intros source item result task available found idle nonempty.
+ unfold TaskGraph.send_delivery, Worktree.execution_guard. rewrite available.
+ rewrite TaskChangesProofs.send_expression. cbv beta zeta. rewrite found, idle, nonempty.
  cbn [decision_world].
  assert (tasks_same : forall id graph receipt value,
    K.find_task id (TaskGraph.record_receipt graph receipt value)=K.find_task id value).
@@ -370,6 +416,27 @@ Proof.
  exists (Tasks.receive [TextPart (TaskGraph.delivery_text item)] task).
  split; [now apply find_put_task with task|].
  rewrite TaskChangesProofs.receive_expression, idle. split; reflexivity.
+Qed.
+
+(** Preparation is different from failure: a live binding can accept its next
+    input while the resource gate delays actual execution. *)
+Theorem actual_delivery_to_preparing_workspace_reaches_idle_task :
+ forall source item result task tree retiring,
+ WorkspaceBinding.for_task (TaskGraph.delivery_target item) (decision_world result)=Some tree ->
+ F.worktree_phase tree=F.TreeCreating retiring ->
+ K.find_task (TaskGraph.delivery_target item) (decision_world result)=Some task ->
+ task_lifecycle task=Running Idle [] ->
+ content_nonempty [TextPart (TaskGraph.delivery_text item)]=true ->
+ exists received,
+ K.find_task (TaskGraph.delivery_target item)
+   (decision_world (TaskGraph.send_delivery source item result))=Some received /\
+ task_history received=task_history task ++
+   map UserMessage (task_queued task ++ [[TextPart (TaskGraph.delivery_text item)]]) /\
+ task_lifecycle received=Running WantsModel [].
+Proof.
+ intros source item result task tree retiring bound preparing found idle nonempty.
+ apply (actual_delivery_reaches_idle_task source item result task); try assumption.
+ unfold Worktree.execution_allowed. now rewrite bound, preparing.
 Qed.
 
 Lemma removed_graph_owner_is_absent : forall id bindings,

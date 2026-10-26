@@ -374,7 +374,13 @@ Theorem side_context_rebasing_recaptures_its_updated_history : forall id ticket 
  Dispatch.capture_request (ObserveContext id ticket original) value =
  (put_task id (Reasoning.capture ticket current) value,
   ObserveContext id ticket (with_history (task_history current) original)).
-Proof. intros; unfold Dispatch.capture_request; now rewrite H, H0, N.eqb_refl. Qed.
+Proof.
+ intros id ticket original value current revision Selected Phase.
+ unfold Dispatch.side_task in Selected.
+ destruct (find_task id value) as [task|] eqn:Found; [|discriminate].
+ destruct (task_side_parent task); inversion Selected; subst task.
+ unfold Dispatch.capture_request; now rewrite Found, Phase, N.eqb_refl.
+Qed.
 
 
 Theorem captured_context_revisions_satisfy_the_actual_phase_contract : forall ticket task,

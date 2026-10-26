@@ -46,6 +46,8 @@ Definition measurement_ticket (value : measurement) := match value with Measurin
 Definition cancellations (id : N) (entry : entry) :=
  ((match measurement_ticket (entry_measurement entry) with Some ticket => [Cancel id ticket] | None => [] end) ++
  (match job_ticket (entry_job entry) with Some ticket => [Cancel id ticket] | None => [] end))%list.
+Definition pending_cancellations (state : Selvedge.Features.CompactionTypes.state) :=
+ flat_map (fun pair => cancellations (fst pair) (snd pair)) (maintenance_entries state).
 Definition must_wait (policy : policy) (tokens : N) (budget : token_budget) :=
  (policy_enabled policy && (window_tokens budget * policy_blocking policy <=? tokens * 100)) ||
  negb (tokens + reserve_tokens budget <=? window_tokens budget).
@@ -293,10 +295,9 @@ Definition resolve (completion : completion) (value : Selvedge.Kernel.State.worl
  match completion with
  | Configure policy now =>
    let before := registry value in
-   let effects := flat_map (fun pair => cancellations (fst pair) (snd pair)) (maintenance_entries before) in
    Some (acknowledged true (store (MaintenanceState policy (map (fun pair => (fst pair, recover_entry (snd pair)))
        (maintenance_entries before)) (N.max now (maintenance_now before)) 0) (recover_context_tasks before value))
-     (map Selvedge.Kernel.State.MaintainContext effects))
+     (map Selvedge.Kernel.State.MaintainContext (pending_cancellations before)))
  | Clock now => Some (acknowledged true (store (set maintenance_timer (fun _ => 0) (with_now now (registry value))) value) [])
  | Activity id _ _ _ | MeasuredInput id _ _ | Completed id _ _ _ => resolve_task_completion id completion value end.
 
@@ -461,15 +462,25 @@ Definition arm_clock (result : Selvedge.Kernel.State.decision) :=
   0 (maintenance_entries state) else 0 in
  if N.eqb deadline 0 || N.eqb deadline (maintenance_timer state) then result
  else combine result (acknowledged true (store (set maintenance_timer (fun _ => deadline) state) value) [Selvedge.Kernel.State.MaintainContext (ArmClock deadline)]).
+Definition synchronize_all (result : Selvedge.Kernel.State.decision) :=
+ let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks (Selvedge.Kernel.State.decision_world result))) in
+ arm_clock (fold_left (fun result id => synchronize_task id result) identities result).
 Definition after_transition (before : Selvedge.Kernel.State.world) (result : Selvedge.Kernel.State.decision) :=
  let identities := map fst (Selvedge.Foundation.Registry.indexed (fun id task => (id,task)) 0 (Selvedge.Kernel.State.world_tasks (Selvedge.Kernel.State.decision_world result))) in
  let result := fold_left (fun result id => observe_manual before id result) identities result in
- arm_clock (fold_left (fun result id => synchronize_task id result) identities result).
+ synchronize_all result.
 Definition recover (value : Selvedge.Kernel.State.world) :=
  let state := registry value in
  store (MaintenanceState (maintenance_policy state)
   (map (fun pair => (fst pair, recover_entry (snd pair))) (maintenance_entries state)) (maintenance_now state) 0)
    (recover_context_tasks state value).
+(* A live catalog change has physical requests to retire. Their exact tickets
+   must be collected before recovery clears the corresponding receivers. A
+   process restart still uses [recover], since the new process has no running
+   handles for its old requests. Recovery does not confirm remote cancellation. *)
+Definition reconfigure (value : Selvedge.Kernel.State.world) :=
+ acknowledged true (recover value)
+   (map Selvedge.Kernel.State.MaintainContext (pending_cancellations (registry value))).
 Definition checkpoint_entry (history : list message) (entry : entry) :=
  set entry_useful (fun _ => useful history) (set entry_maintained (N.max (useful history))
   (set entry_attempted (N.max (useful history)) (set entry_cache_deadline (fun _ => 0)

@@ -9,6 +9,14 @@ Import ListNotations.
 Open Scope string_scope.
 Module G := Selvedge.Generated.Commands.
 
+Theorem live_configuration_preserves_maintenance_cancellations : forall environment value,
+ Packet.core_transition (Configure environment) value =
+ Decision (Selvedge.Features.Compaction.recover (with_environment environment value))
+   (success (JObject [("configured",JBool true)]))
+   (map MaintainContext (Selvedge.Features.Compaction.pending_cancellations
+     (Selvedge.Features.Compaction.registry value))).
+Proof. reflexivity. Qed.
+
 Lemma admit_is_validation_pipeline : forall durable source raw_source before candidate,
  Packet.admit durable source raw_source before candidate =
  Delivery.deliver durable
@@ -104,6 +112,7 @@ Proof.
    rewrite (a_query_is_not_a_deferred_transaction source command reply value Decoded Query).
    fold (Packet.transition source value).
    rewrite (accepted_query_never_runs_the_scheduler source command reply value Decoded Query).
+   cbn [Packet.prepare].
    unfold Packet.admit_with_status, DeferredCommit.admit_with_status, Dispatch.retain_live_effects.
    cbn [decision_world K.decision_world K.decision_reply K.decision_effects filter].
    unfold WorldInvariant.validate_with_status; cbn [decision_world].
@@ -156,8 +165,7 @@ Proof.
  { apply DeferredCommitProofs.packet_preserves_world_validity; exact Before. }
  fold (Packet.transition source before).
    destruct (Packet.transition source before) as [[[durable schedules] input] result].
- set (prepared := if schedules then Selvedge.Features.Runtime.finish
-   (Scheduler.run Packet.execute_command Selvedge.Features.Runtime.can_schedule_task result) else result).
+ set (prepared := Packet.prepare schedules input result).
  destruct (Packet.admit_with_status durable input source before prepared) as [accepted committed] eqn:Outcome.
  pose proof (actual_commit_admission_preserves_world_requirements durable input source before prepared Before) as Valid.
  rewrite (admit_result_is_the_selected_outcome durable input source before prepared accepted committed Outcome) in Valid.
@@ -254,9 +262,7 @@ Proof.
      exists true, admitted, (Some input), committed; auto. }
    fold (Packet.transition source before).
    destruct (Packet.transition source before) as [[[durable schedules] input] candidate].
-   set (prepared := if schedules then Selvedge.Features.Runtime.finish
-     (Scheduler.run Packet.execute_command Selvedge.Features.Runtime.can_schedule_task candidate)
-     else candidate).
+   set (prepared := Packet.prepare schedules input candidate).
    destruct (Packet.admit_with_status durable input source before prepared) as [accepted committed] eqn:Outcome.
    pose proof (actual_admission_binds_every_inference_to_its_exact_history
      durable input source before prepared) as Bound.

@@ -99,8 +99,9 @@ Qed.
 
 Theorem a_yielded_native_fork_keeps_the_world_and_prior_effects :
  forall fuel execute permitted before effects step,
+ existsb Scheduler.frozen_inference effects = false ->
  Scheduler.first_native_fork permitted 0
    (world_tasks (SideContext.reconcile before)) (SideContext.reconcile before) = Some step ->
  Scheduler.schedule (S fuel) execute permitted before effects =
    (SideContext.reconcile before,effects ++ [ContinueScheduling]).
-Proof. intros; cbn [Scheduler.schedule]; rewrite H; reflexivity. Qed.
+Proof. intros; cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted]; rewrite H, H0; reflexivity. Qed.

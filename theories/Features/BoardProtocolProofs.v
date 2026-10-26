@@ -108,6 +108,7 @@ Proof.
    rewrite (PacketProofs.a_nondurable_transition_is_not_a_public_creation source value result transition).
    rewrite (PacketProofs.a_nondurable_transition_is_not_a_deferred_transaction source value result transition).
    rewrite transition. cbn beta iota zeta.
+   cbn [Packet.prepare].
    assert (retained : Dispatch.retain_live_effects result=result).
    { destruct result as [world reply effects]. cbn in no_effects.
      subst effects. reflexivity. }

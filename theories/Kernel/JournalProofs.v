@@ -59,8 +59,7 @@ Proof.
      - left; exact Retained.
      - right; exists (Some input); exact Evolved. }
    destruct (Packet.transition source before) as [[[durable schedules] input] candidate] eqn:Transition.
-   set (prepared := if schedules then Runtime.finish
-     (Scheduler.run Packet.execute_command Runtime.can_schedule_task candidate) else candidate).
+   set (prepared := Packet.prepare schedules input candidate).
    destruct (Packet.admit_with_status durable input source before prepared) as [accepted admitted] eqn:Outcome.
    pose proof (PacketProofs.actual_commit_admission_satisfies_global_transition_or_rollback
      durable input source before prepared) as Admission.

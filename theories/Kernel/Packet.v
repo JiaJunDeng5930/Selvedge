@@ -5,7 +5,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs InputDecod
  Callbacks HookCallbacks Scheduler Recovery Observation Notifications Delivery Limits WorldInvariant.
 From Selvedge.Kernel Require Import CommitAdmission CommandHandlers ForkCommit.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit TerminalSettlement DeferredCommit
- BoardCommit ConnectionCommit CompactionCommit TitleCommit.
+ BoardCommit ConnectionCommit CompactionCommit TitleCommit RequestDelivery.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -46,8 +46,9 @@ Definition execute_command (command : Selvedge.Generated.Commands.command) (cont
 Definition core_transition (source : Inputs.input) (value : world) :=
  match source with
  | UserCommand command => execute_command command None value
- | Configure environment => accept (JObject [("configured",JBool true)])
-   (Selvedge.Features.Runtime.reconfigure (with_environment environment value)) []
+ | Configure environment =>
+   let result := Selvedge.Features.Runtime.reconfigure (with_environment environment value) in
+   Decision (decision_world result) (success (JObject [("configured",JBool true)])) (decision_effects result)
  | ContextCompleted id ticket observations diagnostic => Selvedge.Features.Runtime.after_transition value
    (Callbacks.context_completed id ticket observations diagnostic value)
  | ModelCompleted id ticket outcome => Selvedge.Features.Runtime.after_transition value (Callbacks.model_completed id ticket outcome value)
@@ -76,6 +77,15 @@ Definition transition_decoded (decoded : option Inputs.input) (source : json) (v
  end.
 Definition transition (source : json) (value : world) :=
  transition_decoded (InputDecoder.decode source) source value.
+Definition callback_input (source : option Inputs.input) :=
+ match source with
+ | Some (UserCommand _) | Some (Configure _) | Some Recover | Some Continue => false
+ | _ => true end.
+Definition prepare (schedules : bool) (source : option Inputs.input) (result : decision) :=
+ if schedules then
+   if callback_input source then RequestDelivery.defer result
+   else RequestDelivery.run execute_command Selvedge.Features.Runtime.can_schedule_task result
+ else result.
 Definition admit_with_status := DeferredCommit.admit_with_status.
 Definition admit (durable : bool) (source : option Inputs.input) (raw_source : json)
  (before : world) (result : decision) := snd (admit_with_status durable source raw_source before result).
@@ -117,7 +127,7 @@ Definition packet_admitted (source : json) (admission : InputDecoder.admitted_in
  | Some (input,candidate) => DeferredCommit.packet (Some input) source value candidate
  | None =>
  let '(durable,schedules,input,result) := transition_decoded decoded source value in
- let result := if schedules then Selvedge.Features.Runtime.finish (Scheduler.run execute_command Selvedge.Features.Runtime.can_schedule_task result) else result in
+ let result := prepare schedules input result in
  let '(admitted,result) := admit_with_status durable input source value result in
  let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
    else decision_world result in

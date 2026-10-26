@@ -53,14 +53,101 @@ Proof.
 Qed.
 
 Theorem exhausted_schedule_requests_another_step : forall execute permitted value effects,
+ existsb Scheduler.frozen_inference effects = false ->
  existsb (fun entry => let '(id, task) := entry in
    match Scheduler.next_runnable_step permitted id task (SideContext.reconcile value) with Some _ => true | None => false end)
    (Selvedge.Foundation.Registry.indexed (fun id task => (id, task)) 0 (world_tasks (SideContext.reconcile value))) = true ->
  Scheduler.schedule 0 execute permitted value effects =
    (SideContext.reconcile value, effects ++ [ContinueScheduling]).
 Proof.
- intros execute permitted value effects Work.
- unfold Scheduler.schedule; rewrite Work; reflexivity.
+ intros execute permitted value effects Unfrozen Work.
+ cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted]; rewrite Unfrozen.
+ unfold Scheduler.continue_runnable, Scheduler.has_runnable_work; rewrite Work; reflexivity.
+Qed.
+
+(** Model and evaluator selection are commit boundaries, not a callback that
+    can be followed by more mutations in the same transaction. This statement
+    constrains the scheduler used by Packet, for arbitrary other runnable work. *)
+Theorem frozen_inference_keeps_the_exact_world_and_existing_effects :
+ forall advance fuel execute permitted value effects,
+ existsb Scheduler.frozen_inference effects = true ->
+ Scheduler.schedule_with advance fuel execute permitted value effects =
+   (value,Scheduler.continue_runnable permitted value effects).
+Proof.
+ intros advance fuel execute permitted value effects Frozen.
+ destruct fuel; cbn [Scheduler.schedule_with]; now rewrite Frozen.
+Qed.
+
+Theorem a_pending_model_request_commits_before_further_scheduler_changes :
+ forall advance fuel execute permitted value effects request,
+ In (RequestModel request) effects ->
+ fst (Scheduler.schedule_with advance fuel execute permitted value effects) = value /\
+ In (RequestModel request) (snd (Scheduler.schedule_with advance fuel execute permitted value effects)).
+Proof.
+ intros advance fuel execute permitted value effects request Present.
+ assert (Frozen : existsb Scheduler.frozen_inference effects = true).
+ { apply existsb_exists; exists (RequestModel request); split; [exact Present|reflexivity]. }
+ rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
+ cbn; split; [reflexivity|].
+ unfold Scheduler.continue_runnable; destruct (Scheduler.has_runnable_work permitted value);
+   [apply in_or_app; left; exact Present|exact Present].
+Qed.
+
+Theorem a_pending_evaluator_request_commits_before_further_scheduler_changes :
+ forall advance fuel execute permitted value effects owner ticket snapshot,
+ In (RequestReasoning owner ticket snapshot) effects ->
+ fst (Scheduler.schedule_with advance fuel execute permitted value effects) = value /\
+ In (RequestReasoning owner ticket snapshot)
+   (snd (Scheduler.schedule_with advance fuel execute permitted value effects)).
+Proof.
+ intros advance fuel execute permitted value effects owner ticket snapshot Present.
+ assert (Frozen : existsb Scheduler.frozen_inference effects = true).
+ { apply existsb_exists; exists (RequestReasoning owner ticket snapshot); split; [exact Present|reflexivity]. }
+ rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
+ cbn; split; [reflexivity|].
+ unfold Scheduler.continue_runnable; destruct (Scheduler.has_runnable_work permitted value);
+   [apply in_or_app; left; exact Present|exact Present].
+Qed.
+
+Theorem a_frozen_inference_preserves_the_continuation_for_other_work :
+ forall advance fuel execute permitted value effects,
+ existsb Scheduler.frozen_inference effects = true ->
+ Scheduler.has_runnable_work permitted value = true ->
+ Scheduler.schedule_with advance fuel execute permitted value effects = (value,effects ++ [ContinueScheduling]).
+Proof.
+ intros advance fuel execute permitted value effects Frozen Pending.
+ rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
+ unfold Scheduler.continue_runnable; now rewrite Pending.
+Qed.
+
+Theorem an_admitted_frozen_request_uses_the_dispatch_commit_boundary :
+ forall advance execute permitted current,
+ existsb Scheduler.frozen_inference (decision_effects current) = true ->
+ Scheduler.run_with advance execute permitted current =
+ let '(value,effects) := Dispatch.prepare (decision_world current)
+   (Scheduler.continue_runnable permitted (decision_world current) (decision_effects current)) in
+ Decision value (decision_reply current) effects.
+Proof.
+ intros advance execute permitted current Frozen.
+ unfold Scheduler.run_with.
+ rewrite frozen_inference_keeps_the_exact_world_and_existing_effects by exact Frozen.
+ reflexivity.
+Qed.
+
+Theorem a_refused_scheduler_step_keeps_the_complete_accepted_prefix :
+ forall advance fuel execute permitted value effects accepted prior step,
+ existsb Scheduler.frozen_inference effects = false ->
+ advance (SideContext.reconcile value) effects = Some (accepted,prior) ->
+ Scheduler.first_native_fork permitted 0 (world_tasks accepted) accepted = None ->
+ Scheduler.find_step execute permitted 0 (world_tasks accepted) accepted = Some step ->
+ advance (decision_world step) (prior ++ decision_effects step) = None ->
+ Scheduler.schedule_with advance (S fuel) execute permitted value effects =
+   (accepted,prior ++ [ContinueScheduling]).
+Proof.
+ intros advance fuel execute permitted value effects accepted prior step
+   Unfrozen Prefix NoFork Selected Refused.
+ cbn [Scheduler.schedule_with].
+ now rewrite Unfrozen,Prefix,NoFork,Selected,Refused.
 Qed.
 
 Theorem unfinished_bash_keeps_its_completion_owner_across_inference :
