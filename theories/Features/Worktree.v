@@ -621,6 +621,18 @@ Definition failed_execution (value : world) := Selvedge.Kernel.State.reject "wor
  "Worktree creation failed. Archive this task and create a new task to retry; this task cannot execute in the original workspace." value.
 Definition execution_guard (id : N) (value : world) : option decision :=
  if execution_allowed id value then None else Some (failed_execution value).
+(* Feature commands that compose a Task control use the same resource admission
+   as the public control command, before committing their own state change. *)
+Definition control_guard (action : Tasks.control) (id : N) (value : world) : option decision :=
+ match action with
+ | Tasks.Archive=>if control_allowed action id value then None else
+   Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value)
+ | _=>match execution_guard id value with
+   | Some refused=>Some refused
+   | None=>if control_allowed action id value then None else
+     Some (Selvedge.Kernel.State.reject "worktree_pending"
+       "Wait for worktree creation or archive the task before changing its execution" value)
+   end end.
 Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:option N) (value:world) :option decision :=
  match command with
  | Selvedge.Generated.Commands.Cmd_send p=>
@@ -667,16 +679,7 @@ Definition guard_command (command:Selvedge.Generated.Commands.command) (_caller:
  | Selvedge.Generated.Commands.Cmd_freeze p=>Some (Selvedge.Generated.Commands.freeze_task_id p,Tasks.Freeze) | Selvedge.Generated.Commands.Cmd_unfreeze p=>Some (Selvedge.Generated.Commands.unfreeze_task_id p,Tasks.Unfreeze)
  | Selvedge.Generated.Commands.Cmd_stop p=>Some (Selvedge.Generated.Commands.stop_task_id p,Tasks.Stop) | Selvedge.Generated.Commands.Cmd_interrupt p=>Some (Selvedge.Generated.Commands.interrupt_task_id p,Tasks.Interrupt)
  | Selvedge.Generated.Commands.Cmd_archive p=>Some (Selvedge.Generated.Commands.archive_task_id p,Tasks.Archive) | _=>None end in
- match request with Some (id,action)=>
-   match action with
-   | Tasks.Archive=>if control_allowed action id value then None else
-     Some (Selvedge.Kernel.State.reject "worktree_busy" "The managed worktree is unavailable or still used by another task" value)
-   | _=>match execution_guard id value with
-     | Some refused=>Some refused
-     | None=>if control_allowed action id value then None else
-       Some (Selvedge.Kernel.State.reject "worktree_pending"
-         "Wait for worktree creation or archive the task before changing its execution" value)
-     end end
+ match request with Some (id,action)=>control_guard action id value
  | None=>None end end.
 Definition binding_available (settings:task_settings) (value:world) :=
  match settings_resource settings with

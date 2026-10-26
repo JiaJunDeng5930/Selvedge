@@ -6,7 +6,7 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-11`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-12`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 
@@ -26,6 +26,15 @@ durable continuation, after the old execution rights have been revoked.
 Unsent scope, measurement and compaction requests also use the final shared
 owner/ticket withdrawal rule, including cancellation emitted later in their
 own transaction.
+
+Format 12 applies the shared workspace control admission before archiving a
+card that must interrupt its linked task. If that task's workspace is still
+being prepared, the command returns `worktree_pending` before changing the
+card or task. An already archived linked task keeps its result settlement.
+It also ends a compaction attempt when an already portable summary still
+exceeds the final input or validation transport budget. Native candidates may
+fall back to portable summarization; an oversized portable candidate records
+the ordinary compaction failure and retains the original history.
 
 Format 8 also records restored Bend command result/error contracts, explicit
 empty fork input, the original task-native command surface, and maintenance

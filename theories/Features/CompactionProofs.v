@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Registry RegistryProofs.
+From Selvedge.Foundation Require Import Json JsonObjectsProofs Registry RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs.
@@ -623,4 +623,205 @@ Proof.
  intros id ticket task input purpose progress scope entry value target portable Job Relevant Recovered Target.
  unfold A.compact_result. rewrite Job, N.eqb_refl, Relevant.
  rewrite Recovered, Target. reflexivity.
+Qed.
+
+(** Candidate validation may change representation from native to portable,
+    but cannot start another summary of the same source after portable failure.
+    These contracts cover both actual validation exits, not a retry counter in
+    a separate Host interpreter. *)
+Theorem an_oversized_portable_validation_stops :
+ forall id task input purpose first rest usage preview scope tokens budget entry value,
+ A.relevant input task value = true ->
+ A.same_history preview
+   (ContextSelection.adopt (captured_history input) (PortableArtifact first rest usage) (task_history task)) = true ->
+ (tokens + reserve_tokens budget <=? window_tokens budget) = false ->
+ A.finish_validation id task input purpose (PortableArtifact first rest usage)
+   preview scope tokens budget entry value =
+ A.failed id task entry
+   "The portable summary and retained context exceed the configured model window; original history retained" value.
+Proof.
+ intros id task input purpose first rest usage preview scope tokens budget entry value Relevant Preview Oversized.
+ unfold A.finish_validation; rewrite Relevant; cbn [ContextSelection.consumes].
+ now rewrite Preview, Oversized.
+Qed.
+
+Theorem an_oversized_native_validation_keeps_portable_fallback :
+ forall id task input purpose head tail first rest usage preview scope tokens budget entry value,
+ let candidate := NativeArtifact head tail first rest usage in
+ A.relevant input task value = true -> ContextSelection.consumes candidate scope = true ->
+ A.same_history preview (ContextSelection.adopt (captured_history input) candidate (task_history task)) = true ->
+ ((tokens + reserve_tokens budget <=? window_tokens budget) &&
+   negb (policy_enabled (maintenance_policy (A.registry value)) &&
+     (window_tokens budget * policy_blocking (maintenance_policy (A.registry value)) <=? tokens * 100))) = false ->
+ A.finish_validation id task input purpose candidate preview scope tokens budget entry value =
+ A.force_portable id task scope entry value.
+Proof.
+ intros id task input purpose head tail first rest usage preview scope tokens budget entry value candidate Relevant Consumes Preview Oversized.
+ unfold candidate in *.
+ unfold A.finish_validation; now rewrite Relevant, Consumes, Preview, Oversized.
+Qed.
+
+Theorem an_oversized_portable_validation_frame_stops :
+ forall id task input scope purpose first rest usage preview entry value,
+ let candidate := Some (PortableArtifact first rest usage, preview) in
+ let request := TicketedRequest.Scoped.MeasureRequest input purpose candidate scope entry in
+ (N.of_nat (String.length (TextJson.render_json (CC.effect_json
+   (snd (TicketedRequest.Scoped.maintenance_build id (K.world_next_ticket value) request)))))
+   <=? Limits.frame_bytes / 4) = false ->
+ A.measured_call id task input scope purpose candidate entry value =
+ A.failed id task entry
+   "The portable summary and retained context exceed the validation transport budget; original history retained" value.
+Proof.
+ intros id task input scope purpose first rest usage preview entry value candidate request Oversized.
+ unfold A.measured_call. fold request. now rewrite Oversized.
+Qed.
+
+Theorem an_oversized_measurement_without_a_portable_candidate_can_rebuild :
+ forall id task input scope purpose candidate entry value,
+ (forall first rest usage preview, candidate <> Some (PortableArtifact first rest usage, preview)) ->
+ let request := TicketedRequest.Scoped.MeasureRequest input purpose candidate scope entry in
+ (N.of_nat (String.length (TextJson.render_json (CC.effect_json
+   (snd (TicketedRequest.Scoped.maintenance_build id (K.world_next_ticket value) request)))))
+   <=? Limits.frame_bytes / 4) = false ->
+ A.measured_call id task input scope purpose candidate entry value =
+ A.force_portable id task scope entry value.
+Proof.
+ intros id task input scope purpose candidate entry value NotPortable request Oversized.
+ unfold A.measured_call. fold request. rewrite Oversized.
+ destruct candidate as [[candidate preview]|]; [destruct candidate|]; try reflexivity.
+ exfalso; eapply NotPortable; reflexivity.
+Qed.
+
+Theorem a_portable_source_can_only_finish_with_a_portable_candidate :
+ forall progress result candidate unread,
+ Selvedge.Kernel.Compaction.compaction_source progress = Selvedge.Kernel.Compaction.PortableSource unread ->
+ P.receive_source progress result = P.Compacted candidate ->
+ exists first rest usage, candidate = PortableArtifact first rest usage.
+Proof.
+ intros progress result candidate unread Portable Finished.
+ unfold P.receive_source in Finished; rewrite Portable in Finished.
+ destruct (string_field "summary_text" result) as [[|head tail]|]; try discriminate.
+ destruct (skipn (N.to_nat (Selvedge.Kernel.Compaction.compaction_chunk_chars progress)) unread);
+   try discriminate.
+ inversion Finished; subst candidate. eexists; eexists; eexists; reflexivity.
+Qed.
+
+Lemma the_committed_compaction_entry_is_current : forall id entry value effects,
+ A.current_entry id (A.registry (K.decision_world (A.commit id entry value effects))) = entry.
+Proof.
+ intros. unfold A.commit, A.acknowledged, A.current_entry, A.find_entry,
+   A.registry, A.store, A.with_entry, K.accept, K.with_features,
+   Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
+Qed.
+
+Definition compaction_failure_task (current : task) (reason : string) :=
+ with_activity (match task_activity current with ReadyForModel => Idle | phase => phase end)
+   (set task_history (fun history => (history ++ [FailureMessage ("Context compaction: " ++ reason)])%list) current).
+
+Theorem compaction_failure_preserves_history_and_retires_its_receivers :
+ forall id current entry reason before,
+ K.find_task id before = Some current ->
+ let stopped := compaction_failure_task current reason in
+ let result := A.failed id current entry reason before in
+ let saved := A.current_entry id (A.registry (K.decision_world result)) in
+ K.find_task id (K.decision_world result) = Some stopped /\
+ task_history stopped = (task_history current ++ [FailureMessage ("Context compaction: " ++ reason)])%list /\
+ task_activity stopped = (match task_activity current with ReadyForModel => Idle | phase => phase end) /\
+ entry_job saved = NoJob /\
+ entry_measurement saved = MeasurementFailed (A.capture_task stopped (K.decision_world result)) /\
+ entry_attempted saved = A.useful (task_history stopped) /\
+ entry_cache_deadline saved = 0 /\
+ A.cancellations id saved = [] /\
+ K.decision_effects result = [].
+Proof.
+ intros id current entry reason before Found stopped result saved.
+ assert (Saved : saved =
+   set entry_attempted (fun _ => A.useful (task_history stopped))
+     (set entry_cache_deadline (fun _ => 0)
+       (A.with_job NoJob (A.with_measurement (MeasurementFailed (A.capture_task stopped before)) entry)))).
+ { unfold saved, result, A.failed; apply the_committed_compaction_entry_is_current. }
+ split.
+ - unfold result, A.failed, A.commit, A.acknowledged; cbn -[A.store K.put_task].
+   rewrite storing_maintenance_preserves_tasks; eapply find_put_task; exact Found.
+ - rewrite Saved. repeat split; try reflexivity.
+   + unfold stopped, compaction_failure_task.
+     destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+       destruct lifecycle; reflexivity.
+   + unfold stopped, compaction_failure_task.
+     destruct current as [contract profile settings lifecycle history queued lineage parent cursor consumed];
+       destruct lifecycle; try destruct phase; reflexivity.
+Qed.
+
+Lemma a_failed_capture_is_fresh_for_its_unchanged_input : forall current value,
+ A.fresh (MeasurementFailed (A.capture_task current value)) current value = true.
+Proof.
+ intros. unfold A.fresh, A.same_input, A.same_description,
+   TicketedRequest.Scoped.same_description, A.same_history.
+ cbn [A.capture_task TicketedRequest.Scoped.capture_task captured_history].
+ now rewrite !JsonObjectsProofs.equivalent_is_reflexive.
+Qed.
+
+Lemma synchronizing_a_fresh_terminal_failure_emits_no_requests :
+ forall id current value entry input result,
+ entry = A.synchronized_entry current (A.current_entry id (A.registry value)) (A.registry value) ->
+ entry_job entry = NoJob -> entry_measurement entry = MeasurementFailed input ->
+ entry_cache_deadline entry = 0 -> A.fresh (entry_measurement entry) current value = true ->
+ A.synchronize id current value = Some result -> K.decision_effects result = [].
+Proof.
+ intros id current value entry input result Entry Job Failed Deadline Fresh Outcome.
+ assert (NoCancel : A.cancellations id entry = []).
+ { unfold A.cancellations; rewrite Job, Failed; reflexivity. }
+ assert (NotPending : A.pending_measurement (entry_measurement entry) = false).
+ { rewrite Failed; reflexivity. }
+ assert (NotDue : A.idle_due current entry (A.registry value) = false).
+ { unfold A.idle_due; rewrite Deadline; cbn [N.ltb]; now rewrite !andb_false_r. }
+ unfold A.synchronize in Outcome; cbv beta zeta in Outcome; rewrite <- Entry in Outcome.
+ destruct (negb (A.alive current)).
+ - destruct (A.find_entry id (A.registry value)); inversion Outcome; subst result.
+   cbn [A.cancel A.commit A.acknowledged K.accept K.decision_effects].
+   now rewrite NoCancel.
+ - destruct (negb (TicketedRequest.Scoped.resources_available current value)).
+   + destruct (A.find_entry id (A.registry value));
+       destruct (A.enabled_target current (A.registry value)); inversion Outcome; subst result;
+       cbn [A.wait_for_resource A.commit A.acknowledged K.accept K.decision_effects];
+       now rewrite NoCancel.
+   + destruct (A.running current); [|discriminate].
+     destruct (task_activity current); try discriminate; rewrite Job in Outcome;
+       (destruct (A.enabled_target current (A.registry value));
+        [ rewrite NotPending, NotDue, Fresh in Outcome; inversion Outcome; reflexivity
+        | destruct (A.find_entry id (A.registry value)); inversion Outcome; reflexivity ]).
+Qed.
+
+(** This applies the ordinary post-transition synchronizer to the actual failed
+    decision. Unchanged input cannot acquire another scope, meter or summary
+    ticket; a later user/catalog/history change remains free to start new work. *)
+Theorem a_compaction_failure_is_not_immediately_resubmitted :
+ forall id current entry reason before,
+ K.find_task id before = Some current ->
+ K.decision_effects (A.synchronize_task id (A.failed id current entry reason before)) = [].
+Proof.
+ intros id current entry reason before Found.
+ pose proof (compaction_failure_preserves_history_and_retires_its_receivers
+   id current entry reason before Found) as Contract.
+ cbn zeta in Contract.
+ destruct Contract as [Stored [_ [_ [Job [Measured [_ [Deadline [_ Effects]]]]]]]].
+ set (result := A.failed id current entry reason before) in *.
+ set (stopped := compaction_failure_task current reason) in *.
+ set (saved := A.current_entry id (A.registry (K.decision_world result))) in *.
+ set (next := A.synchronized_entry stopped saved (A.registry (K.decision_world result))).
+ assert (NextState : entry_job next = NoJob /\
+   entry_measurement next = MeasurementFailed (A.capture_task stopped (K.decision_world result)) /\
+   entry_cache_deadline next = 0).
+ { unfold next, A.synchronized_entry.
+   destruct (entry_useful saved <? A.useful (task_history stopped));
+     cbn [set]; repeat split; assumption. }
+ destruct NextState as [NextJob [NextMeasurement NextDeadline]].
+ assert (Fresh : A.fresh (entry_measurement next) stopped (K.decision_world result) = true).
+ { rewrite NextMeasurement; apply a_failed_capture_is_fresh_for_its_unchanged_input. }
+ unfold A.synchronize_task; rewrite Stored.
+ destruct (A.synchronize id stopped (K.decision_world result)) as [following|] eqn:Following;
+   [|exact Effects].
+ cbn [A.combine K.decision_effects]; rewrite Effects; cbn.
+ eapply synchronizing_a_fresh_terminal_failure_emits_no_requests;
+   [reflexivity|exact NextJob|exact NextMeasurement|exact NextDeadline|exact Fresh|exact Following].
 Qed.

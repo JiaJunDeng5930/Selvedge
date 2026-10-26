@@ -134,13 +134,22 @@ Definition force_portable (id : N) (task : task) (scope : string) (entry : entry
    | _ => if ContextSelection.closed_prefix (task_history task) then
        start id task input Blocking (set target_method (fun _ => Summary) target) scope (window_tokens (target_budget target)) entry value
      else commit id (with_job (Resuming input Blocking) entry) value [] end end.
+(* A native candidate can be rebuilt once in portable form. Rebuilding an
+   already portable candidate repeats the same source, including retained
+   images and task context, without making the rejected input smaller. *)
+Definition oversized_candidate (id : N) (task : task) (scope : string)
+ (candidate : option artifact) (entry : entry) (message : string) (value : Selvedge.Kernel.State.world) :=
+ match candidate with
+ | Some (PortableArtifact _ _ _) => failed id task entry message value
+ | _ => force_portable id task scope entry value end.
 Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : option reason)
  (candidate : option (artifact * list message)) (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let request:=TicketedRequest.Scoped.MeasureRequest input purpose candidate scope entry in
  let effect:=snd (TicketedRequest.Scoped.maintenance_build id (world_next_ticket value) request) in
  if N.of_nat (String.length (TextJson.render_json (Selvedge.Features.CompactionCodec.effect_json effect))) <=? Limits.frame_bytes / 4
  then run_request id request value
- else force_portable id task scope entry value.
+ else oversized_candidate id task scope (option_map (@fst artifact (list message)) candidate) entry
+   "The portable summary and retained context exceed the validation transport budget; original history retained" value.
 Definition begin_validation (id : N) (task : task) (input : capture) (purpose : reason) (candidate : artifact)
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
  if relevant input task value then
@@ -171,7 +180,8 @@ Definition finish_validation (id : N) (task : task) (input : capture) (purpose :
    (set entry_attempted (N.max (useful (captured_history input)))
    (with_job NoJob (with_measurement (Measured (capture_task task value) scope tokens budget) entry))) in
  commit id entry (Selvedge.Kernel.State.put_task id task value) []
- else force_portable id task scope entry value
+ else oversized_candidate id task scope (Some candidate) entry
+   "The portable summary and retained context exceed the configured model window; original history retained" value
  else begin_validation id task input purpose candidate entry value
  else commit id (with_job NoJob entry) value [].
 
