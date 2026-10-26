@@ -74,32 +74,21 @@ Definition plan (command : json) : workspace_plan :=
     let selected := graph_selections 0%nat (items (get command "nodes")) in
     WorkspacePlan (Commands.root_task_creation command) false selected
   else WorkspacePlan false false [].
-Definition selection_fields (selection : selection) : fields ModelResultDeclarations.workspace_selection_fields :=
- FCons (field:=Field "value" KJson) selection.(selected_value)
- (FCons (field:=Field "resolve_project" KBool) selection.(resolve_project) FNil).
-Definition selection_json selection := JObject (Schema.encode_fields (selection_fields selection)).
-Definition command_plan_fields (plan : workspace_plan) : fields ModelResultDeclarations.workspace_command_fields :=
- FCons (field:=Field "root_task" KBool) plan.(root_task)
- (FCons (field:=Field "worktree" KBool) plan.(worktree)
- (FCons (field:=Field "selections" (KArray KJson)) (map selection_json plan.(selections)) FNil)).
-Definition plan_json plan := JObject (Schema.encode_fields (command_plan_fields plan)).
-Definition workspace_settings (source : json) :=
-  let value := get source "value" in
-  (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
-  let workspace_supplied := has value "workspace" in
-  (* DEFENSE: Non-null guidance or workspace bindings supplied by a client must not acquire service authority. *)
-  type_admit (is_null (get value "guidance") && is_null (get value "workspace_binding"))
-    (JObject [("project_id",if boolean_field source "resolve_project" && negb workspace_supplied &&
-      bound (get value "project_id") 0 9007199254740991 then get value "project_id" else JNull);
-      ("observe_workspace",JBool workspace_supplied)]) "Root guidance and workspace resources are observed by the service, not supplied by a client".
+Definition selection_json (selection : selection) :=
+ Schema.encode ModelResultDeclarations.workspace_selection_fields
+   (Schema.of_tuple ModelResultDeclarations.workspace_selection_fields
+     [! selection.(selected_value); selection.(resolve_project) !]).
+Definition plan_json (plan : workspace_plan) :=
+ Schema.encode ModelResultDeclarations.workspace_command_fields
+   (Schema.of_tuple ModelResultDeclarations.workspace_command_fields
+     [! plan.(root_task); plan.(worktree); map selection_json plan.(selections) !]).
 Definition workspace_selection_plan (source : json) :=
  let value := get source "value" in
+ (* DEFENSE: An explicitly supplied invalid workspace must not select project defaults. *)
  let project := if boolean_field source "resolve_project" && negb (has value "workspace") &&
    bound (get value "project_id") 0 9007199254740991 then natural (get value "project_id") else None in
- let values : fields ModelResultDeclarations.workspace_settings_fields :=
- FCons (field:=Field "project_id" (KOptional KNatural)) project
- (FCons (field:=Field "observe_workspace" KBool) (has value "workspace") FNil) in
- success (JObject (Schema.encode_fields values)).
+ success (Schema.encode ModelResultDeclarations.workspace_settings_fields
+   (Schema.of_tuple ModelResultDeclarations.workspace_settings_fields [! project; has value "workspace" !])).
 Definition observed_settings (selected observation : json) :=
   let workspace := if has observation "workspace" then set selected "workspace" (get observation "workspace") else selected in
   let selected := if has observation "workspace_binding" then set workspace "workspace_binding" (get observation "workspace_binding") else workspace in
@@ -122,6 +111,7 @@ Definition workspace_command_observed (source : json) :=
   success (fold_left apply_observation (combine (plan command).(selections) (items (get source "observations"))) command).
 
 (* Raw command admission precedes every observation, including cloud and unknown-task paths. *)
+(* DEFENSE: Non-null guidance or workspace bindings supplied by a client must not acquire service authority. *)
 Definition raw_settings_valid (selection : selection) :=
   is_null (get selection.(selected_value) "guidance") &&
   is_null (get selection.(selected_value) "workspace_binding").

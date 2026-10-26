@@ -176,7 +176,10 @@ Definition unions := [("RemoteConnectorSessionState",remote_connector_states);("
 Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
 Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
+Definition http_remote_approval_fields := [Field "request_id" KText;Field "permissions" KJson].
 Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
+Definition http_remote_revoke_fields := [Field "controller_id" KText].
+Definition http_browser_command_fields := [Field "command" KJson].
 Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
  "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe";
  "local_sync_registration";"local_sync_ready";"local_sync_archive";"local_sync_release"].
@@ -193,10 +196,10 @@ Definition records : list (string * schema) := [
  ("DispatchTransition",[Field "state" KJson;Field "effects" (KArray KJson)]);
  ("AudioTransportBegin",[Field "token" KNatural;Field "effect" KJson]);
  ("AudioTransition",[Field "state" KJson;Field "actions" (KArray KJson)]);
- ("HttpRemoteApprovalBody",[Field "request_id" KText;Field "permissions" KJson]);
+ ("HttpRemoteApprovalBody",http_remote_approval_fields);
  ("HttpRemotePermissions",http_permissions_fields);
- ("HttpRemoteRevokeBody",[Field "controller_id" KText]);
- ("HttpBrowserCommandBody",[Field "command" KJson])].
+ ("HttpRemoteRevokeBody",http_remote_revoke_fields);
+ ("HttpBrowserCommandBody",http_browser_command_fields)].
 Definition schema_json := JObject [
  ("leaves",JArray [JObject [("name",JString "HttpReplyStatus");("type",ModelDeclarations.kind_json KNatural);("safe",JBool true)]]);
  ("unions",JArray (map (fun entry => JObject [("name",JString (fst entry));

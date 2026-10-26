@@ -35,22 +35,19 @@ Definition parse_rule source := option_map
    Selvedge.Features.Domain.GraphRule key source (map action_of_fields actions))
  (ArgumentDeclaration.decode TaskGraphDeclarations.rule_declaration source).
 Definition parse_node (source:json) :option Selvedge.Features.Domain.graph_node :=
- match Schema.decode TaskGraphDeclarations.existing_node_fields source with
- | Some values=>Some (Selvedge.Features.Domain.ExistingNode (Schema.head values) (Schema.head (Schema.tail values)))
- | None=>match Schema.decode TaskGraphDeclarations.spawn_node_fields source with
- | Some values=>let profile:=Schema.head (Schema.tail values) in
- let reasoning:=Schema.head (Schema.tail (Schema.tail values)) in
- let message:=Schema.head (Schema.tail (Schema.tail (Schema.tail values))) in
+ match ArgumentDeclaration.decode
+   (TaskGraphDeclarations.node_declaration (ArgumentDeclaration.of_kind KNatural) ArgumentDeclaration.Any) source with
+ | Some (inl (key,(owner,_)))=>Some (Selvedge.Features.Domain.ExistingNode key owner)
+ | Some (inr (inl (key,(profile,(reasoning,(message,(settings,_)))))))=>
  (* A supplied JSON null must still reach ordinary Task settings admission;
     only an omitted settings field supplies the empty settings object. *)
- let settings:=match Schema.head (Schema.tail (Schema.tail (Schema.tail (Schema.tail values)))) with
-   Some value=>value|None=>JObject [] end in
- Some (Selvedge.Features.Domain.SpawnNode (Schema.head values)
+ Some (Selvedge.Features.Domain.SpawnNode key
    (match profile with Some value=>value|None=>"" end)
    (match reasoning with Some value=>value|None=>"default" end)
    [TextPart (match message with Some value=>value|None=>"" end)]
-   settings)
- | None=>None end end.
+   (match settings with Some value=>value|None=>JObject [] end))
+ | Some (inr (inr impossible))=>match impossible with end
+ | None=>None end.
 Definition node_key (node:Selvedge.Features.Domain.graph_node) := match node with Selvedge.Features.Domain.ExistingNode key _|Selvedge.Features.Domain.SpawnNode key _ _ _ _=>key end.
 Definition identifier_nonempty (key:string) := negb (String.eqb key "").
 Definition unique (keys:list string) := forallb identifier_nonempty keys && Schema.unique_names keys.

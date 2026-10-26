@@ -13,9 +13,9 @@ Definition from_fields := D.of_schema.
 Definition natural := D.of_kind KNatural.
 Definition identity := D.Natural 0 4294967295.
 Definition enum (first : string) (rest : list string) := D.of_kind (KEnum first rest).
-Definition workspace_declaration := D.Object [
- ("roots",true,D.BoundedArray 0 32 D.text);
- ("primary_root",false,D.nullable D.text)].
+Definition workspace_declaration := D.refine_object [
+ ("roots",D.BoundedArray 0 32 D.text);("primary_root",D.nullable D.text)]
+ (from_fields Workspace.workspace_schema).
 Definition sandbox_declaration := from_fields Codec.sandbox_schema.
 Definition sandbox_patch_declaration := D.Object (map (fun field =>
  (field_name field,false,D.of_kind (field_kind field))) Codec.sandbox_schema).
@@ -23,13 +23,13 @@ Definition approval_declaration := from_fields Codec.approval_schema.
 Definition guidance_declaration := D.nullable (from_fields Codec.guidance_schema).
 (** Public requests cannot manufacture observations. The host admits their
     syntax first, then supplies guidance and resource evidence separately. *)
-Definition settings_declaration (observed : bool) := D.Object
- ([ ("workspace",false,workspace_declaration);
-    ("sandbox",false,sandbox_patch_declaration);
-    ("approval",false,approval_declaration);
-    ("project_id",false,identity)] ++
-  if observed then [("guidance",false,guidance_declaration);
-                    ("workspace_binding",false,D.Any)] else []).
+Definition settings_declaration (observed : bool) :=
+ let admitted_fields := if observed then Codec.task_settings_schema else
+   filter (fun field => negb (String.eqb (field_name field) "guidance" ||
+     String.eqb (field_name field) "workspace_binding")) Codec.task_settings_schema in
+ D.refine_object [("workspace",workspace_declaration);("sandbox",sandbox_patch_declaration);
+   ("approval",approval_declaration);("project_id",identity);("guidance",guidance_declaration)]
+   (from_fields admitted_fields).
 Definition content_declaration := ContentDeclarations.content_declaration.
 Definition images_declaration := ContentDeclarations.images_declaration.
 Definition attachments_declaration (observed : bool) := D.Array
@@ -38,23 +38,22 @@ Definition attachments_declaration (observed : bool) := D.Array
 Definition title_prompt_declaration := Titles.instruction_declaration.
 Definition controller_id_declaration := RemoteIdentity.controller_declaration.
 Definition permissions_declaration := D.of_schema Selvedge.Features.Domain.rights_fields.
-Definition grants_declaration := D.Array (D.Object [
- ("connection_id",true,identity);("project_ids",true,D.Array identity);
- ("sandbox",true,sandbox_declaration)]).
+Definition grants_declaration := D.Array (D.refine_object [
+ ("connection_id",identity);("project_ids",D.Array identity);("sandbox",sandbox_declaration)]
+ (from_fields ChatgptArguments.grant_declaration)).
 
-Definition graph_node_declaration (observed : bool) := D.Union [
- D.Object [("key",true,D.text);("task_id",true,identity)];
- D.Object [("key",true,D.text);("profile",false,D.text);
- ("reasoning",false,D.text);("message",false,D.text);
- ("settings",false,settings_declaration observed)]].
+Definition graph_node_declaration (observed : bool) :=
+ TaskGraphDeclarations.node_declaration identity (settings_declaration observed).
 Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
-Definition board_status := enum "backlog" ["todo";"in_progress";"in_review";"done";"blocked"].
+Definition board_status := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
+ false false false (Some (map Selvedge.Features.Domain.stage_name Selvedge.Features.Domain.stages))).
 Definition board_assignee := D.Union [enum "none" ["self"];
  D.PrefixedText "profile/" (D.bounded_text 1016);
  D.PrefixedText "agent/" (D.NaturalText 0 (Some 4294967295))].
 Definition board_project := D.Union [enum "" [];D.NaturalText 0 (Some 4294967295)].
 Definition board_clock := D.NaturalText 0 (Some 4294967295).
-Definition board_priority := enum "none" ["low";"medium";"high";"urgent"].
+Definition board_priority := D.Text (D.TextConstraints 0 D.maximum_natural D.maximum_natural
+ false false false (Some (map Selvedge.Features.Domain.priority_name Selvedge.Features.Domain.priorities))).
 
 
 (** A field declares its internal representation and its external admission in

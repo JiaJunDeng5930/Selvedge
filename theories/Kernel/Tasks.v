@@ -555,10 +555,6 @@ Definition fork_result (entry : fork_entry) (origin:fork_settings_origin) (id co
        | AcceptedNativeFork invocation _ => invocation
        | ManualFork => Call (manual_fork_identity ticket task) "fork_task"
          (JObject [("child_count",number count);("messages",JArray (map content_json messages))]) InitialAttempt end in
-      let parent := match entry with
-       | AcceptedNativeFork _ _ => task
-       | ManualFork => with_activity WantsModel (append_history
-           [FunctionCall invocation; ForkReceipt id invocation 0] task) end in
       let retained := match entry with ManualFork =>
         with_ticket (world_next_ticket allocated) (TaskChange.interpret (TaskChange.Plan value target
           [TaskChange.AppendHistory [FunctionCall invocation; ForkReceipt id invocation 0]; TaskChange.ChangePhase WantsModel]))

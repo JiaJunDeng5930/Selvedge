@@ -156,10 +156,15 @@ Definition permissions (body : json) :=
  | Some _ => true | None => false end.
 Definition body_shape (target : string) (body : json) :=
   if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_approve) then
-    exact_fields ["request_id";"permissions"] body && nonempty_text (get body "request_id") && permissions (get body "permissions")
-  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_revoke) then exact_fields ["controller_id"] body && nonempty_text (get body "controller_id")
+    match Schema.decode ModelResultDeclarations.http_remote_approval_fields body with
+    | Some values => negb (String.eqb (Schema.head values) "") && permissions (Schema.head (Schema.tail values)) | None => false end
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_remote_revoke) then
+    match Schema.decode ModelResultDeclarations.http_remote_revoke_fields body with
+    | Some values => negb (String.eqb (Schema.head values) "") | None => false end
   else if starts target "remote_" || String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_account_refresh) then exact_fields [] body
-  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command) then exact_fields ["command"] body
+  else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_browser_command) then
+    match Schema.decode ModelResultDeclarations.http_browser_command_fields body with
+    | Some _ => true | None => false end
   else if String.eqb target (ModelResultDeclarations.http_action_name ModelResultDeclarations.Http_assess) then exact_fields ["command";"editor";"revision";"sequence"] body &&
     is_object (get body "command") &&
     (match natural (get body "revision"), natural (get body "sequence") with Some _,Some _ => true | _,_ => false end)

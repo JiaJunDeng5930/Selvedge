@@ -66,5 +66,8 @@ Proof.
    cbn [constructed_children] in Frames |- *.
    inversion Frames as [|child children Frame Tail]; subst.
    unfold child_execution_frame in Frame; destruct Frame as [_ [Settings _]].
+   unfold fork_candidate, Tasks.fork_children, with_tasks in Available.
+   cbn [fork_retained fork_snapshot_parent fork_invocation] in Available.
+   rewrite Count in Available; cbn [constructed_children] in Available.
    rewrite Settings,Available; reflexivity.
 Qed.

@@ -10,10 +10,11 @@ Definition maximum_rule_actions : nat := 8.
 
 Definition output_fields := [Field "kind" (KEnum "output" [])].
 Definition literal_fields := [Field "kind" (KEnum "literal" []);Field "value" KText].
-Definition existing_node_fields := [Field "key" KText;Field "task_id" KNatural].
-Definition node_settings_field := OmittableField "settings" KJson.
-Definition spawn_node_fields := [Field "key" KText;OmittableField "profile" KText;
- OmittableField "reasoning" KText;OmittableField "message" KText;node_settings_field].
+Definition node_declaration (identity settings : ArgumentDeclaration.t) := ArgumentDeclaration.Union [
+ ArgumentDeclaration.Object [("key",true,ArgumentDeclaration.text);("task_id",true,identity)];
+ ArgumentDeclaration.Object [("key",true,ArgumentDeclaration.text);("profile",false,ArgumentDeclaration.text);
+ ("reasoning",false,ArgumentDeclaration.text);("message",false,ArgumentDeclaration.text);
+ ("settings",false,settings)]].
 
 (** The recursive declaration is shared by public schemas and the typed parser. *)
 Fixpoint message_declaration (depth : nat) : ArgumentDeclaration.t := match depth with
