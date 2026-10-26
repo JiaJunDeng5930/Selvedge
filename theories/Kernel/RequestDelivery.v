@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State TaskScope TaskChange ModelRequest
- Dispatch Scheduler Delivery DeferredCommit.
+ Dispatch Scheduler Delivery DeferredCommit HookCallbacks.
 From Selvedge.Features Require Runtime.
 Import ListNotations.
 Open Scope string_scope.
@@ -22,11 +22,11 @@ Definition inference_coordinate (request : effect) : option (N * N) :=
  | RequestModel request => Some (ModelRequest.owner request,ModelRequest.ticket request)
  | RequestReasoning owner ticket _ => Some (owner,ticket)
  | _ => None end.
-Definition inference_fits (value : world) (request : effect) :=
+Definition request_fits (value : world) (request : effect) :=
  Delivery.fits true (accept JNull value [request;ContinueScheduling]).
 Definition oversized_inference (value : world) (request : effect) :=
  match inference_coordinate request with
- | Some _ => negb (inference_fits value request)
+ | Some _ => negb (request_fits value request)
  | None => false end.
 Definition failure_message :=
  "The inference request exceeds the native transport budget; no request was sent and full task history was retained".
@@ -56,11 +56,36 @@ Definition refuse (request : effect) (result : decision) :=
          (filter (fun effect => negb (same_inference request effect)) (decision_effects result))
      else result end
  end.
+Definition after_failure_message :=
+ "The result-processing request exceeds the native transport budget; this hook was not sent and the original tool result remains available in task history".
+Definition oversized_after (value : world) (request : effect) :=
+ match request with
+ | CheckResult _ _ _ _ _ _ _ => negb (request_fits value request)
+ | _ => false end.
+Definition same_after (first second : effect) :=
+ match first,second with
+ | CheckResult owner ticket operation _ _ _ _, CheckResult actual expected pending _ _ _ _ =>
+   N.eqb owner actual && N.eqb ticket expected && N.eqb operation pending
+ | _,_ => false end.
+Definition refuse_after (request : effect) (result : decision) :=
+ match request with
+ | CheckResult owner ticket operation _ _ _ _ =>
+   (* DEFENSE: A legal call and a legal tool result can exceed one frame when
+      combined for an after hook. Its never-sent receiver must settle, rather
+      than retry the same oversized request in every durable continuation.
+      The ordinary callback owns the operation, receipt, result and wake rules. *)
+   let settled := HookCallbacks.after_completed owner operation ticket
+     (Inputs.AfterFailure after_failure_message) (decision_world result) in
+   Decision (decision_world settled) (decision_reply result)
+     (filter (fun effect => negb (same_after request effect)) (decision_effects result))
+ | _ => result end.
 Definition normalize (result : decision) :=
  let result := capture result in
  let encoded := Selvedge.Features.Runtime.finish result in
- fold_left (fun result request => refuse request result)
-   (filter (oversized_inference (decision_world encoded)) (decision_effects encoded)) result.
+ let result := fold_left (fun result request => refuse request result)
+   (filter (oversized_inference (decision_world encoded)) (decision_effects encoded)) result in
+ fold_left (fun result request => refuse_after request result)
+   (filter (oversized_after (decision_world encoded)) (decision_effects encoded)) result.
 
 (* The accepted accumulator remains an unfinalized scheduler value. Previewing
    Runtime.finish never commits a feature fold or allocates a second receiver.

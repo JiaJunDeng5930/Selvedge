@@ -1,7 +1,8 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State StateProofs TaskScope TaskChange TaskChangeProofs
- Dispatch Scheduler Delivery DeferredCommit Inputs Packet RequestDelivery.
+ Dispatch Scheduler Delivery DeferredCommit Inputs Packet RequestDelivery
+ CallbackChangesProofs CallbacksProofs LifecycleProofs TaskWakeProofs HookRules.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -79,10 +80,181 @@ Proof.
  destruct (RequestDelivery.owns_inference request (TaskScope.selected target)); reflexivity.
 Qed.
 
+Theorem after_request_refusal_preserves_the_original_business_reply : forall request result,
+ decision_reply (RequestDelivery.refuse_after request result) = decision_reply result.
+Proof. intros request result; destruct request; reflexivity. Qed.
+
+Theorem the_shared_after_budget_failure_emits_no_additional_effect :
+ forall owner identity ticket value,
+ decision_effects (HookCallbacks.after_completed owner identity ticket
+   (AfterFailure RequestDelivery.after_failure_message) value) = [].
+Proof.
+ intros; rewrite after_completed_expression.
+ destruct (find_task owner value) as [task|]; [|reflexivity].
+ destruct (find (fun pending => N.eqb identity (operation_id pending))
+   (task_operations task)) as [operation|]; [|reflexivity].
+ destruct (operation_stage operation) as
+   [executing|elevated reviewer|reviewer|approved reviewer|pending result error|expected plugin pending result error];
+   try reflexivity.
+ destruct (N.eqb expected ticket); reflexivity.
+Qed.
+
+Theorem a_refused_after_request_cannot_still_be_emitted :
+ forall current owner ticket identity plugin invocation result error,
+ let request := CheckResult owner ticket identity plugin invocation result error in
+ ~ In request (decision_effects (RequestDelivery.refuse_after request current)).
+Proof.
+ intros current owner ticket identity plugin invocation result error; cbv zeta.
+ cbn [RequestDelivery.refuse_after decision_effects].
+ intro Present; apply filter_In in Present; destruct Present as [_ Accepted].
+ cbn [RequestDelivery.same_after] in Accepted.
+ rewrite !N.eqb_refl in Accepted; discriminate.
+Qed.
+
+Lemma after_request_refusal_introduces_no_effect : forall request current emitted,
+ In emitted (decision_effects (RequestDelivery.refuse_after request current)) ->
+ In emitted (decision_effects current).
+Proof.
+ intros request current emitted Present; destruct request;
+   cbn [RequestDelivery.refuse_after decision_effects] in Present; try exact Present.
+ apply filter_In in Present; exact (proj1 Present).
+Qed.
+
+Lemma after_request_refusal_fold_keeps_absent_effects_absent : forall requests current request,
+ ~ In request (decision_effects current) ->
+ ~ In request (decision_effects
+   (fold_left (fun result request => RequestDelivery.refuse_after request result) requests current)).
+Proof.
+ induction requests as [|first rest IH]; intros current request Absent; [exact Absent|].
+ cbn [fold_left]; apply IH.
+ intro Present; apply Absent.
+ eapply after_request_refusal_introduces_no_effect; exact Present.
+Qed.
+
+Lemma after_request_refusal_fold_retires_each_selected_request :
+ forall requests current owner ticket identity plugin invocation result error,
+ let request := CheckResult owner ticket identity plugin invocation result error in
+ In request requests ->
+ ~ In request (decision_effects
+   (fold_left (fun result request => RequestDelivery.refuse_after request result) requests current)).
+Proof.
+ induction requests as [|first rest IH]; intros current owner ticket identity plugin invocation result error;
+   cbv zeta; intro Member; [contradiction|].
+ cbn [fold_left]; destruct Member as [Same|Later].
+ - subst first; apply after_request_refusal_fold_keeps_absent_effects_absent.
+   apply a_refused_after_request_cannot_still_be_emitted.
+ - apply IH; exact Later.
+Qed.
+
+Theorem normalization_retires_every_individually_oversized_after_request :
+ forall current owner ticket identity plugin invocation result error,
+ let request := CheckResult owner ticket identity plugin invocation result error in
+ let encoded := Selvedge.Features.Runtime.finish (RequestDelivery.capture current) in
+ In request (decision_effects encoded) ->
+ RequestDelivery.request_fits (decision_world encoded) request = false ->
+ ~ In request (decision_effects (RequestDelivery.normalize current)).
+Proof.
+ intros current owner ticket identity plugin invocation result error; cbv zeta.
+ intros Present Oversized; unfold RequestDelivery.normalize.
+ apply after_request_refusal_fold_retires_each_selected_request.
+ apply filter_In; split; [exact Present|].
+ cbn [RequestDelivery.oversized_after]; rewrite Oversized; reflexivity.
+Qed.
+
+Theorem an_after_budget_refusal_uses_the_owned_failure_settlement :
+ forall current owner ticket identity plugin invocation result error task operation pending,
+ find_task owner (decision_world current) = Some task ->
+ find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
+ operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
+ decision_world (RequestDelivery.refuse_after
+   (CheckResult owner ticket identity plugin invocation result error) current) =
+ Tasks.apply_result owner task
+   (HookCallbacks.after_result_plan owner operation plugin pending result error
+     (AfterFailure RequestDelivery.after_failure_message)) (decision_world current).
+Proof.
+ intros current owner ticket identity plugin invocation result error task operation pending Found Owned Waiting.
+ unfold RequestDelivery.refuse_after.
+ rewrite after_completed_expression, Found, Owned, Waiting, N.eqb_refl.
+ reflexivity.
+Qed.
+
+Theorem an_after_budget_refusal_keeps_raw_evidence_and_retires_the_operation :
+ forall current owner ticket identity plugin invocation result error task operation pending,
+ find_task owner (decision_world current) = Some task ->
+ find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
+ operation_stage operation = AwaitingAfterHook ticket plugin pending result error ->
+ let refused := RequestDelivery.refuse_after
+   (CheckResult owner ticket identity plugin invocation result error) current in
+ exists updated released,
+ find_task owner (decision_world refused) = Some updated /\
+ task_operations updated = Callbacks.remove_operation (operation_id operation) (task_operations task) /\
+ task_history updated = task_history task ++
+   [AfterReceipt owner (operation_id operation) plugin
+     (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] ++
+   [History.operation_result operation
+     (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true] ++
+   map UserMessage released /\
+ (released = [] \/ released = task_queued task).
+Proof.
+ intros current owner ticket identity plugin invocation result error task operation pending Found Owned Waiting.
+ cbv zeta.
+ rewrite an_after_budget_refusal_uses_the_owned_failure_settlement with
+   (task:=task) (operation:=operation) (pending:=pending); try assumption.
+ unfold HookCallbacks.after_result_plan; cbn [HookRules.after_apply].
+ change (Tasks.apply_result owner task
+   (Tasks.prefix_result [TaskChange.AppendHistory
+     [AfterReceipt owner (operation_id operation) plugin
+       (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))]]
+     (Callbacks.settle_operation_plan operation
+       (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true))
+   (decision_world current)) with
+   (Tasks.mark_context_wake owner task (put_task owner
+     (Callbacks.settle_operation operation
+       (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true
+       (append_history [AfterReceipt owner (operation_id operation) plugin
+         (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))
+     (decision_world current))).
+ rewrite context_wake_preserves_every_task_lookup, settle_operation_expression.
+ set (settled := with_operations
+   (Callbacks.remove_operation (operation_id operation) (task_operations task))
+   (append_history [History.operation_result operation
+     (State.failure "after_hook_failed" RequestDelivery.after_failure_message) true]
+     (append_history [AfterReceipt owner (operation_id operation) plugin
+       (Inputs.after_json (AfterFailure RequestDelivery.after_failure_message))] task))).
+ pose proof (waking_a_result_preserves_operations_and_only_releases_queued_input settled)
+   as [Operations [released [History Released]]].
+ exists (Tasks.wake_after_result settled), released; split.
+ - apply find_put_task with task; exact Found.
+ - unfold settled in *.
+   destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   destruct lifecycle;
+   cbn [task_operations task_history task_queued with_operations append_history
+     with_lifecycle with_history] in Operations, History, Released |- *;
+   rewrite Operations, History; repeat split; try assumption; try reflexivity;
+   cbn; rewrite <- !app_assoc; reflexivity.
+Qed.
+
+Theorem a_stale_after_budget_refusal_cannot_change_the_current_operation :
+ forall current owner ticket expected identity plugin invocation result error task operation pending,
+ find_task owner (decision_world current) = Some task ->
+ find (fun operation => N.eqb identity (operation_id operation)) (task_operations task) = Some operation ->
+ operation_stage operation = AwaitingAfterHook expected plugin pending result error ->
+ ticket <> expected ->
+ decision_world (RequestDelivery.refuse_after
+   (CheckResult owner ticket identity plugin invocation result error) current) = decision_world current.
+Proof.
+ intros current owner ticket expected identity plugin invocation result error task operation pending Found Owned Waiting Stale.
+ unfold RequestDelivery.refuse_after.
+ rewrite after_completed_expression, Found, Owned, Waiting.
+ assert (Mismatch : N.eqb expected ticket = false) by (apply N.eqb_neq; congruence).
+ rewrite Mismatch; reflexivity.
+Qed.
+
 Theorem normalized_delivery_preserves_reply : forall current,
  decision_reply (RequestDelivery.normalize current) = decision_reply current.
 Proof.
  intro current; unfold RequestDelivery.normalize.
+ rewrite reply_preserving_fold by (intros; apply after_request_refusal_preserves_the_original_business_reply).
  rewrite reply_preserving_fold by (intros; apply request_refusal_preserves_the_original_business_reply).
  unfold RequestDelivery.capture; destruct (Dispatch.prepare _ _); reflexivity.
 Qed.

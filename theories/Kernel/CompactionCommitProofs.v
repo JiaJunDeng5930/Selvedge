@@ -5,13 +5,14 @@ From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs WorldInvariant WorldInvariantProofs
  CommitAdmission AfterHookAuthorizationProofs FeatureFrameProofs FeatureAuthorityProofs ForkPreservation
  CompactionEntryPreservation CheckpointWorldProofs DeferredCommit DeferredCommitProofs CompactionCommit Delivery Notifications.
-From Selvedge.Features Require Import Domain State Compaction CompactionTypes.
+From Selvedge.Features Require Import Domain State Compaction CompactionTypes CompactionProofs.
 Import ListNotations.
 Open Scope list_scope.
 Module F := Selvedge.Features.Domain.
 Module C := Selvedge.Features.CompactionTypes.
 Module A := CommitAdmission.
 Module M := Selvedge.Features.Compaction.
+Module MP := Selvedge.Features.CompactionProofs.
 
 Lemma an_idle_checkpoint_keeps_its_own_task_authority : forall source raw before actual old_features next_features current summary,
  M.alive current = true ->
@@ -132,7 +133,7 @@ Definition checkpoint_decision owner current summary before :=
 Definition summary_admitted current summary :=
  negb (String.eqb summary ""%string) &&
  (N.of_nat (String.length summary) <=? Selvedge.Kernel.Compaction.summary_limit_bytes)%N &&
- ContextSelection.settled_calls (task_history current) (task_history current).
+ ContextSelection.closed_prefix (task_history current).
 
 Theorem an_admitted_checkpoint_constructs_its_exact_result : forall request before current summary,
  find_task (Commands.compact_task_id request) before = Some current ->
@@ -210,5 +211,195 @@ Proof.
    now apply the_world_checker_establishes_all_requirements.
  - apply every_admitted_checkpoint_has_complete_commit_authority; try assumption.
    now apply the_world_checker_establishes_all_requirements.
+ - exact Budget.
+Qed.
+
+Definition manual_waiting_candidate owner current before :=
+ DeferredCommit.continue (MP.manual_waiting_decision owner current before).
+
+Theorem an_open_manual_compaction_constructs_its_exact_wait : forall owner current operations before,
+ find_task owner before = Some current ->
+ task_lifecycle current = Running Idle operations ->
+ TicketedRequest.Scoped.resources_available current before = true ->
+ M.job_pending (C.entry_job (M.current_entry owner (M.registry before))) = false ->
+ ContextSelection.closed_prefix (task_history current) = false ->
+ CompactionCommit.candidate (Commands.Build_compact owner None) before =
+ manual_waiting_candidate owner current before.
+Proof.
+ intros; unfold CompactionCommit.candidate, manual_waiting_candidate.
+ now rewrite MP.manual_compaction_accepts_an_open_prefix_and_waits with (current:=current) (operations:=operations).
+Qed.
+
+Lemma a_manual_wait_keeps_maintenance_requirements : forall owner current before,
+ WorldInvariant.compaction_valid before = true -> find_task owner before = Some current ->
+ WorldInvariant.compaction_valid (MP.manual_waiting_world owner current before) = true.
+Proof.
+ intros owner current before Valid Found.
+ pose proof (compaction_current_entry_has_its_counter_bounds owner current before Valid Found)
+   as [Maintained [Attempted Useful]].
+ unfold WorldInvariant.compaction_valid in Valid; apply andb_true_iff in Valid as [Unique Entries].
+ unfold WorldInvariant.compaction_valid.
+ change (WorldInvariant.unique_tickets (map fst (C.maintenance_entries (M.with_entry owner
+     (MP.manual_waiting_entry current (M.current_entry owner (M.registry before)) before) (M.registry before)))) &&
+   forallb (fun entry => WorldInvariant.maintenance_entry_valid entry (MP.manual_waiting_world owner current before))
+    (C.maintenance_entries (M.with_entry owner
+     (MP.manual_waiting_entry current (M.current_entry owner (M.registry before)) before) (M.registry before))) = true).
+ apply andb_true_iff; split.
+ - now apply compaction_upsert_has_one_entry_per_owner.
+ - apply compaction_upsert_preserves_valid_entries.
+   + unfold WorldInvariant.maintenance_entry_valid.
+     change (match find_task owner before with
+       | None => false | Some task =>
+       ((C.entry_maintained (M.current_entry owner (M.registry before)) <=?
+          C.entry_useful (M.current_entry owner (M.registry before))) &&
+        (C.entry_attempted (M.current_entry owner (M.registry before)) <=? M.useful (task_history task)) &&
+        (C.entry_useful (M.current_entry owner (M.registry before)) <=? M.useful (task_history task)))%N &&
+       ContextSelection.history_extends (task_history current) (task_history task) end = true).
+     rewrite Found, the_same_history_retains_its_captured_prefix, andb_true_r.
+     repeat rewrite andb_true_iff; repeat split; now apply N.leb_le.
+   + intros actual entry Member Different.
+     change (WorldInvariant.maintenance_entry_valid (actual,entry) before = true).
+     apply forallb_forall with (x:=(actual,entry)) in Entries; assumption.
+Qed.
+
+Theorem a_manual_wait_preserves_all_world_requirements : forall owner current before,
+ WorldInvariant.well_formed before -> find_task owner before = Some current ->
+ WorldInvariant.well_formed (MP.manual_waiting_world owner current before).
+Proof.
+ intros owner current before Valid Found.
+ pose proof (FeatureFrameProofs.well_formed_feature_requirements before Valid) as Features.
+ assert (Maintenance : WorldInvariant.compaction_valid before = true).
+ { unfold WorldInvariant.features_valid in Features; now apply andb_true_iff in Features as [_ Maintenance]. }
+ constructor.
+ - exact (WorldInvariant.environment_requirement before Valid).
+ - exact (WorldInvariant.projects_requirement before Valid).
+ - unfold WorldInvariant.world_structure.
+   rewrite task_registry_requirements_ignore_the_journal_cursor.
+   rewrite FeatureFrameProofs.registry_requirements_read_only_the_task_and_project_registries
+     with (before:=before) by reflexivity.
+   pose proof (WorldInvariant.tasks_requirement before Valid) as Tasks.
+   unfold WorldInvariant.world_structure in Tasks.
+   now rewrite task_registry_requirements_ignore_the_journal_cursor in Tasks.
+ - change (WorldInvariant.tickets_valid (M.store
+     (M.with_entry owner (M.checkpoint_entry (task_history current) (M.current_entry owner (M.registry before)))
+       (M.registry before)) before) = true).
+   apply checkpointing_maintenance_preserves_global_ticket_ownership.
+   exact (WorldInvariant.tickets_requirement before Valid).
+ - unfold WorldInvariant.world_structure.
+   rewrite FeatureFrameProofs.feature_requirements_ignore_journal_cursor.
+   change (feature_core_valid (MP.manual_waiting_world owner current before) &&
+     WorldInvariant.compaction_valid (MP.manual_waiting_world owner current before) = true).
+   rewrite a_manual_wait_keeps_maintenance_requirements by assumption; rewrite andb_true_r.
+   unfold MP.manual_waiting_world; rewrite storing_maintenance_keeps_other_features_valid.
+   unfold WorldInvariant.features_valid in Features.
+   change (feature_core_valid before && WorldInvariant.compaction_valid before = true) in Features.
+   now apply andb_true_iff in Features as [Core _].
+Qed.
+
+Lemma a_manual_wait_keeps_maintenance_authority : forall owner current before,
+ WorldInvariant.well_formed before ->
+ A.compaction_evolution (M.registry before)
+   (M.with_entry owner (MP.manual_waiting_entry current (M.current_entry owner (M.registry before)) before)
+     (M.registry before)) = true.
+Proof.
+ intros owner current before Valid.
+ pose proof (FeatureFrameProofs.well_formed_feature_requirements before Valid) as Features.
+ unfold WorldInvariant.features_valid in Features; apply andb_true_iff in Features as [_ Maintenance].
+ unfold WorldInvariant.compaction_valid in Maintenance; apply andb_true_iff in Maintenance as [Unique _].
+ apply unique_tickets_denotes_distinct_correlation_owners in Unique.
+ unfold A.compaction_evolution; apply andb_true_iff; split; [apply N.leb_refl|].
+ apply compaction_upsert_retains_monotone_counters; [exact Unique|].
+ intros entry Member.
+ rewrite (compaction_current_entry_finds_a_unique_member owner entry (M.registry before) Unique Member).
+ unfold MP.manual_waiting_entry, M.with_observation, M.with_measurement, M.with_job, set; cbn.
+ repeat split; apply N.le_refl.
+Qed.
+
+Lemma a_manual_wait_keeps_every_feature_authority : forall owner current before,
+ WorldInvariant.well_formed before ->
+ A.features_evolution (world_features before) (world_features (MP.manual_waiting_world owner current before)) = true.
+Proof.
+ intros owner current before Valid.
+ pose proof (FeatureFrameProofs.well_formed_feature_requirements before Valid) as Features.
+ pose proof (well_formed_features_admit_their_unchanged_configuration before Features) as Original.
+ pose proof (a_manual_wait_keeps_maintenance_authority owner current before Valid) as Maintenance.
+ unfold A.features_evolution, A.titles_evolution, A.same_title_prompts in Original |- *.
+ unfold MP.manual_waiting_world, M.store, M.registry, with_features, Selvedge.Features.State.with_compaction, set.
+ cbn -[A.board_evolution A.compaction_evolution] in *.
+ match goal with |- context [A.compaction_evolution ?old ?next] =>
+   let Actual := fresh "Actual" in assert (Actual : A.compaction_evolution old next = true) by exact Maintenance;
+   rewrite Actual
+ end.
+ repeat rewrite andb_true_iff in *. tauto.
+Qed.
+
+Lemma a_manual_wait_retires_each_cancelled_request : forall owner current before effect,
+ In effect (M.cancellations owner (M.current_entry owner (M.registry before))) ->
+ A.compaction_effect_valid effect before (MP.manual_waiting_world owner current before) = true.
+Proof.
+ intros owner current before effect Member.
+ assert (Cancelled : exists ticket, effect = C.Cancel owner ticket).
+ { unfold M.cancellations in Member; apply in_app_iff in Member as [Member|Member].
+   - destruct (M.measurement_ticket (C.entry_measurement (M.current_entry owner (M.registry before))));
+       [destruct Member as [<-|[]]; eauto|contradiction].
+   - destruct (M.job_ticket (C.entry_job (M.current_entry owner (M.registry before))));
+       [destruct Member as [<-|[]]; eauto|contradiction]. }
+ destruct Cancelled as [ticket ->].
+ pose proof (a_checkpoint_retires_each_cancelled_request owner current ""%string before
+   (C.Cancel owner ticket) Member) as Retired.
+ assert (Waiting : A.compaction_entry_at owner
+   (C.maintenance_entries (F.feature_compaction (world_features (MP.manual_waiting_world owner current before)))) =
+   Some (MP.manual_waiting_entry current (M.current_entry owner (M.registry before)) before)).
+ { apply compaction_upsert_selects_its_new_entry. }
+ assert (Checkpoint : A.compaction_entry_at owner
+   (C.maintenance_entries (F.feature_compaction (world_features (checkpoint_world owner current ""%string before)))) =
+   Some (M.checkpoint_entry (task_history current) (M.current_entry owner (M.registry before)))).
+ { apply compaction_upsert_selects_its_new_entry. }
+ cbn [A.compaction_effect_valid] in Retired |- *.
+ unfold A.compaction_cancel_retired in Retired |- *.
+ rewrite Checkpoint in Retired; rewrite Waiting; exact Retired.
+Qed.
+
+Theorem every_manual_wait_has_complete_commit_authority : forall source raw owner current before,
+ WorldInvariant.well_formed before ->
+ A.transition_authorized true source raw before (manual_waiting_candidate owner current before) = true.
+Proof.
+ intros source raw owner current before Valid.
+ unfold A.transition_authorized; apply andb_true_iff; split.
+ - apply andb_true_iff; split.
+   + unfold A.world_evolution; repeat rewrite andb_true_iff; repeat split.
+     * unfold A.retained_tasks; apply unchanged_tasks_keep_authority_across_other_features.
+     * apply N.leb_refl.
+     * apply N.leb_refl.
+     * now apply a_manual_wait_keeps_every_feature_authority.
+   + apply cancelling_maintenance_allocates_no_new_ticket.
+ - change (A.effects_authorized source raw before (MP.manual_waiting_world owner current before)
+     (map MaintainContext (M.cancellations owner (M.current_entry owner (M.registry before))) ++ [ContinueScheduling]) = true).
+   rewrite maintenance_effects_have_exact_authority; apply forallb_forall.
+   intros effect Member; now apply a_manual_wait_retires_each_cancelled_request.
+Qed.
+
+Theorem an_open_manual_compaction_with_its_actual_budget_commits : forall owner current operations raw before,
+ WorldInvariant.world_valid before = true -> find_task owner before = Some current ->
+ task_lifecycle current = Running Idle operations ->
+ TicketedRequest.Scoped.resources_available current before = true ->
+ M.job_pending (C.entry_job (M.current_entry owner (M.registry before))) = false ->
+ ContextSelection.closed_prefix (task_history current) = false ->
+ Delivery.fits true (manual_waiting_candidate owner current before) = true ->
+ CompactionCommit.packet raw (Commands.Build_compact owner None) before =
+ (with_sequence (N.succ (world_sequence before)) (MP.manual_waiting_world owner current before),
+  Notifications.envelope true true (Some (UserCommand (Commands.Cmd_compact (Commands.Build_compact owner None))))
+    before (manual_waiting_candidate owner current before)).
+Proof.
+ intros owner current operations raw before World Found Lifecycle Available NoJob Open Budget.
+ pose proof (the_world_checker_establishes_all_requirements before World) as Valid.
+ unfold CompactionCommit.packet.
+ rewrite an_open_manual_compaction_constructs_its_exact_wait with (current:=current) (operations:=operations) by assumption.
+ apply a_constructed_candidate_with_its_actual_budget_is_committed.
+ - unfold manual_waiting_candidate, MP.manual_waiting_decision, DeferredCommit.continue, M.cancellations.
+   destruct (M.measurement_ticket (C.entry_measurement (M.current_entry owner (M.registry before))));
+   destruct (M.job_ticket (C.entry_job (M.current_entry owner (M.registry before)))); reflexivity.
+ - apply well_formed_worlds_pass_the_checker; now apply a_manual_wait_preserves_all_world_requirements.
+ - now apply every_manual_wait_has_complete_commit_authority.
  - exact Budget.
 Qed.

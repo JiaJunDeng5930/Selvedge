@@ -75,6 +75,9 @@ Definition wait_for_context (id : N) (purpose : option reason) (entry : entry) (
    match TicketedRequest.Scoped.maintenance_context id purpose entry value with
    | Some request => TicketedRequest.Scoped.maintenance_observe request
    | None =>
+     (* A quiet external call can leave an active task idle without publishing
+        its result. Retain a requested compaction until that prefix closes;
+        resume recaptures the result or announcement before asking for a summary. *)
      let waiting := if TicketedRequest.Scoped.resources_available task value then
        match purpose with Some purpose => Resuming (capture_task task value) purpose | None => NoJob end
        else WaitingForResource purpose in
@@ -128,7 +131,7 @@ Definition force_portable (id : N) (task : task) (scope : string) (entry : entry
    let entry := with_measurement (Oversized input scope (target_budget target)) entry in
    match entry_job entry with
    | Compacting _ _ _ _ _ => commit id entry value []
-   | _ => if ContextSelection.settled_calls (task_history task) (task_history task) then
+   | _ => if ContextSelection.closed_prefix (task_history task) then
        start id task input Blocking (set target_method (fun _ => Summary) target) scope (window_tokens (target_budget target)) entry value
      else commit id (with_job (Resuming input Blocking) entry) value [] end end.
 Definition measured_call (id : N) (task : task) (input : capture) (scope : string) (purpose : option reason)
@@ -148,7 +151,7 @@ Definition finish_measure (id : N) (task : task) (input : capture) (scope : stri
  (entry : entry) (value : Selvedge.Kernel.State.world) :=
  let current := same_input input task value in
  let entry := with_measurement (if current then Measured input scope tokens budget else Unmeasured) entry in
- if current && negb (job_pending (entry_job entry)) && ContextSelection.settled_calls (task_history task) (task_history task) then
+ if current && negb (job_pending (entry_job entry)) && ContextSelection.closed_prefix (task_history task) then
  match selected_reason (maintenance_policy (registry value)) tokens budget, configured_target task (registry value) with
  | Some purpose, Some target => if (entry_attempted entry <? useful (task_history task)) ||
      must_wait (maintenance_policy (registry value)) tokens budget
@@ -328,7 +331,7 @@ Definition can_schedule_task (id : N) (value : Selvedge.Kernel.State.world) := m
 Definition idle_due (task : task) (entry : entry) (state : Selvedge.Features.CompactionTypes.state) :=
  policy_enabled (maintenance_policy state) && idle task && alive task && negb (job_pending (entry_job entry)) &&
  (entry_maintained entry <? useful (task_history task)) && (entry_attempted entry <? useful (task_history task)) &&
- ContextSelection.settled_calls (task_history task) (task_history task) && (0 <? entry_cache_deadline entry) &&
+ ContextSelection.closed_prefix (task_history task) && (0 <? entry_cache_deadline entry) &&
  (entry_cache_deadline entry - policy_idle_lead (maintenance_policy state) <=? maintenance_now state) &&
  ContextSelection.history_extends (entry_cache_history entry) (task_history task).
 Definition synchronized_entry (task : task) (entry : entry) (state : Selvedge.Features.CompactionTypes.state) :=
@@ -365,7 +368,7 @@ Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.wor
  | AwaitingContext _ _ _ => None
  | Resuming input purpose =>
    if relevant input task value then
-    if ContextSelection.settled_calls (task_history task) (task_history task)
+    if ContextSelection.closed_prefix (task_history task)
     then Some (restart id task purpose entry value) else None
    else Some (cancel id task entry value)
  | _ => match enabled_target task state with
@@ -514,7 +517,7 @@ Definition handle_compact (payload : Selvedge.Generated.Commands.compact_payload
            "A checkpoint requires a nonempty bounded summary and settled tool calls" value in
          if idle task then if negb (String.eqb summary "") &&
          (N.of_nat (String.length summary) <=? Compaction.summary_limit_bytes) &&
-         ContextSelection.settled_calls (task_history task) (task_history task)
+         ContextSelection.closed_prefix (task_history task)
          then supplied id task summary value
          else invalid
          else match task_activity task with

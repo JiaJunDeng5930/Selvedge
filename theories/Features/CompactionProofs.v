@@ -112,9 +112,9 @@ Theorem an_admitted_current_scope_has_its_exact_pending_receiver :
 Proof.
  intros id input entry value Ready; cbn zeta.
  unfold A.begin_scope, A.run_request, TicketedRequest.Scoped.feature.
- cbn [TicketedRequest.Scoped.feature_valid].
- destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id input value) true)
-   as [Admitted|Refused]; [|contradiction].
+ cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_replacement_ready].
+ destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id input value && true) true)
+   as [Admitted|Refused]; [|exfalso; apply Refused; now rewrite Ready].
  cbn [TicketedRequest.Scoped.feature_issue TicketedRequest.Scoped.feature_intent
    TicketedRequest.Scoped.feature_space TicketedRequest.allocate_identity TicketedRequest.next_identity
    TicketedRequest.Scoped.feature_build TicketedRequest.Scoped.maintenance_build
@@ -196,7 +196,7 @@ Qed.
 Theorem a_valid_checkpoint_preserves_its_original_records : forall id summary caller task value,
  K.find_task id value = Some task -> A.alive task = true -> A.idle task = true ->
  (negb (String.eqb summary "") && (N.of_nat (String.length summary) <=? Selvedge.Kernel.Compaction.summary_limit_bytes) &&
- ContextSelection.settled_calls (task_history task) (task_history task)) = true ->
+ ContextSelection.closed_prefix (task_history task)) = true ->
  A.handle_compact (G.Build_compact id (Some summary)) caller value = A.supplied id task summary value /\
  exists stored, K.find_task id (K.decision_world (A.supplied id task summary value)) = Some stored /\
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
@@ -215,17 +215,150 @@ Proof. intros. unfold A.prepare_model_effects. cbn. now rewrite H. Qed.
 Theorem manual_compaction_captures_context_before_any_summary_request : forall id task value entry,
  K.find_task id value = Some task ->
  TicketedRequest.Scoped.can_observe_maintenance task value = true ->
+ ContextSelection.closed_prefix (task_history task) = true ->
  entry = A.current_entry id (A.registry value) ->
  A.job_pending (entry_job entry) = false ->
  K.decision_effects (A.manual id task value) =
  (map K.MaintainContext (A.cancellations id entry) ++
   [K.ObserveContext id (K.world_next_ticket value) task])%list.
 Proof.
- intros id task value entry Found ObserveAllowed Entry Ready.
- destruct (maintenance_observation_uses_the_current_task id task (Some Manual) entry value Found ObserveAllowed)
+ intros id task value entry Found ObserveAllowed Closed Entry Ready.
+ destruct (maintenance_observation_uses_the_current_task id task (Some Manual) entry value Found ObserveAllowed Closed)
    as [request [Selected Effects]].
  unfold A.manual. rewrite <- Entry, Ready. unfold A.wait_for_context. rewrite Found, Selected.
  cbn [K.decision_effects]. now rewrite Effects.
+Qed.
+
+Definition manual_waiting_entry (current : task) (entry : C.entry) (before : K.world) :=
+ A.with_observation None (A.with_measurement Unmeasured
+   (A.with_job (Resuming (A.capture_task current before) Manual) entry)).
+Definition manual_waiting_world (id : N) (current : task) (before : K.world) :=
+ A.store (A.with_entry id
+   (manual_waiting_entry current (A.current_entry id (A.registry before)) before)
+   (A.registry before)) before.
+Definition manual_waiting_decision (id : N) (current : task) (before : K.world) :=
+ K.Decision (manual_waiting_world id current before)
+   (K.success (JObject [("task_id", number id)]))
+   (map K.MaintainContext (A.cancellations id (A.current_entry id (A.registry before)))).
+
+(** This is the public command with a live operation, not an assumed accepted
+    helper result. The wait keeps the task, operation and queued demand intact;
+    only obsolete maintenance requests are cancelled. *)
+Theorem manual_compaction_accepts_an_open_prefix_and_waits :
+ forall id current operations caller before,
+ K.find_task id before = Some current ->
+ task_lifecycle current = Running Idle operations ->
+ TicketedRequest.Scoped.resources_available current before = true ->
+ A.job_pending (entry_job (A.current_entry id (A.registry before))) = false ->
+ ContextSelection.closed_prefix (task_history current) = false ->
+ A.handle_compact (G.Build_compact id None) caller before =
+ manual_waiting_decision id current before.
+Proof.
+ intros id current operations caller before Found Lifecycle Available NoJob Open.
+ pose proof (an_open_summary_prefix_has_no_context_plan id current Manual
+   (A.current_entry id (A.registry before)) before Found Open) as NoPlan.
+ assert (Alive : A.alive current = true) by (unfold A.alive; now rewrite Lifecycle).
+ assert (RunningTask : A.running current = true) by (unfold A.running; now rewrite Lifecycle).
+ assert (Phase : task_activity current = Idle) by (unfold task_activity; now rewrite Lifecycle).
+ unfold A.handle_compact; cbn [G.compact_task_id G.compact_summary].
+ rewrite Found, Alive, Phase, RunningTask; cbn.
+ unfold A.manual; rewrite NoJob.
+ unfold A.wait_for_context; rewrite Found, NoPlan, Available.
+ unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry.
+ cbn [A.commit A.acknowledged K.accept K.decision_world K.decision_effects].
+ now rewrite app_nil_r.
+Qed.
+
+Theorem an_open_manual_wait_preserves_all_task_state : forall id current before,
+ K.world_tasks (K.decision_world (manual_waiting_decision id current before)) = K.world_tasks before /\
+ entry_job (A.current_entry id (A.registry
+   (K.decision_world (manual_waiting_decision id current before)))) =
+ Resuming (A.capture_task current before) Manual.
+Proof.
+ intros; split; [reflexivity|].
+ unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry,
+   A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, A.with_observation,
+   A.with_measurement, A.with_job, K.with_features, Selvedge.Features.State.with_compaction, set;
+ cbn. now rewrite N.eqb_refl.
+Qed.
+
+(** Results, cancellations and running announcements may close the source.
+    Synchronization then captures the whole current prefix, including those
+    records; it never reuses the open prefix saved when the request arrived. *)
+Theorem a_closed_manual_wait_recaptures_its_current_prefix :
+ forall id current before input entry operations phase,
+ task_lifecycle current = Running phase operations ->
+ phase <> WantsModel -> (forall ticket revision, phase <> ObservingContext ticket revision) ->
+ TicketedRequest.Scoped.resources_available current before = true ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry_job entry = Resuming input Manual ->
+ A.relevant input current before = true ->
+ ContextSelection.closed_prefix (task_history current) = true ->
+ A.synchronize id current before =
+ Some (A.begin_scope id (A.capture_task current before) (Some Manual) (A.with_job NoJob entry) before).
+Proof.
+ intros id current before input entry operations phase Lifecycle NoDemand NoObservation
+   Available Entry Job Relevant Closed.
+ assert (Phase : task_activity current = phase) by (unfold task_activity; now rewrite Lifecycle).
+ unfold A.synchronize; cbv beta zeta; rewrite <- Entry.
+ unfold A.alive, A.running; rewrite Lifecycle, Available; cbn.
+ rewrite Phase. destruct phase; try contradiction;
+ try (exfalso; eapply NoObservation; reflexivity);
+ rewrite Job, Relevant, Closed; reflexivity.
+Qed.
+
+Theorem an_open_manual_wait_keeps_waiting_without_io :
+ forall id current before input entry operations,
+ task_lifecycle current = Running Idle operations ->
+ TicketedRequest.Scoped.resources_available current before = true ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry_job entry = Resuming input Manual ->
+ A.relevant input current before = true ->
+ ContextSelection.closed_prefix (task_history current) = false ->
+ A.synchronize id current before = None.
+Proof.
+ intros id current before input entry operations Lifecycle Available Entry Job Relevant Open.
+ assert (Phase : task_activity current = Idle) by (unfold task_activity; now rewrite Lifecycle).
+ unfold A.synchronize; cbv beta zeta; rewrite <- Entry.
+ unfold A.alive, A.running; rewrite Lifecycle, Available; cbn.
+ now rewrite Phase, Job, Relevant, Open.
+Qed.
+
+Theorem a_closed_manual_wait_starts_a_fresh_context_read :
+ forall id current before input entry operations phase,
+ K.find_task id before = Some current ->
+ task_lifecycle current = Running phase operations ->
+ (phase = Idle \/ phase = ReadyForModel) ->
+ TicketedRequest.Scoped.resources_available current before = true ->
+ entry = A.synchronized_entry current (A.current_entry id (A.registry before)) (A.registry before) ->
+ entry_job entry = Resuming input Manual ->
+ entry_observation (A.current_entry id (A.registry before)) = None ->
+ A.relevant input current before = true ->
+ ContextSelection.closed_prefix (task_history current) = true ->
+ exists result, A.synchronize id current before = Some result /\
+ K.decision_effects result = [K.ObserveContext id (K.world_next_ticket before) current].
+Proof.
+ intros id current before input entry operations phase Found Lifecycle Phase Available Entry Job Unobserved Relevant Closed.
+ assert (CanObserve : TicketedRequest.Scoped.can_observe_maintenance current before = true).
+ { unfold TicketedRequest.Scoped.can_observe_maintenance; rewrite Available, Lifecycle.
+   destruct Phase as [Phase|Phase]; subst phase; reflexivity. }
+ destruct (maintenance_observation_uses_the_current_task id current (Some Manual)
+   (A.with_job NoJob entry) before Found CanObserve Closed) as [request [Selected Effects]].
+ assert (NeedObservation : TicketedRequest.Scoped.maintenance_ready id (A.capture_task current before) before = false).
+ { unfold TicketedRequest.Scoped.maintenance_ready.
+   replace (TicketedRequest.Scoped.compaction_entry id before) with (A.find_entry id (A.registry before)) by reflexivity.
+   rewrite Found. destruct (A.find_entry id (A.registry before)) as [stored|] eqn:Stored; [|reflexivity].
+   unfold A.current_entry in Unobserved; rewrite Stored in Unobserved.
+   now rewrite Unobserved, andb_false_r. }
+ exists (A.begin_scope id (A.capture_task current before) (Some Manual) (A.with_job NoJob entry) before).
+ split.
+ - eapply a_closed_manual_wait_recaptures_its_current_prefix; eauto;
+     destruct Phase as [Phase|Phase]; subst phase; discriminate.
+ - unfold A.begin_scope, A.run_request, TicketedRequest.Scoped.feature.
+   cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_replacement_ready].
+   destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id (A.capture_task current before) before && true) true)
+     as [Admitted|Refused]; [exfalso; rewrite NeedObservation in Admitted; discriminate|].
+   unfold A.wait_for_context; rewrite Found, Selected; exact Effects.
 Qed.
 
 Theorem suspended_manual_context_completion_cancels_its_job :

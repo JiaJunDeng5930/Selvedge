@@ -125,6 +125,9 @@ Definition has_output (history : list message) (id : string) :=
  | _ => false end) history.
 Definition settled_calls (snapshot whole : list message) :=
  forallb (fun message => match message with FunctionCall invocation => has_output whole (call_id invocation) | _ => true end) snapshot.
+(* A replacement removes this prefix from provider input. Its call outputs must
+   therefore occur inside the same prefix, rather than only in a later suffix. *)
+Definition closed_prefix (history : list message) := settled_calls history history.
 Definition portable (summary : string) := PortableArtifact
  (PortableMessage PortableUser ("Task continuation summary (fallible; original records remain available through read_task):" ++ String (Ascii.ascii_of_nat 10) summary)) [] JNull.
 Definition record (source_length : N) (value : artifact) := ContextReplacement

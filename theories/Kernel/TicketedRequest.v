@@ -322,6 +322,12 @@ Inductive maintenance_action :=
     (candidate : option (ContextSelection.artifact * list message)) (scope : string) (entry : C.entry)
 | CompactRequest (input : C.capture) (purpose : C.reason)
     (target : C.target) (progress : Compaction.compaction_state) (scope : string) (entry : C.entry).
+Definition maintenance_replacement_ready (request : maintenance_action) :=
+ match request with
+ | ScopeRequest _ _ _ | MeasureRequest _ _ None _ _ => true
+ | ValidationScopeRequest input _ _ _ _ | MeasureRequest input _ (Some _) _ _
+ | CompactRequest input _ _ _ _ _ => ContextSelection.closed_prefix (C.captured_history input)
+ end.
 Inductive feature_action :=
 | TitleRequest (owner : N) (selected : profile) (prompt : string)
 | CardRequest (owner : N) (card : F.card) (selected : profile) (prompt : string) (retitle : bool)
@@ -337,7 +343,8 @@ Definition feature_valid (before : world) (source : feature_action) :=
    | F.JobRunning => FeatureRequestAdmission.connection job before | _ => false end
  | MaintainRequest owner request => maintenance_ready owner
     (match request with ScopeRequest input _ _ | ValidationScopeRequest input _ _ _ _ |
-      MeasureRequest input _ _ _ _ | CompactRequest input _ _ _ _ _ => input end) before
+      MeasureRequest input _ _ _ _ | CompactRequest input _ _ _ _ _ => input end) before &&
+      maintenance_replacement_ready request
  end.
 Record feature_plan (before : world) := FeaturePlan {
  feature_intent : feature_action;
@@ -371,11 +378,16 @@ Definition put_compaction owner entry value :=
 Definition can_observe_maintenance (current : task) (before : world) :=
  resources_available current before && match task_lifecycle current with
  | Running Idle _ | Running ReadyForModel _ => true | _ => false end.
+Definition maintenance_prefix_ready (purpose : option C.reason) (history : list message) :=
+ match purpose with None => true | Some _ => ContextSelection.closed_prefix history end.
+Definition maintenance_context_ready (purpose : option C.reason) (current : task) (before : world) :=
+ can_observe_maintenance current before && maintenance_prefix_ready purpose (task_history current).
 Record maintenance_context_plan (before : world) := MaintenanceContextPlan {
  maintenance_context_target : task_reference before;
  maintenance_context_purpose : option C.reason;
  maintenance_context_entry : C.entry;
- maintenance_context_admitted : can_observe_maintenance (selected maintenance_context_target) before = true
+ maintenance_context_admitted : maintenance_context_ready maintenance_context_purpose
+   (selected maintenance_context_target) before = true
 }.
 Arguments MaintenanceContextPlan {before}.
 Arguments maintenance_context_target {before}.
@@ -385,7 +397,7 @@ Definition maintenance_context (owner : N) (purpose : option C.reason) (entry : 
  : option (maintenance_context_plan before) :=
  match select owner before with
  | None => None
- | Some target => match Bool.bool_dec (can_observe_maintenance (selected target) before) true with
+ | Some target => match Bool.bool_dec (maintenance_context_ready purpose (selected target) before) true with
    | left admitted => Some (MaintenanceContextPlan target purpose entry admitted)
    | right _ => None end end.
 Definition maintenance_observe {before} (request : maintenance_context_plan before) :=
