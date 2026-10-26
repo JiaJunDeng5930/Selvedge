@@ -8,11 +8,7 @@ Open Scope string_scope.
 Open Scope list_scope.
 Module D := ArgumentDeclaration.
 
-Definition shape (source : json) :=
- match D.parse source with Some description => description | None => D.Reject end.
-Definition from_fields (declaration : schema) := D.Object (map (fun field =>
- (field_name field,negb (field_omittable field || SchemaJson.optional_kind (field_kind field)),
- D.of_kind (SchemaJson.present_kind (field_kind field)))) declaration).
+Definition from_fields := D.of_schema.
 Definition natural := D.of_kind KNatural.
 Definition identity := D.Natural 0 4294967295.
 Definition enum (first : string) (rest : list string) := D.of_kind (KEnum first rest).
@@ -44,8 +40,8 @@ Definition settings_arguments := map (fun field =>
 Definition fields_of (source : json) := match source with JObject fields => fields | _ => [] end.
 Definition settings_schema := fields_of (D.schema (settings_declaration false)).
 Definition public_settings_schema := settings_schema.
-Definition content_declaration := shape (JObject ContentDeclarations.content_schema).
-Definition images_declaration := shape (JObject ContentDeclarations.images_schema).
+Definition content_declaration := ContentDeclarations.content_declaration.
+Definition images_declaration := ContentDeclarations.images_declaration.
 Definition attachments_declaration (observed : bool) := D.Array
  (from_fields (if observed then BoardParameters.attachment_schema
                else BoardParameters.attachment_reference_schema)).
@@ -61,22 +57,14 @@ Definition grants_declaration := D.Array (D.Object [
  ("sandbox",true,sandbox_declaration)]).
 Definition connection_grants_schema := fields_of (D.schema grants_declaration).
 
-Fixpoint graph_message_declaration (depth : nat) : D.t := match depth with
- | O => D.Reject
- | S remaining => D.Union [from_fields TaskGraphDeclarations.output_fields;
-   from_fields TaskGraphDeclarations.literal_fields;
-   D.Object [("kind",true,enum "concat" []);
-     ("parts",true,D.Array (graph_message_declaration remaining))]]
- end.
+Definition graph_message_declaration := TaskGraphDeclarations.message_declaration.
 Definition graph_node_declaration (observed : bool) := D.Union [
  D.Object [("key",true,D.text);("task_id",true,identity)];
  D.Object [("key",true,D.text);("profile",false,D.text);
  ("reasoning",false,D.text);("message",false,D.text);
  ("settings",false,settings_declaration observed)]].
-Definition graph_action_declaration := D.Object [("target",true,D.text);
- ("message",true,graph_message_declaration TaskGraphDeclarations.maximum_message_depth)].
-Definition graph_rule_declaration := D.Object [("key",true,D.text);("source",true,D.text);
- ("actions",true,D.BoundedArray 0 (N.of_nat TaskGraphDeclarations.maximum_rule_actions) graph_action_declaration)].
+Definition graph_action_declaration := TaskGraphDeclarations.action_declaration.
+Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
 Definition graph_command (name : string) := String.eqb name "create_task_graph" || String.eqb name "update_task_graph".
 Definition board_metadata (name : string) := existsb (String.eqb name) ["create_card";"update_card"].
 Definition board_status := enum "backlog" ["todo";"in_progress";"in_review";"done";"blocked"].

@@ -44,7 +44,7 @@ Definition request_model := effect "model" (identity ++ [model;Field "output_mod
 Definition reasoning := effect "reasoning" (identity ++ [model;history;Field "project_context" KJson;
  Field "history_preview" KBool;Field "history_preview_bytes" KNatural]) (Some Reasoning).
 Definition tool := effect "tool" (identity ++ [Field "operation_id" KNatural;Field "tool" KJson;invocation;execution]) (Some Tool).
-Definition approval := effect "approval" (identity ++ [model;Field "settings" KJson;invocation;
+Definition approval := effect "approval" (identity ++ [model;invocation;Field "settings" KJson;
  Field "instructions" KText;Field "user_requests" (KArray KText)]) (Some Approval).
 Definition hook := effect "hook" (identity ++ [plugin;Field "tool" KJson;invocation]) (Some Hook).
 Definition after_hook := effect "after_hook" (identity ++ [Field "operation_id" KNatural;plugin;invocation;
@@ -54,10 +54,10 @@ Definition reset_model_session := effect "reset_model_session" task_only None.
 Definition cancel := effect "cancel" task_only None.
 Definition cancel_ticket := effect "cancel_ticket" identity None.
 Definition continue := effect "continue" [] None.
-Definition worktree_create := effect "worktree_create" (task_only ++ [Field "backend" (KEnum "local" ["tencent_cvm"]);
- Field "source_root" KText;Field "workspace" KJson]) (Some (Worktree true)).
-Definition worktree_archive := effect "worktree_archive" (task_only ++ [Field "backend" (KEnum "local" ["tencent_cvm"]);
- Field "source_root" KText;Field "root" KText]) (Some (Worktree false)).
+Definition worktree_create := effect "worktree_create" ([Field "backend" (KEnum "local" ["tencent_cvm"])] ++ task_only ++
+ [Field "source_root" KText;Field "workspace" KJson]) (Some (Worktree true)).
+Definition worktree_archive := effect "worktree_archive" ([Field "backend" (KEnum "local" ["tencent_cvm"])] ++ task_only ++
+ [Field "root" KText;Field "source_root" KText]) (Some (Worktree false)).
 Definition task_title := effect "task_title" (identity ++ [model;Field "prompt" KText]) (Some TaskTitle).
 Definition board_text := effect "board_text" [Field "card_id" KNatural;Field "ticket" KNatural;model;
  Field "prompt" KText;Field "retitle" KBool] (Some BoardText).
@@ -66,9 +66,9 @@ Definition chatgpt_cancel := effect "chatgpt_cancel" [Field "operation_id" KNatu
 Definition context_scope := effect "context_scope" (identity ++ [model]) (Some (Compaction false)).
 Definition context_measure := effect "context_measure" (identity ++ [model;history] ++ output ++
  [tools;settings;callable;Field "validating" KBool]) (Some (Compaction false)).
-Definition context_compaction := effect "context_compaction" (identity ++ [model] ++ output ++
- [Field "method" KText;Field "window_tokens" KNatural;Field "output_reserve_tokens" KNatural;
- Field "plan" KJson]) (Some (Compaction true)).
+Definition context_compaction_metadata := identity ++ [model] ++ output ++
+ [Field "method" KText;Field "window_tokens" KNatural;Field "output_reserve_tokens" KNatural].
+Definition context_compaction := effect "context_compaction" (context_compaction_metadata ++ [Field "plan" KJson]) (Some (Compaction true)).
 Definition compaction_clock := Variant "kind" (JString "compaction_clock") [Field "deadline" KNatural] [] None.
 Definition compaction_cancel := effect "compaction_cancel" identity None.
 Definition effects := [observe_context;request_model;reasoning;tool;approval;hook;after_hook;plugin_events;
@@ -86,6 +86,27 @@ Definition audio_rejected := Variant "allowed" (JBool false) [audio_message] [] 
 Definition audio_admission := [audio_allowed;audio_rejected].
 Definition encode (declaration : variant) (values : fields declaration.(payload_fields)) :=
  JObject ((declaration.(tag_field),declaration.(tag_value)) :: encode_fields values).
+Record packet := Packet { packet_declaration : variant; packet_fields : fields (payload_fields packet_declaration) }.
+Definition pack declaration (values : Schema.tuple (payload_fields declaration)) :=
+ Packet declaration (Schema.of_tuple _ values).
+Definition encode_packet value := encode (packet_declaration value) (packet_fields value).
+Definition matches declaration source := match Json.field (tag_field declaration) source with
+ | Some value => Json.equal value (tag_value declaration) | None => false end.
+Definition decode declaration source := match source with
+ | JObject members => if matches declaration source then
+   Schema.decode (payload_fields declaration) (JObject (Json.remove_field (tag_field declaration) members)) else None
+ | _ => None end.
+Record decoder (A : Type) := Decoder {
+ decoder_declaration : variant; decoder_construct : fields (payload_fields decoder_declaration) -> option A
+}.
+Arguments Decoder {A} _ _.
+Arguments decoder_declaration {A} _.
+Arguments decoder_construct {A} _ _.
+Definition decode_cases {A} (cases : list (decoder A)) source :=
+ match find (fun entry => matches (decoder_declaration entry) source) cases with
+ | Some entry => match decode (decoder_declaration entry) source with
+   | Some values => decoder_construct entry values | None => None end
+ | None => None end.
 Fixpoint kind_json (kind : kind) : json := match kind with
  | KText => JString "text" | KBool => JString "boolean" | KNatural => JString "natural"
  | KInteger => JString "integer" | KDecimal => JString "decimal" | KJson => JString "json"

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Kernel Require Import Domain State Codec Tasks CommandExecution.
@@ -34,7 +35,7 @@ Theorem public_missing_work_precedes_graph_capacity_and_semantics : forall reque
  reject "work_not_found" "The Work does not exist." before.
 Proof.
  intros request before owner nodes rules Owner Nodes Rules Missing.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare.
+ unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
  rewrite Owner,Nodes,Rules.
  cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes TaskGraph.declaration_nodes].
  destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed None before)
@@ -52,7 +53,7 @@ Theorem public_graph_capacity_precedes_declaration_semantics : forall request be
  reject "invalid_task_graph" "At most 32 live Task graphs may be installed" before.
 Proof.
  intros request before nodes rules owner Nodes Rules Owner Full.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare.
+ unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
  rewrite Nodes,Rules.
  cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes TaskGraph.declaration_nodes].
  destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed None before)
@@ -70,7 +71,7 @@ Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request bef
  TaskGraph.graph_capacity before = true ->
  TaskGraph.valid_declaration (G.create_task_graph_name request) nodes rules = true ->
  TaskGraph.prepare_nodes (TaskGraph.scope_identity owner) None before
-   (map (TaskGraph.cache_node None before) nodes) = TaskGraph.NodesResolved plans ->
+   (map (TaskGraph.cache_node None before) nodes) = CommandResult.Accepted plans ->
  exists plan : TaskGraph.graph_plan before None owner,
  TaskGraph.cached_source (TaskGraph.checked_cache (TaskGraph.graph_checked plan)) =
    TaskGraph.Declaration (G.create_task_graph_name request) nodes rules /\
@@ -79,7 +80,7 @@ Theorem public_resolved_graph_installs_its_exact_typed_plan : forall request bef
    TaskGraph.install_plan (N.of_nat (List.length (TaskGraph.registry before))) plan.
 Proof.
  intros request before nodes rules owner plans Nodes Rules Owner Capacity Valid Prepared.
- unfold TaskGraph.handle_create_task_graph,TaskGraph.declare.
+ unfold TaskGraph.handle_create_task_graph,TaskGraph.declare,TaskGraph.declare_result.
  rewrite Nodes,Rules.
  cbn [TaskGraph.cache_declaration TaskGraph.cached_nodes TaskGraph.declaration_nodes].
  destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed None before)
@@ -105,44 +106,12 @@ Lemma failed_installation_is_atomic : forall original caller
  bool_default "ok" (decision_reply (TaskGraph.install_cached id owner checked)) false = false ->
  decision_world (TaskGraph.install_cached id owner checked) = original /\
  decision_effects (TaskGraph.install_cached id owner checked) = [].
-Proof.
- intros original caller owner id checked.
- assert (Atomic : forall result (Evidence : TaskGraph.prepare_nodes
-   (TaskGraph.scope_identity owner) caller original
-   (TaskGraph.cached_nodes (TaskGraph.checked_cache checked)) = result),
-   bool_default "ok" (decision_reply (TaskGraph.install_resolution id owner checked result Evidence)) false = false ->
-   decision_world (TaskGraph.install_resolution id owner checked result Evidence) = original /\
-   decision_effects (TaskGraph.install_resolution id owner checked result Evidence) = []).
- { intros [plans|reply] Evidence Failed.
-   - unfold TaskGraph.install_resolution,TaskGraph.install_plan in Failed.
-     cbn [TaskGraph.graph_plans TaskGraph.graph_checked] in Failed.
-     destruct (fold_left (fun progress node=>TaskGraph.birth owner node progress)
-       plans (TaskGraph.initial_births original)) in Failed; discriminate.
-   - split; reflexivity. }
- apply Atomic.
-Qed.
+Proof. intros; now apply CommandResult.a_failed_command_is_atomic. Qed.
 Theorem every_failed_graph_declaration_is_atomic : forall creating id owner name nodes rules caller before,
  let result := TaskGraph.declare creating id owner name nodes rules caller before in
  bool_default "ok" (decision_reply result) false = false ->
  decision_world result = before /\ decision_effects result = [].
-Proof.
- intros creating id owner name nodes rules caller before; cbv zeta.
- unfold TaskGraph.declare.
- destruct (traverse TaskGraph.parse_node nodes) as [parsed_nodes|];
- [destruct (traverse TaskGraph.parse_rule rules) as [parsed_rules|]|];
- try (intros; split; reflexivity).
- destruct (Bool.bool_dec (forallb (TaskGraph.cached_allowed caller before)
-   (TaskGraph.cached_nodes (TaskGraph.cache_declaration caller before
-     (TaskGraph.Declaration name parsed_nodes parsed_rules)))) true) as [Authorized|Denied];
- [|intros; split; reflexivity].
- destruct (TaskGraph.select_owner owner before) as [selected|];
- [|intros; split; reflexivity].
- destruct (negb creating || TaskGraph.graph_capacity before);
- [|intros; split; reflexivity].
- destruct (TaskGraph.construct_cached (TaskGraph.cache_declaration caller before
-   (TaskGraph.Declaration name parsed_nodes parsed_rules)) Authorized) as [checked|];
- [apply failed_installation_is_atomic|intros; split; reflexivity].
-Qed.
+Proof. intros; now apply CommandResult.a_failed_command_is_atomic. Qed.
 Theorem failed_create_graph_keeps_the_complete_world : forall request caller before,
  bool_default "ok" (decision_reply (TaskGraph.handle_create_task_graph request caller before)) false = false ->
  decision_world (TaskGraph.handle_create_task_graph request caller before) = before /\
@@ -182,18 +151,18 @@ Proof.
 Qed.
 Theorem an_ordinary_start_failure_retains_its_declared_error : forall owner caller original key settings cause,
  TaskGraph.prepare_node owner caller original (TaskGraph.CachedSpawn key settings (Tasks.StartRefused cause)) =
- TaskGraph.NodeRefused (failure (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
+ CommandResult.Rejected (CommandResult.Refusal (Tasks.failure_code (Worktree.creation_entry Worktree.GraphTaskCreation caller) cause)
    (Tasks.failure_message cause)).
 Proof. reflexivity. Qed.
 Theorem the_first_refused_node_prevents_every_birth : forall owner caller original node rest reason,
- TaskGraph.prepare_node owner caller original node = TaskGraph.NodeRefused reason ->
- TaskGraph.prepare_nodes owner caller original (node::rest) = TaskGraph.NodesRefused reason.
-Proof. intros; cbn [TaskGraph.prepare_nodes]; now rewrite H. Qed.
+ TaskGraph.prepare_node owner caller original node = CommandResult.Rejected reason ->
+ TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
+Proof. intros; now apply CommandResult.traverse_refuses_first. Qed.
 Theorem later_refusal_prevents_every_birth : forall owner caller original node rest plan reason,
- TaskGraph.prepare_node owner caller original node = TaskGraph.NodeResolved plan ->
- TaskGraph.prepare_nodes owner caller original rest = TaskGraph.NodesRefused reason ->
- TaskGraph.prepare_nodes owner caller original (node::rest) = TaskGraph.NodesRefused reason.
-Proof. intros; cbn [TaskGraph.prepare_nodes]; now rewrite H,H0. Qed.
+ TaskGraph.prepare_node owner caller original node = CommandResult.Accepted plan ->
+ TaskGraph.prepare_nodes owner caller original rest = CommandResult.Rejected reason ->
+ TaskGraph.prepare_nodes owner caller original (node::rest) = CommandResult.Rejected reason.
+Proof. intros; eapply CommandResult.traverse_refuses_tail; eassumption. Qed.
 
 Theorem public_idle_profile_failure_precedes_work_lookup : forall request before cause,
  CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.IdleTaskCreation None)

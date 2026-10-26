@@ -1,5 +1,7 @@
+From Selvedge.Kernel Require Import FeatureAuthorityProofs TaskAuthorityProofs.
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.Foundation Require Import Json JsonProofs KeyedListProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Domain Codec State Inputs Tasks ContextSelection
  WorldInvariant WorldInvariantProofs CommitAdmission CommitAdmissionProofs AfterHookAuthorizationProofs
@@ -8,32 +10,16 @@ From Selvedge.Features Require Import Worktree.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
 
-Lemma an_unchanged_task_retains_authority_across_feature_updates :
- forall source raw before owner old_features new_features task,
- CommitAdmission.retained_task source raw before owner old_features new_features task task = true.
-Proof.
- intros; unfold CommitAdmission.retained_task.
- rewrite the_same_lineage_has_the_same_ancestors,
-   the_same_creation_contract_has_the_same_configuration,
-   the_same_profile_has_the_same_configuration,
-   the_same_settings_have_the_same_configuration,
-   the_same_history_retains_its_captured_prefix.
- cbn -[CommitAdmission.same_content_lists].
- destruct (task_lifecycle task) eqn:Phase; unfold CommitAdmission.same_archived_task;
-   rewrite Phase; try reflexivity.
- rewrite the_same_history_retains_its_captured_prefix.
- unfold CommitAdmission.archived_suffix_valid; rewrite skipn_all; cbn -[CommitAdmission.same_content_lists].
- rewrite the_same_queued_content_is_retained; reflexivity.
-Qed.
+Definition an_unchanged_task_retains_authority_across_feature_updates :=
+ FeatureAuthorityProofs.a_task_keeps_authority_across_other_features.
 
 Lemma appending_a_birth_retains_all_old_task_authorities :
  forall source raw before owner old_features new_features entries suffix,
  CommitAdmission.retained_tasks_from source raw before owner old_features new_features
    entries (entries ++ suffix) = true.
 Proof.
- intros source raw before owner old_features new_features entries; revert owner.
- induction entries; intros; cbn [CommitAdmission.retained_tasks_from app]; [reflexivity|].
- rewrite an_unchanged_task_retains_authority_across_feature_updates, IHentries; reflexivity.
+ intros; apply appending_tasks_keeps_retained_registry_authority,
+   unchanged_tasks_keep_authority_across_other_features.
 Qed.
 
 Lemma a_fresh_resource_retains_all_existing_resources : forall entries tree,
@@ -49,13 +35,9 @@ Proof.
    { apply N.eqb_neq; intro Same; apply Fresh; rewrite <- Same; apply in_map; exact Member. }
    rewrite Different.
    apply a_unique_registry_key_finds_its_own_entry; assumption. }
- assert (Retained : forall todo, (forall entry, In entry todo -> In entry entries) ->
-   CommitAdmission.retained_worktrees todo (tree :: entries) = true).
- { induction todo as [|entry rest IH]; intros Member; [reflexivity|].
-   cbn [CommitAdmission.retained_worktrees]; rewrite Lookup by (apply Member; left; reflexivity).
-   unfold CommitAdmission.retained_worktree; rewrite !String.eqb_refl; cbn.
-   apply IH; intros; apply Member; right; assumption. }
- apply Retained; auto.
+ apply keyed_retention_follows_each_lookup; intros entry Member.
+ rewrite Lookup by exact Member.
+ unfold CommitAdmission.retained_worktree; now rewrite !String.eqb_refl.
 Qed.
 
 Lemma a_fresh_resource_store_preserves_feature_authority : forall before tree,
@@ -121,15 +103,8 @@ Proof.
    exact Valid.
 Qed.
 
-Lemma an_unchanged_world_preserves_cross_state_authority : forall source raw before,
- WorldInvariant.well_formed before -> CommitAdmission.world_evolution source raw before before = true.
-Proof.
- intros source raw before Valid.
- unfold CommitAdmission.world_evolution, CommitAdmission.retained_tasks.
- rewrite identical_registries_retain_every_configuration, !N.leb_refl; cbn.
- exact (well_formed_features_admit_their_unchanged_configuration _
-   (WorldInvariant.features_requirement before Valid)).
-Qed.
+Definition an_unchanged_world_preserves_cross_state_authority :=
+ FeatureAuthorityProofs.an_unchanged_world_preserves_cross_state_authority.
 
 Theorem every_creation_candidate_preserves_retained_execution_authority :
  forall source raw request before,
@@ -137,12 +112,13 @@ Theorem every_creation_candidate_preserves_retained_execution_authority :
  CommitAdmission.world_evolution source raw before
    (decision_world (CreationCommit.candidate request before)) = true.
 Proof.
- intros source raw request before Valid.
- unfold CreationCommit.candidate, Worktree.handle_create, CommandExecution.with_content.
+ intros source raw request before Valid; unfold CreationCommit.candidate.
+ rewrite CommandResult.appending_effects_keeps_the_committed_world.
+ unfold Worktree.handle_create_result, CommandExecution.content_result.
  destruct (CommandExecution.user_content _ _) as [contents|];
    [|apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
- unfold Worktree.create_selected, Worktree.create_selected_result,
-   Worktree.create_intent_result, Worktree.resolve_start_birth.
+ cbn [CommandResult.bind].
+ unfold Worktree.create_selected_result, Worktree.create_intent_result, Worktree.resolve_start_birth.
  destruct (CommandExecution.resolve_context_start
    (Worktree.creation_entry Worktree.ImplicitCreation None)
    (Commands.create_profile request) (Commands.create_reasoning request) contents
@@ -150,17 +126,12 @@ Proof.
    [apply an_unchanged_world_preserves_cross_state_authority; exact Valid|].
  cbn [Worktree.start_allowed CommandExecution.creation_allowed].
  unfold Worktree.prepare_scoped.
- destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before) as [plan|reply];
-   [|cbn [Worktree.creation_decision decision_reply]; destruct (bool_default "ok" reply false); apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
+ destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before) as [plan|reason];
+   [|apply an_unchanged_world_preserves_cross_state_authority; exact Valid].
  cbn [Worktree.final_authority].
  change (CommitAdmission.world_evolution source raw before
-   (decision_world (let born := Worktree.consume_planned_start plan before in
-    if bool_default "ok" (decision_reply born) false then
-      Decision (decision_world born) (decision_reply born) (decision_effects born ++ [ContinueScheduling])
-    else born)) = true).
- cbv zeta.
- destruct (bool_default "ok" (decision_reply (Worktree.consume_planned_start plan before)) false);
-   apply every_planned_birth_preserves_cross_state_authority; exact Valid.
+   (decision_world (Worktree.consume_planned_start plan before)) = true).
+ apply every_planned_birth_preserves_cross_state_authority; exact Valid.
 Qed.
 
 Lemma every_planned_birth_effect_has_its_inference_history_bound : forall before (plan : Worktree.planned_start before) after,
@@ -172,31 +143,20 @@ Proof.
  destruct resource; repeat constructor.
 Qed.
 
+Lemma every_scoped_birth_effect_has_its_inference_history_bound : forall origin before
+ (birth : Worktree.start_transition origin before) after,
+ Forall (CommitAdmissionProofs.inference_history_bound after) (Worktree.transition_effects birth).
+Proof.
+ intros origin before [[task resource] owner works frame] after.
+ destruct resource; repeat constructor.
+Qed.
 Theorem every_creation_candidate_effect_has_its_inference_history_bound : forall request before after,
  Forall (CommitAdmissionProofs.inference_history_bound after)
    (decision_effects (CreationCommit.candidate request before)).
 Proof.
- intros request before after.
- unfold CreationCommit.candidate, Worktree.handle_create, CommandExecution.with_content.
- destruct (CommandExecution.user_content _ _) as [contents|]; [|repeat constructor].
- unfold Worktree.create_selected, Worktree.create_selected_result,
-   Worktree.create_intent_result, Worktree.resolve_start_birth.
- destruct (CommandExecution.resolve_context_start
-   (Worktree.creation_entry Worktree.ImplicitCreation None)
-   (Commands.create_profile request) (Commands.create_reasoning request) contents
-   (Commands.create_settings request) false None before) as [cause|start]; [repeat constructor|].
- cbn [Worktree.start_allowed CommandExecution.creation_allowed].
- unfold Worktree.prepare_scoped.
- destruct (Worktree.prepare_resolved Worktree.ImplicitCreation None None start before) as [plan|reply].
- - cbn [Worktree.final_authority].
-   change (Forall (CommitAdmissionProofs.inference_history_bound after)
-     (decision_effects (let born := Worktree.consume_planned_start plan before in
-      if bool_default "ok" (decision_reply born) false then
-        Decision (decision_world born) (decision_reply born) (decision_effects born ++ [ContinueScheduling])
-      else born))).
-   cbv zeta.
-   destruct (bool_default "ok" (decision_reply (Worktree.consume_planned_start plan before)) false); cbn.
-   + apply Forall_app; split; [apply every_planned_birth_effect_has_its_inference_history_bound|repeat constructor].
-   + apply every_planned_birth_effect_has_its_inference_history_bound.
- - cbn [Worktree.creation_decision decision_reply]; destruct (bool_default "ok" reply false); repeat constructor.
+ intros request before after; unfold CreationCommit.candidate.
+ destruct (Worktree.handle_create_result request None before) as [birth|reason]; [|constructor].
+ change (Forall (CommitAdmissionProofs.inference_history_bound after)
+   (Worktree.transition_effects birth ++ [ContinueScheduling])).
+ apply Forall_app; split; [apply every_scoped_birth_effect_has_its_inference_history_bound|repeat constructor].
 Qed.

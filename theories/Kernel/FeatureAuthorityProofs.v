@@ -1,6 +1,6 @@
 From Stdlib Require Import List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Numbers Domain State CommitAdmission AfterHookAuthorizationProofs.
+From Selvedge.Kernel Require Import Numbers Domain State CommitAdmission AfterHookAuthorizationProofs TaskAuthorityProofs.
 Module A := CommitAdmission.
 
 Lemma a_task_keeps_authority_across_other_features : forall source raw before owner old_features next_features current,
@@ -18,9 +18,10 @@ Qed.
 
 Lemma unchanged_tasks_keep_authority_across_other_features : forall source raw before owner old_features next_features entries,
  A.retained_tasks_from source raw before owner old_features next_features entries entries=true.
-Proof. intros source raw before owner old_features next_features entries; revert owner;
- induction entries; intros; cbn [A.retained_tasks_from];
- rewrite ?a_task_keeps_authority_across_other_features,?IHentries; reflexivity. Qed.
+Proof.
+ intros; apply retained_task_registries_follow_lookups; intros offset current Found.
+ exists current; split; [exact Found|apply a_task_keeps_authority_across_other_features].
+Qed.
 
 
 Lemma replacing_one_task_keeps_authority_across_other_features :
@@ -29,11 +30,15 @@ Lemma replacing_one_task_keeps_authority_across_other_features :
  (forall actual, A.retained_task source raw before actual old_features next_features current replacement = true) ->
  A.retained_tasks_from source raw before first old_features next_features values (replace owner replacement values) = true.
 Proof.
- intros source raw before first old_features next_features values; revert first.
- induction values as [|head rest IH]; intros first owner current replacement Found Authority; [discriminate|].
- cbn [registry_at] in Found; cbn [replace]; destruct (N.eqb owner 0).
- - inversion Found; subst head; cbn [A.retained_tasks_from].
-   rewrite Authority, unchanged_tasks_keep_authority_across_other_features; reflexivity.
- - cbn [A.retained_tasks_from]. rewrite a_task_keeps_authority_across_other_features; cbn.
-   eapply IH; eassumption.
+ intros; eapply replacing_one_task_lifts_indexed_authority;
+   [intros; apply a_task_keeps_authority_across_other_features|eassumption|auto].
+Qed.
+
+Lemma an_unchanged_world_preserves_cross_state_authority : forall source raw before,
+ WorldInvariant.well_formed before -> A.world_evolution source raw before before = true.
+Proof.
+ intros source raw before Valid; unfold A.world_evolution,A.retained_tasks.
+ rewrite unchanged_tasks_keep_authority_across_other_features,!N.leb_refl; cbn.
+ exact (well_formed_features_admit_their_unchanged_configuration _
+   (WorldInvariant.features_requirement before Valid)).
 Qed.

@@ -259,33 +259,9 @@ Proof.
  exists value; repeat split; assumption.
 Qed.
 
-Local Lemma context_diagnostic_preserves_the_task_contract : forall message task,
- task_contract (Callbacks.record_context_diagnostic message task) = task_contract task.
-Proof.
- intros; rewrite !record_context_diagnostic_expression.
- destruct (existsb _ _); reflexivity.
-Qed.
-
-Local Lemma context_diagnostics_preserve_the_task_contract : forall messages task,
- task_contract (fold_left (fun task message => Callbacks.record_context_diagnostic message task) messages task) =
- task_contract task.
-Proof.
- induction messages as [|message rest IH]; intro task; [reflexivity|].
- cbn [fold_left]; rewrite IH; apply context_diagnostic_preserves_the_task_contract.
-Qed.
-
 Local Lemma observing_context_preserves_the_task_contract : forall phase task,
  task_contract (with_activity phase task) = task_contract task.
 Proof. intros; unfold with_activity; destruct (task_lifecycle task); reflexivity. Qed.
-
-Local Lemma actual_observations_preserve_the_task_contract : forall observations diagnostic task,
- task_contract (snd (Callbacks.observed_context observations diagnostic task)) = task_contract task.
-Proof.
- intros [observations|] diagnostic task; rewrite !observed_context_expression.
- - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history task))) as [changes diagnostics].
-   cbn [snd]. rewrite context_diagnostics_preserve_the_task_contract; reflexivity.
- - cbn [snd]. apply context_diagnostic_preserves_the_task_contract.
-Qed.
 
 Local Lemma context_ready_preserves_the_frozen_contract : forall accepted id task value,
  find_task id value = Some task ->

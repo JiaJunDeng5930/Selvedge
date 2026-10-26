@@ -15,13 +15,12 @@ Fixpoint kind_schema (kind : kind) : list (string * json) :=
   | KOptional element => [("anyOf",JArray [JObject (kind_schema element);JObject [("type",JString "null")]])]
   | KEnum first rest => [("type",JString "string");("enum",JArray (map JString (first::rest)))]
   end.
-Definition optional_kind kind := match kind with KOptional _ => true | _ => false end.
+Definition optional_kind := Schema.optional_kind.
 Definition object_fields (properties : list (string * json)) (required : list string) :=
   [("type",JString "object");("additionalProperties",JBool false);
     ("properties",JObject properties);("required",JArray (map JString required))].
 Definition object_schema properties required := JObject (object_fields properties required).
-Definition present_kind (description : kind) := match description with
- | KOptional value => value | _ => description end.
+Definition present_kind := Schema.present_kind.
 Definition present_schema (description : kind) :=
  let description := present_kind description in
  match description with

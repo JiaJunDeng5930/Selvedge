@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State Inputs Dispatch WorldInvariant CommitAdmission Delivery Notifications.
@@ -11,6 +12,9 @@ Definition continue (result : decision) :=
      (decision_effects result ++ [ContinueScheduling])
  else result.
 
+Definition continue_result (before : world) (result : CommandResult.result CommandResult.change) :=
+ CommandResult.commit before (CommandResult.append_effects [ContinueScheduling]) result.
+
 Definition admit_with_status (durable : bool) (source : option input) (raw : json)
  (before : world) (result : decision) :=
  let result := Dispatch.retain_live_effects result in
@@ -19,7 +23,7 @@ Definition admit_with_status (durable : bool) (source : option input) (raw : jso
  let '(fits,result) := Delivery.deliver_with_status durable result before in
  (valid && authorized && fits,result).
 
+Definition select (durable : bool) (source : option input) (raw : json) (before : world) (candidate : decision) :=
+ CommitPacket.choose durable source (admit_with_status durable source raw before candidate).
 Definition packet (source : option input) (raw : json) (before : world) (candidate : decision) : world * json :=
- let '(admitted,result) := admit_with_status true source raw before candidate in
- (with_sequence (N.succ (world_sequence before)) (decision_world result),
-  Notifications.envelope true admitted source before result).
+ CommitPacket.finalize before (select true source raw before candidate).

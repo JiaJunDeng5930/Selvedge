@@ -3,7 +3,7 @@ From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs
  ContextSelection WorldInvariant ForkPreservation ForkLineageProofs
- CommitAdmission AfterHookAuthorizationProofs.
+ CommitAdmission AfterHookAuthorizationProofs TaskAuthorityProofs FeatureAuthorityProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -42,18 +42,13 @@ Lemma retained_task_prefix_ignores_new_births : forall source raw before owner f
  CommitAdmission.retained_tasks_from source raw before owner features features old next = true ->
  CommitAdmission.retained_tasks_from source raw before owner features features old (next ++ suffix) = true.
 Proof.
- intros source raw before owner features old; revert owner.
- induction old as [|first rest IH]; intros owner next suffix Valid; [reflexivity|].
- destruct next as [|next remaining]; [discriminate|].
- cbn [CommitAdmission.retained_tasks_from app] in *.
- apply andb_true_iff in Valid as [Head Tail]; rewrite Head; cbn; apply IH; exact Tail.
+ intros; eapply appending_tasks_keeps_retained_registry_authority; eassumption.
 Qed.
 
 Lemma identical_registries_retain_every_configuration : forall source raw before owner features values,
  CommitAdmission.retained_tasks_from source raw before owner features features values values = true.
 Proof.
- intros source raw before owner features values; revert owner; induction values as [|value rest IH]; intro owner; [reflexivity|].
- cbn [CommitAdmission.retained_tasks_from]; rewrite a_task_is_its_own_retained_configuration, IH; reflexivity.
+ intros; apply unchanged_tasks_keep_authority_across_other_features.
 Qed.
 
 Lemma replacing_one_configuration_lifts_its_authority :
@@ -62,13 +57,8 @@ Lemma replacing_one_configuration_lifts_its_authority :
  (forall owner, CommitAdmission.retained_task source raw before owner features features old next = true) ->
  CommitAdmission.retained_tasks_from source raw before owner features features values (replace selected next values) = true.
 Proof.
- intros source raw before owner features values; revert owner.
- induction values as [|first rest IH]; intros owner selected old next Found Authority; [discriminate|].
- cbn [registry_at] in Found; cbn [replace]; destruct (N.eqb selected 0).
- - inversion Found; subst first; cbn [CommitAdmission.retained_tasks_from].
-   rewrite Authority, identical_registries_retain_every_configuration; reflexivity.
- - cbn [CommitAdmission.retained_tasks_from].
-   rewrite a_task_is_its_own_retained_configuration; cbn. eapply IH; eassumption.
+ intros; eapply replacing_one_task_lifts_indexed_authority;
+   [intros; apply a_task_is_its_own_retained_configuration|eassumption|auto].
 Qed.
 
 Theorem a_constructed_fork_preserves_every_retained_execution_authority :

@@ -1,6 +1,7 @@
-From Selvedge.Foundation Require Import RegistryProofs.
+From Selvedge.Kernel Require CommandResult.
+From Selvedge.Foundation Require Import RegistryProofs KeyedListProofs.
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json.
+From Selvedge.Foundation Require Import Json JsonProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain State Codec WorkspaceBackend LifecycleProofs Tasks.
 From Selvedge.Features Require Import Domain Worktree WorkspaceBinding Runtime.
@@ -68,20 +69,6 @@ Proof.
  apply filter_In in member as [_ different].
  apply Bool.negb_true_iff in different; apply N.eqb_neq in different; congruence.
 Qed.
-Lemma find_other_resource_after_filter : forall entries id owner,
- id <> owner ->
- find (fun tree => N.eqb id (F.worktree_task tree))
-   (filter (fun tree => negb (N.eqb owner (F.worktree_task tree))) entries) =
- find (fun tree => N.eqb id (F.worktree_task tree)) entries.
-Proof.
- induction entries as [|tree rest IH]; intros id owner different; [reflexivity|].
- cbn. destruct (N.eqb owner (F.worktree_task tree)) eqn:owned; cbn.
- - apply N.eqb_eq in owned.
-   assert (N.eqb id (F.worktree_task tree) = false) as other.
-   { apply N.eqb_neq; congruence. }
-   rewrite other; apply IH; exact different.
- - destruct (N.eqb id (F.worktree_task tree)); [reflexivity|apply IH; exact different].
-Qed.
 Theorem store_preserves_other_resource_lookups : forall tree value id,
  id <> F.worktree_task tree ->
  Worktree.lookup id (Worktree.store tree value) = Worktree.lookup id value.
@@ -90,7 +77,8 @@ Proof.
  unfold Worktree.lookup, Worktree.store, Selvedge.Kernel.State.with_features,
    Selvedge.Features.State.with_worktrees; cbv [set]; cbn.
  assert (N.eqb id (F.worktree_task tree) = false) as other by (apply N.eqb_neq; exact different).
- rewrite other; apply find_other_resource_after_filter; exact different.
+ rewrite other; eapply filtering_another_key_preserves_lookup;
+   [intros; now apply N.eqb_eq|exact different].
 Qed.
 (** Restoring just the registry restores the entire world, including all other
     feature components and the kernel. This subsumes the old per-field frames. *)
@@ -587,46 +575,32 @@ Proof.
    apply planned_birth_preserves_existing_tasks; exact IH.
 Qed.
 
-(** Failure rendering remains attached to the actual typed resolvers.  A
-    caller can branch on Created without inferring creation from reply JSON. *)
-Lemma resolved_start_replies_are_failures : forall intent managed backend start before,
- match Worktree.prepare_resolved intent managed backend start before with
- | Worktree.Planned _ => True
- | Worktree.PlanningFailed reply => bool_default "ok" reply false = false end.
+(** Refusals have no state or effects by construction, independently of the
+    number of resolution and authorization stages preceding the boundary. *)
+Theorem failed_selected_creation_is_atomic : forall name effort contents settings idle caller managed before,
+ bool_default "ok" (decision_reply (Worktree.create_selected name effort contents settings idle caller managed before)) false = false ->
+ decision_world (Worktree.create_selected name effort contents settings idle caller managed before) = before /\
+ decision_effects (Worktree.create_selected name effort contents settings idle caller managed before) = [].
+Proof. intros; now apply CommandResult.a_failed_commit_is_atomic. Qed.
+Theorem rejected_selected_creation_has_a_failure_reply : forall name effort contents settings idle caller managed before reason,
+ Worktree.create_selected_result name effort contents settings idle caller managed before = CommandResult.Rejected reason ->
+ bool_default "ok" (decision_reply (Worktree.create_selected name effort contents settings idle caller managed before)) false = false.
 Proof.
- intros. unfold Worktree.prepare_resolved.
- destruct (Worktree.select_creation_plan before (Tasks.start_settings start) managed backend) as [plan|];
- [|reflexivity].
- generalize (eq_refl (Worktree.resource_error intent before (Tasks.start_settings start) plan)).
- generalize (Worktree.resource_error intent before (Tasks.start_settings start) plan) at 2 3.
- intros [cause|] Admitted; [reflexivity|exact I].
+ intros; unfold Worktree.create_selected, Worktree.creation_decision; rewrite H; reflexivity.
 Qed.
-Lemma scoped_start_replies_are_failures : forall intent caller managed backend start before,
- match Worktree.prepare_scoped intent caller managed backend start before with
- | Worktree.ScopedPlanned _ => True
- | Worktree.ScopedPlanningFailed reply => bool_default "ok" reply false = false end.
+
+(** A refusal has no candidate workspace change to re-admit. *)
+Lemma unchanged_worlds_keep_their_workspace_admission : forall before reply effects,
+ Worktree.guard_result before (Decision before reply effects) = Decision before reply effects.
 Proof.
- intros. pose proof (resolved_start_replies_are_failures intent managed backend start before) as Refused.
- unfold Worktree.prepare_scoped.
- destruct (Worktree.prepare_resolved intent managed backend start before) as [plan|reply]; [|exact Refused].
- destruct (Bool.bool_dec (Worktree.final_authority caller plan) true); [exact I|reflexivity].
-Qed.
-Theorem rejected_selected_creation_has_a_failure_reply : forall name effort contents settings idle caller managed before reply,
- Worktree.create_selected_result name effort contents settings idle caller managed before = Worktree.CreationRejected reply ->
- bool_default "ok" reply false = false.
-Proof.
- intros name effort contents settings idle caller managed before reply Rejected.
- unfold Worktree.create_selected_result,Worktree.create_intent_result,Worktree.resolve_start_birth in Rejected.
- destruct (CommandExecution.resolve_context_start
-  (Worktree.creation_entry (if idle then Worktree.IdleTaskCreation else Worktree.ImplicitCreation) caller)
-  name effort contents settings idle caller before) as [cause|start];
- [inversion Rejected; reflexivity|].
- destruct (Worktree.start_allowed settings caller before (Tasks.StartResolved start));
- [|inversion Rejected; reflexivity].
- pose proof (scoped_start_replies_are_failures
-  (if idle then Worktree.IdleTaskCreation else Worktree.ImplicitCreation) caller managed None start before) as Refused.
- destruct (Worktree.prepare_scoped
-  (if idle then Worktree.IdleTaskCreation else Worktree.ImplicitCreation) caller managed None start before)
-  as [plan|failure]; [discriminate|].
- inversion Rejected; subst failure; exact Refused.
+ intros before reply effects; unfold Worktree.guard_result; cbn [decision_world].
+ match goal with |- (if ?checked then _ else _) = _ => assert (Checked : checked = true) end.
+ { apply forallb_forall; intros [owner current] Member.
+   destruct (indexed_members_have_actual_positions _ _ _ _ _ _ Member) as [position [selected [Found Same]]].
+   rewrite N.add_0_l in Same; inversion Same; subst owner selected.
+   change (find_task position before = Some current) in Found.
+   cbn beta iota zeta delta [fst snd]; rewrite Found,JsonProofs.equal_is_reflexive.
+   unfold Workspace.same_resource; destruct (settings_resource (task_current_settings current));
+     cbn; rewrite ?N.eqb_refl; reflexivity. }
+ now rewrite Checked.
 Qed.

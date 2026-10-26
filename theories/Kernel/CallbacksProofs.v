@@ -1,3 +1,4 @@
+From Selvedge.Foundation Require Import SequenceProofs.
 From Selvedge.Kernel Require Import CallbackChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
@@ -73,27 +74,14 @@ Proof.
    cbn; rewrite <- app_assoc; reflexivity.
 Qed.
 
-Lemma distinct_ticket_prefix_and_suffix : forall (left right : list N),
- NoDup (left ++ right) ->
- NoDup left /\ NoDup right /\
- (forall ticket, In ticket left -> ~ In ticket right).
-Proof.
- intros left; induction left as [|first rest IH]; intros right Unique.
- - cbn in *; repeat split; auto; constructor.
- - cbn in Unique; inversion Unique as [|? ? Fresh Tail]; subst.
-   destruct (IH right Tail) as [Prefix [Suffix Disjoint]].
-   split; [constructor; [intro Member; apply Fresh; apply in_or_app; auto|exact Prefix]|].
-   split; [exact Suffix|]. intros ticket [Same|Member] Later.
-   + subst ticket; apply Fresh; apply in_or_app; right; exact Later.
-   + exact (Disjoint ticket Member Later).
-Qed.
+Definition distinct_ticket_prefix_and_suffix := SequenceProofs.distinct_app_parts N.
 
 Lemma executing_ticket_belongs_to_the_operation : forall ticket operation,
  Callbacks.operation_executing ticket operation = true ->
  In ticket (WorldInvariant.operation_tickets operation).
 Proof.
  intros ticket operation Executing.
- unfold Callbacks.operation_executing in Executing.
+ unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver in Executing.
  unfold WorldInvariant.operation_tickets.
  destruct (operation_stage operation) as [expected|expected actor|actor|expected actor|pending result error|expected plugin pending result error];
    try discriminate;
@@ -129,14 +117,7 @@ Proof.
    try rewrite Executes; apply IH; assumption.
 Qed.
 
-Lemma a_registry_lookup_is_a_member : forall (A : Type) (values : list A) index selected,
- registry_at index values = Some selected -> In selected values.
-Proof.
- intros A values; induction values as [|first rest IH]; intros index selected Found;
-   cbn in Found; [discriminate|].
- destruct (N.eqb index 0); [inversion Found; subst; left; reflexivity|].
- right; eapply IH; exact Found.
-Qed.
+Definition a_registry_lookup_is_a_member := @RegistryProofs.registry_lookup_is_member.
 
 Lemma distinct_flattened_tickets_include_each_owner : forall (A : Type)
  (tickets : A -> list N) owners owner,
@@ -196,7 +177,9 @@ Theorem a_frozen_idle_result_records_demand_and_keeps_its_operations :
  task_lifecycle (Tasks.wake_after_result task) = Frozen WantsModel operations /\
  task_operations (Tasks.wake_after_result task) = operations.
 Proof.
- intros task operations Frozen. rewrite waking_result_expression, Frozen.
+ intros task operations Frozen; unfold Tasks.wake_after_result, Tasks.wake_after_result_changes.
+ rewrite Frozen; cbn [TaskChange.apply TaskChange.apply_edit fold_left].
+ unfold with_activity; rewrite Frozen.
  split; reflexivity.
 Qed.
 

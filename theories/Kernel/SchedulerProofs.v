@@ -214,10 +214,10 @@ Proof.
  intros task operations operation Pending Member NeedsModel.
  assert (Promoted : task_lifecycle (Tasks.promote task) = Running WantsModel operations \/
    task_lifecycle (Tasks.promote task) = Running (PendingCalls []) operations).
- { rewrite promotion_expression, Pending.
+ { unfold Tasks.promote, Tasks.promote_changes; rewrite Pending.
    destruct (task_queued task) as [|first rest].
    - right; exact Pending.
-   - left; apply lifecycle_after_with_lifecycle. }
+   - left; cbn [TaskChange.apply TaskChange.apply_edit fold_left]; unfold with_activity; rewrite Pending; reflexivity. }
  assert (PromotedOperations : task_operations (Tasks.promote task) = operations).
  { destruct Promoted as [Promoted|Promoted];
      unfold Domain.task_operations; rewrite Promoted; reflexivity. }

@@ -5,6 +5,11 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 Module D := ArgumentDeclaration.
+Lemma check_text_reflects : forall constraints source,
+ D.check (D.Text constraints) (JString source) = D.check_text constraints source.
+Proof.
+ intros; unfold D.check; cbn [D.decode]; destruct (D.check_text constraints source); reflexivity.
+Qed.
 Definition natural_spelling_roundtrip := NumbersProofs.natural_print_parse.
 Lemma natural_schema_interpreted : forall fuel lower upper,
  lower <= upper ->

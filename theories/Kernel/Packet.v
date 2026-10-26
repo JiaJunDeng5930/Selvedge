@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json TextJson.
 From Selvedge.Generated Require Import Commands.
@@ -116,23 +117,23 @@ Definition deferred_candidate (decoded : option Inputs.input) (value : world)
  | Some accepted => Some (TerminalSettlement.source accepted, TerminalSettlement.candidate accepted)
  | None => None
  end end end end end end.
-Definition packet_admitted (source : json) (admission : InputDecoder.admitted_input source)
- (value : world) : world * json :=
+Definition select_admitted (source : json) (admission : InputDecoder.admitted_input source)
+ (value : world) : CommitPacket.selected :=
  let decoded := InputDecoder.admitted_value admission in
  match manual_fork_input decoded with
- | Some request => ForkCommit.packet request value
+ | Some request => ForkCommit.select request value
  | None => match CreationCommit.input decoded with
- | Some request => CreationCommit.packet request value
+ | Some request => CreationCommit.select request value
  | None => match deferred_candidate decoded value with
- | Some (input,candidate) => DeferredCommit.packet (Some input) source value candidate
+ | Some (input,candidate) => DeferredCommit.select true (Some input) source value candidate
  | None =>
  let '(durable,schedules,input,result) := transition_decoded decoded source value in
  let result := prepare schedules input result in
- let '(admitted,result) := admit_with_status durable input source value result in
- let committed := if durable then with_sequence (N.succ (world_sequence value)) (decision_world result)
-   else decision_world result in
- (committed,Notifications.envelope durable admitted input value result)
+ DeferredCommit.select durable input source value result
  end end end.
+Definition packet_admitted (source : json) (admission : InputDecoder.admitted_input source)
+ (value : world) : world * json :=
+ CommitPacket.finalize value (select_admitted source admission value).
 Definition packet (source : json) (value : world) : world * json :=
  if N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes then
  packet_admitted source (InputDecoder.admit source) value
@@ -141,6 +142,6 @@ Theorem actual_packet_uses_complete_input_admission : forall source admission va
  packet_admitted source admission value =
  packet_admitted source (InputDecoder.admit source) value.
 Proof.
- intros source admission value; unfold packet_admitted.
+ intros source admission value; unfold packet_admitted, select_admitted.
  rewrite InputDecoder.admitted_input_is_its_decoder_result; reflexivity.
 Qed.

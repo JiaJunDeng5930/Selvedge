@@ -1,51 +1,12 @@
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Domain State WorldInvariant WorldInvariantProofs CommitAdmission
- AfterHookAuthorizationProofs FeatureAuthorityProofs FeatureFrameProofs BoardCommit DeferredCommit DeferredCommitProofs Dispatch Delivery Notifications.
+ AfterHookAuthorizationProofs FeatureAuthorityProofs FeatureFrameProofs BoardCommit DeferredCommit DeferredCommitProofs FeatureAdmissionProofs Dispatch Delivery Notifications.
 From Selvedge.Features Require Import Board Domain.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
-
-Lemma storing_board_keeps_task_requirements : forall board owner task before,
- WorldInvariant.task_valid owner task (Board.store board before) =
- WorldInvariant.task_valid owner task before.
-Proof. reflexivity. Qed.
-
-Lemma storing_board_keeps_registry_requirements : forall entries board owner before,
- WorldInvariant.tasks_valid owner entries (Board.store board before) =
- WorldInvariant.tasks_valid owner entries before.
-Proof.
- induction entries; intros; cbn [WorldInvariant.tasks_valid]; [reflexivity|].
- rewrite storing_board_keeps_task_requirements, IHentries; reflexivity.
-Qed.
-
-Lemma storing_board_keeps_title_requirements : forall board before,
- WorldInvariant.titles_valid (Board.store board before) = WorldInvariant.titles_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_board_keeps_worktree_requirements : forall board before,
- WorldInvariant.worktrees_valid (Board.store board before) = WorldInvariant.worktrees_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_board_keeps_sharing_requirements : forall board before,
- WorldInvariant.sharing_valid (Board.store board before) = WorldInvariant.sharing_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_board_keeps_graph_requirements : forall board before,
- WorldInvariant.graph_registry_valid (Board.store board before) = WorldInvariant.graph_registry_valid before.
-Proof.
- intros; unfold WorldInvariant.graph_registry_valid.
- assert (Frame : forall entries owner,
-   WorldInvariant.graphs_valid owner entries (Board.store board before) =
-   WorldInvariant.graphs_valid owner entries before).
- { induction entries; intros; cbn [WorldInvariant.graphs_valid]; [reflexivity|].
-   rewrite IHentries. destruct a; reflexivity. }
- rewrite Frame; reflexivity.
-Qed.
-Lemma storing_board_keeps_work_requirements : forall board before,
- WorldInvariant.works_valid (Board.store board before) = WorldInvariant.works_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_board_keeps_compaction_requirements : forall board before,
- WorldInvariant.compaction_valid (Board.store board before) = WorldInvariant.compaction_valid before.
-Proof. reflexivity. Qed.
 
 Definition fresh_card (draft : F.card_draft) (now : N) :=
  F.Card 0 draft None false now now F.NoEnrichment "" false.
@@ -104,8 +65,16 @@ Theorem unassisted_card_creation_constructs_the_exact_card : forall input suppli
  accept (Board.result (fresh_card_id before) (fresh_card draft now)) (append_card draft now before) [].
 Proof.
  intros input supplied profile before now draft Clock Parsed Valid Capacity Identity.
- unfold Board.create_card, Board.at_clock; rewrite Clock, Parsed; cbn -[Board.valid_draft Nat.ltb N.ltb List.length filter Board.registry].
- fold (fresh_card_id before). rewrite Valid, Capacity, Identity; reflexivity.
+ unfold Board.create_card, Board.create_card_result.
+ eapply observe_present; [exact Clock|]; intros ObservedClock.
+ eapply observe_present; [exact Parsed|]; intros ObservedDraft.
+ apply require_satisfied.
+ - change (Board.valid_draft draft before && Nat.ltb (BoardDrafting.live_count before) 512 &&
+     N.ltb (BoardDrafting.fresh_id before) 4294967295 = true).
+   change (Nat.ltb (BoardDrafting.live_count before) 512 = true) in Capacity.
+   change (N.ltb (BoardDrafting.fresh_id before) 4294967295 = true) in Identity.
+   now rewrite Valid,Capacity,Identity.
+ - intros Accepted; reflexivity.
 Qed.
 
 Lemma present_cards_after_an_append : forall (entries : list (option F.card)) (card : F.card),
@@ -226,24 +195,19 @@ Lemma storing_a_board_preserves_every_other_world_requirement : forall board bef
  WorldInvariant.world_valid (Board.store board before) = true.
 Proof.
  intros board before Before BoardValid Tickets.
- unfold WorldInvariant.world_valid in Before |- *.
- change (WorldInvariant.environment_valid (world_environment (WorldInvariant.world_structure before)) &&
-   WorldInvariant.projects_valid (WorldInvariant.world_structure before) &&
-   WorldInvariant.tasks_valid 0 (world_tasks (WorldInvariant.world_structure before))
-     (Board.store board (WorldInvariant.world_structure before)) &&
-   WorldInvariant.tickets_valid (Board.store board (WorldInvariant.world_structure before)) &&
-   WorldInvariant.features_valid (Board.store board (WorldInvariant.world_structure before)) = true).
- rewrite storing_board_keeps_registry_requirements.
- assert (TicketFrame : WorldInvariant.tickets_valid (Board.store board (WorldInvariant.world_structure before)) =
-   WorldInvariant.tickets_valid (WorldInvariant.world_structure before)).
- { change (WorldInvariant.tickets_valid (Board.store board before) = WorldInvariant.tickets_valid before).
-   unfold WorldInvariant.tickets_valid. rewrite Tickets; reflexivity. }
- rewrite TicketFrame.
- unfold WorldInvariant.features_valid in Before |- *.
- rewrite storing_board_keeps_title_requirements, storing_board_keeps_worktree_requirements,
-   storing_board_keeps_sharing_requirements, storing_board_keeps_graph_requirements,
-   storing_board_keeps_work_requirements, storing_board_keeps_compaction_requirements.
- repeat rewrite andb_true_iff in Before |- *; repeat split; tauto.
+ apply well_formed_worlds_pass_the_checker.
+ apply unchanged_registries_preserve_other_world_requirements with before;
+   try reflexivity; [now apply the_world_checker_establishes_all_requirements| |].
+ - unfold WorldInvariant.tickets_valid; rewrite Tickets.
+   exact (WorldInvariant.tickets_requirement before
+     (the_world_checker_establishes_all_requirements before Before)).
+ - assert (Graphs : WorldInvariant.graph_registry_valid (Board.store board before) =
+     WorldInvariant.graph_registry_valid before).
+   { apply graph_registry_requirements_follow_entry_observations; reflexivity. }
+   pose proof (well_formed_feature_requirements before
+     (the_world_checker_establishes_all_requirements before Before)) as Features.
+   unfold WorldInvariant.features_valid in *; rewrite Graphs.
+   repeat rewrite andb_true_iff in *; intuition.
 Qed.
 
 Definition requested_patch (request : Commands.create_card_payload) :=
@@ -266,10 +230,13 @@ Theorem every_unassisted_command_constructs_its_exact_result : forall request be
    (success (Board.result (fresh_card_id before) (fresh_card draft now))) [ContinueScheduling].
 Proof.
  intros request before now draft Assisted Clock Parsed Valid Capacity Identity.
- unfold BoardCommit.candidate, Board.handle_create_card.
+ unfold BoardCommit.candidate,DeferredCommit.continue_result.
+ apply CommandResult.appending_effects_to_an_accepted_result with (effects:=[]).
+ change (Board.handle_create_card request None before =
+   accept (Board.result (fresh_card_id before) (fresh_card draft now)) (append_card draft now before) []).
+ unfold Board.handle_create_card, Board.handle_create_card_result.
  fold (requested_patch request); rewrite Assisted.
- rewrite (unassisted_card_creation_constructs_the_exact_card _ _ _ _ _ _
-   Clock Parsed Valid Capacity Identity); reflexivity.
+ apply unassisted_card_creation_constructs_the_exact_card; assumption.
 Qed.
 
 Theorem an_unassisted_card_birth_preserves_all_world_requirements : forall draft now before,

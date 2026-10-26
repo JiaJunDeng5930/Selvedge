@@ -29,13 +29,14 @@ Fixpoint request_excerpt_end (count : nat) (text : string) (offset : nat) {struc
 Definition bounded_excerpt (count : nat) (text : string) : string :=
   String.substring O (request_excerpt_end count text O) text.
 Definition request_excerpt := bounded_excerpt request_scalars.
-Definition user_requests (history : list message) : list json :=
-  map (fun parts => JString (request_excerpt (request_plain_text parts)))
+Definition user_request_text (history : list message) : list string :=
+  map (fun parts => request_excerpt (request_plain_text parts))
     (fold_left (fun requests message =>
       match message with
       | UserMessage parts => firstn request_limit (parts :: requests)
       | _ => requests
       end) history []).
+Definition user_requests history := map JString (user_request_text history).
 Definition reason_bytes : N := 2048%N.
 Definition valid_reason (text : string) :=
   Utf8.well_formed text && Utf8.no_nul text &&

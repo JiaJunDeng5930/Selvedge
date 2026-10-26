@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith PeanoNat.
-From Selvedge.Foundation Require Import Json JsonObjects Schema.
+From Selvedge.Foundation Require Import Json JsonObjects Schema Comparison KeyedList.
 From Selvedge.Kernel Require Import Numbers Domain State Codec ContextSelection
- Dispatch Inputs Workspace WorkspaceBackend WorldInvariant CompactionPlan Reasoning SideContext.
+ Dispatch Inputs RequestReceiver Workspace WorkspaceBackend WorldInvariant CompactionPlan Reasoning SideContext.
 From Selvedge.Features Require Import Domain State Observation Titles
  CompactionTypes Compaction Worktree TitleRuntime Remote.
 Import ListNotations.
@@ -15,43 +15,21 @@ Module C := Selvedge.Features.CompactionTypes.
 Module G := Selvedge.Generated.Commands.
 Module Remote := Selvedge.Features.Remote.
 
-Definition same_option_nat (left right : option N) :=
- match left, right with
- | None, None => true
- | Some first, Some second => N.eqb first second
- | _, _ => false
- end.
-Definition same_strings (left right : list string) :=
- Json.equal (JArray (map JString left)) (JArray (map JString right)).
-Fixpoint same_naturals (left right : list N) :=
- match left, right with
- | [], [] => true
- | first :: rest_first, second :: rest_second =>
-   N.eqb first second && same_naturals rest_first rest_second
- | _, _ => false
- end.
+Definition same_option_nat := Comparison.option_equal N.eqb.
+Definition same_strings := Comparison.list_equal String.eqb.
+Definition same_naturals := Comparison.list_equal N.eqb.
 Definition same_history (left right : list D.message) :=
  Nat.eqb (List.length left) (List.length right) &&
  ContextSelection.history_extends left right.
-Definition same_content_lists (left right : list D.content) :=
- Json.equal (JArray (map Codec.content_json left)) (JArray (map Codec.content_json right)).
-Definition same_call (left right : D.call) := Json.equal (Codec.call_json left) (Codec.call_json right).
-Definition same_profile (left right : D.profile) :=
- Json.equal (Codec.model_json left) (Codec.model_json right) &&
- Json.equal (Codec.profile_json left) (Codec.profile_json right) &&
- Json.equal (JArray (map JString (D.profile_reasoning_options left)))
-   (JArray (map JString (D.profile_reasoning_options right))) &&
- String.eqb (D.profile_reasoning left) (D.profile_reasoning right).
-Definition same_tool (left right : D.tool) := Json.equal (Codec.tool_json left) (Codec.tool_json right).
-Definition same_tools (left right : list D.tool) :=
- Json.equal (JArray (map Codec.tool_json left)) (JArray (map Codec.tool_json right)).
-Definition same_settings (left right : D.task_settings) :=
- Json.equal (Codec.settings_json left) (Codec.settings_json right) &&
- Json.equal (D.settings_guidance left) (D.settings_guidance right) &&
- Bool.eqb (D.settings_worktree left) (D.settings_worktree right).
-Definition same_reviewers (left right : list D.profile) :=
- Json.equal (JArray (map (fun value => Codec.reviewer_json (D.ModelReviewer value)) left))
-   (JArray (map (fun value => Codec.reviewer_json (D.ModelReviewer value)) right)).
+Definition same_content_lists := Comparison.list_equal (Comparison.on Json.equal Codec.content_json).
+Definition same_call := Comparison.on Json.equal Codec.call_json.
+Definition same_profile := D.same_profile.
+Definition same_tool := Comparison.on Json.equal Codec.tool_json.
+Definition same_tools := Comparison.list_equal same_tool.
+Definition same_settings := Comparison.all [
+ Comparison.on Json.equal Codec.settings_json;Comparison.on Json.equal D.settings_guidance;
+ Comparison.on Bool.eqb D.settings_worktree].
+Definition same_reviewers := Comparison.list_equal (Comparison.on Json.equal Codec.profile_json).
 Definition same_reviewer (left right : D.reviewer) :=
  match left, right with
  | D.HumanReviewer, D.HumanReviewer => true
@@ -63,9 +41,8 @@ Definition same_output_mode (left right : D.output_mode) :=
  | D.PlainOutput, D.PlainOutput | D.InteractiveOutput, D.InteractiveOutput => true
  | _, _ => false
  end.
-Definition same_json_lists (left right : list Json.json) := Json.equal (JArray left) (JArray right).
-Definition same_calls (left right : list D.call) :=
- Json.equal (JArray (map Codec.call_json left)) (JArray (map Codec.call_json right)).
+Definition same_json_lists := Comparison.list_equal Json.equal.
+Definition same_calls := Comparison.list_equal same_call.
 Definition same_operation_state (left right : D.operation_state) :=
  match left, right with
  | D.Executing first, D.Executing second => N.eqb first second
@@ -78,18 +55,10 @@ Definition same_operation_state (left right : D.operation_state) :=
    N.eqb lt rt && Json.equal lp rp && same_json_lists lr rr && Json.equal lv rv && Bool.eqb le re
  | _, _ => false
  end.
-Definition same_operation (left right : D.operation) :=
- N.eqb (D.operation_id left) (D.operation_id right) &&
- same_call (D.operation_call left) (D.operation_call right) &&
- Bool.eqb (D.operation_announced left) (D.operation_announced right) &&
- same_operation_state (D.operation_stage left) (D.operation_stage right).
-Fixpoint same_operations (left right : list D.operation) :=
- match left, right with
- | [], [] => true
- | first :: rest_first, second :: rest_second =>
-   same_operation first second && same_operations rest_first rest_second
- | _, _ => false
- end.
+Definition same_operation := Comparison.all [Comparison.on N.eqb D.operation_id;
+ Comparison.on same_call D.operation_call;Comparison.on Bool.eqb D.operation_announced;
+ Comparison.on same_operation_state D.operation_stage].
+Definition same_operations := Comparison.list_equal same_operation.
 Definition same_activity (left right : D.activity) :=
  match left, right with
  | D.Idle, D.Idle | D.WantsModel, D.WantsModel | D.ReadyForModel, D.ReadyForModel => true
@@ -111,24 +80,15 @@ Definition same_lifecycle (left right : D.lifecycle) :=
  | D.Archived _, D.Archived _ => true
  | _, _ => false
  end.
-Definition same_contract (left right : D.contract) :=
- same_profile (D.contract_profile left) (D.contract_profile right) &&
- same_tools (D.contract_tools left) (D.contract_tools right) &&
- same_settings (D.contract_settings left) (D.contract_settings right) &&
- N.eqb (D.contract_max_fork left) (D.contract_max_fork right) &&
- N.eqb (D.contract_max_descendants left) (D.contract_max_descendants right) &&
- Json.equal (JArray (D.contract_plugins left)) (JArray (D.contract_plugins right)) &&
- same_reviewers (D.contract_reviewers left) (D.contract_reviewers right).
-Definition same_task_except_history (left right : D.task) :=
- same_contract (D.task_contract left) (D.task_contract right) &&
- same_profile (D.task_current_profile left) (D.task_current_profile right) &&
- same_settings (D.task_current_settings left) (D.task_current_settings right) &&
- same_lifecycle (D.task_lifecycle left) (D.task_lifecycle right) &&
- same_content_lists (D.task_queued left) (D.task_queued right) &&
- same_naturals (D.task_lineage left) (D.task_lineage right) &&
- same_option_nat (D.task_side_parent left) (D.task_side_parent right) &&
- N.eqb (D.task_side_cursor left) (D.task_side_cursor right) &&
- Nat.eqb (D.task_model_cursor left) (D.task_model_cursor right).
+Definition same_contract := Comparison.all [Comparison.on same_profile D.contract_profile;
+ Comparison.on same_tools D.contract_tools;Comparison.on same_settings D.contract_settings;
+ Comparison.on N.eqb D.contract_max_fork;Comparison.on N.eqb D.contract_max_descendants;
+ Comparison.on same_json_lists D.contract_plugins;Comparison.on same_reviewers D.contract_reviewers].
+Definition same_task_except_history := Comparison.all [Comparison.on same_contract D.task_contract;
+ Comparison.on same_profile D.task_current_profile;Comparison.on same_settings D.task_current_settings;
+ Comparison.on same_lifecycle D.task_lifecycle;Comparison.on same_content_lists D.task_queued;
+ Comparison.on same_naturals D.task_lineage;Comparison.on same_option_nat D.task_side_parent;
+ Comparison.on N.eqb D.task_side_cursor;Comparison.on Nat.eqb D.task_model_cursor].
 Definition same_task (left right : D.task) :=
  same_task_except_history left right && same_history (D.task_history left) (D.task_history right).
 Definition worktree_completion_lifecycle (expected actual : D.task) :=
@@ -320,13 +280,8 @@ Definition title_value_retained (before : F.title_state) (after : option F.title
  | F.TitleFailed _, Some (F.TitleFailed _) => true
  | _, _ => false
  end.
-Fixpoint retained_titles (before after : list F.title_entry) :=
- match before with
- | [] => true
- | entry :: rest =>
-   title_value_retained (F.title_value entry)
-     (option_map F.title_value (title_entry_at (F.title_task entry) after)) && retained_titles rest after
- end.
+Definition retained_titles := KeyedList.retains F.title_task title_entry_at
+ (fun previous observed => title_value_retained (F.title_value previous) (option_map F.title_value observed)).
 Definition same_title_prompts (left right : F.title_settings) :=
  String.eqb (F.title_task_prompt left) (F.title_task_prompt right) &&
  String.eqb (F.title_agent_prompt left) (F.title_agent_prompt right).
@@ -342,13 +297,8 @@ Definition retained_worktree (old next : F.worktree) :=
  String.eqb (WorkspaceBackend.name (F.worktree_backend old)) (WorkspaceBackend.name (F.worktree_backend next)).
 Definition worktree_list_entry (owner : N) (entries : list F.worktree) :=
  find (fun entry => N.eqb owner (F.worktree_task entry)) entries.
-Fixpoint retained_worktrees (before after : list F.worktree) :=
- match before with
- | [] => true
- | old :: rest =>
-   (match worktree_list_entry (F.worktree_task old) after with
-    | Some next => retained_worktree old next | None => false end) && retained_worktrees rest after
- end.
+Definition retained_worktrees := KeyedList.retains F.worktree_task worktree_list_entry
+ (fun previous observed => match observed with Some current => retained_worktree previous current | None => false end).
 Definition compaction_entry_at (owner : N) (entries : list (N * C.entry)) :=
  option_map snd (find (fun entry => N.eqb owner (fst entry)) entries).
 Definition retained_compaction_entry (before : C.entry) (after : option C.entry) :=
@@ -359,13 +309,8 @@ Definition retained_compaction_entry (before : C.entry) (after : option C.entry)
    N.leb (C.entry_maintained before) (C.entry_maintained next) &&
    N.leb (C.entry_attempted before) (C.entry_attempted next)
  end.
-Fixpoint retained_compaction_entries (before after : list (N * C.entry)) :=
- match before with
- | [] => true
- | (owner, entry) :: rest =>
-   retained_compaction_entry entry (compaction_entry_at owner after) &&
-   retained_compaction_entries rest after
- end.
+Definition retained_compaction_entries := KeyedList.retains (@fst N C.entry) compaction_entry_at
+ (fun previous observed => retained_compaction_entry (snd previous) observed).
 Definition compaction_evolution (before after : C.state) :=
  N.leb (C.maintenance_now before) (C.maintenance_now after) &&
  retained_compaction_entries (C.maintenance_entries before) (C.maintenance_entries after).
@@ -427,8 +372,7 @@ Definition task_allows_settlement (value : D.task) :=
  | D.Running _ _ | D.Stopped _ _ => true
  | D.Frozen _ _ | D.Archived _ => false
  end.
-Definition operation_at (operation : N) (value : D.task) :=
- find (fun entry => N.eqb operation (D.operation_id entry)) (D.task_operations value).
+Definition operation_at := RequestReceiver.operation_at.
 Definition tool_member (tool : D.tool) (tools : list D.tool) :=
  existsb (same_tool tool) tools.
 Definition task_context_matches (snapshot current : D.task) :=
@@ -448,8 +392,8 @@ Definition observe_effect_valid (owner ticket : N) (snapshot : D.task) (after : 
  | Some current => task_is_running snapshot && task_is_running current && task_context_matches snapshot current &&
    task_history_matches snapshot current &&
    active_manual_context_matches owner ticket snapshot after &&
-   match D.task_activity current with
-   | D.ObservingContext expected length =>
+   match RequestReceiver.phase_receiver RequestReceiver.ContextReceiver (D.task_activity current) with
+   | Some (expected,length) =>
      N.eqb ticket expected && Nat.eqb length (List.length (D.task_history current))
    | _ => false end
  | None => false
@@ -462,8 +406,8 @@ Definition model_effect_valid (request : ModelRequest.t) (after : K.world) :=
    task_history_matches snapshot current &&
    same_profile (D.task_current_profile snapshot) (D.task_current_profile current) &&
    same_contract (D.task_contract snapshot) (D.task_contract current) &&
-   match D.task_activity current with
-   | D.AskingModel expected allowed mode =>
+   match RequestReceiver.phase_receiver RequestReceiver.ModelReceiver (D.task_activity current) with
+   | Some (expected,(allowed,mode)) =>
      N.eqb (ModelRequest.ticket request) expected && same_strings allowed (ModelRequest.callable request) &&
      same_output_mode mode (ModelRequest.mode request)
    | _ => false end
@@ -474,8 +418,8 @@ Definition reasoning_effect_valid (owner ticket : N) (snapshot : D.task) (after 
  | Some current => task_is_running current && task_context_matches snapshot current &&
    task_history_matches snapshot current &&
    same_profile (D.task_current_profile snapshot) (D.task_current_profile current) &&
-   match D.task_activity current with
-   | D.EvaluatingReasoning expected length =>
+   match RequestReceiver.phase_receiver RequestReceiver.ReasoningReceiver (D.task_activity current) with
+   | Some (expected,length) =>
      N.eqb ticket expected && Nat.eqb length (List.length (D.task_history snapshot)) &&
      Nat.eqb length (List.length (D.task_history current)) &&
      match D.profile_policy (D.task_current_profile current) with D.AdaptivePolicy _ => true | _ => false end
@@ -490,9 +434,9 @@ Definition tool_effect_valid (owner ticket operation_id : N) (tool : D.tool) (ca
    String.eqb (D.tool_name tool) (D.call_name call) &&
    match operation_at operation_id task with
    | Some operation => same_call call (D.operation_call operation) &&
-     match D.operation_stage operation, access with
-     | D.Executing expected, K.DefaultAccess => N.eqb expected ticket
-     | D.Elevated expected reviewer, K.ElevatedAccess =>
+     match RequestReceiver.operation_receiver RequestReceiver.ExecutionReceiver operation, access with
+     | Some (expected,None), K.DefaultAccess => N.eqb expected ticket
+     | Some (expected,Some reviewer), K.ElevatedAccess =>
        N.eqb expected ticket && match D.settings_approval (D.task_current_settings task) with
        | D.FullAccess => true
        | _ => WorldInvariant.approval_corresponds owner task operation reviewer &&
@@ -506,12 +450,10 @@ Definition approval_effect_valid (owner ticket : N) (profile : D.profile) (call 
  match K.find_task owner after with
  | Some task => task_allows_settlement task && task_context_matches snapshot task &&
    approval_history_retained snapshot task &&
-   match find (fun operation => match D.operation_stage operation with
-     | D.AwaitingApproval expected _ => N.eqb expected ticket
-     | _ => false end) (D.task_operations task) with
-   | Some operation => same_call call (D.operation_call operation) &&
-     match D.operation_stage operation with
-     | D.AwaitingApproval _ (D.ModelReviewer reviewer) => same_profile profile reviewer
+   match RequestReceiver.find_approval (fun _ expected _ => N.eqb expected ticket) (D.task_operations task) with
+   | Some (operation,actor) => same_call call (D.operation_call operation) &&
+     match actor with
+     | D.ModelReviewer reviewer => same_profile profile reviewer
      | _ => false end
    | None => false end
  | None => false
@@ -521,8 +463,8 @@ Definition hook_effect_valid (owner ticket : N) (plugin : Json.json) (tool : D.t
  match K.find_task owner after with
  | Some task => task_allows_settlement task && tool_member tool (D.contract_tools (D.task_contract task)) &&
    String.eqb (D.tool_name tool) (D.call_name call) &&
-   match D.task_activity task with
-   | D.CheckingHook expected reference invocation _ _ =>
+   match RequestReceiver.phase_receiver RequestReceiver.HookReceiver (D.task_activity task) with
+   | Some (expected,(reference,invocation,_,_)) =>
      N.eqb ticket expected && Json.equal plugin reference && same_call call invocation
    | _ => false end
  | None => false
@@ -535,8 +477,8 @@ Definition after_effect_valid (owner ticket operation_id : N) (plugin : Json.jso
  | Some task =>
    match operation_at operation_id task with
    | Some operation => same_call call (D.operation_call operation) &&
-     match D.operation_stage operation with
-     | D.AwaitingAfterHook expected reference _ actual actual_error =>
+     match RequestReceiver.operation_receiver RequestReceiver.AfterReceiver operation with
+     | Some (expected,(reference,_,actual,actual_error)) =>
        N.eqb ticket expected && Json.equal plugin reference && Json.equal value actual &&
        Bool.eqb error actual_error
      | _ => false end
@@ -544,10 +486,14 @@ Definition after_effect_valid (owner ticket operation_id : N) (plugin : Json.jso
  | None => false
  end.
 
-Definition same_card_draft (left right : F.card_draft) :=
- Json.equal
-   (Selvedge.Features.Observation.card_json 0 (F.Card 0 left None false 0 0 F.NoEnrichment "" false))
-   (Selvedge.Features.Observation.card_json 0 (F.Card 0 right None false 0 0 F.NoEnrichment "" false)).
+Definition same_card_draft := Comparison.all [Comparison.on String.eqb F.draft_title;
+ Comparison.on String.eqb F.draft_description;
+ Comparison.on String.eqb (fun draft => F.stage_name (F.draft_stage draft));
+ Comparison.on String.eqb (fun draft => F.priority_name (F.draft_priority draft));
+ Comparison.on String.eqb (fun draft => F.owner_name (F.draft_owner draft));
+ Comparison.on String.eqb (fun draft => match F.draft_project draft with Some id => F.decimal_text id | None => "" end);
+ Comparison.on same_strings F.draft_labels;
+ Comparison.on (Comparison.list_equal (Comparison.on Json.equal Selvedge.Features.Observation.attachment_json)) F.draft_attachments].
 Definition configured_profile (profile : D.profile) (after : K.world) :=
  existsb (same_profile profile) (D.environment_profiles (K.world_environment after)).
 Definition title_effect_valid (owner ticket : N) (profile : D.profile) (prompt : string) (after : K.world) :=
@@ -582,39 +528,28 @@ Definition card_effect_valid (card_id ticket revision : N) (profile : D.profile)
  | None => false
  end.
 
-Definition same_connection_job (left right : F.connection_job) :=
- N.eqb (F.job_connection left) (F.job_connection right) &&
- N.eqb (F.job_project left) (F.job_project right) &&
- String.eqb (F.job_request left) (F.job_request right) &&
- Json.equal (F.job_arguments_json left) (F.job_arguments_json right) &&
- Json.equal (Codec.workspace_json (F.job_workspace left)) (Codec.workspace_json (F.job_workspace right)) &&
- Workspace.same_resource (F.job_resource left) (F.job_resource right) &&
- Json.equal (Codec.sandbox_json (F.job_sandbox left)) (Codec.sandbox_json (F.job_sandbox right)) &&
- match F.job_state left, F.job_state right with
- | F.JobRunning, F.JobRunning => true
- | F.JobFinished lv le, F.JobFinished rv re => Json.equal lv rv && Bool.eqb le re
- | F.JobInterrupted lr, F.JobInterrupted rr => String.eqb lr rr
- | _, _ => false end.
+Definition same_connection_state (left right : F.job_status) := match left,right with
+ | F.JobRunning,F.JobRunning => true
+ | F.JobFinished lv le,F.JobFinished rv re => Json.equal lv rv && Bool.eqb le re
+ | F.JobInterrupted first,F.JobInterrupted second => String.eqb first second | _,_ => false end.
+Definition same_connection_job := Comparison.all [Comparison.on N.eqb F.job_connection;
+ Comparison.on N.eqb F.job_project;Comparison.on String.eqb F.job_request;
+ Comparison.on Json.equal F.job_arguments_json;Comparison.on (Comparison.on Json.equal Codec.workspace_json) F.job_workspace;
+ Comparison.on Workspace.same_resource F.job_resource;Comparison.on (Comparison.on Json.equal Codec.sandbox_json) F.job_sandbox;
+ Comparison.on same_connection_state F.job_state].
 Definition connection_job_at (id : N) (state : F.connection_state) :=
  option_map snd (find (fun entry => N.eqb id (fst entry)) (F.sharing_jobs state)).
 
+Definition same_capture_configuration := Comparison.all [Comparison.on same_profile C.captured_profile;
+ Comparison.on same_settings C.captured_settings;Comparison.on same_tools C.captured_tools;
+ Comparison.on same_strings C.captured_callable].
 Definition same_capture (left right : C.capture) :=
- same_history (C.captured_history left) (C.captured_history right) &&
- same_profile (C.captured_profile left) (C.captured_profile right) &&
- same_settings (C.captured_settings left) (C.captured_settings right) &&
- same_tools (C.captured_tools left) (C.captured_tools right) &&
- same_strings (C.captured_callable left) (C.captured_callable right).
+ same_history (C.captured_history left) (C.captured_history right) && same_capture_configuration left right.
 Definition same_capture_except_history (left right : C.capture) (history : list D.message) :=
- same_profile (C.captured_profile left) (C.captured_profile right) &&
- same_settings (C.captured_settings left) (C.captured_settings right) &&
- same_tools (C.captured_tools left) (C.captured_tools right) &&
- same_strings (C.captured_callable left) (C.captured_callable right) &&
- same_history (C.captured_history left) history.
-Definition same_compaction_target (left right : C.target) :=
- String.eqb (C.target_key left) (C.target_key right) &&
- N.eqb (C.reserve_room (C.target_budget left)) (C.reserve_room (C.target_budget right)) &&
- N.eqb (C.window_room (C.target_budget left)) (C.window_room (C.target_budget right)) &&
- N.eqb (C.target_cache_ttl left) (C.target_cache_ttl right).
+ same_capture_configuration left right && same_history (C.captured_history left) history.
+Definition same_compaction_target := Comparison.all [Comparison.on String.eqb C.target_key;
+ Comparison.on N.eqb (fun target => C.reserve_room (C.target_budget target));
+ Comparison.on N.eqb (fun target => C.window_room (C.target_budget target));Comparison.on N.eqb C.target_cache_ttl].
 Definition same_inspection_stage (left right : C.inspection_stage) :=
  match left, right with C.InspectScope, C.InspectScope => true
  | C.InspectCount first, C.InspectCount second => String.eqb first second

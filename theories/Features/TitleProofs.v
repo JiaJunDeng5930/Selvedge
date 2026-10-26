@@ -1,6 +1,7 @@
+From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Kernel Require Import Domain State.
-From Selvedge.Features Require Import Domain State TitleRuntime FeatureScopeProofs.
+From Selvedge.Kernel Require Import Domain State FeatureAdmissionProofs.
+From Selvedge.Features Require Import Domain State TitleRuntime.
 Import ListNotations.
 Open Scope list_scope.
 Module F:=Selvedge.Features.Domain.
@@ -19,10 +20,13 @@ Proof.
  unfold TitleRuntime.complete. rewrite found. simpl.
  apply N.eqb_neq in different. rewrite different. split;reflexivity.
 Qed.
-Theorem pending_request_is_frozen : forall value id task result item,
+Theorem pending_request_is_frozen : forall value id result item,
  decision_world result = value -> TitleRuntime.entry id value = Some item ->
- TitleRuntime.start id task result = result.
-Proof. intros. unfold TitleRuntime.start. rewrite H,H0. reflexivity. Qed.
+ TitleRuntime.start id result = result.
+Proof.
+ intros value id result item World Found; unfold TitleRuntime.start.
+ rewrite World, (a_pending_title_is_not_resolved_again id value item Found); reflexivity.
+Qed.
 
 (** The public title start is justified by the task actually observed at its
     owner, rather than an unrelated task supplied alongside the identity. *)
@@ -35,18 +39,32 @@ Theorem title_start_with_observed_owner : forall id task result selected,
  let before := decision_world result in
  let prompt := TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features before)))
    (TitleRuntime.first_request (task_history task)) in
- TitleRuntime.start id task result =
+ TitleRuntime.start id result =
  Decision (TitleRuntime.store id (F.TitlePending (world_next_ticket before) selected prompt)
    (with_ticket (N.succ (world_next_ticket before)) before))
    (decision_reply result) (decision_effects result ++ [SuggestTitle id (world_next_ticket before) selected prompt]).
 Proof.
  intros id task result selected Found Absent Accepts Nonblank Chosen.
- pose proof (title_scope_from_current_task id task (decision_world result) selected
-   Found Absent Accepts Nonblank Chosen) as Scope.
- cbv zeta. unfold TitleRuntime.start. rewrite Absent,Accepts,Nonblank,Chosen.
- unfold TicketedRequest.Scoped.feature_run,TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
- destruct (Bool.bool_dec _ true) as [Admitted|Refused]; [reflexivity|].
- exfalso; apply Refused; exact Scope.
+ destruct (admitted_title_resolves_without_rechecking id task (decision_world result) selected
+   Found Absent Accepts Nonblank Chosen) as [request [Resolved [Owner [Current Selected]]]].
+ cbv zeta; unfold TitleRuntime.start; rewrite Resolved.
+ change (Decision
+   (TitleRuntime.store (TaskScope.owner (FeatureRequestAdmission.title_reference request))
+     (F.TitlePending (world_next_ticket (decision_world result)) (FeatureRequestAdmission.title_profile request)
+       (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result)))
+     (with_ticket (N.succ (world_next_ticket (decision_world result))) (decision_world result)))
+   (decision_reply result)
+   (decision_effects result ++ [SuggestTitle (TaskScope.owner (FeatureRequestAdmission.title_reference request))
+     (world_next_ticket (decision_world result)) (FeatureRequestAdmission.title_profile request)
+     (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) (decision_world result))]) =
+   Decision (TitleRuntime.store id
+     (F.TitlePending (world_next_ticket (decision_world result)) selected
+       (FeatureRequestAdmission.title_prompt task (decision_world result)))
+     (with_ticket (N.succ (world_next_ticket (decision_world result))) (decision_world result)))
+   (decision_reply result) (decision_effects result ++ [SuggestTitle id
+     (world_next_ticket (decision_world result)) selected
+     (FeatureRequestAdmission.title_prompt task (decision_world result))])).
+ rewrite Owner,Current,Selected; reflexivity.
 Qed.
 
 (** This is the actual emitted request. The selected profile and the single
@@ -57,42 +75,31 @@ Theorem admitted_title_emits_frozen_request : forall id task result selected,
  TitleRuntime.accepts task=true ->
  Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task))=true ->
  TitleRuntime.selected_profile task (decision_world result)=Some selected ->
- decision_effects (TitleRuntime.start id task result)=decision_effects result ++
+ decision_effects (TitleRuntime.start id result)=decision_effects result ++
  [SuggestTitle id (world_next_ticket (decision_world result)) selected
    (TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features (decision_world result))))
      (TitleRuntime.first_request (task_history task)))].
-Proof. intros. rewrite title_start_with_observed_owner with (selected:=selected) by assumption. reflexivity. Qed.
+Proof. intros. rewrite title_start_with_observed_owner with (task:=task) (selected:=selected) by assumption. reflexivity. Qed.
 
 Lemma stored_title_is_observed : forall id state value,
  TitleRuntime.entry id (TitleRuntime.store id state value)=Some (F.TitleEntry id state).
 Proof.
  intros id state [seq tasks ticket env projects features]. destruct features.
- unfold TitleRuntime.entry,TitleRuntime.store. cbn. now rewrite N.eqb_refl.
+ unfold TitleRuntime.entry,FeatureRequestAdmission.title_entry,TitleRuntime.store. cbn. now rewrite N.eqb_refl.
 Qed.
 
-Local Lemma title_lookup_skips_another_owner : forall entries owner removed,
- owner <> removed ->
- find (fun item => N.eqb owner (F.title_task item))
-   (filter (fun item => negb (N.eqb removed (F.title_task item))) entries) =
- find (fun item => N.eqb owner (F.title_task item)) entries.
-Proof.
- induction entries as [|item rest IH]; intros owner removed Different; [reflexivity|].
- cbn [filter find]. destruct (N.eqb removed (F.title_task item)) eqn:Removed.
- - cbn. assert (N.eqb owner (F.title_task item) = false) as Other.
-   { apply N.eqb_neq. apply N.eqb_eq in Removed. congruence. }
-   rewrite Other. apply IH; exact Different.
- - cbn [negb find]. destruct (N.eqb owner (F.title_task item)); [reflexivity|].
-   apply IH; exact Different.
-Qed.
+
 
 Theorem storing_title_keeps_other_generations : forall owner id state value,
  owner <> id ->
  TitleRuntime.entry owner (TitleRuntime.store id state value) = TitleRuntime.entry owner value.
 Proof.
  intros owner id state [seq tasks ticket env projects features] Different. destruct features.
- unfold TitleRuntime.entry, TitleRuntime.store. cbn.
+ unfold TitleRuntime.entry, FeatureRequestAdmission.title_entry, TitleRuntime.store. cbn.
  apply N.eqb_neq in Different. rewrite Different.
- apply title_lookup_skips_another_owner. now apply N.eqb_neq.
+ apply filtering_another_key_preserves_lookup.
+ - intros; now apply N.eqb_eq.
+ - now apply N.eqb_neq.
 Qed.
 
 (** Admission freezes the same prompt/profile as the external request. Neither
@@ -104,7 +111,7 @@ Theorem admitted_title_stores_frozen_request : forall id task result selected,
  Selvedge.Foundation.Utf8.nonblank (TitleRuntime.first_request (task_history task))=true ->
  TitleRuntime.selected_profile task (decision_world result)=Some selected ->
  let original:=decision_world result in
- let updated:=decision_world (TitleRuntime.start id task result) in
+ let updated:=decision_world (TitleRuntime.start id result) in
  TitleRuntime.entry id updated=Some (F.TitleEntry id
    (F.TitlePending (world_next_ticket original) selected
      (TitleRuntime.prompt (F.title_agent_prompt (F.feature_title_settings (world_features original)))
@@ -113,7 +120,7 @@ Theorem admitted_title_stores_frozen_request : forall id task result selected,
  world_tasks updated=world_tasks original.
 Proof.
  intros id task result selected Found absent eligible nonblank chosen.
- cbv zeta. rewrite title_start_with_observed_owner with (selected:=selected) by assumption.
+ cbv zeta. rewrite title_start_with_observed_owner with (task:=task) (selected:=selected) by assumption.
  cbn [decision_world].
  split; [apply stored_title_is_observed|]. split; reflexivity.
 Qed.

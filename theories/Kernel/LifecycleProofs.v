@@ -62,7 +62,7 @@ Proof.
  rewrite CallbackChangesProofs.tool_completed_expression; rewrite Hfind.
  assert (Hnone : find (Callbacks.operation_executing ticket) (task_operations task) = None).
  { apply find_none_when_rejected. intros operation Hinside.
-   specialize (Howned operation Hinside). unfold Callbacks.operation_executing.
+   specialize (Howned operation Hinside). unfold Callbacks.operation_executing, RequestReceiver.operation_executing, RequestReceiver.operation_receiver.
    destruct (operation_stage operation); try reflexivity; apply N.eqb_neq; exact Howned. }
  rewrite Hnone; reflexivity.
 Qed.

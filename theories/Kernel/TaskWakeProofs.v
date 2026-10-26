@@ -6,12 +6,61 @@ Import ListNotations.
 Module C := Selvedge.Features.CompactionTypes.
 Module F := Selvedge.Features.Domain.
 
+Lemma promotion_changes_only_append_history : forall current,
+ Forall appends_history (Tasks.promote_changes current).
+Proof.
+ intro current; unfold Tasks.promote_changes.
+ destruct (task_lifecycle current) as [phase operations|phase operations|phase operations|];
+ try destruct phase; try destruct calls; destruct (task_queued current); repeat constructor.
+Qed.
+
+Lemma wake_changes_only_append_history : forall current,
+ Forall appends_history (Tasks.wake_after_result_changes current).
+Proof.
+ intro current; unfold Tasks.wake_after_result_changes.
+ destruct (task_lifecycle current) as [phase operations|phase operations|phase operations|];
+ try destruct phase; try apply promotion_changes_only_append_history; repeat constructor.
+Qed.
+
+Lemma promotion_retains_history : forall current,
+ exists suffix, task_history (Tasks.promote current) = task_history current ++ suffix.
+Proof. intros; apply append_only_changes_retain_history, promotion_changes_only_append_history. Qed.
+
+Lemma waking_retains_history : forall current,
+ exists suffix, task_history (Tasks.wake_after_result current) = task_history current ++ suffix.
+Proof. intros; apply append_only_changes_retain_history, wake_changes_only_append_history. Qed.
+
+Lemma result_changes_only_append_history : forall update current,
+ (match update with Tasks.KeepDemand changes | Tasks.WakeDemand changes => Forall appends_history changes end) ->
+ Forall appends_history (Tasks.result_changes update current).
+Proof.
+ intros [changes|changes] current Allowed; [exact Allowed|].
+ apply Forall_app; split; [exact Allowed|apply wake_changes_only_append_history].
+Qed.
+
 Lemma prefixed_results_apply_the_prefix_once : forall prefix update current,
  TaskChange.apply (Tasks.result_changes (Tasks.prefix_result prefix update) current) current =
  TaskChange.apply (Tasks.result_changes update (TaskChange.apply prefix current)) (TaskChange.apply prefix current).
 Proof.
  intros; destruct update; cbn [Tasks.prefix_result Tasks.result_changes];
    repeat rewrite TaskChangeProofs.apply_app; reflexivity.
+Qed.
+
+Lemma prefixed_results_retain_their_history_record : forall messages update current,
+ (match update with Tasks.KeepDemand changes | Tasks.WakeDemand changes => Forall appends_history changes end) ->
+ exists suffix,
+ task_history (TaskChange.apply
+   (Tasks.result_changes (Tasks.prefix_result [TaskChange.AppendHistory messages] update) current) current) =
+ task_history current ++ messages ++ suffix.
+Proof.
+ intros messages update current Allowed; rewrite prefixed_results_apply_the_prefix_once.
+ destruct (append_only_changes_retain_history _ (append_history messages current) (result_changes_only_append_history update
+   (append_history messages current) Allowed)) as [suffix Kept].
+ exists suffix; change (task_history (TaskChange.apply
+   (Tasks.result_changes update (append_history messages current)) (append_history messages current)) =
+   task_history current ++ messages ++ suffix).
+ rewrite Kept; change ((task_history current ++ messages) ++ suffix = task_history current ++ messages ++ suffix).
+ now rewrite app_assoc.
 Qed.
 
 Lemma context_wake_preserves_the_task_registry : forall owner current value,

@@ -12,7 +12,7 @@ Theorem selected_model_request_uses_the_measured_scope : forall value request,
 Proof.
  intros value [owner [model [contract profile settings lifecycle original queued lineage parent cursor consumed] Selected]
    ticket callable mode history scope reserve] Positive.
- unfold Observation.effect_json, Observation.effect_fields; cbn in *; rewrite Positive; reflexivity.
+ unfold Observation.effect_json, Observation.effect_fields; cbn in *; rewrite Positive, !map_id; reflexivity.
 Qed.
 Theorem unselected_model_request_uses_portable_context : forall value request,
  ModelRequest.reserve request = 0%N ->
@@ -21,7 +21,7 @@ Theorem unselected_model_request_uses_portable_context : forall value request,
    (ContextSelection.history_json (ModelRequest.owner request) (ModelRequest.history request)))).
 Proof.
  intros value [owner [model [contract profile settings lifecycle original queued lineage parent cursor consumed] Selected]
-   ticket callable mode history scope reserve] Zero. cbn in Zero; subst reserve; reflexivity.
+   ticket callable mode history scope reserve] Zero. cbn in Zero; subst reserve; cbn; rewrite map_id; reflexivity.
 Qed.
 Theorem model_request_preserves_the_frozen_reserve : forall value request,
  field "output_reserve_tokens" (Observation.effect_json value (RequestModel request)) =
@@ -33,7 +33,12 @@ Qed.
 Theorem model_request_uses_its_unique_sent_mode : forall value request,
  field "output_mode" (Observation.effect_json value (RequestModel request)) =
  Some (JString (Codec.output_mode_name (ModelRequest.mode request))).
-Proof. intros; reflexivity. Qed.
+Proof.
+ intros value request.
+ change (Some (JString (proj1_sig (Codec.output_mode_value (ModelRequest.mode request)))) =
+   Some (JString (Codec.output_mode_name (ModelRequest.mode request)))).
+ destruct (ModelRequest.mode request); reflexivity.
+Qed.
 Theorem model_request_uses_its_unique_callable_set : forall value request,
  field "callable" (Observation.effect_json value (RequestModel request)) =
  Some (JArray (map JString (ModelRequest.callable request))).

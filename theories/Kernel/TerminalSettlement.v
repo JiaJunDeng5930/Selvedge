@@ -1,4 +1,6 @@
-From Stdlib Require Import List Bool NArith.
+From Stdlib Require Import String List Bool NArith.
+From Selvedge.Foundation Require Import Json OptionList.
+From Selvedge.Kernel Require CommandResult RequestReceiver Tasks.
 From Selvedge.Kernel Require Import Domain State TaskScope Inputs HookRules HookCallbacks.
 From Selvedge.Kernel Require DeferredCommit.
 Import ListNotations.
@@ -12,58 +14,58 @@ Record after_request := AfterRequest {
 
 (* Only a matching final callback is a transaction of its own. Intermediate
    hooks still need their pending receiver and run through ordinary scheduling. *)
-Definition eligible (request : after_request) (current : task) :=
+Definition final_action (action : HookRules.after_action) (remaining : list json) :=
+ match action,remaining with HookRules.RefuseResult _ _,_ | _,[] => true | _,_ => false end.
+Definition resolved_update (request : after_request) (current : task) : option Tasks.result_update :=
  match task_lifecycle current with
- | Archived operations =>
-   match find (fun pending => N.eqb (operation request) (operation_id pending)) operations with
-   | Some pending => match operation_stage pending with
-     | AwaitingAfterHook expected _ remaining result _ => N.eqb expected (ticket request) &&
-       match HookRules.after_apply result (outcome request), remaining with
-       | HookRules.RefuseResult _ _, _ | _, [] => true
-       | _, _ => false end
-     | _ => false end
-   | None => false end
- | _ => false end.
-
+ | Archived _ => match RequestReceiver.pending_after (operation request) (ticket request) current with
+   | Some (pending,plugin,remaining,previous,failed) =>
+     let action := HookRules.after_apply previous (outcome request) in
+     if final_action action remaining then
+       Some (HookCallbacks.after_result_plan_for (owner request) pending plugin remaining failed (outcome request) action)
+     else None
+   | None => None end
+ | _ => None end.
+Definition eligible request current := match resolved_update request current with Some _ => true | None => false end.
 Record plan (before : world) := Plan {
  target : TaskScope.task_reference before;
  request : after_request;
  owns_request : TaskScope.owner target = owner request;
- finishes_operation : eligible request (TaskScope.selected target) = true
+ update : Tasks.result_update;
+ observed_update : resolved_update request (TaskScope.selected target) = Some update
 }.
 Arguments target {before}.
 Arguments request {before}.
 Arguments owns_request {before}.
-Arguments finishes_operation {before}.
+Arguments update {before}.
+Arguments observed_update {before}.
+Definition finishes_operation {before} (accepted : plan before) : eligible (request accepted) (TaskScope.selected (target accepted)) = true.
+Proof. unfold eligible; rewrite (observed_update accepted); reflexivity. Defined.
 
-Definition resolve_observed (request : after_request) (before : world) (current : task)
- (observed : find_task (owner request) before = Some current) : option (plan before).
-Proof.
- destruct (eligible request current) eqn:Final; [|exact None].
- exact (Some (Plan before (TaskScope.TaskReference before (owner request) current observed)
-   request eq_refl Final)).
-Defined.
-Definition resolve_request (request : after_request) (before : world) : option (plan before) :=
- match find_task (owner request) before as found return
-   find_task (owner request) before = found -> option (plan before) with
- | Some current => fun observed => resolve_observed request before current observed
- | None => fun _ => None
- end eq_refl.
+Definition resolve_observed (payload : after_request) (before : world) (current : task)
+ (observed : find_task (owner payload) before = Some current) : option (plan before) :=
+ OptionList.observe (resolved_update payload current)
+   (fun update Final => Some (Plan before (TaskScope.TaskReference before (owner payload) current observed)
+      payload eq_refl update Final)) (fun _ => None).
+Definition resolve_request (payload : after_request) (before : world) : option (plan before) :=
+ OptionList.observe (find_task (owner payload) before)
+   (fun current observed => resolve_observed payload before current observed) (fun _ => None).
 
 Definition resolve (input : input) (before : world) := match input with
  | AfterCompleted owner operation ticket outcome =>
    resolve_request (AfterRequest owner operation ticket outcome) before
  | _ => None end.
 
+Definition interpret_change {before : world} (accepted : plan before) :=
+ CommandResult.Change (JObject [("accepted"%string,JBool true)])
+   (Tasks.interpret_result (target accepted) (update accepted)) [].
 Definition interpret {before : world} (accepted : plan before) :=
- let payload := request accepted in
- HookCallbacks.after_completed (owner payload) (operation payload) (ticket payload) (outcome payload) before.
+ CommandResult.accept (interpret_change accepted).
 
-(* The settled result and its callback receipt commit together. Runtime feature
-   maintenance follows through the existing durable continuation; it has no
-   authority to roll this unrelated owned result back. *)
+(* The settled callback commits before independent runtime maintenance. The
+   selected plan is an accepted settlement even when its hook result failed. *)
 Definition candidate {before : world} (accepted : plan before) :=
- DeferredCommit.continue (interpret accepted).
+ DeferredCommit.continue_result before (CommandResult.Accepted (interpret_change accepted)).
 Definition source {before : world} (accepted : plan before) :=
  let payload := request accepted in
  AfterCompleted (owner payload) (operation payload) (ticket payload) (outcome payload).

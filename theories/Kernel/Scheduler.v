@@ -91,6 +91,14 @@ Definition retry_safe (tool : tool) := match tool_origin tool with
  | NativeToolSource _ program => match field "kind" program with
    | Some (JString "Command") | Some (JString "Discover") => true | _ => false end
  | _ => false end.
+Definition finish_call (id : N) (invocation : call) (remaining : list call)
+ (value : json) (failed : bool) (result : decision) :=
+ match find_task id (decision_world result) with
+ | Some caller =>
+   let settled := internal_result id invocation remaining value failed caller (decision_world result) in
+   Decision (decision_world settled) (decision_reply result)
+     (decision_effects result ++ decision_effects settled)
+ | None => result end.
 Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (invocation : call)
  (remaining : list call) (task : task) (value : world) :=
  match call_admission tool invocation value with
@@ -103,16 +111,10 @@ Definition execute_checked_call (execute : executor) (id : N) (tool : tool) (inv
       remaining calls, but must not also close this executing call as pending. *)
    let started := commit_changes id (fun _ => [TaskChange.ChangePhase (PendingCalls remaining)]) value in
    let result := execute command (Some (Tasks.NativeCall id invocation remaining)) started in
-   let updated := decision_world result in
    let result_value := if String.eqb (call_name invocation) "fork_task" && bool_default "ok" (decision_reply result) false
      then number 0 else decision_reply result in
-   match find_task id updated with
-   | Some caller =>
-     let settled := internal_result id invocation remaining result_value
-       (negb (bool_default "ok" (decision_reply result) false)) caller updated in
-     Decision (decision_world settled) (decision_reply result)
-       (decision_effects result ++ decision_effects settled)
-   | None => result end
+   finish_call id invocation remaining result_value
+     (negb (bool_default "ok" (decision_reply result) false)) result
    else call_error id invocation "operation_limit" "This task has reached its result-processing operation limit; wait for results or cancel an operation" remaining task value
  | None =>
    if String.eqb (call_name invocation) "discover_tools" then

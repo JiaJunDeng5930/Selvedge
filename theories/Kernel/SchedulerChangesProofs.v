@@ -1,24 +1,11 @@
 From Stdlib Require Import List NArith Bool.
 From Selvedge.Foundation Require Import RegistryProofs.
-From Selvedge.Kernel Require Import Domain State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks Scheduler.
+From Selvedge.Kernel Require Import Domain State TaskScope TaskScopeProofs TaskChange TaskChangeProofs Tasks TaskChangesProofs Scheduler.
 Import ListNotations.
 
-Lemma commit_changes_expression : forall id changes before,
- Scheduler.commit_changes id changes before =
- match find_task id before with
- | None => before
- | Some task => put_task id (TaskChange.apply (changes task) task) before
- end.
-Proof.
- intros; unfold Scheduler.commit_changes.
- apply (selected_result_erases_its_lookup_witness world id before
-   (fun candidate => match candidate with
-   | None => before
-   | Some target => TaskChange.interpret (TaskChange.Plan before target (changes (TaskScope.selected target)))
-   end)
-   (fun owner task => put_task owner (TaskChange.apply (changes task) task) before) before);
- intros; reflexivity.
-Qed.
+Definition commit_changes_expression (id : N) (changes : task -> list TaskChange.edit) (before : world) := ltac:(
+ let body := eval unfold Scheduler.commit_changes in (Scheduler.commit_changes id changes before) in
+ derive_task_lookup_view constr:(Scheduler.commit_changes id changes before) body id before reduce_task_plan).
 
 Lemma commit_changes_use_the_observed_owner : forall id changes before task,
  find_task id before = Some task ->

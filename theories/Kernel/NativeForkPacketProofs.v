@@ -71,13 +71,13 @@ Proof.
  pose proof (every_admissible_native_fork_plan_constructs_its_actual_settlement before accepted messages parent selected Parsed Admissible Workspace) as Constructed.
  destruct (every_authorized_native_fork_has_its_actual_commit_admission raw before accepted messages parent selected Valid Admissible Hooks Historical)
    as [World [Authority Retained]].
- unfold Packet.packet, Packet.packet_admitted.
+ unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted.
  rewrite InputDecoder.admitted_input_is_its_decoder_result.
  fold (Delivery.fits_json raw); rewrite InputFits,Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input
    Packet.native_fork_input].
  rewrite Selected; cbn.
- unfold DeferredCommit.packet,DeferredCommit.admit_with_status.
+ unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose,DeferredCommit.admit_with_status.
  rewrite Constructed,Retained.
  unfold WorldInvariant.validate_with_status; rewrite World.
  unfold CommitAdmission.validate_with_status; rewrite Authority.
@@ -138,13 +138,13 @@ Proof.
  pose proof (every_refused_native_fork_plan_constructs_its_error_settlement before accepted code reason Refused) as Constructed.
  destruct (every_refused_native_fork_has_its_actual_commit_admission raw before accepted code reason Valid Hooks Historical)
    as [World [Authority Retained]].
- unfold Packet.packet, Packet.packet_admitted.
+ unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted.
  rewrite InputDecoder.admitted_input_is_its_decoder_result.
  fold (Delivery.fits_json raw); rewrite InputFits,Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input
    Packet.native_fork_input].
  rewrite Selected; cbn.
- unfold DeferredCommit.packet,DeferredCommit.admit_with_status.
+ unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose,DeferredCommit.admit_with_status.
  rewrite Constructed,Retained.
  unfold WorldInvariant.validate_with_status; rewrite World.
  unfold CommitAdmission.validate_with_status; rewrite Authority.

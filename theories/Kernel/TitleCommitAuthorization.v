@@ -13,7 +13,8 @@ Lemma adding_a_different_title_keeps_existing_generation_authority : forall entr
  A.retained_titles todo (F.TitleEntry owner status :: entries) = A.retained_titles todo entries.
 Proof.
  intros entries todo; induction todo as [|entry rest IH]; intros owner status Different; [reflexivity|].
- cbn [A.retained_titles]. unfold A.title_entry_at at 1. cbn [F.title_task find].
+ unfold A.retained_titles,KeyedList.retains in IH.
+ cbn [A.retained_titles KeyedList.retains forallb]. unfold A.title_entry_at at 1. cbn [F.title_task find].
  assert (NotOwner : N.eqb (F.title_task entry) owner = false).
  { apply N.eqb_neq. apply Different; now left. }
  rewrite NotOwner. rewrite IH; [reflexivity|]. intros; apply Different; now right.

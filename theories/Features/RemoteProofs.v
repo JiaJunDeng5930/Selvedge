@@ -1,4 +1,5 @@
 From Selvedge.Foundation Require Import RemoteIdentity.
+From Selvedge.Foundation Require Import KeyedListProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema JsonProofs JsonObjectsProofs.
 From Selvedge.Kernel Require Import Domain State Numbers Codec.
@@ -348,16 +349,6 @@ Proof.
  rewrite Authorized. reflexivity.
 Qed.
 
-Lemma removed_remote_controller_is_absent : forall controller grants,
- find (fun grant => String.eqb controller (F.grant_controller grant))
-   (Remote.remove_grants controller grants) = None.
-Proof.
- intros controller grants. induction grants as [|grant rest IH]; cbn [Remote.remove_grants].
- - reflexivity.
- - destruct (String.eqb controller (F.grant_controller grant)) eqn:Same; cbn;
-   rewrite Same; cbn; try rewrite Same; exact IH.
-Qed.
-
 Theorem revoked_remote_controller_cannot_replay : forall required request value,
  F.remote_enabled (Remote.registry value) = true ->
  Remote.request_valid request = true ->
@@ -379,7 +370,7 @@ Proof.
  assert (Removed : Remote.find_grant (Remote.controller request) (Remote.registry after) = None).
  { unfold after, Remote.revoke. rewrite Identifier. cbn.
    rewrite remote_registry_store. unfold Remote.find_grant. cbn.
-   apply removed_remote_controller_is_absent. }
+   unfold Remote.remove_grants; apply removing_a_key_clears_its_lookup. }
  unfold Remote.authorize. rewrite StillEnabled, Valid. cbn.
  unfold Remote.check. rewrite StillEnabled, Identity. cbn. now rewrite Removed.
 Qed.

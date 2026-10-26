@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json RegistryProofs.
+From Selvedge.Foundation Require Import Json RegistryProofs KeyedListProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State ContextSelection ContextProofs
  WorldInvariant WorldInvariantProofs FeatureFrameProofs ForkPreservation AfterHookAuthorizationProofs.
@@ -45,10 +45,11 @@ Lemma compaction_removing_one_key_keeps_every_other_lookup : forall entries owne
    (filter (fun pair => negb (N.eqb (fst pair) owner)) entries) =
  find (fun pair => N.eqb actual (fst pair)) entries.
 Proof.
- induction entries as [|[key entry] rest IH]; intros owner actual Different; [reflexivity|].
- cbn. destruct (N.eqb key owner) eqn:Removed; cbn;
- destruct (N.eqb actual key) eqn:Selected; cbn; try (apply IH; exact Different); try reflexivity.
- apply N.eqb_eq in Removed, Selected; congruence.
+ intros entries owner actual Different.
+ replace (filter (fun pair : N * C.entry => negb (N.eqb (fst pair) owner)) entries)
+   with (filter (fun pair => negb (N.eqb owner (fst pair))) entries).
+ - eapply filtering_another_key_preserves_lookup; [intros; now apply N.eqb_eq|exact Different].
+ - apply filter_ext; intros; now rewrite N.eqb_sym.
 Qed.
 
 Lemma compaction_upsert_keeps_every_other_lookup : forall owner actual replacement maintenance,
@@ -133,13 +134,8 @@ Proof.
  apply unique_tickets_denotes_distinct_correlation_owners in Unique.
  assert (Filtered : NoDup (map fst (filter (fun pair : N * C.entry => negb (N.eqb (fst pair) owner))
    (C.maintenance_entries maintenance)))).
- { replace (map fst (filter (fun pair : N * C.entry => negb (N.eqb (fst pair) owner))
-     (C.maintenance_entries maintenance))) with
-     (filter (fun actual => negb (N.eqb actual owner)) (map fst (C.maintenance_entries maintenance))).
-   - apply NoDup_filter; exact Unique.
-   - generalize (C.maintenance_entries maintenance) as entries.
-     intros entries; induction entries as [|[actual entry] rest IH]; cbn; [reflexivity|].
-     destruct (negb (N.eqb actual owner)); cbn; rewrite IH; reflexivity. }
+ { exact (filtering_preserves_unique_keys (N * C.entry) N (@fst N C.entry)
+     (fun key => negb (N.eqb key owner)) (C.maintenance_entries maintenance) Unique). }
  assert (Fresh : ~ In owner (map fst (filter (fun pair : N * C.entry => negb (N.eqb (fst pair) owner))
    (C.maintenance_entries maintenance)))).
  { intro Member. apply in_map_iff in Member as [[actual entry] [Same Member]].
@@ -182,33 +178,19 @@ Lemma compaction_upsert_retains_monotone_counters : forall owner replacement mai
    (C.maintenance_entries (A.with_entry owner replacement maintenance)) = true.
 Proof.
  intros owner replacement maintenance Unique Monotone.
- assert (Every : forall todo,
-   (forall entry, In entry todo -> In entry (C.maintenance_entries maintenance)) ->
-   CommitAdmission.retained_compaction_entries todo
-     (C.maintenance_entries (A.with_entry owner replacement maintenance)) = true).
- { intros todo; induction todo as [|[actual entry] rest IH]; intros Included; [reflexivity|].
-   cbn [CommitAdmission.retained_compaction_entries].
-   assert (Member : In (actual,entry) (C.maintenance_entries maintenance)) by (apply Included; left; reflexivity).
-   destruct (N.eq_dec actual owner) as [Same|Different].
-   - subst actual. rewrite compaction_upsert_selects_its_new_entry.
-     unfold CommitAdmission.retained_compaction_entry.
-     destruct (Monotone entry Member) as [Useful [Maintained Attempted]].
-     assert (Bounds : (C.entry_useful entry <=? C.entry_useful replacement)%N &&
-       (C.entry_maintained entry <=? C.entry_maintained replacement)%N &&
-       (C.entry_attempted entry <=? C.entry_attempted replacement)%N = true)
-       by (repeat rewrite andb_true_iff; repeat split; now apply N.leb_le).
-     rewrite Bounds; cbn. apply IH; intros; apply Included; right; assumption.
-   - rewrite compaction_upsert_keeps_every_other_lookup by exact Different.
-     unfold CommitAdmission.compaction_entry_at.
-     change (CommitAdmission.retained_compaction_entry entry
-       (option_map snd (find (fun pair => N.eqb (fst (actual,entry)) (fst pair))
-        (C.maintenance_entries maintenance))) &&
-       CommitAdmission.retained_compaction_entries rest
-        (C.maintenance_entries (A.with_entry owner replacement maintenance)) = true).
-     rewrite a_unique_registry_key_finds_its_own_entry by assumption.
-     cbn [option_map snd CommitAdmission.retained_compaction_entry].
-     rewrite !N.leb_refl; cbn. apply IH; intros; apply Included; right; assumption. }
- apply Every; auto.
+ apply keyed_retention_follows_each_lookup; intros [actual entry] Member; cbn [fst snd].
+ destruct (N.eq_dec actual owner) as [Same|Different].
+ - subst actual; rewrite compaction_upsert_selects_its_new_entry.
+   unfold CommitAdmission.retained_compaction_entry.
+   destruct (Monotone entry Member) as [Useful [Maintained Attempted]].
+   repeat rewrite andb_true_iff; repeat split; now apply N.leb_le.
+ - rewrite compaction_upsert_keeps_every_other_lookup by exact Different.
+   unfold CommitAdmission.compaction_entry_at.
+   change (CommitAdmission.retained_compaction_entry entry
+     (option_map snd (find (fun pair => N.eqb (fst (actual,entry)) (fst pair))
+       (C.maintenance_entries maintenance))) = true).
+   rewrite a_unique_registry_key_finds_its_own_entry by assumption.
+   cbn [option_map snd CommitAdmission.retained_compaction_entry]; now rewrite !N.leb_refl.
 Qed.
 
 Definition checkpoint_task (current : task) (summary : string) :=
@@ -221,7 +203,7 @@ Definition checkpoint_world (owner : N) (current : task) (summary : string) (bef
 Lemma supplied_checkpoints_use_the_declared_world_constructor : forall owner current summary before,
  decision_world (A.supplied owner current summary before) = checkpoint_world owner current summary before.
 Proof.
- intros; unfold A.supplied; rewrite compaction_supplied_history_is_an_exact_append; reflexivity.
+ intros; unfold A.supplied, A.supplied_change; rewrite compaction_supplied_history_is_an_exact_append; reflexivity.
 Qed.
 
 Lemma a_checkpoint_retains_every_persistent_task_field : forall current summary,
@@ -245,16 +227,9 @@ Theorem checkpoint_transactions_have_their_exact_task_frame : forall owner curre
  List.length (world_tasks (checkpoint_world owner current summary before)) = List.length (world_tasks before).
 Proof.
  intros owner current summary before Found; split.
- - intros actual original Original.
-   destruct (N.eq_dec actual owner) as [Same|Different].
-   + subst actual; rewrite Found in Original; inversion Original; subst original.
-     exists (checkpoint_task current summary); split.
-     * change (find_task owner (put_task owner (checkpoint_task current summary) before) = Some (checkpoint_task current summary)).
-       eapply LifecycleProofs.find_put_task; exact Found.
-     * apply a_checkpoint_retains_every_persistent_task_field.
-   + exists original; split; [|apply fork_retains_task_reflexive].
-     change (registry_at actual (replace owner (checkpoint_task current summary) (world_tasks before)) = Some original).
-     rewrite registry_replace_other by congruence; exact Original.
+ - exact (task_replacement_retains_each_lookup fork_retains_task fork_retains_task_reflexive
+     before owner current (checkpoint_task current summary) (world_next_ticket before) Found
+     (a_checkpoint_retains_every_persistent_task_field current summary)).
  - repeat split; try reflexivity. apply registry_replace_length.
 Qed.
 

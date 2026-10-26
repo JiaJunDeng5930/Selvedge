@@ -1,8 +1,10 @@
+From Selvedge.Kernel Require Import FeatureAdmissionProofs.
+From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Schema JsonProofs.
+From Selvedge.Foundation Require Import Json Schema JsonProofs KeyedListProofs.
 From Selvedge.Kernel Require Import Domain State Numbers Codec ChatgptArguments.
 From Selvedge.Generated Require Import Commands.
-From Selvedge.Features Require Import Domain State Chatgpt FeatureScopeProofs.
+From Selvedge.Features Require Import Domain State Chatgpt.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -32,12 +34,17 @@ Theorem connection_without_project_grant_cannot_execute : forall connection proj
  decision_world (Chatgpt.run connection project request arguments value) = value /\
  decision_effects (Chatgpt.run connection project request arguments value) = [].
 Proof.
- intros connection project request arguments value missing.
- unfold Chatgpt.run.
- destruct (negb (Chatgpt.ids_valid [connection;project] && Chatgpt.bounded_text 128 request));
- [split;reflexivity|].
- destruct (ChatgptArguments.admit_args arguments); [|split;reflexivity].
- rewrite missing. split;reflexivity.
+ intros connection project request arguments value Missing.
+ unfold Chatgpt.run,Chatgpt.run_result.
+ destruct (FeatureRequestAdmission.resolve_connection connection project request arguments value)
+   as [[identity job|resolved]|reason];
+   cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+     Chatgpt.resolved_connection_change CommandResult.accept CommandResult.reject];
+   try (split; reflexivity).
+ destruct (resolved_connection_has_authority _ _ _ _ resolved) as [grant Authority].
+ rewrite (FeatureRequestAdmission.resolved_identity resolved),
+   (FeatureRequestAdmission.resolved_project resolved) in Authority.
+ unfold Chatgpt.authority,Chatgpt.registry in Missing. rewrite Missing in Authority; discriminate.
 Qed.
 
 Theorem query_cannot_reveal_foreign_operation : forall connection project id value,
@@ -82,14 +89,7 @@ Theorem recovery_never_replays_running_job : forall connection project request a
  F.JobInterrupted "Service restarted; execution may have happened and will not be replayed".
 Proof. reflexivity. Qed.
 
-Lemma removed_job_is_absent : forall id jobs,
- find (fun item : N * F.connection_job => N.eqb id (fst item))
-   (filter (fun item => negb (N.eqb id (fst item))) jobs) = None.
-Proof.
- intros id jobs. induction jobs as [|[key job] rest IH]; [reflexivity|].
- cbn. destruct (N.eqb id key) eqn:same; [exact IH|].
- cbn. rewrite same. exact IH.
-Qed.
+
 
 (** Forgetting ends retention without returning the identifier to the supply. *)
 Theorem public_forget_removes_settled_receipt : forall connection project id value job granted caller,
@@ -111,7 +111,7 @@ Proof.
  eexists. split; [reflexivity|].
  cbn beta iota zeta delta [decision_world decision_effects accept].
  rewrite sharing_registry_store. destruct (Chatgpt.registry value) as [grants jobs next].
- cbn. unfold Chatgpt.find_job. cbn. rewrite removed_job_is_absent.
+ cbn. unfold Chatgpt.find_job. cbn. rewrite removing_a_key_clears_its_lookup.
  repeat split; reflexivity.
 Qed.
 
@@ -158,25 +158,44 @@ Theorem accepted_public_exec_emits_frozen_job : forall connection project reques
  F.job_workspace job=project_workspace target /\ F.job_resource job=project_resource target /\ F.job_sandbox job=F.connection_sandbox granted /\ F.job_state job=F.JobRunning.
 Proof.
  intros connection project request arguments decoded granted target value caller ids bounded admitted authority project_found primary retry available resource capacity.
- pose proof (connection_scope_from_current_grant connection project request arguments decoded granted target value
-   bounded admitted authority project_found primary retry available resource capacity) as Scope.
- change (Chatgpt.handle_chatgpt_exec (G.Build_chatgpt_exec connection project request arguments) caller value)
-   with (Chatgpt.run connection project request arguments value).
- unfold Chatgpt.run. rewrite ids,bounded,admitted,authority,project_found.
- cbn beta iota zeta delta [andb negb].
- destruct (workspace_primary (project_workspace target)) eqn:found; [|contradiction].
- unfold Chatgpt.start. rewrite retry,available,resource,capacity.
- unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
- destruct (Bool.bool_dec _ true) as [Admitted|Refused].
- - eexists; eexists; repeat split; reflexivity.
- - exfalso; apply Refused; exact Scope.
+ assert (Primary : FeatureRequestAdmission.connection_has_primary target = true).
+ { unfold FeatureRequestAdmission.connection_has_primary; destruct (workspace_primary (project_workspace target));
+   [reflexivity|contradiction]. }
+ assert (Ready : FeatureRequestAdmission.connection_workspace target value = true).
+ { unfold FeatureRequestAdmission.connection_workspace. change (WorkspaceBinding.workspace_available (project_workspace target) value = true) in available. now rewrite available,resource. }
+ destruct (admitted_connection_resolves_without_rechecking connection project request arguments decoded granted target value
+   ids bounded admitted authority project_found Primary retry Ready capacity) as [resolved [Resolved Job]].
+ unfold Chatgpt.handle_chatgpt_exec,Chatgpt.handle_chatgpt_exec_result,Chatgpt.run_result.
+ cbn [G.chatgpt_exec_connection_id G.chatgpt_exec_project_id G.chatgpt_exec_request_id G.chatgpt_exec_arguments].
+ rewrite Resolved.
+ cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+   Chatgpt.resolved_connection_change TicketedRequest.Scoped.connection_plan
+   TicketedRequest.Scoped.feature_issue_change TicketedRequest.Scoped.feature_intent].
+ rewrite Job. eexists; eexists; repeat split; try reflexivity; now rewrite Job.
 Qed.
 
 (** A retry remains a receipt lookup, but a new physical job cannot enter
     a managed workspace whose resource is unavailable. *)
-Theorem unavailable_fresh_job_emits_no_io : forall connection project request arguments granted target value,
- Chatgpt.retry connection request (Chatgpt.registry value)=None ->
+Theorem unavailable_fresh_job_emits_no_io : forall connection project request arguments target value,
+ Chatgpt.project project value=Some target ->
  Worktree.workspace_available (project_workspace target) value=false ->
- decision_world (Chatgpt.start connection project request arguments granted target value)=value /\
- decision_effects (Chatgpt.start connection project request arguments granted target value)=[].
-Proof. intros. unfold Chatgpt.start. rewrite H,H0. split;reflexivity. Qed.
+ decision_world (Chatgpt.run connection project request arguments value)=value /\
+ decision_effects (Chatgpt.run connection project request arguments value)=[].
+Proof.
+ intros connection project request arguments target value Project Unavailable.
+ unfold Chatgpt.run,Chatgpt.run_result.
+ destruct (FeatureRequestAdmission.resolve_connection connection project request arguments value)
+   as [[identity job|resolved]|reason];
+   cbn [CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+     Chatgpt.resolved_connection_change CommandResult.accept CommandResult.reject];
+   try (split; reflexivity).
+ pose proof (FeatureRequestAdmission.resolved_admitted resolved) as Valid.
+ unfold FeatureRequestAdmission.connection in Valid.
+ rewrite (FeatureRequestAdmission.resolved_project resolved) in Valid.
+ unfold Chatgpt.project,FeatureRequestAdmission.connection_project in Project.
+ destruct (registry_at project (world_projects value)) as [current|] eqn:Found; [|discriminate].
+ destruct (project_deleted current) eqn:Deleted; [discriminate|]. inversion Project; subst current.
+ destruct (find _ _) in Valid; [|discriminate].
+ change (WorkspaceBinding.workspace_available (project_workspace target) value = false) in Unavailable.
+ rewrite Unavailable in Valid. repeat rewrite andb_false_r in Valid; discriminate.
+Qed.

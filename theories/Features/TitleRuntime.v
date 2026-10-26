@@ -1,12 +1,13 @@
+From Selvedge.Kernel Require CallbackDeclarations.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 Schema.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks TicketedRequest DecisionComposition.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Titles Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Definition entry (id:N) (value:world) := find (fun item=>N.eqb id (Selvedge.Features.Domain.title_task item)) (Selvedge.Features.Domain.feature_titles (world_features value)).
+Definition entry := FeatureRequestAdmission.title_entry.
 Definition store (id:N) (state:Selvedge.Features.Domain.title_state) (value:world) :=
  Selvedge.Kernel.State.with_features (Selvedge.Features.State.with_titles (Selvedge.Features.Domain.TitleEntry id state :: filter (fun item=>negb (N.eqb id (Selvedge.Features.Domain.title_task item))) (Selvedge.Features.Domain.feature_titles (world_features value))) (world_features value)) value.
 Definition configure (revision:N) (task_prompt agent_prompt:string) (value:world) :=
@@ -26,50 +27,36 @@ Definition handle_configure_title_settings (p : Selvedge.Generated.Commands.conf
  configure (Selvedge.Generated.Commands.configure_title_settings_revision p) (Selvedge.Generated.Commands.configure_title_settings_task_prompt p) (Selvedge.Generated.Commands.configure_title_settings_agent_prompt p) value.
 
 Definition first_request := Observation.first_request.
-Fixpoint split_slash (text:string) (part:string) :list string := match text with
- | EmptyString=>[part] | String ch rest=>if Ascii.eqb ch "/"%char then part::split_slash rest "" else split_slash rest (String.append part (String ch "")) end.
-Definition account_prefix (key:string) := match split_slash key "" with
- | "chatgpt"::account::_::_=>String.append "chatgpt/" (String.append account "/") | _=>"" end.
-Definition capable (p:profile) := negb (String.eqb (profile_provider p) "echo").
-Definition ordinary (p:profile) := capable p && match profile_policy p with FixedReasoning=>true | _=>false end.
-Definition selected_profile (task:task) (value:world) :=
- let current:=task_current_profile task in
- let configured:=environment_profiles (world_environment value) in
- let fallback:=find (fun p=>String.eqb (profile_key current) (profile_key p) && capable p) configured in
- let prefix:=account_prefix (profile_key current) in
- match find (fun p=>String.eqb (profile_provider current) "chatgpt" && negb (String.eqb prefix "") && String.prefix prefix (profile_key p) && String.eqb (profile_provider p) "chatgpt" && String.eqb (profile_model p) "gpt-5.6-luna" && ordinary p) configured with
- | Some chosen=>Some chosen | None=>fallback end.
+Definition split_slash := FeatureRequestAdmission.split_slash.
+Definition account_prefix := FeatureRequestAdmission.account_prefix.
+Definition capable := FeatureRequestAdmission.capable_profile.
+Definition ordinary := FeatureRequestAdmission.ordinary_profile.
+Definition selected_profile := FeatureRequestAdmission.selected_title_profile.
 Definition prompt := Titles.prompt_with.
-Definition accepts (task:task) := match task_lifecycle task with Archived _=>false | _=>true end.
-Definition start (id:N) (task:task) (result:decision) :decision :=
- let value:=decision_world result in
- match entry id value with Some _=>result | None=>
- let request:=first_request (task_history task) in
- if negb (accepts task && Utf8.nonblank request) then result else
- match selected_profile task value with None=>result | Some selected=>
- let source:=prompt (Selvedge.Features.Domain.title_agent_prompt (Selvedge.Features.Domain.feature_title_settings (world_features value))) request in
- let issued:=TicketedRequest.Scoped.feature_run (TicketedRequest.Scoped.TitleRequest id selected source) value in
- Selvedge.Kernel.State.Decision (decision_world issued) (decision_reply result)
- (decision_effects result ++ decision_effects issued) end end.
-Definition after_transition (_before:world) (result:decision) :=
- fold_left (fun current pair=>start (fst pair) (snd pair) current) (indexed (fun id task=>(id,task)) 0 (world_tasks (decision_world result))) result.
+Definition accepts := FeatureRequestAdmission.title_accepts.
+Definition issue {before} (request : FeatureRequestAdmission.resolved_title before) : CommandResult.change :=
+ let issued := TicketedRequest.Scoped.feature_issue_change (TicketedRequest.Scoped.title_plan request) in
+ CommandResult.Change JNull (CommandResult.change_world issued) (CommandResult.change_effects issued).
+Definition start (id:N) (result:decision) :decision :=
+ match FeatureRequestAdmission.resolve_title id (decision_world result) with
+ | None => result
+ | Some request => DecisionComposition.follow result (CommandResult.accept (issue request))
+ end.
 Definition complete (id ticket:N) (ok:bool) (text:string) (value:world) :=
  let correlated:=match entry id value with Some item=>match Selvedge.Features.Domain.title_value item with Selvedge.Features.Domain.TitlePending expected _ _=>N.eqb ticket expected | _=>false end | None=>false end in
  let normalized:=Titles.normalize text in
  let next:=if correlated then store id (if ok && negb (String.eqb normalized "") then Selvedge.Features.Domain.Named normalized else Selvedge.Features.Domain.TitleFailed text) value else value in
  Selvedge.Kernel.State.accept (JObject [("accepted",JBool correlated)]) next [].
 Definition completion (source:json) (value:world) :option (bool*bool*decision) :=
- match string_field "kind" source with Some "task_title"=>
- match natural_field "task_id" source,natural_field "ticket" source,bool_field "ok" source with
- | Some id,Some ticket,Some ok=>
- let declaration:=[Field "kind" KText;Field "task_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;
- Field (if ok then "title" else "message") KText] in
- match Schema.decode declaration source with None=>None | Some _=>
- let supplied:=if ok then string_field "title" source else string_field "message" source in
- match supplied with None=>None | Some text=>
- if negb (N.leb (N.of_nat (String.length text)) Titles.response_title_bytes && Utf8.well_formed text) then None else
- Some (true,true,complete id ticket ok text value) end end
- | _,_,_=>None end | _=>None end.
+ match string_field "kind" source with Some "task_title" =>
+ match bool_field "ok" source with
+ | Some ok => match Schema.decode (CallbackDeclarations.full_schema ModelDeclarations.TaskTitle ok) source with
+   | None => None
+   | Some fields => let fields := tail fields in let id := head fields in let fields := tail fields in
+     let ticket := head fields in let text := head (tail (tail fields)) in
+     if negb (N.leb (N.of_nat (String.length text)) Titles.response_title_bytes && Utf8.well_formed text) then None else
+     Some (true,true,complete id ticket ok text value) end
+ | None => None end | _ => None end.
 Definition recover (value:world) := Selvedge.Kernel.State.with_features
  (Selvedge.Features.State.with_titles (map (fun item=>match Selvedge.Features.Domain.title_value item with
  | Selvedge.Features.Domain.TitlePending _ _ _=>Selvedge.Features.Domain.TitleEntry (Selvedge.Features.Domain.title_task item) (Selvedge.Features.Domain.TitleFailed "Interrupted before title generation completed")

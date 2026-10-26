@@ -41,9 +41,6 @@ Definition payload_source (index : nat) (command : command_spec) : String.string
   concat [
     line (concat ["Definition "; name; "_schema := command_fields (List.nth "; show_nat index;
       " Selvedge.Kernel.Commands.command_specs (Command """" []))."]);
-    line (concat ["Theorem "; name; "_schema_declaration : "; name; "_schema = [";
-      join "; " (map field_source declarations); "]."]);
-    line "Proof. reflexivity. Qed.";
     match declarations with
     | [] => line (concat ["Definition "; name; "_payload : Type := unit."])
     | _ => line (concat ["Record "; name; "_payload : Type := Build_"; name; " { ";
@@ -59,22 +56,27 @@ Definition payload_source (index : nat) (command : command_spec) : String.string
     line (concat ["Definition decode_"; name; " (source : json) : option "; name; "_payload := ";
       "option_map "; name; "_from_fields (Schema.decode "; name; "_schema source)."]);
     line (concat ["Definition encode_"; name; " (payload : "; name; "_payload) : json := ";
-      "Schema.encode "; name; "_schema ("; name; "_to_fields payload)."]);
-    line (concat ["Theorem "; name; "_payload_roundtrip : forall payload, "; name; "_from_fields (";
-      name; "_to_fields payload) = payload."]);
-    line "Proof. intros []; reflexivity. Qed.";
-    concat (map (fun item => concat [
-      line (concat ["Theorem "; getter_name name (snd item); "_field : forall payload, lookup_field """;
-        field_name (snd item); """ ("; name; "_to_fields payload) = encode_field (List.nth ";
-        show_nat (fst item); " "; name; "_schema (Field """" KJson)) ("; getter_name name (snd item); " payload)."]);
-      line "Proof. intros; reflexivity. Qed."
-    ]) (indexed 0 declarations))
+      "Schema.encode "; name; "_schema ("; name; "_to_fields payload)."])
   ].
+Definition payload_laws_source (command : command_spec) :=
+  let name := command_name command in
+  concat ["| Cmd_"; name; " payload => "; name; "_schema = [";
+    join "; " (map field_source (command_fields command)); "] /\ ";
+    name; "_from_fields ("; name; "_to_fields payload) = payload /\ ";
+    "Forall (fun link : (option json * option json)%type => fst link = snd link) [";
+    join "; " (map (fun item => concat ["(lookup_field """; field_name (snd item);
+      """ ("; name; "_to_fields payload), encode_field (List.nth "; show_nat (fst item);
+      " "; name; "_schema (Field """" KJson)) ("; getter_name name (snd item); " payload))"])
+      (indexed 0 (command_fields command))); "]"].
 Definition command_chunks (commands : list command_spec) : list String.string :=
   [line "Inductive command : Type :="] ++
   map (fun command => line (concat ["| Cmd_"; command_name command;
     " (payload : "; command_name command; "_payload)"])) commands ++
   [line ".";
+   line "(** The catalog checks each actual named getter, independently of the field encoder. *)";
+   line "Definition payload_laws (value : command) : Prop := match value with"] ++
+  map (fun command => line (payload_laws_source command)) commands ++
+  [line "end.";
    line "Definition decode_named (name : string) (source : json) : option command :="] ++
   map (fun command => line (concat ["if String.eqb name """; command_name command;
     """ then option_map Cmd_"; command_name command; " (decode_"; command_name command; " source) else"])) commands ++
@@ -137,6 +139,9 @@ Definition command_chunks (commands : list command_spec) : list String.string :=
     "_payload |- _] => handler "; command_name command; "_schema "; command_name command;
     "_to_fields "; command_name command; "_from_fields Cmd_"; command_name command; " payload"])) commands ++
   [line "end.";
+   line "Ltac prove_payload_laws description to_fields from_fields constructor payload := destruct payload; cbn [payload_laws]; repeat constructor.";
+   line "Theorem every_command_payload_has_its_declared_fields : forall value, payload_laws value.";
+   line "Proof. intros []; command_payload_case prove_payload_laws. Qed.";
    line "Record handler_table (A : Type) := Handlers {"] ++
   map (fun command => line (concat [" handle_"; command_name command; " : "; command_name command; "_payload -> A;"])) commands ++
   [line "}."; line "Arguments Handlers {A}."] ++

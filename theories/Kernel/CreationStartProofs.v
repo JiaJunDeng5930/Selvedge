@@ -7,27 +7,11 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-(* Gallina compiles the literal default pattern into character matches; this
-   equation exposes the same public selection rule to subsequent proofs. *)
 Lemma selected_reasoning_as_test : forall effort model,
  Tasks.selected_reasoning (Some effort) model =
  if String.eqb effort "default" then Some model else
- if match profile_policy model with
- | AdaptivePolicy _ => String.eqb effort "auto"
- | FixedReasoning => nonempty effort && negb (String.eqb effort "auto") &&
-   match profile_reasoning_options model with [] => true | options => existsb (String.eqb effort) options end
- end then Some (with_reasoning effort model) else None.
-Proof.
- intros effort model.
- unfold Tasks.selected_reasoning.
- destruct effort as [|a effort]; [reflexivity|].
- destruct a as [a b c d e f g h];
- destruct a,b,c,d,e,f,g,h; try reflexivity.
- do 6 (destruct effort as [|a effort]; [reflexivity|];
-   destruct a as [a b c d e f g h];
-   destruct a,b,c,d,e,f,g,h; try reflexivity).
- destruct effort; reflexivity.
-Qed.
+ if Domain.reasoning_allowed effort model then Some (with_reasoning effort model) else None.
+Proof. reflexivity. Qed.
 
 Lemma selected_reasoning_preserves_profile_validity : forall effort model chosen,
  profile_valid model = true -> Tasks.selected_reasoning effort model = Some chosen ->
@@ -36,32 +20,12 @@ Proof.
  intros [effort|] model chosen Valid Selected; [|inversion Selected; subst; exact Valid].
  rewrite selected_reasoning_as_test in Selected.
  destruct (String.eqb effort "default") eqn:Default; [inversion Selected; subst; exact Valid|].
- unfold profile_valid in Valid.
- destruct (parse_profile (profile_metadata model)) as [original|] eqn:Original; [|discriminate].
- repeat rewrite andb_true_iff in Valid.
- destruct Valid as [[[[[Key Provider] Model] Options] Policy] Reasoning].
- unfold same_values in Options; apply JsonProofs.equal_reflects_equality in Options.
- injection Options as Options.
- assert (SameOptions : profile_reasoning_options model = profile_reasoning_options original).
- { clear Selected; revert Options; generalize (profile_reasoning_options original);
-   induction (profile_reasoning_options model) as [|x xs IH]; intros [|y ys] Equal;
-     cbn in Equal; try discriminate; [reflexivity|].
-   injection Equal as Head Tail; subst y; f_equal; apply IH; exact Tail. }
- destruct (profile_policy model) eqn:ModelPolicy;
- destruct (profile_policy original) eqn:OriginalPolicy;
- try (cbn [reasoning_policy_json Json.equal] in Policy; discriminate).
- all: match type of Selected with (if ?allowed then _ else _) = _ =>
-   destruct allowed eqn:Allowed; [|discriminate] end.
- all: inversion Selected; subst chosen; unfold profile_valid;
-   cbn [with_reasoning profile_metadata profile_key profile_provider profile_model profile_reasoning_options profile_policy profile_reasoning];
-   rewrite Original, Key, Provider, Model;
-   cbn [profile_key profile_provider profile_model profile_reasoning_options profile_policy profile_reasoning] in *;
-   rewrite SameOptions; try rewrite SameOptions in Allowed.
- all: rewrite selected_reasoning_as_test, Default, OriginalPolicy;
-   try rewrite SameOptions; try rewrite Allowed.
- all: rewrite ModelPolicy; cbn [with_reasoning profile_reasoning];
-   rewrite String.eqb_refl; unfold same_values;
-   rewrite JsonProofs.equal_is_reflexive; rewrite Policy; reflexivity.
+ destruct (Domain.reasoning_allowed effort model) eqn:Allowed; [|discriminate].
+ inversion Selected; subst chosen.
+ unfold profile_valid, Domain.profile_reasoning_valid.
+ change ((if String.eqb effort "default" then String.eqb effort (profile_default model)
+   else Domain.reasoning_allowed effort model) = true).
+ rewrite Default; exact Allowed.
 Qed.
 
 Lemma initial_introductions_retain_admitted_context : forall history bindings,

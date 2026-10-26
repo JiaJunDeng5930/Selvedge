@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects TextJson.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
@@ -18,8 +19,11 @@ Definition with_entry (id : N) (entry : entry) (value : Selvedge.Features.Compac
  set maintenance_entries (fun entries => (id, entry) :: filter (fun pair => negb (N.eqb (fst pair) id)) entries) value.
 Definition acknowledged (accepted : bool) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Kernel.State.effect) :=
  Selvedge.Kernel.State.accept (JObject [("accepted", JBool accepted)]) value effects.
+Definition commit_change (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
+ CommandResult.Change (JObject [("accepted", JBool true)])
+   (store (with_entry id entry (registry value)) value) (map Selvedge.Kernel.State.MaintainContext effects).
 Definition commit (id : N) (entry : entry) (value : Selvedge.Kernel.State.world) (effects : list Selvedge.Features.CompactionTypes.effect) :=
- acknowledged true (store (with_entry id entry (registry value)) value) (map Selvedge.Kernel.State.MaintainContext effects).
+ CommandResult.accept (commit_change id entry value effects).
 Definition configured_target (task : task) (value : Selvedge.Features.CompactionTypes.state) :=
  find (fun target => String.eqb (target_key target) (profile_key (task_current_profile task)))
   (policy_targets (maintenance_policy value)).
@@ -389,8 +393,7 @@ Definition synchronize (id : N) (task : task) (value : Selvedge.Kernel.State.wor
      else if fresh (entry_measurement entry) task value then Some (commit id entry value [])
      else Some (begin_scope id (capture_task task value) None entry value) end end end
  else None.
-Definition combine (first second : Selvedge.Kernel.State.decision) :=
- Selvedge.Kernel.State.Decision (Selvedge.Kernel.State.decision_world second) (Selvedge.Kernel.State.decision_reply first) (Selvedge.Kernel.State.decision_effects first ++ Selvedge.Kernel.State.decision_effects second)%list.
+Definition combine := DecisionComposition.follow.
 Definition cancelled_task (id : N) (effects : list Selvedge.Kernel.State.effect) :=
  existsb (fun effect => match effect with Selvedge.Kernel.State.CancelTask owner => N.eqb owner id | _ => false end) effects.
 Definition cancelled_ticket (id ticket : N) (effects : list Selvedge.Kernel.State.effect) :=
@@ -498,41 +501,48 @@ Definition checkpoint_entry (history : list message) (entry : entry) :=
  set entry_useful (fun _ => useful history) (set entry_maintained (N.max (useful history))
   (set entry_attempted (N.max (useful history)) (set entry_cache_deadline (fun _ => 0)
   (with_measurement Unmeasured (with_job NoJob entry))))).
-Definition supplied (id : N) (task : task) (summary : string) (value : Selvedge.Kernel.State.world) :=
+Definition supplied_change (id : N) (task : task) (summary : string) (value : Selvedge.Kernel.State.world) :=
  let history := task_history task in
  let entry := checkpoint_entry history (current_entry id (registry value)) in
  let task := set task_history (fun _ => ContextSelection.adopt history (ContextSelection.portable summary) history) task in
- commit id entry (Selvedge.Kernel.State.put_task id task value) (cancellations id (current_entry id (registry value))).
-Definition manual (id : N) (task : task) (value : Selvedge.Kernel.State.world) :=
+ commit_change id entry (Selvedge.Kernel.State.put_task id task value) (cancellations id (current_entry id (registry value))).
+Definition supplied (id : N) (task : task) (summary : string) (value : Selvedge.Kernel.State.world) :=
+ CommandResult.accept (supplied_change id task summary value).
+Definition manual_change (id : N) (task : task) (value : Selvedge.Kernel.State.world) :=
  let entry := current_entry id (registry value) in
  let result := if job_pending (entry_job entry) then acknowledged false value []
    else wait_for_context id (Some Manual) entry value in
- Selvedge.Kernel.State.Decision (Selvedge.Kernel.State.decision_world result)
-   (Selvedge.Kernel.State.success (JObject [("task_id", number id)]))
+ CommandResult.Change (JObject [("task_id", number id)]) (Selvedge.Kernel.State.decision_world result)
    ((map Selvedge.Kernel.State.MaintainContext (if job_pending (entry_job entry) then [] else cancellations id entry)) ++
      Selvedge.Kernel.State.decision_effects result)%list.
-Definition handle_compact (payload : Selvedge.Generated.Commands.compact_payload)
- (_caller : option N) (value : Selvedge.Kernel.State.world) : Selvedge.Kernel.State.decision :=
+Definition manual (id : N) (task : task) (value : Selvedge.Kernel.State.world) :=
+ CommandResult.accept (manual_change id task value).
+Definition handle_compact_result (payload : Selvedge.Generated.Commands.compact_payload)
+ (_caller : option N) (value : Selvedge.Kernel.State.world) : CommandResult.result CommandResult.change :=
 
    let id := Selvedge.Generated.Commands.compact_task_id payload in
    match Selvedge.Kernel.State.find_task id value with
-   | None => Selvedge.Kernel.State.reject "task_not_found" "The task does not exist" value
-   | Some task => if negb (alive task) then Selvedge.Kernel.State.reject "task_archived" "An archived task cannot be changed" value
+   | None => CommandResult.refuse "task_not_found" "The task does not exist"
+   | Some task => if negb (alive task) then CommandResult.refuse "task_archived" "An archived task cannot be changed"
      else match Selvedge.Generated.Commands.compact_summary payload with
        | None => match task_activity task with
-         | Idle => if running task then manual id task value else Selvedge.Kernel.State.reject "task_busy" "Model compaction requires an active idle task" value
-         | _ => Selvedge.Kernel.State.reject "task_busy" "Model compaction requires an active idle task" value end
+         | Idle => if running task then CommandResult.Accepted (manual_change id task value) else CommandResult.refuse "task_busy" "Model compaction requires an active idle task"
+         | _ => CommandResult.refuse "task_busy" "Model compaction requires an active idle task" end
        | Some summary =>
-         let invalid := Selvedge.Kernel.State.reject "invalid_summary"
-           "A checkpoint requires a nonempty bounded summary and settled tool calls" value in
+         let invalid := CommandResult.refuse "invalid_summary"
+           "A checkpoint requires a nonempty bounded summary and settled tool calls" in
          if idle task then if negb (String.eqb summary "") &&
          (N.of_nat (String.length summary) <=? Compaction.summary_limit_bytes) &&
          ContextSelection.closed_prefix (task_history task)
-         then supplied id task summary value
+         then CommandResult.Accepted (supplied_change id task summary value)
          else invalid
          else match task_activity task with
          | Idle => invalid
-         | _ => Selvedge.Kernel.State.reject "task_busy" "Compaction requires an idle task" value end end end.
+         | _ => CommandResult.refuse "task_busy" "Compaction requires an idle task" end end end.
+
+Definition handle_compact (payload : Selvedge.Generated.Commands.compact_payload)
+ (caller : option N) (value : Selvedge.Kernel.State.world) :=
+ CommandResult.decide value (handle_compact_result payload caller value).
 
 Definition owns_kind (kind : string) := match Selvedge.Features.CompactionCodec.completion_decoder kind with Some _ => true | None => false end.
 Definition completion (source : json) (value : Selvedge.Kernel.State.world) : option (bool * bool * Selvedge.Kernel.State.decision) :=

@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json Schema SchemaProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Workspace
  ModelCapabilities WorldInvariant ContextUpdates.
 From Selvedge.Features Require Import WorkspaceBinding.
@@ -11,21 +11,9 @@ Lemma parsed_workspaces_are_valid : forall raw selected,
  parse_workspace raw = Some selected -> Workspace.valid_workspace selected = true.
 Proof.
  intros raw selected Parsed; unfold parse_workspace in Parsed.
- destruct (Schema.decode Workspace.workspace_schema raw); [|discriminate].
- destruct (array_field "roots" raw) as [values|]; [|discriminate].
- destruct (strings values) as [roots|]; [|discriminate].
- destruct (Nat.leb (List.length roots) 32 && Schema.unique_names roots &&
-   forallb Workspace.valid_path roots) eqn:Roots; [|discriminate].
- destruct (string_field "primary_root" raw) as [primary|].
- - destruct (existsb (String.eqb primary) roots) eqn:Member; [|discriminate].
-   inversion Parsed; subst; unfold Workspace.valid_workspace; cbn.
-   rewrite Roots, Member; reflexivity.
- - destruct roots as [|primary rest]; cbn in Parsed.
-   + inversion Parsed; subst; reflexivity.
-   + rewrite String.eqb_refl in Parsed; cbn in Parsed; inversion Parsed; subst.
-     change ((Nat.leb (List.length (primary :: rest)) 32 && Schema.unique_names (primary :: rest) &&
-       forallb Workspace.valid_path (primary :: rest)) && existsb (String.eqb primary) (primary :: rest) = true).
-     rewrite Roots; cbn. rewrite String.eqb_refl; reflexivity.
+ destruct (Schema.decode Workspace.workspace_schema raw) as [values|]; [|discriminate].
+ destruct (Workspace.valid_workspace _) eqn:Valid; [|discriminate].
+ inversion Parsed; subst; exact Valid.
 Qed.
 
 Lemma catalog_members_have_valid_profiles : forall catalog selected,
@@ -56,29 +44,25 @@ Lemma parsed_approvals_are_valid : forall model catalog raw selected,
  parse_approval model catalog raw = Some selected -> approval_valid selected = true.
 Proof.
  intros model catalog raw selected Model Catalog Parsed; unfold parse_approval in Parsed.
- repeat match type of Parsed with
- | (match ?source with _ => _ end) = _ =>
-   let Branch := fresh "Branch" in destruct source eqn:Branch;
-   cbn beta iota zeta in Parsed; try discriminate
- end.
- all: inversion Parsed; subst; cbn [approval_valid]; try reflexivity.
- all: match goal with
- | Chosen : (match string_field "reviewer_profile" ?input with _ => _ end) = Some ?reviewer |- _ =>
-   destruct (string_field "reviewer_profile" input) as [name|] eqn:Name;
-   [apply find_some in Chosen as [Member _];
-    eapply catalog_members_have_valid_profiles; eauto |
-    inversion Chosen; subst; apply default_reviewers_have_valid_profiles; assumption]
- end.
+ destruct (Schema.decode approval_schema raw) as [values|]; [|discriminate].
+ destruct (String.eqb _ "full-access"); [inversion Parsed; reflexivity|].
+ destruct (String.eqb _ "ask-for-approval"); [inversion Parsed; reflexivity|].
+ destruct (head (tail values)) as [name|].
+ - destruct (find _ catalog) as [reviewer|] eqn:Found; [|discriminate].
+   destruct (ModelCapabilities.valid_reviewer_profile reviewer); [|discriminate].
+   inversion Parsed; subst; apply find_some in Found as [Member _].
+   eapply catalog_members_have_valid_profiles; eauto.
+ - destruct (ModelCapabilities.valid_reviewer_profile _); [|discriminate].
+   inversion Parsed; subst; apply default_reviewers_have_valid_profiles; assumption.
 Qed.
 
 Lemma selected_overrides_preserve_validity : forall (A : Type) (valid : A -> bool)
- (parse : json -> option A) key raw fallback selected,
+ (parse : json -> option A) source fallback selected,
  valid fallback = true ->
  (forall input value, parse input = Some value -> valid value = true) ->
- select_override parse key raw fallback = Some selected -> valid selected = true.
+ override_value parse source fallback = Some selected -> valid selected = true.
 Proof.
- intros A valid parse key raw fallback selected Fallback Parsed Selected.
- unfold select_override in Selected; destruct (field key raw) as [input|].
+ intros A valid parse [input|] fallback selected Fallback Parsed Selected.
  - eapply Parsed; exact Selected.
  - inversion Selected; subst; exact Fallback.
 Qed.
@@ -90,49 +74,60 @@ Proof.
  destruct (guidance_member workspace guidance); [exact Valid|reflexivity].
 Qed.
 
+Lemma settings_fields_are_valid : forall model catalog values fallback selected,
+ profile_valid model = true -> profiles_valid catalog = true -> settings_valid fallback = true ->
+ settings_of_fields model catalog values fallback = Some selected -> settings_valid selected = true.
+Proof.
+ intros model catalog values fallback selected Model Catalog Fallback Parsed.
+ unfold settings_valid in Fallback; repeat rewrite andb_true_iff in Fallback.
+ destruct Fallback as [[[Space Guidance] Member] Approval].
+ unfold settings_of_fields in Parsed; cbn zeta in Parsed.
+ set (workspace_source := head values) in *.
+ set (guidance_source := head (tail (tail (tail (tail values))))) in *.
+ destruct (valid_guidance (match guidance_source with Some value => value | None => JNull end)) eqn:RawGuidance; [|discriminate].
+ destruct (override_value parse_workspace workspace_source (settings_workspace fallback)) as [workspace|] eqn:Workspace; [|discriminate].
+ destruct (override_value (parse_sandbox_patch _) _ _) as [sandbox|] eqn:Sandbox; [|discriminate].
+ destruct (override_value (parse_approval _ _) _ _) as [approval|] eqn:ApprovalSelected; [|discriminate].
+ assert (WorkspaceValid : Workspace.valid_workspace workspace = true).
+ { eapply selected_overrides_preserve_validity; eauto using parsed_workspaces_are_valid. }
+ assert (ApprovalValid : approval_valid approval = true).
+ { eapply selected_overrides_preserve_validity; eauto using parsed_approvals_are_valid. }
+ assert (GuidanceValid : valid_guidance (match guidance_source with
+   | None | Some JNull => inherited_guidance workspace (settings_guidance fallback) | Some guidance => guidance end) = true).
+ { destruct guidance_source as [guidance|]; [destruct guidance|];
+     try exact RawGuidance; apply inherited_guidance_is_valid; exact Guidance. }
+ destruct (match head (tail (tail (tail (tail (tail values))))) with
+   | Some observation => parse_workspace_binding observation
+   | None => Some (match workspace_source with Some (JObject _) => None | _ => settings_resource fallback end) end)
+   as [resource|]; [|discriminate].
+ destruct (guidance_member workspace _) eqn:GuidanceMember; [|discriminate].
+ inversion Parsed; subst selected; unfold settings_valid; cbn [settings_workspace settings_guidance settings_approval].
+ apply andb_true_iff; split; [|exact ApprovalValid].
+ apply andb_true_iff; split; [|exact GuidanceMember].
+ apply andb_true_iff; split; assumption.
+Qed.
 Lemma parsed_settings_are_valid : forall model catalog raw fallback selected,
  profile_valid model = true -> profiles_valid catalog = true -> settings_valid fallback = true ->
  parse_settings model catalog raw fallback = Some selected -> settings_valid selected = true.
 Proof.
  intros model catalog raw fallback selected Model Catalog Fallback Parsed.
- unfold settings_valid in Fallback; repeat rewrite andb_true_iff in Fallback.
- destruct Fallback as [[[Space Guidance] Member] Approval].
- destruct raw as [|boolean|decimal|text|values|fields];
-   cbn [parse_settings] in Parsed; try discriminate.
- - inversion Parsed; subst; unfold settings_valid; rewrite Space, Guidance, Member, Approval; reflexivity.
- - destruct (Schema.decode task_settings_schema (JObject fields)); [|discriminate].
-   destruct (valid_guidance (value_or_null "guidance" (JObject fields))) eqn:RawGuidance; [|discriminate].
-   destruct (select_override parse_workspace "workspace" (JObject fields) (settings_workspace fallback))
-     as [workspace|] eqn:Workspace; [|discriminate].
-   destruct (select_override (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" (JObject fields)
-     (settings_sandbox fallback)) as [sandbox|] eqn:Sandbox; [|discriminate].
-   destruct (select_override (parse_approval model catalog) "approval" (JObject fields)
-     (settings_approval fallback)) as [approval|] eqn:ApprovalSelected; [|discriminate].
-   assert (WorkspaceValid : Workspace.valid_workspace workspace = true).
-   { eapply selected_overrides_preserve_validity; eauto using parsed_workspaces_are_valid. }
-   assert (ApprovalValid : approval_valid approval = true).
-   { eapply selected_overrides_preserve_validity; eauto using parsed_approvals_are_valid. }
-   assert (GuidanceValid : valid_guidance
-     (match field "guidance" (JObject fields) with
-      | None | Some JNull => inherited_guidance workspace (settings_guidance fallback)
-      | Some guidance => guidance end) = true).
-   { destruct (field "guidance" (JObject fields)) as [guidance|] eqn:GuidanceField.
-     - destruct guidance; try (apply inherited_guidance_is_valid; exact Guidance).
-       all: unfold value_or_null in RawGuidance; rewrite GuidanceField in RawGuidance; exact RawGuidance.
-     - apply inherited_guidance_is_valid; exact Guidance. }
-   destruct (match field "project_id" (JObject fields) with
-     | None => Some (settings_project fallback) | Some value => option_map (@Some N) (natural value) end)
-     as [project|]; [|discriminate].
-   destruct (match field "workspace_binding" (JObject fields) with
-     | Some observation => parse_workspace_binding observation
-     | None => Some (match field "workspace" (JObject fields) with
-       | Some (JObject _) => None | _ => settings_resource fallback end) end) as [resource|]; [|discriminate].
-   destruct (guidance_member workspace _) eqn:GuidanceMember; [|discriminate].
-   inversion Parsed; subst; unfold settings_valid; cbn.
-   cbn [field] in GuidanceValid, GuidanceMember.
-   rewrite WorkspaceValid, GuidanceValid, GuidanceMember, ApprovalValid; reflexivity.
+ destruct raw; cbn [parse_settings] in Parsed; try discriminate.
+ - inversion Parsed; subst; exact Fallback.
+ - destruct (Schema.decode task_settings_schema (JObject fields)) as [values|]; [|discriminate].
+   eapply settings_fields_are_valid; eauto.
 Qed.
 
+Lemma settings_fields_retain_the_project_selection : forall model catalog values fallback selected,
+ settings_of_fields model catalog values fallback = Some selected ->
+ settings_project selected = match head (tail (tail (tail values))) with Some id => Some id | None => settings_project fallback end.
+Proof.
+ intros model catalog values fallback selected Parsed; unfold settings_of_fields in Parsed; cbn zeta in Parsed.
+ repeat match type of Parsed with
+ | (if ?condition then _ else _) = _ => destruct condition eqn:?; try discriminate
+ | (match ?input with _ => _ end) = _ => destruct input eqn:?; try discriminate
+ end.
+ inversion Parsed; reflexivity.
+Qed.
 Lemma parsed_settings_retain_the_project_selection : forall model catalog raw fallback selected,
  parse_settings model catalog raw fallback = Some selected ->
  (match field "project_id" raw with
@@ -140,26 +135,20 @@ Lemma parsed_settings_retain_the_project_selection : forall model catalog raw fa
   | Some value => option_map (@Some N) (natural value) end) = Some (settings_project selected).
 Proof.
  intros model catalog raw fallback selected Parsed.
- destruct raw as [|boolean|decimal|text|values|fields];
-   cbn [parse_settings] in Parsed; try discriminate.
+ destruct raw as [|boolean|decimal|text|items|members]; cbn [parse_settings] in Parsed; try discriminate.
  - inversion Parsed; reflexivity.
- - destruct (Schema.decode task_settings_schema (JObject fields)); [|discriminate].
-   destruct (valid_guidance (value_or_null "guidance" (JObject fields))); [|discriminate].
-   destruct (select_override parse_workspace "workspace" (JObject fields) (settings_workspace fallback))
-     as [workspace|]; [|discriminate].
-   destruct (select_override (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" (JObject fields)
-     (settings_sandbox fallback)) as [sandbox|]; [|discriminate].
-   destruct (select_override (parse_approval model catalog) "approval" (JObject fields)
-     (settings_approval fallback)) as [approval|]; [|discriminate].
-   destruct (match field "project_id" (JObject fields) with
-     | None => Some (settings_project fallback) | Some value => option_map (@Some N) (natural value) end)
-     as [project|] eqn:Project; [|discriminate].
-   destruct (match field "workspace_binding" (JObject fields) with
-     | Some observation => parse_workspace_binding observation
-     | None => Some (match field "workspace" (JObject fields) with
-       | Some (JObject _) => None | _ => settings_resource fallback end) end) as [resource|]; [|discriminate].
-   destruct (guidance_member workspace _); [|discriminate].
-   inversion Parsed; subst; reflexivity.
+ - destruct (Schema.decode task_settings_schema (JObject members)) as [values|] eqn:Decoded; [|discriminate].
+   rewrite (settings_fields_retain_the_project_selection _ _ _ _ _ Parsed).
+   apply decoded_object_fields in Decoded as [source [Source Decoded]].
+   inversion Source; subst source.
+   do 3 apply decoded_field_tail in Decoded.
+   apply decoded_field_head in Decoded.
+   cbn [decode_field OmittableField field_name] in Decoded.
+   cbn [field]. destruct (Json.lookup "project_id" members) as [value|].
+   + destruct value as [|flag|lexeme|text|items|fields]; cbn [decode_value as_number natural option_map] in *; try discriminate.
+     destruct (parse_natural lexeme) as [id|]; [|discriminate].
+     injection Decoded as Project; rewrite <- Project; reflexivity.
+   + injection Decoded as Project; rewrite <- Project; reflexivity.
 Qed.
 
 Lemma selecting_a_bound_workspace_preserves_settings : forall base selected before result,
@@ -189,14 +178,7 @@ Proof.
  repeat rewrite andb_true_iff in *; tauto.
 Qed.
 
-Lemma a_registry_lookup_is_a_member : forall (A : Type) (values : list A) owner selected,
- registry_at owner values = Some selected -> In selected values.
-Proof.
- intros A values; induction values as [|first rest IH]; intros owner selected Found; [discriminate|].
- cbn in Found; destruct (N.eqb owner 0).
- - inversion Found; subst; left; reflexivity.
- - right; eapply IH; exact Found.
-Qed.
+Definition a_registry_lookup_is_a_member := @RegistryProofs.registry_lookup_is_member.
 
 Lemma retained_tasks_have_valid_settings : forall values start state selected,
  tasks_valid start values state = true -> In selected values ->
@@ -215,17 +197,14 @@ Lemma valid_guidance_has_an_observed_workspace : forall source,
  valid_guidance source = true -> source = JNull \/
  exists root, string_field "workspace" source = Some root /\ Workspace.valid_path root = true.
 Proof.
- intros source Valid; destruct source as [|boolean|decimal|text|values|fields]; try (left; reflexivity).
+ intros source Valid; destruct source as [|boolean|decimal|text|items|members]; try (left; reflexivity).
  all: right; unfold valid_guidance in Valid.
- all: match type of Valid with context[Schema.decode guidance_schema ?input] =>
-   destruct (Schema.decode guidance_schema input) as [decoded|]; try discriminate end.
- all: repeat rewrite andb_true_iff in Valid.
- all: match type of Valid with context[Workspace.valid_path (text_default "workspace" ?input "")] =>
-   assert (Root : Workspace.valid_path (text_default "workspace" input "") = true) by tauto end.
- all: unfold text_default in Root.
- all: match type of Root with context[string_field "workspace" ?input] =>
-   destruct (string_field "workspace" input) as [root|] eqn:Observed;
-   [eexists; split; eauto|discriminate] end.
+ all: try discriminate.
+ destruct (Schema.decode guidance_schema (JObject members)) as [decoded|] eqn:Decoded; [|discriminate].
+ exists (head decoded); split.
+ - apply decoded_object_fields in Decoded as [fields [Source Decoded]].
+   inversion Source; subst fields. apply decoded_field_head in Decoded; exact Decoded.
+ - repeat rewrite andb_true_iff in Valid; tauto.
 Qed.
 
 Lemma observed_workspace_field : forall source root,

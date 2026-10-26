@@ -13,6 +13,9 @@ Inductive kind : Type :=
 | KOptional (element : kind)
 | KEnum (first : string) (rest : list string).
 
+Definition optional_kind description := match description with KOptional _ => true | _ => false end.
+Definition present_kind description := match description with KOptional value => value | _ => description end.
+
 Fixpoint denote (description : kind) : Type :=
   match description with
   | KText => string | KBool => bool | KNatural => N | KInteger => Z
@@ -38,6 +41,16 @@ Inductive fields : schema -> Type :=
 | FNil : fields []
 | FCons : forall field rest, field_value field -> fields rest -> fields (field :: rest).
 Arguments FCons {field rest} _ _.
+
+(** Products give named records and variant cases a bidirectional construction
+    interface without repeating field names or dependent constructor indices. *)
+Fixpoint tuple (description : schema) : Type := match description with
+ | [] => unit | field :: rest => (field_value field * tuple rest)%type end.
+Fixpoint of_tuple (description : schema) : tuple description -> fields description :=
+ match description as description return tuple description -> fields description with
+ | [] => fun _ => FNil | field :: rest => fun values => FCons (fst values) (of_tuple rest (snd values)) end.
+Notation "'[!' '!]'" := tt.
+Notation "'[!' x ; .. ; y '!]'" := (x, .. (y, tt) ..).
 
 Fixpoint decode_list {A} (decode : json -> option A) (values : list json) : option (list A) :=
   match values with

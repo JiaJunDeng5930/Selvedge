@@ -35,18 +35,19 @@ Definition state_of (source : json) := SessionState (get source "id") (get sourc
    else if String.eqb (str source "phase") "ready" then Ready else Connecting)
   (num source "cursor") (num source "sequence") (items (get source "pending")) (items (get source "delegations"))
   (if equal (get source "progress") JNull then None else Some (progress_of (get source "progress"))) (boolean_field source "dirty").
-Definition primitive_json (s : session_state) (effect : primitive) := match effect with
- | Publish event => ModelDeclarations.encode ModelResultDeclarations.audio_emit (Schema.FCons (field:=Schema.Field "event" Schema.KJson) (set (set event "session_id" (session_id s)) "task_id" (task_id s)) Schema.FNil)
- | CommitSpeech token command => ModelDeclarations.encode ModelResultDeclarations.audio_journal (Schema.FCons (field:=Schema.Field "token" Schema.KJson) (token) (Schema.FCons (field:=Schema.Field "command" Schema.KJson) (command) Schema.FNil))
- | AppendContext context => ModelDeclarations.encode ModelResultDeclarations.audio_context (Schema.FCons (field:=Schema.Field "context" Schema.KJson) (context) Schema.FNil)
- | DeliverContexts token contexts => ModelDeclarations.encode ModelResultDeclarations.audio_contexts (Schema.FCons (field:=Schema.Field "token" Schema.KJson) (number token) (Schema.FCons (field:=Schema.Field "contexts" (Schema.KArray Schema.KJson)) contexts Schema.FNil))
- | ReadProgress token after => ModelDeclarations.encode ModelResultDeclarations.audio_read (Schema.FCons (field:=Schema.Field "token" Schema.KJson) (number token) (Schema.FCons (field:=Schema.Field "after" Schema.KNatural) (after) Schema.FNil))
- | StopTransport => ModelDeclarations.encode ModelResultDeclarations.audio_stop Schema.FNil
- | Release => ModelDeclarations.encode ModelResultDeclarations.audio_release Schema.FNil
- | ArmLifetime => ModelDeclarations.encode ModelResultDeclarations.audio_timer Schema.FNil
- | ArmConnect => ModelDeclarations.encode ModelResultDeclarations.audio_connect_timer Schema.FNil
- | Reject message => ModelDeclarations.encode ModelResultDeclarations.audio_reject (Schema.FCons (field:=Schema.Field "message" Schema.KText) (message) Schema.FNil)
+Definition primitive_packet (s : session_state) (effect : primitive) := match effect with
+ | Publish event => ModelDeclarations.pack ModelResultDeclarations.audio_emit [!set (set event "session_id" (session_id s)) "task_id" (task_id s)!]
+ | CommitSpeech token command => ModelDeclarations.pack ModelResultDeclarations.audio_journal [!token;command!]
+ | AppendContext context => ModelDeclarations.pack ModelResultDeclarations.audio_context [!context!]
+ | DeliverContexts token contexts => ModelDeclarations.pack ModelResultDeclarations.audio_contexts [!number token;contexts!]
+ | ReadProgress token after => ModelDeclarations.pack ModelResultDeclarations.audio_read [!number token;after!]
+ | StopTransport => ModelDeclarations.pack ModelResultDeclarations.audio_stop [!!]
+ | Release => ModelDeclarations.pack ModelResultDeclarations.audio_release [!!]
+ | ArmLifetime => ModelDeclarations.pack ModelResultDeclarations.audio_timer [!!]
+ | ArmConnect => ModelDeclarations.pack ModelResultDeclarations.audio_connect_timer [!!]
+ | Reject message => ModelDeclarations.pack ModelResultDeclarations.audio_reject [!message!]
  end.
+Definition primitive_json s effect := ModelDeclarations.encode_packet (primitive_packet s effect).
 Definition with_phase (s : session_state) (p : session_phase) := SessionState (session_id s) (task_id s) (owner s) (generation s)
   p (cursor s) (sequence s) (journal_pending s) (delegations s) (progress_pending s) (progress_dirty s).
 Definition event_type kind := JObject [("type",JString kind)].

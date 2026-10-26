@@ -27,10 +27,11 @@ Definition status state := JObject [("enabled",JBool (Selvedge.Features.Domain.r
  ("grants",JArray (map grant_json (Selvedge.Features.Domain.remote_grants state)));
  ("receipt_count",number (N.of_nat (List.length (Selvedge.Features.Domain.remote_receipts state))));("receipt_limit",number 1024)].
 Definition rights_schema := [Field "read" KBool;Field "control" KBool;Field "configure" KBool;Field "approve" KBool].
-Definition parse_rights source := match Schema.decode rights_schema source,
- bool_field "read" source,bool_field "control" source,bool_field "configure" source,bool_field "approve" source with
- | Some _,Some read,Some control,Some configure,Some approve => Some (Selvedge.Features.Domain.Rights read control configure approve)
- | _,_,_,_,_ => None end.
+Definition parse_rights source := match Schema.decode rights_schema source with
+ | Some values => let read := Schema.head values in let values := Schema.tail values in
+   let control := Schema.head values in let values := Schema.tail values in
+   Some (Selvedge.Features.Domain.Rights read control (Schema.head values) (Schema.head (Schema.tail values)))
+ | None => None end.
 Definition local_only value := reject "remote_local_only" "Remote administration is available only to the local owner" value.
 Definition admin_enabled enabled value :=
  let state:=registry value in
@@ -207,16 +208,18 @@ Definition execute_remote (execute:Scheduler.executor) source request original v
 Definition request_schema (prepared : bool) := List.app
  [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
  (if prepared then [Field "command" KJson;Field "configuration" KJson] else []).
-Definition parse_request (prepared : bool) source := match Schema.decode (request_schema prepared) source,string_field "controller_id" source,
- natural_field "grant_epoch" source,string_field "request_id" source,field "intent" source with
- | Some _,Some controller,Some epoch,Some id,Some intent=>Some (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) intent)
- | _,_,_,_,_=>None end.
+Definition parse_request (prepared : bool) source := match Schema.decode (request_schema prepared) source with
+ | Some values => let values := Schema.tail values in let controller := Schema.head values in
+   let values := Schema.tail values in let epoch := Schema.head values in
+   let values := Schema.tail values in let id := Schema.head values in
+   Some (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head (Schema.tail values)))
+ | None => None end.
 Definition completion (execute:Scheduler.executor) source value : option (bool*bool*decision) :=
  match string_field "kind" source with
- | Some kind=>if String.eqb kind "remote_check" then Some (false,false,match Schema.decode [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural] source,
-     string_field "controller_id" source,natural_field "grant_epoch" source with
-   | Some _,Some controller,Some epoch=>probe_reply (check read_rights controller epoch (registry value)) value
-   | _,_,_=>reject "invalid_input" "Malformed remote identity check" value end)
+ | Some kind=>if String.eqb kind "remote_check" then Some (false,false,match Schema.decode [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural] source with
+   | Some values => let values := Schema.tail values in
+     probe_reply (check read_rights (Schema.head values) (Schema.head (Schema.tail values)) (registry value)) value
+   | None=>reject "invalid_input" "Malformed remote identity check" value end)
  else if String.eqb kind "remote_probe" || String.eqb kind "remote_command" then
    Some (match parse_request (String.eqb kind "remote_command") source with
    | None=>(false,false,reject "invalid_input" "Malformed remote request" value)

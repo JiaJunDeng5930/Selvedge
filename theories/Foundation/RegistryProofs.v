@@ -2,6 +2,15 @@ From Stdlib Require Import List NArith Lia.
 From Selvedge.Foundation Require Import Registry.
 Import ListNotations.
 
+Lemma registry_lookup_is_member : forall (A : Type) (values : list A) index selected,
+ registry_at index values = Some selected -> In selected values.
+Proof.
+ intros A values; induction values as [|first rest IH]; intros index selected Found; [discriminate|].
+ cbn in Found; destruct (N.eqb index 0).
+ - inversion Found; subst; left; reflexivity.
+ - right; eapply IH; exact Found.
+Qed.
+
 Lemma registry_replace_selected : forall (A : Type) (values : list A) index previous replacement,
  registry_at index values = Some previous -> registry_at index (replace index replacement values) = Some replacement.
 Proof.
@@ -117,4 +126,17 @@ Proof.
    now rewrite N.add_0_r.
  - rewrite (IH (N.succ offset) (N.pred index) previous Found).
    f_equal; f_equal; apply N.eqb_neq in Zero; lia.
+Qed.
+
+Lemma indexed_members_have_actual_positions : forall (A B : Type) (project : N -> A -> B) entries offset member,
+ In member (indexed project offset entries) ->
+ exists position current, registry_at position entries = Some current /\ member = project (offset + position)%N current.
+Proof.
+ intros A B project entries; induction entries as [|first rest IH]; intros offset member Member; [contradiction|].
+ cbn [indexed] in Member; destruct Member as [Same|Member].
+ - subst member; exists 0%N,first; split; [reflexivity|now rewrite N.add_0_r].
+ - destruct (IH (N.succ offset) member Member) as [position [current [Found Same]]].
+   exists (N.succ position),current; split.
+   + rewrite registry_lookup_after_head; exact Found.
+   + rewrite Same,N.add_succ_l,N.add_succ_r; reflexivity.
 Qed.

@@ -61,3 +61,32 @@ Proof.
  { intros [current|] evidence; cbn; [apply Present; reflexivity|apply Missing; exact evidence]. }
  apply General.
 Qed.
+
+(* A selector may retain the equality just observed by computation. Clients
+   eliminate that observation through its builder, without writing a second,
+   unindexed copy of the selector's implementation. *)
+Lemma observed_value_elimination : forall (A B : Type) (observed : A)
+ (build : forall selected, observed = selected -> B) (property : B -> Prop),
+ (forall selected evidence, property (build selected evidence)) ->
+ property (build observed eq_refl).
+Proof. intros A B observed build property Cases; apply Cases. Qed.
+
+(* Derive an ordinary lookup view from the single scoped implementation. The
+   supplied reduction only interprets plans and projections. The equality below
+   is always proved by selected_result_erases_its_lookup_witness; no business
+   branches are restated, and the derived proof is checked by the kernel. *)
+Ltac derive_task_lookup_view program expression id before reduce_plan :=
+ let abstracted := eval pattern (TaskScope.select id before) in expression in
+ let result_type := type of expression in
+ lazymatch abstracted with
+ | ?continue _ =>
+   let compute := constr:(fun (owner : N) (current : task) =>
+     (ltac:(let reduced := reduce_plan
+       constr:(fun observed : find_task owner before = Some current =>
+         continue (Some (TaskScope.TaskReference before owner current observed))) in
+       lazymatch reduced with (fun _ => ?result) => exact result end) : result_type)) in
+   let absent := eval cbv beta iota zeta in (continue None) in
+   exact (selected_result_erases_its_lookup_witness _ id before continue compute absent
+     ltac:(intros; reflexivity) eq_refl : program =
+       match find_task id before with Some current => compute id current | None => absent end)
+ end.

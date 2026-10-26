@@ -1,87 +1,32 @@
+From Selvedge.Kernel Require Import FeatureAdmissionProofs.
+From Selvedge.Kernel Require CommandResult FeatureRequestAdmission.
 From Selvedge.Kernel Require Import FeatureFrameProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Inputs TicketedRequest
  WorldInvariant WorldInvariantProofs CommitAdmission AfterHookAuthorizationProofs FeatureAuthorityProofs ProtocolProofs ConnectionCommit DeferredCommit ChatgptArgumentsProofs.
-From Selvedge.Features Require Import Domain State Chatgpt WorkspaceBinding Board TaskGraph FeatureScopeProofs.
+From Selvedge.Features Require Import Domain State Chatgpt WorkspaceBinding Board TaskGraph.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
 Module W := Selvedge.Kernel.WorldInvariant.
 Module A := Selvedge.Kernel.CommitAdmission.
 
-Lemma sharing_store_keeps_task_requirements : forall replacement owner current before,
- W.task_valid owner current (Chatgpt.store replacement before) = W.task_valid owner current before.
-Proof. intros. unfold W.task_valid,W.project_binding,W.lineage_valid,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
-Lemma sharing_store_keeps_registry_requirements : forall replacement owner entries before,
- W.tasks_valid owner entries (Chatgpt.store replacement before) = W.tasks_valid owner entries before.
-Proof. intros replacement owner entries; revert owner; induction entries; intros; cbn [W.tasks_valid];
- rewrite ?sharing_store_keeps_task_requirements, ?IHentries; reflexivity. Qed.
-
-Lemma sharing_store_keeps_title_requirements : forall replacement before,
- W.titles_valid (Chatgpt.store replacement before) = W.titles_valid before.
-Proof. intros. unfold W.titles_valid,W.title_valid,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
-Lemma sharing_store_keeps_tree_requirements : forall replacement before,
- W.worktrees_valid (Chatgpt.store replacement before) = W.worktrees_valid before.
-Proof. intros. unfold W.worktrees_valid,W.tree_owner_valid,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
-Lemma sharing_store_keeps_card_requirements : forall replacement before,
- W.board_valid (Chatgpt.store replacement before) = W.board_valid before.
-Proof. intros. unfold W.board_valid,W.card_valid,Board.valid_draft,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
-Lemma sharing_store_keeps_one_graph : forall replacement owner graph before,
- W.graph_valid owner graph (Chatgpt.store replacement before)=W.graph_valid owner graph before.
-Proof. intros. unfold W.graph_valid,TaskGraph.task_in_work,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-Lemma sharing_store_keeps_graphs : forall replacement owner entries before,
- W.graphs_valid owner entries (Chatgpt.store replacement before)=W.graphs_valid owner entries before.
-Proof. intros replacement owner entries; revert owner; induction entries as [|entry rest IH]; intros;
- cbn [W.graphs_valid]; [reflexivity|]. rewrite IH. destruct entry; rewrite ?sharing_store_keeps_one_graph; reflexivity. Qed.
-Lemma sharing_store_keeps_graph_requirements : forall replacement before,
- W.graph_registry_valid (Chatgpt.store replacement before) = W.graph_registry_valid before.
-Proof. intros. unfold W.graph_registry_valid. rewrite sharing_store_keeps_graphs; reflexivity. Qed.
-
-Lemma sharing_store_keeps_work_requirements : forall replacement before,
- W.works_valid (Chatgpt.store replacement before) = W.works_valid before.
-Proof. intros. unfold W.works_valid,W.work_owners_valid,Selvedge.Features.Work.lookup,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
-Lemma sharing_store_keeps_compaction_requirements : forall replacement before,
- W.compaction_valid (Chatgpt.store replacement before) = W.compaction_valid before.
-Proof. intros. unfold W.compaction_valid,W.maintenance_entry_valid,find_task,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
-Lemma sharing_store_keeps_ticket_requirements : forall replacement before,
- W.tickets_valid (Chatgpt.store replacement before) = W.tickets_valid before.
-Proof. intros. unfold W.tickets_valid,W.feature_tickets,Chatgpt.store,
- with_features,Selvedge.Features.State.with_sharing,set; reflexivity. Qed.
-
 Lemma sharing_store_preserves_other_requirements : forall replacement before,
  W.world_valid before=true -> W.sharing_valid (Chatgpt.store replacement before)=true ->
  W.world_valid (Chatgpt.store replacement before)=true.
 Proof.
  intros replacement before Valid Sharing.
- unfold W.world_valid,W.world_structure in *.
- change (W.environment_valid (world_environment (with_sequence 0 before)) &&
- W.projects_valid (with_sequence 0 before) &&
- W.tasks_valid 0 (world_tasks before) (Chatgpt.store replacement (with_sequence 0 before)) &&
- W.tickets_valid (Chatgpt.store replacement (with_sequence 0 before)) &&
- W.features_valid (Chatgpt.store replacement (with_sequence 0 before)) = true).
- rewrite sharing_store_keeps_registry_requirements,sharing_store_keeps_ticket_requirements.
- unfold W.features_valid in *.
- rewrite sharing_store_keeps_title_requirements,sharing_store_keeps_tree_requirements,
- sharing_store_keeps_card_requirements,sharing_store_keeps_graph_requirements,
- sharing_store_keeps_work_requirements,sharing_store_keeps_compaction_requirements.
- assert (NewSharing: W.sharing_valid (Chatgpt.store replacement (with_sequence 0 before))=true)
- by exact Sharing.
- rewrite NewSharing. cbn [Chatgpt.store with_features Selvedge.Features.State.with_sharing set].
- repeat rewrite andb_true_iff in *; intuition.
+ apply well_formed_worlds_pass_the_checker.
+ apply unchanged_registries_preserve_other_world_requirements with before;
+   try reflexivity; [now apply the_world_checker_establishes_all_requirements| |].
+ - exact (W.tickets_requirement before (the_world_checker_establishes_all_requirements before Valid)).
+ - assert (Graphs : W.graph_registry_valid (Chatgpt.store replacement before) = W.graph_registry_valid before).
+   { apply graph_registry_requirements_follow_entry_observations; reflexivity. }
+   pose proof (well_formed_feature_requirements before
+     (the_world_checker_establishes_all_requirements before Valid)) as Features.
+   unfold W.features_valid in *; rewrite Graphs.
+   repeat rewrite andb_true_iff in *; intuition.
 Qed.
 
 Lemma sharing_store_keeps_resource_observation : forall replacement space resource before,
@@ -118,10 +63,10 @@ Lemma an_issued_connection_has_the_fresh_state : forall before
 Proof.
  intros before [source Admitted] job Intent Bounded.
  cbn in Intent; subst source.
- unfold TicketedRequest.Scoped.feature_issue,TicketedRequest.Scoped.feature_build,
+ unfold TicketedRequest.Scoped.feature_issue,TicketedRequest.Scoped.feature_issue_change,CommandResult.accept,TicketedRequest.Scoped.feature_build,
  TicketedRequest.Scoped.feature_space,TicketedRequest.allocate_identity,TicketedRequest.next_identity,
  TicketedRequest.Scoped.put_connection.
- unfold Chatgpt.store,fresh_state,Chatgpt.registry,with_features,
+ unfold Chatgpt.store,fresh_state,Chatgpt.registry,FeatureRequestAdmission.sharing_registry,with_features,
  Selvedge.Features.State.with_sharing,set in *; cbn in *.
  rewrite below_supply_filter_is_identity by exact Bounded.
  reflexivity.
@@ -130,10 +75,10 @@ Qed.
 Lemma a_connection_job_has_reflexive_authority : forall job,
  A.same_connection_job job job=true.
 Proof.
- intros. unfold A.same_connection_job.
+ intros. unfold A.same_connection_job, Comparison.all, Comparison.on; cbn [fold_left].
  rewrite !N.eqb_refl,!String.eqb_refl,!equal_is_reflexive.
  unfold Workspace.same_resource. destruct (F.job_resource job); rewrite ?N.eqb_refl; cbn.
- all: destruct (F.job_state job); rewrite ?equal_is_reflexive,?Bool.eqb_reflx,?String.eqb_refl; reflexivity.
+ all: destruct (F.job_state job); cbn [A.same_connection_state]; rewrite ?equal_is_reflexive,?Bool.eqb_reflx,?String.eqb_refl; reflexivity.
 Qed.
 
 Lemma fresh_connection_effect_has_receiver_authority : forall before job,
@@ -141,7 +86,7 @@ Lemma fresh_connection_effect_has_receiver_authority : forall before job,
   before (Chatgpt.store (fresh_state before job) before)=true.
 Proof.
  intros. unfold A.feature_effect_valid,A.fresh_connection_job,A.connection_job_at,
- fresh_state,Chatgpt.store,Chatgpt.registry,with_features,Selvedge.Features.State.with_sharing,set.
+ fresh_state,Chatgpt.store,Chatgpt.registry,FeatureRequestAdmission.sharing_registry,with_features,Selvedge.Features.State.with_sharing,set.
  cbn. rewrite !N.eqb_refl,N.leb_refl.
  assert (Fresh: (F.sharing_next (F.feature_sharing (world_features before)) <?
   N.succ (F.sharing_next (F.feature_sharing (world_features before))))%N=true) by (apply N.ltb_lt;lia).
@@ -185,7 +130,7 @@ Proof.
  intros before job Valid Capacity Supply Request Arguments Workspace Running Resource.
  pose proof (sharing_jobs_stay_below_their_supply before Valid) as Bounded.
  unfold W.sharing_valid in Valid |- *.
- unfold fresh_state,Chatgpt.store,Chatgpt.registry,with_features,Selvedge.Features.State.with_sharing,set in *.
+ unfold fresh_state,Chatgpt.store,Chatgpt.registry,FeatureRequestAdmission.sharing_registry,with_features,Selvedge.Features.State.with_sharing,set in *.
  cbn -[forallb W.unique_tickets W.within_u32 ChatgptArguments.valid_args Workspace.valid_workspace WorkspaceBinding.resource_ready Selvedge.Features.Remote.identifier_valid] in *.
  repeat rewrite andb_true_iff in Valid.
  destruct Valid as [[[[[[Grants UniqueGrants] GrantFields] OldCapacity] OldSupply] UniqueJobs] Fields].
@@ -218,7 +163,7 @@ Proof.
  intros before job Valid.
  pose proof (well_formed_features_admit_their_unchanged_configuration before Valid) as Original.
  unfold A.features_evolution,A.titles_evolution,A.same_title_prompts in Original |- *.
- unfold Chatgpt.store,fresh_state,Chatgpt.registry,with_features,Selvedge.Features.State.with_sharing,set.
+ unfold Chatgpt.store,fresh_state,Chatgpt.registry,FeatureRequestAdmission.sharing_registry,with_features,Selvedge.Features.State.with_sharing,set.
  cbn -[A.board_evolution A.compaction_evolution] in *.
  assert (Supply: (F.sharing_next (F.feature_sharing (world_features before)) <=?
  N.succ (F.sharing_next (F.feature_sharing (world_features before))))%N=true)
@@ -314,24 +259,30 @@ Theorem admissible_connection_command_constructs_its_exact_result :
 Proof.
  intros connection project request arguments decoded granted target before Valid Ids Bounded Arguments Authority
  Project Primary Retry Available Resource Capacity.
- pose proof (FeatureScopeProofs.connection_scope_from_current_grant connection project request arguments decoded granted target before
-   Bounded Arguments Authority Project Primary Retry Available Resource Capacity) as Scope.
- unfold ConnectionCommit.candidate,Chatgpt.handle_chatgpt_exec,Chatgpt.run.
+ assert (Root : FeatureRequestAdmission.connection_has_primary target = true).
+ { unfold FeatureRequestAdmission.connection_has_primary; destruct (workspace_primary (project_workspace target));
+   [reflexivity|contradiction]. }
+ assert (Ready : FeatureRequestAdmission.connection_workspace target before = true).
+ { unfold FeatureRequestAdmission.connection_workspace. change (WorkspaceBinding.workspace_available (project_workspace target) before = true) in Available. now rewrite Available,Resource. }
+ destruct (admitted_connection_resolves_without_rechecking connection project request arguments decoded granted target before
+   Ids Bounded Arguments Authority Project Root Retry Ready Capacity) as [resolved [Resolved Job]].
+ unfold ConnectionCommit.candidate,Chatgpt.handle_chatgpt_exec_result,Chatgpt.run_result.
  cbn [Selvedge.Generated.Commands.chatgpt_exec_connection_id Selvedge.Generated.Commands.chatgpt_exec_project_id
- Selvedge.Generated.Commands.chatgpt_exec_request_id Selvedge.Generated.Commands.chatgpt_exec_arguments].
- rewrite Ids,Bounded,Arguments,Authority,Project.
- cbn [andb negb].
- destruct (workspace_primary (project_workspace target)) eqn:Root;[|contradiction].
- unfold Chatgpt.start;rewrite Retry,Available,Resource,Capacity.
- unfold TicketedRequest.Scoped.feature_with_reply,TicketedRequest.Scoped.feature.
- destruct (Bool.bool_dec _ true) as [Admitted|Refused].
- - rewrite an_issued_connection_has_the_fresh_state with
-     (job:=F.ConnectionJob connection project request decoded (project_workspace target)
-       (project_resource target) (F.connection_sandbox granted) F.JobRunning).
-   + reflexivity.
-   + reflexivity.
-   + apply sharing_jobs_stay_below_their_supply; exact Valid.
- - exfalso; apply Refused; exact Scope.
+   Selvedge.Generated.Commands.chatgpt_exec_request_id Selvedge.Generated.Commands.chatgpt_exec_arguments].
+ rewrite Resolved.
+ unfold DeferredCommit.continue_result,CommandResult.commit,CommandResult.map,CommandResult.bind,
+   CommandResult.decide,CommandResult.resolve.
+ cbn [Chatgpt.resolved_connection_change CommandResult.append_effects CommandResult.accept].
+ change (Decision
+   (decision_world (TicketedRequest.Scoped.feature_issue (TicketedRequest.Scoped.connection_plan resolved)))
+   (success (Chatgpt.receipt (TicketedRequest.next_identity TicketedRequest.ConnectionIdentity before)
+     (FeatureRequestAdmission.resolved_job resolved)))
+   (decision_effects (TicketedRequest.Scoped.feature_issue (TicketedRequest.Scoped.connection_plan resolved)) ++ [ContinueScheduling])
+   = accepted_decision before (admitted_job connection project request decoded granted target)).
+ rewrite an_issued_connection_has_the_fresh_state with (job := FeatureRequestAdmission.resolved_job resolved).
+ - rewrite Job; reflexivity.
+ - reflexivity.
+ - apply sharing_jobs_stay_below_their_supply; exact Valid.
 Qed.
 
 Theorem admissible_connection_request_passes_every_commit_requirement :
@@ -370,7 +321,7 @@ Lemma selected_project_has_a_valid_workspace : forall id before target,
  Workspace.valid_workspace (project_workspace target)=true.
 Proof.
  intros id before target World Project.
- unfold Chatgpt.project in Project.
+ unfold Chatgpt.project,FeatureRequestAdmission.connection_project in Project.
  destruct (registry_at id (world_projects before)) as [selected|] eqn:Found;[|discriminate].
  destruct (project_deleted selected) eqn:Deleted;[discriminate|]. inversion Project;subst target.
  unfold W.world_valid,W.world_structure in World;repeat rewrite andb_true_iff in World.
@@ -413,7 +364,7 @@ Proof.
  rewrite admissible_connection_command_constructs_its_exact_result with
   (decoded:=bash_arguments command timeout maximum) (granted:=granted) (target:=target) by assumption.
  fold job. unfold accepted_decision.
- unfold DeferredCommit.packet.
+ unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose.
  rewrite admissible_connection_request_passes_every_commit_requirement.
  - reflexivity.
  - exact World.

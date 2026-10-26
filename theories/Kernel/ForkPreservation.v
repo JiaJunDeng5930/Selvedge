@@ -1,3 +1,5 @@
+From Selvedge.Kernel Require Export TaskFrameProofs.
+From Selvedge.Kernel Require Import FeatureFrameProofs.
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat Lia.
@@ -451,32 +453,12 @@ Hypothesis LaterTickets : (world_next_ticket before <= world_next_ticket after)%
 Hypothesis Retained : forall owner old, find_task owner before = Some old ->
  exists next, find_task owner after = Some next /\ fork_retains_task old next.
 
-Local Lemma an_existing_task_remains_present : forall owner,
- WorldInvariant.present (find_task owner before) = true ->
- WorldInvariant.present (find_task owner after) = true.
-Proof.
- intros owner Present; destruct (find_task owner before) as [old|] eqn:Found; [|discriminate].
- destruct (Retained owner old Found) as [next [After Frame]]. rewrite After; reflexivity.
-Qed.
-
 Local Lemma fork_retains_lineage : forall old next,
  fork_retains_task old next -> task_lineage old = task_lineage next.
 Proof.
  intros old next Frame; eapply observing_a_retained_task; [|exact Frame].
  intros [contract profile settings lifecycle history queued lineage side cursor consumed];
    destruct lifecycle; reflexivity.
-Qed.
-
-Local Lemma title_survives_a_fork : forall entry,
- WorldInvariant.title_valid entry before = true -> WorldInvariant.title_valid entry after = true.
-Proof.
- intros entry Valid; unfold WorldInvariant.title_valid in *.
- apply andb_true_iff in Valid as [Present Valid].
- apply andb_true_iff; split; [apply an_existing_task_remains_present; exact Present|].
- destruct (Selvedge.Features.Domain.title_value entry); try exact Valid.
- repeat rewrite andb_true_iff in Valid |- *.
- destruct Valid as [[[Ticket Profile] Capable] Budget].
- repeat split; try assumption; apply N.ltb_lt; apply N.ltb_lt in Ticket; lia.
 Qed.
 
 Local Lemma tree_survives_a_fork : forall entry,
@@ -490,61 +472,6 @@ Proof.
  destruct next as [nc np ns nl nh nq na nsp nsc nmc].
  destruct ol; destruct nl; cbn [retained_task_frame with_activity with_history with_lifecycle] in Frame;
    inversion Frame; subst; exact Valid.
-Qed.
-
-Local Lemma card_survives_a_fork : forall card,
- WorldInvariant.card_valid card before = true -> WorldInvariant.card_valid card after = true.
-Proof.
- intros card Valid; unfold WorldInvariant.card_valid in *.
- assert (Draft : Selvedge.Features.Board.valid_draft (Selvedge.Features.Domain.card_contents card) before =
-   Selvedge.Features.Board.valid_draft (Selvedge.Features.Domain.card_contents card) after).
- { unfold Selvedge.Features.Board.valid_draft, Selvedge.Features.BoardFacts.valid_draft,
-     Selvedge.Features.BoardFacts.lookup_agent, Selvedge.Features.BoardFacts.registry;
-   rewrite SameProjects, SameFeatures; reflexivity. }
- apply andb_true_iff in Valid as [Static Enrichment].
- apply andb_true_iff; split.
- - apply andb_true_iff in Static as [Fixed Linked]; apply andb_true_iff; split.
-   + rewrite <- Draft; exact Fixed.
-   + destruct (Selvedge.Features.Domain.card_task card); [apply an_existing_task_remains_present; exact Linked|reflexivity].
- - destruct (Selvedge.Features.Domain.card_enrichment card); try exact Enrichment.
-   repeat rewrite andb_true_iff in Enrichment |- *.
-   destruct Enrichment as [[Ticket Revision] Active]; repeat split; try assumption.
-   apply N.ltb_lt; apply N.ltb_lt in Ticket; lia.
-Qed.
-
-Local Lemma work_owner_survives_a_fork : forall owner old next,
- find_task owner before = Some old -> find_task owner after = Some next ->
- fork_retains_task old next ->
- Selvedge.Features.Work.task_owner owner before = Selvedge.Features.Work.task_owner owner after.
-Proof.
- intros owner old next Found After Frame; unfold Selvedge.Features.Work.task_owner.
- rewrite Found, After, <- SameFeatures, (fork_retains_lineage old next Frame); reflexivity.
-Qed.
-
-Local Lemma graph_survives_a_fork : forall owner graph,
- WorldInvariant.graph_valid owner graph before = true -> WorldInvariant.graph_valid owner graph after = true.
-Proof.
- intros owner graph Valid; unfold WorldInvariant.graph_valid in *; rewrite <- SameFeatures.
- apply andb_true_iff in Valid as [Static Nodes]; apply andb_true_iff; split; [exact Static|].
- rewrite forallb_forall in Nodes |- *; intros node Member; specialize (Nodes node Member).
- apply andb_true_iff in Nodes as [Present InWork]; apply andb_true_iff; split.
- - apply an_existing_task_remains_present; exact Present.
- - destruct (find_task (Selvedge.Features.Domain.node_task node) before) as [old|] eqn:Found; [|discriminate].
-   destruct (Retained _ old Found) as [next [After Frame]].
-   unfold Selvedge.Features.TaskGraph.task_in_work in *.
-   destruct (Selvedge.Features.Domain.association owner
-     (Selvedge.Features.Domain.feature_graph_owners (world_features before))); [|exact InWork].
-   rewrite <- (work_owner_survives_a_fork _ old next Found After Frame); exact InWork.
-Qed.
-
-Local Lemma graphs_survive_a_fork : forall owner entries,
- WorldInvariant.graphs_valid owner entries before = true ->
- WorldInvariant.graphs_valid owner entries after = true.
-Proof.
- intros owner entries; revert owner; induction entries as [|graph rest IH]; intros owner Valid; [reflexivity|].
- cbn [WorldInvariant.graphs_valid] in *; apply andb_true_iff in Valid as [Head Tail].
- apply andb_true_iff; split; [|apply IH; exact Tail].
- destruct graph; [apply graph_survives_a_fork; exact Head|reflexivity].
 Qed.
 
 Local Lemma maintenance_survives_a_fork : forall entry,
@@ -568,45 +495,11 @@ Qed.
 Theorem feature_requirements_survive_a_fork :
  WorldInvariant.features_valid before = true -> WorldInvariant.features_valid after = true.
 Proof.
- intro Valid; unfold WorldInvariant.features_valid in *.
- repeat rewrite andb_true_iff in Valid |- *.
- destruct Valid as [[[[[[[Titles Remote] Trees] Board] Sharing] Graphs] Works] Maintenance].
- repeat split.
- - unfold WorldInvariant.titles_valid in *; rewrite <- SameFeatures.
-   repeat rewrite andb_true_iff in Titles |- *; destruct Titles as [[[TaskPrompt AgentPrompt] Unique] Entries].
-   repeat split; try assumption. apply forallb_forall; intros entry Member.
-   apply title_survives_a_fork; apply forallb_forall with (x:=entry) in Entries; assumption.
- - unfold WorldInvariant.remote_valid in *; rewrite <- SameFeatures; exact Remote.
- - unfold WorldInvariant.worktrees_valid in *; rewrite <- SameFeatures.
-   apply andb_true_iff in Trees as [Unique Entries]; apply andb_true_iff; split; [exact Unique|].
-   apply forallb_forall; intros entry Member; apply tree_survives_a_fork.
-   apply forallb_forall with (x:=entry) in Entries; assumption.
- - unfold WorldInvariant.board_valid in *; rewrite <- SameFeatures.
-   repeat rewrite andb_true_iff in Board |- *.
-   destruct Board as [[[[[[[Cards Agents] CardBound] AgentBound] Entries] Unique] AgentEntries] Draft].
-   repeat split; try assumption. apply forallb_forall; intros card Member.
-   apply card_survives_a_fork; apply forallb_forall with (x:=card) in Entries; assumption.
- - unfold WorldInvariant.sharing_valid in *;
-     unfold Selvedge.Features.WorkspaceBinding.resource_ready, Selvedge.Features.WorkspaceBinding.owned in *.
-   rewrite <- SameFeatures, <- SameProjects; exact Sharing.
- - unfold WorldInvariant.graph_registry_valid in *; rewrite <- SameFeatures.
-   apply andb_true_iff in Graphs as [Count Entries]; apply andb_true_iff; split; [exact Count|].
-   apply graphs_survive_a_fork; exact Entries.
- - unfold WorldInvariant.works_valid, WorldInvariant.work_owners_valid, Selvedge.Features.Work.lookup in *;
-     rewrite <- SameFeatures.
-   repeat rewrite andb_true_iff in Works |- *.
-   destruct Works as [[[[[Bound Entries] [TaskUnique TaskEntries]] [GraphUnique GraphEntries]] Roots] GraphRoots].
-   repeat split; try assumption.
-   apply forallb_forall; intros [owner work] Member.
-   apply forallb_forall with (x:=(owner,work)) in Roots; [|exact Member].
-   cbn in Roots |- *.
-   destruct (find_task owner before) as [old|] eqn:Found; [|discriminate].
-   destruct (Retained _ old Found) as [next [After Frame]]. rewrite After.
-   rewrite <- (fork_retains_lineage old next Frame); exact Roots.
- - unfold WorldInvariant.compaction_valid in *; rewrite <- SameFeatures.
-   apply andb_true_iff in Maintenance as [Unique Entries]; apply andb_true_iff; split; [exact Unique|].
-   apply forallb_forall; intros entry Member; apply maintenance_survives_a_fork.
-   apply forallb_forall with (x:=entry) in Entries; assumption.
+ apply feature_requirements_follow_task_observations; try assumption.
+ - intros owner old Found. destruct (Retained owner old Found) as [next [After Frame]].
+   exists next; split; [exact After|apply fork_retains_lineage; exact Frame].
+ - apply tree_survives_a_fork.
+ - apply maintenance_survives_a_fork.
 Qed.
 End FeatureForkFrame.
 
@@ -764,17 +657,6 @@ Theorem every_manual_child_has_valid_execution_state : forall parent_id owner st
  WorldInvariant.operations_valid owner child = true.
 Proof. intros; repeat split; reflexivity. Qed.
 
-Lemma replacing_equal_projection_keeps_registry_observations :
- forall (A B : Type) (observe : A -> B) values owner old next,
- registry_at owner values = Some old -> observe old = observe next ->
- map observe (replace owner next values) = map observe values.
-Proof.
- intros A B observe values; induction values as [|first rest IH]; intros owner old next Found Same; [discriminate|].
- cbn in Found; cbn [replace map]; destruct (N.eqb owner 0).
- - inversion Found; subst first; rewrite Same; reflexivity.
- - cbn [map]; rewrite IH with (old:=old) by assumption; reflexivity.
-Qed.
-
 Lemma fork_retained_keeps_all_original_lineages : forall entry owner invocation parent before,
  find_task owner before = Some parent ->
  map task_lineage (world_tasks (fork_retained entry owner invocation parent before)) =
@@ -850,6 +732,18 @@ Proof.
  intros [contract profile settings lifecycle history queued lineage side cursor consumed]; destruct lifecycle; reflexivity.
 Qed.
 
+Lemma fork_retains_configuration : forall old next,
+ fork_retains_task old next -> task_configuration_frame old next.
+Proof.
+ intros old next Frame; constructor;
+ eauto using task_frame_preserves_contract, task_frame_preserves_profile,
+   task_frame_preserves_settings, task_frame_preserves_lineage.
+Qed.
+
+Definition fork_replacement_preserves_every_world_requirement :=
+ @task_replacement_preserves_every_world_requirement fork_retains_task
+   fork_retains_task_reflexive fork_retains_configuration feature_requirements_survive_a_fork.
+
 Lemma existing_lineage_survives_a_fork : forall owner old next before after,
  fork_retains_task old next ->
  (forall ancestor original, find_task ancestor before = Some original ->
@@ -857,14 +751,8 @@ Lemma existing_lineage_survives_a_fork : forall owner old next before after,
  WorldInvariant.lineage_valid owner old before = true ->
  WorldInvariant.lineage_valid owner next after = true.
 Proof.
- intros owner old next before after Frame Retained Valid.
- unfold WorldInvariant.lineage_valid in *.
- rewrite <- (task_frame_preserves_lineage _ _ Frame), <- (task_frame_preserves_contract _ _ Frame).
- destruct (task_lineage old) as [|ancestor tail]; [reflexivity|].
- destruct (find_task ancestor before) as [original|] eqn:Found; [|discriminate].
- destruct (Retained ancestor original Found) as [current [After ParentFrame]]. rewrite After.
- rewrite <- (task_frame_preserves_lineage _ _ ParentFrame), <- (task_frame_preserves_contract _ _ ParentFrame).
- exact Valid.
+ intros; eapply related_lineage_requirements with (relation:=fork_retains_task);
+   eauto using fork_retains_configuration.
 Qed.
 
 Lemma retained_task_requirements_lift : forall owner old next before after,
@@ -877,31 +765,9 @@ Lemma retained_task_requirements_lift : forall owner old next before after,
  WorldInvariant.task_valid owner old before = true -> WorldInvariant.task_valid owner next after = true.
 Proof.
  intros owner old next before after Frame Projects Lineage Capacity Context Phase Checked Operations Valid.
- unfold WorldInvariant.task_valid in *; repeat rewrite andb_true_iff in Valid |- *.
- destruct Valid as [[[[[[[[[[Contract Profile] Settings] OldContext] ContractProject] CurrentProject] OldLineage]
-   OldCapacity] OldPhase] OldChecked] OldOperations].
- repeat split; try assumption.
- - rewrite <- (task_frame_preserves_contract _ _ Frame); exact Contract.
- - rewrite <- (task_frame_preserves_profile _ _ Frame); exact Profile.
- - rewrite <- (task_frame_preserves_settings _ _ Frame); exact Settings.
- - unfold WorldInvariant.project_binding in *; rewrite <- (task_frame_preserves_contract _ _ Frame), <- Projects; exact ContractProject.
- - unfold WorldInvariant.project_binding in *; rewrite <- (task_frame_preserves_settings _ _ Frame), <- Projects; exact CurrentProject.
- - now apply N.leb_le.
-Qed.
-
-Definition registry_lookup_after_head := @Selvedge.Foundation.RegistryProofs.registry_lookup_after_head.
-
-Lemma task_registry_requirement_from_every_lookup : forall entries owner state,
- (forall offset value, registry_at offset entries = Some value ->
-   WorldInvariant.task_valid (owner + offset)%N value state = true) ->
- WorldInvariant.tasks_valid owner entries state = true.
-Proof.
- intros entries; induction entries as [|first rest IH]; intros owner state Valid; [reflexivity|].
- cbn [WorldInvariant.tasks_valid]; apply andb_true_iff; split.
- - replace owner with (owner+0)%N by lia; apply Valid; reflexivity.
- - apply IH; intros offset value Found.
-   replace (N.succ owner + offset)%N with (owner + N.succ offset)%N by lia.
-   apply Valid; rewrite registry_lookup_after_head; exact Found.
+ eapply task_requirements_follow_configuration; try eassumption.
+ - apply fork_retains_configuration; exact Frame.
+ - unfold task_progress_requirements; auto.
 Qed.
 
 Definition registry_lookup_exists_below_length := @Selvedge.Foundation.RegistryProofs.registry_lookup_exists_below_length.
@@ -914,18 +780,6 @@ Proof.
  revert Admitted; generalize (eq_refl (Tasks.fork_selection_fixed parent selected before)).
  generalize (Tasks.fork_selection_fixed parent selected before) at 2 3.
  intros allowed; destruct allowed; intros proof Admitted; inversion Admitted; reflexivity.
-Qed.
-
-Definition task_progress_requirements (owner : N) (value : task) :=
- forallb ContextUpdates.valid_snapshot (ContextUpdates.bindings (task_history value)) = true /\
- WorldInvariant.phase_valid value = true /\ WorldInvariant.checked_phase owner value = true /\
- WorldInvariant.operations_valid owner value = true.
-
-Lemma a_valid_task_has_its_progress_requirements : forall owner value before,
- WorldInvariant.task_valid owner value before = true -> task_progress_requirements owner value.
-Proof.
- intros owner value before Valid; unfold WorldInvariant.task_valid in Valid.
- repeat rewrite andb_true_iff in Valid; unfold task_progress_requirements; tauto.
 Qed.
 
 Lemma manual_fork_parent_keeps_progress_requirements : forall parent owner ticket arguments,
@@ -1168,19 +1022,6 @@ Proof.
    replace (first + N.of_nat (S (List.length rest)))%N with (N.succ first + N.of_nat (List.length rest))%N
      by (rewrite Nat2N.inj_succ; lia).
    now rewrite andb_assoc.
-Qed.
-
-Lemma task_requirements_ignore_the_journal_cursor : forall owner value state,
- WorldInvariant.task_valid owner value (WorldInvariant.world_structure state) =
- WorldInvariant.task_valid owner value state.
-Proof. intros owner value [sequence tasks ticket environment projects features]; reflexivity. Qed.
-
-Lemma task_registry_requirements_ignore_the_journal_cursor : forall entries owner state,
- WorldInvariant.tasks_valid owner entries (WorldInvariant.world_structure state) =
- WorldInvariant.tasks_valid owner entries state.
-Proof.
- intros entries; induction entries as [|head rest IH]; intros owner state; [reflexivity|].
- cbn [WorldInvariant.tasks_valid]; rewrite task_requirements_ignore_the_journal_cursor, IH; reflexivity.
 Qed.
 
 Theorem admissible_forks_preserve_every_world_requirement :

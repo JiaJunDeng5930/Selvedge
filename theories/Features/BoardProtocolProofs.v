@@ -101,7 +101,7 @@ Lemma packet_keeps_an_ignored_nondurable_result : forall source value result,
  field "durable" (snd (Packet.packet source value))=Some (JBool false).
 Proof.
  intros source value result transition unchanged no_effects.
- unfold Packet.packet, Packet.packet_admitted.
+ unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted.
  rewrite !InputDecoder.admitted_input_is_its_decoder_result.
  cbv beta zeta; fold (Packet.manual_fork source) (Packet.transition source value). destruct (N.leb _ _) eqn:frame.
  - rewrite (PacketProofs.a_nondurable_transition_is_not_a_manual_fork source value result transition).

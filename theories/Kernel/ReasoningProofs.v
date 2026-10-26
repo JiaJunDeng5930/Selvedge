@@ -30,7 +30,7 @@ Proof.
   [contract profile settings lifecycle history queued lineage parent cursor consumed]
   policy phase operations Policy RunningTask Effort Duration.
  cbn in Policy, RunningTask. subst lifecycle.
- rewrite !complete_reasoning_expression. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
+ unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Effort, Duration.
  unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  split; reflexivity.
 Qed.
@@ -42,8 +42,8 @@ Theorem failed_reasoning_with_no_queued_input_is_idle : forall owner reason task
 Proof.
  intros owner reason [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Queued.
  cbn in Policy, Queued. subst queued.
- rewrite !complete_reasoning_expression. cbn [task_current_profile]. rewrite Policy.
- rewrite !failed_reasoning_expression; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -54,8 +54,8 @@ Theorem unsupported_reasoning_with_no_queued_input_is_idle : forall owner effort
 Proof.
  intros owner effort generations [contract profile settings lifecycle history queued lineage parent cursor consumed] policy Policy Rejected Queued.
  cbn in Policy, Queued. subst queued.
- rewrite !complete_reasoning_expression. cbn [task_current_profile]. rewrite Policy, Rejected.
- rewrite !failed_reasoning_expression; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.complete, Reasoning.complete_changes. cbn [task_current_profile]. rewrite Policy, Rejected.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; reflexivity.
 Qed.
 
@@ -79,7 +79,7 @@ Lemma failed_evaluation_is_never_ready_for_a_model : forall reason task,
  task_activity (Reasoning.failed reason task) <> ReadyForModel.
 Proof.
  intros reason [contract profile settings lifecycle history queued lineage parent cursor consumed].
- rewrite !failed_reasoning_expression; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
+ unfold Reasoning.failed, Reasoning.failed_changes; unfold Tasks.promote, Tasks.promote_changes, TaskChange.apply, TaskChange.apply_edit, with_activity, append_history, with_history, task_activity.
  destruct lifecycle; destruct queued; discriminate.
 Qed.
 Theorem a_ready_evaluator_choice_has_a_supported_frozen_duration : forall owner effort generations task policy,
@@ -89,7 +89,7 @@ Theorem a_ready_evaluator_choice_has_a_supported_frozen_duration : forall owner 
  (generations <= reasoning_max_lease policy)%N.
 Proof.
  intros owner effort generations task policy Policy Ready.
- rewrite !complete_reasoning_expression in Ready. rewrite Policy in Ready.
+ unfold Reasoning.complete, Reasoning.complete_changes in Ready. rewrite Policy in Ready.
  destruct (Reasoning.allowed policy effort && ReasoningProtocol.valid_generations (reasoning_max_lease policy) generations) eqn:Admitted.
  - apply andb_true_iff in Admitted as [_ Duration].
    unfold ReasoningProtocol.valid_generations in Duration.
@@ -244,20 +244,9 @@ Proof.
  unfold Reasoning.context_retry_wait; now rewrite Status.
 Qed.
 
-Local Lemma context_diagnostic_retains_lifecycle : forall message task,
- task_lifecycle (Callbacks.record_context_diagnostic message task) = task_lifecycle task.
-Proof. intros; rewrite !record_context_diagnostic_expression; destruct existsb; reflexivity. Qed.
-Local Lemma context_diagnostics_retain_lifecycle : forall messages task,
- task_lifecycle (fold_left (fun task message => Callbacks.record_context_diagnostic message task) messages task) = task_lifecycle task.
-Proof. induction messages; intros; cbn [fold_left]; [reflexivity|rewrite IHmessages; apply context_diagnostic_retains_lifecycle]. Qed.
 Local Lemma actual_context_observations_retain_lifecycle : forall observations diagnostic task,
  task_lifecycle (snd (Callbacks.observed_context observations diagnostic task)) = task_lifecycle task.
-Proof.
- intros [observations|] diagnostic task; rewrite !observed_context_expression.
- - destruct (ContextUpdates.observe_all observations (ContextUpdates.bindings (task_history task))) as [changes diagnostics].
-   cbn [snd]. rewrite context_diagnostics_retain_lifecycle; reflexivity.
- - cbn [snd]; apply context_diagnostic_retains_lifecycle.
-Qed.
+Proof. apply context_observations_preserve_an_observation; reflexivity. Qed.
 
 Theorem a_frozen_context_completion_waits_for_a_new_observation :
  forall id ticket revision observations diagnostic value task phase operations,

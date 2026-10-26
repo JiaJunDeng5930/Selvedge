@@ -70,7 +70,7 @@ Theorem every_feature_request_has_its_installed_receiver : forall before (reques
  In emitted (decision_effects (S.feature_issue request)) ->
  receiver_installed emitted (decision_world (S.feature_issue request)).
 Proof.
- intros before [source Valid] emitted Member. unfold S.feature_issue in *; cbn in *.
+ intros before [source Valid] emitted Member. unfold S.feature_issue,S.feature_issue_change,CommandResult.accept in *; cbn in *.
  destruct source as [owner selected prompt|owner card selected prompt retitle|job|owner request];
  cbn [S.feature_space allocate_identity next_identity S.feature_build] in *.
  - destruct Member as [<-|[]]. apply put_title_installs.
@@ -98,29 +98,25 @@ Theorem feature_requests_preserve_execution_frame : forall before (request : S.f
  world_tasks after=world_tasks before /\ world_projects after=world_projects before /\
  world_environment after=world_environment before /\ world_sequence after=world_sequence before.
 Proof.
- intros before [source Valid]; cbn. unfold S.feature_issue; cbn.
+ intros before [source Valid]; cbn. unfold S.feature_issue,S.feature_issue_change,CommandResult.accept; cbn.
  destruct source; cbn [S.feature_space allocate_identity next_identity S.feature_build];
  try (repeat split; reflexivity).
  destruct (S.maintenance_build owner (world_next_ticket before) request); repeat split; reflexivity.
 Qed.
 
+Theorem every_responded_feature_request_has_its_installed_receiver : forall reply source before emitted,
+ In emitted (decision_effects (CommandResult.decide before (S.feature_result reply source before))) ->
+ receiver_installed emitted (decision_world (CommandResult.decide before (S.feature_result reply source before))).
+Proof.
+ intros reply source before emitted Member. unfold S.feature_result in *.
+ destruct (S.feature source before) as [request|]; [|contradiction].
+ change (receiver_installed emitted (decision_world (S.feature_issue request))).
+ eapply every_feature_request_has_its_installed_receiver; exact Member.
+Qed.
 Theorem every_resolved_feature_request_has_its_installed_receiver : forall source before emitted,
  In emitted (decision_effects (S.feature_run source before)) ->
  receiver_installed emitted (decision_world (S.feature_run source before)).
-Proof.
- intros source before emitted Member. unfold S.feature_run,S.feature_with_reply in *.
- destruct (S.feature source before) as [request|]; [|contradiction].
- eapply every_feature_request_has_its_installed_receiver; exact Member.
-Qed.
-
-Theorem every_responded_feature_request_has_its_installed_receiver : forall reply source before emitted,
- In emitted (decision_effects (S.feature_with_reply reply source before)) ->
- receiver_installed emitted (decision_world (S.feature_with_reply reply source before)).
-Proof.
- intros reply source before emitted Member. unfold S.feature_with_reply in *.
- destruct (S.feature source before) as [request|]; [|contradiction].
- eapply every_feature_request_has_its_installed_receiver; exact Member.
-Qed.
+Proof. intros; eapply every_responded_feature_request_has_its_installed_receiver; eassumption. Qed.
 
 Theorem maintenance_request_installs_its_exact_receiver : forall before owner request,
  S.feature_valid before (S.MaintainRequest owner request) = true ->
@@ -133,10 +129,10 @@ Theorem maintenance_request_installs_its_exact_receiver : forall before owner re
  decision_effects issued=[MaintainContext (snd built)].
 Proof.
  intros before owner request Admitted.
- unfold S.feature_run,S.feature_with_reply,S.feature.
+ unfold S.feature_run,S.feature_result,S.feature,CommandResult.decide,CommandResult.resolve,CommandResult.accept.
  destruct (Bool.bool_dec (S.feature_valid before (S.MaintainRequest owner request)) true) as [Valid|Refused];
    [|contradiction].
- cbn [S.feature_issue S.feature_intent S.feature_space allocate_identity next_identity S.feature_build].
+ cbn [S.feature_issue S.feature_issue_change CommandResult.accept S.feature_intent S.feature_space allocate_identity next_identity S.feature_build].
  destruct (S.maintenance_build owner (world_next_ticket before) request) as [entry effect] eqn:Built.
  unfold S.put_compaction,with_features,Selvedge.Features.State.with_compaction,set.
  cbn. unfold S.FS.with_compaction,with_features,with_ticket,set. cbn. now rewrite N.eqb_refl.

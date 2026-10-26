@@ -50,36 +50,72 @@ Definition check_text (constraints : text_constraints) (source : string) :=
  (negb (text_lower_hex constraints) || lower_hex source) &&
  match text_choices constraints with None => true | Some names => existsb (String.eqb source) names end
  end.
-Fixpoint check (declaration : t) (value : json) : bool :=
+(** The declaration also owns the internal value. Object fields retain presence
+    separately from nullability; unions retain the selected alternative. *)
+Fixpoint denote (declaration : t) : Type :=
  match declaration with
- | Any => true | Reject => false
- | Null => match value with JNull => true | _ => false end
- | Boolean => match value with JBool _ => true | _ => false end
- | Text constraints => match value with JString source => check_text constraints source | _ => false end
- | UnboundedNatural minimum => match as_number value with Some source => match parse_natural source with
-   Some number => minimum <=? number | None => false end | None => false end
- | NaturalText minimum maximum => match value with JString source => match parse_natural source with
-   | Some number => String.eqb source (show_natural number) && (minimum <=? number) &&
-       match maximum with None => true | Some maximum => number <=? maximum end
-   | None => false end | _ => false end
- | PrefixedText prefix suffix => match value with JString source => String.prefix prefix source &&
-   check suffix (JString (String.substring (String.length prefix) (String.length source) source)) | _ => false end
- | Natural minimum maximum => match as_number value with Some source => match parse_natural source with
-   Some number => in_bounds minimum maximum number | None => false end | None => false end
- | Integer => match as_number value with Some source => match parse_integer source with Some _ => true | None => false end | None => false end
- | Decimal => match as_number value with Some source => number_lexeme source | None => false end
- | Array element => match value with JArray values => forallb (check element) values | _ => false end
- | BoundedArray minimum maximum element => match value with JArray values =>
-   in_bounds minimum maximum (N.of_nat (List.length values)) && forallb (check element) values | _ => false end
- | Object properties | OpenObject properties => match value with JObject values =>
-   unique_names (map fst values) && unique_names (map (fun property => fst (fst property)) properties) &&
-   forallb (fun property => match lookup (fst (fst property)) values with
-      None => negb (snd (fst property)) | Some value => check (snd property) value end) properties &&
-   (match declaration with OpenObject _ => true | _ =>
-     forallb (fun value => existsb (fun property => String.eqb (fst value) (fst (fst property))) properties) values end)
-   | _ => false end
- | Union alternatives => existsb (fun alternative => check alternative value) alternatives
+ | Any => json | Reject => Empty_set | Null => unit | Boolean => bool
+ | Text _ | PrefixedText _ _ => string
+ | NaturalText _ _ | UnboundedNatural _ | Natural _ _ => N
+ | Integer => Z | Decimal => Schema.decimal
+ | Array element | BoundedArray _ _ element => list (denote element)
+ | Object properties | OpenObject properties =>
+   (fix members (properties : list (string * bool * t)) : Type :=
+      match properties with [] => unit | (_,required,description) :: rest =>
+        ((if required then denote description else option (denote description)) * members rest)%type end) properties
+ | Union alternatives => (fix choices (alternatives : list t) : Type :=
+     match alternatives with [] => Empty_set | first :: rest => (denote first + choices rest)%type end) alternatives
  end.
+Definition present {A} (value : option A) := match value with Some _ => true | None => false end.
+Fixpoint decode (declaration : t) (value : json) : option (denote declaration) :=
+ match declaration as description return option (denote description) with
+ | Any => Some value | Reject => None
+ | Null => match value with JNull => Some tt | _ => None end
+ | Boolean => as_bool value
+ | Text constraints => match value with JString source =>
+     if check_text constraints source then Some source else None | _ => None end
+ | UnboundedNatural minimum => match as_number value with Some source => match parse_natural source with
+   Some number => if minimum <=? number then Some number else None | None => None end | None => None end
+ | NaturalText minimum maximum => match value with JString source => match parse_natural source with
+   | Some number => if String.eqb source (show_natural number) && (minimum <=? number) &&
+       match maximum with None => true | Some maximum => number <=? maximum end
+       then Some number else None
+   | None => None end | _ => None end
+ | PrefixedText prefix suffix => match value with JString source =>
+   if String.prefix prefix source &&
+      present (decode suffix (JString (String.substring (String.length prefix) (String.length source) source)))
+   then Some source else None | _ => None end
+ | Natural minimum maximum => match as_number value with Some source => match parse_natural source with
+   Some number => if in_bounds minimum maximum number then Some number else None | None => None end | None => None end
+ | Integer => Schema.decode_value KInteger value
+ | Decimal => Schema.decode_value KDecimal value
+ | Array element => match value with JArray values => OptionList.traverse (decode element) values | _ => None end
+ | BoundedArray minimum maximum element => match value with JArray values =>
+   if in_bounds minimum maximum (N.of_nat (List.length values))
+   then OptionList.traverse (decode element) values else None | _ => None end
+ | Object properties | OpenObject properties => match value with JObject values =>
+   if unique_names (map fst values) && unique_names (map (fun property => fst (fst property)) properties) &&
+     (match declaration with OpenObject _ => true | _ =>
+       forallb (fun value => existsb (fun property => String.eqb (fst value) (fst (fst property))) properties) values end)
+   then (fix members (properties : list (string * bool * t)) : option (denote (Object properties)) :=
+     match properties as properties return option (denote (Object properties)) with
+     | [] => Some tt
+     | (name,required,description) :: rest =>
+       let current : option (if required then denote description else option (denote description)) :=
+         match required as required return option (if required then denote description else option (denote description)) with
+         | true => match lookup name values with Some source => decode description source | None => None end
+         | false => match lookup name values with Some source => option_map Some (decode description source) | None => Some None end
+         end in
+       match current,members rest with Some current,Some tail => Some (current,tail) | _,_ => None end
+     end) properties else None
+   | _ => None end
+ | Union alternatives => (fix choices (alternatives : list t) : option (denote (Union alternatives)) :=
+     match alternatives as alternatives return option (denote (Union alternatives)) with
+     | [] => None | first :: rest => match decode first value with
+       | Some decoded => Some (inl decoded) | None => option_map inr (choices rest) end
+     end) alternatives
+ end.
+Definition check (declaration : t) (value : json) := present (decode declaration value).
 Definition bound_fields minimum maximum := [("minimum",JNumber (show_natural minimum));("maximum",JNumber (show_natural maximum))].
 Definition text_fields (constraints : text_constraints) :=
  [("type",JString "string");("minLength",JNumber (show_natural (minimum_characters constraints)));
@@ -119,6 +155,16 @@ Fixpoint of_kind (description : kind) := match description with
  | KOptional element => nullable (of_kind element)
  | KEnum first rest => Text (TextConstraints 0 maximum_natural maximum_natural false false false (Some (first::rest)))
  end.
+
+Definition of_schema (declaration : Schema.schema) := Object (map (fun field =>
+ (field_name field,negb (field_omittable field || Schema.optional_kind (field_kind field)),
+ of_kind (Schema.present_kind (field_kind field)))) declaration).
+
+Definition refine_object (overrides : list (string * t)) (declaration : t) :=
+ match declaration with Object properties => Object (map (fun property =>
+   match find (fun entry => String.eqb (fst (fst property)) (fst entry)) overrides with
+   | Some (_,replacement) => (fst property,replacement) | None => property end) properties)
+ | _ => declaration end.
 
 (** Extension registration uses a closed parser. Unrecognized assertions fail
     registration, rather than silently acquiring a weaker interpretation. *)

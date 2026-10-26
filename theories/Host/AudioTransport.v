@@ -20,17 +20,13 @@ Record transport_state := TransportState {
   active : option (N * primitive);
   serial : N
 }.
-Definition primitive_json effect := match effect with
-  | Connect attempt => ModelDeclarations.encode ModelResultDeclarations.audio_transport_connect
-      (Schema.FCons (field:=Schema.Field "attempt" Schema.KNatural) attempt Schema.FNil)
-  | Retry attempt delay => ModelDeclarations.encode ModelResultDeclarations.audio_transport_retry
-      (Schema.FCons (field:=Schema.Field "attempt" Schema.KNatural) attempt
-        (Schema.FCons (field:=Schema.Field "delay" Schema.KNatural) delay Schema.FNil))
-  | Ready => ModelDeclarations.encode ModelResultDeclarations.audio_transport_ready Schema.FNil
-  | Emit event => ModelDeclarations.encode ModelResultDeclarations.audio_transport_emit
-      (Schema.FCons (field:=Schema.Field "event" Schema.KJson) event Schema.FNil)
-  | Close event => ModelDeclarations.encode ModelResultDeclarations.audio_transport_close
-      (Schema.FCons (field:=Schema.Field "event" Schema.KJson) event Schema.FNil) end.
+Definition primitive_packet effect := match effect with
+  | Connect attempt => ModelDeclarations.pack ModelResultDeclarations.audio_transport_connect [!attempt!]
+  | Retry attempt delay => ModelDeclarations.pack ModelResultDeclarations.audio_transport_retry [!attempt;delay!]
+  | Ready => ModelDeclarations.pack ModelResultDeclarations.audio_transport_ready [!!]
+  | Emit event => ModelDeclarations.pack ModelResultDeclarations.audio_transport_emit [!event!]
+  | Close event => ModelDeclarations.pack ModelResultDeclarations.audio_transport_close [!event!] end.
+Definition primitive_json effect := ModelDeclarations.encode_packet (primitive_packet effect).
 Definition primitive_of source := let kind := str source "type" in
   if String.eqb kind "connect" then Connect (num source "attempt")
   else if String.eqb kind "retry" then Retry (num source "attempt") (num source "delay")

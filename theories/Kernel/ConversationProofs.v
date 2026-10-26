@@ -1,4 +1,4 @@
-From Selvedge.Kernel Require Import CallbackChangesProofs.
+From Selvedge.Kernel Require Import CallbackChangesProofs TaskWakeProofs.
 From Stdlib Require Import String List Bool Ascii NArith.
 From Selvedge.Foundation Require Import Json Utf8.
 From Selvedge.Kernel Require Import Domain Codec Conversation OutputClassification Callbacks State Tasks Inputs.
@@ -36,16 +36,6 @@ Local Lemma changing_activity_preserves_history : forall phase task,
 Proof.
  intros phase task; unfold with_activity; destruct (task_lifecycle task); reflexivity.
 Qed.
-Local Lemma promotion_extends_history : forall task,
- exists suffix, task_history (Tasks.promote task) = task_history task ++ suffix.
-Proof.
- intros task; rewrite promotion_expression.
- destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|];
- try destruct phase; try destruct calls; destruct (task_queued task); cbn;
- try (exists []; rewrite app_nil_r; reflexivity);
- eexists; reflexivity.
-Qed.
-
 Fixpoint model_output_parts (items : list model_item) : list N :=
  match items with
  | [] => []
@@ -161,7 +151,9 @@ Proof.
  { now apply duplicate_model_output_parts_are_not_permitted. }
  rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
- rewrite !model_result_expression; rewrite Rejected.
+ cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelSuccess items) task).
+ unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Rejected.
+ cbn [TaskChange.apply TaskChange.apply_edit fold_left].
  exists (Callbacks.settle_model
    (append_history
      [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] task)).
@@ -175,7 +167,7 @@ Proof.
      task_history task ++
        [FailureMessage "Invalid model reply: duplicate output part or call identity, unavailable tool, or invalid arguments"] ++ suffix).
  { rewrite !settle_model_expression.
-   destruct (promotion_extends_history
+   destruct (promotion_retains_history
      (with_activity
        (if unseen_model_input
           (append_history
@@ -209,11 +201,15 @@ Proof.
  intros id ticket allowed mode items task value operations Found Pending Admitted.
  rewrite !model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Pending, N.eqb_refl.
+ cbn beta iota; fold (Callbacks.model_result id ticket allowed mode (ModelSuccess items) task).
  eexists; split; [reflexivity|].
- rewrite !model_result_expression; rewrite Admitted.
+ unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Admitted.
  destruct (Callbacks.item_calls items) as [|invocation remaining].
- - rewrite !settle_model_expression.
-   destruct (promotion_extends_history
+ - change (exists suffix, task_history (Callbacks.settle_model
+     (append_history (Callbacks.item_messages id ticket mode items) task)) =
+     task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix).
+   rewrite !settle_model_expression.
+   destruct (promotion_retains_history
      (with_activity
        (if unseen_model_input (append_history (Callbacks.item_messages id ticket mode items) task)
         then WantsModel else Idle)
@@ -222,7 +218,8 @@ Proof.
    change ((task_history task ++ Callbacks.item_messages id ticket mode items) ++ suffix =
      task_history task ++ Callbacks.item_messages id ticket mode items ++ suffix).
    symmetry; apply app_assoc.
- - exists []; rewrite app_nil_r, changing_activity_preserves_history; reflexivity.
+ - cbn [TaskChange.apply TaskChange.apply_edit fold_left].
+   exists []; rewrite app_nil_r, changing_activity_preserves_history; reflexivity.
 Qed.
 
 Theorem actual_text_completion_retains_its_content_and_request_identity :

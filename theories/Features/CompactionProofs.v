@@ -4,6 +4,7 @@ From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State LifecycleProofs ProtocolProofs ContextSelection ContextSelectionProofs Tasks Reasoning Recovery CompactionPlan ScopedRequestProofs FeatureRequestProofs.
 From Selvedge.Features Require Import CompactionTypes CompactionCodec Compaction.
+From Selvedge.Kernel Require Import DecisionCompositionProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -49,27 +50,30 @@ Proof.
  unfold A.can_schedule_task. now rewrite found, running, ready.
 Qed.
 
+Theorem manual_observation_retains_the_operation_result : forall before id current,
+ retains_reply_and_effects current (A.observe_manual before id current).
+Proof. intros; unfold A.observe_manual; derive_retention_contract. Qed.
+
+Theorem task_synchronization_retains_the_operation_result : forall id current,
+ retains_reply_and_effects current (A.synchronize_task id current).
+Proof. intros; unfold A.synchronize_task; derive_retention_contract. Qed.
+
+Theorem clock_synchronization_retains_the_operation_result : forall current,
+ retains_reply_and_effects current (A.arm_clock current).
+Proof. intros; unfold A.arm_clock; derive_retention_contract. Qed.
+
+Theorem synchronization_retains_the_operation_result : forall current,
+ retains_reply_and_effects current (A.synchronize_all current).
+Proof.
+ intros; unfold A.synchronize_all.
+ eapply retention_is_transitive; [|apply clock_synchronization_retains_the_operation_result].
+ apply a_retaining_fold_keeps_reply_and_effects; intros.
+ apply task_synchronization_retains_the_operation_result.
+Qed.
+
 Theorem synchronization_preserves_the_operation_reply : forall result,
  K.decision_reply (A.synchronize_all result) = K.decision_reply result.
-Proof.
- assert (Step : forall id current,
-   K.decision_reply (A.synchronize_task id current) = K.decision_reply current).
- { intros; unfold A.synchronize_task, A.combine.
-   repeat match goal with
-   | |- context [match ?term with _ => _ end] => destruct term eqn:?
-   end; reflexivity. }
- assert (Clock : forall current,
-   K.decision_reply (A.arm_clock current) = K.decision_reply current).
- { intros; unfold A.arm_clock, A.combine.
-   repeat match goal with
-   | |- context [match ?term with _ => _ end] => destruct term eqn:?
-   end; reflexivity. }
- assert (Fold : forall identities current,
-   K.decision_reply (fold_left (fun result id => A.synchronize_task id result) identities current) =
-   K.decision_reply current).
- { induction identities; intros; cbn; [reflexivity|]. now rewrite IHidentities, Step. }
- intros; unfold A.synchronize_all; now rewrite Clock, Fold.
-Qed.
+Proof. intros; apply (proj1 (synchronization_retains_the_operation_result result)). Qed.
 
 (** A new side-parent observation can invalidate a previously completed count.
     The shared synchronization step starts a request for that actual current
@@ -115,7 +119,8 @@ Proof.
  cbn [TicketedRequest.Scoped.feature_valid TicketedRequest.Scoped.maintenance_replacement_ready].
  destruct (Bool.bool_dec (TicketedRequest.Scoped.maintenance_ready id input value && true) true)
    as [Admitted|Refused]; [|exfalso; apply Refused; now rewrite Ready].
- cbn [TicketedRequest.Scoped.feature_issue TicketedRequest.Scoped.feature_intent
+ cbn [TicketedRequest.Scoped.feature_issue TicketedRequest.Scoped.feature_issue_change
+   CommandResult.accept CommandResult.change_world CommandResult.change_effects TicketedRequest.Scoped.feature_intent
    TicketedRequest.Scoped.feature_space TicketedRequest.allocate_identity TicketedRequest.next_identity
    TicketedRequest.Scoped.feature_build TicketedRequest.Scoped.maintenance_build
    K.accept K.decision_world K.decision_effects].
@@ -134,7 +139,7 @@ Lemma completion_wire_is_admitted : forall id ticket fields,
  CC.decode_completion "compaction_completed" (completed_input id ticket fields) = Some (Completed id ticket (JObject fields) false).
 Proof.
  intros. unfold CC.decode_completion, CC.completion_decoder, CC.completion_decoders, CC.decode_outcome, completed_input.
- cbn -[natural number]. now rewrite !printed_natural_is_admitted.
+ cbv beta iota zeta delta -[parse_natural show_natural]. now rewrite !natural_print_parse.
 Qed.
 Definition owns_compactor_ticket (id ticket : N) (value : K.world) :=
  match entry_job (A.current_entry id (A.registry value)) with
@@ -184,7 +189,7 @@ Lemma supplied_history_is_an_append : forall id task summary value,
  exists stored, K.find_task id (K.decision_world (A.supplied id task summary value)) = Some stored /\
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
- intros. unfold A.supplied,A.commit,A.acknowledged.
+ intros. unfold A.supplied,A.supplied_change,A.commit_change,CommandResult.accept.
  cbn -[A.store K.put_task ContextSelection.adopt]. rewrite storing_maintenance_preserves_tasks.
  eexists. split; [eapply find_put_task;exact H|].
  change (ContextSelection.adopt (task_history task) (ContextSelection.portable summary) (task_history task) =
@@ -202,7 +207,7 @@ Theorem a_valid_checkpoint_preserves_its_original_records : forall id summary ca
  task_history stored = (task_history task ++ [ContextSelection.record (N.of_nat (List.length (task_history task))) (ContextSelection.portable summary)])%list.
 Proof.
  intros. split.
- - unfold A.handle_compact. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
+ - unfold A.handle_compact,A.handle_compact_result. cbn. rewrite H,H0,H1. cbn. now rewrite H2.
  - apply supplied_history_is_an_append. assumption.
 Qed.
 Theorem measured_scope_and_reserve_reach_the_executed_request : forall request scope tokens budget input value,
@@ -225,7 +230,7 @@ Proof.
  intros id task value entry Found ObserveAllowed Closed Entry Ready.
  destruct (maintenance_observation_uses_the_current_task id task (Some Manual) entry value Found ObserveAllowed Closed)
    as [request [Selected Effects]].
- unfold A.manual. rewrite <- Entry, Ready. unfold A.wait_for_context. rewrite Found, Selected.
+ unfold A.manual,A.manual_change,CommandResult.accept. rewrite <- Entry, Ready. unfold A.wait_for_context. rewrite Found, Selected.
  cbn [K.decision_effects]. now rewrite Effects.
 Qed.
 
@@ -260,12 +265,12 @@ Proof.
  assert (Alive : A.alive current = true) by (unfold A.alive; now rewrite Lifecycle).
  assert (RunningTask : A.running current = true) by (unfold A.running; now rewrite Lifecycle).
  assert (Phase : task_activity current = Idle) by (unfold task_activity; now rewrite Lifecycle).
- unfold A.handle_compact; cbn [G.compact_task_id G.compact_summary].
+ unfold A.handle_compact,A.handle_compact_result; cbn [G.compact_task_id G.compact_summary].
  rewrite Found, Alive, Phase, RunningTask; cbn.
- unfold A.manual; rewrite NoJob.
+ unfold A.manual,A.manual_change,CommandResult.accept; rewrite NoJob.
  unfold A.wait_for_context; rewrite Found, NoPlan, Available.
  unfold manual_waiting_decision, manual_waiting_world, manual_waiting_entry.
- cbn [A.commit A.acknowledged K.accept K.decision_world K.decision_effects].
+ cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world K.decision_effects].
  now rewrite app_nil_r.
 Qed.
 
@@ -421,8 +426,8 @@ Proof.
       destruct (A.awaiting_context_demand ticket purpose
         (A.current_entry id (A.registry (K.decision_world result)))); [rewrite Cancelled|];
       split; try reflexivity;
-      cbn [A.combine A.commit A.acknowledged K.accept K.decision_effects]; apply app_nil_r. }
- split; [reflexivity|cbn [A.combine A.commit A.acknowledged K.accept K.decision_effects]; apply app_nil_r].
+      cbn [A.combine DecisionComposition.follow A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects]; apply app_nil_r. }
+ split; [reflexivity|cbn [A.combine DecisionComposition.follow A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects]; apply app_nil_r].
 Qed.
 
 Lemma matching_context_purposes_are_equal : forall first second,
@@ -598,11 +603,11 @@ Proof.
  assert (NoObservation : TicketedRequest.Scoped.can_observe_maintenance task value = false).
  { unfold TicketedRequest.Scoped.can_observe_maintenance. now rewrite Unavailable. }
  pose proof (unavailable_maintenance_observation_has_no_plan id task (Some Manual) entry value Found NoObservation) as NoPlan.
- unfold A.manual. rewrite <- Entry, Ready.
+ unfold A.manual,A.manual_change,CommandResult.accept. rewrite <- Entry, Ready.
  unfold A.wait_for_context. rewrite Found, NoPlan, Unavailable.
  split.
- - cbn [A.commit A.acknowledged K.accept K.decision_effects]. apply app_nil_r.
- - cbn [A.commit A.acknowledged K.accept K.decision_world].
+ - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects]. apply app_nil_r.
+ - cbn [A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_world].
    unfold A.current_entry, A.find_entry, A.registry, A.store, A.with_entry, A.with_observation,
      A.with_measurement, A.with_job, K.with_features,
      Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
@@ -709,7 +714,7 @@ Qed.
 Lemma the_committed_compaction_entry_is_current : forall id entry value effects,
  A.current_entry id (A.registry (K.decision_world (A.commit id entry value effects))) = entry.
 Proof.
- intros. unfold A.commit, A.acknowledged, A.current_entry, A.find_entry,
+ intros. unfold A.commit, A.commit_change, CommandResult.accept, A.acknowledged, A.current_entry, A.find_entry,
    A.registry, A.store, A.with_entry, K.accept, K.with_features,
    Selvedge.Features.State.with_compaction, set; cbn. now rewrite N.eqb_refl.
 Qed.
@@ -778,12 +783,12 @@ Proof.
  unfold A.synchronize in Outcome; cbv beta zeta in Outcome; rewrite <- Entry in Outcome.
  destruct (negb (A.alive current)).
  - destruct (A.find_entry id (A.registry value)); inversion Outcome; subst result.
-   cbn [A.cancel A.commit A.acknowledged K.accept K.decision_effects].
+   cbn [A.cancel A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects].
    now rewrite NoCancel.
  - destruct (negb (TicketedRequest.Scoped.resources_available current value)).
    + destruct (A.find_entry id (A.registry value));
        destruct (A.enabled_target current (A.registry value)); inversion Outcome; subst result;
-       cbn [A.wait_for_resource A.commit A.acknowledged K.accept K.decision_effects];
+       cbn [A.wait_for_resource A.commit A.commit_change CommandResult.accept CommandResult.change_value CommandResult.change_world CommandResult.change_effects A.acknowledged K.accept K.decision_effects];
        now rewrite NoCancel.
    + destruct (A.running current); [|discriminate].
      destruct (task_activity current); try discriminate; rewrite Job in Outcome;
@@ -821,7 +826,7 @@ Proof.
  unfold A.synchronize_task; rewrite Stored.
  destruct (A.synchronize id stopped (K.decision_world result)) as [following|] eqn:Following;
    [|exact Effects].
- cbn [A.combine K.decision_effects]; rewrite Effects; cbn.
+ cbn [A.combine DecisionComposition.follow K.decision_effects]; rewrite Effects; cbn.
  eapply synchronizing_a_fresh_terminal_failure_emits_no_requests;
    [reflexivity|exact NextJob|exact NextMeasurement|exact NextDeadline|exact Fresh|exact Following].
 Qed.

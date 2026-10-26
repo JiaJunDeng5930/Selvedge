@@ -1,3 +1,5 @@
+From Selvedge.Kernel Require CommandResult.
+From Selvedge.Kernel Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
@@ -13,12 +15,11 @@ Definition input (decoded : option Inputs.input) : option Commands.create_payloa
  | _ => None
  end.
 Definition candidate (request : Commands.create_payload) (before : world) :=
- let result := Worktree.handle_create request None before in
- if bool_default "ok"%string (decision_reply result) false
- then Decision (decision_world result) (decision_reply result)
-   (decision_effects result ++ [ContinueScheduling])
- else result.
+ CommandResult.commit before
+   (fun birth => CommandResult.append_effects [ContinueScheduling] (Worktree.transition_change birth))
+   (Worktree.handle_create_result request None before).
+Definition select (request : Commands.create_payload) (before : world) :=
+ CommitPacket.choose true (Some (Inputs.UserCommand (Commands.Cmd_create request)))
+   (Delivery.deliver_with_status true (candidate request before) before).
 Definition packet (request : Commands.create_payload) (before : world) : world * json :=
- let '(fits,result) := Delivery.deliver_with_status true (candidate request before) before in
- (with_sequence (N.succ (world_sequence before)) (decision_world result),
-  Notifications.envelope true fits (Some (UserCommand (Commands.Cmd_create request))) before result).
+ CommitPacket.finalize before (select request before).

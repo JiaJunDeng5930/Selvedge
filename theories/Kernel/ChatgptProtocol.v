@@ -26,7 +26,6 @@ Definition argument_declaration := ChatgptArguments.argument_declaration.
 Definition bounds := ChatgptArguments.bounds.
 Definition bounded_property := ChatgptArguments.bounded_property.
 Definition args_schema := ChatgptArguments.args_schema.
-Definition bounded_number := ChatgptArguments.bounded_number.
 Definition admit_args := ChatgptArguments.admit_args.
 Definition valid_args := ChatgptArguments.valid_args.
 Definition native_fields route := match find (fun spec => String.eqb spec.(command_name) (native_name route)) command_specs with

@@ -6,42 +6,12 @@ From Selvedge.Features Require Import Domain State TitleRuntime.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
 
-Lemma storing_a_title_keeps_task_requirements : forall owner status before,
- tasks_valid 0 (world_tasks (TitleRuntime.store owner status before)) (TitleRuntime.store owner status before) =
- tasks_valid 0 (world_tasks before) before.
-Proof. intros; apply registry_requirements_read_only_the_task_and_project_registries; reflexivity. Qed.
-
-Lemma storing_a_title_keeps_worktree_requirements : forall owner status before,
- worktrees_valid (TitleRuntime.store owner status before) = worktrees_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_a_title_keeps_board_requirements : forall owner status before,
- board_valid (TitleRuntime.store owner status before) = board_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_a_title_keeps_sharing_requirements : forall owner status before,
- sharing_valid (TitleRuntime.store owner status before) = sharing_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_a_title_keeps_graph_entry_requirements : forall entries first owner status before,
- graphs_valid first entries (TitleRuntime.store owner status before) = graphs_valid first entries before.
-Proof.
- induction entries as [|entry rest IH]; intros; cbn [graphs_valid]; [reflexivity|].
- rewrite IH. destruct entry; reflexivity.
-Qed.
-Lemma storing_a_title_keeps_graph_requirements : forall owner status before,
- graph_registry_valid (TitleRuntime.store owner status before) = graph_registry_valid before.
-Proof. intros; unfold graph_registry_valid; cbn; now rewrite storing_a_title_keeps_graph_entry_requirements. Qed.
-Lemma storing_a_title_keeps_work_requirements : forall owner status before,
- works_valid (TitleRuntime.store owner status before) = works_valid before.
-Proof. reflexivity. Qed.
-Lemma storing_a_title_keeps_maintenance_requirements : forall owner status before,
- compaction_valid (TitleRuntime.store owner status before) = compaction_valid before.
-Proof. reflexivity. Qed.
-
 Lemma an_absent_title_has_no_previous_registry_entry : forall owner before,
  TitleRuntime.entry owner before = None ->
  filter (fun entry => negb (N.eqb owner (F.title_task entry))) (F.feature_titles (world_features before)) =
  F.feature_titles (world_features before).
 Proof.
- intros owner before Absent. unfold TitleRuntime.entry in Absent.
+ intros owner before Absent. unfold TitleRuntime.entry,FeatureRequestAdmission.title_entry in Absent.
  remember (F.feature_titles (world_features before)) as entries in *.
  clear Heqentries. induction entries as [|entry rest IH]; cbn in *; [reflexivity|].
  destruct (N.eqb owner (F.title_task entry)) eqn:Same; [discriminate|].
@@ -65,20 +35,13 @@ Lemma storing_a_title_preserves_every_other_world_requirement : forall owner sta
  tickets_valid (TitleRuntime.store owner status before) = true ->
  well_formed (TitleRuntime.store owner status before).
 Proof.
- intros owner status before Valid Titles Tickets. destruct Valid as [Environment Projects Tasks Supply Features].
- constructor.
- - exact Environment.
- - exact Projects.
- - change (tasks_valid 0 (world_tasks (TitleRuntime.store owner status (world_structure before)))
-     (TitleRuntime.store owner status (world_structure before)) = true).
-   now rewrite storing_a_title_keeps_task_requirements.
- - exact Tickets.
- - change (features_valid (TitleRuntime.store owner status (world_structure before)) = true).
-   unfold features_valid in *.
-   rewrite storing_a_title_keeps_worktree_requirements, storing_a_title_keeps_board_requirements,
-     storing_a_title_keeps_sharing_requirements, storing_a_title_keeps_graph_requirements,
-     storing_a_title_keeps_work_requirements, storing_a_title_keeps_maintenance_requirements.
-   repeat rewrite andb_true_iff in *. intuition.
+ intros owner status before Valid Titles Tickets.
+ apply unchanged_registries_preserve_other_world_requirements with before; try reflexivity; try assumption.
+ assert (Graphs : graph_registry_valid (TitleRuntime.store owner status before) = graph_registry_valid before).
+ { apply graph_registry_requirements_follow_entry_observations; reflexivity. }
+ pose proof (well_formed_feature_requirements before Valid) as Features.
+ unfold features_valid in *; rewrite Graphs.
+ repeat rewrite andb_true_iff in *; intuition.
 Qed.
 
 Lemma distinct_tickets_pass_the_unique_checker : forall values,
@@ -142,7 +105,7 @@ Proof.
  intros owner ticket selected prompt task before Valid Absent Owned Bound Profile Capable Prompt.
  assert (NoOwner : ~ In owner (map F.title_task (F.feature_titles (world_features before)))).
  { intro Member. apply in_map_iff in Member as [entry [Identity Member]].
-   unfold TitleRuntime.entry in Absent.
+   unfold TitleRuntime.entry,FeatureRequestAdmission.title_entry in Absent.
    pose proof (find_none _ _ Absent entry Member) as Different.
    cbn in Different. rewrite Identity, N.eqb_refl in Different. discriminate. }
  assert (OldTitles : forallb (fun entry => title_valid entry (TitleRuntime.store owner (F.TitlePending ticket selected prompt) before))

@@ -1,8 +1,8 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Utf8 ArgumentDeclaration.
+From Selvedge.Foundation Require Import Json Utf8 ArgumentDeclaration ArgumentDeclarationProofs.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs TaskScope TicketedRequest
  TitleCommit FeatureFrameProofs WorldInvariant WorldInvariantProofs DeferredCommit TitleCommitPreservation TicketBoundMonotonicityProofs.
-From Selvedge.Features Require Import Domain State Titles TitleRuntime TitleProofs FeatureScopeProofs.
+From Selvedge.Features Require Import Domain State Titles TitleRuntime TitleProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -16,14 +16,8 @@ Theorem a_title_plan_resolves_the_actual_eligible_task : forall before (request 
  Utf8.nonblank (TitleRuntime.first_request (task_history (TaskScope.selected (TitleCommit.reference request)))) = true /\
  TitleRuntime.selected_profile (TaskScope.selected (TitleCommit.reference request)) before = Some selected.
 Proof.
- intros before [reference Ready]. cbn in *.
- unfold TitleCommit.ready, TitleCommit.proposal, TitleRuntime.start in Ready.
- cbn [decision_world decision_effects accept] in Ready.
- destruct (TitleRuntime.entry (TaskScope.owner reference) before) as [entry|] eqn:Absent; [discriminate|].
- destruct (negb (TitleRuntime.accepts (TaskScope.selected reference) &&
-   Utf8.nonblank (TitleRuntime.first_request (task_history (TaskScope.selected reference))))) eqn:Eligible; [discriminate|].
- destruct (TitleRuntime.selected_profile (TaskScope.selected reference) before) as [selected|] eqn:Chosen; [|discriminate].
- apply negb_false_iff in Eligible. apply andb_true_iff in Eligible as [Accepts Nonblank].
+ intros before [reference selected Absent Eligible Chosen].
+ pose proof (proj1 (Bool.andb_true_iff _ _) Eligible) as [Accepts Nonblank].
  exists selected; repeat split; assumption.
 Qed.
 
@@ -48,8 +42,8 @@ Lemma a_title_prompt_obeys_the_declared_byte_bound : forall instruction request,
 Proof.
  intros instruction request Valid.
  unfold Titles.valid_instructions, Titles.instruction_declaration,
-  ArgumentDeclaration.bounded_text, ArgumentDeclaration.check in Valid.
- cbn in Valid. unfold ArgumentDeclaration.check_text in Valid.
+  ArgumentDeclaration.bounded_text in Valid.
+ rewrite check_text_reflects in Valid. unfold ArgumentDeclaration.check_text in Valid.
  destruct (Utf8.scalar_count instruction) as [count|] eqn:Count; [|discriminate].
  cbn in Valid. repeat rewrite andb_true_iff in Valid.
  assert (Bytes : (N.of_nat (String.length instruction) <=? Titles.maximum_instruction_bytes)%N = true) by tauto.
@@ -64,7 +58,7 @@ Proof.
 Qed.
 
 Definition an_automatic_title_selects_a_capable_configured_profile :=
- FeatureScopeProofs.selected_title_profile_is_registered_and_capable.
+ FeatureRequestAdmission.selected_title_profile_is_registered_and_capable.
 
 Lemma an_automatic_title_uses_an_admitted_profile : forall task before selected,
  well_formed before -> TitleRuntime.selected_profile task before = Some selected -> profile_valid selected = true.
@@ -96,14 +90,10 @@ Theorem every_title_plan_constructs_its_exact_request : forall before (request :
    (TaskScope.selected (TitleCommit.reference request)) selected before.
 Proof.
  intros before request selected Absent Accepts Nonblank Chosen.
- unfold TitleCommit.candidate, TitleCommit.proposal.
- rewrite TitleProofs.title_start_with_observed_owner with (selected:=selected).
- - reflexivity.
- - exact (TaskScope.observed (TitleCommit.reference request)).
- - exact Absent.
- - exact Accepts.
- - exact Nonblank.
- - exact Chosen.
+ pose proof (FeatureRequestAdmission.title_chosen request) as Selected.
+ change (FeatureRequestAdmission.selected_title_profile
+   (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before = Some selected) in Chosen.
+ rewrite Chosen in Selected; inversion Selected; subst selected; reflexivity.
 Qed.
 
 Theorem every_eligible_title_request_preserves_all_world_requirements :

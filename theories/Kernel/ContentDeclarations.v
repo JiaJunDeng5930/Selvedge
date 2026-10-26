@@ -4,30 +4,21 @@ From Selvedge.Kernel Require Import Images.
 Import ListNotations.
 Open Scope string_scope.
 
-(* The model sees the same field declarations and image bounds as the real
-   content parser. Digest membership and the combined image count remain
-   runtime admission rules; these schemas describe the structural contract. *)
-Definition asset_arguments := map (fun field =>
- let argument := Arguments.from_field field in
- if String.eqb (field_name field) "bytes"
- then Arguments.with_bounds (1,Images.image_byte_limit) argument else argument) Images.asset_schema.
-Definition stored_size_schema := [("anyOf",JArray
- [Arguments.argument_json (Argument "bytes" (Scalar KNatural) true "Stored image size"
-   (Some (1,Images.image_byte_limit))); JObject (SchemaJson.kind_schema KText)])].
-Definition reference_arguments := map (fun field =>
- let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
- if String.eqb (field_name field) "bytes"
- then Arguments.with_structure stored_size_schema argument else argument) Images.reference_schema.
-Definition reference_schema := Arguments.json_schema reference_arguments.
-Definition part_schema := JObject [("anyOf",JArray
- [SchemaJson.schema_json Images.text_part_schema;
-  Arguments.json_schema (Arguments.refine_fields
-   [("image",Arguments.schema_fields asset_arguments)]
-   (map (fun field => Arguments.omittable_nonnull (Arguments.from_field field)) Images.image_part_schema))])].
-Definition content_schema := [("anyOf",JArray
- [JObject (SchemaJson.kind_schema KText);
-  JObject [("type",JString "array");("items",part_schema)]])].
-Definition images_schema := [("type",JString "array");("items",reference_schema)].
+Module D := ArgumentDeclaration.
+Definition asset_declaration := D.refine_object [("bytes",D.Natural 1 Images.image_byte_limit)]
+ (D.of_schema Images.asset_schema).
+Definition reference_declaration := D.refine_object
+ [("bytes",D.Union [D.Natural 1 Images.image_byte_limit;D.text])]
+ (D.of_schema Images.reference_schema).
+Definition part_declaration := D.Union [D.of_schema Images.text_part_schema;
+ D.refine_object [("image",asset_declaration)] (D.of_schema Images.image_part_schema)].
+Definition content_declaration := D.Union [D.text;D.Array part_declaration].
+Definition images_declaration := D.Array reference_declaration.
+Definition fields_of source := match source with JObject fields => fields | _ => [] end.
+Definition reference_schema := D.schema reference_declaration.
+Definition part_schema := D.schema part_declaration.
+Definition content_schema := fields_of (D.schema content_declaration).
+Definition images_schema := fields_of (D.schema images_declaration).
 Definition native_argument_fields (command : string) :=
  if String.eqb command "create_work_task"
  then [("message",content_schema);("images",images_schema)] else [].

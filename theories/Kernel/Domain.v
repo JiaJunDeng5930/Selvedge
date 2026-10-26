@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Arguments JsonSchema.
+From Selvedge.Foundation Require Import Json Arguments JsonSchema Schema Utf8.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes.
 Import ListNotations.
@@ -14,15 +14,95 @@ Record adaptive_reasoning := AdaptiveReasoning {
  reasoning_max_lease : N
 }.
 Inductive reasoning_policy := FixedReasoning | AdaptivePolicy (policy : adaptive_reasoning).
-Record profile := Profile {
-  profile_key : string;
-  profile_provider : string;
-  profile_model : string;
-  profile_reasoning : string;
-  profile_reasoning_options : list string;
-  profile_policy : reasoning_policy;
-  profile_metadata : json
+Definition reasoning_policy_schema := [Field "evaluator" KText; Field "efforts" (KArray KText); Field "baseline" KText;
+ Field "transport" (KEnum "configuration_update" ["request_effort"]); Field "max_lease" KNatural].
+Definition parse_reasoning_policy (value : json) : option reasoning_policy :=
+ match value with JNull => Some FixedReasoning | _ =>
+ match Schema.decode reasoning_policy_schema value with
+ | None => None
+ | Some values =>
+   let evaluator := head values in let values := tail values in
+   let efforts := head values in let values := tail values in
+   let baseline := head values in let values := tail values in
+   let transport := proj1_sig (head values) in let maximum := head (tail values) in
+   if Utf8.nonblank evaluator && Schema.unique_names efforts &&
+      forallb (fun effort => Utf8.nonblank effort && negb (String.eqb effort "auto")) efforts &&
+      existsb (String.eqb baseline) efforts && (N.leb 1 maximum && N.leb maximum 10) then
+     Some (AdaptivePolicy (AdaptiveReasoning evaluator efforts baseline
+       (if String.eqb transport "configuration_update" then ConfigurationUpdates else RequestEffort) maximum))
+   else None end end.
+Definition profile_options_schema := [Field "values" (KArray KText); Field "default" (KOptional KText)].
+Definition profile_options (source : json) : option (list string * string) :=
+ match source with JNull => Some ([],"medium") | _ =>
+ match Schema.decode profile_options_schema source with
+ | None => None
+ | Some decoded => match head decoded with
+   | [] => None
+   | first :: rest =>
+     let values := nodup String.string_dec (first :: rest) in
+     if forallb (fun effort => Utf8.nonblank effort && negb (String.eqb effort "auto")) values then
+       let requested := match head (tail decoded) with Some value => value | None => first end in
+       Some (values, if existsb (String.eqb requested) values then requested else first)
+     else None end end end.
+Record profile_configuration := ProfileConfiguration {
+ configured_key : string; configured_provider : string; configured_model : string;
+ configured_options : list string; configured_policy : reasoning_policy; configured_default : string
 }.
+Definition profile_fields := [Field "key" KText; Field "provider" KText; Field "name" KText;
+ Field "reasoning_options" KJson; Field "adaptive_reasoning" (KOptional KJson)].
+Definition parse_profile_configuration (source : json) : option profile_configuration :=
+ match source with JObject source => match Schema.decode_fields profile_fields source with
+ | Some values =>
+   let key := head values in let values := tail values in
+   let provider := head values in let values := tail values in
+   let model := head values in let values := tail values in
+   match profile_options (head values), parse_reasoning_policy
+     (match head (tail values) with Some policy => policy | None => JNull end) with
+   | Some (efforts,default),Some policy =>
+     if Utf8.nonblank key && Utf8.nonblank provider && Utf8.nonblank model &&
+       match policy with FixedReasoning => true | AdaptivePolicy policy =>
+         match efforts with [] => true | _ => forallb (fun effort => existsb (String.eqb effort) efforts) (reasoning_efforts policy) end end
+     then Some (ProfileConfiguration key provider model efforts policy
+       (match policy with FixedReasoning => default | AdaptivePolicy _ => "auto" end)) else None
+   | _,_ => None end
+ | None => None end | _ => None end.
+(** A profile keeps the original provider metadata, including unknown display
+    fields. Its typed configuration is bound to that source once at admission;
+    changing the selected effort cannot manufacture a contradictory cache. *)
+Record admitted_profile_configuration := AdmittedProfileConfiguration {
+ configured_source : json;
+ configured_value : profile_configuration;
+ configured_binding : parse_profile_configuration configured_source = Some configured_value
+}.
+Record profile := Profile {
+ profile_configuration_source : admitted_profile_configuration;
+ profile_reasoning : string
+}.
+Definition profile_key value := configured_key (configured_value (profile_configuration_source value)).
+Definition profile_provider value := configured_provider (configured_value (profile_configuration_source value)).
+Definition profile_model value := configured_model (configured_value (profile_configuration_source value)).
+Definition profile_reasoning_options value := configured_options (configured_value (profile_configuration_source value)).
+Definition profile_policy value := configured_policy (configured_value (profile_configuration_source value)).
+Definition profile_metadata value := configured_source (profile_configuration_source value).
+Definition profile_default value := configured_default (configured_value (profile_configuration_source value)).
+Definition with_reasoning effort value := Profile (profile_configuration_source value) effort.
+Definition parse_profile_decoded source (decoded : option profile_configuration)
+ (Decoded : parse_profile_configuration source = decoded) : option profile :=
+ match decoded as result return parse_profile_configuration source = result -> option profile with
+ | Some configuration => fun Binding =>
+     Some (Profile (AdmittedProfileConfiguration source configuration Binding) (configured_default configuration))
+ | None => fun _ => None end Decoded.
+Definition parse_profile source := parse_profile_decoded source (parse_profile_configuration source) eq_refl.
+Definition reasoning_allowed effort value :=
+ match profile_policy value with
+ | AdaptivePolicy _ => String.eqb effort "auto"
+ | FixedReasoning => Utf8.nonblank effort && negb (String.eqb effort "auto") &&
+     match profile_reasoning_options value with [] => true | options => existsb (String.eqb effort) options end
+ end.
+Definition profile_reasoning_valid value :=
+ if String.eqb (profile_reasoning value) "default"
+ then String.eqb (profile_reasoning value) (profile_default value)
+ else reasoning_allowed (profile_reasoning value) value.
 Definition same_profile (left right : profile) :=
  Json.equal (profile_metadata left) (profile_metadata right) &&
  String.eqb (profile_reasoning left) (profile_reasoning right).

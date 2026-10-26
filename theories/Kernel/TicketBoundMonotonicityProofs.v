@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool NArith.
-From Selvedge.Kernel Require Import Domain State WorldInvariant.
+From Selvedge.Kernel Require Import Domain State WorldInvariant FeatureFrameProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Module F := Selvedge.Features.Domain.
 
@@ -24,21 +24,15 @@ Proof. reflexivity. Qed.
 
 Lemma tasks_valid_with_ticket : forall entries owner before next,
  tasks_valid owner entries (with_ticket next before) = tasks_valid owner entries before.
-Proof.
- induction entries; intros; cbn [tasks_valid]; [reflexivity|].
- rewrite task_valid_with_ticket, IHentries; reflexivity.
-Qed.
+Proof. intros; apply registry_requirements_read_only_the_task_and_project_registries; reflexivity. Qed.
 
 Lemma title_valid_with_ticket : forall entry before next,
  (world_next_ticket before <= next)%N -> title_valid entry before = true ->
  title_valid entry (with_ticket next before) = true.
 Proof.
- intros entry before next Hle Hvalid.
- unfold title_valid, find_task, with_ticket in *; cbv [set] in *; cbn in *.
- destruct (F.title_value entry); cbn in *; try assumption.
- repeat rewrite andb_true_iff in *.
- intuition auto.
- eapply ticket_bound_monotone; eassumption.
+ intros entry before next Later Valid.
+ apply (title_survives_the_task_frame before (with_ticket next before)); try assumption.
+ intros owner old Found; exists old; split; [exact Found|reflexivity].
 Qed.
 
 Lemma titles_valid_with_ticket : forall before next,
@@ -55,32 +49,6 @@ Proof.
  exact (proj1 (forallb_forall _ _) Hentries entry Hin).
 Qed.
 
-Lemma card_valid_with_ticket : forall entry before next,
- (world_next_ticket before <= next)%N -> card_valid entry before = true ->
- card_valid entry (with_ticket next before) = true.
-Proof.
- intros entry before next Hle Hvalid.
- unfold card_valid, find_task, with_ticket in *; cbv [set] in *; cbn in *.
- destruct (F.card_enrichment entry); cbn in *; try assumption.
- repeat rewrite andb_true_iff in *.
- intuition auto.
- eapply ticket_bound_monotone; eassumption.
-Qed.
-
-Lemma board_valid_with_ticket : forall before next,
- (world_next_ticket before <= next)%N -> board_valid before = true ->
- board_valid (with_ticket next before) = true.
-Proof.
- intros before next Hle Hvalid.
- unfold board_valid, with_ticket in *; cbv [set] in *; cbn in *.
- repeat rewrite andb_true_iff in *.
- destruct Hvalid as [[[[[[[Hcards Hagents] Hcardbound] Hagentbound] Hentries] Hunique] Hstored] Hprofile].
- repeat split; try assumption.
- apply forallb_forall; intros entry Hin.
- apply card_valid_with_ticket; [exact Hle|].
- exact (proj1 (forallb_forall _ _) Hentries entry Hin).
-Qed.
-
 Lemma tickets_valid_with_ticket : forall before next,
  (world_next_ticket before <= next)%N -> tickets_valid before = true ->
  tickets_valid (with_ticket next before) = true.
@@ -94,30 +62,15 @@ Proof.
  exact (proj1 (forallb_forall _ _) Hbounds ticket Hin).
 Qed.
 
-Lemma graphs_valid_with_ticket : forall entries owner before next,
- graphs_valid owner entries (with_ticket next before) = graphs_valid owner entries before.
-Proof.
- induction entries; intros; cbn [graphs_valid]; [reflexivity|].
- rewrite IHentries; destruct a; reflexivity.
-Qed.
-
-Lemma graph_registry_valid_with_ticket : forall before next,
- graph_registry_valid (with_ticket next before) = graph_registry_valid before.
-Proof.
- intros; unfold graph_registry_valid; rewrite graphs_valid_with_ticket; reflexivity.
-Qed.
-
 Lemma features_valid_with_ticket : forall before next,
  (world_next_ticket before <= next)%N -> features_valid before = true ->
  features_valid (with_ticket next before) = true.
 Proof.
- intros before next Hle Hvalid.
- unfold features_valid in *; repeat rewrite andb_true_iff in *.
- destruct Hvalid as [[[[[[[Htitles Hremote] Htrees] Hboard] Hsharing] Hgraphs] Hworks] Hcompaction].
- repeat split; try assumption.
- - now apply titles_valid_with_ticket.
- - now apply board_valid_with_ticket.
- - now rewrite graph_registry_valid_with_ticket.
+ intros before next Later.
+ apply feature_requirements_follow_task_observations; try reflexivity; try assumption.
+ - intros owner old Found; exists old; split; [exact Found|reflexivity].
+ - intros entry Valid; exact Valid.
+ - intros entry Valid; exact Valid.
 Qed.
 
 Theorem well_formed_with_ticket : forall before next,

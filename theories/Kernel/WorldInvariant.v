@@ -17,18 +17,7 @@ Definition same_references := same_values PluginProtocol.reference_json.
 Definition unique_tickets (tickets : list N) := Nat.eqb (List.length tickets)
  (List.length (nodup N.eq_dec tickets)).
 
-Definition profile_valid (value : Domain.profile) :=
- match parse_profile (profile_metadata value) with
- | None => false
- | Some original =>
-   String.eqb (profile_key value) (profile_key original) &&
-   String.eqb (profile_provider value) (profile_provider original) &&
-   String.eqb (profile_model value) (profile_model original) &&
-   same_values JString (profile_reasoning_options value) (profile_reasoning_options original) &&
-   Json.equal (reasoning_policy_json (profile_policy value)) (reasoning_policy_json (profile_policy original)) &&
-   match Tasks.selected_reasoning (Some (profile_reasoning value)) original with
-   | Some selected => String.eqb (profile_reasoning value) (profile_reasoning selected) | None => false end
- end.
+Definition profile_valid := Domain.profile_reasoning_valid.
 Definition tools_valid (tools : list tool) :=
  forallb (fun tool => nonempty (tool_name tool)) tools && Schema.unique_names (map tool_name tools).
 Definition plugins_valid (plugins : list json) :=

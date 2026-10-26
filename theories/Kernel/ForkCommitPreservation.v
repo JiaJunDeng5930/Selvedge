@@ -19,7 +19,7 @@ Qed.
 Lemma the_manual_fork_proposal_preserves_world_requirements : forall request before,
  well_formed before -> well_formed (decision_world (ForkCommit.propose request before)).
 Proof.
- intros; unfold ForkCommit.propose, Worktree.execution_guard.
+ intros; unfold ForkCommit.propose, ForkCommit.propose_result.
  destruct (Worktree.execution_allowed _ _).
  - apply the_actual_manual_fork_handler_preserves_world_requirements; assumption.
  - assumption.
@@ -30,7 +30,7 @@ Theorem a_manual_fork_transaction_preserves_world_requirements : forall request 
 Proof.
  intros request before Valid; rewrite the_fork_transaction_keeps_the_admitted_world.
  destruct (workspace_admission_keeps_the_constructor_or_the_before_world before
-   (ForkCommit.propose request before)) as [Constructed|Refused].
+   (ForkCommit.propose_result request before)) as [Constructed|Refused].
  - rewrite Constructed; apply the_manual_fork_proposal_preserves_world_requirements; exact Valid.
  - rewrite Refused; exact Valid.
 Qed.
@@ -38,10 +38,11 @@ Qed.
 Theorem manual_fork_packets_preserve_world_requirements : forall request before,
  world_valid before = true -> world_valid (fst (ForkCommit.packet request before)) = true.
 Proof.
- intros request before Valid; unfold ForkCommit.packet, Delivery.deliver_with_status.
- destruct (Delivery.fits true (ForkCommit.candidate request before)); cbn [fst decision_world];
- rewrite a_journal_cursor_does_not_change_domain_validity.
- - apply well_formed_worlds_pass_the_checker, a_manual_fork_transaction_preserves_world_requirements.
+ intros request before Valid; unfold ForkCommit.packet.
+ apply CommitPacket.finalize_preserves.
+ - intros; now rewrite a_journal_cursor_does_not_change_domain_validity.
+ - unfold ForkCommit.select,CommitPacket.choose,Delivery.deliver_with_status.
+   destruct (Delivery.fits true (ForkCommit.candidate request before)); cbn [snd CommitPacket.selected_decision decision_world]; [|exact Valid].
+   apply well_formed_worlds_pass_the_checker,a_manual_fork_transaction_preserves_world_requirements.
    apply the_world_checker_establishes_all_requirements; exact Valid.
- - exact Valid.
 Qed.

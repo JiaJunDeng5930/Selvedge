@@ -1,7 +1,8 @@
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith Lia.
 From Selvedge.Foundation Require Import RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
-From Selvedge.Kernel Require Import Numbers Domain State Tasks Codec Workspace WorldInvariant ForkPreservation CreationPreservation CreationStartProofs.
+From Selvedge.Kernel Require Import Numbers Domain State Tasks Codec Workspace WorldInvariant FeatureFrameProofs ForkPreservation CreationPreservation CreationStartProofs.
 From Selvedge.Features Require Import Domain State Worktree WorktreeProofs WorkspaceBinding.
 Import ListNotations.
 Module F := Selvedge.Features.Domain.
@@ -118,31 +119,6 @@ Lemma resource_task_initial_tickets : forall owner backend chosen selected conte
    (Worktree.resource_task owner backend (Tasks.make_task chosen selected contents idle environment)) = [].
 Proof. intros; destruct backend,idle; reflexivity. Qed.
 
-Lemma resource_store_keeps_task_requirements : forall tree state owner task,
- WorldInvariant.task_valid owner task (Worktree.store tree state) =
- WorldInvariant.task_valid owner task state.
-Proof. intros; unfold Worktree.store,with_features,Selvedge.Features.State.with_worktrees; cbv [set]; reflexivity. Qed.
-
-Lemma resource_store_keeps_graph_requirements : forall tree state first entries,
- WorldInvariant.graphs_valid first entries (Worktree.store tree state) =
- WorldInvariant.graphs_valid first entries state.
-Proof.
- intros tree state first entries; revert first; induction entries as [|[graph|] rest IH]; intros first;
- cbn [WorldInvariant.graphs_valid]; rewrite ?IH; try reflexivity.
-Qed.
-
-Lemma resource_store_keeps_other_feature_requirements : forall tree state,
- WorldInvariant.titles_valid (Worktree.store tree state) = WorldInvariant.titles_valid state /\
- WorldInvariant.board_valid (Worktree.store tree state) = WorldInvariant.board_valid state /\
- WorldInvariant.graph_registry_valid (Worktree.store tree state) = WorldInvariant.graph_registry_valid state /\
- WorldInvariant.works_valid (Worktree.store tree state) = WorldInvariant.works_valid state /\
- WorldInvariant.compaction_valid (Worktree.store tree state) = WorldInvariant.compaction_valid state.
-Proof.
- intros; repeat split.
- unfold WorldInvariant.graph_registry_valid.
- rewrite resource_store_keeps_graph_requirements; reflexivity.
-Qed.
-
 (* Running connection jobs retain their resource identity while another task
    provisions an environment. Freshness makes this a registry extension. *)
 Lemma storing_a_fresh_resource_keeps_old_ready_bindings : forall tree state space owner,
@@ -229,15 +205,6 @@ Proof.
  - apply andb_true_iff; split; [exact Tree|exact Entries].
 Qed.
 
-Lemma resource_store_keeps_task_registry_requirements : forall tree state entries first,
- WorldInvariant.tasks_valid first entries (Worktree.store tree state) =
- WorldInvariant.tasks_valid first entries state.
-Proof.
- intros tree state entries; induction entries as [|task rest IH]; intros first;
- cbn [WorldInvariant.tasks_valid]; [reflexivity|].
- rewrite resource_store_keeps_task_requirements,IH; reflexivity.
-Qed.
-
 Theorem storing_a_fresh_resource_preserves_every_world_requirement : forall tree state,
  WorldInvariant.well_formed state ->
  Worktree.lookup (F.worktree_task tree) state = None ->
@@ -245,23 +212,15 @@ Theorem storing_a_fresh_resource_preserves_every_world_requirement : forall tree
  WorldInvariant.well_formed (Worktree.store tree state).
 Proof.
  intros tree state Valid Fresh Tree.
- constructor.
- - exact (WorldInvariant.environment_requirement state Valid).
- - exact (WorldInvariant.projects_requirement state Valid).
- - rewrite task_registry_requirements_ignore_the_journal_cursor.
-   change (WorldInvariant.tasks_valid 0 (world_tasks state) (Worktree.store tree state) = true).
-   rewrite resource_store_keeps_task_registry_requirements.
-   pose proof (WorldInvariant.tasks_requirement state Valid) as Tasks.
-   rewrite task_registry_requirements_ignore_the_journal_cursor in Tasks; exact Tasks.
+ apply unchanged_registries_preserve_other_world_requirements with state; try reflexivity; try assumption.
  - exact (WorldInvariant.tickets_requirement state Valid).
- - pose proof (WorldInvariant.features_requirement state Valid) as Features.
-   change (WorldInvariant.features_valid (Worktree.store tree (WorldInvariant.world_structure state)) = true).
-   unfold WorldInvariant.features_valid in Features |- *.
-   destruct (resource_store_keeps_other_feature_requirements tree (WorldInvariant.world_structure state))
-     as [Titles [Board [Graphs [Works Compaction]]]].
-   rewrite Titles,Board,Graphs,Works,Compaction.
+ - pose proof (well_formed_feature_requirements state Valid) as Features.
+   assert (Graphs : WorldInvariant.graph_registry_valid (Worktree.store tree state) =
+     WorldInvariant.graph_registry_valid state).
+   { apply graph_registry_requirements_follow_entry_observations; reflexivity. }
+   unfold WorldInvariant.features_valid in Features |- *; rewrite Graphs.
    repeat rewrite andb_true_iff in Features |- *.
-   destruct Features as [[[[[[[TitlesValid Remote] Trees] BoardValid] Sharing] GraphsValid] WorksValid] CompactionValid].
+   destruct Features as [[[[[[[Titles Remote] Trees] Board] Sharing] GraphsValid] Works] Compaction].
    repeat split; try assumption.
    + apply storing_a_fresh_resource_keeps_worktree_requirements; assumption.
    + apply storing_a_fresh_resource_keeps_sharing_requirements; assumption.
@@ -406,7 +365,7 @@ Proof.
 Qed.
 
 Lemma preparing_a_start_keeps_its_resolved_task : forall intent managed backend start before plan,
- Worktree.prepare_resolved intent managed backend start before = Worktree.Planned plan ->
+ Worktree.prepare_resolved intent managed backend start before = CommandResult.Accepted plan ->
  Worktree.planned_task plan = start.
 Proof.
  intros intent managed backend start before plan Planned.
@@ -417,10 +376,10 @@ Proof.
    (match result as selected return
        Worktree.resource_error intent before (Tasks.start_settings start) resource = selected ->
        Worktree.start_plan_result before with
-    | Some cause => fun _ => Worktree.PlanningFailed
-        (failure (Tasks.failure_code (Worktree.creation_entry intent None) cause) (Tasks.failure_message cause))
-    | None => fun admitted => Worktree.Planned (Worktree.PlannedStart intent start resource admitted)
-    end observed) = Worktree.Planned plan -> Worktree.planned_task plan = start).
+    | Some cause => fun _ => CommandResult.Rejected
+        (CommandResult.Refusal (Tasks.failure_code (Worktree.creation_entry intent None) cause) (Tasks.failure_message cause))
+    | None => fun admitted => CommandResult.Accepted (Worktree.PlannedStart intent start resource admitted)
+    end observed) = CommandResult.Accepted plan -> Worktree.planned_task plan = start).
  { intros [cause|] observed Equal; [discriminate|]. inversion Equal; reflexivity. }
  eapply Erases; exact Planned.
 Qed.
@@ -431,7 +390,7 @@ Theorem a_resolved_public_resource_creation_preserves_every_world_requirement :
  WorldInvariant.well_formed before ->
  CommandExecution.resolve_context_start (Worktree.creation_entry Worktree.ImplicitCreation None)
    name effort contents settings false None before = Tasks.StartResolved start ->
- Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = Worktree.Planned plan ->
+ Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  WorldInvariant.well_formed (decision_world (Worktree.consume_planned_start plan before)).
 Proof.
  intros name effort contents settings before start plan Valid Resolved Planned.

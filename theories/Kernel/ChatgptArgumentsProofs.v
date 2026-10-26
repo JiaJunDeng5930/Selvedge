@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Schema Utf8 Numbers NumbersProofs.
+From Selvedge.Foundation Require Import Json Schema SchemaProofs Utf8 Numbers NumbersProofs.
 From Selvedge.Kernel Require Import ChatgptArguments.
 Import ListNotations.
 Open Scope string_scope.
@@ -10,6 +10,19 @@ Definition argument_values (command : string) (timeout maximum : N) : Schema.fie
   command (@Schema.FCons (Schema.Field "timeout_ms" Schema.KNatural)
   [Schema.Field "max_output_length" Schema.KNatural] timeout
   (@Schema.FCons (Schema.Field "max_output_length" Schema.KNatural) [] maximum Schema.FNil)).
+Lemma arguments_validity_survives_canonical_encoding : forall values,
+ arguments_valid values = true -> valid_args (Schema.encode argument_declaration values) = true.
+Proof.
+ intros values Valid.
+ rewrite (fields_eta _ values), (fields_eta _ (tail values)), (fields_eta _ (tail (tail values))),
+   (fields_eta _ (tail (tail (tail values)))) in *.
+ unfold valid_args, admit_args.
+ cbv beta iota zeta delta -[parse_natural show_natural arguments_valid head tail].
+ rewrite !natural_print_parse; cbn [option_map].
+ unfold arguments_valid in *; cbn [head tail] in *.
+ match goal with |- context [if ?condition then _ else _] =>
+   assert (Checked : condition = true) by exact Valid; rewrite Checked; reflexivity end.
+Qed.
 Lemma bounded_arguments_have_a_valid_canonical_wire : forall command timeout maximum,
  negb (String.eqb command "")=true -> Utf8.well_formed command=true ->
  (N.of_nat (String.length command) <= 32768)%N ->
@@ -17,63 +30,17 @@ Lemma bounded_arguments_have_a_valid_canonical_wire : forall command timeout max
  valid_args (Schema.encode argument_declaration (argument_values command timeout maximum))=true.
 Proof.
  intros command timeout maximum Nonempty Utf8 Length Timeout Maximum.
- unfold valid_args,admit_args,bounded_number,bounds,argument_values.
- cbv beta iota zeta delta -[parse_natural show_natural Utf8.well_formed N.leb].
- rewrite !natural_print_parse.
- cbn -[Utf8.well_formed N.leb].
- assert (LowerTimeout:(100<=?timeout)=true) by (apply N.leb_le;lia).
- assert (UpperTimeout:(timeout<=?1800000)=true) by (apply N.leb_le;lia).
- assert (LowerMaximum:(1<=?maximum)=true) by (apply N.leb_le;lia).
- assert (UpperMaximum:(maximum<=?8192)=true) by (apply N.leb_le;lia).
- assert (CommandLength:(N.of_nat (String.length command)<=?32768)=true) by (apply N.leb_le;exact Length).
- rewrite LowerTimeout,UpperTimeout,LowerMaximum,UpperMaximum.
- change ((match (if negb (String.eqb command "") && Utf8.well_formed command &&
-  (N.of_nat (String.length command) <=? 32768)
-  then Some (argument_values command timeout maximum) else None)
-  with Some _=>true | None=>false end)=true).
- rewrite Nonempty,Utf8,CommandLength;reflexivity.
+ apply arguments_validity_survives_canonical_encoding.
+ change ((((100 <=? timeout) && (timeout <=? 1800000)) &&
+   ((1 <=? maximum) && (maximum <=? 8192))) &&
+   negb (String.eqb command "") && Utf8.well_formed command &&
+   (N.of_nat (String.length command) <=? 32768) = true).
+ rewrite Nonempty, Utf8. repeat rewrite andb_true_iff.
+ repeat split; try reflexivity; apply N.leb_le; lia.
 Qed.
 Lemma admitted_arguments_have_a_valid_canonical_wire : forall source decoded,
  admit_args source = Some decoded -> valid_args (Schema.encode argument_declaration decoded)=true.
 Proof.
- intros source decoded Accepted.
- unfold admit_args in Accepted.
- destruct (Schema.decode argument_declaration source) as [values|] eqn:Decoded; [|discriminate].
- destruct (bounded_number source "timeout_ms" && bounded_number source "max_output_length" &&
-   match string_field "command" source with
-   | Some command => negb (String.eqb command "") && Utf8.well_formed command &&
-       (N.of_nat (String.length command) <=? 32768)
-   | None => false end) eqn:Valid; [|discriminate].
- inversion Accepted; subst decoded.
- destruct source as [|boolean|numeric|text|items|members]; try discriminate Decoded.
- unfold Schema.decode in Decoded.
- destruct (schema_valid argument_declaration && unique_names (source_keys members) &&
-   keys_declared argument_declaration members); [|discriminate].
- cbn [argument_declaration decode_fields decode_field Field field_name decode_value] in Decoded.
- destruct (lookup "command" members) as [command_json|] eqn:Command; [|discriminate].
- destruct command_json as [|boolean|numeric|command|items|fields]; try discriminate Decoded.
- destruct (lookup "timeout_ms" members) as [timeout_json|] eqn:TimeoutField; [|discriminate].
- destruct timeout_json as [|boolean|timeout_text|text|items|fields]; try discriminate Decoded.
- cbn [as_string as_number] in Decoded.
- destruct (parse_natural timeout_text) as [timeout|] eqn:Timeout; [|discriminate].
- destruct (lookup "max_output_length" members) as [maximum_json|] eqn:MaximumField; [|discriminate].
- destruct maximum_json as [|boolean|maximum_text|text|items|fields]; try discriminate Decoded.
- cbn [as_number] in Decoded.
- destruct (parse_natural maximum_text) as [maximum|] eqn:Maximum; [|discriminate].
- inversion Decoded; subst values.
- unfold bounded_number,number_field,string_field,field,bounds in Valid.
- rewrite Command,TimeoutField,MaximumField in Valid.
- cbn [as_number as_string] in Valid.
- rewrite Timeout,Maximum in Valid.
- change ((((100 <=? timeout) && (timeout <=? 1800000)) &&
-   ((1 <=? maximum) && (maximum <=? 8192))) &&
-   (negb (String.eqb command "") && Utf8.well_formed command &&
-     (N.of_nat (String.length command) <=? 32768)) = true) in Valid.
- repeat rewrite andb_true_iff in Valid.
- apply bounded_arguments_have_a_valid_canonical_wire.
- - tauto.
- - tauto.
- - apply N.leb_le; tauto.
- - split; apply N.leb_le; tauto.
- - split; apply N.leb_le; tauto.
+ intros source decoded Accepted; apply arguments_validity_survives_canonical_encoding.
+ eapply admitted_arguments_are_valid; exact Accepted.
 Qed.

@@ -24,18 +24,18 @@ Definition committed_coordinates (effect reply : json) : Prop :=
 Theorem completed_callback_preserves_committed_coordinates effect result reply :
   completed effect result = Some reply -> committed_coordinates effect reply.
 Proof.
-  unfold completed, committed_coordinates.
-  destruct (callback_kind_of (str effect "kind")) as [kind|]; [destruct kind|];
-    try solve [intro H; inversion H; subst; cbn [base extend worktree_reply]; repeat split; reflexivity].
+ unfold completed, committed_coordinates.
+ destruct (callback_kind_of (str effect "kind")) as [kind|]; [destruct kind|]; intro Accepted;
+ try destruct created; try (unfold worktree_reply in Accepted; destruct (boolean_field result "ok"));
+ inversion Accepted; subst; cbn -[diagnostic]; repeat split; reflexivity.
 Qed.
 
 Theorem failed_callback_preserves_committed_coordinates effect message limit :
   committed_coordinates effect (failed effect message limit).
 Proof.
-  unfold committed_coordinates, failed.
-  destruct (callback_kind_of (str effect "kind")) as [kind|]; [destruct kind|exact I];
-    try solve [cbn [base failed_outcome worktree_reply]; repeat split; reflexivity].
-  destruct limit; cbn [base optional]; auto.
+ unfold committed_coordinates, failed.
+ destruct (callback_kind_of (str effect "kind")) as [kind|]; [destruct kind|exact I];
+ try destruct created; destruct limit; cbn -[diagnostic]; repeat split; reflexivity.
 Qed.
 
 Theorem every_callback_diagnostic_is_admitted kind message :

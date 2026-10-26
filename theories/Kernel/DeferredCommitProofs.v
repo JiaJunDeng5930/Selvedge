@@ -1,6 +1,7 @@
+From Selvedge.Kernel Require Import CommitPacket CommitPacketProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Inputs Dispatch DeferredCommit Delivery Notifications
+From Selvedge.Kernel Require Import Domain State Inputs Dispatch DeferredCommit Delivery Notifications NotificationsProofs FeatureAuthorityProofs
  WorldInvariant WorldInvariantProofs CommitAdmission CommitAdmissionProofs.
 Import ListNotations.
 Open Scope string_scope.
@@ -73,6 +74,19 @@ Proof.
    [exact DecoratedWorld|reflexivity].
 Qed.
 
+Theorem actual_commit_admission_keeps_an_empty_effect_list : forall durable source raw before candidate,
+ decision_effects candidate = [] ->
+ decision_effects (admitted_decision durable source raw before candidate) = [].
+Proof.
+ intros durable source raw before [next reply effects] Empty; cbn in Empty; subst effects.
+ rewrite admit_is_validation_pipeline.
+ unfold Delivery.deliver,Delivery.deliver_with_status; destruct (Delivery.fits durable _); [|reflexivity].
+ unfold CommitAdmission.validate,CommitAdmission.validate_with_status.
+ destruct (CommitAdmission.transition_authorized durable source raw before _); [|reflexivity].
+ unfold WorldInvariant.validate,WorldInvariant.validate_with_status.
+ destruct (world_valid _); reflexivity.
+Qed.
+
 Theorem actual_commit_admission_is_authorized_or_rolled_back : forall durable source raw_source before candidate,
  (decision_world (admitted_decision durable source raw_source before candidate) = before /\
   decision_effects (admitted_decision durable source raw_source before candidate) = []) \/
@@ -131,62 +145,58 @@ Proof.
    exact Effects.
 Qed.
 
-Lemma inference_history_binding_ignores_the_journal_cursor : forall after sequence request,
- CommitAdmissionProofs.inference_history_bound (with_sequence sequence after) request <->
- CommitAdmissionProofs.inference_history_bound after request.
+Theorem selected_commit_satisfies_the_shared_requirements : forall durable source raw before candidate,
+ CommitPacketProofs.requirements raw before (DeferredCommit.select durable source raw before candidate).
 Proof.
- intros after sequence request; unfold CommitAdmissionProofs.inference_history_bound.
- destruct (CommitAdmissionProofs.inference_snapshot request) as [[owner snapshot]|];
-   destruct after; reflexivity.
+ intros; constructor.
+ - apply actual_commit_admission_preserves_world_requirements.
+ - intros Valid.
+   destruct (actual_commit_admission_satisfies_global_transition_or_rollback
+     durable source raw before candidate) as [[RolledBack _] | [Evolution _]].
+   + left; change (world_structure (decision_world (admitted_decision durable source raw before candidate)) = world_structure before).
+     now rewrite RolledBack.
+   + right; exact Evolution.
+ - apply actual_admission_binds_every_inference_to_its_exact_history.
 Qed.
 
 Theorem packet_preserves_world_validity : forall source raw before candidate,
  world_valid before = true ->
  world_valid (fst (DeferredCommit.packet source raw before candidate)) = true.
 Proof.
- intros source raw before candidate Valid; unfold DeferredCommit.packet.
- destruct (DeferredCommit.admit_with_status true source raw before candidate)
-   as [accepted committed] eqn:Outcome; cbn [fst].
- rewrite a_journal_cursor_does_not_change_domain_validity.
- pose proof (actual_commit_admission_preserves_world_requirements
-   true source raw before candidate Valid) as Preserved.
- rewrite (admit_result_is_the_selected_outcome _ _ _ _ _ _ _ Outcome) in Preserved.
- exact Preserved.
+ intros; eapply CommitPacketProofs.finalized_world_is_valid;
+ [apply selected_commit_satisfies_the_shared_requirements|exact H].
+Qed.
+Theorem an_unchanged_candidate_retains_its_domain : forall durable source raw before candidate,
+ decision_world candidate = before ->
+ world_structure (fst (CommitPacket.finalize before
+   (DeferredCommit.select durable source raw before candidate))) = world_structure before.
+Proof.
+ intros durable source raw before candidate Unchanged; apply CommitPacket.finalize_preserves.
+ - intros after sequence Preserved; now rewrite CommitPacketProofs.sequence_preserves_structure.
+ - unfold DeferredCommit.select,CommitPacket.choose; cbn [CommitPacket.selected_decision].
+   change (world_structure (decision_world (admitted_decision durable source raw before candidate)) = world_structure before).
+   now rewrite actual_commit_admission_keeps_an_unchanged_world by exact Unchanged.
 Qed.
 
 Theorem packet_advances_sequence : forall source raw before candidate,
  world_sequence (fst (DeferredCommit.packet source raw before candidate)) =
  N.succ (world_sequence before).
-Proof.
- intros; unfold DeferredCommit.packet.
- destruct (DeferredCommit.admit_with_status true source raw before candidate)
-   as [accepted committed]; reflexivity.
-Qed.
-
-Lemma journal_sequence_preserves_world_structure : forall sequence value,
- world_structure (with_sequence sequence value) = world_structure value.
-Proof. intros sequence []; reflexivity. Qed.
-Lemma journal_sequence_preserves_world_evolution : forall source raw before after sequence,
- CommitAdmission.world_evolution source raw before (with_sequence sequence after) =
- CommitAdmission.world_evolution source raw before after.
-Proof. intros source raw before []; reflexivity. Qed.
-
+Proof. intros; apply CommitPacket.a_durable_packet_advances_the_cursor; reflexivity. Qed.
 Theorem packet_preserves_global_state_relation_or_rolls_back : forall source raw before candidate,
  let after := fst (DeferredCommit.packet source raw before candidate) in
  world_structure after = world_structure before \/
  CommitAdmission.world_evolution source raw before after = true.
 Proof.
- intros source raw before candidate; unfold DeferredCommit.packet.
- destruct (DeferredCommit.admit_with_status true source raw before candidate)
-   as [accepted committed] eqn:Outcome; cbn [fst].
- pose proof (actual_commit_admission_satisfies_global_transition_or_rollback
-   true source raw before candidate) as Authority.
- rewrite (admit_result_is_the_selected_outcome _ _ _ _ _ _ _ Outcome) in Authority.
- destruct Authority as [[RolledBack _] | [Evolution _]].
- - left; rewrite journal_sequence_preserves_world_structure, RolledBack; reflexivity.
- - right; rewrite journal_sequence_preserves_world_evolution; exact Evolution.
+ intros source raw before candidate; cbv zeta; unfold DeferredCommit.packet; apply CommitPacket.finalize_preserves.
+ - intros value sequence [Retained|Evolved].
+   + left; now rewrite CommitPacketProofs.sequence_preserves_structure.
+   + right; now rewrite CommitPacketProofs.sequence_preserves_authority.
+ - destruct (actual_commit_admission_satisfies_global_transition_or_rollback
+     true source raw before candidate) as [[RolledBack _] | [Evolution _]].
+   + left; change (world_structure (decision_world (admitted_decision true source raw before candidate)) = world_structure before).
+     now rewrite RolledBack.
+   + right; exact Evolution.
 Qed.
-
 Theorem packet_binds_its_emitted_inference_history : forall source raw before candidate,
  exists admitted committed,
  snd (DeferredCommit.packet source raw before candidate) =
@@ -195,17 +205,12 @@ Theorem packet_binds_its_emitted_inference_history : forall source raw before ca
    (fst (DeferredCommit.packet source raw before candidate)))
    (decision_effects committed).
 Proof.
- intros source raw before candidate; unfold DeferredCommit.packet.
- destruct (DeferredCommit.admit_with_status true source raw before candidate)
-   as [accepted committed] eqn:Outcome; cbn [fst snd].
- exists accepted, committed; split; [reflexivity|].
- pose proof (actual_admission_binds_every_inference_to_its_exact_history
-   true source raw before candidate) as Bound.
- rewrite (admit_result_is_the_selected_outcome _ _ _ _ _ _ _ Outcome) in Bound.
- rewrite Forall_forall in *; intros request Present.
- apply (proj2 (inference_history_binding_ignores_the_journal_cursor
-   (decision_world committed) (N.succ (world_sequence before)) request)).
- exact (Bound request Present).
+ intros source raw before candidate.
+ exists (selected_admitted (DeferredCommit.select true source raw before candidate)),
+   (selected_decision (DeferredCommit.select true source raw before candidate)).
+ split; [apply finalize_has_its_selected_receipt|].
+ eapply CommitPacketProofs.finalized_receipt_binds_its_history.
+ apply selected_commit_satisfies_the_shared_requirements.
 Qed.
 
 Theorem a_constructed_candidate_with_its_actual_budget_is_committed : forall source raw before candidate,
@@ -218,8 +223,21 @@ Theorem a_constructed_candidate_with_its_actual_budget_is_committed : forall sou
   Notifications.envelope true true source before candidate).
 Proof.
  intros source raw before candidate Live World Authority Budget.
- unfold DeferredCommit.packet, DeferredCommit.admit_with_status. rewrite Live.
+ unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose, DeferredCommit.admit_with_status. rewrite Live.
  unfold WorldInvariant.validate_with_status. rewrite World.
  unfold CommitAdmission.validate_with_status. rewrite Authority.
  unfold Delivery.deliver_with_status. rewrite Budget. reflexivity.
+Qed.
+
+Theorem a_business_refusal_commits_its_exact_receipt : forall command raw before code message,
+ WorldInvariant.well_formed before -> Delivery.fits true (reject code message before) = true ->
+ DeferredCommit.packet (Some (UserCommand command)) raw before (reject code message before) =
+ (with_sequence (N.succ (world_sequence before)) before,Observation.envelope true (reject code message before)).
+Proof.
+ intros command raw before code message Valid Fits.
+ rewrite a_constructed_candidate_with_its_actual_budget_is_committed; try reflexivity; try exact Fits.
+ - unfold reject; rewrite unchanged_commands_have_no_notifications; reflexivity.
+ - exact (well_formed_worlds_pass_the_checker before Valid).
+ - unfold CommitAdmission.transition_authorized; cbn [reject decision_world decision_effects].
+   rewrite FeatureAuthorityProofs.an_unchanged_world_preserves_cross_state_authority by exact Valid; reflexivity.
 Qed.

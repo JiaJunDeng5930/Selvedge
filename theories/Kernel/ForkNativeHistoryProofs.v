@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith Lia.
-From Selvedge.Foundation Require Import Json Schema.
+From Selvedge.Foundation Require Import Json Schema SequenceProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers ContextTypes Domain Codec State Tasks History
  Callbacks ContextSelection WorldInvariant.
@@ -33,12 +33,7 @@ Qed.
 
 Lemma nodup_app_apart : forall (A : Type) (left right : list A) value,
  NoDup (left ++ right) -> In value left -> ~ In value right.
-Proof.
- intros A left; induction left as [|first rest IH]; intros right value Unique Present; [contradiction|].
- inversion Unique as [|? ? HeadApart TailUnique]; subst; cbn in Present. destruct Present as [<-|Present].
- - intro Right; apply HeadApart; apply in_or_app; right; exact Right.
- - eapply IH; eassumption.
-Qed.
+Proof. intros A left right value Unique; exact (proj2 (proj2 (distinct_app_parts A left right Unique)) value). Qed.
 
 Lemma existsb_neutral_append : forall (A : Type) (observe : A -> bool) history suffix,
  Forall (fun entry => observe entry = false) suffix ->

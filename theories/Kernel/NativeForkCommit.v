@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain Codec State Inputs Scheduler TaskScope
- CommandHandlers ForkCommit DeferredCommit.
+From Selvedge.Kernel Require Import Numbers Domain Codec State Inputs Scheduler TaskScope
+ CommandExecution ForkCommit DeferredCommit.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
 
@@ -29,14 +29,27 @@ Definition resolve (source : Inputs.input) (before : world) : option (plan befor
      | None => fun _ => None end eq_refl
    | None => fun _ => None end eq_refl
  | _ => None end.
-Definition execute command context before :=
- ForkCommit.admit_workspace before (CommandHandlers.execute command context before).
+Definition started_world {before : world} (accepted : plan before) :=
+ let step := planned_step accepted in
+ Scheduler.commit_changes (Scheduler.native_fork_owner step)
+   (fun _ => [TaskChange.ChangePhase (PendingCalls (Scheduler.native_fork_remaining step))]) before.
+Definition business_result {before : world} (accepted : plan before) :=
+ let step := planned_step accepted in
+ let started := started_world accepted in
+ ForkCommit.admit_workspace started
+   (CommandExecution.handle_fork_result (Scheduler.native_fork_request step)
+     (Some (Tasks.NativeCall (Scheduler.native_fork_owner step)
+       (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step))) started).
+Definition settle_result owner invocation remaining before (outcome : CommandResult.result CommandResult.change) :=
+ let result := CommandResult.decide before outcome in
+ let '(value,failed) := match outcome with
+   | CommandResult.Accepted _ => (number 0,false)
+   | CommandResult.Rejected reason => (failure (CommandResult.refusal_code reason) (CommandResult.refusal_message reason),true) end in
+ Scheduler.finish_call owner invocation remaining value failed result.
 Definition interpret {before : world} (accepted : plan before) :=
  let step := planned_step accepted in
- Scheduler.execute_checked_call execute
-   (Scheduler.native_fork_owner step) (Scheduler.native_fork_tool step)
-   (Scheduler.native_fork_invocation step) (Scheduler.native_fork_remaining step)
-   (TaskScope.selected (planned_target accepted)) before.
+ settle_result (Scheduler.native_fork_owner step) (Scheduler.native_fork_invocation step)
+   (Scheduler.native_fork_remaining step) (started_world accepted) (business_result accepted).
 Definition candidate {before : world} (accepted : plan before) :=
  let result := interpret accepted in
  (* The native invocation already receives its exact business result through

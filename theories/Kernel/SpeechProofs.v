@@ -109,33 +109,45 @@ Theorem a_fresh_voice_delegation_records_ordinary_input_and_its_receipt :
 Proof.
  intros id session identity mode text value task Mode Found IdleTask NoQueued Session Identity Text Fresh.
  destruct Mode as [Mode|Mode]; subst mode.
- - unfold CommandExecution.speech_delegation; rewrite Found, Session, Identity, Text, Fresh.
-   cbn [String.eqb]. rewrite TaskChangesProofs.send_expression; rewrite Found, IdleTask, Text. cbn.
+ - assert (Delivered : Tasks.send_result id [TextPart text] value =
+     CommandResult.Accepted (CommandResult.Change (JObject [("task_id",Numbers.number id)])
+       (put_task id (Tasks.receive [TextPart text] task) value) [])).
+   { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
+     change (Tasks.send id [TextPart text] value =
+       accept (JObject [("task_id",Numbers.number id)]) (put_task id (Tasks.receive [TextPart text] task) value) []).
+     rewrite TaskChangesProofs.send_expression,Found,IdleTask,Text; reflexivity. }
+   unfold CommandExecution.speech_delegation; rewrite Found, Session, Identity, Text, Fresh.
+   change (String.eqb "send" "steer") with false; cbn [andb]; rewrite Delivered.
+   cbn [CommandResult.commit CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+     CommandResult.accept CommandResult.change_world CommandResult.change_value CommandResult.change_effects].
    rewrite (find_put_task id task (Tasks.receive [TextPart text] task) value Found).
    eexists; split; [apply find_put_task with (Tasks.receive [TextPart text] task); apply find_put_task with task; exact Found|].
-   rewrite TaskChangesProofs.receive_expression; rewrite IdleTask, NoQueued.
+   unfold Tasks.receive,Tasks.receive_changes; rewrite IdleTask,NoQueued.
    repeat split; try reflexivity.
    change ((task_history task ++ [UserMessage [TextPart text]]) ++
      [SpeechDelegation id session identity "send" text] =
      task_history task ++ [UserMessage [TextPart text]; SpeechDelegation id session identity "send" text]).
    rewrite <- app_assoc; reflexivity.
- - assert (Steered : Tasks.steer id [TextPart text] value =
-       Selvedge.Kernel.State.Decision
-         (put_task id
-           (with_lifecycle (Running WantsModel [])
-             (append_history [UserMessage [TextPart text]] task)) value)
-         (Selvedge.Kernel.State.success (JObject [("task_id", Numbers.number id)])) []).
-   { rewrite TaskChangesProofs.steer_expression; rewrite Found, IdleTask, Text.
+   destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+   cbn in IdleTask; subst lifecycle; reflexivity.
+ - assert (Steered : Tasks.steer_result id [TextPart text] value =
+     CommandResult.Accepted (CommandResult.Change (JObject [("task_id",Numbers.number id)])
+       (put_task id (with_lifecycle (Running WantsModel [])
+         (append_history [UserMessage [TextPart text]] task)) value) [])).
+   { apply CommandResult.a_successful_decision_identifies_its_typed_change with (before:=value).
+     change (Tasks.steer id [TextPart text] value =
+       accept (JObject [("task_id",Numbers.number id)])
+         (put_task id (with_lifecycle (Running WantsModel []) (append_history [UserMessage [TextPart text]] task)) value) []).
+     rewrite TaskChangesProofs.steer_expression; rewrite Found, IdleTask, Text.
      unfold task_activity, task_operations; rewrite !IdleTask.
      cbn [History.interrupted_phase].
      unfold Tasks.inference_effects, task_activity; rewrite IdleTask.
-     cbn.
-     reflexivity. }
+     destruct task as [contract profile settings lifecycle history queued lineage parent cursor consumed].
+     cbn in IdleTask; subst lifecycle; reflexivity. }
    unfold CommandExecution.speech_delegation; rewrite Found, Session, Identity, Text, Fresh.
-   rewrite String.eqb_refl, Steered.
-   cbn [bool_default bool_field field String.eqb andb success accept
-     decision_world decision_reply Selvedge.Kernel.State.success
-     Selvedge.Kernel.State.accept].
+   rewrite String.eqb_refl, Steered; cbn [andb].
+   cbn [CommandResult.commit CommandResult.map CommandResult.bind CommandResult.decide CommandResult.resolve
+     CommandResult.accept CommandResult.change_world CommandResult.change_value CommandResult.change_effects].
    rewrite (find_put_task id task
      (with_lifecycle (Running WantsModel []) (append_history [UserMessage [TextPart text]] task)) value Found).
    eexists; split.

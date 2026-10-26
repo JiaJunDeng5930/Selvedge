@@ -101,9 +101,9 @@ Qed.
 Lemma wake_keeps_execution_identity : forall task,
  execution_identity (Tasks.wake_after_result task) = execution_identity task.
 Proof.
- intros task. rewrite TaskChangesProofs.waking_result_expression.
+ intros task; unfold Tasks.wake_after_result, Tasks.wake_after_result_changes.
  destruct (task_lifecycle task) as [phase operations|phase operations|phase operations|operations];
- try destruct phase; try apply promote_keeps_execution_identity; reflexivity.
+ try destruct phase; try apply promote_keeps_execution_identity; apply activity_keeps_execution_identity.
 Qed.
 Theorem request_can_only_change_its_tasks_progress : forall owner ticket environment source,
  execution_identity (fst (TicketedRequest.build owner ticket environment source)) =

@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require Import CommitPacket CommitPacketProofs ForkCommitAuthorization.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
@@ -17,16 +18,8 @@ Theorem live_configuration_preserves_maintenance_cancellations : forall environm
      (Selvedge.Features.Compaction.registry value))).
 Proof. reflexivity. Qed.
 
-Lemma admit_is_validation_pipeline : forall durable source raw_source before candidate,
- Packet.admit durable source raw_source before candidate =
- Delivery.deliver durable
-   (CommitAdmission.validate durable source raw_source before
-     (WorldInvariant.validate before (Dispatch.retain_live_effects candidate))) before.
-Proof. exact DeferredCommitProofs.admit_is_validation_pipeline. Qed.
-Lemma admit_result_is_the_selected_outcome : forall durable source raw_source before candidate admitted result,
- Packet.admit_with_status durable source raw_source before candidate = (admitted,result) ->
- Packet.admit durable source raw_source before candidate = result.
-Proof. exact DeferredCommitProofs.admit_result_is_the_selected_outcome. Qed.
+Definition admit_is_validation_pipeline := DeferredCommitProofs.admit_is_validation_pipeline.
+Definition admit_result_is_the_selected_outcome := DeferredCommitProofs.admit_result_is_the_selected_outcome.
 
 Theorem accepted_query_never_runs_the_scheduler : forall source command reply value,
  InputDecoder.decode source = Some (UserCommand command) ->
@@ -103,7 +96,7 @@ Theorem actual_query_preserves_world_and_emits_no_effect : forall source command
  field "durable" (snd (Packet.packet source value)) = Some (JBool false).
 Proof.
  intros source command reply value Decoded Query.
- unfold Packet.packet, Packet.packet_admitted;
+ unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted;
  rewrite !InputDecoder.admitted_input_is_its_decoder_result;
  cbv beta zeta; fold (Packet.manual_fork source); destruct (N.leb _ _).
  - cbv beta zeta; fold (Packet.manual_fork source).
@@ -112,18 +105,19 @@ Proof.
    rewrite (a_query_is_not_a_deferred_transaction source command reply value Decoded Query).
    fold (Packet.transition source value).
    rewrite (accepted_query_never_runs_the_scheduler source command reply value Decoded Query).
-   cbn [Packet.prepare].
-   unfold Packet.admit_with_status, DeferredCommit.admit_with_status, Dispatch.retain_live_effects.
-   cbn [decision_world K.decision_world K.decision_reply K.decision_effects filter].
-   unfold WorldInvariant.validate_with_status; cbn [decision_world].
-   destruct (world_valid value) eqn:Valid; cbn [snd];
-     unfold CommitAdmission.validate_with_status.
-   + destruct (CommitAdmission.transition_authorized false (Some (UserCommand command)) source value
-       (Decision value reply [])); cbn [snd]; unfold Delivery.deliver_with_status;
-       destruct (Delivery.fits false _); repeat split; reflexivity.
-   + destruct (CommitAdmission.transition_authorized false (Some (UserCommand command)) source value
-       (reject "invariant_violation" "The candidate violates a world invariant; no state change or effect was committed" value)); cbn [snd];
-       unfold Delivery.deliver_with_status; destruct (Delivery.fits false _); repeat split; reflexivity.
+   cbn [Packet.prepare]; unfold DeferredCommit.select,CommitPacket.choose.
+   destruct (DeferredCommit.admit_with_status false (Some (UserCommand command)) source value
+     (Decision value reply [])) as [admitted committed] eqn:Outcome.
+   cbn [fst snd CommitPacket.finalize selected_durable selected_admitted selected_source selected_decision].
+   pose proof (DeferredCommitProofs.actual_commit_admission_keeps_an_unchanged_world
+     false (Some (UserCommand command)) source value (Decision value reply []) eq_refl) as Unchanged.
+   pose proof (DeferredCommitProofs.actual_commit_admission_keeps_an_empty_effect_list
+     false (Some (UserCommand command)) source value (Decision value reply []) eq_refl) as Empty.
+   rewrite (DeferredCommitProofs.admit_result_is_the_selected_outcome _ _ _ _ _ _ _ Outcome) in Unchanged,Empty.
+   split; [exact Unchanged|split].
+   + rewrite NotificationsProofs.a_query_has_no_notification_batch.
+     unfold Observation.envelope; rewrite Empty; reflexivity.
+   + apply NotificationsProofs.notification_envelopes_preserve_the_durability_flag.
  - repeat split; reflexivity.
 Qed.
 Definition describe_input := JObject [("kind",JString "command");("command",JObject [("op",JString "describe")])].
@@ -141,35 +135,53 @@ Proof.
 Qed.
 
 
-Theorem actual_commit_admission_preserves_world_requirements : forall durable source raw_source before candidate,
- world_valid before = true ->
- world_valid (decision_world (Packet.admit durable source raw_source before candidate)) = true.
-Proof. exact DeferredCommitProofs.actual_commit_admission_preserves_world_requirements. Qed.
-Theorem actual_commit_refusal_restores_the_world_and_discards_every_effect : forall durable source raw_source before candidate,
- world_valid (decision_world (Dispatch.retain_live_effects candidate)) = false ->
- decision_world (Packet.admit durable source raw_source before candidate) = before /\
- decision_effects (Packet.admit durable source raw_source before candidate) = [].
-Proof. exact DeferredCommitProofs.actual_commit_refusal_restores_the_world_and_discards_every_effect. Qed.
+Definition actual_commit_admission_preserves_world_requirements := DeferredCommitProofs.actual_commit_admission_preserves_world_requirements.
+Definition actual_commit_refusal_restores_the_world_and_discards_every_effect := DeferredCommitProofs.actual_commit_refusal_restores_the_world_and_discards_every_effect.
+Lemma a_selected_fork_satisfies_the_shared_requirements : forall raw request before,
+ CommitPacketProofs.requirements raw before (ForkCommit.select request before).
+Proof.
+ intros; apply CommitPacketProofs.output_admission_preserves_requirements; constructor.
+ - intros Valid; apply well_formed_worlds_pass_the_checker,
+     a_manual_fork_transaction_preserves_world_requirements,
+     the_world_checker_establishes_all_requirements; exact Valid.
+ - apply a_manual_fork_transaction_retains_or_constructs_its_cross_state_authority.
+ - pose proof (the_fork_transaction_emits_only_its_durable_continuation request before) as Only.
+   rewrite Forall_forall in *; intros effect Present; specialize (Only effect Present); subst; exact I.
+Qed.
+Lemma a_selected_creation_satisfies_the_shared_requirements : forall raw request before,
+ CommitPacketProofs.requirements raw before (CreationCommit.select request before).
+Proof.
+ intros; apply CommitPacketProofs.output_admission_preserves_requirements; constructor.
+ - intros Valid; apply well_formed_worlds_pass_the_checker,
+     CreationCommitPreservation.public_creation_candidates_preserve_every_world_requirement,
+     the_world_checker_establishes_all_requirements; exact Valid.
+ - intros Valid; right; apply CreationCommitAuthorization.every_creation_candidate_preserves_retained_execution_authority; exact Valid.
+ - apply CreationCommitAuthorization.every_creation_candidate_effect_has_its_inference_history_bound.
+Qed.
+(** This is the single proof over the production route selection. All packet
+    and journal consumers use the selected outcome's shared contract. *)
+Theorem every_selected_packet_satisfies_the_shared_requirements : forall raw admission before,
+ CommitPacketProofs.requirements raw before (Packet.select_admitted raw admission before).
+Proof.
+ intros; unfold Packet.select_admitted.
+ rewrite InputDecoder.admitted_input_is_its_decoder_result; cbv beta zeta.
+ destruct (Packet.manual_fork_input (InputDecoder.decode raw)) as [request|].
+ - apply a_selected_fork_satisfies_the_shared_requirements.
+ - destruct (CreationCommit.input (InputDecoder.decode raw)) as [request|].
+   + apply a_selected_creation_satisfies_the_shared_requirements.
+   + destruct (Packet.deferred_candidate (InputDecoder.decode raw) before) as [[input candidate]|].
+     * apply DeferredCommitProofs.selected_commit_satisfies_the_shared_requirements.
+     * destruct (Packet.transition_decoded (InputDecoder.decode raw) raw before)
+         as [[[durable schedules] input] candidate].
+       apply DeferredCommitProofs.selected_commit_satisfies_the_shared_requirements.
+Qed.
 Theorem every_actual_packet_preserves_world_requirements : forall source before,
  world_valid before = true -> world_valid (fst (Packet.packet source before)) = true.
 Proof.
- intros source before Before; unfold Packet.packet, Packet.packet_admitted;
- rewrite !InputDecoder.admitted_input_is_its_decoder_result;
- cbv beta zeta; fold (Packet.manual_fork source).
+ intros source before Before; unfold Packet.packet.
  destruct (N.leb _ _); [|exact Before].
- destruct (Packet.manual_fork source) as [request|].
- { apply manual_fork_packets_preserve_world_requirements; exact Before. }
- destruct (CreationCommit.input (InputDecoder.decode source)) as [request|].
- { apply CreationCommitPreservation.public_creation_packets_preserve_world_requirements; exact Before. }
- destruct (Packet.deferred_candidate (InputDecoder.decode source) before) as [[input candidate]|].
- { apply DeferredCommitProofs.packet_preserves_world_validity; exact Before. }
- fold (Packet.transition source before).
-   destruct (Packet.transition source before) as [[[durable schedules] input] result].
- set (prepared := Packet.prepare schedules input result).
- destruct (Packet.admit_with_status durable input source before prepared) as [accepted committed] eqn:Outcome.
- pose proof (actual_commit_admission_preserves_world_requirements durable input source before prepared Before) as Valid.
- rewrite (admit_result_is_the_selected_outcome durable input source before prepared accepted committed Outcome) in Valid.
- destruct durable; cbn [fst]; [rewrite a_journal_cursor_does_not_change_domain_validity|]; exact Valid.
+ eapply CommitPacketProofs.finalized_world_is_valid;
+ [apply every_selected_packet_satisfies_the_shared_requirements|exact Before].
 Qed.
 Theorem every_actual_packet_establishes_the_named_requirements : forall source before,
  well_formed before -> well_formed (fst (Packet.packet source before)).
@@ -180,100 +192,32 @@ Proof.
 Qed.
 
 
-Lemma retaining_live_effects_preserves_the_world : forall candidate,
- decision_world (Dispatch.retain_live_effects candidate) = decision_world candidate.
-Proof. exact DeferredCommitProofs.retaining_live_effects_preserves_the_world. Qed.
+Definition retaining_live_effects_preserves_the_world := DeferredCommitProofs.retaining_live_effects_preserves_the_world.
 
-Theorem actual_commit_admission_keeps_an_unchanged_world : forall durable source raw_source before candidate,
- decision_world candidate = before ->
- decision_world (Packet.admit durable source raw_source before candidate) = before.
-Proof. exact DeferredCommitProofs.actual_commit_admission_keeps_an_unchanged_world. Qed.
+Definition actual_commit_admission_keeps_an_unchanged_world := DeferredCommitProofs.actual_commit_admission_keeps_an_unchanged_world.
 
-Theorem actual_commit_admission_is_authorized_or_rolled_back : forall durable source raw_source before candidate,
- (decision_world (Packet.admit durable source raw_source before candidate) = before /\
-  decision_effects (Packet.admit durable source raw_source before candidate) = []) \/
- (CommitAdmission.transition_authorized durable source raw_source before
-    (WorldInvariant.validate before (Dispatch.retain_live_effects candidate)) = true /\
-  Packet.admit durable source raw_source before candidate =
-    WorldInvariant.validate before (Dispatch.retain_live_effects candidate)).
-Proof. exact DeferredCommitProofs.actual_commit_admission_is_authorized_or_rolled_back. Qed.
+Definition actual_commit_admission_is_authorized_or_rolled_back := DeferredCommitProofs.actual_commit_admission_is_authorized_or_rolled_back.
 
-Theorem actual_commit_admission_satisfies_global_transition_or_rollback : forall durable source raw_source before candidate,
- (decision_world (Packet.admit durable source raw_source before candidate) = before /\
-  decision_effects (Packet.admit durable source raw_source before candidate) = []) \/
- (CommitAdmission.world_evolution source raw_source before
-   (decision_world (Packet.admit durable source raw_source before candidate)) = true /\
-  CommitAdmission.effect_tickets_fresh (world_next_ticket before)
-   (world_next_ticket (decision_world (Packet.admit durable source raw_source before candidate)))
-   (decision_effects (Packet.admit durable source raw_source before candidate)) = true /\
-  CommitAdmission.effects_authorized source raw_source before
-   (decision_world (Packet.admit durable source raw_source before candidate))
-   (decision_effects (Packet.admit durable source raw_source before candidate)) = true).
-Proof. exact DeferredCommitProofs.actual_commit_admission_satisfies_global_transition_or_rollback. Qed.
+Definition actual_commit_admission_satisfies_global_transition_or_rollback := DeferredCommitProofs.actual_commit_admission_satisfies_global_transition_or_rollback.
 
-Theorem actual_admission_binds_every_inference_to_its_exact_history :
- forall durable source raw_source before candidate,
- Forall (CommitAdmissionProofs.inference_history_bound
-   (decision_world (Packet.admit durable source raw_source before candidate)))
-   (decision_effects (Packet.admit durable source raw_source before candidate)).
-Proof. exact DeferredCommitProofs.actual_admission_binds_every_inference_to_its_exact_history. Qed.
+Definition actual_admission_binds_every_inference_to_its_exact_history := DeferredCommitProofs.actual_admission_binds_every_inference_to_its_exact_history.
 
-Lemma inference_history_binding_ignores_the_journal_cursor : forall after sequence request,
- CommitAdmissionProofs.inference_history_bound (with_sequence sequence after) request <->
- CommitAdmissionProofs.inference_history_bound after request.
-Proof. exact DeferredCommitProofs.inference_history_binding_ignores_the_journal_cursor. Qed.
-
-(* The witness is the actual decision whose encoded effects form the returned
-   public receipt; the property is about Packet.packet, including rollback. *)
+(* The witness is the selected decision whose effects form the actual receipt,
+   including rollback. Finalization never changes an inference's history. *)
 Theorem every_actual_packet_binds_its_emitted_inference_history : forall source before,
  exists durable admitted input committed,
  snd (Packet.packet source before) = Notifications.envelope durable admitted input before committed /\
  Forall (CommitAdmissionProofs.inference_history_bound (fst (Packet.packet source before)))
    (decision_effects committed).
 Proof.
- intros source before; unfold Packet.packet, Packet.packet_admitted;
- rewrite !InputDecoder.admitted_input_is_its_decoder_result;
- cbv beta zeta; fold (Packet.manual_fork source).
+ intros source before; unfold Packet.packet.
  destruct (N.leb (N.of_nat (String.length (TextJson.render_json source))) Limits.frame_bytes).
- - destruct (Packet.manual_fork source) as [request|] eqn:Manual.
-   { unfold ForkCommit.packet.
-     destruct (Delivery.deliver_with_status true (ForkCommit.candidate request before) before)
-       as [fits delivered] eqn:Outcome.
-     exists true,fits,(Some (UserCommand (G.Cmd_fork request))),delivered.
-     split; [reflexivity|].
-     pose proof (delivered_fork_effects_are_only_continuations request before) as Only.
-     rewrite Outcome in Only; cbn [snd] in Only.
-     rewrite Forall_forall in *; intros effect Present.
-     specialize (Only effect Present); subst effect; exact I. }
-   destruct (CreationCommit.input (InputDecoder.decode source)) as [request|].
-   { unfold CreationCommit.packet.
-     destruct (Delivery.deliver_with_status true (CreationCommit.candidate request before) before)
-       as [fits delivered] eqn:Outcome.
-     exists true,fits,(Some (UserCommand (G.Cmd_create request))),delivered.
-     split; [reflexivity|].
-     unfold Delivery.deliver_with_status in Outcome.
-     destruct (Delivery.fits true (CreationCommit.candidate request before));
-       inversion Outcome; subst; cbn [decision_effects].
-     - apply CreationCommitAuthorization.every_creation_candidate_effect_has_its_inference_history_bound.
-     - constructor. }
-   destruct (Packet.deferred_candidate (InputDecoder.decode source) before) as [[input candidate]|].
-   { destruct (DeferredCommitProofs.packet_binds_its_emitted_inference_history (Some input) source before candidate)
-       as [admitted [committed [Envelope Bound]]].
-     exists true, admitted, (Some input), committed; auto. }
-   fold (Packet.transition source before).
-   destruct (Packet.transition source before) as [[[durable schedules] input] candidate].
-   set (prepared := Packet.prepare schedules input candidate).
-   destruct (Packet.admit_with_status durable input source before prepared) as [accepted committed] eqn:Outcome.
-   pose proof (actual_admission_binds_every_inference_to_its_exact_history
-     durable input source before prepared) as Bound.
-   rewrite (admit_result_is_the_selected_outcome durable input source before prepared accepted committed Outcome) in Bound.
-   destruct durable; cbn [fst snd].
-   + exists true,accepted,input,committed; split; [reflexivity|].
-     rewrite Forall_forall in *; intros request Present.
-     apply (proj2 (inference_history_binding_ignores_the_journal_cursor
-       (decision_world committed) (N.succ (world_sequence before)) request)).
-     exact (Bound request Present).
-   + exists false,accepted,input,committed; split; [reflexivity|exact Bound].
+ - set (chosen := Packet.select_admitted source (InputDecoder.admit source) before).
+   exists (selected_durable chosen),(selected_admitted chosen),
+     (selected_source chosen),(selected_decision chosen).
+   split; [apply finalize_has_its_selected_receipt|].
+   eapply CommitPacketProofs.finalized_receipt_binds_its_history.
+   apply every_selected_packet_satisfies_the_shared_requirements.
  - exists false,false,None,(reject "invalid_input" "The complete input exceeds the native frame bound" before).
    split; [reflexivity|constructor].
 Qed.

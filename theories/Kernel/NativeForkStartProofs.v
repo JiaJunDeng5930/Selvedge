@@ -45,13 +45,9 @@ Proof.
  pose proof (a_valid_task_has_its_progress_requirements owner source before Requirements)
    as [Context [Phase [Checked Operations]]].
  set (next := with_activity (PendingCalls remaining) source).
- assert (ActivityAfter : task_activity next = PendingCalls remaining).
- { unfold next,with_activity; rewrite Lifecycle.
-   destruct running; reflexivity. }
- assert (HistoryAfter : task_history next = task_history source).
- { unfold next,with_activity; rewrite Lifecycle; destruct running; reflexivity. }
- assert (SameOperations : task_operations next = task_operations source).
- { unfold next,with_activity,task_operations; rewrite Lifecycle; destruct running; reflexivity. }
+ destruct (changing_an_active_phase_keeps_its_observations source phase operations running
+   (PendingCalls remaining) Lifecycle) as [ActivityAfter [HistoryAfter [SameOperations SameFrame]]].
+ fold next in ActivityAfter,HistoryAfter,SameOperations,SameFrame.
  assert (PhaseAfter : WorldInvariant.phase_valid next = true).
  { unfold WorldInvariant.phase_valid in Phase |- *.
    rewrite Calls in Phase.
@@ -80,13 +76,8 @@ Proof.
    all: cbn [map] in Unique; apply ForkNativeHistoryProofs.unique_names_nodup in Unique.
    all: inversion Unique; subst; apply ForkNativeHistoryProofs.unique_names_nodup; assumption. }
  assert (Frame : native_result_retains_task source next).
- { unfold native_result_retains_task,next.
-   destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed].
-   cbn [task_lifecycle] in Lifecycle; subst lifecycle.
-   destruct running.
-   - split; [reflexivity|]; split; [exists []; symmetry; apply app_nil_r|exact I].
-   - split; [reflexivity|]; split; [exists []; symmetry; apply app_nil_r|].
-     intros Equal; exfalso; apply NonIdle; exact Equal. }
+ { split; [symmetry; exact SameFrame|]; split; [exists []; now rewrite app_nil_r|].
+   rewrite Lifecycle; destruct running; [exact I|]. intros Equal; contradiction. }
  assert (NewTickets : WorldInvariant.tickets_valid (put_task owner next (with_ticket (world_next_ticket before) before)) = true).
  { apply (a_native_result_preserves_global_ticket_ownership before owner source next false Valid Found).
    unfold next; rewrite Tickets,app_nil_r; reflexivity. }

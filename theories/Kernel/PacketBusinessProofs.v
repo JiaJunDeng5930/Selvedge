@@ -1,6 +1,7 @@
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith PeanoNat.
 From Selvedge.Foundation Require Import Json JsonProofs.
+From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Dispatch
  TicketedRequest TicketedRequestProofs LifecycleProofs ForkConstructionProofs.
 Import ListNotations.
@@ -37,10 +38,13 @@ Proof.
  rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta; rewrite Found.
  unfold Tasks.fork_parent_ready; rewrite Running.
  cbn [andb]. rewrite Count, Messages, Capacity, Resolved, Fixed.
- unfold allocate_ticket. cbn [decision_world decision_reply accept success bool_default field value_or_null].
+ unfold allocate_ticket. cbn [andb CommandResult.decide CommandResult.resolve CommandResult.accept
+   CommandResult.change_value CommandResult.change_world CommandResult.change_effects
+   decision_world decision_reply accept success bool_default field value_or_null].
  split; [reflexivity|]. eexists; split.
  - apply fork_children_preserve_every_existing_task.
-   apply find_put_task with (before:=parent); exact Found.
+   unfold find_task, put_task, with_tasks, with_ticket; cbv [set]; cbn.
+   eapply RegistryProofs.registry_replace_selected; exact Found.
  - destruct parent as [contract profile settings lifecycle history queued lineage side cursor consumed].
    cbn in Running; subst lifecycle; repeat split; reflexivity.
 Qed.

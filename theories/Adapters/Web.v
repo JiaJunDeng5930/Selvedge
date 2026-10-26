@@ -75,7 +75,8 @@ Definition operations := [
     Json.is_bool (get (get source "response") "ok") && natural (get (get source "response") "status") && strings source ["text"]) WebResources.http_json;
   Operation "web.reset_session" (fun source => natural (get source "task_id") && records_source source && existing_metadata_source source) WebStore.reset_session
 ].
-Definition call name source := match find (fun operation => String.eqb name operation.(operation_name)) operations with
+Definition select_operation name := find (fun operation => String.eqb name operation.(operation_name)) operations.
+Definition call name source := match select_operation name with
   | None => err ("Unknown Web model operation: " ++ name)
   | Some operation =>
     (* DEFENSE: HTTP, stream chunks and persisted receipts are external inputs;

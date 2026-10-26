@@ -10,6 +10,10 @@ Definition name (value : backend) :=
 
 Definition declaration := KEnum (name Local) [name TencentCvm].
 
+Definition to_value (value : backend) : denote declaration := match value with
+ | Local => exist _ "local" (or_introl eq_refl)
+ | TencentCvm => exist _ "tencent_cvm" (or_intror (or_introl eq_refl)) end.
+
 Definition of_value (value : denote declaration) : backend :=
   if String.eqb (proj1_sig value) (name Local) then Local else TencentCvm.
 

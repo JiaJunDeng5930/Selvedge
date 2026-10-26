@@ -49,28 +49,21 @@ Definition settings_json (value : task_settings) := JObject [
  ("project_id", optional_number (settings_project value));
  ("workspace_resource", optional_number (settings_resource value))].
 Definition parse_workspace (value : json) : option workspace :=
- match Schema.decode Workspace.workspace_schema value with None => None | Some _ =>
- match array_field "roots" value with
- | Some values => match strings values with
- | Some roots =>
-   if Nat.leb (List.length roots) 32 && Schema.unique_names roots && forallb Workspace.valid_path roots then
-   let primary := match string_field "primary_root" value with
-     | Some root => Some root | None => hd_error roots end in
-   match primary with
-   | Some root => if existsb (String.eqb root) roots then Some (Workspace roots primary) else None
-   | None => Some (Workspace roots None)
-   end else None
- | None => None end
- | None => None end end.
+ match Schema.decode Workspace.workspace_schema value with
+ | None => None
+ | Some values =>
+   let roots := head values in
+   let primary := match head (tail values) with Some root => Some root | None => hd_error roots end in
+   let workspace := Workspace roots primary in
+   if Workspace.valid_workspace workspace then Some workspace else None
+ end.
 Definition sandbox_schema := [Field "mode" (KEnum "read-only" ["workspace-write"]); Field "network_access" KBool].
 Definition approval_schema := [Field "mode" (KEnum "full-access" ["ask-for-approval";"approval-for-me"]);
  Field "reviewer_profile" (KOptional KText)].
-Definition parse_sandbox (value : json) : option sandbox :=
- match Schema.decode sandbox_schema value with None => None | Some _ =>
- match string_field "mode" value, bool_field "network_access" value with
- | Some "read-only", Some network => Some (Sandbox ReadOnly network)
- | Some "workspace-write", Some network => Some (Sandbox WorkspaceWrite network)
- | _, _ => None end end.
+Definition sandbox_of_fields (values : Schema.fields sandbox_schema) :=
+ Sandbox (if String.eqb (proj1_sig (head values)) "read-only" then ReadOnly else WorkspaceWrite)
+   (head (tail values)).
+Definition parse_sandbox value := option_map sandbox_of_fields (Schema.decode sandbox_schema value).
 (* Creation settings are a partial override. The concrete sandbox DTO remains
    complete; omitting a patch field inherits its committed fallback value. *)
 Definition sandbox_patch_arguments := map
@@ -82,25 +75,23 @@ Definition parse_sandbox_patch (fallback : sandbox) (value : json) : option sand
       updates (sandbox_fields fallback)))
  | _ => None end else None.
 Definition parse_approval (model : profile) (catalog : list profile) (value : json) : option approval_policy :=
- match Schema.decode approval_schema value with None => None | Some _ =>
- match string_field "mode" value with
- | Some "full-access" => Some FullAccess
- | Some "ask-for-approval" => Some AskForApproval
- | Some "approval-for-me" =>
-   let reviewer := match string_field "reviewer_profile" value with
-    | Some name => find (fun candidate => String.eqb name (profile_key candidate)) catalog
-    | None => Some (ModelCapabilities.default_reviewer model catalog) end in
+ match Schema.decode approval_schema value with
+ | None => None
+ | Some values =>
+   let mode := proj1_sig (head values) in
+   if String.eqb mode "full-access" then Some FullAccess
+   else if String.eqb mode "ask-for-approval" then Some AskForApproval
+   else let reviewer := match head (tail values) with
+     | Some name => find (fun candidate => String.eqb name (profile_key candidate)) catalog
+     | None => Some (ModelCapabilities.default_reviewer model catalog) end in
    match reviewer with Some reviewer => if ModelCapabilities.valid_reviewer_profile reviewer
      then Some (ReviewWith reviewer) else None | None => None end
- | _ => None end end.
+ end.
 Definition select_optional {A : Type} (parse : json -> option A)
  (key : string) (source : json) (fallback : A) :=
  match field key source with None | Some JNull => Some fallback | Some value => parse value end.
 (* Task settings distinguish an omitted override from an explicitly supplied
    invalid value. Nullable command DTO fields use select_optional instead. *)
-Definition select_override {A : Type} (parse : json -> option A)
- (key : string) (source : json) (fallback : A) :=
- match field key source with None => Some fallback | Some value => parse value end.
 Definition workspace_binding_json (owner : option N) :=
  JObject [("task_id",optional_number owner)].
 Definition parse_workspace_binding (source : json) : option (option N) :=
@@ -108,16 +99,16 @@ Definition parse_workspace_binding (source : json) : option (option N) :=
  | JObject [("task_id",JNull)] => Some None
  | JObject [("task_id",owner)] => option_map (@Some N) (natural owner)
  | _ => None end.
-Definition task_settings_schema := [Field "workspace" (KOptional KJson); Field "sandbox" (KOptional KJson);
- Field "approval" (KOptional KJson); Field "project_id" (KOptional KNatural); Field "guidance" (KOptional KJson); Field "workspace_binding" (KOptional KJson)].
+Definition task_settings_schema := [OmittableField "workspace" KJson; OmittableField "sandbox" KJson;
+ OmittableField "approval" KJson; OmittableField "project_id" KNatural; OmittableField "guidance" KJson;
+ OmittableField "workspace_binding" KJson].
 Definition guidance_schema := [Field "workspace" KText; Field "path" KText; Field "revision" KText; Field "instructions" KText].
 Definition valid_guidance (value : json) := match value with JNull => true | _ =>
  match Schema.decode guidance_schema value with
- | None => false | Some _ =>
- let root := text_default "workspace" value "" in
- let path := text_default "path" value "" in
- let revision := text_default "revision" value "" in
- let instructions := text_default "instructions" value "" in
+ | None => false | Some values =>
+ let root := head values in let values := tail values in
+ let path := head values in let values := tail values in
+ let revision := head values in let instructions := head (tail values) in
  Workspace.valid_path root && Nat.leb (String.length instructions) 32768 &&
  ((String.eqb revision "absent" && String.eqb instructions "" && String.eqb path "") ||
   (Context.policy_source_path Context.guidance_policy root path && Nat.eqb (String.length revision) 64)) end end.
@@ -126,33 +117,34 @@ Definition guidance_member (workspace : workspace) (guidance : json) := match gu
  | Some root, Some observed => String.eqb root observed | _,_ => false end end.
 Definition inherited_guidance (workspace : workspace) (guidance : json) :=
  if guidance_member workspace guidance then guidance else JNull.
+Definition override_value {A} (parse : json -> option A) (source : option json) (fallback : A) :=
+ match source with None => Some fallback | Some value => parse value end.
+Definition settings_of_fields (model : profile) (catalog : list profile)
+ (values : Schema.fields task_settings_schema) (fallback : task_settings) : option task_settings :=
+ let workspace_source := head values in let values := tail values in
+ let sandbox_source := head values in let values := tail values in
+ let approval_source := head values in let values := tail values in
+ let project := match head values with Some id => Some id | None => settings_project fallback end in
+ let values := tail values in let guidance_source := head values in let binding_source := head (tail values) in
+ if valid_guidance (match guidance_source with Some value => value | None => JNull end) then
+ match override_value parse_workspace workspace_source (settings_workspace fallback),
+       override_value (parse_sandbox_patch (settings_sandbox fallback)) sandbox_source (settings_sandbox fallback),
+       override_value (parse_approval model catalog) approval_source (settings_approval fallback) with
+ | Some workspace, Some sandbox, Some approval =>
+   let guidance := match guidance_source with
+     | None | Some JNull => inherited_guidance workspace (settings_guidance fallback) | Some guidance => guidance end in
+   let resource := match binding_source with
+     | Some observation => parse_workspace_binding observation
+     | None => Some (match workspace_source with Some (JObject _) => None | _ => settings_resource fallback end) end in
+   match resource with
+   | Some owner => if guidance_member workspace guidance then
+     Some (Settings workspace project sandbox approval guidance (settings_worktree fallback) owner) else None
+   | None => None end
+ | _,_,_ => None end else None.
 Definition parse_settings (model : profile) (catalog : list profile) (value : json) (fallback : task_settings) : option task_settings :=
  match value with JNull => Some fallback | _ =>
- match Schema.decode task_settings_schema value with None => None | Some _ =>
- match value with
- | JNull => Some fallback
- | JObject fields =>
-   if valid_guidance (value_or_null "guidance" value) then
-   match select_override parse_workspace "workspace" value (settings_workspace fallback),
-         select_override (parse_sandbox_patch (settings_sandbox fallback)) "sandbox" value (settings_sandbox fallback),
-         select_override (parse_approval model catalog) "approval" value (settings_approval fallback) with
-   | Some workspace, Some sandbox, Some approval =>
-     let project := match field "project_id" value with
-       | None => Some (settings_project fallback)
-       | Some value => option_map (@Some N) (natural value) end in
-     let guidance := match field "guidance" value with
-       | None | Some JNull => inherited_guidance workspace (settings_guidance fallback)
-       | Some guidance => guidance end in
-     let resource := match field "workspace_binding" value with
-       | Some observation => parse_workspace_binding observation
-       | None => Some (match field "workspace" value with Some (JObject _) => None | _ => settings_resource fallback end)
-       end in
-     match project,resource with
-     | Some project,Some owner => if guidance_member workspace guidance then
-       Some (Settings workspace project sandbox approval guidance (settings_worktree fallback) owner) else None
-     | _,_ => None end
-   | _,_,_ => None end else None
- | _ => None end end end.
+ match Schema.decode task_settings_schema value with
+ | Some values => settings_of_fields model catalog values fallback | None => None end end.
 Definition profile_json (value : profile) := profile_metadata value.
 Definition reviewer_json (value : reviewer) := match value with
  | HumanReviewer => JObject [("kind",JString "human")]
@@ -171,52 +163,10 @@ Definition model_json (value : profile) := JObject [
  ("profile", JString (profile_key value)); ("provider", JString (profile_provider value));
  ("name", JString (profile_model value)); ("reasoning", JString (profile_reasoning value));
  ("adaptive_reasoning", reasoning_policy_json (profile_policy value))].
-Definition with_reasoning (effort : string) (value : profile) :=
- Profile (profile_key value) (profile_provider value) (profile_model value) effort
-  (profile_reasoning_options value) (profile_policy value) (profile_metadata value).
-Definition parse_reasoning_policy (value : json) : option reasoning_policy :=
- match value with
- | JNull => Some FixedReasoning
- | _ => match Schema.decode [Field "evaluator" KText; Field "efforts" (KArray KText); Field "baseline" KText;
-     Field "transport" (KEnum "configuration_update" ["request_effort"]); Field "max_lease" KNatural] value with
-   | None => None
-   | Some _ => let efforts := match strings (array_default "efforts" value) with Some values => values | None => [] end in
-     let baseline := text_default "baseline" value "" in
-     let maximum := natural_default "max_lease" value 0 in
-     if nonempty (text_default "evaluator" value "") && Schema.unique_names efforts &&
-      forallb (fun effort => nonempty effort && negb (String.eqb effort "auto")) efforts &&
-      existsb (String.eqb baseline) efforts && (N.leb 1 maximum && N.leb maximum 10) then
-     Some (AdaptivePolicy (AdaptiveReasoning (text_default "evaluator" value "") efforts baseline
-      (if String.eqb (text_default "transport" value "") "configuration_update" then ConfigurationUpdates else RequestEffort) maximum))
-     else None
-   end end.
-Definition profile_options (source : json) : option (list string * string) :=
- match source with
- | JNull => Some ([],"medium")
- | _ => match Schema.decode [Field "values" (KArray KText); Field "default" (KOptional KText)] source with
-   | None => None
-   | Some _ => match strings (array_default "values" source) with
-     | Some (first :: rest) =>
-       let values := nodup String.string_dec (first :: rest) in
-       if forallb (fun effort => nonempty effort && negb (String.eqb effort "auto")) values then
-       let requested := text_default "default" source first in
-       Some (values, if existsb (String.eqb requested) values then requested else first)
-       else None
-     | _ => None end
-   end end.
-Definition parse_profile (value : json) : option profile :=
- match string_field "key" value, string_field "provider" value, string_field "name" value,
-   field "reasoning_options" value, parse_reasoning_policy (value_or_null "adaptive_reasoning" value) with
- | Some key, Some provider, Some model, Some options, Some policy =>
-   match profile_options options with
-   | Some (efforts,default) =>
-     if nonempty key && nonempty provider && nonempty model &&
-      match policy with FixedReasoning => true | AdaptivePolicy policy =>
-       match efforts with [] => true | _ => forallb (fun effort => existsb (String.eqb effort) efforts) (reasoning_efforts policy) end end then
-     Some (Profile key provider model (match policy with FixedReasoning => default | AdaptivePolicy _ => "auto" end) efforts policy value)
-     else None
-   | None => None end
- | _,_,_,_,_ => None end.
+Definition with_reasoning := Domain.with_reasoning.
+Definition parse_reasoning_policy := Domain.parse_reasoning_policy.
+Definition profile_options := Domain.profile_options.
+Definition parse_profile := Domain.parse_profile.
 Definition tool_json (value : tool) := JObject [
  ("name", JString (tool_name value)); ("description", JString (tool_description value));
  ("parameters", tool_schema value); ("source", tool_metadata value)].
@@ -263,6 +213,9 @@ Definition parse_model_item (value : json) : option model_item :=
    | Some values => match head (tail (tail values)) with JObject fields => Some (ContextItem (head (tail values)) (JObject fields)) | _ => None end
    | None => None end
  | _ => None end.
+Definition output_mode_value (mode : output_mode) : Schema.denote ModelDeclarations.output_mode_kind := match mode with
+ | PlainOutput => exist _ ModelDeclarations.plain_output_name (or_introl eq_refl)
+ | InteractiveOutput => exist _ ModelDeclarations.interactive_output_name (or_intror (or_introl eq_refl)) end.
 Definition output_mode_name (mode : output_mode) :=
  match mode with PlainOutput => ModelDeclarations.plain_output_name | InteractiveOutput => ModelDeclarations.interactive_output_name end.
 Definition origin_json (origin : output_origin) := JObject [

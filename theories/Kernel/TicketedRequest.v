@@ -1,4 +1,5 @@
-From Selvedge.Kernel Require Import TaskScope.
+From Selvedge.Kernel Require Import TaskScope RequestReceiver.
+From Selvedge.Kernel Require CommandResult.
 From Selvedge.Kernel Require Import FeatureRequestAdmission.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json JsonObjects.
@@ -118,8 +119,7 @@ Inductive action :=
 | StartCall (tool : tool) (invocation : call) (remaining : list call) (authority : external_authority)
 | ResumeOperation (operation : operation) (tool : tool) (reviewer : reviewer)
 | AfterOperation (operation : operation) (plugin : json) (pending : list json) (result : json) (error : bool).
-Definition operation_at (identity : N) (current : task) :=
- find (fun operation => N.eqb identity (operation_id operation)) (task_operations current).
+Definition operation_at := RequestReceiver.operation_at.
 Lemma operation_at_identity : forall identity current operation,
  operation_at identity current = Some operation -> identity = operation_id operation.
 Proof.
@@ -214,18 +214,17 @@ Definition model_allowed {before} (target : task_reference before) (allowed : bo
 Definition model_selected {before} (target : task_reference before) := model_allowed target _ eq_refl.
 Definition model (id : N) (before : world) : option (plan before) :=
  match select id before with Some target => model_selected target | None => None end.
+Definition next_call_selected {before} (target : task_reference before)
+ (source : option action) (evidence : call_action (selected target) = source) : option (plan before) :=
+ match source as source return call_action (selected target) = source -> option (plan before) with
+ | Some (AuthorizeCall plugin tool invocation pending remaining) => fun evidence =>
+   Some (Plan before target (AuthorizeCall plugin tool invocation pending remaining) evidence)
+ | Some (StartCall tool invocation remaining authority) => fun evidence =>
+   Some (Plan before target (StartCall tool invocation remaining authority) evidence)
+ | _ => fun _ => None end evidence.
 Definition next_call (id : N) (before : world) : option (plan before) :=
  match select id before with
- | None => None
- | Some target =>
-   match call_action (selected target) as source
-     return call_action (selected target) = source -> option (plan before) with
-   | Some (AuthorizeCall plugin tool invocation pending remaining) => fun evidence =>
-     Some (Plan before target (AuthorizeCall plugin tool invocation pending remaining) evidence)
-   | Some (StartCall tool invocation remaining authority) => fun evidence =>
-     Some (Plan before target (StartCall tool invocation remaining authority) evidence)
-   | _ => fun _ => None end eq_refl
- end.
+ | None => None | Some target => next_call_selected target _ eq_refl end.
 Definition authorize (id : N) (before : world) : option (plan before) :=
  match next_call id before with
  | Some request => match intent request with
@@ -236,22 +235,24 @@ Definition start (id : N) (before : world) : option (plan before * call * list c
  | Some request => match intent request with
    | StartCall _ invocation remaining _ => Some (request,invocation,remaining) | _ => None end
  | None => None end.
+Definition after_stage_selected {before} (target : task_reference before) identity current
+ (found : operation_at identity (selected target) = Some current)
+ (stage : operation_state) (ready : operation_stage current = stage) : option (plan before) :=
+ match stage as stage return operation_stage current = stage -> option (plan before) with
+ | AfterHooksReady (plugin :: pending) result error => fun ready =>
+   Some (Plan before target (AfterOperation current plugin pending result error)
+     (conj (eq_ind identity (fun key => operation_at key (selected target) = Some current) found
+       (operation_id current) (operation_at_identity identity (selected target) current found)) ready))
+ | _ => fun _ => None end ready.
+Definition after_operation_selected {before} (target : task_reference before) identity
+ (found : option operation) (owned : operation_at identity (selected target) = found) : option (plan before) :=
+ match found as found return operation_at identity (selected target) = found -> option (plan before) with
+ | None => fun _ => None
+ | Some current => fun owned => after_stage_selected target identity current owned _ eq_refl
+ end owned.
 Definition after (id identity : N) (before : world) : option (plan before) :=
  match select id before with
- | None => None
- | Some target =>
-   match operation_at identity (selected target) as found
-     return operation_at identity (selected target) = found -> option (plan before) with
-   | None => fun _ => None
-   | Some current => fun found =>
-     match operation_stage current as stage return operation_stage current = stage -> option (plan before) with
-     | AfterHooksReady (plugin :: pending) result error => fun ready =>
-       Some (Plan before target (AfterOperation current plugin pending result error)
-         (conj (eq_ind identity (fun key => operation_at key (selected target) = Some current) found
-           (operation_id current) (operation_at_identity identity (selected target) current found)) ready))
-     | _ => fun _ => None end eq_refl
-   end eq_refl
- end.
+ | None => None | Some target => after_operation_selected target identity _ eq_refl end.
 Definition resume (id identity : N) (before : world) : option (plan before) :=
  match select id before with
  | None => None
@@ -449,21 +450,43 @@ Definition feature_build identity source allocated : world * effect :=
    let pending := set C.entry_observation (fun _ => match compaction_entry owner allocated with
      | Some current => C.entry_observation current | None => None end) pending in
    (put_compaction owner pending allocated, MaintainContext request_effect) end.
-Definition feature_issue {before} (request : feature_plan before) : decision :=
+Definition feature_issue_change {before} (request : feature_plan before) : CommandResult.change :=
  let '(identity,allocated) := allocate_identity (feature_space (feature_intent request)) before in
  let '(installed,request_effect) := feature_build identity (feature_intent request) allocated in
- accept (JObject [("accepted",JBool true)]) installed [request_effect].
+ CommandResult.Change (JObject [("accepted",JBool true)]) installed [request_effect].
+Definition feature_issue {before} (request : feature_plan before) : decision :=
+ CommandResult.accept (feature_issue_change request).
 Definition feature (source : feature_action) (before : world) : option (feature_plan before) :=
  match Bool.bool_dec (feature_valid before source) true with
  | left evidence => Some (FeaturePlan source evidence)
  | right _ => None end.
-Definition feature_with_reply (reply : json) (source : feature_action) (before : world) :=
+Definition connection_plan {before identity project request_id}
+ (request : FeatureRequestAdmission.resolved_connection before identity project request_id)
+ : feature_plan before.
+Proof.
+ refine (FeaturePlan (ConnectionRequest (FeatureRequestAdmission.resolved_job request)) _).
+ cbn [feature_valid]. rewrite (FeatureRequestAdmission.resolved_running request).
+ exact (FeatureRequestAdmission.resolved_admitted request).
+Defined.
+Definition title_plan {before} (request : FeatureRequestAdmission.resolved_title before) : feature_plan before.
+Proof.
+ refine (FeaturePlan (TitleRequest (TaskScope.owner (FeatureRequestAdmission.title_reference request))
+   (FeatureRequestAdmission.title_profile request)
+   (FeatureRequestAdmission.title_prompt (TaskScope.selected (FeatureRequestAdmission.title_reference request)) before)) _).
+ cbn [feature_valid]. apply FeatureRequestAdmission.title_from_observations.
+ - apply TaskScope.observed.
+ - apply FeatureRequestAdmission.title_absent.
+ - exact (proj1 (proj1 (andb_true_iff _ _) (FeatureRequestAdmission.title_eligible request))).
+ - exact (proj2 (proj1 (andb_true_iff _ _) (FeatureRequestAdmission.title_eligible request))).
+ - apply FeatureRequestAdmission.title_chosen.
+Defined.
+Definition feature_result (reply : json) (source : feature_action) (before : world)
+ : CommandResult.result CommandResult.change :=
  match feature source before with
- | Some request => let issued:=feature_issue request in
-   Decision (decision_world issued) reply (decision_effects issued)
- (* DEFENSE: A positional card receiver cannot be installed beyond the append
-    key, and a completed connection job is not a new pending execution. *)
- | None => reject "invalid_request_receiver" "The request has no installable pending receiver" before end.
+ | Some request => let issued := feature_issue_change request in
+   CommandResult.Accepted (CommandResult.Change reply
+     (CommandResult.change_world issued) (CommandResult.change_effects issued))
+ | None => CommandResult.refuse "invalid_request_receiver" "The request has no installable pending receiver" end.
 Definition feature_run (source : feature_action) (before : world) :=
- feature_with_reply (success (JObject [("accepted",JBool true)])) source before.
+ CommandResult.decide before (feature_result (JObject [("accepted",JBool true)]) source before).
 End Scoped.

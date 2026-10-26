@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool NArith PeanoNat Lia.
 From Selvedge.Foundation Require Import Json JsonProofs RegistryProofs.
 From Selvedge.Kernel Require Import Numbers Domain State Tasks Callbacks History ContextSelection
  TerminalSettlement TerminalSettlementProofs ForkPreservation WorldInvariant CommitAdmission
- AfterHookAuthorizationProofs ArchivedRuntimeFrameProofs.
+ AfterHookAuthorizationProofs ArchivedRuntimeFrameProofs TaskAuthorityProofs FeatureAuthorityProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -66,11 +66,7 @@ Qed.
 Lemma unchanged_task_registry_has_authority : forall source raw before features first entries,
  CommitAdmission.retained_tasks_from source raw before first features features entries entries = true.
 Proof.
- intros source raw before features first entries; revert first.
- induction entries; intro first; [reflexivity|].
- cbn [CommitAdmission.retained_tasks_from].
- rewrite retained_task_allows_operation_progress by reflexivity.
- rewrite IHentries; reflexivity.
+ intros; apply unchanged_tasks_keep_authority_across_other_features.
 Qed.
 
 Lemma replacing_one_task_lifts_its_authority : forall source raw before features entries first selected old next,
@@ -78,17 +74,8 @@ Lemma replacing_one_task_lifts_its_authority : forall source raw before features
  CommitAdmission.retained_task source raw before (first + selected)%N features features old next = true ->
  CommitAdmission.retained_tasks_from source raw before first features features entries (replace selected next entries) = true.
 Proof.
- intros source raw before features entries; induction entries as [|head tail IH];
- intros first selected old next Found Target; [discriminate|].
- cbn in Found; cbn [replace]; destruct (N.eqb selected 0) eqn:AtHead.
- - apply N.eqb_eq in AtHead; subst selected; rewrite N.add_0_r in Target.
-   inversion Found; subst old. cbn [CommitAdmission.retained_tasks_from]; rewrite Target,
-     unchanged_task_registry_has_authority; reflexivity.
- - cbn [CommitAdmission.retained_tasks_from].
-   rewrite retained_task_allows_operation_progress by reflexivity; cbn [andb].
-   eapply IH; [exact Found|].
-   replace (N.succ first + N.pred selected)%N with (first + selected)%N by (apply N.eqb_neq in AtHead; lia).
-   exact Target.
+ intros; eapply replacing_one_task_lifts_indexed_authority;
+   [intros; apply retained_task_allows_operation_progress; reflexivity|eassumption|eassumption].
 Qed.
 
 Theorem terminal_settlement_has_global_transition_authority :

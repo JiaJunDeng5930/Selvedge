@@ -172,7 +172,7 @@ Proof.
  rewrite CallbackChangesProofs.model_completed_expression; rewrite Found.
  unfold task_activity; rewrite Phase, N.eqb_refl.
  eexists; split; [reflexivity|].
- rewrite CallbackChangesProofs.model_result_expression; cbn [Callbacks.permitted_items Callbacks.item_messages Callbacks.item_calls].
+ unfold Callbacks.model_result, Callbacks.model_result_changes; cbn [Callbacks.permitted_items Callbacks.item_messages Callbacks.item_calls].
  assert (NoOutput : append_history [] task = task).
  { unfold append_history; rewrite app_nil_r; destruct task; reflexivity. }
  change (task_lifecycle (Callbacks.settle_model (append_history [] task)) = Running WantsModel operations).

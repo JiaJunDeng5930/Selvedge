@@ -31,7 +31,8 @@ Theorem actual_fork_rejects_observed_ancestor_capacity invoked origin id count m
 Proof.
  intros Found Capacity. rewrite TaskChangesProofs.fork_with_caller_expression; cbv beta zeta. rewrite Found.
  unfold Tasks.ancestors_fit. rewrite Capacity,andb_false_r.
- destruct invoked; unfold Tasks.fork_refusal; unfold Tasks.ancestors_fit; rewrite ?Capacity; reflexivity.
+ destruct invoked; unfold Tasks.fork_refusal,Tasks.fork_refusal_reason,Tasks.ancestors_fit;
+ rewrite ?Capacity; try destruct (Tasks.fork_parent_ready Tasks.ManualFork parent); reflexivity.
 Qed.
 
 Theorem archived_control_is_terminal : forall task operations,
@@ -56,24 +57,23 @@ Theorem stopped_idle_receive_reactivates : forall contents task,
  task_lifecycle task = Stopped Idle [] ->
  task_lifecycle (Tasks.receive contents task) = Running WantsModel [].
 Proof.
- intros contents task Hstopped.
- assert (Hget : forall state value,
-   task_lifecycle (Domain.with_lifecycle state value) = state).
- { intros state value. unfold Domain.with_lifecycle.
-   exact (@set_get Domain.task Domain.lifecycle task_lifecycle _ (fun _ => state) value). }
- rewrite TaskChangesProofs.receive_expression; cbv beta zeta. rewrite Hstopped, Hget. reflexivity.
+ intros contents [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
+ cbn [task_lifecycle] in Stopped; subst lifecycle; reflexivity.
 Qed.
 
 Theorem interrupt_task_is_idempotent : forall task,
  Tasks.control_task Tasks.Interrupt (Tasks.control_task Tasks.Interrupt task) =
  Tasks.control_task Tasks.Interrupt task.
 Proof.
- intros [contract profile settings lifecycle history queued lineage parent cursor].
- destruct lifecycle;
- repeat rewrite TaskChangesProofs.control_task_expression; cbv beta zeta; unfold Tasks.control_target, Tasks.control_transition, Tasks.unknown_operations,
-   with_lifecycle, append_history, with_history;
- cbn [task_lifecycle task_activity task_operations History.interrupted_phase];
- try rewrite app_nil_r; reflexivity.
+ assert (Stable : forall current, task_lifecycle current = Stopped Idle [] ->
+   Tasks.control_task Tasks.Interrupt current = current).
+ { intros [contract profile settings lifecycle history queued lineage parent cursor consumed] Stopped.
+   cbn [task_lifecycle] in Stopped; subst lifecycle.
+   change (Task contract profile settings (Stopped Idle []) (history ++ []) queued lineage parent cursor consumed =
+     Task contract profile settings (Stopped Idle []) history queued lineage parent cursor consumed).
+   now rewrite app_nil_r. }
+ intros [contract profile settings lifecycle history queued lineage parent cursor consumed].
+ destruct lifecycle; first [apply Stable; reflexivity | reflexivity].
 Qed.
 
 Theorem fork_child_inherits_parent_authority_bounds : forall owner parent_id parent contents settings side,
@@ -216,7 +216,7 @@ Theorem accepted_model_success_uses_origin_scoped_messages : forall owner ticket
    (Callbacks.item_messages owner ticket mode items).
 Proof.
  intros owner ticket allowed mode items task Hpermitted. split.
- - rewrite CallbackChangesProofs.model_result_expression. rewrite Hpermitted. destruct (Callbacks.item_calls items); reflexivity.
+ - unfold Callbacks.model_result, Callbacks.model_result_changes; rewrite Hpermitted. destruct (Callbacks.item_calls items); reflexivity.
  - apply model_item_messages_preserve_output_origin.
 Qed.
 

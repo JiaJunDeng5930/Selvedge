@@ -25,8 +25,8 @@ Theorem a_manual_fork_transaction_retains_or_constructs_its_cross_state_authorit
 Proof.
  intros source raw request before Valid; rewrite the_fork_transaction_keeps_the_admitted_world.
  destruct (workspace_admission_keeps_the_constructor_or_the_before_world before
-   (ForkCommit.propose request before)) as [Constructed|Refused].
- - rewrite Constructed; unfold ForkCommit.propose, Worktree.execution_guard.
+   (ForkCommit.propose_result request before)) as [Constructed|Refused].
+ - rewrite Constructed; unfold ForkCommit.propose_result.
    destruct (Worktree.execution_allowed _ _).
    + apply the_manual_fork_handler_retains_or_constructs_its_cross_state_authority; exact Valid.
    + left; reflexivity.

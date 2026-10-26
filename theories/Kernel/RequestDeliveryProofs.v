@@ -200,7 +200,7 @@ Proof.
  cbv zeta.
  rewrite an_after_budget_refusal_uses_the_owned_failure_settlement with
    (task:=task) (operation:=operation) (pending:=pending); try assumption.
- unfold HookCallbacks.after_result_plan; cbn [HookRules.after_apply].
+ unfold HookCallbacks.after_result_plan,HookCallbacks.after_result_plan_for; cbn [HookRules.after_apply].
  change (Tasks.apply_result owner task
    (Tasks.prefix_result [TaskChange.AppendHistory
      [AfterReceipt owner (operation_id operation) plugin

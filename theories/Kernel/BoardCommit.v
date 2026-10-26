@@ -10,7 +10,7 @@ Definition input (decoded : option Inputs.input) : option Commands.create_card_p
  | _ => None
  end.
 Definition candidate (request : Commands.create_card_payload) (before : world) :=
- DeferredCommit.continue (Board.handle_create_card request None before).
+ DeferredCommit.continue_result before (Board.handle_create_card_result request None before).
 Definition packet (request : Commands.create_card_payload) (raw : json) (before : world) :=
  DeferredCommit.packet (Some (UserCommand (Commands.Cmd_create_card request))) raw before
    (candidate request before).

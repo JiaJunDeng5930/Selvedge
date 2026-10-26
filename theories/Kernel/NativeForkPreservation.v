@@ -95,6 +95,48 @@ Proof.
  destruct lifecycle; reflexivity.
 Qed.
 
+Lemma changing_an_active_phase_keeps_its_observations : forall source phase operations running next,
+ task_lifecycle source = result_lifecycle running phase operations ->
+ task_activity (with_activity next source) = next /\
+ task_history (with_activity next source) = task_history source /\
+ task_operations (with_activity next source) = task_operations source /\
+ native_result_task_frame (with_activity next source) = native_result_task_frame source.
+Proof.
+ intros [contract profile settings lifecycle history queued lineage side cursor consumed]
+   phase operations running next Active; cbn [task_lifecycle] in Active; subst lifecycle;
+   destruct running; repeat split; reflexivity.
+Qed.
+
+Lemma an_active_result_keeps_its_task_frame : forall owner ticket invocation remaining result failed source phase operations running,
+ task_lifecycle source = result_lifecycle running phase operations -> phase <> Idle ->
+ native_result_retains_task source (result_task owner ticket invocation remaining result failed source).
+Proof.
+ intros owner ticket invocation remaining result failed source phase operations running Active NonIdle.
+ unfold native_result_retains_task; split.
+ - unfold native_result_task_frame, result_task; destruct (Callbacks.after_plugins source);
+   destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed];
+   cbn [task_lifecycle] in Active; subst lifecycle; destruct running; reflexivity.
+ - split; [eexists; apply result_task_history|].
+   rewrite Active; destruct running; [exact I|].
+   intro IdlePhase; contradiction.
+Qed.
+
+Lemma continuing_an_active_result_keeps_its_task_frame :
+ forall owner ticket invocation remaining result failed source phase operations running,
+ task_lifecycle source = result_lifecycle running phase operations ->
+ native_result_task_frame source = native_result_task_frame
+   (result_task owner ticket invocation remaining result failed (with_activity (PendingCalls remaining) source)).
+Proof.
+ intros owner ticket invocation remaining result failed source phase operations running Active.
+ destruct (changing_an_active_phase_keeps_its_observations source phase operations running (PendingCalls remaining) Active)
+   as [_ [_ [_ Frame]]].
+ rewrite <- Frame at 1; refine (proj1 (an_active_result_keeps_its_task_frame owner ticket invocation remaining result failed
+   (with_activity (PendingCalls remaining) source) (PendingCalls remaining) operations running _ _)).
+ - destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed];
+   cbn [task_lifecycle] in Active; subst lifecycle; destruct running; reflexivity.
+ - discriminate.
+Qed.
+
 Lemma result_task_operations : forall owner ticket invocation remaining result failed source,
  task_operations (result_task owner ticket invocation remaining result failed source) =
  task_operations source ++ match Callbacks.after_plugins source with
@@ -235,7 +277,8 @@ Proof.
    { destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed];
        cbn [task_lifecycle] in Running; subst lifecycle; destruct running; reflexivity. }
    rewrite Operations, find_over_append, (old_operation_search_skips_a_fresh_ticket _ _ Bounded).
-   cbn [find Callbacks.operation_executing operation_stage]. rewrite N.eqb_refl.
+   cbn [find Callbacks.operation_executing RequestReceiver.operation_executing
+     RequestReceiver.operation_receiver operation_stage]. rewrite N.eqb_refl.
    cbn [acknowledged accept decision_world].
    assert (SamePlugins : Callbacks.after_plugins
      (with_operations (task_operations source ++ [Operation (world_next_ticket value) invocation false
@@ -245,7 +288,9 @@ Proof.
        cbn [task_lifecycle] in Running; subst lifecycle; destruct running; exact Plugins. }
    rewrite pending_after_hook_results_keep_the_feature_frame with (plugin:=plugin) (plugins:=plugins)
      by exact SamePlugins.
-   rewrite begin_result_expression, SamePlugins, Operations, map_app.
+   unfold Callbacks.begin_result, Callbacks.begin_result_changes, Callbacks.begin_result_plan.
+   rewrite SamePlugins; cbn [Tasks.result_changes TaskChange.apply TaskChange.apply_edit fold_left].
+   rewrite TaskChangeProofs.appending_history_keeps_operations, Operations, map_app.
    assert (Ids : Forall (fun operation => (operation_id operation < world_next_ticket value)%N)
      (task_operations source)).
    { eapply Forall_impl; [|exact Bounded]. intros operation Bound; inversion Bound; assumption. }
@@ -519,23 +564,7 @@ Proof.
    - apply (a_native_result_preserves_global_ticket_ownership value owner source next true Valid Found).
      unfold next; rewrite Owned; reflexivity. }
  assert (Frame : native_result_retains_task source next).
- { unfold native_result_retains_task; split.
-   - unfold next, native_result_task_frame, result_task.
-     destruct (Callbacks.after_plugins source);
-     destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed];
-     cbn [task_lifecycle] in Running; subst lifecycle; destruct running; reflexivity.
-   - split.
-     + exists (match Callbacks.after_plugins source with
-         [] => [FunctionOutput (call_id invocation) result failed]
-         | _ => [ToolReceipt owner (world_next_ticket value) invocation result failed] end).
-       unfold next; apply result_task_history.
-     + unfold next, result_task.
-       destruct (Callbacks.after_plugins source);
-       destruct source as [contract profile settings lifecycle history queued lineage side cursor consumed];
-       cbn [task_lifecycle] in Running; subst lifecycle; destruct running;
-       cbn [result_lifecycle].
-       all: try exact I.
-       all: intros Equal; discriminate. }
+ { unfold next; eapply an_active_result_keeps_its_task_frame; [exact Running|discriminate]. }
  assert (Settled : WorldInvariant.well_formed (put_task owner next
    (with_ticket (match Callbacks.after_plugins source with
      [] => world_next_ticket value | _ => N.succ (world_next_ticket value) end) value))).

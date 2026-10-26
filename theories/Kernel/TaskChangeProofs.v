@@ -7,6 +7,51 @@ Lemma apply_app : forall first rest current,
  TaskChange.apply (first ++ rest) current = TaskChange.apply rest (TaskChange.apply first current).
 Proof. intros; unfold TaskChange.apply; apply fold_left_app. Qed.
 
+Lemma appending_history_keeps_operations : forall messages current,
+ task_operations (append_history messages current) = task_operations current.
+Proof. reflexivity. Qed.
+
+Definition preserves_observation {A : Type} (observe : task -> A) (change : TaskChange.edit) :=
+ forall current, observe (TaskChange.apply_edit change current) = observe current.
+
+Theorem field_changes_preserve_an_observation : forall A (observe : task -> A) changes current,
+ Forall (preserves_observation observe) changes ->
+ observe (TaskChange.apply changes current) = observe current.
+Proof.
+ intros A observe changes current Preserved; revert current.
+ induction Preserved; intro current; [reflexivity|].
+ change (observe (TaskChange.apply l (TaskChange.apply_edit x current)) = observe current).
+ rewrite IHPreserved; apply H.
+Qed.
+
+Definition appends_history (change : TaskChange.edit) : Prop :=
+ match change with TaskChange.ReplaceHistory _ => False | _ => True end.
+
+Lemma one_append_only_edit_retains_history : forall change current,
+ appends_history change ->
+ exists suffix, task_history (TaskChange.apply_edit change current) = task_history current ++ suffix.
+Proof.
+ intros change [contract profile settings lifecycle history queued lineage parent cursor consumed] Allowed.
+ destruct change; cbn [appends_history] in Allowed; try contradiction;
+ try (exists []; rewrite app_nil_r; destruct lifecycle; reflexivity).
+ exists messages; reflexivity.
+Qed.
+
+Theorem append_only_changes_retain_history : forall changes current,
+ Forall appends_history changes ->
+ exists suffix, task_history (TaskChange.apply changes current) = task_history current ++ suffix.
+Proof.
+ intros changes current Allowed; revert current.
+ induction Allowed; intro current.
+ - exists []; rewrite app_nil_r; reflexivity.
+ - destruct (one_append_only_edit_retains_history x current H) as [first First].
+   destruct (IHAllowed (TaskChange.apply_edit x current)) as [rest Rest].
+   exists (first ++ rest).
+   change (task_history (TaskChange.apply l (TaskChange.apply_edit x current)) =
+     task_history current ++ (first ++ rest)).
+   rewrite Rest, First, <- app_assoc; reflexivity.
+Qed.
+
 Lemma one_edit_keeps_the_immutable_task_identity : forall change current,
  task_contract (TaskChange.apply_edit change current) = task_contract current /\
  task_lineage (TaskChange.apply_edit change current) = task_lineage current /\

@@ -96,7 +96,7 @@ Definition command_declarations : list command_declaration := [
   DeclareCommand BoardQuery TaskExcluded (WireCommand "read_card" [u32 (req "card_id" KNatural)]);
   DeclareCommand BoardQuery TaskExcluded (WireCommand "list_board_agents" []);
   DeclareCommand ChatgptChange TaskExcluded (WireCommand "configure_chatgpt_connections" [typed grants_declaration (req "connections" (KArray KJson))]);
-  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_exec" (connection_project ++ [req "request_id" KText; typed (shape ChatgptArguments.args_schema) (req "arguments" KJson)]));
+  DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_exec" (connection_project ++ [req "request_id" KText; typed ChatgptArguments.declaration (req "arguments" KJson)]));
   DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_cancel" connection_operation);
   DeclareCommand ChatgptChange TaskExcluded (WireCommand "chatgpt_forget" connection_operation);
   DeclareCommand ChatgptQuery TaskExcluded (WireCommand "chatgpt_projects" [u32 (req "connection_id" KNatural)]);

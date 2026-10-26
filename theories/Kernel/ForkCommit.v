@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommitPacket.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
@@ -7,33 +8,39 @@ Import ListNotations.
 
 (** A manual fork commits its own births before independent scheduler work.
     The existing durable continuation drives that work after this transaction. *)
-Definition admit_workspace (before : world) (candidate : decision) :=
- match skipn (List.length (world_tasks before)) (world_tasks (decision_world candidate)) with
- | [] => candidate
+Definition workspace_error (before after : world) : option CommandResult.refusal :=
+ match skipn (List.length (world_tasks before)) (world_tasks after) with
+ | [] => None
  | child :: _ =>
    let selected := task_current_settings child in
    (* DEFENSE: A selected managed workspace may have been archived before this
       command. Fork siblings share this selection, so admit the observation once. *)
    if Worktree.workspace_available (settings_workspace selected) before &&
-      Worktree.binding_available selected (decision_world candidate)
-   then candidate
-   else reject "worktree_unavailable"%string
-     "The selected workspace belongs to an unavailable managed worktree"%string before
+      Worktree.binding_available selected after
+   then None
+   else Some (CommandResult.Refusal "worktree_unavailable"%string
+     "The selected workspace belongs to an unavailable managed worktree"%string)
  end.
-
+Definition admit_workspace (before : world) (candidate : CommandResult.result CommandResult.change) :=
+ CommandResult.bind candidate (fun change => match workspace_error before (CommandResult.change_world change) with
+ | None => CommandResult.Accepted change | Some reason => CommandResult.Rejected reason end).
+Definition admit_decision (before : world) (candidate : decision) :=
+ match workspace_error before (decision_world candidate) with
+ | None => candidate | Some reason => CommandResult.reject before reason end.
+Definition propose_result (request : Commands.fork_payload) (before : world) :=
+ if Worktree.execution_allowed (Commands.fork_task_id request) before
+ then CommandExecution.handle_fork_result request None before
+ else CommandResult.Rejected Worktree.failed_execution_reason.
 Definition propose (request : Commands.fork_payload) (before : world) :=
- match Worktree.execution_guard (Commands.fork_task_id request) before with
- | Some refused => refused
- | None => CommandHandlers.execute (Commands.Cmd_fork request) None before
- end.
-
+ CommandResult.decide before (propose_result request before).
 Definition candidate (request : Commands.fork_payload) (before : world) :=
- let result := admit_workspace before (propose request before) in
- if bool_default "ok"%string (decision_reply result) false
- then Decision (decision_world result) (decision_reply result) [ContinueScheduling]
- else result.
+ CommandResult.commit before
+   (fun change => CommandResult.Change (CommandResult.change_value change)
+     (CommandResult.change_world change) [ContinueScheduling])
+   (admit_workspace before (propose_result request before)).
 
+Definition select (request : Commands.fork_payload) (before : world) :=
+ CommitPacket.choose true (Some (Inputs.UserCommand (Commands.Cmd_fork request)))
+   (Delivery.deliver_with_status true (candidate request before) before).
 Definition packet (request : Commands.fork_payload) (before : world) : world * json :=
- let '(fits,result) := Delivery.deliver_with_status true (candidate request before) before in
- (with_sequence (N.succ (world_sequence before)) (decision_world result),
-  Notifications.envelope true fits (Some (Inputs.UserCommand (Commands.Cmd_fork request))) before result).
+ CommitPacket.finalize before (select request before).

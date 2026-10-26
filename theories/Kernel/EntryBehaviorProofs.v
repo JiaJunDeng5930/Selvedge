@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Packet Inputs InputDecoder CommandExecution
@@ -40,14 +41,14 @@ Theorem every_resolved_exported_creation_commits_its_planned_result :
  Delivery.fits_json source = true ->
  CommandExecution.user_content (Commands.create_message request) (Commands.create_images request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
- Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = Worktree.Planned plan ->
+ Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->
  Packet.packet source before =
  (with_sequence (N.succ (world_sequence before)) (decision_world (Worktree.consume_planned_start plan before)),
   Notifications.envelope true true (Some (UserCommand (Commands.Cmd_create request))) before (planned_decision plan)).
 Proof.
  intros source request contents before start plan Decoded InputFits Parsed Resolved Prepared OutputFits.
- unfold Packet.packet,Packet.packet_admitted.
+ unfold Packet.packet,Packet.packet_admitted, Packet.select_admitted.
  rewrite InputDecoder.admitted_input_is_its_decoder_result.
  fold (Delivery.fits_json source).
  rewrite InputFits,Decoded; cbn [Packet.manual_fork_input CreationCommit.input].
@@ -60,7 +61,7 @@ Corollary every_resolved_exported_creation_returns_and_installs_its_fresh_refere
  Delivery.fits_json source = true ->
  CommandExecution.user_content (Commands.create_message request) (Commands.create_images request) = Some contents ->
  requested_start request contents before = Tasks.StartResolved start ->
- Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = Worktree.Planned plan ->
+ Worktree.prepare_resolved Worktree.ImplicitCreation None None start before = CommandResult.Accepted plan ->
  Delivery.fits true (planned_decision plan) = true ->
  let '(committed,envelope) := Packet.packet source before in
  bool_default "ok" (value_or_null "reply" envelope) false = true /\

@@ -98,12 +98,10 @@ Lemma descendant_count_depends_only_on_lineages : forall ancestor left right,
  map task_lineage left = map task_lineage right ->
  Tasks.descendant_count ancestor left = Tasks.descendant_count ancestor right.
 Proof.
- intros ancestor left right Same; unfold Tasks.descendant_count; f_equal.
- revert right Same; induction left as [|head tail IH]; intros [|other rest] Same;
-   cbn in Same; try discriminate; [reflexivity|].
- injection Same as Head Tail; cbn [filter]; rewrite Head.
- destruct (existsb (N.eqb ancestor) (task_lineage other)); cbn [List.length];
-   [f_equal|]; now apply IH.
+ intros ancestor left right Same; unfold Tasks.descendant_count.
+ rewrite <- (length_map task_lineage (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) left)),
+   <- (length_map task_lineage (filter (fun task => existsb (N.eqb ancestor) (task_lineage task)) right)).
+ rewrite <- !filter_map_swap, Same; reflexivity.
 Qed.
 
 Lemma fixed_lineage_descendant_count : forall entries lineage ancestor,

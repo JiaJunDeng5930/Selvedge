@@ -1,7 +1,7 @@
 From Selvedge.Kernel Require Import TaskChangesProofs.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
-From Selvedge.Kernel Require Import Domain State Codec Tasks LifecycleProofs.
+From Selvedge.Kernel Require Import Domain State Codec Tasks LifecycleProofs ProfileProofs.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -38,8 +38,9 @@ Theorem default_effort_restores_frozen_configuration : forall id before value co
    task_contract after = task_contract before.
 Proof.
  intros id before value configured Found Eligible Lease Parsed.
+ pose proof (configured_effort_is_profile_default _ _ Parsed) as Effort.
  unfold configure_execution; rewrite TaskChangesProofs.configure_execution_with_expression; cbv beta zeta.
- rewrite Found, Eligible, Lease. cbn [andb execution_reasoning]. rewrite Parsed.
+ rewrite Found, Eligible, Lease. cbn [andb execution_reasoning]. rewrite String.eqb_refl, <- Effort.
  match goal with |- context [if ?same then _ else _] => destruct same eqn:Same end.
  all: cbn -[put_task]; eexists; split;
    [eapply find_put_task; exact Found | repeat split; try reflexivity;

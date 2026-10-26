@@ -143,10 +143,12 @@ Theorem an_admitted_checkpoint_constructs_its_exact_result : forall request befo
  checkpoint_decision (Commands.compact_task_id request) current summary before.
 Proof.
  intros request before current summary Owned Alive Idle Summary Admitted.
- unfold CompactionCommit.candidate, M.handle_compact. rewrite Owned, Alive, Summary, Idle.
- unfold summary_admitted in Admitted. rewrite Admitted.
- unfold DeferredCommit.continue, M.supplied, M.commit, M.acknowledged.
- rewrite compaction_supplied_history_is_an_exact_append. reflexivity.
+ unfold CompactionCommit.candidate,DeferredCommit.continue_result.
+ apply CommandResult.appending_effects_to_an_accepted_result.
+ unfold M.handle_compact_result; rewrite Owned,Alive,Summary,Idle.
+ unfold summary_admitted in Admitted; rewrite Admitted.
+ unfold M.supplied_change,M.commit_change.
+ rewrite compaction_supplied_history_is_an_exact_append; reflexivity.
 Qed.
 
 Lemma cancelling_maintenance_allocates_no_new_ticket : forall owner entry first after,
@@ -226,8 +228,10 @@ Theorem an_open_manual_compaction_constructs_its_exact_wait : forall owner curre
  CompactionCommit.candidate (Commands.Build_compact owner None) before =
  manual_waiting_candidate owner current before.
 Proof.
- intros; unfold CompactionCommit.candidate, manual_waiting_candidate.
- now rewrite MP.manual_compaction_accepts_an_open_prefix_and_waits with (current:=current) (operations:=operations).
+ intros; unfold CompactionCommit.candidate,DeferredCommit.continue_result.
+ unfold manual_waiting_candidate,DeferredCommit.continue,MP.manual_waiting_decision.
+ apply CommandResult.appending_effects_to_an_accepted_result.
+ apply MP.manual_compaction_accepts_an_open_prefix_and_waits with (operations:=operations); assumption.
 Qed.
 
 Lemma a_manual_wait_keeps_maintenance_requirements : forall owner current before,

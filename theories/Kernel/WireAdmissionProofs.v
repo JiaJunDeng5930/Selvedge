@@ -15,8 +15,6 @@ Proof.
  unfold InputDecoder.decode in Decoded.
  destruct (Schema.unique_names (map fst fields)) eqn:Unique; try discriminate.
  rewrite Kind in Decoded.
- destruct (find (fun decoder => String.eqb kind (InputDecoder.decoder_name decoder)) InputDecoder.decoders)
-   as [decoder|] eqn:Found; try discriminate.
  destruct (InputDecoder.variant_fields_valid kind (JObject fields)) eqn:Valid; try discriminate.
  reflexivity.
 Qed.

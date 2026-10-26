@@ -40,7 +40,7 @@ Theorem admitted_mcp_calls_dispatch : forall execute id name description schema 
 Proof.
  intros execute id name description schema server remote invocation remaining task value advertised
    Found ExecuteAllowed Ready Known Available [fields Arguments] NoNative NoDiscover NoBash Room.
- unfold Scheduler.execute_checked_call, Scheduler.call_admission. rewrite Available.
+ unfold Scheduler.execute_checked_call, Scheduler.finish_call, Scheduler.call_admission. rewrite Available.
  unfold Callbacks.model_call_arguments_valid; cbn [advertised tool_origin].
  rewrite Arguments; cbn.
  assert (NoAdmitted : NativeTools.admit_command id invocation = None).

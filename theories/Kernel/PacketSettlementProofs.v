@@ -4,7 +4,7 @@ From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs Inpu
  Scheduler SideContext Dispatch Limits Observation Notifications Delivery Packet.
 From Selvedge.Kernel Require Import TicketedRequest Capabilities WorldInvariant WorldInvariantProofs
  AfterHookPreservation AfterHookAuthorizationProofs PacketBusinessProofs CommitAdmission ScopedRequestProofs
- TerminalSettlement TerminalSettlementPacketProofs.
+ TerminalSettlement TerminalSettlementPlanProofs TerminalSettlementPacketProofs.
 From Selvedge.Kernel Require CreationCommit NativeForkCommit BoardCommit ConnectionCommit TitleCommit.
 From Selvedge.Features Require Import Runtime.
 Import ListNotations.
@@ -166,7 +166,7 @@ Theorem an_archived_result_is_committed_by_the_exported_packet :
     (TerminalSettlement.candidate accepted)).
 Proof.
  intros raw before accepted Decoded Resolved InputBudget Valid OutputBudget.
- unfold Packet.packet, Packet.packet_admitted.
+ unfold Packet.packet, Packet.packet_admitted, Packet.select_admitted.
  rewrite InputDecoder.admitted_input_is_its_decoder_result.
  rewrite InputBudget; cbv beta zeta; rewrite Decoded.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input
@@ -204,7 +204,7 @@ Proof.
  assert (Source : TerminalSettlement.source accepted = input).
  { unfold TerminalSettlement.source; rewrite Payload; reflexivity. }
  assert (Candidate : TerminalSettlement.candidate accepted = result).
- { unfold TerminalSettlement.candidate, TerminalSettlement.interpret; rewrite Payload; reflexivity. }
+ { rewrite TerminalSettlementPlanProofs.a_terminal_candidate_matches_the_callback_continuation, Payload; reflexivity. }
  split.
  - rewrite <- Candidate, <- Source.
    apply an_archived_result_is_committed_by_the_exported_packet; try assumption.

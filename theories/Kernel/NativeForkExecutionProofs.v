@@ -23,17 +23,9 @@ Theorem every_admissible_native_fork_handler_constructs_its_business_result :
      (G.fork_task_id request) (G.fork_child_count request) messages parent selected before) [].
 Proof.
  intros request invocation remaining messages before parent selected Parsed Admissible.
- change ((match Codec.traverse Images.parse_content (message_sources request) with
- | Some parsed => Tasks.fork_with_caller
-   (if N.eqb (G.fork_task_id request) (G.fork_task_id request)
-    then Tasks.AcceptedNativeFork invocation remaining else Tasks.ManualFork)
-   (settings_origin request) (G.fork_task_id request) (G.fork_child_count request)
-   parsed (G.fork_settings request) before
- | None => reject "invalid_message" "Child messages contain invalid content parts" before end) =
- accept (fork_reply (G.fork_child_count request) before)
-   (fork_candidate (Tasks.AcceptedNativeFork invocation remaining)
-     (G.fork_task_id request) (G.fork_child_count request) messages parent selected before) []).
- rewrite Parsed, N.eqb_refl.
+ rewrite the_actual_fork_handler_interprets_its_message_admission, Parsed.
+ cbn [Tasks.native_owner Tasks.native_invocation Tasks.native_remaining].
+ rewrite N.eqb_refl.
  apply every_admissible_fork_constructs_its_positive_business_result; exact Admissible.
 Qed.
 
@@ -47,7 +39,7 @@ Lemma a_positive_native_fork_admits_its_observed_workspace :
  Worktree.workspace_available (settings_workspace selected) before &&
  Worktree.binding_available selected
    (fork_candidate (Tasks.AcceptedNativeFork invocation remaining) owner count messages parent selected before) = true ->
- ForkCommit.admit_workspace before
+ ForkCommit.admit_decision before
    (accept (fork_reply count before)
      (fork_candidate (Tasks.AcceptedNativeFork invocation remaining) owner count messages parent selected before) []) =
  accept (fork_reply count before)
@@ -58,7 +50,7 @@ Proof.
  { destruct Admissible as (_ & _ & Count & _).
    unfold TaskConstraints.fork_count_valid in Count.
    apply andb_true_iff in Count as [Positive _]; now apply N.ltb_lt in Positive. }
- unfold ForkCommit.admit_workspace; cbn [accept decision_world].
+ unfold ForkCommit.admit_decision,ForkCommit.workspace_error; cbn [accept decision_world].
  rewrite fork_candidate_registry.
  cbn [fork_retained fork_snapshot_parent fork_invocation].
  rewrite skipn_app,skipn_all,Nat.sub_diag; cbn.

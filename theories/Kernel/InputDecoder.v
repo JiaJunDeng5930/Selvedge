@@ -1,16 +1,18 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Schema SchemaJson TextJson Utf8 Numbers.
-From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol.
+From Selvedge.Kernel Require Import HookRules Numbers Domain Codec Inputs ContextUpdates Configuration Reasoning ApprovalProtocol ModelDeclarations CallbackDeclarations.
 From Selvedge.Generated Require Import Commands.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
-Record decoder := Decoder {
- decoder_name : string;
- decoder_fields : schema;
- decoder_construct : fields decoder_fields -> option input
-}.
-Definition coordinates := [Field "task_id" KNatural; Field "ticket" KNatural].
+Definition decoder := ModelDeclarations.decoder input.
+Definition Decoder (name : string) (description : schema) (construct : fields description -> option input) : decoder :=
+ ModelDeclarations.Decoder (ModelDeclarations.Variant "kind" (JString name) description [] None) construct.
+Definition decoder_name (value : decoder) := match ModelDeclarations.tag_value (ModelDeclarations.decoder_declaration value) with
+ | JString name => name | _ => "" end.
+Definition decoder_fields (value : decoder) := ModelDeclarations.payload_fields (ModelDeclarations.decoder_declaration value).
+Definition decoder_construct := @ModelDeclarations.decoder_construct input.
+Definition coordinates := ModelDeclarations.identity.
 Definition parse_reason_decision := HookRules.parse_reason_decision.
 Definition parse_hook := HookRules.parse_hook.
 Definition parse_after := HookRules.parse_after.
@@ -30,12 +32,9 @@ Definition parse_approval_outcome (source : json) : option approval_outcome :=
  end.
 Definition command_decoder := Decoder "command" [Field "command" KJson]
  (fun values => option_map UserCommand (Selvedge.Generated.Commands.decode (head values))).
-Definition configure_decoder := Decoder "configure"
- [Field "profiles" (KArray KJson); Field "tools" (KArray KJson); Field "plugins" (KOptional (KArray KJson));
-  Field "max_fork" KNatural;Field "max_descendants" KNatural;Field "project" (KOptional KJson);Field "instructions" KJson]
- (fun values => option_map Configure (Configuration.parse_environment (Schema.encode _ values))).
-Definition context_decoder := Decoder "context_observed"
- (coordinates ++ [Field "ok" KBool;Field "observations" (KOptional (KArray KJson));Field "message" (KOptional KText)])
+Definition configure_decoder := Decoder "configure" Configuration.environment_schema
+ (fun values => option_map Configure (Configuration.environment_of_fields values)).
+Definition context_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Context false)
  (fun values =>
   let id := head values in let values := tail values in let ticket := head values in let values := tail values in
   let ok := head values in let values := tail values in let observations := head values in let diagnostic := head (tail values) in
@@ -45,8 +44,7 @@ Definition context_decoder := Decoder "context_observed"
   else match observations,diagnostic with
   | None,Some text => if Nat.leb (Utf8.byte_length text) 4096 then Some (ContextCompleted id ticket None text) else None
   | _,_ => None end).
-Definition model_decoder := Decoder "model"
- (coordinates ++ [Field "ok" KBool;Field "items" (KOptional (KArray KJson));Field "message" (KOptional KText);Field "failure_kind" (KOptional (KEnum "context_limit" []))])
+Definition model_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Model false)
  (fun values =>
   let id := head values in let values := tail values in let ticket := head values in let values := tail values in
   let ok := head values in let values := tail values in let items := head values in let values := tail values in
@@ -57,8 +55,7 @@ Definition model_decoder := Decoder "model"
   else match diagnostic with
   | Some text => Some (ModelCompleted id ticket (match failure with Some _ => ModelContextLimit | None => ModelFailure text end))
   | None => None end).
-Definition reasoning_decoder := Decoder "reasoning"
- (coordinates ++ [Field "ok" KBool;Field "effort" (KOptional KText);Field "generations" (KOptional KNatural);Field "message" (KOptional KText)])
+Definition reasoning_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Reasoning false)
  (fun values =>
   let id := head values in let values := tail values in let ticket := head values in let values := tail values in
   let ok := head values in let values := tail values in let effort := head values in let values := tail values in
@@ -71,20 +68,18 @@ Definition reasoning_decoder := Decoder "reasoning"
   | None,None,Some reason =>
       if Nat.leb (Utf8.byte_length reason) 4096 then Some (ReasoningCompleted id ticket (EvaluationFailed reason)) else None
   | _,_,_ => None end).
-Definition tool_decoder := Decoder "tool"
- (coordinates ++ [Field "value" (KOptional KJson);Field "error" KBool])
+Definition tool_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Tool false)
  (fun values =>
   let id := head values in let values := tail values in let ticket := head values in let values := tail values in
-  Some (ToolCompleted id ticket (match head values with Some value => value | None => JNull end) (head (tail values)))).
-Definition hook_decoder := Decoder "hook" (coordinates ++ [Field "outcome" KJson])
+  Some (ToolCompleted id ticket (match head (tail values) with Some value => value | None => JNull end) (head values))).
+Definition hook_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Hook false)
  (fun values => let id := head values in let values := tail values in let ticket := head values in
   option_map (HookCompleted id ticket) (parse_hook (head (tail values)))).
-Definition after_decoder := Decoder "after_hook"
- (coordinates ++ [Field "operation_id" KNatural;Field "outcome" KJson])
+Definition after_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration AfterHook false)
  (fun values => let id := head values in let values := tail values in let ticket := head values in
   let values := tail values in let operation := head values in
   option_map (AfterCompleted id operation ticket) (parse_after (head (tail values)))).
-Definition approval_decoder := Decoder "approval" (coordinates ++ [Field "outcome" KJson])
+Definition approval_decoder := ModelDeclarations.Decoder (CallbackDeclarations.declaration Approval false)
  (fun values => let id := head values in let values := tail values in let ticket := head values in
   option_map (ApprovalCompleted id ticket) (parse_approval_outcome (head (tail values)))).
 Definition decoders := [command_decoder;configure_decoder;context_decoder;model_decoder;reasoning_decoder;
@@ -105,14 +100,9 @@ Definition variant_fields_valid (kind : string) (source : json) :=
  | _ => true end.
 Definition decode (source : json) : option input :=
  match source with
- | JObject fields => if Schema.unique_names (map fst fields) then
-   match lookup "kind" fields with
-   | Some (JString kind) => match find (fun decoder => String.eqb kind (decoder_name decoder)) decoders with
-     | None => None
-     | Some decoder => if variant_fields_valid kind (JObject fields) then
-       match Schema.decode (decoder_fields decoder) (JObject (remove_field "kind" fields)) with
-       | Some values => decoder_construct decoder values | None => None end else None
-     end
+ | JObject members => if Schema.unique_names (map fst members) then
+   match lookup "kind" members with
+   | Some (JString kind) => if variant_fields_valid kind source then ModelDeclarations.decode_cases decoders source else None
    | _ => None end
    else None
  | _ => None end.

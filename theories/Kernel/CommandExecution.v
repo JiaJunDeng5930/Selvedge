@@ -1,3 +1,4 @@
+From Selvedge.Kernel Require CommandResult.
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 TextJson Numbers.
 From Selvedge.Kernel Require Import Numbers Domain Codec Context State Tasks History Workspace Inputs Callbacks Limits Observation ApprovalProtocol.
@@ -10,10 +11,12 @@ Open Scope list_scope.
 Definition user_content (message : option json) (images : option (list json)) :=
  Images.parse_user_content (JObject [("message",match message with Some message => message | None => JNull end);
   ("images",JArray (match images with Some images => images | None => [] end))]).
+Definition content_result (message : option json) (images : option (list json)) :=
+ match user_content message images with Some contents => CommandResult.Accepted contents
+ | None => CommandResult.refuse "invalid_message" "Message parts or image references are invalid" end.
 Definition with_content (message : option json) (images : option (list json))
  (run : content -> decision) (value : world) :=
- match user_content message images with Some contents => run contents
- | None => reject "invalid_message" "Message parts or image references are invalid" value end.
+ CommandResult.resolve value run (content_result message images).
 Definition creation_base (options : option json) (caller : task_settings) (value : world) :=
  let defaults := creation_defaults (world_environment value) in
  let raw := match options with Some raw => raw | None => JNull end in
@@ -146,13 +149,14 @@ Definition speech_delegation (id : N) (session identity mode text : string) (val
    | Some message => if Json.equal (message_json id message) (message_json id (SpeechDelegation id session identity mode text))
      then accept (result true) value [] else reject "speech_conflict" "A delegation identity already has different committed content" value
    | None =>
-     let delivered := if String.eqb mode "steer" then Tasks.steer id [TextPart text] value else Tasks.send id [TextPart text] value in
-     if bool_default "ok" (decision_reply delivered) false then
-       match find_task id (decision_world delivered) with
-       | Some task => Decision (put_task id (append_history [SpeechDelegation id session identity mode text] task) (decision_world delivered))
-          (State.success (result false)) (decision_effects delivered)
-       | None => delivered end
-     else delivered
+     CommandResult.commit value (fun delivered =>
+       match find_task id (CommandResult.change_world delivered) with
+       | Some task => CommandResult.Change (result false)
+           (put_task id (append_history [SpeechDelegation id session identity mode text] task)
+             (CommandResult.change_world delivered)) (CommandResult.change_effects delivered)
+       | None => delivered end)
+       (if String.eqb mode "steer" then Tasks.steer_result id [TextPart text] value
+        else Tasks.send_result id [TextPart text] value)
    end
    else reject "invalid_arguments" "Voice delegation requires stable identities and a nonempty instruction" value
  end.
@@ -178,12 +182,11 @@ Definition return_side (id : N) (value : world) :=
 " (String.append (TextJson.render_json transcript) "
 ```") in
      let images := flat_map History.message_images messages in
-     let result := Tasks.send parent (TextPart text :: images) value in
-     if bool_default "ok" (decision_reply result) false then
-       Decision (put_task id (with_side_cursor through side) (decision_world result))
-         (State.success (JObject [("task_id",number parent);("side_task_id",number id);("after",number after);("through",number through)]))
-         (decision_effects result)
-     else result
+     CommandResult.commit value (fun delivered => CommandResult.Change
+       (JObject [("task_id",number parent);("side_task_id",number id);("after",number after);("through",number through)])
+       (put_task id (with_side_cursor through side) (CommandResult.change_world delivered))
+       (CommandResult.change_effects delivered))
+       (Tasks.send_result parent (TextPart text :: images) value)
      end
    end end end.
 Definition handle_send (request : Selvedge.Generated.Commands.send_payload)
@@ -218,13 +221,17 @@ Definition handle_cancel_operation (request : Selvedge.Generated.Commands.cancel
  (context : option Tasks.native_call) (value : world) : decision :=
  cancel_operation (Selvedge.Generated.Commands.cancel_operation_task_id request) (Selvedge.Generated.Commands.cancel_operation_operation_id request) value.
 
-Definition handle_fork (request : Selvedge.Generated.Commands.fork_payload)
- (context : option Tasks.native_call) (value : world) : decision :=
+Definition handle_fork_result (request : Selvedge.Generated.Commands.fork_payload)
+ (context : option Tasks.native_call) (value : world) :=
  match traverse Images.parse_content (match Selvedge.Generated.Commands.fork_messages request with Some values => values | None => [] end) with
-   | Some messages => Tasks.fork_with_caller (match context with Some accepted => if N.eqb (Tasks.native_owner accepted) (Selvedge.Generated.Commands.fork_task_id request) then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted) else Tasks.ManualFork | None => Tasks.ManualFork end) (match Selvedge.Generated.Commands.fork_settings_origin request with
+   | Some messages => Tasks.fork_result (match context with Some accepted => if N.eqb (Tasks.native_owner accepted) (Selvedge.Generated.Commands.fork_task_id request) then Tasks.AcceptedNativeFork (Tasks.native_invocation accepted) (Tasks.native_remaining accepted) else Tasks.ManualFork | None => Tasks.ManualFork end) (match Selvedge.Generated.Commands.fork_settings_origin request with
      |Some source=>if String.eqb (proj1_sig source) "environment" then Tasks.EnvironmentSettings else Tasks.ParentSettings
      |None=>Tasks.ParentSettings end) (Selvedge.Generated.Commands.fork_task_id request) (Selvedge.Generated.Commands.fork_child_count request) messages (Selvedge.Generated.Commands.fork_settings request) value
-   | None => reject "invalid_message" "Child messages contain invalid content parts" value end.
+   | None => CommandResult.refuse "invalid_message" "Child messages contain invalid content parts" end.
+
+Definition handle_fork (request : Selvedge.Generated.Commands.fork_payload)
+ (context : option Tasks.native_call) (value : world) : decision :=
+ CommandResult.decide value (handle_fork_result request context value).
 
 Definition handle_open_side_conversation (request : Selvedge.Generated.Commands.open_side_conversation_payload)
  (context : option Tasks.native_call) (value : world) : decision :=

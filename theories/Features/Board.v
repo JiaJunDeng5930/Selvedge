@@ -1,9 +1,13 @@
+From Selvedge.Kernel Require CallbackDeclarations.
+From Selvedge.Kernel Require CommandResult DecisionComposition.
 From Stdlib Require Import String Ascii List Bool NArith.
 From Selvedge.Foundation Require Import Json Utf8 Schema.
 From Selvedge.Kernel Require Import Numbers Domain State Codec Tasks Workspace CommandExecution TicketedRequest.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State Observation Titles TitleRuntime Worktree BoardFacts.
-From Selvedge.Features Require Import BoardParameters.
+From Selvedge.Features Require Import BoardParameters BoardDrafting.
+Module BD := BoardDrafting.
+Module FRA := FeatureRequestAdmission.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 Import ListNotations.
 Open Scope string_scope.
@@ -15,7 +19,10 @@ Definition lookup_agent (id:N) (value:world) := match registry_at id (Selvedge.F
 Definition put (id:N) (card:Selvedge.Features.Domain.card) (value:world) := let b:=registry value in
  store ((set Selvedge.Features.Domain.board_order (fun _=>(if existsb (N.eqb id) (Selvedge.Features.Domain.board_order b) then Selvedge.Features.Domain.board_order b else Selvedge.Features.Domain.board_order b++[id])) (set Selvedge.Features.Domain.board_cards (fun _=>(if N.eqb id (N.of_nat (List.length (Selvedge.Features.Domain.board_cards b))) then Selvedge.Features.Domain.board_cards b++[Some card] else replace id (Some card) (Selvedge.Features.Domain.board_cards b))) (b)))) value.
 Definition result (id:N) (card:Selvedge.Features.Domain.card) := JObject [("card_id",number id);("revision",number (Selvedge.Features.Domain.card_revision card))].
-Definition save (id:N) (card:Selvedge.Features.Domain.card) (value:world) := Selvedge.Kernel.State.accept (result id card) (put id card value) [].
+Definition save_change (id:N) (card:Selvedge.Features.Domain.card) (value:world) :=
+ CommandResult.Change (result id card) (put id card value) [].
+Definition save (id:N) (card:Selvedge.Features.Domain.card) (value:world) :=
+ CommandResult.accept (save_change id card value).
 Definition clock (text:option string) :option N := match text with None=>Some 0 | Some text=>match text_id text with Some now=>if N.leb now 4294967295 then Some now else None | None=>None end end.
 Record patch := Patch { patch_title:option string;patch_description:option string;patch_stage:option string;patch_priority:option string;
  patch_owner:option string;patch_project:option string;patch_labels:option (list string);patch_attachments:option (list json) }.
@@ -29,6 +36,33 @@ Definition parse_patch (input:patch) (old:Selvedge.Features.Domain.card_draft) :
  | Some stage,Some priority,Some owner,Some project,Some files=>Some (Selvedge.Features.Domain.CardDraft
  (retained (patch_title input) (Selvedge.Features.Domain.draft_title old)) (retained (patch_description input) (Selvedge.Features.Domain.draft_description old)) stage priority owner project
  (retained (patch_labels input) (Selvedge.Features.Domain.draft_labels old)) files) | _,_,_,_,_=>None end.
+Lemma parsed_patch_keeps_serializable_files : forall input old draft,
+ forallb (fun file => match attachment (Observation.attachment_json file) with
+   Some _ => true | None => false end) (Selvedge.Features.Domain.draft_attachments old) = true ->
+ parse_patch input old = Some draft ->
+ forallb (fun file => match attachment (Observation.attachment_json file) with
+   Some _ => true | None => false end) (Selvedge.Features.Domain.draft_attachments draft) = true.
+Proof.
+ intros input old draft Previous Parsed; unfold parse_patch in Parsed.
+ destruct (match patch_stage input with Some name => stage name | None => Some (Selvedge.Features.Domain.draft_stage old) end); [|discriminate].
+ destruct (match patch_priority input with Some name => priority name | None => Some (Selvedge.Features.Domain.draft_priority old) end); [|discriminate].
+ destruct (match patch_owner input with Some name => owner name | None => Some (Selvedge.Features.Domain.draft_owner old) end); [|discriminate].
+ destruct (match patch_project input with Some name => optional_project name | None => Some (Selvedge.Features.Domain.draft_project old) end); [|discriminate].
+ destruct (match patch_attachments input with Some raw => traverse attachment raw | None => Some (Selvedge.Features.Domain.draft_attachments old) end) as [files|] eqn:Files; [|discriminate].
+ inversion Parsed; subst draft; cbn.
+ destruct (patch_attachments input) as [raw|].
+ - eapply BD.parsed_attachments_are_serializable; exact Files.
+ - inversion Files; subst files; exact Previous.
+Qed.
+Lemma observed_clock_is_bounded : forall supplied now,
+ clock supplied = Some now -> N.leb now 4294967295 = true.
+Proof.
+ intros [text|] now Clock; unfold clock in Clock.
+ - destruct (text_id text) as [found|]; [|discriminate].
+   destruct (N.leb found 4294967295) eqn:Bound; [|discriminate].
+   inversion Clock; subst now; exact Bound.
+ - inversion Clock; reflexivity.
+Qed.
 Definition valid_draft := BoardFacts.valid_draft.
 Definition empty_draft := Selvedge.Features.Domain.CardDraft "" "" Selvedge.Features.Domain.Todo Selvedge.Features.Domain.NoPriority Selvedge.Features.Domain.Unassigned None [] [].
 Definition linked_task := BoardFacts.linked_task.
@@ -52,23 +86,36 @@ Definition handle_read_card (p:Selvedge.Generated.Commands.read_card_payload) (c
  match lookup (Selvedge.Generated.Commands.read_card_card_id p) value with Some card=>Selvedge.Kernel.State.success (card_json (Selvedge.Generated.Commands.read_card_card_id p) card value) | None=>Selvedge.Kernel.State.failure "card_not_found" "The board card does not exist" end.
 Definition handle_list_board_agents (p:Selvedge.Generated.Commands.list_board_agents_payload) (caller:option N) (value:world) :json :=
  Selvedge.Kernel.State.success (JObject [("agents",JArray (Observation.agents_json_in_world value))]).
-Definition with_card (id revision:N) (value:world) (run:Selvedge.Features.Domain.card->decision) := match lookup id value with
- | None=>Selvedge.Kernel.State.reject "card_not_found" "The board card does not exist" value
- | Some card=>if N.eqb revision (Selvedge.Features.Domain.card_revision card) then run card else Selvedge.Kernel.State.reject "card_conflict" "The card changed in another view or during execution. Refresh its current values before applying this edit." value end.
-Definition at_clock (supplied:option string) (value:world) (run:N->decision) := match clock supplied with Some now=>run now | None=>Selvedge.Kernel.State.reject "invalid_clock" "observed_at must be a canonical U32 decimal timestamp" value end.
-Definition request_text (id:N) (card:Selvedge.Features.Domain.card) (profile_name:string) (retitle:bool) (value:world) :=
+Definition select_card_reference (id revision:N) (value:world) : CommandResult.result (BD.card_reference value id) :=
+ FRA.observe (lookup id value) (fun card Found =>
+   if N.eqb revision (Selvedge.Features.Domain.card_revision card)
+   then CommandResult.Accepted (BD.CardReference card Found)
+   else CommandResult.refuse "card_conflict" "The card changed in another view or during execution. Refresh its current values before applying this edit.")
+ (fun _ => CommandResult.refuse "card_not_found" "The board card does not exist").
+Definition select_card (id revision:N) (value:world) :=
+ CommandResult.map BD.selected_card (select_card_reference id revision value).
+Definition with_card (id revision:N) (value:world) (run:Selvedge.Features.Domain.card->decision) :=
+ CommandResult.resolve value run (select_card id revision value).
+Definition select_clock (supplied:option string) := match clock supplied with
+ | Some now=>CommandResult.Accepted now
+ | None=>CommandResult.refuse "invalid_clock" "observed_at must be a canonical U32 decimal timestamp" end.
+Definition at_clock (supplied:option string) (value:world) (run:N->decision) :=
+ CommandResult.resolve value run (select_clock supplied).
+Definition request_text_result {value} (target:BD.drafting_target value) (profile_name:string) :=
  let name:=if String.eqb profile_name "" then Selvedge.Features.Domain.board_draft_profile (registry value) else profile_name in
- match Tasks.find_profile name (environment_profiles (world_environment value)) with
- | None=>Selvedge.Kernel.State.reject "draft_profile_required" "Choose a configured ordinary drafting endpoint" value
- | Some profile=>if negb (TitleRuntime.ordinary profile) then Selvedge.Kernel.State.reject "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint" value else
- let source:=Titles.board_prompt (Selvedge.Features.Domain.title_task_prompt (Selvedge.Features.Domain.feature_title_settings (world_features value))) (Selvedge.Features.Domain.draft_title (Selvedge.Features.Domain.card_contents card)) (Selvedge.Features.Domain.draft_description (Selvedge.Features.Domain.card_contents card)) retitle in
- TicketedRequest.Scoped.feature_with_reply (Selvedge.Kernel.State.success (result id card))
-   (TicketedRequest.Scoped.CardRequest id card profile source retitle) value end.
-Definition create_card (input:patch) (supplied:option string) (assisted:bool) (profile:string) (value:world) := at_clock supplied value (fun now=>
- match parse_patch input empty_draft with None=>Selvedge.Kernel.State.reject "invalid_card" "Invalid board card fields" value | Some draft=>
- (* The title byte limit applies after assisted trimming. Persistence and the
-    drafting request both consume this same normalized draft. *)
- let draft:=if assisted then
+ FRA.observe (Tasks.find_profile name (environment_profiles (world_environment value)))
+ (fun profile Selected =>
+   FRA.require (TitleRuntime.ordinary profile) (fun Ordinary =>
+     let request:=BD.plan target profile
+       (BD.selected_profile_is_registered name value profile Selected) Ordinary in
+     let issued:=TicketedRequest.Scoped.feature_issue_change request in
+     CommandResult.Accepted (CommandResult.Change (result (BD.target_id target) (BD.target_card target))
+       (CommandResult.change_world issued) (CommandResult.change_effects issued)))
+   "draft_profile_invalid" "Title/description assistance requires an ordinary tool-free endpoint")
+ (fun _ => CommandResult.refuse "draft_profile_required" "Choose a configured ordinary drafting endpoint").
+Definition request_text {value} (target:BD.drafting_target value) (profile_name:string) :=
+ CommandResult.decide value (request_text_result target profile_name).
+Definition normalized_draft (assisted:bool) (draft:Selvedge.Features.Domain.card_draft) := if assisted then
    match Utf8.chunks (Selvedge.Features.Domain.draft_title draft) with
    | None=>draft
    | Some title_chunks=>
@@ -79,13 +126,41 @@ Definition create_card (input:patch) (supplied:option string) (assisted:bool) (p
          | None=>"" end
        | _=>Utf8.render_chunks trimmed end in
      set Selvedge.Features.Domain.draft_title (fun _=>title) draft
-   end else draft in
- let count:=List.length (filter (fun card=>match card with Some _=>true | None=>false end) (Selvedge.Features.Domain.board_cards (registry value))) in
- let id:=N.of_nat (List.length (Selvedge.Features.Domain.board_cards (registry value))) in
- if valid_draft draft value && Nat.ltb count 512 && N.ltb id 4294967295 then
- let card:=Selvedge.Features.Domain.Card 0 draft None false now now Selvedge.Features.Domain.NoEnrichment "" false in
- if assisted then request_text id card profile false value else save id card value
- else Selvedge.Kernel.State.reject "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards." value end).
+   end else draft.
+Lemma normalizing_retains_files : forall assisted draft,
+ Selvedge.Features.Domain.draft_attachments (normalized_draft assisted draft) =
+ Selvedge.Features.Domain.draft_attachments draft.
+Proof.
+ intros [] draft; [|reflexivity]. unfold normalized_draft.
+ destruct (Utf8.chunks (Selvedge.Features.Domain.draft_title draft)); reflexivity.
+Qed.
+Definition parsed_drafting_target input parsed assisted value now
+ (Parsed : parse_patch input empty_draft = Some parsed)
+ (Clock : N.leb now 4294967295 = true)
+ (Valid : valid_draft (normalized_draft assisted parsed) value &&
+   Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295 = true)
+ : BD.drafting_target value.
+Proof.
+ apply andb_true_iff in Valid as [DraftCapacity Identity].
+ apply andb_true_iff in DraftCapacity as [Draft Capacity].
+ refine (BD.fresh_target value (normalized_draft assisted parsed) now Clock Draft _ Capacity Identity).
+ rewrite normalizing_retains_files.
+ exact (parsed_patch_keeps_serializable_files input empty_draft parsed eq_refl Parsed).
+Defined.
+Definition create_card_result (input:patch) (supplied:option string) (assisted:bool) (profile:string) (value:world) :=
+ FRA.observe (clock supplied) (fun now Clock =>
+ FRA.observe (parse_patch input empty_draft) (fun parsed Parsed =>
+ let draft:=normalized_draft assisted parsed in
+ FRA.require (valid_draft draft value && Nat.ltb (BD.live_count value) 512 && N.ltb (BD.fresh_id value) 4294967295)
+ (fun Valid => if assisted then request_text_result
+   (parsed_drafting_target input parsed assisted value now Parsed
+     (observed_clock_is_bounded supplied now Clock) Valid) profile
+   else CommandResult.Accepted (save_change (BD.fresh_id value) (BD.fresh_card draft now) value))
+ "invalid_card" "Provide a nonempty title or assisted request, valid project/assignee and bounded text/files. The board holds at most 512 cards.")
+ (fun _ => CommandResult.refuse "invalid_card" "Invalid board card fields"))
+ (fun _ => CommandResult.refuse "invalid_clock" "observed_at must be a canonical U32 decimal timestamp").
+Definition create_card (input:patch) (supplied:option string) (assisted:bool) (profile:string) (value:world) :=
+ CommandResult.decide value (create_card_result input supplied assisted profile value).
 Definition changes_execution (input:patch) :=
  match patch_title input,patch_description input,patch_owner input,patch_project input,patch_attachments input with None,None,None,None,None=>false | _,_,_,_,_=>true end.
 Definition update_card (id revision:N) (supplied:option string) (input:patch) (value:world) := at_clock supplied value (fun now=>with_card id revision value (fun card=>
@@ -153,16 +228,17 @@ Definition launch_settings (agent:Selvedge.Features.Domain.board_agent) (draft:S
  let fields:=match Selvedge.Features.Domain.agent_settings agent with JObject fields=>fields|_=>[] end in
  let fields:=remove_field "project_id" fields in
  JObject (match Selvedge.Features.Domain.draft_project draft with Some project=>Json.set_field "project_id" (number project) fields | None=>fields end).
-Definition run (id revision:N) (supplied:option string) (caller:option N) (value:world) := at_clock supplied value (fun now=>with_card id revision value (fun card=>
- if negb (runnable card value) then Selvedge.Kernel.State.reject "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit" value else
- match owner_agent (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value with None=>Selvedge.Kernel.State.reject "agent_required" "Assign a configured endpoint or board agent before starting this card" value | Some agent=>
+Definition run_result (id revision:N) (supplied:option string) (caller:option N) (value:world) :=
+ CommandResult.bind (select_clock supplied) (fun now=>CommandResult.bind (select_card id revision value) (fun card=>
+ if negb (runnable card value) then CommandResult.refuse "card_not_runnable" "The card already has a conversation, is locked, has no agent, or the assigned agent has reached its concurrency limit" else
+ match owner_agent (Selvedge.Features.Domain.draft_owner (Selvedge.Features.Domain.card_contents card)) value with None=>CommandResult.refuse "agent_required" "Assign a configured endpoint or board agent before starting this card" | Some agent=>
  let settings:=launch_settings agent (Selvedge.Features.Domain.card_contents card) in
- match Worktree.create_selected_result (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value with
- | Worktree.Created birth=>
- let created:=Worktree.transition_decision birth in
+ CommandResult.map (fun birth=>
  let updated:=(set Selvedge.Features.Domain.card_start_error (fun _=>"") (set Selvedge.Features.Domain.card_enrichment (fun _=>Selvedge.Features.Domain.NoEnrichment) (set Selvedge.Features.Domain.card_updated (fun _=>now) (set Selvedge.Features.Domain.card_archived (fun _=>false) (set Selvedge.Features.Domain.card_task (fun _=>(Some (Worktree.transition_identity birth))) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.InProgress (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ revision)) (card)))))))) in
- Selvedge.Kernel.State.Decision (put id updated (decision_world created)) (Selvedge.Kernel.State.success (JObject [("card_id",number id);("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))])) (decision_effects created)
- | Worktree.CreationRejected reply=>Decision value reply [] end end)).
+ CommandResult.Change (JObject [("card_id",number id);("task_id",number (Worktree.transition_identity birth));("revision",number (N.succ revision))]) (put id updated (Worktree.transition_world birth)) (Worktree.transition_effects birth))
+   (Worktree.create_selected_result (Selvedge.Features.Domain.agent_profile agent) (Some (Selvedge.Features.Domain.agent_reasoning agent)) (task_contents id (Selvedge.Features.Domain.card_contents card) (Selvedge.Features.Domain.agent_instructions agent)) (Some settings) false caller None value) end)).
+Definition run (id revision:N) (supplied:option string) (caller:option N) (value:world) :=
+ CommandResult.decide value (run_result id revision supplied caller value).
 Definition agent_name_valid (name:string) := nonempty name && limited name 160.
 Definition agent_profile_valid (profile:string) := nonempty profile && limited profile 1024.
 Definition agent_reasoning_valid (reasoning:string) := nonempty reasoning && limited reasoning 64.
@@ -205,10 +281,20 @@ Definition settings (automatic:bool) (profile:string) (value:world) :=
  if valid then let b:=registry value in Selvedge.Kernel.State.accept (JObject [("automatic",JBool automatic);("draft_profile",JString profile)])
  (store ((set Selvedge.Features.Domain.board_draft_profile (fun _=>profile) (set Selvedge.Features.Domain.board_automatic (fun _=>automatic) (b)))) value) []
  else Selvedge.Kernel.State.reject "draft_profile_invalid" "Choose a configured ordinary drafting endpoint" value.
-Definition regenerate (id revision:N) (supplied:option string) (profile:string) (value:world) := at_clock supplied value (fun now=>with_card id revision value (fun card=>
- if mutable card value then request_text id (revised (Selvedge.Features.Domain.card_contents card) now card) profile true value else Selvedge.Kernel.State.reject "card_locked" "A running, archived or already-generating card cannot start another title request" value)).
+Definition regenerate_result (id revision:N) (supplied:option string) (profile:string) (value:world) :=
+ FRA.observe (clock supplied) (fun now Clock =>
+ CommandResult.bind (select_card_reference id revision value) (fun reference =>
+ FRA.require (mutable (BD.selected_card reference) value) (fun Mutable =>
+   request_text_result (BD.revised_target value id reference now
+     (observed_clock_is_bounded supplied now Clock) Mutable) profile)
+ "card_locked" "A running, archived or already-generating card cannot start another title request"))
+ (fun _ => CommandResult.refuse "invalid_clock" "observed_at must be a canonical U32 decimal timestamp").
+Definition regenerate (id revision:N) (supplied:option string) (profile:string) (value:world) :=
+ CommandResult.decide value (regenerate_result id revision supplied profile value).
+Definition handle_create_card_result (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :CommandResult.result CommandResult.change :=
+ create_card_result (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (Selvedge.Generated.Commands.create_card_status p) (Selvedge.Generated.Commands.create_card_priority p) (Selvedge.Generated.Commands.create_card_assignee p) (Selvedge.Generated.Commands.create_card_project p) (Selvedge.Generated.Commands.create_card_labels p) (Selvedge.Generated.Commands.create_card_attachments p)) (Selvedge.Generated.Commands.create_card_observed_at p) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") value.
 Definition handle_create_card (p:Selvedge.Generated.Commands.create_card_payload) (caller:option N) (value:world) :decision :=
- create_card (Patch (Selvedge.Generated.Commands.create_card_title p) (Selvedge.Generated.Commands.create_card_description p) (Selvedge.Generated.Commands.create_card_status p) (Selvedge.Generated.Commands.create_card_priority p) (Selvedge.Generated.Commands.create_card_assignee p) (Selvedge.Generated.Commands.create_card_project p) (Selvedge.Generated.Commands.create_card_labels p) (Selvedge.Generated.Commands.create_card_attachments p)) (Selvedge.Generated.Commands.create_card_observed_at p) (retained (Selvedge.Generated.Commands.create_card_assisted p) false) (retained (Selvedge.Generated.Commands.create_card_draft_profile p) "") value.
+ CommandResult.decide value (handle_create_card_result p caller value).
 Definition handle_update_card (p:Selvedge.Generated.Commands.update_card_payload) (caller:option N) (value:world) :decision :=
  update_card (Selvedge.Generated.Commands.update_card_card_id p) (Selvedge.Generated.Commands.update_card_revision p) (Selvedge.Generated.Commands.update_card_observed_at p) (Patch (Selvedge.Generated.Commands.update_card_title p) (Selvedge.Generated.Commands.update_card_description p) (Selvedge.Generated.Commands.update_card_status p) (Selvedge.Generated.Commands.update_card_priority p) (Selvedge.Generated.Commands.update_card_assignee p) (Selvedge.Generated.Commands.update_card_project p) (Selvedge.Generated.Commands.update_card_labels p) (Selvedge.Generated.Commands.update_card_attachments p)) value.
 Definition handle_move_card (p:Selvedge.Generated.Commands.move_card_payload) (caller:option N) (value:world) :decision :=
@@ -235,8 +321,8 @@ Definition handle_delete_board_agent (p:Selvedge.Generated.Commands.delete_board
  delete_agent (Selvedge.Generated.Commands.delete_board_agent_agent_id p) (Selvedge.Generated.Commands.delete_board_agent_revision p) value.
 Definition failure_text (source:string) := match Utf8.chunks source with Some chunks=>Utf8.render_chunks (firstn 1000 chunks) | None=>"Invalid UTF-8 drafting failure" end.
 Definition valid_completion_payload (source:json) (ok:bool) :=
- if ok then Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "title" KText;Field "description" KText] source && limited (text_default "title" source "") Titles.response_title_bytes
- else Worktree.shape [Field "kind" KText;Field "card_id" KNatural;Field "ticket" KNatural;Field "ok" KBool;Field "message" KText] source && limited (text_default "message" source "") 4096.
+ if ok then Worktree.shape (CallbackDeclarations.full_schema ModelDeclarations.BoardText true) source && limited (text_default "title" source "") Titles.response_title_bytes
+ else Worktree.shape (CallbackDeclarations.full_schema ModelDeclarations.BoardText false) source && limited (text_default "message" source "") 4096.
 Definition suggestion (ok retitle:bool) (title description message:string) (card:Selvedge.Features.Domain.card) (value:world) :=
  let old:=Selvedge.Features.Domain.card_contents card in
  let draft:=(set Selvedge.Features.Domain.draft_description (fun _=>(if retitle then Selvedge.Features.Domain.draft_description old else description)) (set Selvedge.Features.Domain.draft_title (fun _=>(Titles.normalize title)) (old))) in
@@ -270,9 +356,13 @@ Definition start_failed (id:N) (card:Selvedge.Features.Domain.card) (reason:stri
  ((set Selvedge.Features.Domain.card_start_error (fun _=>(failure_text reason)) (set Selvedge.Features.Domain.card_contents (fun _=>(with_stage Selvedge.Features.Domain.Blocked (Selvedge.Features.Domain.card_contents card))) (set Selvedge.Features.Domain.card_revision (fun _=>(N.succ (Selvedge.Features.Domain.card_revision card))) (card))))) value.
 Fixpoint pump (fuel:nat) (result:decision) :decision := match fuel with O=>result | S rest=>
  let value:=decision_world result in match next value with None=>result | Some id=>match lookup id value with None=>result | Some card=>
- let advanced:=run id (Selvedge.Features.Domain.card_revision card) (Some (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.card_updated card))) None value in
- let current:=if bool_default "ok" (decision_reply advanced) false then Selvedge.Kernel.State.Decision (decision_world advanced) (decision_reply result) (decision_effects result++decision_effects advanced)
- else Selvedge.Kernel.State.Decision (start_failed id card (String.append (text_default "code" (value_or_null "error" (decision_reply advanced)) "") (String.append ": " (text_default "message" (value_or_null "error" (decision_reply advanced)) ""))) value) (decision_reply result) (decision_effects result) in
+ let current:=match run_result id (Selvedge.Features.Domain.card_revision card)
+   (Some (Selvedge.Features.Domain.decimal_text (Selvedge.Features.Domain.card_updated card))) None value with
+ | CommandResult.Accepted advanced=>DecisionComposition.follow result (CommandResult.accept advanced)
+ | CommandResult.Rejected reason=>Selvedge.Kernel.State.Decision
+   (start_failed id card (String.append (CommandResult.refusal_code reason)
+     (String.append ": " (CommandResult.refusal_message reason))) value)
+   (decision_reply result) (decision_effects result) end in
  pump rest current end end end.
 Definition after_transition (_before:world) (result:decision) := pump 8 (Selvedge.Kernel.State.Decision (synchronize (decision_world result)) (decision_reply result) (decision_effects result)).
 Definition finish (result:decision) := let value:=synchronize (decision_world result) in

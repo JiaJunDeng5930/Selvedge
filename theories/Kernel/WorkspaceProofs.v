@@ -199,9 +199,13 @@ Proof.
  - repeat split; reflexivity.
 Qed.
 
-Theorem reviewer_delegation_ignores_display_metadata : forall child parent child_metadata parent_metadata,
- Workspace.approval_bound
-  (ReviewWith (set profile_metadata (fun _ => child_metadata) child))
-  (ReviewWith (set profile_metadata (fun _ => parent_metadata) parent)) =
- Workspace.approval_bound (ReviewWith child) (ReviewWith parent).
-Proof. reflexivity. Qed.
+Theorem reviewer_delegation_ignores_display_metadata : forall child parent other_child other_parent,
+ profile_key child = profile_key other_child -> profile_key parent = profile_key other_parent ->
+ profile_provider child = profile_provider other_child -> profile_provider parent = profile_provider other_parent ->
+ profile_model child = profile_model other_child -> profile_model parent = profile_model other_parent ->
+ profile_reasoning child = profile_reasoning other_child -> profile_reasoning parent = profile_reasoning other_parent ->
+ profile_reasoning_options child = profile_reasoning_options other_child ->
+ profile_reasoning_options parent = profile_reasoning_options other_parent ->
+ Workspace.approval_bound (ReviewWith child) (ReviewWith parent) =
+ Workspace.approval_bound (ReviewWith other_child) (ReviewWith other_parent).
+Proof. intros; unfold Workspace.approval_bound, Workspace.same_reviewer_profile; congruence. Qed.

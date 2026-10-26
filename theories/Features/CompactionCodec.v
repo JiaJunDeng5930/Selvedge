@@ -1,43 +1,36 @@
+From Selvedge.Kernel Require CallbackDeclarations.
 From Selvedge.Kernel Require Import ModelDeclarations.
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json TextJson.
+From Selvedge.Foundation Require Import Json TextJson Schema.
 From Selvedge.Kernel Require Import Numbers Codec Compaction CompactionPlan ContextSelection.
 From Selvedge.Features Require Import CompactionTypes.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
 
-Definition compact_metadata (id ticket : N) (input : capture) (target : target) (scope : string) := [
- ("kind", ModelDeclarations.tag_value ModelDeclarations.context_compaction); ("task_id", number id); ("ticket", number ticket);
- ("model", Codec.model_json (captured_profile input)); ("context_selected", JBool true);
- ("context_scope", JString scope); ("method", JString (method_name (target_method target)));
- ("window_tokens", number (window_tokens (target_budget target)));
- ("output_reserve_tokens", number (reserve_tokens (target_budget target)))].
-Definition compact_json (id ticket : N) (input : capture) (target : target) (progress : compaction_state) (scope : string) :=
- JObject (compact_metadata id ticket input target scope ++ [("plan", CompactionPlan.plan_json progress)])%list.
+Definition compact_values (id ticket : N) (input : capture) (target : target) (scope : string) plan :=
+ ModelDeclarations.pack ModelDeclarations.context_compaction
+ [!id;ticket;Codec.model_json (captured_profile input);true;scope;method_name (target_method target);
+  window_tokens (target_budget target);reserve_tokens (target_budget target);plan!].
+Definition compact_metadata id ticket input target scope :=
+ match ModelDeclarations.encode_packet (compact_values id ticket input target scope JNull) with
+ | JObject fields => Json.remove_field "plan" fields | _ => [] end.
+Definition compact_json id ticket input target progress scope :=
+ ModelDeclarations.encode_packet (compact_values id ticket input target scope (CompactionPlan.plan_json progress)).
 Definition compact_metadata_bytes (id ticket : N) (input : capture) (target : target) (scope : string) :=
  N.of_nat (String.length (TextJson.render_json (JObject (compact_metadata id ticket input target scope)))) + 8.
-Definition effect_fields (value : effect) := match value with
- | Scope id ticket input => [("task_id", number id);
-   ("ticket", number ticket); ("model", Codec.model_json (captured_profile input))]
- | Measure id ticket input scope validating => [
-   ("task_id", number id); ("ticket", number ticket);
-   ("model", Codec.model_json (captured_profile input));
-   ("history", JArray (ContextSelection.target_messages (ContextSelection.history_json id (captured_history input)) scope));
-   ("context_selected", JBool true); ("context_scope", JString scope);
-   ("tools", JArray (map Codec.tool_json (captured_tools input)));
-   ("settings", Codec.settings_json (captured_settings input));
-   ("callable", JArray (map JString (captured_callable input))); ("validating", JBool validating)]
- | Compact id ticket input target progress scope => (tl (compact_metadata id ticket input target scope) ++ [("plan", CompactionPlan.plan_json progress)])%list
- | ArmClock deadline => [("deadline", number deadline)]
- | Cancel id ticket => [("task_id", number id); ("ticket", number ticket)] end.
-
-Definition effect_json (value : effect) := JObject (("kind", match value with
- | Scope _ _ _ => ModelDeclarations.tag_value ModelDeclarations.context_scope
- | Measure _ _ _ _ _ => ModelDeclarations.tag_value ModelDeclarations.context_measure
- | Compact _ _ _ _ _ _ => ModelDeclarations.tag_value ModelDeclarations.context_compaction
- | ArmClock _ => ModelDeclarations.tag_value ModelDeclarations.compaction_clock
- | Cancel _ _ => ModelDeclarations.tag_value ModelDeclarations.compaction_cancel end) :: effect_fields value).
+Definition effect_packet (value : effect) := match value with
+ | Scope id ticket input => ModelDeclarations.pack ModelDeclarations.context_scope [!id;ticket;Codec.model_json (captured_profile input)!]
+ | Measure id ticket input scope validating => ModelDeclarations.pack ModelDeclarations.context_measure
+   [!id;ticket;Codec.model_json (captured_profile input);
+    ContextSelection.target_messages (ContextSelection.history_json id (captured_history input)) scope;
+    true;scope;map Codec.tool_json (captured_tools input);Codec.settings_json (captured_settings input);
+    captured_callable input;validating!]
+ | Compact id ticket input target progress scope => compact_values id ticket input target scope (CompactionPlan.plan_json progress)
+ | ArmClock deadline => ModelDeclarations.pack ModelDeclarations.compaction_clock [!deadline!]
+ | Cancel id ticket => ModelDeclarations.pack ModelDeclarations.compaction_cancel [!id;ticket!] end.
+Definition effect_fields value := Schema.encode_fields (ModelDeclarations.packet_fields (effect_packet value)).
+Definition effect_json value := ModelDeclarations.encode_packet (effect_packet value).
 
 Definition target_json (value : target) := JObject [
  ("profile", JString (target_key value)); ("window_tokens", number (window_tokens (target_budget value)));
@@ -105,19 +98,23 @@ Definition decode_activity (value : json) : option completion := match natural_f
  natural_field "source_length" value, natural_field "now" value, string_field "scope" value with
  | Some id, Some source, Some now, Some scope => Some (Activity id source now scope) | _, _, _, _ => None end.
 Definition decode_outcome (completed : bool) (value : json) : option completion :=
- match natural_field "task_id" value, natural_field "ticket" value, bool_field "error" value, field "result" value with
- | Some id, Some ticket, Some error, Some (JObject fields) =>
-   if completed then
-     if error then match string_field "message" (JObject fields) with Some _ => Some (Completed id ticket (JObject fields) error) | None => None end
-     else Some (Completed id ticket (JObject fields) error)
-   else option_map (MeasuredInput id ticket) (decode_inspection error (JObject fields))
- | _, _, _, _ => None end.
+ match value with JObject members =>
+ match Schema.decode_fields (ModelDeclarations.payload_fields (CallbackDeclarations.declaration (ModelDeclarations.Compaction completed) false)) members with
+ | Some values => let id := Schema.head values in let values := Schema.tail values in
+   let ticket := Schema.head values in let values := Schema.tail values in
+   match Schema.head values with JObject fields => let error := Schema.head (Schema.tail values) in
+     if completed then
+       if error then match string_field "message" (JObject fields) with Some _ => Some (Completed id ticket (JObject fields) error) | None => None end
+       else Some (Completed id ticket (JObject fields) error)
+     else option_map (MeasuredInput id ticket) (decode_inspection error (JObject fields))
+   | _ => None end
+ | None => None end | _ => None end.
 Definition completion_decoders : list (string * (json -> option completion)) := [
  ("compaction_configure", decode_configure);
  ("compaction_clock", fun value => option_map Clock (natural_field "now" value));
  ("compaction_activity", decode_activity);
- ("compaction_measured", decode_outcome false);
- ("compaction_completed", decode_outcome true)].
+ (ModelDeclarations.callback_text (ModelDeclarations.Compaction false), decode_outcome false);
+ (ModelDeclarations.callback_text (ModelDeclarations.Compaction true), decode_outcome true)].
 Definition completion_decoder (kind : string) :=
  option_map (@snd string (json -> option completion))
   (find (fun pair => String.eqb kind (fst pair)) completion_decoders).

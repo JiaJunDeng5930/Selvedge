@@ -263,7 +263,7 @@ Theorem user_requests_are_latest_text_excerpts : forall history,
  user_requests history = map (fun parts => JString (request_excerpt (request_plain_text parts)))
  (firstn request_limit (rev (user_contents history))).
 Proof.
- intros history; unfold user_requests.
+ intros history; unfold user_requests, user_request_text; rewrite map_map.
  change [] with (firstn request_limit ([] : list content)).
  rewrite bounded_recent_user_contents, app_nil_r; reflexivity.
 Qed.

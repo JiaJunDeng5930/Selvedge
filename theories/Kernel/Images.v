@@ -20,11 +20,9 @@ Fixpoint hex_digits (value : string) := match value with
 Definition valid_identifier (value : string) := Nat.eqb (String.length value) 64 && hex_digits value.
 Definition asset_schema := [Field "id" KText;Field "mime" mime_kind;Field "bytes" KNatural].
 Definition reference_schema := [Field "id" KText;Field "mime" mime_kind;Field "bytes" KJson;
-  Field "name" (KOptional KText);Field "path" (KOptional KText)].
+  OmittableField "name" KText;OmittableField "path" KText].
 Definition text_part_schema := [Field "type" (KEnum "text" []);Field "text" KText].
-Definition image_part_schema := [Field "type" (KEnum "image" []);Field "image" KJson;Field "detail" (KOptional detail_kind)].
-Definition parse_detail (value : json) := match as_string value with
-  | Some "auto" => Some ImageAuto | Some "low" => Some ImageLow | Some "high" => Some ImageHigh | _ => None end.
+Definition image_part_schema := [Field "type" (KEnum "image" []);Field "image" KJson;OmittableField "detail" detail_kind].
 Definition image_json (value : image_asset) := JObject [("id",JString value.(image_id));
   ("mime",JString value.(image_mime));("bytes",JNumber (show_natural value.(image_bytes)))].
 Definition content_part_json (part : content_part) := match part with
@@ -33,37 +31,34 @@ Definition content_part_json (part : content_part) := match part with
       ("detail",JString (detail_name image.(image_detail_level)))] end.
 Definition raw_bytes (value : json) := match value with
   | JString text | JNumber text => parse_natural text | _ => None end.
+Definition asset_of_values id mime bytes :=
+ if valid_identifier id && existsb (String.eqb mime) mime_types &&
+   (0 <? bytes) && (bytes <=? image_byte_limit) then Some (ImageAsset id mime bytes ImageAuto) else None.
 Definition parse_asset_fields (value : json) : option image_asset :=
-  match string_field "id" value,string_field "mime" value,field "bytes" value with
-  | Some id,Some mime,Some raw => match raw_bytes raw with
-    | Some bytes => if valid_identifier id && existsb (String.eqb mime) mime_types &&
-      (0 <? bytes) && (bytes <=? image_byte_limit) then Some (ImageAsset id mime bytes ImageAuto) else None
-    | None => None end
-  | _,_,_ => None end.
-Definition parse_asset (value : json) : option image_asset :=
-  match Schema.decode asset_schema value with Some _ => parse_asset_fields value | None => None end.
-Definition parse_image (value : json) : option image_asset :=
-  match Schema.decode reference_schema value with
-  | Some _ => if (negb (has_field "name" value) || is_string (match field "name" value with Some x => x | None => JNull end)) &&
-      (negb (has_field "path" value) || is_string (match field "path" value with Some x => x | None => JNull end))
-    then parse_asset_fields value else None
-  | None => None end.
-Definition parse_content_part (value : json) : option content_part :=
-  match string_field "type" value with
-  | Some "text" => match Schema.decode text_part_schema value with
-      Some _ => option_map TextPart (string_field "text" value) | None => None end
-  | Some "image" => match Schema.decode image_part_schema value with
-    | None => None
-    | Some _ => match field "image" value with
-      | None => None
-      | Some source => match parse_asset source with
-        | None => None
-        | Some image =>
-          let detail := match field "detail" value with None => Some ImageAuto | Some value => parse_detail value end in
-          option_map (fun detail => ImagePart (ImageAsset image.(image_id) image.(image_mime) image.(image_bytes) detail)) detail
-        end end
-    end
-  | _ => None end.
+ match string_field "id" value,string_field "mime" value,field "bytes" value with
+ | Some id,Some mime,Some raw => match raw_bytes raw with
+   | Some bytes => asset_of_values id mime bytes | None => None end
+ | _,_,_ => None end.
+Definition parse_asset value := match Schema.decode asset_schema value with
+ | Some values => asset_of_values (head values) (proj1_sig (head (tail values))) (head (tail (tail values)))
+ | None => None end.
+Definition parse_image value := match Schema.decode reference_schema value with
+ | Some values => match raw_bytes (head (tail (tail values))) with
+   | Some bytes => asset_of_values (head values) (proj1_sig (head (tail values))) bytes | None => None end
+ | None => None end.
+Definition parse_content_part value :=
+ match string_field "type" value with
+ | Some "text" => option_map (fun values : Schema.fields text_part_schema => TextPart (head (tail values))) (Schema.decode text_part_schema value)
+ | Some "image" => match Schema.decode image_part_schema value with
+   | Some values => option_map (fun image =>
+     let detail := match head (tail (tail values)) with
+       | None => ImageAuto | Some selected =>
+         if String.eqb (proj1_sig selected) "low" then ImageLow else
+         if String.eqb (proj1_sig selected) "high" then ImageHigh else ImageAuto end in
+     ImagePart (ImageAsset image.(image_id) image.(image_mime) image.(image_bytes) detail))
+       (parse_asset (head (tail values)))
+   | None => None end
+ | _ => None end.
 Definition traverse {A B : Type} (parse : A -> option B) (values : list A) : option (list B) :=
  OptionList.traverse parse values.
 Definition image_count (parts : content) := List.length (filter (fun part => match part with ImagePart _ => true | _ => false end) parts).

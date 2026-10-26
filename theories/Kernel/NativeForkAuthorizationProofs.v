@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json Registry RegistryProofs.
 From Selvedge.ThirdParty.RecordUpdate Require Import RecordUpdate.
 From Selvedge.Kernel Require Import Domain State Tasks ContextSelection WorldInvariant
  CommitAdmission AfterHookAuthorizationProofs ForkAuthorizationProofs ForkPreservation ForkConstructionProofs
- NativeResultWorldFrame NativeForkPreservation.
+ NativeResultWorldFrame NativeForkPreservation TaskAuthorityProofs.
 Import ListNotations.
 Open Scope list_scope.
 
@@ -37,18 +37,7 @@ Lemma retained_task_registries_follow_their_actual_lookups :
    CommitAdmission.retained_task source raw before (first+offset)%N features features task current = true) ->
  CommitAdmission.retained_tasks_from source raw before first features features old next = true.
 Proof.
- intros source raw before features old; induction old as [|task rest IH]; intros next first Retained; [reflexivity|].
- destruct (Retained 0%N task eq_refl) as [current [Found Head]].
- destruct next as [|next remaining]; [discriminate|].
- cbn [registry_at] in Found; inversion Found; subst current.
- cbn [CommitAdmission.retained_tasks_from]. rewrite N.add_0_r in Head; rewrite Head; cbn [andb].
- apply IH; intros offset original Original.
- assert (Earlier : registry_at (N.succ offset) (task :: rest) = Some original).
- { rewrite registry_lookup_after_head; exact Original. }
- destruct (Retained (N.succ offset) original Earlier) as [after [Observed Authority]].
- exists after; split.
- - rewrite registry_lookup_after_head in Observed; exact Observed.
- - replace (N.succ first+offset)%N with (first+N.succ offset)%N by lia; exact Authority.
+ intros; apply retained_task_registries_follow_lookups; assumption.
 Qed.
 
 Theorem a_single_active_native_result_retains_cross_state_authority :
@@ -134,10 +123,7 @@ Proof.
  - exact Valid.
  - apply every_native_fork_plan_has_its_observed_source.
  - exact Lifecycle.
- - unfold current; rewrite Parent; unfold result_task,native_result_task_frame.
-   destruct (Callbacks.after_plugins (with_activity (PendingCalls (Scheduler.native_fork_remaining step)) original));
-   destruct original as [contract profile settings lifecycle history queued lineage side cursor consumed];
-   cbn [task_lifecycle] in Lifecycle; subst lifecycle; destruct running; reflexivity.
+ - unfold current; rewrite Parent; eapply continuing_an_active_result_keeps_its_task_frame; exact Lifecycle.
  - unfold current; rewrite result_task_history.
    exists (match Callbacks.after_plugins parent with
    | [] => [FunctionOutput (call_id (Scheduler.native_fork_invocation step)) (number 0) false]
@@ -185,10 +171,7 @@ Proof.
  - apply every_native_fork_plan_has_its_observed_source.
  - exact Lifecycle.
  - unfold current,continued_parent; fold step; fold original.
-   unfold result_task,native_result_task_frame.
-   destruct (Callbacks.after_plugins (with_activity (PendingCalls (Scheduler.native_fork_remaining step)) original));
-   destruct original as [contract profile settings lifecycle history queued lineage side cursor consumed];
-   cbn [task_lifecycle] in Lifecycle; subst lifecycle; destruct running; reflexivity.
+   eapply continuing_an_active_result_keeps_its_task_frame; exact Lifecycle.
  - unfold current; rewrite result_task_history.
    exists (match Callbacks.after_plugins (continued_parent accepted) with
    | [] => [FunctionOutput (call_id (Scheduler.native_fork_invocation step)) (failure code reason) true]

@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Foundation Require Import Json.
 From Selvedge.Kernel Require Import Domain State StateProofs Scheduler Packet RequestDeliveryProofs.
-From Selvedge.Features Require Import Runtime Worktree TaskGraph Board TitleRuntime Compaction.
+From Selvedge.Features Require Import Runtime Worktree TaskGraph Board TitleRuntime Compaction BoardProofs CompactionProofs.
 Import ListNotations.
 
 (* Runtime maintenance may advance other tasks and feature registries. Its
@@ -24,44 +24,18 @@ Lemma graph_output_retains_reply : forall source output current,
  decision_reply (TaskGraph.react_output source output current) = decision_reply current.
 Proof. intros; unfold TaskGraph.react_output; apply reply_preserving_fold; intros; apply graph_delivery_retains_reply. Qed.
 
-Lemma board_pump_retains_reply : forall fuel current,
- decision_reply (Board.pump fuel current) = decision_reply current.
-Proof.
- induction fuel; intros current; cbn [Board.pump]; [reflexivity|].
- destruct (Board.next (decision_world current)); [|reflexivity].
- destruct (Board.lookup n (decision_world current)); [|reflexivity].
- rewrite IHfuel. split_matches.
-Qed.
-
-Lemma title_start_retains_reply : forall id task current,
- decision_reply (TitleRuntime.start id task current) = decision_reply current.
-Proof. intros; unfold TitleRuntime.start; split_matches. Qed.
-
-Lemma compaction_observation_retains_reply : forall before id current,
- decision_reply (Compaction.observe_manual before id current) = decision_reply current.
-Proof.
- intros; unfold Compaction.observe_manual; repeat match goal with
- | |- context [Compaction.combine _ _] => unfold Compaction.combine; cbn [decision_reply]
- | |- context [match ?term with _ => _ end] => destruct term eqn:?
- end; reflexivity.
-Qed.
-
-Lemma compaction_synchronization_retains_reply : forall id current,
- decision_reply (Compaction.synchronize_task id current) = decision_reply current.
-Proof. intros; unfold Compaction.synchronize_task, Compaction.combine; split_matches. Qed.
-
-Lemma compaction_clock_retains_reply : forall current,
- decision_reply (Compaction.arm_clock current) = decision_reply current.
-Proof. intros; unfold Compaction.arm_clock, Compaction.combine; split_matches. Qed.
+Lemma title_start_retains_reply : forall id current,
+ decision_reply (TitleRuntime.start id current) = decision_reply current.
+Proof. intros; unfold TitleRuntime.start, DecisionComposition.follow; split_matches. Qed.
 
 Theorem runtime_maintenance_retains_the_operation_reply : forall before current,
  decision_reply (Runtime.after_transition before current) = decision_reply current.
 Proof.
- intros before current; unfold Runtime.after_transition, Compaction.after_transition, Compaction.synchronize_all.
- rewrite compaction_clock_retains_reply.
- rewrite reply_preserving_fold by (intros; apply compaction_synchronization_retains_reply).
- rewrite reply_preserving_fold by (intros; apply compaction_observation_retains_reply).
- unfold Board.after_transition; rewrite board_pump_retains_reply; cbn [decision_reply].
+ intros before current; unfold Runtime.after_transition, Compaction.after_transition.
+ rewrite synchronization_preserves_the_operation_reply.
+ rewrite reply_preserving_fold by
+   (intros; apply (proj1 (manual_observation_retains_the_operation_result _ _ _))).
+ rewrite (proj1 (after_transition_retains_reply_and_effects _ _)).
  unfold TaskGraph.after_transition.
  rewrite reply_preserving_fold.
  2: { intros; apply reply_preserving_fold; intros; apply graph_output_retains_reply. }
