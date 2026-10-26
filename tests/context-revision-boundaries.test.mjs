@@ -115,7 +115,8 @@ test('a frozen or stopped manual summary is cancelled and cannot restart after r
     const task_id = created.reply.result.task_id;
     const pending = effect(await fixture.command({ op: 'compact', task_id }), 'observe_context');
     await fixture.command({ op: suspension, task_id });
-    noIO(await fixture.observe(pending));
+    const cancelled = await fixture.observe(pending);
+    assert.deepEqual(cancelled.effects, [{ kind: 'compaction_cancel', task_id, ticket: pending.ticket }]);
     const page = await fixture.read(task_id);
     assert.equal(page.task.phase, 'idle');
     assert.ok(JSON.stringify(page.messages).includes(summaryCancelled));
