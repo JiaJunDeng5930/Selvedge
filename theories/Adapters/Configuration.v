@@ -1,7 +1,9 @@
 From Stdlib Require Import String List Bool NArith.
 From Selvedge.Adapters Require Import Common Observation CloudConfiguration.
-From Selvedge.Foundation Require Import Utf8 Schema.
-From Selvedge.Kernel Require Import Context Domain.
+From Selvedge.Foundation Require Import Utf8.
+From Selvedge.Foundation Require Schema.
+From Selvedge.Kernel Require Import Context.
+From Selvedge.Kernel Require Domain.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -246,7 +248,7 @@ Definition adaptive_policy (source : json) :=
   let choices := items (get efforts "items") in
   if kind value "undefined" || kind value "null" || (kind value "boolean" && negb (boolean_field value "boolean"))
   then literal JNull
-  else if negb (fields_only (map field_name Domain.reasoning_policy_schema) value)
+  else if negb (fields_only (map Schema.field_name Domain.reasoning_policy_schema) value)
   then invalid "Invalid adaptive reasoning configuration fields"
   else if identifier (observed_field value "evaluator") && kind efforts "array" &&
     (1 <=? N.of_nat (List.length choices)) && (N.of_nat (List.length choices) <=? 16) &&
