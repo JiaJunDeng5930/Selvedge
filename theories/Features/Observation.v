@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool NArith.
-From Selvedge.Foundation Require Import Json Utf8.
+From Selvedge.Foundation Require Import Json Utf8 Schema.
 From Selvedge.Kernel Require Import Numbers Domain Codec WorkspaceBackend.
 From Selvedge.Features Require Import Domain BoardFacts Titles.
 From Selvedge.Kernel Require Import State.
@@ -53,9 +53,10 @@ Definition board_json (value : Selvedge.Features.Domain.board) := JObject [
  ("agents", JArray (agents_json value));
  ("order", JArray (map number (Selvedge.Features.Domain.board_order value)));
  ("automatic", JBool (Selvedge.Features.Domain.board_automatic value)); ("draft_profile", JString (Selvedge.Features.Domain.board_draft_profile value))].
-Definition rights_json (value : Selvedge.Features.Domain.rights) := JObject [
- ("read", JBool (Selvedge.Features.Domain.may_read value)); ("control", JBool (Selvedge.Features.Domain.may_control value));
- ("configure", JBool (Selvedge.Features.Domain.may_configure value)); ("approve", JBool (Selvedge.Features.Domain.may_approve value))].
+Definition rights_json (value : Selvedge.Features.Domain.rights) :=
+ Schema.encode Selvedge.Features.Domain.rights_fields (Schema.of_tuple Selvedge.Features.Domain.rights_fields
+   [! Selvedge.Features.Domain.may_read value; Selvedge.Features.Domain.may_control value;
+      Selvedge.Features.Domain.may_configure value; Selvedge.Features.Domain.may_approve value !]).
 Definition grant_json (value : Selvedge.Features.Domain.remote_grant) := JObject [
  ("controller_id", JString (Selvedge.Features.Domain.grant_controller value)); ("grant_epoch", number (Selvedge.Features.Domain.grant_epoch value));
  ("permissions", rights_json (Selvedge.Features.Domain.grant_rights value))].

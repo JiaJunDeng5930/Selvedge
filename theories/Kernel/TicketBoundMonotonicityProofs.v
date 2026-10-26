@@ -77,17 +77,10 @@ Theorem well_formed_with_ticket : forall before next,
  well_formed before -> (world_next_ticket before <= next)%N ->
  well_formed (with_ticket next before).
 Proof.
- intros before next Hvalid Hle; destruct Hvalid as [He Hp Ht Htickets Hf].
- constructor.
- - exact He.
- - exact Hp.
- - change (tasks_valid 0 (world_tasks (world_structure before))
-     (with_ticket next (world_structure before)) = true).
-   now rewrite tasks_valid_with_ticket.
- - change (tickets_valid (with_ticket next (world_structure before)) = true).
-   now apply tickets_valid_with_ticket.
- - change (features_valid (with_ticket next (world_structure before)) = true).
-   now apply features_valid_with_ticket.
+ intros before next Valid Later.
+ apply unchanged_registries_preserve_other_world_requirements with before; try reflexivity; [exact Valid| |].
+ - apply tickets_valid_with_ticket; [exact Later|exact (tickets_requirement before Valid)].
+ - apply features_valid_with_ticket; [exact Later|now apply well_formed_feature_requirements].
 Qed.
 
 Corollary with_ticket_passes_world_checker : forall before next,

@@ -66,10 +66,7 @@ Proof. intros owner value [sequence tasks ticket environment projects features];
 Lemma task_registry_requirements_ignore_the_journal_cursor : forall entries owner state,
  WorldInvariant.tasks_valid owner entries (WorldInvariant.world_structure state) =
  WorldInvariant.tasks_valid owner entries state.
-Proof.
- intros entries; induction entries as [|head rest IH]; intros owner state; [reflexivity|].
- cbn [WorldInvariant.tasks_valid]; rewrite task_requirements_ignore_the_journal_cursor, IH; reflexivity.
-Qed.
+Proof. intros; apply registry_requirements_read_only_the_task_and_project_registries; reflexivity. Qed.
 
 (* A replacement changes local progress. Its frame retains execution
    configuration; the relation's feature theorem supplies any history and

@@ -18,8 +18,8 @@ Theorem fork_children_preserve_every_existing_task : forall count parent_id pare
  find_task owner before = Some existing ->
  find_task owner (Tasks.fork_children count parent_id parent messages settings entry start invocation before) = Some existing.
 Proof.
- induction count; intros; cbn [Tasks.fork_children]; [exact H|].
- apply IHcount. apply append_task_preserves_existing; exact H.
+ intros; unfold Tasks.fork_children, find_task, with_tasks; cbn.
+ eapply registry_lookup_preserved_by_append; exact H.
 Qed.
 Theorem fork_does_not_write_unrelated_existing_tasks : forall entry origin id count messages settings before other existing,
  other <> id -> find_task other before = Some existing ->

@@ -174,14 +174,14 @@ Lemma remote_registry_store : forall remote value,
 Proof. intros remote [seq tasks ticket env projects features]. destruct features; reflexivity. Qed.
 
 (** Disabled native grants cannot reach the command interpreter. *)
-Theorem disabled_remote_cannot_execute : forall execute source request command value,
+Theorem disabled_remote_cannot_execute : forall execute prepared configuration request command value,
  F.remote_enabled (Remote.registry value) = false ->
- let '(_,_,result) := Remote.execute_remote execute source request command value in
+ let '(_,_,result) := Remote.execute_remote execute prepared configuration request command value in
  decision_world result = value /\ decision_effects result = [].
 Proof.
- intros execute source request command value disabled.
+ intros execute prepared configuration request command value disabled.
  unfold Remote.execute_remote.
- destruct (Remote.configuration_allowed command source); [|split;reflexivity].
+ destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
  unfold Remote.authorize_command.
  destruct (Remote.required_rights command) as [rights|] eqn:required; [|split;reflexivity].
  unfold Remote.observation_command. rewrite required.
@@ -217,21 +217,20 @@ Theorem delegated_remote_administration_is_denied : forall payload caller value,
 Proof. reflexivity. Qed.
 
 (** Even an effectful supplied executor cannot mutate the world through a remote query. *)
-Theorem remote_query_is_read_only : forall execute source request command value,
+Theorem remote_query_is_read_only : forall execute prepared configuration request command value,
  Remote.observation_command command=true ->
- let '(_,_,result):=Remote.execute_remote execute source request command value in
+ let '(_,_,result):=Remote.execute_remote execute prepared configuration request command value in
  decision_world result=value /\ decision_effects result=[].
 Proof.
- intros execute source request command value readonly.
+ intros execute prepared configuration request command value readonly.
  unfold Remote.execute_remote. rewrite readonly.
  cbn beta iota zeta delta [negb].
- destruct (Remote.configuration_allowed command source); [|split;reflexivity].
+ destruct (Remote.configuration_allowed command configuration); [|split;reflexivity].
  destruct (Remote.authorize_command true command request (Remote.registry value)) as [code reason| |reply];
    try (split;reflexivity).
- destruct (field "command" source) as [prepared|]; [|split;reflexivity].
  destruct (G.admit prepared) as [[prepared_source prepared_command Admitted]|]; [|split;reflexivity].
  cbn [G.admitted_value].
- destruct (Remote.configuration_allowed prepared_command source); [|split;reflexivity].
+ destruct (Remote.configuration_allowed prepared_command configuration); [|split;reflexivity].
  destruct (String.eqb (command_name (G.declared_command command)) (command_name (G.declared_command prepared_command)));
    [|split;reflexivity].
  destruct (Remote.authorize_command true prepared_command request (Remote.registry value)); split;reflexivity.
@@ -316,7 +315,7 @@ Qed.
     intent, while the grant generation still supplies its current authority. *)
 Theorem remote_replay_has_no_effect : forall execute source command required request before candidate issued,
  string_field "kind" source = Some "remote_probe" ->
- Remote.parse_request false source = Some request ->
+ Remote.parse_request false source = Some (request,Schema.FNil) ->
  G.decode (Remote.intent request) = Some command ->
  Remote.required_rights command = Some required ->
  F.may_read required = false ->

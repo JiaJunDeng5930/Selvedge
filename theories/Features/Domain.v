@@ -56,6 +56,8 @@ Definition worktree_target_primary (value:worktree) := match worktree_phase valu
 Definition worktree_message (value:worktree) := match worktree_phase value with
  | TreeCreateFailed _ message | TreeArchiveFailed _ _ message=>message | _=>""%string end.
 Record rights := Rights { may_read : bool; may_control : bool; may_configure : bool; may_approve : bool }.
+Definition rights_fields := [Field "read"%string KBool; Field "control"%string KBool;
+ Field "configure"%string KBool; Field "approve"%string KBool].
 Record remote_grant := RemoteGrant { grant_controller : controller_id; grant_epoch : RemoteIdentity.grant_epoch; grant_rights : rights }.
 Record remote_receipt := RemoteReceipt { remote_controller : controller_id; remote_epoch : RemoteIdentity.grant_epoch;
  remote_request : RemoteIdentity.request_id; remote_intent : json; remote_reply : json }.

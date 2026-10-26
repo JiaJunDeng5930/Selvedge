@@ -11,35 +11,7 @@ Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
 
-(* These are the children constructed by the production recursion, in registry
-   order. The first reference is the actual next registry position, not a
-   search through tasks produced by subsequent feature processing. *)
-Fixpoint constructed_children (count : nat) (parent_id : N) (parent : task)
- (messages : list content) (settings : task_settings) (entry : Tasks.fork_entry)
- (start owner : N) (invocation : call) : list task :=
- match count with
- | O => []
- | S count =>
-   let contents := hd_error messages in
-   Tasks.fork_child_receipt entry start owner invocation
-     (Tasks.fork_child owner parent_id parent contents settings false) ::
-   constructed_children count parent_id parent (tl messages) settings entry
-     start (N.succ owner) invocation
- end.
-
-Lemma replacement_keeps_registry_length : forall (A : Type) (values : list A) owner replacement,
- List.length (replace owner replacement values) = List.length values.
-Proof.
- intros A values; induction values as [|first rest IH]; intros owner replacement; cbn; [reflexivity|].
- destruct (N.eqb owner 0); cbn; [reflexivity|rewrite IH; reflexivity].
-Qed.
-
-Lemma next_task_after_append : forall child before,
- next_task (append_task child before) = N.succ (next_task before).
-Proof.
- intros child before; unfold next_task, append_task, with_tasks; cbv [set]; cbn.
- rewrite length_app; cbn. rewrite Nat.add_1_r, Nat2N.inj_succ; reflexivity.
-Qed.
+Definition replacement_keeps_registry_length := @RegistryProofs.registry_replace_length.
 
 Lemma next_task_after_replacement : forall owner child before,
  next_task (put_task owner child before) = next_task before.
@@ -52,12 +24,7 @@ Theorem fork_children_are_the_exact_registry_suffix :
  forall count parent_id parent messages settings entry start invocation before,
  world_tasks (Tasks.fork_children count parent_id parent messages settings entry start invocation before) =
  world_tasks before ++ constructed_children count parent_id parent messages settings entry start (next_task before) invocation.
-Proof.
- induction count as [|count IH]; intros; cbn [Tasks.fork_children constructed_children]; [now rewrite app_nil_r|].
- rewrite IH, next_task_after_append.
- unfold append_task, with_tasks; cbv [set]; cbn.
- rewrite <- app_assoc; reflexivity.
-Qed.
+Proof. reflexivity. Qed.
 
 Theorem fork_constructs_exactly_the_requested_number_of_children :
  forall count parent_id parent messages settings entry start owner invocation,
@@ -98,14 +65,7 @@ Theorem fork_children_preserve_the_world_frame :
  world_environment after = world_environment before /\
  world_projects after = world_projects before /\
  world_features after = world_features before.
-Proof.
- induction count as [|count IH]; intros; cbn [Tasks.fork_children]; [repeat split; reflexivity|].
- specialize (IH parent_id parent (tl messages) settings entry start invocation
-   (append_task (Tasks.fork_child_receipt entry start (next_task before) invocation
-     (Tasks.fork_child (next_task before) parent_id parent
-       (hd_error messages) settings false)) before)).
- exact IH.
-Qed.
+Proof. intros; repeat split; reflexivity. Qed.
 
 Definition fork_admissible (entry : Tasks.fork_entry) (origin : Tasks.fork_settings_origin)
  (owner count : N) (messages : list content) (raw : option json) (before : world)
@@ -508,25 +468,16 @@ Lemma constructed_fork_children_do_not_own_existing_tickets : forall count owner
    (world_tasks (Tasks.fork_children count owner parent messages settings entry start invocation before)) =
  flat_map WorldInvariant.task_tickets (world_tasks before).
 Proof.
- induction count as [|count IH]; intros; [reflexivity|].
- cbn [Tasks.fork_children]; rewrite IH.
- change (flat_map WorldInvariant.task_tickets (world_tasks before ++
-   [Tasks.fork_child_receipt entry start (next_task before) invocation
-     (Tasks.fork_child (next_task before) owner parent
-       (hd_error messages) settings false)]) = flat_map WorldInvariant.task_tickets (world_tasks before)).
- rewrite flat_map_app.
- assert (Empty : WorldInvariant.task_tickets
-   (Tasks.fork_child_receipt entry start (next_task before) invocation
-     (Tasks.fork_child (next_task before) owner parent
-       (hd_error messages) settings false)) = []).
- { unfold Tasks.fork_child_receipt, Tasks.fork_child, with_activity, with_history;
+ intros count owner parent messages settings entry start invocation before.
+ rewrite fork_children_are_the_exact_registry_suffix, flat_map_app.
+ assert (Empty : forall count messages fresh,
+   flat_map WorldInvariant.task_tickets
+     (Tasks.constructed_children count owner parent messages settings entry start fresh invocation) = []).
+ { intros amount; induction amount as [|amount IH]; intros; [reflexivity|].
+   cbn [Tasks.constructed_children flat_map]; rewrite IH.
+   unfold Tasks.fork_child_receipt, Tasks.fork_child, with_activity, with_history;
      cbv [set]; cbn; destruct entry; [|destruct remaining]; reflexivity. }
- change (flat_map WorldInvariant.task_tickets (world_tasks before) ++
-   (WorldInvariant.task_tickets (Tasks.fork_child_receipt entry start (next_task before) invocation
-     (Tasks.fork_child (next_task before) owner parent
-       (hd_error messages) settings false)) ++ []) =
-   flat_map WorldInvariant.task_tickets (world_tasks before)).
- rewrite Empty; cbn; now rewrite app_nil_r.
+ rewrite Empty; apply app_nil_r.
 Qed.
 
 Lemma replacing_equal_ticket_ownership_keeps_the_registry_supply :

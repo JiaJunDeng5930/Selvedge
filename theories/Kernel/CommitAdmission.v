@@ -164,14 +164,14 @@ Definition task_is_configurable (old : D.task) :=
  negb (D.task_busy old) && Nat.eqb (List.length (D.task_queued old)) 0 &&
  match D.task_lifecycle old with D.Archived _ => false | _ => true end.
 Definition remote_execution_configuration_authorizes (raw_source : Json.json) (owner : N) (before : K.world) :=
- match string_field "kind" raw_source, Remote.parse_request true raw_source,
-   field "intent" raw_source, field "command" raw_source with
- | Some kind, Some request, Some intent, Some prepared_source =>
+ match string_field "kind" raw_source, Remote.parse_request true raw_source with
+ | Some kind, Some (request,observations) =>
+   let configuration := Schema.head (Schema.tail observations) in
    String.eqb kind "remote_command" &&
-   match G.decode intent, G.decode prepared_source with
+   match G.decode (Remote.intent request), G.decode (Schema.head observations) with
    | Some original, Some prepared =>
      execution_configuration_target original owner && execution_configuration_target prepared owner &&
-     Remote.configuration_allowed original raw_source && Remote.configuration_allowed prepared raw_source &&
+     Remote.configuration_allowed original configuration && Remote.configuration_allowed prepared configuration &&
      String.eqb (Schema.command_name (G.declared_command original))
        (Schema.command_name (G.declared_command prepared)) &&
      match Remote.authorize_command true original request (Remote.registry before) with
@@ -179,7 +179,7 @@ Definition remote_execution_configuration_authorizes (raw_source : Json.json) (o
        | Remote.Admitted => true | _ => false end
      | _ => false end
    | _, _ => false end
- | _, _, _, _ => false
+ | _, _ => false
  end.
 Definition configure_execution_source_authorizes (source : option input) (raw_source : Json.json)
  (owner : N) (before : K.world) (old : D.task) :=

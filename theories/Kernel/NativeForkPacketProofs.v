@@ -3,7 +3,7 @@ From Selvedge.Foundation Require Import Json.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Kernel Require Import Numbers Domain Codec State Tasks Inputs InputDecoder Packet
  NativeForkCommit NativeForkCommitProofs NativeForkAuthorizationProofs NativeForkPreservation
- ForkCommitProofs ForkPreservation DeferredCommit Dispatch WorldInvariant WorldInvariantProofs CommitAdmission Delivery Notifications.
+ ForkCommitProofs ForkPreservation DeferredCommit DeferredCommitProofs Dispatch WorldInvariant WorldInvariantProofs CommitAdmission Delivery Notifications.
 From Selvedge.Features Require Import Worktree.
 Import ListNotations.
 Open Scope string_scope.
@@ -77,11 +77,8 @@ Proof.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input
    Packet.native_fork_input].
  rewrite Selected; cbn.
- unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose,DeferredCommit.admit_with_status.
- rewrite Constructed,Retained.
- unfold WorldInvariant.validate_with_status; rewrite World.
- unfold CommitAdmission.validate_with_status; rewrite Authority.
- unfold Delivery.deliver_with_status; rewrite OutputFits; reflexivity.
+ rewrite Constructed.
+ apply a_constructed_candidate_with_its_actual_budget_is_committed; assumption.
 Qed.
 
 Theorem every_refused_native_fork_has_its_actual_commit_admission :
@@ -142,11 +139,8 @@ Proof.
  cbn [Packet.manual_fork_input CreationCommit.input Packet.deferred_candidate BoardCommit.input ConnectionCommit.input
    Packet.native_fork_input].
  rewrite Selected; cbn.
- unfold DeferredCommit.packet, DeferredCommit.select, CommitPacket.choose,DeferredCommit.admit_with_status.
- rewrite Constructed,Retained.
- unfold WorldInvariant.validate_with_status; rewrite World.
- unfold CommitAdmission.validate_with_status; rewrite Authority.
- unfold Delivery.deliver_with_status; rewrite OutputFits; reflexivity.
+ rewrite Constructed.
+ apply a_constructed_candidate_with_its_actual_budget_is_committed; assumption.
 Qed.
 
 Theorem an_exported_native_fork_at_descendant_capacity_commits_its_refusal :

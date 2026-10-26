@@ -157,7 +157,6 @@ Definition select_creation_plan (before:world) (selected:task_settings)
      | Some owner=>reuse_plan before selected owner
      | None=>if match managed with Some false=>false | _=>settings_worktree selected end
        then provision_plan before WorkspaceBackend.Local selected else Some UseWorkspace end end end.
-Definition plan_settings {before settings} (_:creation_plan before settings) := settings.
 (* The entry identity controls failure projection; resource selection and ordinary
    start resolution still share one immutable plan. *)
 Inductive creation_intent := ImplicitCreation | IdleTaskCreation | WorkTaskCreation
@@ -416,17 +415,11 @@ Definition create_intent (intent:creation_intent) (name:string) (effort:option s
  (contents:content) (settings:option json) (idle:bool) (caller:option N)
  (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
  creation_decision (create_intent_result intent name effort contents settings idle caller managed backend value).
-Definition create_planned (name:string) (effort:option string) (contents:content) (settings:option json)
- (idle:bool) (caller:option N) (managed:option bool) (backend:option WorkspaceBackend.backend) (value:world) :=
- create_intent (if idle then IdleTaskCreation else ImplicitCreation) name effort contents settings idle caller managed backend value.
 Definition create_selected_result (name:string) (effort:option string) (contents:content) (settings:option json)
  (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
  create_intent_result (if idle then IdleTaskCreation else ImplicitCreation) name effort contents settings idle caller managed None value.
 Definition create_selected (name:string) (effort:option string) (contents:content) (settings:option json) (idle:bool) (caller:option N) (managed:option bool) (value:world) :=
  creation_decision (create_selected_result name effort contents settings idle caller managed value).
-Definition create_backend (backend:WorkspaceBackend.backend) (name:string) (effort:option string)
- (contents:content) (settings:option json) (caller:option N) (value:world) :=
- create_intent WorkspaceTaskCreation name effort contents settings false caller None (Some backend) value.
 Definition create (name:string) (effort:option string) (contents:content) (settings:option json) (caller:option N) (managed:bool) (value:world) :=
  create_intent WorktreeTaskCreation name effort contents settings false caller (Some managed) None value.
 Definition consume_owned_start (owner:option N) (intent:creation_intent) (settings:option json)

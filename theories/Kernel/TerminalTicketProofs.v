@@ -20,18 +20,6 @@ Proof.
  apply filtering_operations_withdraws_only_their_tickets.
 Qed.
 
-Theorem archived_operation_removal_preserves_global_ticket_supply :
- forall before owner current operations identity suffix,
- tickets_valid before = true -> find_task owner before = Some current ->
- task_lifecycle current = Archived operations ->
- tickets_valid (put_task owner
-  (with_operations (Callbacks.remove_operation identity (task_operations current))
-    (append_history suffix current)) before) = true.
-Proof.
- intros; eapply withdrawing_task_tickets_preserves_global_ticket_supply; eauto.
- eapply archived_operation_removal_withdraws_only_task_tickets; eauto.
-Qed.
-
 Theorem settlement_task_tickets_are_a_subsequence :
  forall owner original plugin previous failed outcome current operations,
  task_lifecycle current = Archived operations ->

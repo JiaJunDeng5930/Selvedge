@@ -1,6 +1,7 @@
 From Stdlib Require Import String List.
 From Selvedge.Foundation Require Import Json Schema.
 From Selvedge.Kernel Require Import ModelDeclarations.
+From Selvedge.Features Require Import Domain.
 From Selvedge.Host Require RemoteTransport RemoteConnectorSession.
 Module RT := Selvedge.Host.RemoteTransport.
 Module RC := Selvedge.Host.RemoteConnectorSession.
@@ -175,7 +176,7 @@ Definition unions := [("RemoteConnectorSessionState",remote_connector_states);("
 Definition workspace_command_fields := [Field "root_task" KBool;Field "worktree" KBool;Field "selections" (KArray KJson)].
 Definition workspace_selection_fields := [Field "value" KJson;Field "resolve_project" KBool].
 Definition workspace_settings_fields := [Field "project_id" (KOptional KNatural);Field "observe_workspace" KBool].
-Definition http_permissions_fields := [Field "read" KBool;Field "control" KBool;Field "configure" KBool;Field "approve" KBool].
+Definition http_permissions_fields := Selvedge.Features.Domain.rights_fields.
 Definition resource_action_name := KEnum "persist" ["allocate";"prepare";"credentials";"scan";"terminate";"finish";
  "local_reserve";"local_create";"local_prepare";"local_classify";"local_release";"local_remove";"local_archive";"local_observe";
  "local_sync_registration";"local_sync_ready";"local_sync_archive";"local_sync_release"].

@@ -100,25 +100,6 @@ Proof.
  rewrite Candidate; eapply terminal_settlement_has_global_transition_authority; eauto.
 Qed.
 
-Theorem terminal_commit_admission_keeps_the_constructed_settlement :
- forall before (accepted : TerminalSettlement.plan before) raw,
- WorldInvariant.well_formed before -> Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
- DeferredCommit.admit_with_status true (Some (TerminalSettlement.source accepted)) raw before
-  (TerminalSettlement.candidate accepted) = (true,TerminalSettlement.candidate accepted).
-Proof.
- intros before accepted raw Valid Fits.
- pose proof (well_formed_worlds_pass_the_checker _ (every_terminal_plan_preserves_the_world_requirements before accepted Valid)) as WellFormed.
- pose proof (every_terminal_plan_has_transition_authority before accepted raw Valid) as Authorized.
- assert (Retained : Dispatch.retain_live_effects (TerminalSettlement.candidate accepted) = TerminalSettlement.candidate accepted).
- { destruct (every_terminal_plan_constructs_its_exact_successful_settlement before accepted)
-    as [operations [original [plugin [previous [failed [_ [_ [_ [_ Candidate]]]]]]]]].
-   rewrite Candidate; reflexivity. }
- unfold DeferredCommit.admit_with_status; rewrite Retained.
- unfold WorldInvariant.validate_with_status; rewrite WellFormed.
- unfold CommitAdmission.validate_with_status; rewrite Authorized.
- unfold Delivery.deliver_with_status; rewrite Fits; reflexivity.
-Qed.
-
 Theorem a_terminal_settlement_commits_before_independent_runtime_work :
  forall before (accepted : TerminalSettlement.plan before) raw,
  WorldInvariant.well_formed before -> Delivery.fits true (TerminalSettlement.candidate accepted) = true ->
@@ -126,8 +107,12 @@ Theorem a_terminal_settlement_commits_before_independent_runtime_work :
  (with_sequence (N.succ (world_sequence before)) (decision_world (TerminalSettlement.candidate accepted)),
   Notifications.envelope true true (Some (TerminalSettlement.source accepted)) before (TerminalSettlement.candidate accepted)).
 Proof.
- intros; unfold TerminalSettlement.packet, DeferredCommit.packet, DeferredCommit.select.
- rewrite terminal_commit_admission_keeps_the_constructed_settlement by assumption; reflexivity.
+ intros before accepted raw Valid Fits; unfold TerminalSettlement.packet.
+ apply a_constructed_candidate_with_its_actual_budget_is_committed.
+ - reflexivity.
+ - apply well_formed_worlds_pass_the_checker, every_terminal_plan_preserves_the_world_requirements; exact Valid.
+ - apply every_terminal_plan_has_transition_authority; exact Valid.
+ - exact Fits.
 Qed.
 
 Theorem terminal_packets_preserve_world_validity : forall before (accepted : TerminalSettlement.plan before) raw,

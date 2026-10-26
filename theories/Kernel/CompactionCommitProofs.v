@@ -278,24 +278,13 @@ Proof.
  pose proof (FeatureFrameProofs.well_formed_feature_requirements before Valid) as Features.
  assert (Maintenance : WorldInvariant.compaction_valid before = true).
  { unfold WorldInvariant.features_valid in Features; now apply andb_true_iff in Features as [_ Maintenance]. }
- constructor.
- - exact (WorldInvariant.environment_requirement before Valid).
- - exact (WorldInvariant.projects_requirement before Valid).
- - unfold WorldInvariant.world_structure.
-   rewrite task_registry_requirements_ignore_the_journal_cursor.
-   rewrite FeatureFrameProofs.registry_requirements_read_only_the_task_and_project_registries
-     with (before:=before) by reflexivity.
-   pose proof (WorldInvariant.tasks_requirement before Valid) as Tasks.
-   unfold WorldInvariant.world_structure in Tasks.
-   now rewrite task_registry_requirements_ignore_the_journal_cursor in Tasks.
+ apply unchanged_registries_preserve_other_world_requirements with before; try reflexivity; [exact Valid| |].
  - change (WorldInvariant.tickets_valid (M.store
      (M.with_entry owner (M.checkpoint_entry (task_history current) (M.current_entry owner (M.registry before)))
        (M.registry before)) before) = true).
    apply checkpointing_maintenance_preserves_global_ticket_ownership.
    exact (WorldInvariant.tickets_requirement before Valid).
- - unfold WorldInvariant.world_structure.
-   rewrite FeatureFrameProofs.feature_requirements_ignore_journal_cursor.
-   change (feature_core_valid (MP.manual_waiting_world owner current before) &&
+ - change (feature_core_valid (MP.manual_waiting_world owner current before) &&
      WorldInvariant.compaction_valid (MP.manual_waiting_world owner current before) = true).
    rewrite a_manual_wait_keeps_maintenance_requirements by assumption; rewrite andb_true_r.
    unfold MP.manual_waiting_world; rewrite storing_maintenance_keeps_other_features_valid.

@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json JsonObjects Schema TextJson Utf8 Re
 From Selvedge.Kernel Require Import Domain State Numbers Codec Configuration Scheduler Commands.
 From Selvedge.Generated Require Import Commands.
 From Selvedge.Features Require Import Domain State.
+From Selvedge.Features Require Observation.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope N_scope.
@@ -19,15 +20,11 @@ Definition payload_valid source := N.of_nat (String.length (TextJson.render_json
 Definition find_grant controller state := find (fun grant => String.eqb controller (Selvedge.Features.Domain.grant_controller grant)) (Selvedge.Features.Domain.remote_grants state).
 Definition remove_grants controller := filter (fun grant => negb (String.eqb controller (Selvedge.Features.Domain.grant_controller grant))).
 Definition remove_receipts controller := filter (fun receipt => negb (String.eqb controller (Selvedge.Features.Domain.remote_controller receipt))).
-Definition rights_json rights := JObject [("read",JBool (Selvedge.Features.Domain.may_read rights));("control",JBool (Selvedge.Features.Domain.may_control rights));
- ("configure",JBool (Selvedge.Features.Domain.may_configure rights));("approve",JBool (Selvedge.Features.Domain.may_approve rights))].
-Definition grant_json grant := JObject [("controller_id",JString (Selvedge.Features.Domain.grant_controller grant));
- ("grant_epoch",number (Selvedge.Features.Domain.grant_epoch grant));("permissions",rights_json (Selvedge.Features.Domain.grant_rights grant))].
+Definition grant_json := Selvedge.Features.Observation.grant_json.
 Definition status state := JObject [("enabled",JBool (Selvedge.Features.Domain.remote_enabled state));
  ("grants",JArray (map grant_json (Selvedge.Features.Domain.remote_grants state)));
  ("receipt_count",number (N.of_nat (List.length (Selvedge.Features.Domain.remote_receipts state))));("receipt_limit",number 1024)].
-Definition rights_schema := [Field "read" KBool;Field "control" KBool;Field "configure" KBool;Field "approve" KBool].
-Definition parse_rights source := match Schema.decode rights_schema source with
+Definition parse_rights source := match Schema.decode F.rights_fields source with
  | Some values => let read := Schema.head values in let values := Schema.tail values in
    let control := Schema.head values in let values := Schema.tail values in
    Some (Selvedge.Features.Domain.Rights read control (Schema.head values) (Schema.head (Schema.tail values)))
@@ -170,31 +167,29 @@ Definition record_result request before result :=
  else reject "remote_reply_limit" "The command reply exceeds remote receipt retention limits; no command or effect was committed" before.
 Definition root_task_command (command : G.command) :=
  KCommands.root_task_creation (G.encode command).
-Definition configuration_allowed (original : G.command) source := match field "configuration" source with
- | None | Some JNull=>true
- | Some _=>root_task_command original end.
-Definition prepared_world source value : option world := match field "configuration" source with
- | None | Some JNull=>Some value
- | Some configuration=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
+Definition configuration_allowed (original : G.command) configuration :=
+ is_null configuration || root_task_command original.
+Definition prepared_world configuration value : option world := match configuration with
+ | JNull=>Some value
+ | _=>option_map (fun environment=>with_environment environment value) (Configuration.parse_environment configuration) end.
 Definition schedules command result := bool_default "ok" (decision_reply result) false &&
  match command with Selvedge.Generated.Commands.Cmd_create_idle _ | Selvedge.Generated.Commands.Cmd_record_speech_transcript _=>false | _=>negb (observation_command command) end.
-Definition execute_remote (execute:Scheduler.executor) source request original value : bool*bool*decision :=
+Definition execute_remote (execute:Scheduler.executor) prepared configuration request original value : bool*bool*decision :=
  let query:=observation_command original in
  let denied code reason:=(negb query,false,reject code reason value) in
  (* Check even for queries, whose execution deliberately skips prepared worlds. *)
- if configuration_allowed original source then match authorize_command true original request (registry value) with
+ if configuration_allowed original configuration then match authorize_command true original request (registry value) with
  | Denied code reason=>denied code reason
  | Replay reply=>(negb query,false,Decision value reply [])
- | Admitted=>match field "command" source with
-   | Some prepared=>match Selvedge.Generated.Commands.admit prepared with
-     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if configuration_allowed command source then
+ | Admitted=>match Selvedge.Generated.Commands.admit prepared with
+     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if configuration_allowed command configuration then
        (* DEFENSE: Host preparation adds workspace/image observations; it must not change the requested operation or increase its required rights. *)
        if String.eqb (command_name (Selvedge.Generated.Commands.declared_command original)) (command_name (Selvedge.Generated.Commands.declared_command command)) then
        match authorize_command true command request (registry value) with
        | Denied code reason=>denied code reason
        | Replay reply=>(negb query,false,Decision value reply [])
        | Admitted=>if query then let result:=execute command None value in
-         (false,false,Decision value (decision_reply result) []) else match prepared_world source value with
+         (false,false,Decision value (decision_reply result) []) else match prepared_world configuration value with
          | None=>denied "invalid_input" "The prepared remote environment is malformed"
          | Some prepared=>let result:=execute command None prepared in
            let result:=record_result request value result in (true,schedules command result,result)
@@ -203,16 +198,18 @@ Definition execute_remote (execute:Scheduler.executor) source request original v
        (* DEFENSE: Native callers can submit same-name task graphs whose prepared nodes no longer create the root task named by the intent. *)
        else denied "invalid_input" "Remote environment observations are limited to task creation"
      | None=>denied "invalid_input" "The prepared remote command is malformed" end
-   | None=>denied "invalid_input" "The prepared remote command is required" end
  end else denied "invalid_input" "Remote environment observations are limited to task creation".
+Definition preparation_fields (prepared : bool) :=
+ if prepared then [Field "command" KJson;Field "configuration" KJson] else [].
 Definition request_schema (prepared : bool) := List.app
  [Field "kind" KText;Field "controller_id" KText;Field "grant_epoch" KNatural;Field "request_id" KText;Field "intent" KJson]
- (if prepared then [Field "command" KJson;Field "configuration" KJson] else []).
+ (preparation_fields prepared).
 Definition parse_request (prepared : bool) source := match Schema.decode (request_schema prepared) source with
  | Some values => let values := Schema.tail values in let controller := Schema.head values in
    let values := Schema.tail values in let epoch := Schema.head values in
    let values := Schema.tail values in let id := Schema.head values in
-   Some (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head (Schema.tail values)))
+   let values := Schema.tail values in
+   Some (Request (ControllerId controller) (GrantEpoch epoch) (RequestId id) (Schema.head values),Schema.tail values)
  | None => None end.
 Definition completion (execute:Scheduler.executor) source value : option (bool*bool*decision) :=
  match string_field "kind" source with
@@ -221,12 +218,14 @@ Definition completion (execute:Scheduler.executor) source value : option (bool*b
      probe_reply (check read_rights (Schema.head values) (Schema.head (Schema.tail values)) (registry value)) value
    | None=>reject "invalid_input" "Malformed remote identity check" value end)
  else if String.eqb kind "remote_probe" || String.eqb kind "remote_command" then
-   Some (match parse_request (String.eqb kind "remote_command") source with
+   let prepared:=String.eqb kind "remote_command" in
+   Some (match parse_request prepared source with
    | None=>(false,false,reject "invalid_input" "Malformed remote request" value)
-   | Some request=>match Selvedge.Generated.Commands.admit (intent request) with
+   | Some (request,observations)=>match Selvedge.Generated.Commands.admit (intent request) with
      | None=>(false,false,reject "invalid_input" "Malformed original remote command" value)
-     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in if String.eqb kind "remote_probe" then
-       (false,false,probe_reply (authorize_command true command request (registry value)) value)
-       else execute_remote execute source request command value
+     | Some admitted=>let command:=Selvedge.Generated.Commands.admitted_value admitted in
+       (if prepared as observed return Schema.fields (preparation_fields observed) -> bool*bool*decision
+        then fun values=>execute_remote execute (Schema.head values) (Schema.head (Schema.tail values)) request command value
+        else fun _=>(false,false,probe_reply (authorize_command true command request (registry value)) value)) observations
      end end) else None
  | None=>None end.

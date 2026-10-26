@@ -18,18 +18,17 @@ Proof.
  destruct prepared; simpl in *; rewrite Parsed; reflexivity.
 Qed.
 
-Theorem completion_rejects_non_root_configuration : forall execute source value request command configuration,
+Theorem completion_rejects_non_root_configuration : forall execute source value request command prepared configuration,
  string_field "kind" source = Some "remote_command" ->
- Remote.parse_request true source = Some request ->
+ Remote.parse_request true source = Some (request,Schema.of_tuple (Remote.preparation_fields true) (prepared,(configuration,tt))) ->
  G.decode (Remote.intent request) = Some command ->
- field "configuration" source = Some configuration ->
  configuration <> JNull ->
  Remote.root_task_command command = false ->
  Remote.completion execute source value =
  Some (negb (Remote.observation_command command),false,
    reject "invalid_input" "Remote environment observations are limited to task creation" value).
 Proof.
- intros execute source value request command configuration Kind Parsed Decoded Config NonNull Root.
+ intros execute source value request command prepared configuration Kind Parsed Decoded NonNull Root.
  rewrite <- G.admit_projects_decode in Decoded.
  destruct (G.admit (Remote.intent request)) as [admitted|] eqn:Admitted; [|discriminate].
  cbn in Decoded; inversion Decoded; subst command.
@@ -38,7 +37,6 @@ Proof.
  cbn.
  rewrite Parsed, Admitted.
  unfold Remote.execute_remote, Remote.configuration_allowed.
- rewrite Config.
  destruct configuration; try (exfalso; apply NonNull; reflexivity);
    rewrite Root; reflexivity.
 Qed.

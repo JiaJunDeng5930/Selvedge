@@ -3,6 +3,7 @@ From Selvedge.Foundation Require Import Json Schema SchemaJson Arguments Numbers
 From Selvedge.Foundation Require ArgumentDeclaration.
 From Selvedge.Kernel Require Import Domain Codec ContentDeclarations ChatgptArguments.
 From Selvedge.Features Require Import Titles BoardParameters TaskGraphDeclarations.
+From Selvedge.Features Require Domain.
 Import ListNotations.
 Open Scope string_scope.
 Open Scope list_scope.
@@ -29,17 +30,6 @@ Definition settings_declaration (observed : bool) := D.Object
     ("project_id",false,identity)] ++
   if observed then [("guidance",false,guidance_declaration);
                     ("workspace_binding",false,D.Any)] else []).
-Definition settings_arguments := map (fun field =>
- let argument := Arguments.omittable_nonnull (Arguments.from_field field) in
- if String.eqb (field_name field) "workspace" then Arguments.with_declaration workspace_declaration argument else
- if String.eqb (field_name field) "sandbox" then Arguments.with_declaration sandbox_patch_declaration argument else
- if String.eqb (field_name field) "approval" then Arguments.with_declaration approval_declaration argument else
- if String.eqb (field_name field) "project_id" then Arguments.with_declaration identity argument else argument)
- (filter (fun field => negb (String.eqb (field_name field) "guidance" ||
- String.eqb (field_name field) "workspace_binding")) Codec.task_settings_schema).
-Definition fields_of (source : json) := match source with JObject fields => fields | _ => [] end.
-Definition settings_schema := fields_of (D.schema (settings_declaration false)).
-Definition public_settings_schema := settings_schema.
 Definition content_declaration := ContentDeclarations.content_declaration.
 Definition images_declaration := ContentDeclarations.images_declaration.
 Definition attachments_declaration (observed : bool) := D.Array
@@ -47,15 +37,10 @@ Definition attachments_declaration (observed : bool) := D.Array
                else BoardParameters.attachment_reference_schema)).
 Definition title_prompt_declaration := Titles.instruction_declaration.
 Definition controller_id_declaration := RemoteIdentity.controller_declaration.
-Definition controller_id_schema := fields_of (D.schema controller_id_declaration).
-Definition title_prompt_schema := fields_of (D.schema title_prompt_declaration).
-Definition permission_names := ["read";"control";"configure";"approve"].
-Definition permissions_declaration := D.Object (map (fun name => (name,true,D.Boolean)) permission_names).
-Definition permissions_schema := fields_of (D.schema permissions_declaration).
+Definition permissions_declaration := D.of_schema Selvedge.Features.Domain.rights_fields.
 Definition grants_declaration := D.Array (D.Object [
  ("connection_id",true,identity);("project_ids",true,D.Array identity);
  ("sandbox",true,sandbox_declaration)]).
-Definition connection_grants_schema := fields_of (D.schema grants_declaration).
 
 Definition graph_node_declaration (observed : bool) := D.Union [
  D.Object [("key",true,D.text);("task_id",true,identity)];
@@ -63,8 +48,6 @@ Definition graph_node_declaration (observed : bool) := D.Union [
  ("reasoning",false,D.text);("message",false,D.text);
  ("settings",false,settings_declaration observed)]].
 Definition graph_rule_declaration := TaskGraphDeclarations.rule_declaration.
-Definition graph_command (name : string) := String.eqb name "create_task_graph" || String.eqb name "update_task_graph".
-Definition board_metadata (name : string) := existsb (String.eqb name) ["create_card";"update_card"].
 Definition board_status := enum "backlog" ["todo";"in_progress";"in_review";"done";"blocked"].
 Definition board_assignee := D.Union [enum "none" ["self"];
  D.PrefixedText "profile/" (D.bounded_text 1016);

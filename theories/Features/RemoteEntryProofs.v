@@ -53,7 +53,6 @@ Proof.
 Qed.
 
 Definition stop_first_wire := JObject [("op",JString "stop");("task_id",number 0)].
-Definition stop_first_source := JObject [("command",stop_first_wire)].
 
 (** Current control authority has observable force at the extracted executor:
     the task is stopped and the original success is durably retained. Read,
@@ -69,7 +68,7 @@ Theorem current_control_grant_executes_actual_remote_stop : forall task phase op
  F.may_control (F.grant_rights issued) = true ->
  find (Remote.key_matches request) (F.remote_receipts (Remote.registry value)) = None ->
  (N.of_nat (List.length (F.remote_receipts (Remote.registry value))) <? 1024) = true ->
- Remote.execute_remote Packet.execute_domain stop_first_source request
+ Remote.execute_remote Packet.execute_domain stop_first_wire JNull request
    (G.Cmd_stop (G.Build_stop 0)) value =
  (true,true,Decision
    (Remote.store
@@ -89,14 +88,13 @@ Proof.
    request (Remote.registry value) = Remote.Admitted).
  { exact Admitted. }
  assert (Configuration : Remote.configuration_allowed
-   (G.Cmd_stop (G.Build_stop 0)) stop_first_source = true) by reflexivity.
+   (G.Cmd_stop (G.Build_stop 0)) JNull = true) by reflexivity.
  unfold Remote.execute_remote. rewrite Configuration, Authorize.
- cbn [stop_first_source stop_first_wire Remote.observation_command Remote.required_rights].
+ cbn [stop_first_wire Remote.observation_command Remote.required_rights].
  assert (Decoded : G.admit stop_first_wire =
    Some (G.AdmittedCommand stop_first_wire (G.Cmd_stop (G.Build_stop 0)) eq_refl)) by reflexivity.
- assert (Field : field "command" stop_first_source = Some stop_first_wire) by reflexivity.
- rewrite Field, Decoded. cbn [G.admitted_value G.declared_command]. rewrite Configuration, Authorize.
- assert (Prepared : Remote.prepared_world stop_first_source value = Some value) by reflexivity.
+ rewrite Decoded. cbn [G.admitted_value G.declared_command]. rewrite Configuration, Authorize.
+ assert (Prepared : Remote.prepared_world JNull value = Some value) by reflexivity.
  rewrite Prepared.
  rewrite (actual_stop_preserves_workspace_and_stops_task task phase operations value Tasks Running Workspace).
  reflexivity.

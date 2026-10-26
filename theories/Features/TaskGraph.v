@@ -30,7 +30,6 @@ Fixpoint message_size (message:Selvedge.Features.Domain.graph_message) :nat := m
  | Selvedge.Features.Domain.GraphOutput|Selvedge.Features.Domain.GraphLiteral _=>1 | Selvedge.Features.Domain.GraphConcat parts=>S (fold_right (fun part total=>message_size part+total)%nat 0%nat parts) end.
 Definition action_of_fields (values : ArgumentDeclaration.denote TaskGraphDeclarations.action_declaration) :=
  let '(target,(message,_)) := values in Selvedge.Features.Domain.GraphAction target (message_of_fields maximum_message_depth message).
-Definition parse_action source := option_map action_of_fields (ArgumentDeclaration.decode TaskGraphDeclarations.action_declaration source).
 Definition parse_rule source := option_map
  (fun values => let '(key,(source,(actions,_))) := values in
    Selvedge.Features.Domain.GraphRule key source (map action_of_fields actions))

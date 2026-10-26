@@ -63,12 +63,6 @@ Proof.
  eapply terminal_receipts_have_the_owned_archived_authority; eauto.
 Qed.
 
-Lemma unchanged_task_registry_has_authority : forall source raw before features first entries,
- CommitAdmission.retained_tasks_from source raw before first features features entries entries = true.
-Proof.
- intros; apply unchanged_tasks_keep_authority_across_other_features.
-Qed.
-
 Lemma replacing_one_task_lifts_its_authority : forall source raw before features entries first selected old next,
  registry_at selected entries = Some old ->
  CommitAdmission.retained_task source raw before (first + selected)%N features features old next = true ->

@@ -458,17 +458,22 @@ Definition fork_child_receipt (entry : fork_entry) (start owner : N) (invocation
  | ManualFork => WantsModel
  | AcceptedNativeFork _ remaining => match remaining with
    | [] => WantsModel | _ => PendingCalls (map Domain.recovery_call remaining) end end) child.
-Fixpoint fork_children (count : nat) (id : N) (parent : task) (messages : list content)
- (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
+(* This fork owns its ordered birth suffix before feature maintenance can
+   append independent roots to the same registry. *)
+Fixpoint constructed_children (count : nat) (id : N) (parent : task) (messages : list content)
+ (settings : task_settings) (entry : fork_entry) (start owner : N) (invocation : call) : list task :=
  match count with
- | O => value
+ | O => []
  | S count =>
    let message := hd_error messages in
-   let owner := next_task value in
-   let child := fork_child_receipt entry start owner invocation
-     (fork_child owner id parent message settings false) in
-   fork_children count id parent (tl messages) settings entry start invocation (append_task child value)
+   fork_child_receipt entry start owner invocation
+     (fork_child owner id parent message settings false) ::
+   constructed_children count id parent (tl messages) settings entry start (N.succ owner) invocation
  end.
+Definition fork_children (count : nat) (id : N) (parent : task) (messages : list content)
+ (settings : task_settings) (entry : fork_entry) (start : N) (invocation : call) (value : world) : world :=
+ with_tasks (world_tasks value ++
+   constructed_children count id parent messages settings entry start (next_task value) invocation) value.
 Definition same_approval (left right : approval_policy) :=
  match left, right with
  | FullAccess, FullAccess | AskForApproval, AskForApproval => true
