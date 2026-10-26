@@ -1,20 +1,28 @@
 From Stdlib Require Import List Bool NArith.
 From Selvedge.Kernel Require Import Domain State Reasoning.
+From Selvedge.Features Require CompactionTypes.
 Import ListNotations.
+Module C := Selvedge.Features.CompactionTypes.
 
 Definition request_coordinate (request : effect) := match request with
  | RequestModel request => Some (ModelRequest.owner request, ModelRequest.ticket request)
  | ObserveContext id ticket _
  | RequestReasoning id ticket _ | ExecuteTool id ticket _ _ _ _ _
  | RequestApproval id ticket _ _ _ | CheckTool id ticket _ _ _ => Some (id,ticket)
+ | MaintainContext (C.Scope id ticket _)
+ | MaintainContext (C.Measure id ticket _ _ _)
+ | MaintainContext (C.Compact id ticket _ _ _ _) => Some (id,ticket)
  | _ => None end.
 Definition cancelled (effects : list effect) (id ticket : N) :=
  existsb (fun request => match request with
  | CancelTask owner => N.eqb owner id
- | CancelTicket owner expected => N.eqb owner id && N.eqb expected ticket
+ | CancelTicket owner expected | MaintainContext (C.Cancel owner expected) =>
+   N.eqb owner id && N.eqb expected ticket
  | _ => false end) effects.
 (* DEFENSE: A later native action can archive or cancel a request emitted earlier
-   in this same decision. Its uncommitted intent must never reach physical IO. *)
+   in this same decision. Unfreeze maintenance can issue Scope before a pending
+   native self-archive clears its receiver. Core and maintenance requests share
+   this final withdrawal; their uncommitted intent must never reach physical IO. *)
 Definition live_request (value : world) (effects : list effect) (request : effect) :=
  match request_coordinate request with
  | Some (id,ticket) => match find_task id value with

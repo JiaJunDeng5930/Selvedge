@@ -282,6 +282,11 @@ Definition continue_runnable (permitted : N -> world -> bool) (value : world) (e
  if has_runnable_work permitted value then effects ++ [ContinueScheduling] else effects.
 Definition frozen_inference (request : effect) := match request with
  | RequestModel _ | RequestReasoning _ _ _ => true | _ => false end.
+(* Task-wide cancellation retires the current owner's physical work. Commit it
+   before another native send can reactivate that owner and issue a new request;
+   the cancellation must never cover a later generation in the same packet. *)
+Definition effect_requires_commit (request : effect) := match request with
+ | CancelTask _ => true | _ => frozen_inference request end.
 (* A frozen model/evaluator request is committed before another native command
    can change its input. Replacing its history here would reuse a measurement
    or adaptive selection that did not observe that input. The durable
@@ -293,7 +298,7 @@ Definition unrestricted : advancement := fun value effects => Some (value,effect
    continuation therefore advances a batch without discarding earlier work. *)
 Fixpoint schedule_with (advance : advancement) (fuel : nat) (execute : executor)
  (permitted : N -> world -> bool) (value : world) (effects : list effect) : world * list effect :=
- if existsb frozen_inference effects then (value,continue_runnable permitted value effects) else
+ if existsb effect_requires_commit effects then (value,continue_runnable permitted value effects) else
  match advance (SideContext.reconcile value) effects with
  | None => (value,effects ++ [ContinueScheduling])
  | Some (value,effects) =>

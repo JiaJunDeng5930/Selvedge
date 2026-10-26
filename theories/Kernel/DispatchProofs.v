@@ -2,6 +2,147 @@ From Stdlib Require Import List Bool NArith.
 From Selvedge.Kernel Require Import Domain State Dispatch.
 From Selvedge.Foundation Require Import Json RegistryProofs.
 Import ListNotations.
+Module C := Selvedge.Features.CompactionTypes.
+
+Lemma task_cancellation_matches_every_owned_ticket : forall effects owner ticket,
+ In (CancelTask owner) effects -> Dispatch.cancelled effects owner ticket = true.
+Proof.
+ intros effects owner ticket Present; unfold Dispatch.cancelled.
+ apply existsb_exists; exists (CancelTask owner); split; [exact Present|].
+ cbn; apply N.eqb_refl.
+Qed.
+
+Lemma maintenance_cancellation_matches_its_owned_ticket : forall effects owner ticket,
+ In (MaintainContext (C.Cancel owner ticket)) effects ->
+ Dispatch.cancelled effects owner ticket = true.
+Proof.
+ intros effects owner ticket Present; unfold Dispatch.cancelled.
+ apply existsb_exists; exists (MaintainContext (C.Cancel owner ticket)); split; [exact Present|].
+ cbn; now rewrite !N.eqb_refl.
+Qed.
+
+Lemma a_cancelled_request_is_not_live : forall value effects request owner ticket,
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ Dispatch.cancelled effects owner ticket = true ->
+ Dispatch.live_request value effects request = false.
+Proof.
+ intros value effects request owner ticket Coordinate Cancelled.
+ unfold Dispatch.live_request; rewrite Coordinate.
+ destruct (find_task owner value) as [current|]; [|reflexivity].
+ destruct (task_lifecycle current); try reflexivity; now rewrite Cancelled.
+Qed.
+
+Theorem a_cancelled_request_is_withdrawn : forall value reply effects request owner ticket,
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ Dispatch.cancelled effects owner ticket = true ->
+ ~ In request (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
+Proof.
+ intros value reply effects request owner ticket Coordinate Cancelled Included.
+ cbn [Dispatch.retain_live_effects decision_effects decision_world] in Included.
+ apply filter_In in Included as [_ Live].
+ rewrite (a_cancelled_request_is_not_live value effects request owner ticket Coordinate Cancelled) in Live.
+ discriminate.
+Qed.
+
+Theorem a_task_cancellation_withdraws_every_owned_request :
+ forall value reply effects request owner ticket,
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ In (CancelTask owner) effects ->
+ ~ In request (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
+Proof.
+ intros value reply effects request owner ticket Coordinate Cancelled.
+ apply (a_cancelled_request_is_withdrawn value reply effects request owner ticket Coordinate).
+ now apply task_cancellation_matches_every_owned_ticket.
+Qed.
+
+(* These are the actual maintenance effect constructors. In particular, an
+   unfreeze-created Scope is withdrawn if a later native archive clears its
+   receiver, before CommitAdmission checks the final decision. *)
+Theorem task_cancellation_withdraws_scope_measurement_and_compaction :
+ forall value reply effects owner ticket input scope validating target progress,
+ In (CancelTask owner) effects ->
+ let retained := decision_effects (Dispatch.retain_live_effects (Decision value reply effects)) in
+ ~ In (MaintainContext (C.Scope owner ticket input)) retained /\
+ ~ In (MaintainContext (C.Measure owner ticket input scope validating)) retained /\
+ ~ In (MaintainContext (C.Compact owner ticket input target progress scope)) retained.
+Proof.
+ intros value reply effects owner ticket input scope validating target progress Cancelled.
+ cbn zeta; split.
+ - eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
+ - split.
+   + eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
+   + eapply a_task_cancellation_withdraws_every_owned_request; [reflexivity|exact Cancelled].
+Qed.
+
+(* A precise maintenance cancellation uses the same globally allocated task
+   ticket as its provider request or context observation. The Cancel effect
+   itself is retained and still has to pass its existing retirement authority. *)
+Theorem a_maintenance_cancellation_withdraws_its_exact_request :
+ forall value reply effects request owner ticket,
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ In (MaintainContext (C.Cancel owner ticket)) effects ->
+ ~ In request (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
+Proof.
+ intros value reply effects request owner ticket Coordinate Cancelled.
+ apply (a_cancelled_request_is_withdrawn value reply effects request owner ticket Coordinate).
+ now apply maintenance_cancellation_matches_its_owned_ticket.
+Qed.
+
+Theorem an_uncancelled_request_keeps_its_owned_effect :
+ forall value reply effects request owner ticket current,
+ Dispatch.request_coordinate request = Some (owner,ticket) ->
+ find_task owner value = Some current -> task_archived current = false ->
+ Dispatch.cancelled effects owner ticket = false -> In request effects ->
+ In request (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
+Proof.
+ intros value reply effects request owner ticket current Coordinate Found Unarchived Uncancelled Present.
+ cbn [Dispatch.retain_live_effects decision_effects decision_world].
+ apply filter_In; split; [exact Present|].
+ unfold Dispatch.live_request; rewrite Coordinate, Found.
+ unfold task_archived in Unarchived.
+ destruct (task_lifecycle current); try discriminate; now rewrite Uncancelled.
+Qed.
+
+Theorem task_cancellation_and_maintenance_controls_are_retained :
+ forall value reply effects owner ticket deadline,
+ let retained := decision_effects (Dispatch.retain_live_effects (Decision value reply effects)) in
+ (In (CancelTask owner) effects -> In (CancelTask owner) retained) /\
+ (In (MaintainContext (C.Cancel owner ticket)) effects ->
+   In (MaintainContext (C.Cancel owner ticket)) retained) /\
+ (In (MaintainContext (C.ArmClock deadline)) effects ->
+   In (MaintainContext (C.ArmClock deadline)) retained).
+Proof.
+ intros value reply effects owner ticket deadline; cbn zeta; split.
+ - intro Present; cbn [Dispatch.retain_live_effects decision_effects decision_world].
+   apply filter_In; split; [exact Present|reflexivity].
+ - split; intro Present.
+   + cbn [Dispatch.retain_live_effects decision_effects decision_world].
+     apply filter_In; split; [exact Present|reflexivity].
+   + cbn [Dispatch.retain_live_effects decision_effects decision_world].
+     apply filter_In; split; [exact Present|reflexivity].
+Qed.
+
+(* Result hooks are settlement rights, including after native self-archive.
+   Their exact current operation, not an ordinary request cancellation, owns
+   the callback. This remains true for arbitrary cancellation effects. *)
+Theorem a_current_result_hook_survives_final_cancellation_withdrawal :
+ forall value reply effects id ticket operation plugin invocation result error current pending
+   expected_plugin remaining original original_error,
+ find_task id value = Some current -> In pending (task_operations current) ->
+ operation_id pending = operation ->
+ operation_stage pending = AwaitingAfterHook ticket expected_plugin remaining original original_error ->
+ In (CheckResult id ticket operation plugin invocation result error) effects ->
+ In (CheckResult id ticket operation plugin invocation result error)
+   (decision_effects (Dispatch.retain_live_effects (Decision value reply effects))).
+Proof.
+ intros value reply effects id ticket operation plugin invocation result error current pending
+   expected_plugin remaining original original_error Found Pending Identity Stage Present.
+ cbn [Dispatch.retain_live_effects decision_effects decision_world].
+ apply filter_In; split; [exact Present|].
+ cbn [Dispatch.live_request Dispatch.request_coordinate]; rewrite Found.
+ apply existsb_exists; exists pending; split; [exact Pending|].
+ now rewrite Identity, Stage, !N.eqb_refl.
+Qed.
 
 (** Ordinary tasks and side conversations share the final context-capture
     operation. A later native result may extend either task before this

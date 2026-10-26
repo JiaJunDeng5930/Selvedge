@@ -6,7 +6,7 @@ history search, persistent Work interfaces, remote control and browser
 interactions remain migration responsibilities. A checked module does not
 establish that its complete public workflow has passed acceptance.
 
-The replacement has one journal format, `selvedge-rocq-journal-10`. It rejects
+The replacement has one journal format, `selvedge-rocq-journal-11`. It rejects
 older formats. Keep an existing home separate when starting the replacement;
 there is no old-journal conversion or mixed-runtime mode.
 
@@ -19,6 +19,13 @@ open, then captures the closed prefix before replacement. A single after-hook
 request that exceeds the native frame settles through the ordinary hook-failure
 path, preserving the original tool receipt instead of retrying without progress.
 These corrections change journal decisions and require the current format.
+
+Format 11 commits task-wide cancellation before later scheduler work can resume
+that task or issue a new receiver. A queued native send runs in the following
+durable continuation, after the old execution rights have been revoked.
+Unsent scope, measurement and compaction requests also use the final shared
+owner/ticket withdrawal rule, including cancellation emitted later in their
+own transaction.
 
 Format 8 also records restored Bend command result/error contracts, explicit
 empty fork input, the original task-native command surface, and maintenance

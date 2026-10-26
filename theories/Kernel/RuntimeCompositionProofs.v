@@ -100,10 +100,10 @@ Theorem scheduling_preserves_a_local_observation :
 Proof.
  intros kept execute permitted Reconcile Step fuel; induction fuel; intros value effects Holds.
  - cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted].
-   destruct (existsb Scheduler.frozen_inference effects); cbn;
+   destruct (existsb Scheduler.effect_requires_commit effects); cbn;
      [exact Holds|apply Reconcile; exact Holds].
  - cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted].
-   destruct (existsb Scheduler.frozen_inference effects); [exact Holds|].
+   destruct (existsb Scheduler.effect_requires_commit effects); [exact Holds|].
    destruct (Scheduler.first_native_fork permitted 0
      (world_tasks (SideContext.reconcile value)) (SideContext.reconcile value));
      [cbn; apply Reconcile; exact Holds|].

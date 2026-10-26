@@ -104,7 +104,7 @@ Proof.
  { unfold Scheduler.continue_runnable, Scheduler.has_runnable_work.
    rewrite a_quiet_task_registry_needs_no_continuation by exact Quiet; reflexivity. }
  destruct fuel; cbn [Scheduler.schedule Scheduler.schedule_with Scheduler.unrestricted];
-   destruct (existsb Scheduler.frozen_inference effects); try (now rewrite NoContinuation);
+   destruct (existsb Scheduler.effect_requires_commit effects); try (now rewrite NoContinuation);
    rewrite Reconciled.
  - rewrite NoContinuation; reflexivity.
  - rewrite a_quiet_task_registry_has_no_native_fork by exact Quiet.
